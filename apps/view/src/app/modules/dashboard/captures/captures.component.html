@@ -1,0 +1,373 @@
+<div class="p-6">
+  <!-- Encabezado y Toolbar -->
+  <div class="flex justify-between items-center mb-6">
+    <div class="flex items-center gap-4">
+      <div class="w-14 h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg">
+        <span class="text-[10px] font-black text-black uppercase leading-none">Visita</span>
+        <span class="text-2xl font-black text-black">#{{visitaNumero()}}</span>
+      </div>
+      <div>
+        <h2 class="text-2xl font-bold text-content-main leading-tight tracking-tighter flex items-center gap-2">
+          <i class="pi pi-file-edit text-brand"></i> Registro de Visita
+        </h2>
+        <p class="text-sm text-content-dim">Capturando auditoría en tiempo real · {{ formatDate(svc.horaInicio() || '') }}</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()" styleClass="p-button-brand"></p-button>
+      <p-button *ngIf="svc.hasActiveVisit()" label="Auditar Exhibidor" icon="pi pi-plus" (onClick)="startWizard()" styleClass="p-button-brand"></p-button>
+    </div>
+  </div>
+
+  <!-- Contenido Activo de la Visita -->
+  <ng-container *ngIf="svc.hasActiveVisit()">
+    <!-- Stats del Día -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div *ngFor="let stat of statCards()" class="p-4 bg-surface-card border border-surface-border rounded-xl shadow-sm flex items-center gap-4">
+        <div class="w-12 h-12 rounded-lg bg-surface-ground flex items-center justify-center flex-shrink-0 border border-surface-border">
+          <i [class]="stat.icon" class="text-xl" [style.color]="stat.valueColor"></i>
+        </div>
+        <div>
+          <div class="text-[10px] uppercase font-bold text-content-muted tracking-wider">{{stat.label}}</div>
+          <div class="text-xl font-bold font-mono" [style.color]="stat.valueColor">{{stat.value}}</div>
+          <div class="text-xs text-content-dim">{{stat.description}}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Exhibidores Auditados -->
+    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden mb-6">
+      <div class="p-4 border-b border-surface-border bg-surface-ground flex justify-between items-center">
+        <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
+        <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
+      </div>
+      
+      <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
+        <ng-template pTemplate="header">
+          <tr class="text-[10px] text-content-muted uppercase">
+            <th class="pl-4">Ubicación</th>
+            <th>Tipo / Formato</th>
+            <th>Nivel</th>
+            <th class="text-right">Venta Add</th>
+            <th class="text-center">Score</th>
+            <th class="text-center">Evidencia</th>
+            <th class="text-center w-20"></th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-ex>
+          <tr class="text-sm hover:bg-surface-ground transition-colors">
+            <td class="pl-4 font-medium text-content-main">{{ getUbicacionNombre(ex.ubicacionId) }}</td>
+            <td>
+              <span class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-sm text-content-faint shadow-sm">
+                  <i [class]="getConceptIcon(ex.conceptoId)"></i>
+                </div>
+                <span class="font-bold text-content-main text-xs uppercase tracking-tight">{{ getConceptNombre(ex.conceptoId) }}</span>
+              </span>
+            </td>
+            <td>
+              <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : ex.nivelEjecucion === 'basico' ? 'warn' : 'danger'" [value]="ex.nivelEjecucion | uppercase" [rounded]="true"></p-tag>
+            </td>
+            <td class="text-right font-mono text-emerald-600 font-bold border-r border-surface-border/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
+            <td class="text-center bg-surface-ground/50">
+               <span class="font-bold font-mono text-emerald-600">
+                 {{ ex.puntuacionCalculada }} pts
+               </span>
+            </td>
+            <td class="text-center">
+              <i *ngIf="ex.fotoBase64" class="pi pi-image text-blue-500" title="Evidencia Guardada"></i>
+            </td>
+            <td class="text-center">
+              <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr>
+            <td colspan="7" class="text-center p-12 text-content-dim">
+              <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
+              <p>No se han auditado exhibidores. Haz clic en "Auditar Exhibidor" arriba.</p>
+            </td>
+          </tr>
+        </ng-template>
+      </p-table>
+    </div>
+
+    <!-- Finalizar / Cancelar -->
+    <div class="flex justify-end gap-3 mt-6">
+      <p-button label="Cancelar Visita" severity="secondary" [outlined]="true" (onClick)="onCancelarVisita()"></p-button>
+      <p-button label="Terminar y Guardar Visita" icon="pi pi-check-circle" styleClass="p-button-brand" (onClick)="onSaveCapturaTotal()" [disabled]="svc.activeExhibiciones().length === 0"></p-button>
+    </div>
+  </ng-container>
+
+  <ng-container *ngIf="!svc.hasActiveVisit()">
+    <div class="p-12 text-center bg-surface-card border border-surface-border rounded-xl mt-6">
+      <div class="w-16 h-16 rounded-full bg-surface-ground border border-surface-border flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
+        <i class="pi pi-map-pin text-2xl"></i>
+      </div>
+      <h3 class="text-lg font-bold text-content-main mb-2">Listo para iniciar tu ruta</h3>
+      <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">Para capturar ejecución comercial, primero inicia una visita. El sistema capturará tu ubicación GPS.</p>
+      <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()"></p-button>
+    </div>
+  </ng-container>
+
+  <!-- SECCIÓN: HISTORIAL DE VISITAS DEL DÍA -->
+  <div class="mt-12">
+    <div class="flex items-center gap-2 mb-4">
+      <i class="pi pi-history text-blue-600"></i>
+      <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
+    </div>
+
+    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden">
+      <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
+        <ng-template pTemplate="header">
+          <tr class="text-[10px] text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+            <th style="width: 3rem"></th>
+            <th>Folio</th>
+            <th>Finalizada</th>
+            <th>Exhibiciones</th>
+            <th class="text-right">Venta Total</th>
+            <th class="text-center">Score</th>
+            <th>Estado</th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-visita let-expanded="expanded">
+          <tr class="text-sm border-b border-surface-border hover:bg-surface-hover/30 transition-colors">
+            <td>
+              <p-button type="button" [pRowToggler]="visita" [text]="true" [rounded]="true" 
+                        [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
+            </td>
+            <td class="font-bold text-content-main font-mono">#{{visita.folio}}</td>
+            <td class="text-content-dim">{{ formatDate(visita.horaFin) }}</td>
+            <td>
+               <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                 {{visita.exhibiciones?.length}} items
+               </span>
+            </td>
+            <td class="text-right font-bold text-emerald-600 font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
+            <td class="text-center font-bold text-content-main">{{visita.stats?.puntuacionTotal}} pts</td>
+            <td>
+              <p-tag severity="success" value="SINCRONIZADO" [rounded]="true"></p-tag>
+            </td>
+          </tr>
+        </ng-template>
+
+        <!-- Expansión de la Fila (Detalle por Visita) -->
+        <ng-template pTemplate="rowexpansion" let-visita>
+          <tr>
+            <td colspan="7" class="p-4 bg-surface-ground">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-card p-3 rounded-lg border border-surface-border shadow-sm">
+                  <div class="flex justify-between items-start mb-2">
+                    <div class="w-8 h-8 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
+                      <i [class]="getConceptIcon(ex.conceptoId)"></i>
+                    </div>
+                    <span class="text-[10px] font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded border border-divider shadow-inner">{{ ex.puntuacionCalculada }} pts</span>
+                  </div>
+                  <div class="text-[10px] font-black text-content-main uppercase mb-1 tracking-tighter">{{ getConceptNombre(ex.conceptoId) }}</div>
+                  <div class="text-[10px] text-content-dim flex items-center gap-1 mb-2">
+                    <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                  </div>
+                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
+                    <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
+                    <span class="font-mono text-[10px] text-emerald-600 font-bold">${{ex.ventaAdicional || 0}}</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+
+        <ng-template pTemplate="emptymessage">
+          <tr>
+            <td colspan="7" class="text-center p-10 text-content-dim italic bg-surface-card text-xs">
+              No tienes visitas guardadas el día de hoy.
+            </td>
+          </tr>
+        </ng-template>
+      </p-table>
+    </div>
+  </div>
+</div>
+
+<!-- CAPTURE WIZARD DIALOG -->
+<p-dialog [(visible)]="showWizard" [modal]="true" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="rounded-2xl">
+  <ng-container *ngIf="showWizard">
+    <!-- Progress Indicator -->
+    <div class="mb-6 mt-4 px-4">
+      <div class="flex justify-between items-center relative">
+        <div class="absolute top-1/2 left-0 right-0 h-0.5 bg-surface-border -z-10 -translate-y-1/2"></div>
+        <div class="absolute top-1/2 left-0 h-0.5 bg-blue-500 -z-10 -translate-y-1/2 transition-all duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'"></div>
+        
+        <div *ngFor="let s of [1,2,3,4,5,6]" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 bg-surface-card transition-colors z-10"
+             [ngClass]="s <= wizardStep ? 'border-blue-500 text-blue-500' : 'border-surface-border text-content-muted'">
+          {{s}}
+        </div>
+      </div>
+    </div>
+
+    <div class="py-4 px-2" style="min-height: 320px;">
+      <!-- Step 1: Ubicación -->
+      <div *ngIf="wizardStep === 1" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <h4 class="font-bold text-content-main mb-2">1. ¿Dónde se encuentra la exhibición?</h4>
+        <div class="grid grid-cols-2 gap-3" *ngIf="configPosiciones().length > 0">
+          <div *ngFor="let ubi of configPosiciones()" 
+               (click)="onUbicacionSelect(ubi.id)"
+               class="p-4 border rounded-xl text-center cursor-pointer transition-all border-surface-border hover:border-blue-500 bg-surface-ground flex flex-col gap-2 items-center"
+               [ngClass]="{'ring-2 ring-blue-500 bg-blue-50/10 font-bold border-blue-500 text-blue-700': currentExhibicion().ubicacionId === ubi.id}">
+            <i class="pi pi-directions text-lg opacity-40"></i>
+            {{ ubi.nombre }}
+          </div>
+        </div>
+
+        <!-- Fallback if empty -->
+        <div *ngIf="configPosiciones().length === 0" class="p-8 text-center bg-surface-ground rounded-xl border border-dashed border-divider">
+          <i class="pi pi-spin pi-spinner text-2xl mb-2 text-content-dim"></i>
+          <p class="text-xs text-content-dim mb-4">Cargando posiciones desde la base de datos...</p>
+          <p-button label="Forzar Recarga" icon="pi pi-refresh" [text]="true" size="small" (onClick)="svc.refreshAll()"></p-button>
+        </div>
+      </div>
+
+      <!-- Step 2: Formato -->
+      <div *ngIf="wizardStep === 2" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <h4 class="font-bold text-content-main mb-2">2. Formato del Mueble</h4>
+        <div class="grid grid-cols-2 gap-3">
+            <div *ngFor="let tip of configTipos()" 
+                 (click)="onConceptoSelect(tip.id)"
+                 class="p-4 border rounded-xl cursor-pointer transition-all border-divider bg-surface-layout flex items-center gap-4 hover:border-brand/40 group"
+                 [ngClass]="{'ring-2 ring-brand bg-brand/5 !border-brand text-brand': currentExhibicion().conceptoId === tip.id}">
+              <div class="w-10 h-10 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-lg text-content-faint group-hover:text-brand transition-colors">
+                <i [class]="tip.icono"></i>
+              </div>
+              <span class="text-xs font-black uppercase tracking-widest">{{ tip.nombre }}</span>
+            </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Nivel -->
+      <div *ngIf="wizardStep === 3" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <h4 class="font-bold text-content-main mb-2">3. Calidad de la Ejecución</h4>
+        <div class="flex flex-col gap-2">
+           <div *ngFor="let niv of configNiveles()" 
+                (click)="onNivelSelect(niv)"
+                class="p-4 border rounded-xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
+                [ngClass]="{'bg-blue-50/10 ring-2 ring-blue-500 font-bold border-blue-500 text-blue-700 shadow-sm': currentExhibicion().nivelEjecucion === niv}">
+             <span class="uppercase tracking-wider text-sm">{{ niv }}</span>
+             <i class="pi" [ngClass]="currentExhibicion().nivelEjecucion === niv ? 'pi-check-circle text-blue-500' : 'pi-circle text-content-muted opacity-20'"></i>
+           </div>
+        </div>
+      </div>
+
+      <!-- Step 4: Dinámica Comercial -->
+      <div *ngIf="wizardStep === 4" class="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <h4 class="font-bold text-content-main underline decoration-blue-500/30 underline-offset-4">4. Impacto Comercial</h4>
+        
+        <div class="space-y-2">
+           <label class="text-[10px] font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
+           <p-inputNumber 
+              [ngModel]="currentExhibicion().ventaAdicional" 
+              (ngModelChange)="onVentaAdicionalChange($event)"
+              mode="currency" currency="MXN" locale="es-MX" 
+              class="w-full" styleClass="w-full text-lg" placeholder="$0.00"></p-inputNumber>
+        </div>
+
+        <div class="space-y-2">
+           <label class="text-[10px] font-black text-content-muted uppercase tracking-widest">Rango de Compra del Socio</label>
+           <p-select [options]="RANGOS_COMPRA" 
+                      [ngModel]="currentExhibicion().rangoCompra" 
+                      (ngModelChange)="onRangoCompraChange($event)"
+                      placeholder="Seleccionar Rango..." 
+                      class="w-full" styleClass="w-full"></p-select>
+        </div>
+      </div>
+
+      <!-- Step 5: Productos -->
+      <div *ngIf="wizardStep === 5" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div class="flex justify-between items-center mb-2">
+          <h4 class="font-bold text-content-main">5. Productos Identificados</h4>
+          <span class="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{{currentExhibicion().productosMarcados?.length || 0}} marcados</span>
+        </div>
+        
+        <div class="max-h-[300px] overflow-y-auto space-y-4 pr-2">
+           <div *ngFor="let brand of svc.groupedProducts()" class="space-y-2">
+              <div class="text-[10px] font-black text-content-muted uppercase tracking-widest border-l-2 border-blue-500 pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
+              <div class="grid grid-cols-1 gap-2">
+                 <div *ngFor="let prod of brand.items" 
+                      class="flex items-center gap-3 p-2 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-hover transition-colors">
+                    <p-checkbox [binary]="true" [ngModel]="currentExhibicion().productosMarcados?.includes(prod.pid)" (onChange)="toggleProducto(prod.pid, $event.checked)"></p-checkbox>
+                    <span class="text-xs font-medium text-content-main">{{prod.name}}</span>
+                 </div>
+              </div>
+           </div>
+        </div>
+      </div>
+
+      <!-- Step 6: Evidencia -->
+      <div *ngIf="wizardStep === 6" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <h4 class="font-bold text-content-main mb-2">6. Evidencia Fotográfica</h4>
+        
+        <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-2xl p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
+           <input type="file" accept="image/*" capture="environment" (change)="onFileSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
+           <div class="w-16 h-16 bg-blue-500 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
+              <i class="pi pi-camera text-2xl"></i>
+           </div>
+           <div class="text-sm font-bold text-content-main">Tomar Fotografía</div>
+           <p class="text-xs text-content-dim mt-2 italic">Requerido para auditoría técnica</p>
+        </div>
+
+        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-2xl border-4 border-white shadow-xl overflow-hidden bg-black max-w-[280px] mx-auto">
+           <img [src]="currentExhibicion().fotoBase64" class="w-full h-64 object-cover">
+           <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center p-4">
+              <p-button icon="pi pi-trash" label="Cambiar Foto" severity="danger" size="small" (onClick)="removeFoto()"></p-button>
+           </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-6 border-t border-surface-border mt-4">
+      <p-button label="Regresar" icon="pi pi-arrow-left" severity="secondary" [text]="true" (onClick)="prevStep()" [disabled]="wizardStep === 1"></p-button>
+      
+      <p-button *ngIf="wizardStep < 6" label="Siguiente Paso" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()"></p-button>
+      
+      <div *ngIf="wizardStep === 6" class="flex gap-2">
+         <p-button label="Guardar y Continuar" [outlined]="true" severity="info" (onClick)="finishWizard(true)" size="small"></p-button>
+         <p-button label="Finalizar Auditoría" styleClass="p-button-brand" (onClick)="finishWizard(false)"></p-button>
+      </div>
+    </div>
+  </ng-container>
+</p-dialog>
+
+<!-- RESULT DIALOG -->
+<p-dialog [(visible)]="showResultDialog" [modal]="true" [style]="{width: '450px'}" styleClass="rounded-2xl border-0 shadow-2xl">
+  <div class="py-6 text-center" *ngIf="lastResult">
+    <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-500/20 animate-bounce">
+       <i class="pi pi-check text-4xl"></i>
+    </div>
+    <h3 class="text-2xl font-black text-content-main mb-2">¡Visita Registrada!</h3>
+    <p class="text-sm text-content-muted mb-8 italic">Los datos se han sincronizado con la central de Trade Marketing.</p>
+    
+    <div class="p-6 bg-surface-ground border border-surface-border rounded-3xl relative overflow-hidden">
+       <div class="absolute top-0 right-0 p-2 opacity-5 italic text-[8px] font-black uppercase tracking-widest rotate-6">Verified Operations</div>
+       <div class="text-[10px] text-content-muted uppercase font-black tracking-[0.2em] mb-4">Folio de Operación</div>
+       <div class="text-4xl font-black font-mono text-blue-600 my-2 tracking-tighter">#{{lastResult.folio}}</div>
+       <div class="mt-6 flex justify-center gap-4">
+          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
+             <div class="text-[8px] uppercase text-content-dim font-bold">Items</div>
+             <div class="text-sm font-black">{{lastResult.exhibiciones?.length}}</div>
+          </div>
+          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
+             <div class="text-[8px] uppercase text-content-dim font-bold">Score</div>
+             <div class="text-sm font-black text-emerald-600">{{lastResult.stats?.puntuacionTotal}}</div>
+          </div>
+       </div>
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Entendido" (onClick)="showResultDialog = false" class="w-full" styleClass="w-full py-4 font-bold text-lg rounded-xl"></p-button>
+  </ng-template>
+</p-dialog>
+
+<p-toast></p-toast>
+<p-confirmDialog></p-confirmDialog>

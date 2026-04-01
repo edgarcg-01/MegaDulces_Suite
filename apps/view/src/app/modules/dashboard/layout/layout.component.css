@@ -1,0 +1,24 @@
+:host {
+  display: block;
+  --layout-bg: #f8fafc;
+  --sidebar-bg: #ffffff;
+  --border: #e2e8f0;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --hover-bg: #f1f5f9;
+  --active-bg: #0f172a;
+  --active-text: #ffffff;
+}
+
+:host-context(.theme-monochrome) {
+  --layout-bg: #000000;
+  --sidebar-bg: #111111;
+  --border: #333333;
+  --text-main: #ffffff;
+  --text-muted: #a1a1aa;
+  --text-faint: #52525b;
+  --hover-bg: #222222;
+  --active-bg: #ffffff;
+  --active-text: #000000;
+}

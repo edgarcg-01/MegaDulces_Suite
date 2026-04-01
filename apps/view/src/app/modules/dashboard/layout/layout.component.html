@@ -1,0 +1,122 @@
+<div class="flex h-screen bg-surface-layout overflow-hidden transition-colors duration-300" [class.theme-monochrome]="themeService.isMonochrome()">
+
+  <!-- Sidebar -->
+  <aside
+    class="flex flex-col bg-surface-sidebar border-r border-divider transition-all duration-300 shrink-0"
+    [ngClass]="sidebarCollapsed() ? 'w-16' : 'w-64'">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-4 h-14 border-b border-divider">
+      <span *ngIf="!sidebarCollapsed()" class="text-sm font-bold text-content-main truncate">Trade Marketing</span>
+      <button
+        (click)="toggleSidebar()"
+        class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-content-muted">
+        <i [ngClass]="sidebarCollapsed() ? 'pi pi-angle-right' : 'pi pi-angle-left'" class="text-sm"></i>
+      </button>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="flex-1 py-4 overflow-y-auto">
+
+      <!-- Main Nav -->
+      <div class="px-3 mb-6">
+        <p *ngIf="!sidebarCollapsed()" class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2">Operaciones</p>
+        <ul class="space-y-1">
+          <li *ngFor="let item of navItems">
+            <button
+              (click)="navigateTo(item.route)"
+              class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium transition-colors relative"
+              [ngClass]="isActive(item.route)
+                ? 'bg-surface-active text-content-active border-l-4 border-brand rounded-l-none'
+                : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
+              [title]="item.label">
+              <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm"></i>
+              <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">{{ item.label }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Admin Nav -->
+      <div class="px-3">
+        <p *ngIf="!sidebarCollapsed()" class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2">Administración</p>
+        <ul class="space-y-1">
+          <li *ngFor="let item of adminItems">
+            <button
+              (click)="navigateTo(item.route)"
+              class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium transition-colors relative"
+              [ngClass]="isActive(item.route)
+                ? 'bg-surface-active text-content-active border-l-4 border-brand rounded-l-none'
+                : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
+              [title]="item.label">
+              <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm"></i>
+              <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">{{ item.label }}</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+    </nav>
+
+    <!-- Footer -->
+    <div class="border-t border-divider p-3 space-y-1">
+      <button
+        (click)="goToProjects()"
+        class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
+        title="Cambiar proyecto">
+        <i class="pi pi-arrow-right-arrow-left shrink-0 w-8 text-center text-sm"></i>
+        <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">Proyectos</span>
+      </button>
+
+      <!-- Theme Toggle -->
+      <button
+        (click)="themeService.toggleMonochrome()"
+        class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium transition-colors"
+        [ngClass]="themeService.isMonochrome() 
+          ? 'bg-surface-active text-content-active' 
+          : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
+        [title]="themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N'">
+        <i [ngClass]="themeService.isMonochrome() ? 'pi pi-sun' : 'pi pi-moon'" class="shrink-0 w-8 text-center text-sm"></i>
+        <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">
+          {{ themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N' }}
+        </span>
+      </button>
+
+      <button
+        (click)="logout()"
+        class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium text-[#dc2626] hover:bg-rose-500/10 transition-colors"
+        title="Cerrar sesión">
+        <i class="pi pi-sign-out shrink-0 w-8 text-center text-sm"></i>
+        <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">Cerrar Sesión</span>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- Main Content -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+
+    <!-- Top Bar -->
+    <header class="h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-6 shrink-0 transition-colors duration-300">
+      <div>
+        <h2 class="text-sm font-bold text-content-main">Proyecto Trade Marketing</h2>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="text-right">
+          <p class="text-sm font-semibold text-content-main">{{ user()?.username }}</p>
+          <p class="text-[10px] text-content-muted uppercase tracking-wider">{{ user()?.rol }} · {{ user()?.zona }}</p>
+        </div>
+        <div class="h-8 w-8 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-bold uppercase transition-colors">
+          {{ user()?.username?.charAt(0) }}
+        </div>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="flex-1 overflow-y-auto w-full h-full bg-surface-layout">
+      <router-outlet></router-outlet>
+    </main>
+
+  </div>
+
+</div>

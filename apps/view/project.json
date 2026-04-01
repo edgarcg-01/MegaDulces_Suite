@@ -1,0 +1,73 @@
+{
+  "name": "view",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/view/src",
+  "prefix": "app",
+  "targets": {
+    "build": {
+      "executor": "@nx/angular:browser-esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/view",
+        "index": "apps/view/src/index.html",
+        "main": "apps/view/src/main.ts",
+        "polyfills": ["zone.js"],
+        "tsConfig": "apps/view/tsconfig.app.json",
+        "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
+        "styles": ["apps/view/src/styles.css"],
+        "scripts": []
+      },
+      "configurations": {
+        "production": {
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "2mb",
+              "maximumError": "5mb"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "4kb",
+              "maximumError": "10kb"
+            }
+          ],
+          "outputHashing": "all"
+        },
+        "development": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "serve": {
+      "executor": "@nx/angular:dev-server",
+      "configurations": {
+        "production": {
+          "buildTarget": "view:build:production"
+        },
+        "development": {
+          "buildTarget": "view:build:development",
+          "proxyConfig": "apps/view/proxy.conf.json"
+        }
+      },
+      "defaultConfiguration": "development"
+    },
+    "extract-i18n": {
+      "executor": "@nx/angular:extract-i18n",
+      "options": {
+        "buildTarget": "view:build"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/apps/view"],
+      "options": {
+        "jestConfig": "apps/view/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}

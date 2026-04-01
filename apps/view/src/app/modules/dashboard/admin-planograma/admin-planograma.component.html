@@ -1,0 +1,140 @@
+<div class="p-6">
+  <!-- Encabezado -->
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h2 class="text-2xl font-bold text-content-main">🏷️ Jerarquía de Planograma</h2>
+      <p class="text-sm text-content-dim">Administra las marcas y sus productos por cada punto de venta.</p>
+    </div>
+    <div class="flex gap-2">
+      <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="showAddBrandDialog = true"></p-button>
+    </div>
+  </div>
+
+  <!-- Tabla de Marcas con Expansión -->
+  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
+    <p-table [value]="brands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+      <ng-template pTemplate="header">
+        <tr class="text-[10px] text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+          <th style="width: 3rem"></th>
+          <th>Marca / Fabricante</th>
+          <th class="text-center">Productos</th>
+          <th class="text-center w-28">Acciones</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-brand let-expanded="expanded">
+        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
+          <td>
+            <button type="button" pButton pRipple [pRowToggler]="brand" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
+          </td>
+          <td class="font-bold text-content-main uppercase tracking-wider">{{ brand.nombre }}</td>
+          <td class="text-center font-mono">
+            {{ brand.productos?.length || 0 }}
+          </td>
+          <td class="text-center">
+            <div class="flex justify-center gap-1">
+              <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand.id)"></p-button>
+              <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)"></p-button>
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+
+      <!-- Expansión de Productos -->
+      <ng-template pTemplate="rowexpansion" let-brand>
+        <tr>
+          <td colspan="4" class="p-4 bg-surface-ground">
+            <div class="p-3 border border-surface-border bg-surface-card rounded-lg shadow-inner">
+               <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>
+               <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">
+                  <ng-template pTemplate="header">
+                    <tr class="text-[9px] uppercase text-content-dim border-b">
+                       <th>Nombre del Producto</th>
+                       <th class="text-center w-20">Acciones</th>
+                    </tr>
+                  </ng-template>
+                  <ng-template pTemplate="body" let-product>
+                    <tr class="text-xs">
+                       <td class="font-medium text-content-main">{{ product.nombre }}</td>
+                       <td class="text-center">
+                          <div class="flex justify-center gap-1">
+                             <p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openEditProduct(product)"></p-button>
+                             <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteProduct(product.id)"></p-button>
+                          </div>
+                       </td>
+                    </tr>
+                  </ng-template>
+                  <ng-template pTemplate="emptymessage">
+                    <tr><td colspan="2" class="text-center p-4 text-[10px] text-content-dim italic">No hay productos en esta marca.</td></tr>
+                  </ng-template>
+               </p-table>
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="emptymessage">
+        <tr>
+          <td colspan="4" class="text-center p-8 text-content-dim">
+            No hay marcas configuradas.
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </div>
+</div>
+
+<!-- Diálogos de Marca -->
+<p-dialog header="Nueva Marca" [(visible)]="showAddBrandDialog" [modal]="true" [style]="{width: '350px'}">
+  <div class="flex flex-col gap-4 py-4">
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted uppercase">Nombre de Marca</label>
+      <input pInputText [(ngModel)]="newBrandName" class="uppercase" />
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddBrandDialog = false"></p-button>
+    <p-button label="Guardar" (onClick)="createBrand()"></p-button>
+  </ng-template>
+</p-dialog>
+
+<p-dialog header="Editar Marca" [(visible)]="showEditBrandDialog" [modal]="true" [style]="{width: '350px'}">
+  <div class="flex flex-col gap-4 py-4">
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted uppercase">Actualizar Nombre</label>
+      <input pInputText [(ngModel)]="editBrandName" class="uppercase" />
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showEditBrandDialog = false"></p-button>
+    <p-button label="Actualizar" (onClick)="updateBrand()"></p-button>
+  </ng-template>
+</p-dialog>
+
+<!-- Diálogos de Producto -->
+<p-dialog header="Nuevo Producto" [(visible)]="showAddProductDialog" [modal]="true" [style]="{width: '350px'}">
+  <div class="flex flex-col gap-4 py-4">
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted uppercase">Nombre SKU</label>
+      <input pInputText [(ngModel)]="newProductName" />
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddProductDialog = false"></p-button>
+    <p-button label="Guardar" (onClick)="addProduct()"></p-button>
+  </ng-template>
+</p-dialog>
+
+<p-dialog header="Editar Producto" [(visible)]="showEditProductDialog" [modal]="true" [style]="{width: '350px'}">
+  <div class="flex flex-col gap-4 py-4">
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted uppercase">Nombre del Producto</label>
+      <input pInputText [(ngModel)]="editProductName" />
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showEditProductDialog = false"></p-button>
+    <p-button label="Actualizar" (onClick)="updateProduct()"></p-button>
+  </ng-template>
+</p-dialog>
+
+<p-confirmDialog></p-confirmDialog>

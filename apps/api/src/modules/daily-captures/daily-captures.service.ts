@@ -1,0 +1,78 @@
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Knex } from 'knex';
+import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
+import * as fs from 'fs';
+import * as path from 'path';
+
+@Injectable()
+export class DailyCapturesService {
+  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+
+  async create(dto: CreateDailyCaptureDto, userId: string, username: string, zona: string) {
+    const uploadDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+       fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Procesar fotos Base64 convirtiéndolas a archivos .jpg y extrayendo URL
+    const processedExhibiciones = dto.exhibiciones.map(ex => {
+       if (ex.fotoBase64) {
+          const matches = ex.fotoBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          if (matches && matches.length === 3) {
+             const imageBuffer = Buffer.from(matches[2], 'base64');
+             let ext = matches[1].split('/')[1] || 'jpg';
+             if (ext === 'jpeg') ext = 'jpg';
+             
+             const filename = `exh_${dto.folio}_${ex.id}_${Date.now()}.${ext}`;
+             fs.writeFileSync(path.join(uploadDir, filename), imageBuffer);
+             ex.fotoUrl = `/uploads/${filename}`;
+          }
+          // Remove heavy payload before persisting
+          delete ex.fotoBase64;
+       }
+       return ex;
+    });
+
+    const [dailyCapture] = await this.knex('daily_captures')
+      .insert({
+        folio: dto.folio,
+        user_id: userId,
+        captured_by_username: username,
+        zona_captura: zona || 'No Asignada',
+        fecha: dto.fechaCaptura,
+        hora_inicio: dto.horaInicio,
+        hora_fin: dto.horaFin,
+        exhibiciones: JSON.stringify(processedExhibiciones),
+        stats: JSON.stringify(dto.stats),
+        latitud: dto.latitud,
+        longitud: dto.longitud
+      })
+      .returning('*');
+
+    return dailyCapture;
+  }
+
+  async findAll(fecha?: string, zona?: string, ejecutivo?: string, userId?: string) {
+    const query = this.knex('daily_captures').select('*');
+    if (fecha) query.where({ fecha });
+    if (zona) query.where({ zona_captura: zona });
+    if (ejecutivo) query.where({ captured_by_username: ejecutivo });
+    if (userId) query.where({ user_id: userId });
+    
+    query.orderBy('created_at', 'desc');
+    return query;
+  }
+
+  async findOne(id: string) {
+    const dailyCapture = await this.knex('daily_captures').where({ id }).first();
+    if (!dailyCapture) {
+      // Intentar por folio
+      const fallback = await this.knex('daily_captures').where({ folio: id }).first();
+      if (fallback) return fallback;
+
+      throw new NotFoundException(`Validación fallida: Captura con identificador ${id} no encontrada`);
+    }
+    return dailyCapture;
+  }
+}

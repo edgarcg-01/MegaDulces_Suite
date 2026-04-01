@@ -1,0 +1,76 @@
+<div class="min-h-screen bg-[#f4f4f5]">
+
+  <!-- Top Bar -->
+  <header class="bg-white border-b border-[#e4e4e7] px-6 py-4">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-bold text-[#09090b] tracking-tight">Plataforma Operativa</h1>
+        <p class="text-xs text-[#71717a]">Seleccione un proyecto para continuar</p>
+      </div>
+      <div class="flex items-center gap-4">
+        <div class="text-right">
+          <p class="text-sm font-semibold text-[#09090b]">{{ user()?.username }}</p>
+          <p class="text-xs text-[#71717a] uppercase tracking-wider">{{ user()?.rol }}</p>
+        </div>
+        <p-button
+          label="Cerrar Sesión"
+          icon="pi pi-sign-out"
+          severity="secondary"
+          [outlined]="true"
+          size="small"
+          (click)="logout()">
+        </p-button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-6xl mx-auto px-6 py-12">
+
+    <!-- Greeting -->
+    <div class="mb-10">
+      <h2 class="text-2xl font-bold text-[#09090b]">
+        Bienvenido, <span class="text-[#52525b]">{{ user()?.username }}</span>
+      </h2>
+      <p class="text-sm text-[#71717a] mt-1">Estos son los proyectos asignados a tu cuenta.</p>
+    </div>
+
+    <!-- Projects Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+      <div
+        *ngFor="let project of projects"
+        (click)="navigateTo(project.route)"
+        class="group bg-white rounded-lg border border-[#e4e4e7] p-6 cursor-pointer transition-all duration-200 hover:border-[#09090b] hover:shadow-lg">
+
+        <!-- Card Header -->
+        <div class="flex items-start justify-between mb-4">
+          <div class="h-10 w-10 rounded-md bg-[#f4f4f5] group-hover:bg-[#09090b] flex items-center justify-center transition-colors">
+            <i [ngClass]="project.icon" class="text-[#09090b] group-hover:text-white text-lg transition-colors"></i>
+          </div>
+          <span class="inline-flex items-center rounded-full border border-[#d1fae5] bg-[#d1fae5] px-2.5 py-0.5 text-xs font-semibold text-[#059669]">
+            {{ project.status }}
+          </span>
+        </div>
+
+        <!-- Card Body -->
+        <h3 class="text-base font-bold text-[#09090b] group-hover:underline underline-offset-4 mb-2">
+          {{ project.name }}
+        </h3>
+        <p class="text-sm text-[#71717a] leading-relaxed">
+          {{ project.description }}
+        </p>
+
+        <!-- Card Footer -->
+        <div class="mt-6 flex items-center text-sm font-medium text-[#09090b]">
+          Acceder
+          <i class="pi pi-arrow-right ml-2 text-xs transition-transform group-hover:translate-x-1"></i>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+</div>

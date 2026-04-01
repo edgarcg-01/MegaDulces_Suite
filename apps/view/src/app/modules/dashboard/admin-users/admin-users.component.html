@@ -1,0 +1,129 @@
+<div class="p-6">
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h2 class="text-2xl font-bold text-content-main">Administración de Usuarios</h2>
+      <p class="text-sm text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
+    </div>
+    <div class="flex gap-2">
+      <p-button label="Exportar" icon="pi pi-file-excel" severity="secondary" [outlined]="true"></p-button>
+      <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()"></p-button>
+    </div>
+  </div>
+
+  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
+    <!-- Tabla de Usuarios -->
+    <p-table [value]="users()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+      <ng-template pTemplate="header">
+        <tr class="text-[10px] text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+          <th pSortableColumn="username">Usuario <p-sortIcon field="username"></p-sortIcon></th>
+          <th pSortableColumn="nombre">Vendedor Asignado <p-sortIcon field="nombre"></p-sortIcon></th>
+          <th pSortableColumn="role_name">Rol <p-sortIcon field="role_name"></p-sortIcon></th>
+          <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
+          <th class="text-center">Estado</th>
+          <th class="text-center w-28">Acciones</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-user>
+        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
+          <td class="font-bold text-content-main font-mono">{{ user.username }}</td>
+          <td class="text-content-dim">{{ user.nombre }}</td>
+          <td>
+            <p-tag [severity]="user.role_name === 'superadmin' ? 'contrast' : user.role_name === 'ejecutivo' ? 'info' : 'success'" 
+                   [value]="user.role_name | uppercase" [rounded]="true"></p-tag>
+          </td>
+          <td>
+             <span class="text-xs bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+          </td>
+          <td class="text-center">
+            <i class="pi" [ngClass]="user.activo ? 'pi-check-circle text-emerald-500' : 'pi-times-circle text-content-muted'"></i>
+          </td>
+          <td class="text-center">
+            <div class="flex justify-center gap-1">
+              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(user)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteUser(user.id)"></p-button>
+            </div>
+          </td>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="emptymessage">
+        <tr>
+          <td colspan="6" class="text-center p-8 text-content-dim">
+             No hay usuarios configurados. Intenta recargar la página.
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </div>
+</div>
+
+<!-- Diálogo Creación/Edición -->
+<p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'" 
+          [(visible)]="displayDialog" 
+          [modal]="true" 
+          [style]="{width: '500px'}" 
+          styleClass="p-fluid rounded-xl overflow-hidden shadow-2xl">
+  
+  <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">
+    
+    <div class="grid grid-cols-2 gap-4">
+       <!-- Nombres -->
+       <div class="flex flex-col gap-2">
+         <label for="nombre" class="text-xs font-bold text-content-muted">Nombre del Empleado</label>
+         <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" class="w-full" />
+       </div>
+       
+       <!-- Zona -->
+       <div class="flex flex-col gap-2">
+         <label for="zona" class="text-xs font-bold text-content-muted">Región Comercial</label>
+         <input pInputText id="zona" formControlName="zona" placeholder="Ej: Pacífico Norte" class="w-full" />
+       </div>
+    </div>
+
+    <!-- Usuario -->
+    <div class="flex flex-col gap-2">
+      <label for="username" class="text-xs font-bold text-content-muted">Nombre de Usuario (Login)</label>
+      <div class="p-inputgroup border-surface-border">
+          <span class="p-inputgroup-addon bg-surface-ground">
+              <i class="pi pi-user text-content-dim"></i>
+          </span>
+          <input pInputText id="username" formControlName="username" placeholder="jperez" 
+                 [readOnly]="isEditing()" 
+                 [ngClass]="{'opacity-60 cursor-not-allowed': isEditing()}" />
+      </div>
+      <small class="text-red-500" *ngIf="userForm.get('username')?.invalid && userForm.get('username')?.touched">
+        El usuario es obligatorio.
+      </small>
+    </div>
+
+    <!-- Rol -->
+    <div class="flex flex-col gap-2">
+      <label for="role_name" class="text-xs font-bold text-content-muted">Nivel de Acceso</label>
+      <p-dropdown id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol" 
+                  optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-dropdown>
+    </div>
+
+    <!-- Contraseña -->
+    <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-surface-border rounded-lg">
+      <label for="password" class="text-xs font-bold text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
+      <input pInputText id="password" type="password" formControlName="password" 
+             placeholder="{{ isEditing() ? 'Dejar en blanco para no cambiar' : 'Min. 6 caracteres' }}" />
+      <small class="text-red-500" *ngIf="userForm.get('password')?.hasError('minlength')">
+        Requiere al menos 6 caracteres.
+      </small>
+    </div>
+
+    <!-- Activo -->
+    <div class="flex items-center justify-between p-4 bg-surface-ground border border-surface-border rounded-lg">
+      <div>
+         <div class="text-sm font-bold text-content-main">Estado Activo</div>
+         <div class="text-[10px] text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
+      </div>
+      <p-inputSwitch formControlName="activo"></p-inputSwitch>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-surface-border">
+      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="displayDialog.set(false)"></p-button>
+      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid"></p-button>
+    </div>
+  </form>
+</p-dialog>

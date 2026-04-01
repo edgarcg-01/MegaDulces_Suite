@@ -1,0 +1,54 @@
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
+import { json, urlencoded } from 'express';
+
+async function bootstrap() {
+
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+
+  app.enableCors({
+    origin: 'http://localhost:4200', // Le damos permiso específico a tu frontend
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
+  });
+  
+  // Aumentar el límite del payload JSON para permitir el envío de imágenes en Base64
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '50mb' }));
+  
+  // Exponer el file system estático de evidencias fotográficas para pruebas
+  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
+    prefix: '/uploads/',
+  });
+  
+  const apiPrefix = process.env.API_PREFIX || 'api';
+  app.setGlobalPrefix(apiPrefix);
+
+  const config = new DocumentBuilder()
+    .setTitle('Trade Marketing API')
+    .setDescription('API RESTful para operaciones de Trade Marketing en campo')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+    
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
+
+
+  const knex = app.get('KNEX_CONNECTION'); // Ajusta el nombre según tu inyección de Knex
+  try {
+    await knex('role_permissions').insert([
+      { role_name: 'superadmin' },
+      { role_name: 'ejecutivo' },
+      { role_name: 'reportes' }
+    ]);
+    console.log('✅ Roles insertados con éxito');
+  } catch (e) {
+    console.log('Los roles ya existen o hubo un error, ignorar.');
+  }
+  await app.listen(process.env.PORT ?? 3000);
+}
+bootstrap();

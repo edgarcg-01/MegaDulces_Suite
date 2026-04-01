@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+@import 'primeicons/primeicons.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 
+ * DEFAULT THEME: PREMIUM WHITE
+ */
+:root {
+  --layout-bg: #f4f4f5;
+  --sidebar-bg: #ffffff;
+  --border-color: #e4e4e7;
+  
+  --text-main: #09090b;
+  --text-muted: #52525b;
+  --text-faint: #a1a1aa;
+  
+  --hover-bg: #f4f4f5;
+  --active-bg: #09090b;
+  --active-text: #ffffff;
+
+  --card-bg: #ffffff;
+  --table-border: #f8fafc;
+  --table-hover: rgba(248, 250, 252, 0.5);
+
+  --shadow-light: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-hover: 0 10px 30px -10px rgba(0,0,0,0.1);
+  --skeleton-bg: #e2e8f0;
+
+  /* BRAND ACCENT: CORPORATE YELLOW (F6D200) */
+  --accent-brand: rgb(246, 210, 0);
+  --accent-brand-light: rgba(246, 210, 0, 0.1);
+}
+
+/* 
+ * DYNAMIC OVERRIDE: MONOCHROME INSIGHT (B/W Contrast)
+ */
+.theme-monochrome {
+  --layout-bg: #000000;
+  --sidebar-bg: #111111;
+  --border-color: #333333;
+  
+  --text-main: #ffffff;
+  --text-muted: #a1a1aa;
+  --text-faint: #52525b;
+  
+  --hover-bg: #222222;
+  --active-bg: #ffffff;
+  --active-text: #000000;
+
+  --card-bg: #111111;
+  --table-border: #222222;
+  --table-hover: rgba(255, 255, 255, 0.05);
+
+  --shadow-light: 0 1px 3px rgba(0,0,0,0.5);
+  --shadow-hover: 0 0 20px rgba(255,255,255,0.1);
+  --skeleton-bg: #333333;
+
+  /* BRAND ACCENT: CORPORATE YELLOW (VIBRANT) */
+  --accent-brand: rgb(246, 210, 0);
+  --accent-brand-light: rgba(246, 210, 0, 0.15);
+}
+
+/* Base reset para Angular apps */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background-color: var(--layout-bg);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+
+/* 
+ * UTILITIES: BRAND ACCENTS 
+ */
+.card-premium-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-premium-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: var(--accent-brand);
+  z-index: 10;
+}
+
+.text-brand {
+  color: var(--accent-brand) !important;
+}
+
+.bg-brand {
+  background-color: var(--accent-brand) !important;
+}
+
+.border-brand {
+  border-color: var(--accent-brand) !important;
+}
+
+.p-button.p-button-brand {
+  background: var(--accent-brand) !important;
+  border-color: var(--accent-brand) !important;
+  color: #000 !important;
+  font-weight: 700 !important;
+}
+
+.p-button.p-button-brand:hover {
+  filter: brightness(1.1);
+}

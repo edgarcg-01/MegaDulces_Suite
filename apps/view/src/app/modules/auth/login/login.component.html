@@ -1,0 +1,70 @@
+<div class="min-h-screen flex items-center justify-center bg-[#f4f4f5] p-4">
+
+  <!-- Main Card -->
+  <div class="bg-white rounded-lg shadow-md border border-[#e4e4e7] p-8 w-full max-w-md">
+    
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold text-[#09090b] tracking-tight">Acceso Operativo</h1>
+      <p class="text-sm text-[#71717a] mt-2">Plataforma de Trade Marketing</p>
+    </div>
+
+    <!-- Error Banner -->
+    <div *ngIf="errorMessage" class="bg-[#fee2e2] border-l-4 border-[#dc2626] text-[#dc2626] p-4 mb-6 rounded-r-md text-sm font-medium">
+      {{ errorMessage }}
+    </div>
+
+    <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="flex flex-col space-y-6 shrink-0">
+      
+      <!-- Username Group -->
+      <div class="flex flex-col space-y-2">
+        <label for="username" class="text-sm font-semibold text-[#09090b]">Usuario</label>
+        <input 
+          id="username" 
+          type="text" 
+          formControlName="username" 
+          placeholder="Ej: ext_jdoe"
+          class="flex h-10 w-full rounded-md border border-[#e4e4e7] bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#a1a1aa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#18181b] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          [ngClass]="{'border-[#dc2626] focus-visible:ring-[#dc2626]': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
+        
+        <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched" class="text-xs text-[#dc2626]">
+          El usuario es requerido.
+        </p>
+      </div>
+
+      <!-- Password Group -->
+      <div class="flex flex-col space-y-2">
+        <div class="flex items-center justify-between">
+          <label for="password" class="text-sm font-semibold text-[#09090b]">Contraseña</label>
+        </div>
+        <input 
+          id="password" 
+          type="password" 
+          formControlName="password" 
+          placeholder="••••••••"
+          class="flex h-10 w-full rounded-md border border-[#e4e4e7] bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#a1a1aa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#18181b] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          [ngClass]="{'border-[#dc2626] focus-visible:ring-[#dc2626]': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
+          
+        <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched" class="text-xs text-[#dc2626]">
+          Mínimo 6 caracteres para la contraseña.
+        </p>
+      </div>
+
+      <!-- Submit Button -->
+      <button 
+        type="submit" 
+        [disabled]="isLoading"
+        class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-[#000000] text-white hover:bg-[#3f3f46] h-10 px-4 py-2 mt-2 w-full">
+        <span *ngIf="isLoading" class="mr-2">
+          <!-- Spinner simple SVG -->
+          <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </span>
+        {{ isLoading ? 'Verificando...' : 'Iniciar Sesión' }}
+      </button>
+
+    </form>
+    
+  </div>
+</div>

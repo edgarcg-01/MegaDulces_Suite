@@ -1,0 +1,91 @@
+<div class="p-6">
+  <!-- Encabezado -->
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h2 class="text-2xl font-bold text-content-main">⚙️ Configuración de Scoring</h2>
+      <p class="text-sm text-content-dim">Ajusta los pesos y factores para el cálculo automático del índice de ejecución.</p>
+    </div>
+    <div class="flex gap-2">
+      <p-button label="Guardar Configuración" icon="pi pi-save" (onClick)="saveConfig()" [loading]="saving()"></p-button>
+    </div>
+  </div>
+
+  <div *ngIf="config()" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    
+    <!-- Pesos por Posición -->
+    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden h-fit">
+      <div class="p-4 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+        <h3 class="text-xs font-bold text-content-muted uppercase">1. Pesos por Posición (Base)</h3>
+        <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('pesos_posicion')"></p-button>
+      </div>
+      <div class="p-4 space-y-4">
+        <p class="text-[10px] text-content-dim italic mb-2">Define el valor base según la visibilidad de la ubicación en la tienda.</p>
+        <div *ngFor="let key of objectKeys(config().pesos_posicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
+          <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
+          <div class="flex items-center gap-2">
+            <p-inputNumber [ngModel]="config().pesos_posicion[key]" (ngModelChange)="updateValue('pesos_posicion', key, $event)" [min]="0" styleClass="w-20"></p-inputNumber>
+            <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" (onClick)="removeKey('pesos_posicion', key)"></p-button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Factores por Tipo de Exhibición -->
+    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden h-fit">
+      <div class="p-4 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+        <h3 class="text-xs font-bold text-content-muted uppercase">2. Factores de Complejidad</h3>
+        <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('tipos_exhibicion')"></p-button>
+      </div>
+      <div class="p-4 space-y-4">
+        <p class="text-[10px] text-content-dim italic mb-2">Multiplicador basado en el tipo de mueble o material instalado.</p>
+        <div *ngFor="let key of objectKeys(config().tipos_exhibicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
+          <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
+          <div class="flex items-center gap-2">
+            <p-inputNumber [ngModel]="config().tipos_exhibicion[key]" (ngModelChange)="updateValue('tipos_exhibicion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputNumber>
+            <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" (onClick)="removeKey('tipos_exhibicion', key)"></p-button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Multiplicadores por Nivel de Ejecución -->
+    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden h-fit">
+      <div class="p-4 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+        <h3 class="text-xs font-bold text-content-muted uppercase">3. Calidad de Ejecución</h3>
+        <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('niveles_ejecucion')"></p-button>
+      </div>
+      <div class="p-4 space-y-4">
+        <p class="text-[10px] text-content-dim italic mb-2">Factor de ajuste según la calidad del armado y limpieza.</p>
+        <div *ngFor="let key of objectKeys(config().niveles_ejecucion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
+          <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
+          <div class="flex items-center gap-2">
+            <p-inputNumber [ngModel]="config().niveles_ejecucion[key]" (ngModelChange)="updateValue('niveles_ejecucion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputNumber>
+            <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" (onClick)="removeKey('niveles_ejecucion', key)"></p-button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div *ngIf="loading()" class="p-12 text-center text-content-dim">
+    <i class="pi pi-spin pi-spinner text-3xl"></i>
+    <p class="mt-4">Cargando configuración...</p>
+  </div>
+</div>
+
+<!-- Diálogo de Nueva Llave -->
+<p-dialog [header]="'Nueva categoría en ' + activeSection" [(visible)]="showAddKeyDialog" [modal]="true" [style]="{width: '350px'}">
+  <div class="flex flex-col gap-4 py-4">
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted">Nombre Técnico (ej: isla, vitrina, excelente)</label>
+      <input pInputText [(ngModel)]="newKeyName" />
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddKeyDialog = false"></p-button>
+    <p-button label="Agregar" (onClick)="addKey()"></p-button>
+  </ng-template>
+</p-dialog>
+
+<p-toast></p-toast>
