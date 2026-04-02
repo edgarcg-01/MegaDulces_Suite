@@ -18,9 +18,9 @@
     "affected:build": "nx affected -t build",
     "affected:test": "nx affected -t test",
     "affected:lint": "nx affected -t lint",
-    "migrate:latest": "knex migrate:latest --knexfile database/knexfile.ts",
-    "migrate:rollback": "knex migrate:rollback --knexfile database/knexfile.ts",
-    "seed:run": "knex seed:run --knexfile database/knexfile.ts"
+    "migrate:latest": "knex migrate:latest --knexfile database/knexfile.js",
+    "migrate:rollback": "knex migrate:rollback --knexfile database/knexfile.js",
+    "seed:run": "knex seed:run --knexfile database/knexfile.js"
   },
   "dependencies": {
     "@angular/animations": "^18.2.0",
@@ -38,6 +38,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.2.6",
+    "@ngrx/router-store": "^18.1.1",
     "@ngrx/store": "^18.1.1",
     "@primeng/themes": "^21.0.4",
     "bcryptjs": "^3.0.3",

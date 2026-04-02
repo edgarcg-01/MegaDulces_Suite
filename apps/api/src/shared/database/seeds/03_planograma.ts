@@ -17,15 +17,15 @@ const DEFAULT_PLANOGRAMA = [
 ];
 
 export async function seed(knex: Knex): Promise<void> {
-  // 1. Limpieza total para asegurar que solo queden los nuevos
-  await knex("planograma_productos").del();
-  await knex("planograma_marcas").del();
+  // 1. Limpieza total (Usando los nuevos nombres de tablas en inglés)
+  await knex("products").del();
+  await knex("brands").del();
 
   for (let i = 0; i < DEFAULT_PLANOGRAMA.length; i++) {
     const entry = DEFAULT_PLANOGRAMA[i];
     
     // Insertar Marca
-    const [marca] = await knex("planograma_marcas")
+    const [marca] = await knex("brands")
       .insert({ 
         nombre: entry.marca, 
         activo: true, 
@@ -35,14 +35,15 @@ export async function seed(knex: Knex): Promise<void> {
 
     // Insertar Productos de esta marca
     const prodInserts = entry.productos.map((prodName, pIndex) => ({
-      marca_id: marca.id,
+      brand_id: marca.id,
       nombre: prodName,
-      puntuacion: 5, // Puntuación base
-      orden: pIndex + 1
+      puntuacion: 5, 
+      orden: pIndex + 1,
+      activo: true
     }));
 
     if (prodInserts.length > 0) {
-      await knex("planograma_productos").insert(prodInserts);
+      await knex("products").insert(prodInserts);
     }
   }
 }

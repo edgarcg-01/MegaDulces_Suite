@@ -1,9 +1,10 @@
-import type { Knex } from "knex";
-import * as dotenv from "dotenv";
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
-dotenv.config();
-
-const config: { [key: string]: Knex.Config } = {
+/**
+ * @type { Object.<string, import("knex").Knex.Config> }
+ */
+module.exports = {
   development: {
     client: "postgresql",
     connection: {
@@ -20,11 +21,10 @@ const config: { [key: string]: Knex.Config } = {
     migrations: {
       tableName: "knex_migrations",
       directory: "../apps/api/src/shared/database/migrations",
-      extension: "ts",
+      loadExtensions: [".ts", ".js"]
     },
     seeds: {
-      directory: "./seeds",
-      extension: "ts",
+      directory: path.join(__dirname, "seeds"),
     },
   },
 
@@ -49,5 +49,3 @@ const config: { [key: string]: Knex.Config } = {
     },
   },
 };
-
-export default config;

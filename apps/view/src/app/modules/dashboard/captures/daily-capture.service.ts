@@ -246,7 +246,7 @@ export class DailyCaptureService {
       conceptos: this.http.get<any[]>(`${this.apiUrl}/catalogs/conceptos`),
       ubicaciones: this.http.get<any[]>(`${this.apiUrl}/catalogs/ubicaciones`),
       niveles: this.http.get<any[]>(`${this.apiUrl}/catalogs/niveles`),
-      planograma: this.http.get<any[]>(`${this.apiUrl}/planograma/brands`),
+      planograma: this.http.get<any[]>(`${this.apiUrl}/planograms/brands`),
       scoring: this.http.get<any>(`${this.apiUrl}/scoring/config`)
     }).subscribe({
       next: (res) => {

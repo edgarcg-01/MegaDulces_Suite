@@ -9,3 +9,4 @@ dist
 *.bak
 swagger.json
 build_view_err.log
+.angular/

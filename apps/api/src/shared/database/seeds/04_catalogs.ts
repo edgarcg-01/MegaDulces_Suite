@@ -4,7 +4,7 @@ export async function seed(knex: Knex): Promise<void> {
   // 1. Limpiamos la tabla
   await knex("catalogs").del();
 
-  // 2. Insertamos Conceptos de Exhibición
+  // 2. Conceptos de Exhibición
   await knex("catalogs").insert([
     { catalog_id: "conceptos", value: "Exhibidor", puntuacion: 200, icono: "pi pi-box", orden: 1 },
     { catalog_id: "conceptos", value: "Vitrina", puntuacion: 300, icono: "pi pi-objects-column", orden: 2 },
@@ -13,7 +13,7 @@ export async function seed(knex: Knex): Promise<void> {
     { catalog_id: "conceptos", value: "Tiras", puntuacion: 100, icono: "pi pi-list", orden: 5 },
   ]);
 
-  // 3. Insertamos Ubicaciones
+  // 3. Ubicaciones
   await knex("catalogs").insert([
     { catalog_id: "ubicaciones", value: "Caja registradora", puntuacion: 100, orden: 1 },
     { catalog_id: "ubicaciones", value: "Al frente", puntuacion: 80, orden: 2 },
@@ -22,19 +22,20 @@ export async function seed(knex: Knex): Promise<void> {
     { catalog_id: "ubicaciones", value: "Al fondo", puntuacion: 20, orden: 5 },
   ]);
 
-  // 4. Insertamos Niveles de Ejecución (Puntuación = Multiplicador * 100)
+  // 4. Niveles de Ejecución
   await knex("catalogs").insert([
     { catalog_id: "niveles", value: "Excelente", puntuacion: 120, orden: 1 },
     { catalog_id: "niveles", value: "Básico", puntuacion: 80, orden: 2 },
     { catalog_id: "niveles", value: "Crítico", puntuacion: 40, orden: 3 },
   ]);
 
-  // 5. Otros Catálogos (Zonas, etc)
-  await knex("catalogs").insert([
-    { catalog_id: "zonas", value: "Zona Centro", orden: 1 },
-    { catalog_id: "zonas", value: "Zona Norte", orden: 2 },
-    { catalog_id: "zonas", value: "Zona Sur", orden: 3 },
-  ]);
+  // 5. ZONAS: 15 Rutas
+  const zones = Array.from({ length: 15 }, (_, i) => ({
+    catalog_id: "zonas",
+    value: `Ruta ${i + 1}`,
+    orden: i + 1,
+  }));
+  await knex("catalogs").insert(zones);
 
   // 6. Roles
   await knex("catalogs").insert([

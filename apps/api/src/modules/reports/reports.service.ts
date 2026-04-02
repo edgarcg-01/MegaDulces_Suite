@@ -22,7 +22,7 @@ export class ReportsService {
     // Get Top Performer
     const [topPerformer] = await this.knex('daily_captures')
       .select('captured_by_username')
-      .avg(this.knex.raw('(stats->>\'puntuacionTotal\')::float as avg_score'))
+      .select(this.knex.raw('AVG((stats->>\'puntuacionTotal\')::float) as avg_score'))
       .groupBy('captured_by_username')
       .orderBy('avg_score', 'desc')
       .limit(1) as any[];

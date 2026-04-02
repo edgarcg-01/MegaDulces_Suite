@@ -37,18 +37,6 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
 
-
-  const knex = app.get('KNEX_CONNECTION'); // Ajusta el nombre según tu inyección de Knex
-  try {
-    await knex('role_permissions').insert([
-      { role_name: 'superadmin' },
-      { role_name: 'ejecutivo' },
-      { role_name: 'reportes' }
-    ]);
-    console.log('✅ Roles insertados con éxito');
-  } catch (e) {
-    console.log('Los roles ya existen o hubo un error, ignorar.');
-  }
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
