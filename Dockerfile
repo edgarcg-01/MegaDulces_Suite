@@ -2,23 +2,24 @@
 FROM node:20 AS builder
 WORKDIR /app
 
-# Configuración de Nx y NPM para ahorrar memoria y evitar errores de red
+# Configuración base para Nx y NPM (sin el cargador aún)
 ENV NX_DAEMON=false \
     CI=true \
-    NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs"
+    NODE_OPTIONS="--max-old-space-size=4096"
 
 # Copiamos archivos de dependencias y configuraciones base
 COPY package*.json .npmrc tsconfig.base.json nx.json load-compiler.mjs ./
 
-# Instalamos dependencias
+# Instalamos dependencias (esto corre sin el cargador para evitar ERR_MODULE_NOT_FOUND)
 RUN npm install
 
 # Copiamos el resto del código fuente
 COPY . .
 
-# Compilamos las aplicaciones (NestJS y Angular)
-# No usamos plugins en nx.json para mayor estabilidad en Docker
-RUN npx nx build view --prod && npx nx build api --prod
+# Compilamos las aplicaciones usando el cargador global SOLO en este paso
+# Esto inyecta @angular/compiler necesario para resolver ActionsSubject durante el build
+RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" npx nx build view --prod && \
+    NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" npx nx build api --prod
 
 # --- Stage 2: Production dependencies ---
 FROM node:20 AS prod-deps
