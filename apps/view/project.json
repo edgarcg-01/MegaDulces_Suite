@@ -12,7 +12,9 @@
         "outputPath": "dist/apps/view",
         "index": "apps/view/src/index.html",
         "main": "apps/view/src/main.ts",
-        "polyfills": ["zone.js", "@angular/compiler"],
+        "polyfills": [
+          "apps/view/src/polyfills.ts"
+        ],
         "tsConfig": "apps/view/tsconfig.app.json",
         "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
         "styles": ["apps/view/src/styles.css"],

@@ -17,9 +17,10 @@ RUN npm install
 # Copiamos el resto del código
 COPY . .
 
-# Compilamos las aplicaciones explícitamente una por una para mejor diagnóstico
-# Primero la API, luego el View (Angular)
-RUN npx nx build api --prod && npx nx build view --prod
+# Compilamos las aplicaciones explícitamente una por una
+# Usamos un solo comando para evitar problemas de capas si uno falla
+# Primero el View (Angular) que es el más propenso a errores de compilador
+RUN npx nx build view --prod && npx nx build api --prod
 
 # --- Stage 2: Production dependencies ---
 FROM node:20 AS prod-deps
