@@ -7,12 +7,11 @@ ENV NX_DAEMON=false \
     CI=true \
     NODE_OPTIONS="--max-old-space-size=4096"
 
-# Copiamos archivos de dependencias y configuraciones base vitales para Nx y el Linker
+# Copiamos archivos de dependencias y configuraciones base vitales para Nx
 COPY package*.json .npmrc tsconfig.base.json nx.json ./
-COPY apps/view/package*.json ./apps/view/
 
-# Usamos 'npm ci' para instalar versiones exactas del lockfile y evitar problemas de compatibilidad
-RUN npm ci
+# Usamos 'npm install' para instalar las dependencias
+RUN npm install
 
 # Copiamos el resto del código fuente
 COPY . .
@@ -28,8 +27,8 @@ WORKDIR /app
 # Copiamos solo los archivos de dependencias
 COPY package*.json .npmrc ./
 
-# Usamos 'npm ci' nuevamente, ignorando dependencias de desarrollo
-RUN npm ci --omit=dev
+# Usamos 'npm install' nuevamente, ignorando dependencias de desarrollo
+RUN npm install --omit=dev
 
 # --- Stage 3: Final Image (Ultra Optimized) ---
 FROM node:20-slim AS runner
