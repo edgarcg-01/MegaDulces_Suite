@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './src/app.module';
-import { KNEX_CONNECTION } from './src/shared/database/database.module';
+import { AppModule } from '../apps/api/src/app.module';
+import { KNEX_CONNECTION } from '../apps/api/src/shared/database/database.module';
 
 async function updateScoring() {
   const app = await NestFactory.createApplicationContext(AppModule);

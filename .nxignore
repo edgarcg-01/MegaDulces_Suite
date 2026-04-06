@@ -1,0 +1,9 @@
+dist
+node_modules
+.nx
+apps/view/cache
+apps/view/.nx
+scripts/*.js
+scripts/*.ts
+!scripts/generate-openapi.ts
+!scripts/update-scoring.ts
