@@ -223,15 +223,15 @@
         <div class="space-y-2">
           <div class="flex items-center gap-2">
             <span class="text-xs text-content-muted">Exhibiciones:</span>
-            <span class="text-sm font-medium text-content-main">{{visita.exhibiciones?.length}} items</span>
+            <span class="text-sm font-medium text-content-main">{{visita.exhibiciones.length}} items</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-content-muted">Venta Total:</span>
-            <span class="text-sm font-bold text-emerald-600">${{visita.stats?.ventaTotal?.toLocaleString()}}</span>
+            <span class="text-sm font-bold text-emerald-600">${{visita.stats.ventaTotal.toLocaleString()}}</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-content-muted">Score:</span>
-            <span class="text-sm font-bold text-content-main">{{visita.stats?.puntuacionTotal}} pts</span>
+            <span class="text-sm font-bold text-content-main">{{visita.stats.puntuacionTotal}} pts</span>
           </div>
         </div>
         <!-- Expandable exhibiciones details -->
