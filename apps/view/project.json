@@ -21,21 +21,24 @@
         "scripts": []
       },
       "configurations": {
-        "production": {
-          "budgets": [
-            {
-              "type": "initial",
-              "maximumWarning": "2mb",
-              "maximumError": "5mb"
-            },
-            {
-              "type": "anyComponentStyle",
-              "maximumWarning": "4kb",
-              "maximumError": "10kb"
-            }
-          ],
-          "outputHashing": "all"
-        },
+  "production": {
+    "aot": true,
+    "buildOptimizer": true,
+    "optimization": true,
+    "budgets": [
+      {
+        "type": "initial",
+        "maximumWarning": "2mb",
+        "maximumError": "5mb"
+      },
+      {
+        "type": "anyComponentStyle",
+        "maximumWarning": "4kb",
+        "maximumError": "10kb"
+      }
+    ],
+    "outputHashing": "all"
+  },
         "development": {
           "optimization": false,
           "extractLicenses": false,
