@@ -6,12 +6,24 @@ import { KNEX_CONNECTION } from '../../shared/database/database.module';
 export class ReportsService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
-  async getSummary() {
-    const [totalDaily] = await this.knex('daily_captures').count('id as count');
-    const [totalTiendas] = await this.knex('stores').count('id as count');
+  async getSummary(user: any) {
+    let dcQuery = this.knex('daily_captures');
+    let sQuery = this.knex('stores');
+
+    if (user.rol === 'colaborador') {
+      dcQuery = dcQuery.where('user_id', user.sub);
+      // For stores, we might want to filter by the user's assigned stores if that existed, 
+      // but for now let's just filter the captures.
+    } else if (user.rol === 'supervisor_v') {
+      const teamIds = await this.getTeamIds(user.sub);
+      dcQuery = dcQuery.whereIn('user_id', teamIds);
+    }
+
+    const [totalDaily] = await dcQuery.clone().count('id as count');
+    const [totalTiendas] = await sQuery.count('id as count');
     
     // Aggregates for the dashboard
-    const [stats] = await this.knex('daily_captures')
+    const [stats] = await dcQuery.clone()
       .select(
         this.knex.raw('SUM((stats->>\'totalExhibiciones\')::int) as visitas'),
         this.knex.raw('AVG((stats->>\'puntuacionTotal\')::float) as avg_score'),
@@ -20,15 +32,22 @@ export class ReportsService {
       );
 
     // Get Top Performer
-    const [topPerformer] = await this.knex('daily_captures')
+    const [topPerformer] = await dcQuery.clone()
       .select('captured_by_username')
       .select(this.knex.raw('AVG((stats->>\'puntuacionTotal\')::float) as avg_score'))
       .groupBy('captured_by_username')
       .orderBy('avg_score', 'desc')
       .limit(1) as any[];
 
+    // Get conceptos catalog for mapping IDs to names
+    const conceptos = await this.knex('catalogs').where({ catalog_id: 'conceptos' }).select('id', 'value');
+    const conceptoMap = {};
+    conceptos.forEach(c => {
+      conceptoMap[c.id] = c.value.toLowerCase();
+    });
+
     // Deep count of furniture types and photos
-    const rows = await this.knex('daily_captures').select('exhibiciones');
+    const rows = await dcQuery.clone().select('exhibiciones');
     let totalPhotos = 0;
     const furnitureCounts: Record<string, number> = {
       'vitrina': 0,
@@ -42,15 +61,15 @@ export class ReportsService {
     rows.forEach(r => {
       const exArray = typeof r.exhibiciones === 'string' ? JSON.parse(r.exhibiciones) : (r.exhibiciones || []);
       exArray.forEach((ex: any) => {
-        // Count furniture (Using conceptoId from the database captures)
-        const typeId = (ex.conceptoId || '').toLowerCase();
+        // Get concept name from catalog using conceptoId
+        const conceptName = conceptoMap[ex.conceptoId] || '';
         
-        // Mapeo simple de ID a categoría para el dashboard
-        if (typeId.includes('vitrina')) furnitureCounts['vitrina']++;
-        else if (typeId.includes('exhibidor')) furnitureCounts['exhibidor']++;
-        else if (typeId.includes('vitrolero')) furnitureCounts['vitroleros']++;
-        else if (typeId.includes('paletero')) furnitureCounts['paleteros']++;
-        else if (typeId.includes('tira')) furnitureCounts['tiras']++;
+        // Count furniture by concept name
+        if (conceptName.includes('vitrina')) furnitureCounts['vitrina']++;
+        else if (conceptName.includes('exhibidor')) furnitureCounts['exhibidor']++;
+        else if (conceptName.includes('vitrolero')) furnitureCounts['vitroleros']++;
+        else if (conceptName.includes('paletero')) furnitureCounts['paleteros']++;
+        else if (conceptName.includes('tira')) furnitureCounts['tiras']++;
         else furnitureCounts['otros']++;
 
         // Count photos
@@ -77,8 +96,15 @@ export class ReportsService {
     };
   }
 
-  async getFilteredData(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }) {
+  async getFilteredData(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }, user: any) {
     const query = this.knex('daily_captures').select('*');
+
+    if (user.rol === 'colaborador') {
+      query.where('user_id', user.sub);
+    } else if (user.rol === 'supervisor_v') {
+      const teamIds = await this.getTeamIds(user.sub);
+      query.whereIn('user_id', teamIds);
+    }
 
     if (filters.startDate) query.where('fecha', '>=', filters.startDate);
     if (filters.endDate) query.where('fecha', '<=', filters.endDate);
@@ -137,8 +163,15 @@ export class ReportsService {
     };
   }
 
-  async exportCsvInBuffer(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }) {
+  async exportCsvInBuffer(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }, user: any) {
     const query = this.knex('daily_captures').select('*');
+
+    if (user.rol === 'colaborador') {
+      query.where('user_id', user.sub);
+    } else if (user.rol === 'supervisor_v') {
+      const teamIds = await this.getTeamIds(user.sub);
+      query.whereIn('user_id', teamIds);
+    }
 
     if (filters.startDate) query.where('fecha', '>=', filters.startDate);
     if (filters.endDate) query.where('fecha', '<=', filters.endDate);
@@ -157,5 +190,13 @@ export class ReportsService {
     }
     
     return csvString;
+  }
+
+  private async getTeamIds(supervisorId: string): Promise<string[]> {
+    const team = await this.knex('users')
+      .select('id')
+      .where('supervisor_id', supervisorId)
+      .orWhere('id', supervisorId);
+    return team.map(u => u.id);
   }
 }

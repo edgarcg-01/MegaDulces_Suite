@@ -126,6 +126,10 @@ export class AdminPlanogramaComponent implements OnInit {
     });
   }
 
+  toggleRowExpansion(brand: any) {
+    this.expandedRows[brand.id] = !this.expandedRows[brand.id];
+  }
+
   // --- Product Actions ---
 
   openAddProduct(brandId: string) {

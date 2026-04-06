@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import 'primeicons/primeicons.css';
 
 @tailwind base;
@@ -6,9 +6,24 @@
 @tailwind utilities;
 
 /* 
- * DEFAULT THEME: PREMIUM WHITE
+ * ROOT THEME VARIABLES: Applied globally
  */
-:root {
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) var(--layout-bg);
+}
+
+html {
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+body {
   --layout-bg: #f4f4f5;
   --sidebar-bg: #ffffff;
   --border-color: #e4e4e7;
@@ -16,6 +31,7 @@
   --text-main: #09090b;
   --text-muted: #52525b;
   --text-faint: #a1a1aa;
+  --text-disabled: rgba(9, 9, 11, 0.5);
   
   --hover-bg: #f4f4f5;
   --active-bg: #09090b;
@@ -29,15 +45,22 @@
   --shadow-hover: 0 10px 30px -10px rgba(0,0,0,0.1);
   --skeleton-bg: #e2e8f0;
 
+  --surface-ground: #f8fafc;
+
   /* BRAND ACCENT: CORPORATE YELLOW (F6D200) */
   --accent-brand: rgb(246, 210, 0);
   --accent-brand-light: rgba(246, 210, 0, 0.1);
+
+  font-family: 'Inter', sans-serif;
+  background-color: var(--layout-bg);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* 
- * DYNAMIC OVERRIDE: MONOCHROME INSIGHT (B/W Contrast)
- */
-.theme-monochrome {
+/* Dark Mode / Monochrome Theme */
+body.theme-monochrome {
   --layout-bg: #000000;
   --sidebar-bg: #111111;
   --border-color: #333333;
@@ -45,6 +68,7 @@
   --text-main: #ffffff;
   --text-muted: #a1a1aa;
   --text-faint: #52525b;
+  --text-disabled: rgba(255, 255, 255, 0.5);
   
   --hover-bg: #222222;
   --active-bg: #ffffff;
@@ -58,25 +82,11 @@
   --shadow-hover: 0 0 20px rgba(255,255,255,0.1);
   --skeleton-bg: #333333;
 
+  --surface-ground: #111111;
+
   /* BRAND ACCENT: CORPORATE YELLOW (VIBRANT) */
   --accent-brand: rgb(246, 210, 0);
   --accent-brand-light: rgba(246, 210, 0, 0.15);
-}
-
-/* Base reset para Angular apps */
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: 'DM Sans', sans-serif;
-  background-color: var(--layout-bg);
-  color: var(--text-main);
-  -webkit-font-smoothing: antialiased;
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 *, *::before, *::after {
@@ -123,4 +133,353 @@ body {
 
 .p-button.p-button-brand:hover {
   filter: brightness(1.1);
+}
+
+/* Enhanced interactions */
+.p-button {
+  transition: all 0.2s ease !important;
+}
+
+.p-button:active {
+  transform: scale(0.98) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--accent-brand) !important;
+  outline-offset: 2px !important;
+}
+
+/* Override PrimeNG fonts to use Inter */
+.p-component {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Force PrimeNG tables to use theme colors in dark mode */
+.theme-monochrome .p-datatable .p-datatable-thead > tr > th {
+  background: var(--surface-ground) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr:nth-child(even) {
+  background: var(--surface-ground) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr > td {
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-paginator {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page {
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+}
+
+/* Responsive table styles */
+.p-datatable-responsive {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.p-datatable-responsive .p-datatable-wrapper {
+  min-width: 100% !important;
+}
+
+/* Mobile table optimizations */
+@media (max-width: 768px) {
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    padding: 0.5rem 0.75rem !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    min-width: 120px !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    min-width: 100px !important;
+    position: sticky !important;
+    right: 0 !important;
+    background: inherit !important;
+    box-shadow: -4px 0 8px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .p-datatable.p-datatable-sm .p-datatable-thead > tr > th,
+  .p-datatable.p-datatable-sm .p-datatable-tbody > tr > td {
+    padding: 0.375rem 0.5rem !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Hide less important columns on very small screens */
+  .p-datatable .p-datatable-thead > tr > th:nth-child(n+6),
+  .p-datatable .p-datatable-tbody > tr > td:nth-child(n+6) {
+    display: none !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    display: table-cell !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    min-width: 100px !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Show only essential columns on very small screens */
+  .p-datatable .p-datatable-thead > tr > th:nth-child(n+4),
+  .p-datatable .p-datatable-tbody > tr > td:nth-child(n+4) {
+    display: none !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    display: table-cell !important;
+  }
+}
+
+/* Force PrimeNG tabs to use theme colors in dark mode */
+.theme-monochrome .p-tabview .p-tabview-nav {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li a {
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li a:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li.p-highlight a {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+  border-color: var(--active-bg) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-panels {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-panel {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* Override hardcoded bg-white in tab content */
+.theme-monochrome .p-tabpanel .bg-white {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-emerald-600 {
+  color: var(--accent-brand) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-blue-600 {
+  color: var(--accent-brand) !important;
+}
+
+/* Modern styling for PrimeNG p-tabs (both light and dark modes) */
+.p-tabs,
+.p-tabs.p-component,
+.p-tabs[data-pc-name="tabs"] {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.p-tablist,
+.p-tablist.p-component,
+.p-tablist[data-pc-name="tablist"] {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid var(--border-color, #e5e7eb) !important;
+  padding: 0 !important;
+  margin-bottom: 1.5rem !important;
+  box-shadow: none !important;
+}
+
+.p-tablist-content,
+.p-tablist-content[data-pc-name="tablistcontent"] {
+  background: transparent !important;
+}
+
+.p-tablist-tab-list,
+.p-tablist-tab-list[data-pc-name="tablisttablist"] {
+  display: flex !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+.p-tab,
+.p-tab.p-component,
+.p-tab.p-ripple,
+.p-tab[data-pc-name="tab"],
+.p-tab[data-pc-section="tab"] {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 1.5rem !important;
+  margin: 0 !important;
+  position: relative !important;
+  transition: all 0.2s ease !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  color: var(--text-muted, #6b7280) !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  outline: none !important;
+  text-decoration: none !important;
+  min-height: auto !important;
+  line-height: 1.5 !important;
+}
+
+.p-tab:hover,
+.p-tab.p-component:hover,
+.p-tab.p-ripple:hover,
+.p-tab[data-pc-name="tab"]:hover,
+.p-tab[data-pc-section="tab"]:hover {
+  background: transparent !important;
+  color: var(--text-main, #111827) !important;
+  box-shadow: none !important;
+}
+
+.p-tab.p-tab-active,
+.p-tab.p-component.p-tab-active,
+.p-tab.p-ripple.p-tab-active,
+.p-tab[data-pc-name="tab"][data-p-active="true"],
+.p-tab[data-pc-section="tab"][aria-selected="true"] {
+  background: transparent !important;
+  color: var(--accent-brand, #3b82f6) !important;
+  border-bottom: 3px solid var(--accent-brand, #3b82f6) !important;
+  margin-bottom: -2px !important;
+  box-shadow: none !important;
+}
+
+.p-tabpanels,
+.p-tabpanels.p-component,
+.p-tabpanels[data-pc-name="tabpanels"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.p-tabpanel,
+.p-tabpanel.p-component,
+.p-tabpanel[data-pc-name="tabpanel"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Force PrimeNG p-tabs (newer version) to use theme colors in dark mode */
+.theme-monochrome .p-tabs {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tablist {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tablist-content {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tablist-tab-list {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tab {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tab:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tab.p-tab-active {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+  border-color: var(--active-bg) !important;
+}
+
+.theme-monochrome .p-tabpanels {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabpanel {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* More specific overrides for hardcoded styles */
+.theme-monochrome .p-tabpanel div.bg-white {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-emerald-600 {
+  color: var(--accent-brand) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-blue-600 {
+  color: var(--accent-brand) !important;
 }

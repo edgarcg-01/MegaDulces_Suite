@@ -1,5 +1,5 @@
-import { Component, inject, signal, OnInit, effect } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { Component, inject, signal, OnInit } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -9,6 +9,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { AdminCatalogsService } from './admin-catalogs.service';
 
@@ -24,16 +25,18 @@ import { AdminCatalogsService } from './admin-catalogs.service';
     InputNumberModule,
     SelectModule,
     DialogModule,
-    ToastModule
+    ToastModule,
+    TooltipModule,
   ],
   providers: [MessageService],
   templateUrl: './admin-catalogs.component.html',
-  styleUrls: ['./admin-catalogs.component.css']
+  styleUrls: ['./admin-catalogs.component.css'],
 })
 export class AdminCatalogsComponent implements OnInit {
   private catalogsService = inject(AdminCatalogsService);
   private messageService = inject(MessageService);
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   selectedType = signal<string>('conceptos');
   title = signal<string>('Catálogos');
@@ -50,15 +53,12 @@ export class AdminCatalogsComponent implements OnInit {
   newItemIcon = '';
 
   constructor() {
-    // Escuchar cambios en la URL para cambiar el catálogo
-    effect(() => {
-      const params = this.route.snapshot.params;
-      this.route.params.subscribe(p => {
-        const type = p['type'] || 'conceptos';
-        this.selectedType.set(type);
-        this.updateTitle(type);
-        this.loadCatalog(type);
-      });
+    // Listen to route param changes to switch catalog type
+    this.route.params.subscribe((p) => {
+      const type = p['type'] || 'conceptos';
+      this.selectedType.set(type);
+      this.updateTitle(type);
+      this.loadCatalog(type);
     });
   }
 
@@ -70,7 +70,7 @@ export class AdminCatalogsComponent implements OnInit {
       ubicaciones: 'Ubicaciones en Tienda',
       niveles: 'Niveles de Ejecución',
       zonas: 'Zonas Geográficas',
-      roles: 'Roles de Sistema'
+      roles: 'Roles de Sistema',
     };
     this.title.set(titles[type] || 'Catálogos');
   }
@@ -89,7 +89,7 @@ export class AdminCatalogsComponent implements OnInit {
       error: (err) => {
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el catálogo' });
         this.loading.set(false);
-      }
+      },
     });
   }
 
@@ -158,5 +158,9 @@ export class AdminCatalogsComponent implements OnInit {
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar el ítem' });
       }
     });
+  }
+
+  goToPermissions(roleName: string) {
+    this.router.navigate(['/dashboard/admin/roles', roleName, 'permissions']);
   }
 }

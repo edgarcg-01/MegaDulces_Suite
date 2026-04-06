@@ -14,11 +14,12 @@
     <!-- Tabla de Usuarios -->
     <p-table [value]="users()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
-        <tr class="text-[10px] text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
           <th pSortableColumn="username">Usuario <p-sortIcon field="username"></p-sortIcon></th>
           <th pSortableColumn="nombre">Vendedor Asignado <p-sortIcon field="nombre"></p-sortIcon></th>
           <th pSortableColumn="role_name">Rol <p-sortIcon field="role_name"></p-sortIcon></th>
           <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
+          <th class="text-xs text-content-muted uppercase">Jefe Directo</th>
           <th class="text-center">Estado</th>
           <th class="text-center w-28">Acciones</th>
         </tr>
@@ -34,13 +35,16 @@
           <td>
              <span class="text-xs bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
           </td>
+          <td class="text-xs text-content-dim">
+            {{ user.role_name === 'colaborador' ? getSupervisorName(user.supervisor_id) : '-' }}
+          </td>
           <td class="text-center">
             <i class="pi" [ngClass]="user.activo ? 'pi-check-circle text-emerald-500' : 'pi-times-circle text-content-muted'"></i>
           </td>
           <td class="text-center">
             <div class="flex justify-center gap-1">
               <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(user)"></p-button>
-              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteUser(user.id)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteUser(user)"></p-button>
             </div>
           </td>
         </tr>
@@ -53,6 +57,42 @@
         </tr>
       </ng-template>
     </p-table>
+  </div>
+
+  <!-- Mobile Card View -->
+  <div class="lg:hidden space-y-4">
+    <div *ngFor="let user of users()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ user.username }}</span>
+          <h3 class="text-sm font-bold text-content-main">{{ user.nombre }}</h3>
+        </div>
+        <div class="flex gap-1">
+          <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(user)"></p-button>
+          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteUser(user)"></p-button>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-content-muted">Rol:</span>
+          <span class="text-sm font-medium text-content-main">{{ user.role_name }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-content-muted">Zona:</span>
+          <span class="text-xs bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-content-muted">Jefe:</span>
+          <span class="text-sm text-content-dim">{{ getSupervisorName(user.supervisor_id) }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-content-muted">Estado:</span>
+          <span [ngClass]="user.activo ? 'text-green-600' : 'text-red-600'" class="text-sm font-medium">
+            {{ user.activo ? 'Activo' : 'Inactivo' }}
+          </span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -98,8 +138,18 @@
     <!-- Rol -->
     <div class="flex flex-col gap-2">
       <label for="role_name" class="text-xs font-bold text-content-muted">Nivel de Acceso</label>
-      <p-dropdown id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol" 
-                  optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-dropdown>
+      <p-select id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol" 
+                  optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
+    </div>
+
+    <!-- Supervisor (Solo para Colaborador) -->
+    <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300" *ngIf="userForm.get('role_name')?.value === 'colaborador'">
+      <label for="supervisor_id" class="text-xs font-bold text-content-muted">Jefe / Supervisor de Ventas</label>
+      <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe" 
+                  optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
+      <small class="text-red-500" *ngIf="userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched">
+        Debes asignar un supervisor para este colaborador.
+      </small>
     </div>
 
     <!-- Contraseña -->
@@ -116,7 +166,7 @@
     <div class="flex items-center justify-between p-4 bg-surface-ground border border-surface-border rounded-lg">
       <div>
          <div class="text-sm font-bold text-content-main">Estado Activo</div>
-         <div class="text-[10px] text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
+         <div class="text-xs text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
       </div>
       <p-inputSwitch formControlName="activo"></p-inputSwitch>
     </div>
@@ -127,3 +177,5 @@
     </div>
   </form>
 </p-dialog>
+
+<p-toast></p-toast>

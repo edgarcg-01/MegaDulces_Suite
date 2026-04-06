@@ -25,4 +25,12 @@ export class AdminCatalogsService {
   updateItem(type: string, id: string, data: any): Observable<any> {
     return this.http.put<any>(`${this.apiUrl}/${type}/${id}`, data);
   }
+
+  getRolePermissions(roleName: string): Observable<any> {
+    return this.http.get<any>(`${this.apiUrl}/permissions/${roleName}`);
+  }
+
+  updateRolePermissions(roleName: string, permissions: any): Observable<any> {
+    return this.http.put<any>(`${this.apiUrl}/permissions/${roleName}`, permissions);
+  }
 }

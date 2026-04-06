@@ -3,6 +3,7 @@ export interface JwtPayload {
   username: string;
   zona: string;
   rol: string;
+  permissions: Record<string, boolean>; // RBAC v2
   iat: number;
   exp: number;
 }
@@ -17,5 +18,6 @@ export interface User {
   nombre_completo?: string;
   email?: string;
   rol: string;
+  permissions?: Record<string, boolean>;
   activo: boolean;
 }

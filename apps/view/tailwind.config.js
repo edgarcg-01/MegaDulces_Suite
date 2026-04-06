@@ -9,6 +9,10 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
       colors: {
         surface: {
           layout: 'var(--layout-bg)',
@@ -16,11 +20,14 @@ module.exports = {
           sidebar: 'var(--sidebar-bg)',
           hover: 'var(--hover-bg)',
           active: 'var(--active-bg)',
+          ground: 'var(--surface-ground)',
+          border: 'var(--border-color)',
         },
         content: {
           main: 'var(--text-main)',
           muted: 'var(--text-muted)',
           faint: 'var(--text-faint)',
+          disabled: 'var(--text-disabled)',
           active: 'var(--active-text)',
         },
         divider: {

@@ -12,16 +12,25 @@ export class UsersService {
   async create(createUserDto: CreateUserDto) {
     const { password, ...rest } = createUserDto;
     const password_hash = await bcrypt.hash(password, 10);
-    
+
     const [user] = await this.knex('users')
       .insert({ ...rest, password_hash })
-      .returning(['id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'created_at']);
-      
+      .returning([
+        'id',
+        'username',
+        'nombre',
+        'zona',
+        'role_name',
+        'activo',
+        'supervisor_id',
+        'created_at',
+      ]);
+
     return user;
   }
 
   async findAll(zona?: string, activo?: string) {
-    const query = this.knex('users').select('id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'created_at');
+    const query = this.knex('users').select('id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'supervisor_id', 'created_at');
     if (zona) query.where({ zona });
     if (activo) query.where({ activo: activo === 'true' });
     return query;
@@ -30,7 +39,7 @@ export class UsersService {
   async findOne(id: string) {
     const user = await this.knex('users')
       .where({ id })
-      .select('id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'created_at')
+      .select('id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'supervisor_id', 'created_at')
       .first();
 
     if (!user) {
@@ -40,10 +49,26 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
+    const { password, ...rest } = updateUserDto;
+    const updateData: Record<string, any> = { ...rest };
+
+    if (password) {
+      updateData.password_hash = await bcrypt.hash(password, 10);
+    }
+
     const [user] = await this.knex('users')
       .where({ id })
-      .update(updateUserDto)
-      .returning(['id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'created_at']);
+      .update(updateData)
+      .returning([
+        'id',
+        'username',
+        'nombre',
+        'zona',
+        'role_name',
+        'activo',
+        'supervisor_id',
+        'created_at',
+      ]);
 
     if (!user) {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
@@ -62,10 +87,25 @@ export class UsersService {
      return { message: 'El usuario ha sido desactivado (soft delete)' };
   }
 
-  //Roles 
-
   async getRoles() {
-    // Ajusta 'this.knex' según cómo tengas inyectada tu base de datos
     return await this.knex('role_permissions').select('role_name');
+  }
+
+  async findSupervisors(zona?: string) {
+    const query = this.knex('users')
+      .where({ role_name: 'supervisor_v', activo: true })
+      .select('id', 'nombre', 'username', 'zona');
+    
+    if (zona) {
+      query.where({ zona });
+    }
+    
+    return query;
+  }
+
+  async findBySupervisor(supervisorId: string) {
+    return this.knex('users')
+      .where({ supervisor_id: supervisorId, activo: true })
+      .select('id', 'nombre', 'username', 'zona', 'role_name');
   }
 }

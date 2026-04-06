@@ -1,68 +1,56 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormBuilder, FormGroup, Validators, ReactiveFormsModule } from '@angular/forms';
+import {
+  FormBuilder,
+  FormGroup,
+  Validators,
+  ReactiveFormsModule,
+} from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
-import { DropdownModule } from 'primeng/dropdown';
+import { SelectModule } from 'primeng/select';
 import { InputSwitchModule } from 'primeng/inputswitch';
-
-// IMPORTANTE: Asegúrate de que esta ruta apunte a donde guardaste el UsersService
-import { UsersService, User } from './users.service'; 
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { UsersService, User } from './users.service';
 
 @Component({
   selector: 'app-admin-users',
   standalone: true,
   imports: [
-    CommonModule, 
+    CommonModule,
     ReactiveFormsModule,
-    TableModule, 
-    ButtonModule, 
+    TableModule,
+    ButtonModule,
     TagModule,
     DialogModule,
     InputTextModule,
-    DropdownModule,
-    InputSwitchModule
+    SelectModule,
+    InputSwitchModule,
+    ToastModule,
   ],
+  providers: [MessageService],
   templateUrl: './admin-users.component.html',
-  styleUrls: ['./admin-users.component.css']
+  styleUrls: ['./admin-users.component.css'],
 })
 export class AdminUsersComponent implements OnInit {
   private usersService = inject(UsersService);
   private fb = inject(FormBuilder);
+  private messageService = inject(MessageService);
 
-  // Señales de estado
   users = signal<User[]>([]);
   loading = signal<boolean>(true);
   displayDialog = signal<boolean>(false);
   isEditing = signal<boolean>(false);
   currentUserId = signal<string | null>(null);
-  
+
   userForm: FormGroup;
 
-  roles = signal<{label: string, value: string}[]>([]);
-
-  ngOnInit(): void {
-    this.loadRoles(); // 2. Llamamos a los roles al iniciar
-    this.loadUsers();
-  }
-
-  // 3. Agregamos la función que consulta la base de datos
-  loadRoles(): void {
-    this.usersService.getRoles().subscribe({
-      next: (data) => {
-        // Mapeamos los datos de la BD al formato que pide PrimeNG: { label, value }
-        const mappedRoles = data.map(item => ({
-          label: item.role_name.charAt(0).toUpperCase() + item.role_name.slice(1), // Capitaliza la primera letra
-          value: item.role_name
-        }));
-        this.roles.set(mappedRoles);
-      },
-      error: (err) => console.error('Error al cargar los roles de la BD', err)
-    });
-  }
+  roles = signal<{ label: string; value: string }[]>([]);
+  supervisors = signal<{ label: string; value: string }[]>([]);
 
   constructor() {
     this.userForm = this.fb.group({
@@ -71,10 +59,53 @@ export class AdminUsersComponent implements OnInit {
       nombre: [''],
       zona: [''],
       role_name: ['', Validators.required],
-      activo: [true]
+      supervisor_id: [null],
+      activo: [true],
+    });
+
+    this.userForm.get('role_name')?.valueChanges.subscribe((role) => {
+      const supervisorControl = this.userForm.get('supervisor_id');
+      if (role === 'colaborador') {
+        supervisorControl?.setValidators([Validators.required]);
+      } else {
+        supervisorControl?.clearValidators();
+        supervisorControl?.setValue(null);
+      }
+      supervisorControl?.updateValueAndValidity();
     });
   }
 
+  ngOnInit(): void {
+    this.loadRoles();
+    this.loadUsers();
+    this.loadSupervisors();
+  }
+
+  loadRoles(): void {
+    this.usersService.getRoles().subscribe({
+      next: (data: any[]) => {
+        const mappedRoles = data.map((item) => ({
+          label: item.role_name.charAt(0).toUpperCase() + item.role_name.slice(1),
+          value: item.role_name,
+        }));
+        this.roles.set(mappedRoles);
+      },
+      error: (err) => console.error('Error al cargar roles', err),
+    });
+  }
+
+  loadSupervisors(): void {
+    this.usersService.getSupervisors().subscribe({
+      next: (data: any[]) => {
+        const mappedSupers = data.map((s) => ({
+          label: s.nombre || s.username,
+          value: s.id
+        }));
+        this.supervisors.set(mappedSupers);
+      },
+      error: (err) => console.error('Error al cargar supervisores', err),
+    });
+  }
 
   loadUsers(): void {
     this.loading.set(true);
@@ -86,41 +117,36 @@ export class AdminUsersComponent implements OnInit {
       error: (err) => {
         console.error('Error al cargar usuarios', err);
         this.loading.set(false);
-      }
+      },
     });
   }
 
   openNewDialog(): void {
     this.isEditing.set(false);
     this.currentUserId.set(null);
-    this.userForm.reset({ activo: true });
-    
+    this.userForm.reset({ activo: true, role_name: '' });
     this.userForm.get('username')?.enable();
-    // Al crear, la contraseña ES obligatoria
     this.userForm.get('password')?.setValidators([Validators.required, Validators.minLength(6)]);
     this.userForm.get('password')?.updateValueAndValidity();
-    
     this.displayDialog.set(true);
   }
 
   openEditDialog(user: User): void {
     this.isEditing.set(true);
-    this.currentUserId.set(null); // Evita parpadeos
     this.currentUserId.set(user.id);
-    
     this.userForm.get('username')?.disable();
-    // Al editar, la contraseña NO es obligatoria, pero si escribe algo, debe tener al menos 6 caracteres
     this.userForm.get('password')?.clearValidators();
     this.userForm.get('password')?.setValidators([Validators.minLength(6)]);
     this.userForm.get('password')?.updateValueAndValidity();
 
     this.userForm.patchValue({
       username: user.username,
-      password: '', // IMPORTANTE: Siempre lo dejamos en blanco por seguridad
+      password: '',
       nombre: user.nombre,
       zona: user.zona,
       role_name: user.role_name,
-      activo: user.activo
+      supervisor_id: user.supervisor_id,
+      activo: user.activo,
     });
 
     this.displayDialog.set(true);
@@ -128,42 +154,82 @@ export class AdminUsersComponent implements OnInit {
 
   saveUser(): void {
     if (this.userForm.invalid) return;
-
     const formData = this.userForm.getRawValue();
 
     if (this.isEditing() && this.currentUserId()) {
-      // Extraemos username (no se edita)
       const { username, ...updateData } = formData;
-      
-      // Si el campo de password está vacío, lo eliminamos para no borrar la contraseña actual
       if (!updateData.password || updateData.password.trim() === '') {
         delete updateData.password;
       }
-      
       this.usersService.update(this.currentUserId()!, updateData).subscribe({
         next: () => {
           this.displayDialog.set(false);
           this.loadUsers();
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Éxito',
+            detail: 'Usuario actualizado correctamente',
+          });
         },
-        error: (err) => console.error('Error actualizando', err)
+        error: (err) => {
+          console.error('Error actualizando', err);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Error al actualizar usuario',
+          });
+        },
       });
     } else {
       this.usersService.create(formData).subscribe({
         next: () => {
           this.displayDialog.set(false);
           this.loadUsers();
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Éxito',
+            detail: 'Usuario creado correctamente',
+          });
         },
-        error: (err) => console.error('Error creando', err)
+        error: (err) => {
+          console.error('Error creando', err);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Error al crear usuario',
+          });
+        },
       });
     }
   }
 
-  deleteUser(id: string): void {
-    if(confirm('¿Estás seguro de eliminar este usuario?')) {
-      this.usersService.remove(id).subscribe({
-        next: () => this.loadUsers(),
-        error: (err) => console.error('Error eliminando', err)
+  deleteUser(user: User): void {
+    if (!user.id) return;
+    if (confirm('¿Estás seguro de eliminar este usuario?')) {
+      this.usersService.remove(user.id).subscribe({
+        next: () => {
+          this.loadUsers();
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Éxito',
+            detail: 'Usuario eliminado correctamente',
+          });
+        },
+        error: (err) => {
+          console.error('Error eliminando', err);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Error al eliminar usuario',
+          });
+        },
       });
     }
+  }
+
+  getSupervisorName(id: string | undefined): string {
+    if (!id) return 'N/A';
+    const s = this.supervisors().find((x) => x.value === id);
+    return s ? s.label : 'N/A';
   }
 }

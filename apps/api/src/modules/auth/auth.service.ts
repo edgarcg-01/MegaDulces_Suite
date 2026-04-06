@@ -10,6 +10,7 @@ interface JwtPayload {
   username: string;
   zona: string;
   rol: string;
+  permissions: Record<string, boolean>;
 }
 
 @Injectable()
@@ -23,7 +24,7 @@ export class AuthService {
     const { username, password } = loginDto;
 
     const user = await this.knex('users')
-      .where({ username, activo: true })
+      .where({ 'users.username': username, 'users.activo': true })
       .first();
 
     if (!user) {
@@ -35,11 +36,19 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    // Obtener los permisos del rol del usuario
+    const rolePermissions = await this.knex('role_permissions')
+        .where({ role_name: user.role_name })
+        .first();
+
+    const permissions = rolePermissions ? rolePermissions.permissions : {};
+
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
       zona: user.zona,
       rol: user.role_name,
+      permissions: permissions,
     };
 
     return {
@@ -50,6 +59,7 @@ export class AuthService {
         nombre: user.nombre,
         zona: user.zona,
         role: user.role_name,
+        permissions: permissions,
       },
     };
   }

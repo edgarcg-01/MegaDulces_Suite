@@ -55,8 +55,20 @@ export class VisitsService {
     return closedVisit;
   }
 
-  async findAll() {
-    return this.knex('visits').orderBy('checkin_at', 'desc').limit(500);
+  async findAll(user: any) {
+    const query = this.knex('visits').orderBy('checkin_at', 'desc').limit(500);
+
+    if (user.rol === 'colaborador') {
+      query.where('user_id', user.sub);
+    } else if (user.rol === 'supervisor_v') {
+      const subquery = this.knex('users')
+        .select('id')
+        .where('supervisor_id', user.sub)
+        .orWhere('id', user.sub);
+      query.whereIn('user_id', subquery);
+    }
+
+    return query;
   }
 
   async findOne(id: string) {

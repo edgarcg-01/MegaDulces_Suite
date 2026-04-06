@@ -1,0 +1,137 @@
+<div class="p-6 h-full flex flex-col">
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h2 class="text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-2">
+        <i class="pi pi-calendar-clock text-brand text-3xl"></i> Configuración de Semana Estándar
+      </h2>
+      <p class="text-xs font-medium text-content-dim tracking-wide uppercase">Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.</p>
+    </div>
+    <div class="bg-surface-card border border-surface-border px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">
+        <div class="text-xs font-black text-brand uppercase tracking-widest border-r border-surface-border pr-3">Equipos Activos</div>
+        <div class="flex -space-x-2">
+            @for (m of team().slice(0, 5); track m.id) {
+                <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-primary">
+                    {{ m.username.substring(0,1) | uppercase }}
+                </div>
+            }
+            @if (team().length > 5) {
+                <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-content-faint">
+                    +{{ team().length - 5 }}
+                </div>
+            }
+        </div>
+    </div>
+  </div>
+
+  <div class="flex flex-1 gap-6 overflow-hidden min-h-[500px]">
+    <!-- Left: Master / Members -->
+    <div class="w-80 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden">
+      <div class="p-4 border-b border-surface-border bg-surface-ground/30">
+        <div class="relative w-full">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs"></i>
+            <input type="text" pInputText placeholder="Buscar colaborador..." 
+                   class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-surface-border rounded-lg outline-none focus:border-brand transition-all" />
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">
+        @for (member of team(); track member.id) {
+          <div (click)="selectMember(member)"
+               [class.active-member]="selectedMember()?.id === member.id"
+               class="member-card p-3 mb-2 rounded-xl cursor-pointer border border-transparent hover:bg-surface-hover transition-all flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black shadow-sm group-hover:scale-105 transition-transform">
+              {{ member.username.substring(0,2) | uppercase }}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-black text-content-main truncate">{{ member.nombre || member.username }}</div>
+              <div class="text-[9px] font-bold uppercase text-brand tracking-widest">{{ member.zona }}</div>
+            </div>
+            <i class="pi pi-chevron-right text-xs text-content-faint"></i>
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Right: Detail / Weekly View -->
+    <div class="flex-1 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden relative">
+      @if (selectedMember()) {
+        <div class="p-4 border-b border-surface-border bg-gradient-to-r from-surface-ground/50 to-transparent flex justify-between items-center">
+            <div class="text-center">
+              <div class="text-sm font-black text-content-main uppercase tracking-[0.2em]">Semana de Trabajo Repetutiva</div>
+              <div class="flex items-center justify-center gap-2 mt-1">
+                <span class="w-2 h-2 rounded-full bg-brand animate-pulse"></span>
+                <span class="text-[9px] font-black text-brand uppercase tracking-widest">Configuración Maestra</span>
+              </div>
+            </div>
+        </div>
+
+        <!-- Selected Member Summary -->
+        <div class="px-6 py-4 bg-brand/[0.03] border-b border-surface-border flex items-center gap-4">
+            <div class="flex flex-col">
+                <span class="text-xs font-black uppercase tracking-tighter text-content-faint">Gestionando agenda de:</span>
+                <span class="text-lg font-black text-content-main">{{ selectedMember()?.nombre || selectedMember()?.username }}</span>
+            </div>
+            <div class="h-8 w-[1px] bg-surface-border"></div>
+            <div class="flex flex-col">
+                <span class="text-xs font-black uppercase tracking-tighter text-content-faint">Zona de Trabajo:</span>
+                <span class="text-sm font-bold text-brand uppercase tracking-widest">{{ selectedMember()?.zona }}</span>
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            @for (day of days; track day.id) {
+              <div class="day-card bg-surface-ground/20 border border-surface-border rounded-2xl p-4 flex flex-col gap-4 hover:border-brand/30 transition-all"
+                   [class.today-card]="getTodayNumber() === day.id">
+                <div class="flex justify-between items-start pb-3 border-b border-surface-border/50">
+                  <div class="flex flex-col">
+                    <span class="text-[11px] font-black uppercase tracking-[0.2em] text-brand">Día de la Semana</span>
+                    <span class="text-2xl font-black text-content-main">{{ day.label }}</span>
+                  </div>
+                  @if (getTodayNumber() === day.id) {
+                    <div class="bg-brand text-brand-contrast text-[8px] font-black px-2 py-0.5 rounded-full tracking-widest">ESTE DÍA</div>
+                  }
+                </div>
+                
+                <div class="space-y-3">
+                  <div>
+                    <label class="text-[9px] font-black text-content-faint uppercase tracking-widest mb-1 block">Ruta del día</label>
+                    <p-select [options]="routes()" 
+                                [(ngModel)]="weeklyAssignments()[day.id]"
+                                (onChange)="saveAssignment(day.id, $event.value)"
+                                placeholder="SIN RUTA" class="w-full" styleClass="w-full text-xs font-bold rounded-xl"
+                                optionLabel="label" optionValue="value" [filter]="true"></p-select>
+                  </div>
+                </div>
+
+                <div class="mt-auto pt-3 flex items-center justify-between">
+                    @if (weeklyAssignments()[day.id]) {
+                        <div class="flex items-center gap-1.5">
+                            <div class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
+                            <span class="text-[10px] font-black text-content-dim uppercase">Configurada</span>
+                        </div>
+                    } @else {
+                        <div class="flex items-center gap-1.5">
+                            <div class="w-2 h-2 rounded-full bg-warn shadow-[0_0_8px_rgba(234,179,8,0.5)]"></div>
+                            <span class="text-[10px] font-black text-content-dim uppercase italic">Sin Asignar</span>
+                        </div>
+                    }
+                    <p-button icon="pi pi-ellipsis-h" [text]="true" size="small" styleClass="w-6 h-6 p-0 text-content-faint"></p-button>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      } @else {
+        <div class="flex-1 flex flex-col items-center justify-center p-12 bg-[radial-gradient(circle_at_center,_var(--brand-10)_0%,_transparent_70%)]">
+          <div class="w-24 h-24 rounded-3xl bg-brand/5 flex items-center justify-center mb-6 border border-brand/10">
+            <i class="pi pi-users text-4xl text-brand/30"></i>
+          </div>
+          <h3 class="font-black text-2xl text-content-main uppercase tracking-tighter mb-2">Configuración Semanal</h3>
+          <p class="text-xs text-center max-w-sm text-content-dim font-medium leading-relaxed">Selecciona un colaborador del panel lateral para definir su ruta repetitiva por día de la semana.</p>
+        </div>
+      }
+    </div>
+  </div>
+</div>
+
+<p-toast></p-toast>

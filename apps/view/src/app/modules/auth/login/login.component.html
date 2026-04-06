@@ -1,70 +1,121 @@
-<div class="min-h-screen flex items-center justify-center bg-[#f4f4f5] p-4">
+<div class="min-h-screen w-full bg-surface-layout text-content-main font-sans transition-colors duration-300" [class.theme-monochrome]="themeService.isMonochrome()">
 
-  <!-- Main Card -->
-  <div class="bg-white rounded-lg shadow-md border border-[#e4e4e7] p-8 w-full max-w-md">
-    
-    <div class="text-center mb-8">
-      <h1 class="text-3xl font-bold text-[#09090b] tracking-tight">Acceso Operativo</h1>
-      <p class="text-sm text-[#71717a] mt-2">Plataforma de Trade Marketing</p>
-    </div>
-
-    <!-- Error Banner -->
-    <div *ngIf="errorMessage" class="bg-[#fee2e2] border-l-4 border-[#dc2626] text-[#dc2626] p-4 mb-6 rounded-r-md text-sm font-medium">
-      {{ errorMessage }}
-    </div>
-
-    <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="flex flex-col space-y-6 shrink-0">
-      
-      <!-- Username Group -->
-      <div class="flex flex-col space-y-2">
-        <label for="username" class="text-sm font-semibold text-[#09090b]">Usuario</label>
-        <input 
-          id="username" 
-          type="text" 
-          formControlName="username" 
-          placeholder="Ej: ext_jdoe"
-          class="flex h-10 w-full rounded-md border border-[#e4e4e7] bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#a1a1aa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#18181b] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          [ngClass]="{'border-[#dc2626] focus-visible:ring-[#dc2626]': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
-        
-        <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched" class="text-xs text-[#dc2626]">
-          El usuario es requerido.
-        </p>
-      </div>
-
-      <!-- Password Group -->
-      <div class="flex flex-col space-y-2">
-        <div class="flex items-center justify-between">
-          <label for="password" class="text-sm font-semibold text-[#09090b]">Contraseña</label>
-        </div>
-        <input 
-          id="password" 
-          type="password" 
-          formControlName="password" 
-          placeholder="••••••••"
-          class="flex h-10 w-full rounded-md border border-[#e4e4e7] bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#a1a1aa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#18181b] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          [ngClass]="{'border-[#dc2626] focus-visible:ring-[#dc2626]': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
-          
-        <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched" class="text-xs text-[#dc2626]">
-          Mínimo 6 caracteres para la contraseña.
-        </p>
-      </div>
-
-      <!-- Submit Button -->
-      <button 
-        type="submit" 
-        [disabled]="isLoading"
-        class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-[#000000] text-white hover:bg-[#3f3f46] h-10 px-4 py-2 mt-2 w-full">
-        <span *ngIf="isLoading" class="mr-2">
-          <!-- Spinner simple SVG -->
-          <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        </span>
-        {{ isLoading ? 'Verificando...' : 'Iniciar Sesión' }}
-      </button>
-
-    </form>
-    
+  <!-- Background Typography Layer - Changes with Theme -->
+  <div class="absolute inset-0 overflow-hidden pointer-events-none opacity-10 select-none hidden sm:block">
+    <h2 class="text-[20vw] sm:text-[25vw] font-black tracking-tighter leading-none whitespace-nowrap absolute -top-12 -left-12 text-content-main transition-colors duration-300">
+      MEGA
+    </h2>
+    <h2 class="text-[20vw] sm:text-[25vw] font-black tracking-tighter leading-none whitespace-nowrap absolute -bottom-12 -right-12 text-content-main transition-colors duration-300">
+      DULCES
+    </h2>
   </div>
+
+  <!-- Theme Toggle -->
+  <div class="fixed top-4 sm:top-6 right-4 sm:right-6 z-20">
+    <button
+      (click)="toggleTheme()"
+      class="flex items-center gap-2 text-content-muted hover:text-content-main transition-colors group p-2">
+      <span class="text-xs uppercase tracking-widest hidden sm:inline">
+        {{ themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N' }}
+      </span>
+      <i [ngClass]="themeService.isMonochrome() ? 'pi pi-sun' : 'pi pi-moon'" class="text-lg"></i>
+    </button>
+  </div>
+
+  <!-- Main Content -->
+  <div class="relative z-10 w-full h-full flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-12">
+
+    <!-- Brand Section -->
+    <div class="w-full max-w-md text-center mb-8 sm:mb-12">
+      <!-- Logo - Mega Dulces -->
+      <div class="w-36 h-36 sm:w-80 sm:h-80 mx-auto mb-6 sm:mb-8 flex items-center justify-center animate-fade-in">
+        <img
+      src="/assets/logos/mega-dulces-logo.png"
+      alt="Mega Dulces Logo"
+      class="w-full h-full object-contain">
+      </div>
+      <p class="text-xs sm:text-sm tracking-wider uppercase text-content-muted">
+        Portal de Acceso
+      </p>
+    </div>
+
+    <!-- Login Form -->
+    <div class="w-full max-w-sm sm:max-w-md">
+      <div class="bg-surface-card border border-divider backdrop-blur-sm p-6 sm:p-8 rounded-lg sm:rounded-xl shadow-lg">
+
+        <!-- Error Message -->
+        <div *ngIf="errorMessage" class="bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">
+          <div class="flex items-center gap-2">
+            <i class="pi pi-exclamation-circle"></i>
+            <span>{{ errorMessage }}</span>
+          </div>
+        </div>
+
+        <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="space-y-6">
+
+          <!-- Username Input - Centered text -->
+          <div class="relative group">
+            <label for="username" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-accent-brand transition-colors">
+              Usuario
+            </label>
+            <input
+              id="username"
+              type="text"
+              formControlName="username"
+              placeholder="Nombre de usuario"
+              class="w-full bg-transparent border-b-2 border-divider px-0 py-2 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-accent-brand transition-colors placeholder:text-content-faint"
+              [ngClass]="{'border-red-500': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
+            <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
+               class="text-xs text-red-500 mt-1 font-medium">
+              El usuario es requerido
+            </p>
+          </div>
+
+          <!-- Password Input - Centered text -->
+          <div class="relative group">
+            <label for="password" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-accent-brand transition-colors">
+              Contraseña
+            </label>
+            <input
+              id="password"
+              type="password"
+              formControlName="password"
+              placeholder="Mínimo 6 caracteres"
+              class="w-full bg-transparent border-b-2 border-divider px-0 py-2 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-accent-brand transition-colors placeholder:text-content-faint"
+              [ngClass]="{'border-red-500': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
+            <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"
+               class="text-xs text-red-500 mt-1 font-medium">
+              Mínimo 6 caracteres
+            </p>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="pt-2">
+            <button
+              type="submit"
+              [disabled]="isLoading"
+              class="w-full bg-accent-brand hover:bg-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed text-black font-black py-3 px-4 text-sm sm:text-base rounded-lg transition-all duration-200 uppercase tracking-tight">
+              {{ isLoading ? 'Verificando...' : 'Iniciar Sesión' }}
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+
+      <!-- Footer Links -->
+      <div class="mt-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs uppercase tracking-wider text-content-muted">
+        <button class="hover:text-accent-brand transition-colors">
+          Recuperar Acceso
+        </button>
+        <button class="hover:text-accent-brand transition-colors flex items-center gap-1">
+          <i class="pi pi-question text-xs"></i>
+          Soporte
+        </button>
+      </div>
+    </div>
+
+  </div>
+
 </div>
+

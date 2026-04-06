@@ -16,8 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "@api/*": ["apps/api/src/*"],
-      "@view/*": ["apps/view/src/*"],
-      "@shared-models": ["libs/shared-models/src/index.ts"]
+      "@shared-models": ["libs/shared-models/src/index.ts"],
+      "@view/*": ["apps/view/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

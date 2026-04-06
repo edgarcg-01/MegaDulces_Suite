@@ -6,8 +6,9 @@ import { join } from 'path';
 import { json, urlencoded } from 'express';
 
 async function bootstrap() {
-
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
 
   app.enableCors({
     origin: 'http://localhost:4200', // Le damos permiso específico a tu frontend

@@ -41,6 +41,7 @@ export interface VisitaSnapshot {
   horaInicio: string;  // Hora a la que se pulsó Iniciar Visita
   horaFin: string;     // Hora a la que se pulsó Terminar Visita
   capturedBy: string;  // Username autocompletado
+  userId?: string;     // ID del usuario (para filtrado)
   zona?: string;       // Zona autocompletada
   exhibiciones: RegistroExhibicion[];
   stats: {

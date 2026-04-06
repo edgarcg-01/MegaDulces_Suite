@@ -13,6 +13,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { StoresModule } from './modules/stores/stores.module';
 import { VisitsModule } from './modules/visits/visits.module';
 import { ExhibitionsModule } from './modules/exhibitions/exhibitions.module';
+import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assignments.module';
 
 @Module({
   imports: [
@@ -27,7 +28,8 @@ import { ExhibitionsModule } from './modules/exhibitions/exhibitions.module';
     ReportsModule,
     StoresModule,
     VisitsModule,
-    ExhibitionsModule
+    ExhibitionsModule,
+    DailyAssignmentsModule
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -22,3 +22,156 @@
   --active-bg: #ffffff;
   --active-text: #000000;
 }
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  :host aside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 50;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  }
+
+  :host .main-content {
+    margin-left: 0;
+  }
+
+  /* Ensure main content has proper spacing on tablets */
+  :host main {
+    padding: 0 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  :host header {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  :host aside {
+    width: 280px !important;
+  }
+
+  /* Mobile navigation adjustments */
+  :host nav {
+    padding: 0.5rem;
+  }
+
+  :host .nav-item {
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  /* Mobile main content adjustments */
+  :host main {
+    padding: 0 0.5rem;
+  }
+
+  /* Mobile table adjustments */
+  :host ::ng-deep .p-datatable-responsive {
+    font-size: 0.8rem;
+    margin: 0 -0.5rem;
+  }
+
+  :host ::ng-deep .p-datatable .p-datatable-tbody > tr > td {
+    padding: 0.5rem;
+  }
+
+  :host ::ng-deep .p-datatable .p-datatable-thead > tr > th {
+    padding: 0.5rem;
+  }
+
+  /* Mobile card spacing */
+  :host ::ng-deep .p-6 {
+    padding: 1rem !important;
+  }
+
+  :host ::ng-deep .mb-6 {
+    margin-bottom: 1rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  :host aside {
+    width: 100vw !important;
+  }
+
+  :host header {
+    height: 3.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  :host .user-info {
+    display: none;
+  }
+
+  /* Mobile main content */
+  :host main {
+    padding: 0 0.25rem;
+  }
+
+  /* Mobile card adjustments */
+  :host .card-premium {
+    padding: 0.75rem;
+  }
+
+  :host .stat-value {
+    font-size: 1.25rem;
+  }
+
+  /* Mobile button adjustments */
+  :host ::ng-deep .p-button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  /* Mobile table extreme adjustments */
+  :host ::ng-deep .p-datatable-responsive {
+    font-size: 0.75rem;
+    margin: 0 -0.25rem;
+  }
+
+  :host ::ng-deep .p-datatable .p-datatable-tbody > tr > td,
+  :host ::ng-deep .p-datatable .p-datatable-thead > tr > th {
+    padding: 0.375rem 0.5rem;
+  }
+
+  /* Hide breadcrumbs on very small screens */
+  :host nav {
+    display: none;
+  }
+}
+
+/* Mobile Menu Overlay */
+.mobile-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+}
+
+/* Smooth transitions for mobile */
+@media (max-width: 1024px) {
+  :host aside {
+    transition: transform 0.3s ease-in-out;
+  }
+
+  :host .mobile-overlay {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

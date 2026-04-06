@@ -19,7 +19,7 @@
         <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('pesos_posicion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
-        <p class="text-[10px] text-content-dim italic mb-2">Define el valor base según la visibilidad de la ubicación en la tienda.</p>
+        <p class="text-xs text-content-dim italic mb-2">Define el valor base según la visibilidad de la ubicación en la tienda.</p>
         <div *ngFor="let key of objectKeys(config().pesos_posicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
           <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
           <div class="flex items-center gap-2">
@@ -37,7 +37,7 @@
         <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('tipos_exhibicion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
-        <p class="text-[10px] text-content-dim italic mb-2">Multiplicador basado en el tipo de mueble o material instalado.</p>
+        <p class="text-xs text-content-dim italic mb-2">Multiplicador basado en el tipo de mueble o material instalado.</p>
         <div *ngFor="let key of objectKeys(config().tipos_exhibicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
           <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
           <div class="flex items-center gap-2">

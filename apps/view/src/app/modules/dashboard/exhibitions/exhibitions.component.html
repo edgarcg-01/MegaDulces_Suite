@@ -5,7 +5,7 @@
       <p class="text-sm text-content-dim">Consulta visual del despliegue de POP y armados.</p>
     </div>
     <div class="flex gap-2">
-      <p-button label="Descargar ZIP" icon="pi pi-download" severity="secondary" [outlined]="true"></p-button>
+      <p-button label="Descargar ZIP" icon="pi pi-download" severity="secondary" [outlined]="true" pTooltip="Descarga todas las evidencias en un archivo ZIP" tooltipPosition="top"></p-button>
     </div>
   </div>
 
@@ -13,7 +13,12 @@
     <div class="w-16 h-16 rounded-full bg-surface-ground border border-surface-border flex items-center justify-center mx-auto mb-4 text-purple-500">
       <i class="pi pi-images text-2xl"></i>
     </div>
-    <h3 class="font-bold text-lg text-content-main">Evidencia Fotográfica Central</h3>
-    <p class="text-sm">El muro de galerías en tiempo real estará disponible pronto y se vinculará a la base de Azure Blob Storage.</p>
+    <h3 class="font-bold text-lg text-content-main mb-2">Evidencia Fotográfica Central</h3>
+    <p class="text-sm mb-4">El muro de galerías en tiempo real estará disponible pronto y se vinculará a la base de Azure Blob Storage.</p>
+    <div class="flex justify-center gap-2 text-xs text-content-dim">
+      <span class="px-2 py-1 bg-surface-ground rounded"> Galería de Fotos</span>
+      <span class="px-2 py-1 bg-surface-ground rounded"> Etiquetas Automáticas</span>
+      <span class="px-2 py-1 bg-surface-ground rounded"> Azure Storage</span>
+    </div>
   </div>
 </div>

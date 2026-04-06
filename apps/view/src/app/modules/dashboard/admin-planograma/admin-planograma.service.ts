@@ -8,8 +8,8 @@ import { environment } from '../../../../environments/environment';
 })
 export class AdminPlanogramaService {
   private http = inject(HttpClient);
-  private apiUrl = `${environment.apiUrl}/planograma/brands`;
-  private productsUrl = `${environment.apiUrl}/planograma/products`;
+  private apiUrl = `${environment.apiUrl}/planograms/brands`;
+  private productsUrl = `${environment.apiUrl}/planograms/products`;
 
   getBrands(): Observable<any[]> {
     return this.http.get<any[]>(this.apiUrl);

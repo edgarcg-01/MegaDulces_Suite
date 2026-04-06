@@ -4,7 +4,7 @@ import { environment } from '../../../environments/environment';
 import { tap } from 'rxjs/operators';
 import { Observable } from 'rxjs';
 import { JwtPayload, LoginResponse } from '@shared-models';
-
+import { Permission } from '../constants/permissions';
 
 @Injectable({
   providedIn: 'root'
@@ -15,6 +15,7 @@ export class AuthService {
   // Estado central usando Signals
   public token = signal<string | null>(null);
   public user = signal<JwtPayload | null>(null);
+  public permissions = signal<Record<string, boolean>>({});
 
   constructor(private http: HttpClient) {
     this.restoreSessionFromCookie();
@@ -31,6 +32,10 @@ export class AuthService {
     return !!this.token();
   }
 
+  public hasPermission(key: Permission | string): boolean {
+    return this.permissions()[key] === true;
+  }
+
   login(credentials: { username: string; password: string }): Observable<LoginResponse> {
     return this.http.post<LoginResponse>(`${this.apiUrl}/auth/login`, credentials).pipe(
       tap(response => {
@@ -42,6 +47,7 @@ export class AuthService {
   logout(): void {
     this.token.set(null);
     this.user.set(null);
+    this.permissions.set({});
     document.cookie = "auth_token=; max-age=0; path=/; SameSite=Lax;";
   }
 
@@ -54,6 +60,7 @@ export class AuthService {
       
       this.token.set(token);
       this.user.set(payload);
+      this.permissions.set(payload.permissions || {});
 
       if (writeCookie) {
         // 12 hours = 43200 seconds

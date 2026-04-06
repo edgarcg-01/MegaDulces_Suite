@@ -1,18 +1,38 @@
 <div class="flex h-screen bg-surface-layout overflow-hidden transition-colors duration-300" [class.theme-monochrome]="themeService.isMonochrome()">
 
+  <!-- Mobile Overlay -->
+  <div
+    *ngIf="sidebarOpen() && isMobile()"
+    class="fixed inset-0 bg-black/50 z-40 lg:hidden"
+    (click)="closeSidebar()">
+  </div>
+
   <!-- Sidebar -->
   <aside
-    class="flex flex-col bg-surface-sidebar border-r border-divider transition-all duration-300 shrink-0"
-    [ngClass]="sidebarCollapsed() ? 'w-16' : 'w-64'">
+    class="fixed lg:static inset-y-0 left-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider transition-all duration-300 shrink-0 shadow-xl lg:shadow-none"
+    [ngClass]="{
+      'w-64': sidebarOpen(),
+      'w-16': sidebarCollapsed() && !isMobile(),
+      '-translate-x-full lg:translate-x-0': !sidebarOpen() && isMobile()
+    }">
 
     <!-- Header -->
     <div class="flex items-center justify-between px-4 h-14 border-b border-divider">
-      <span *ngIf="!sidebarCollapsed()" class="text-sm font-bold text-content-main truncate">Trade Marketing</span>
-      <button
-        (click)="toggleSidebar()"
-        class="p-1.5 rounded-md hover:bg-surface-hover transition-colors text-content-muted">
-        <i [ngClass]="sidebarCollapsed() ? 'pi pi-angle-right' : 'pi pi-angle-left'" class="text-sm"></i>
-      </button>
+      <span *ngIf="!sidebarCollapsed() || isMobile()" class="text-sm font-bold text-content-main truncate">Trade Marketing</span>
+      <div class="flex items-center gap-2">
+        <button
+          *ngIf="isMobile()"
+          (click)="closeSidebar()"
+          class="p-1.5 rounded-full hover:bg-surface-hover transition-colors text-content-muted lg:hidden">
+          <i class="pi pi-times text-sm"></i>
+        </button>
+        <button
+          *ngIf="!isMobile()"
+          (click)="toggleSidebar()"
+          class="p-1.5 rounded-full hover:bg-surface-hover transition-colors text-content-muted">
+          <i [ngClass]="sidebarCollapsed() ? 'pi pi-angle-right' : 'pi pi-angle-left'" class="text-sm"></i>
+        </button>
+      </div>
     </div>
 
     <!-- Navigation -->
@@ -22,12 +42,12 @@
       <div class="px-3 mb-6">
         <p *ngIf="!sidebarCollapsed()" class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2">Operaciones</p>
         <ul class="space-y-1">
-          <li *ngFor="let item of navItems">
+          <li *ngFor="let item of navItems()">
             <button
               (click)="navigateTo(item.route)"
-              class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium transition-colors relative"
+              class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors relative"
               [ngClass]="isActive(item.route)
-                ? 'bg-surface-active text-content-active border-l-4 border-brand rounded-l-none'
+                ? 'bg-surface-active text-content-active border-l-4 border-brand rounded-xl'
                 : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
               [title]="item.label">
               <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm"></i>
@@ -41,12 +61,12 @@
       <div class="px-3">
         <p *ngIf="!sidebarCollapsed()" class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2">Administración</p>
         <ul class="space-y-1">
-          <li *ngFor="let item of adminItems">
+          <li *ngFor="let item of adminItems()">
             <button
               (click)="navigateTo(item.route)"
-              class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium transition-colors relative"
+              class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors relative"
               [ngClass]="isActive(item.route)
-                ? 'bg-surface-active text-content-active border-l-4 border-brand rounded-l-none'
+                ? 'bg-surface-active text-content-active border-l-4 border-brand rounded-xl'
                 : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
               [title]="item.label">
               <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm"></i>
@@ -62,7 +82,7 @@
     <div class="border-t border-divider p-3 space-y-1">
       <button
         (click)="goToProjects()"
-        class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
+        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
         title="Cambiar proyecto">
         <i class="pi pi-arrow-right-arrow-left shrink-0 w-8 text-center text-sm"></i>
         <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">Proyectos</span>
@@ -71,7 +91,7 @@
       <!-- Theme Toggle -->
       <button
         (click)="themeService.toggleMonochrome()"
-        class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium transition-colors"
+        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors"
         [ngClass]="themeService.isMonochrome() 
           ? 'bg-surface-active text-content-active' 
           : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
@@ -84,7 +104,7 @@
 
       <button
         (click)="logout()"
-        class="flex items-center w-full px-2 py-2 rounded-md text-sm font-medium text-[#dc2626] hover:bg-rose-500/10 transition-colors"
+        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium text-[#dc2626] hover:bg-rose-500/10 transition-colors"
         title="Cerrar sesión">
         <i class="pi pi-sign-out shrink-0 w-8 text-center text-sm"></i>
         <span *ngIf="!sidebarCollapsed()" class="ml-1 truncate">Cerrar Sesión</span>
@@ -94,23 +114,42 @@
   </aside>
 
   <!-- Main Content -->
-  <div class="flex-1 flex flex-col overflow-hidden">
+  <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
 
     <!-- Top Bar -->
-    <header class="h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-6 shrink-0 transition-colors duration-300">
-      <div>
-        <h2 class="text-sm font-bold text-content-main">Proyecto Trade Marketing</h2>
-      </div>
+    <header class="h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-4 lg:px-6 shrink-0 transition-colors duration-300">
+
+      <!-- Mobile Menu Button -->
+      <button
+        (click)="openSidebar()"
+        class="lg:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted">
+        <i class="pi pi-bars text-lg"></i>
+      </button>
+
+      <!-- Spacer for mobile -->
+      <div class="lg:hidden"></div>
+
       <div class="flex items-center gap-3">
+        <!-- Loading Indicator -->
+        <div *ngIf="loading()" class="flex items-center gap-2 text-xs text-content-muted">
+          <i class="pi pi-spin pi-spinner text-sm"></i>
+          <span>Cargando...</span>
+        </div>
+
         <div class="text-right">
           <p class="text-sm font-semibold text-content-main">{{ user()?.username }}</p>
-          <p class="text-[10px] text-content-muted uppercase tracking-wider">{{ user()?.rol }} · {{ user()?.zona }}</p>
+          <p class="text-xs text-content-muted uppercase tracking-wider">{{ user()?.rol }} · {{ user()?.zona }}</p>
         </div>
         <div class="h-8 w-8 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-bold uppercase transition-colors">
           {{ user()?.username?.charAt(0) }}
         </div>
       </div>
     </header>
+
+    <!-- Breadcrumbs -->
+    <nav class="px-6 py-2 bg-surface-card border-b border-divider text-xs text-content-muted">
+      <span>Dashboard</span> <span class="mx-2">/</span> <span class="text-content-main font-medium">{{ getCurrentPageTitle() }}</span>
+    </nav>
 
     <!-- Page Content -->
     <main class="flex-1 overflow-y-auto w-full h-full bg-surface-layout">

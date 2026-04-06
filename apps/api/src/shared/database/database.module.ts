@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import knex from 'knex';
-import knexConfig from '../../../../../database/knexfile';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+// @ts-ignore
+const knexConfig = require('../../../../../database/knexfile.js');
 
 export const KNEX_CONNECTION = 'KNEX_CONNECTION';
 

@@ -43,6 +43,7 @@
     "@primeng/themes": "^21.0.4",
     "bcryptjs": "^3.0.3",
     "chart.js": "^4.5.1",
+    "date-fns": "^4.1.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "knex": "^3.2.7",

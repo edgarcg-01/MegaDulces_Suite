@@ -12,6 +12,8 @@ import { AdminUsersComponent } from './modules/dashboard/admin-users/admin-users
 import { AdminCatalogsComponent } from './modules/dashboard/admin-catalogs/admin-catalogs.component';
 import { AdminPlanogramaComponent } from './modules/dashboard/admin-planograma/admin-planograma.component';
 import { AdminScoringComponent } from './modules/dashboard/admin-scoring/admin-scoring.component';
+import { AdminRolesPermissionsComponent } from './modules/dashboard/admin-roles/admin-roles-permissions.component';
+import { DailyAssignmentsComponent } from './modules/dashboard/daily-assignments/daily-assignments.component';
 import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
@@ -37,7 +39,9 @@ export const routes: Routes = [
       { path: 'exhibitions', component: ExhibitionsComponent },
       { path: 'admin/users', component: AdminUsersComponent },
       { path: 'admin/catalogs/:type', component: AdminCatalogsComponent },
+      { path: 'admin/roles/:role_name/permissions', component: AdminRolesPermissionsComponent },
       { path: 'admin/planograma', component: AdminPlanogramaComponent },
+      { path: 'daily-assignments', component: DailyAssignmentsComponent },
     ]
   },
   {

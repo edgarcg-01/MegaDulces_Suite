@@ -16,7 +16,7 @@ export class DailyCapturesService {
     }
 
     // Procesar fotos Base64 convirtiéndolas a archivos .jpg y extrayendo URL
-    const processedExhibiciones = dto.exhibiciones.map(ex => {
+    const processedExhibiciones = dto.exhibiciones.map((ex) => {
        if (ex.fotoBase64) {
           const matches = ex.fotoBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
           if (matches && matches.length === 3) {
@@ -45,8 +45,8 @@ export class DailyCapturesService {
         hora_fin: dto.horaFin,
         exhibiciones: JSON.stringify(processedExhibiciones),
         stats: JSON.stringify(dto.stats),
-        latitud: dto.latitud,
-        longitud: dto.longitud
+        latitud: Number(dto.latitud),
+        longitud: Number(dto.longitud),
       })
       .returning('*');
 

@@ -13,10 +13,10 @@
   </div>
 
   <!-- Tabla de Ítems -->
-  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
+  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden hidden lg:block">
     <p-table [value]="items()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
-        <tr class="text-[10px] text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
           <th style="width: 10%">Orden</th>
           <th>Valor / Nombre</th>
           <th *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones'">Puntuación</th>
@@ -39,6 +39,9 @@
           </td>
           <td class="text-center">
             <div class="flex justify-center gap-1">
+              @if (selectedType() === 'roles') {
+                <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+              }
               <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
               <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
             </div>
@@ -53,6 +56,37 @@
         </tr>
       </ng-template>
     </p-table>
+  </div>
+
+  <!-- Mobile Card View -->
+  <div class="lg:hidden space-y-4">
+    <div *ngFor="let item of items()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>
+          <h3 class="text-sm font-bold text-content-main">{{ item.value }}</h3>
+        </div>
+        <div class="flex gap-1">
+          @if (selectedType() === 'roles') {
+            <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+          }
+          <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
+          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="flex items-center gap-2">
+          <span class="text-xs text-content-muted">Puntuación:</span>
+          <span class="text-sm font-bold text-emerald-600">{{ item.puntuacion }} pts</span>
+        </div>
+        <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'" class="flex items-center gap-2">
+          <span class="text-xs text-content-muted">Icono:</span>
+          <div class="w-6 h-6 rounded bg-surface-layout border border-divider flex items-center justify-center text-content-faint">
+            <i [class]="item.icono || 'pi pi-tag'" class="text-xs"></i>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -71,7 +105,14 @@
       </div>
       <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="flex flex-col gap-2">
         <label class="text-xs font-bold text-content-muted">Puntuación</label>
-        <p-inputNumber [(ngModel)]="newItemScore"></p-inputNumber>
+        <p-inputNumber 
+          [(ngModel)]="newItemScore"
+          [step]="0.1"
+          mode="decimal"
+          [minFractionDigits]="0"
+          [maxFractionDigits]="2"
+          class="w-full">
+        </p-inputNumber>
       </div>
     </div>
 
@@ -79,7 +120,7 @@
       <label class="text-xs font-bold text-content-muted font-mono">Icono (PrimeIcon)</label>
       <input pInputText [(ngModel)]="newItemIcon" placeholder="Ej: pi pi-star" />
       <div class="mt-1 flex items-center gap-2 px-3 py-2 bg-surface-ground border border-divider rounded-lg">
-        <span class="text-[10px] text-content-faint uppercase font-bold">Vista previa:</span>
+        <span class="text-xs text-content-faint uppercase font-bold">Vista previa:</span>
         <i [class]="newItemIcon || 'pi pi-question-circle'" class="text-brand"></i>
       </div>
     </div>
@@ -89,3 +130,5 @@
     <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveItem()" styleClass="p-button-brand"></p-button>
   </ng-template>
 </p-dialog>
+
+<p-toast></p-toast>

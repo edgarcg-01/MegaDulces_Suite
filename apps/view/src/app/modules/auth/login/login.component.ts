@@ -1,7 +1,8 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
+import { ThemeService } from '../../../core/services/theme.service';
 import { Router } from '@angular/router';
 
 @Component({
@@ -11,10 +12,11 @@ import { Router } from '@angular/router';
   templateUrl: './login.component.html',
   styleUrls: ['./login.component.css']
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
   private router = inject(Router);
+  public themeService = inject(ThemeService);
 
   loginForm = this.fb.group({
     username: ['', [Validators.required]],
@@ -23,6 +25,14 @@ export class LoginComponent {
 
   errorMessage: string | null = null;
   isLoading = false;
+
+  ngOnInit() {
+    // Theme is managed globally by ThemeService
+  }
+
+  toggleTheme() {
+    this.themeService.toggleMonochrome();
+  }
 
   onSubmit() {
     if (this.loginForm.invalid) {
@@ -48,9 +58,9 @@ export class LoginComponent {
       error: (err) => {
         this.isLoading = false;
         if (err.status === 401) {
-          this.errorMessage = 'Credenciales no válidas, verifique su usuario o contraseña.';
+          this.errorMessage = 'Credenciales incorrectas. Verifica tu usuario y contraseña.';
         } else {
-          this.errorMessage = 'Ocurrió un error inesperado al contactar al servidor.';
+          this.errorMessage = 'Error de conexión. Inténtalo de nuevo.';
         }
       }
     });

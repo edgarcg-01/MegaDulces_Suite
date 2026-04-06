@@ -15,4 +15,7 @@ export class UpdateUserDto {
 
   @ApiProperty({ description: 'Estado activo o inactivo', required: false })
   activo?: boolean;
+
+  @ApiProperty({ description: 'ID del supervisor', required: false })
+  supervisor_id?: string;
 }

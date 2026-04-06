@@ -1,0 +1,224 @@
+/* Modern table styling */
+:host ::ng-deep .p-datatable-modern {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-datatable-thead > tr > th {
+  background: var(--surface-ground) !important;
+  color: var(--text-faint) !important;
+  border-color: var(--border-color) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 0.625rem !important;
+  letter-spacing: 0.05em !important;
+  padding: 0.75rem 1rem !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-datatable-tbody > tr {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+  transition: background-color 0.2s ease !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg) !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+  padding: 1rem !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page {
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+  background: var(--card-bg) !important;
+  min-width: 2.5rem !important;
+  height: 2.5rem !important;
+  border-radius: 0.5rem !important;
+  margin: 0 0.125rem !important;
+  transition: all 0.2s ease !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+:host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
+  background: var(--accent-brand) !important;
+  color: white !important;
+  border-color: var(--accent-brand) !important;
+}
+
+/* Modern button styles */
+:host ::ng-deep .p-button-modern {
+  border-radius: 0.75rem !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  padding: 0.625rem 1rem !important;
+  transition: all 0.2s ease !important;
+  border: 1px solid var(--border-color, #e5e7eb) !important;
+  background: var(--card-bg, #ffffff) !important;
+  color: var(--text-main, #111827) !important;
+}
+
+:host ::ng-deep .p-button-modern:hover {
+  background: var(--hover-bg, #f9fafb) !important;
+  border-color: var(--accent-brand, #3b82f6) !important;
+  color: var(--accent-brand, #3b82f6) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+:host ::ng-deep .p-button-modern.p-button-brand {
+  background: var(--accent-brand, #3b82f6) !important;
+  color: white !important;
+  border-color: var(--accent-brand, #3b82f6) !important;
+}
+
+:host ::ng-deep .p-button-modern.p-button-brand:hover {
+  background: var(--accent-brand-hover, #2563eb) !important;
+  border-color: var(--accent-brand-hover, #2563eb) !important;
+  color: white !important;
+}
+
+:host ::ng-deep .p-button-ghost {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--text-muted, #6b7280) !important;
+}
+
+:host ::ng-deep .p-button-ghost:hover {
+  background: var(--hover-bg, #f9fafb) !important;
+  border-color: var(--border-color, #e5e7eb) !important;
+  color: var(--text-main, #111827) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Dark mode support for buttons */
+.theme-monochrome :host ::ng-deep .p-button-modern {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-button-modern:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-button-ghost {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-button-ghost:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* Modern styling for Metrics and Records tabs */
+:host ::ng-deep .p-tabs,
+:host ::ng-deep .p-tabs.p-component {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tablist,
+:host ::ng-deep .p-tablist.p-component {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid var(--border-color, #e5e7eb) !important;
+  padding: 0 !important;
+  margin-bottom: 1.5rem !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tablist-content {
+  background: transparent !important;
+}
+
+:host ::ng-deep .p-tablist-tab-list {
+  display: flex !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+:host ::ng-deep .p-tab,
+:host ::ng-deep .p-tab.p-component,
+:host ::ng-deep .p-tab.p-ripple {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 1.5rem !important;
+  margin: 0 !important;
+  position: relative !important;
+  transition: all 0.2s ease !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  color: var(--text-muted, #6b7280) !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  outline: none !important;
+  text-decoration: none !important;
+}
+
+:host ::ng-deep .p-tab:hover,
+:host ::ng-deep .p-tab.p-component:hover,
+:host ::ng-deep .p-tab.p-ripple:hover {
+  background: transparent !important;
+  color: var(--text-main, #111827) !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tab.p-tab-active,
+:host ::ng-deep .p-tab.p-component.p-tab-active,
+:host ::ng-deep .p-tab.p-ripple.p-tab-active {
+  background: transparent !important;
+  color: var(--accent-brand, #3b82f6) !important;
+  border-bottom: 3px solid var(--accent-brand, #3b82f6) !important;
+  margin-bottom: -2px !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tabpanels,
+:host ::ng-deep .p-tabpanels.p-component {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .p-tabpanel,
+:host ::ng-deep .p-tabpanel.p-component {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Dark mode support for tabs */
+.theme-monochrome :host ::ng-deep .p-tablist {
+  border-bottom-color: var(--border-color) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-tab {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-tab:hover {
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome :host ::ng-deep .p-tab.p-tab-active {
+  color: var(--accent-brand) !important;
+  border-bottom-color: var(--accent-brand) !important;
+}

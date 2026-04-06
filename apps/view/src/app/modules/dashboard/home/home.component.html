@@ -3,11 +3,11 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div>
             <h1 class="title-premium">Dashboard Estratégico</h1>
-            <p class="text-[14px] text-content-muted opacity-80 mt-2">Visión avanzada y métricas de campo en tiempo real</p>
+            <p class="text-sm text-content-muted opacity-80 mt-2">Visión avanzada y métricas de campo en tiempo real</p>
         </div>
         <div class="flex items-center gap-4">
             <p-button icon="pi pi-refresh" [text]="true" severity="secondary" (click)="loadDashboardData()" [loading]="loading()" />
-            <p-button label="Configurar Metas" icon="pi pi-cog" styleClass="p-button-brand" size="small" />
+            <p-button label="Configurar Metas" icon="pi pi-cog" styleClass="p-button-brand" size="small" (click)="openMetasDialog()" />
         </div>
     </div>
 
@@ -24,7 +24,7 @@
                  [style.animation-delay]="i * 0.1 + 's'">
                 <div class="flex items-center justify-between mb-4">
                     <div class="stat-label">{{ kpi.label }}</div>
-                    <div class="text-[11px] font-black tracking-widest uppercase" [class]="kpi.color">{{ kpi.trend }}</div>
+                    <div class="text-xs font-black tracking-widest uppercase" [class]="kpi.color">{{ kpi.trend }}</div>
                 </div>
                 <div class="flex items-end justify-between">
                     <div class="stat-value">{{ kpi.value }}</div>
@@ -47,7 +47,7 @@
                 <div class="flex items-center justify-between mb-8">
                     <h3 class="stat-label">Evaluación de Ejecución Semanal</h3>
                     <div class="flex items-center gap-3">
-                        <div class="flex items-center gap-2 text-[10px] text-content-muted font-bold uppercase tracking-tighter">
+                        <div class="flex items-center gap-2 text-xs text-content-muted font-bold uppercase tracking-tighter">
                             <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span> Score Compliance
                         </div>
                     </div>
@@ -62,13 +62,13 @@
             <div class="card-premium">
                 <div class="flex items-center justify-between mb-8 pb-4 border-b border-divider">
                     <h3 class="stat-label">Desglose de Auditoría por Mobiliario</h3>
-                    <span class="text-[10px] font-black text-content-faint">Objetivo v2.4</span>
+                    <span class="text-xs font-black text-content-faint">Objetivo v2.4</span>
                 </div>
                 
                 <div class="overflow-x-auto">
                     <table class="w-full border-collapse">
                         <thead>
-                            <tr class="text-[10px] text-content-muted font-black uppercase text-left border-b border-transparent">
+                            <tr class="text-xs text-content-muted font-black uppercase text-left border-b border-transparent">
                                 <th class="pb-4">Activo Fijo</th>
                                 <th class="pb-4 text-center">Realizado</th>
                                 <th class="pb-4 text-center">Referencia</th>
@@ -95,7 +95,7 @@
                                                  [ngClass]="kpi.pct >= 90 ? 'bg-blue-600' : (kpi.pct >= 70 ? 'bg-amber-400' : 'bg-rose-500')">
                                             </div>
                                         </div>
-                                        <span class="text-[11px] font-mono font-black w-8 text-right">{{ kpi.pct }}%</span>
+                                        <span class="text-xs font-mono font-black w-8 text-right">{{ kpi.pct }}%</span>
                                     </div>
                                 </td>
                             </tr>
@@ -117,22 +117,22 @@
                 
                 <div class="space-y-6">
                     <div class="p-6 border border-white/10 rounded-2xl bg-white/5">
-                        <p class="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-2">Mejor Ejecutivo</p>
+                        <p class="text-xs uppercase font-black tracking-widest text-zinc-500 mb-2">Mejor Ejecutivo</p>
                         <h4 class="text-xl font-extrabold tracking-tighter text-white">{{ summary()?.mejor_ejecutivo || 'N/A' }}</h4>
-                        <p class="text-[10px] text-zinc-500 mt-1">Líder en puntuación promedio</p>
+                        <p class="text-xs text-zinc-500 mt-1">Líder en puntuación promedio</p>
                     </div>
 
                     <div class="p-6 border border-white/10 rounded-2xl bg-white/5">
-                        <p class="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-2">Estado de Base Instalada</p>
+                        <p class="text-xs uppercase font-black tracking-widest text-zinc-500 mb-2">Estado de Base Instalada</p>
                         <div class="flex items-end gap-2">
                             <span class="text-4xl font-extrabold tracking-tighter">{{ summary()?.total_fotos }}</span>
-                            <span class="text-[10px] text-zinc-500 mb-2 font-bold">Evidencias Verificadas</span>
+                            <span class="text-xs text-zinc-500 mb-2 font-bold">Evidencias Verificadas</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="mt-10 pt-6 border-t border-white/10 flex items-center justify-between">
-                    <span class="text-[10px] font-mono font-black text-zinc-500 uppercase tracking-tighter">Sincronización v2.5</span>
+                    <span class="text-xs font-mono font-black text-zinc-500 uppercase tracking-tighter">Sincronización v2.5</span>
                     <i class="pi pi-shield text-zinc-500"></i>
                 </div>
             </div>
@@ -150,7 +150,7 @@
                             </div>
                             <span class="text-xs font-black text-content-main tracking-tight">{{ action.label }}</span>
                         </div>
-                        <i class="pi pi-chevron-right text-[10px] text-content-faint group-hover:translate-x-1 transition-transform"></i>
+                        <i class="pi pi-chevron-right text-xs text-content-faint group-hover:translate-x-1 transition-transform"></i>
                     </a>
                 </div>
             </div>
@@ -164,16 +164,16 @@
                 
                 <div class="space-y-6">
                     <div *ngFor="let cap of recentCaptures()" class="flex items-start gap-4 hover:translate-x-1 transition-transform cursor-pointer">
-                        <div class="h-10 w-10 shrink-0 rounded-full bg-surface-active text-content-active flex items-center justify-center text-[10px] font-black uppercase ring-4 ring-surface-layout transition-colors">
+                        <div class="h-10 w-10 shrink-0 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-black uppercase ring-4 ring-surface-layout transition-colors">
                             {{ cap.captured_by_username?.charAt(0) }}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between gap-2 mb-1">
-                                <span class="text-[10px] font-black tracking-widest text-content-main truncate">{{ cap.captured_by_username }}</span>
+                                <span class="text-xs font-black tracking-widest text-content-main truncate">{{ cap.captured_by_username }}</span>
                                 <span class="text-[9px] font-mono text-content-faint">{{ cap.fechaCaptura | date:'shortTime' }}</span>
                             </div>
                             <div class="flex items-center justify-between">
-                                <span class="text-[10px] text-content-muted uppercase tracking-tighter">{{ cap.zona_captura }}</span>
+                                <span class="text-xs text-content-muted uppercase tracking-tighter">{{ cap.zona_captura }}</span>
                                 <span class="text-xs font-black" [class]="cap.stats?.puntuacionTotal >= 80 ? 'text-blue-600' : 'text-rose-500'">{{ cap.stats?.puntuacionTotal }}%</span>
                             </div>
                         </div>
@@ -184,3 +184,159 @@
         </div>
     </div>
 </div>
+
+<!-- Metas Configuration Dialog -->
+<p-dialog 
+    header="Configurar Metas de Mobiliario" 
+    [(visible)]="showMetasDialog" 
+    [modal]="true" 
+    [style]="{width: '500px'}"
+    [draggable]="false"
+    [resizable]="false"
+    [contentStyle]="{padding: '1rem 1.25rem'}">
+    
+    <div class="space-y-6">
+        <div class="text-sm text-content-muted mb-4">
+            Establece las metas objetivo para cada tipo de mobiliario. Estos valores se guardarán localmente y se usarán para calcular los porcentajes de cumplimiento.
+        </div>
+        
+        <div class="grid grid-cols-1 gap-4">
+            <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
+                <div class="flex items-center gap-3">
+                    <i class="pi pi-objects-column text-xl text-content-muted"></i>
+                    <span class="font-medium text-content-main">Vitrinas</span>
+                </div>
+                <div class="w-28">
+                  <p-inputNumber 
+                      [(ngModel)]="modalTargets.vitrina" 
+                      [min]="0" 
+                      [max]="1000" 
+                      [showButtons]="true" 
+                      buttonLayout="horizontal" 
+                      inputId="vitrina-target"
+                      decrementButtonClass="p-button-secondary" 
+                      incrementButtonClass="p-button-secondary"
+                      [step]="0.1"
+                      mode="decimal"
+                      [minFractionDigits]="0"
+                      [maxFractionDigits]="2"
+                      class="w-full">
+                  </p-inputNumber>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
+                <div class="flex items-center gap-3">
+                    <i class="pi pi-box text-xl text-content-muted"></i>
+                    <span class="font-medium text-content-main">Exhibidores</span>
+                </div>
+                <div class="w-28">
+                  <p-inputNumber 
+                      [(ngModel)]="modalTargets.exhibidor" 
+                      [min]="0" 
+                      [max]="1000" 
+                      [showButtons]="true" 
+                      buttonLayout="horizontal" 
+                      inputId="exhibidor-target"
+                      decrementButtonClass="p-button-secondary" 
+                      incrementButtonClass="p-button-secondary"
+                      [step]="0.1"
+                      mode="decimal"
+                      [minFractionDigits]="0"
+                      [maxFractionDigits]="2"
+                      class="w-full">
+                  </p-inputNumber>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
+                <div class="flex items-center gap-3">
+                    <i class="pi pi-database text-xl text-content-muted"></i>
+                    <span class="font-medium text-content-main">Vitroleros</span>
+                </div>
+                <div class="w-28">
+                  <p-inputNumber 
+                      [(ngModel)]="modalTargets.vitroleros" 
+                      [min]="0" 
+                      [max]="1000" 
+                      [showButtons]="true" 
+                      buttonLayout="horizontal" 
+                      inputId="vitroleros-target"
+                      decrementButtonClass="p-button-secondary" 
+                      incrementButtonClass="p-button-secondary"
+                      [step]="0.1"
+                      mode="decimal"
+                      [minFractionDigits]="0"
+                      [maxFractionDigits]="2"
+                      class="w-full">
+                  </p-inputNumber>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
+                <div class="flex items-center gap-3">
+                    <i class="pi pi-stop-circle text-xl text-content-muted"></i>
+                    <span class="font-medium text-content-main">Paleteros</span>
+                </div>
+                <div class="w-28">
+                  <p-inputNumber 
+                      [(ngModel)]="modalTargets.paleteros" 
+                      [min]="0" 
+                      [max]="1000" 
+                      [showButtons]="true" 
+                      buttonLayout="horizontal" 
+                      inputId="paleteros-target"
+                      decrementButtonClass="p-button-secondary" 
+                      incrementButtonClass="p-button-secondary"
+                      [step]="0.1"
+                      mode="decimal"
+                      [minFractionDigits]="0"
+                      [maxFractionDigits]="2"
+                      class="w-full">
+                  </p-inputNumber>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
+                <div class="flex items-center gap-3">
+                    <i class="pi pi-list text-xl text-content-muted"></i>
+                    <span class="font-medium text-content-main">Tiras</span>
+                </div>
+                <div class="w-28">
+                  <p-inputNumber 
+                      [(ngModel)]="modalTargets.tiras" 
+                      [min]="0" 
+                      [max]="1000" 
+                      [showButtons]="true" 
+                      buttonLayout="horizontal" 
+                      inputId="tiras-target"
+                      decrementButtonClass="p-button-secondary" 
+                      incrementButtonClass="p-button-secondary"
+                      [step]="0.1"
+                      mode="decimal"
+                      [minFractionDigits]="0"
+                      [maxFractionDigits]="2"
+                      class="w-full">
+                  </p-inputNumber>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <ng-template pTemplate="footer">
+        <div class="flex justify-end gap-3">
+            <p-button 
+                label="Cancelar" 
+                icon="pi pi-times" 
+                severity="secondary" 
+                (click)="cancelMetasDialog()">
+            </p-button>
+            <p-button 
+                label="Guardar Metas" 
+                icon="pi pi-check" 
+                styleClass="p-button-brand" 
+                (click)="saveMetasTargets()">
+            </p-button>
+        </div>
+    </ng-template>
+</p-dialog>

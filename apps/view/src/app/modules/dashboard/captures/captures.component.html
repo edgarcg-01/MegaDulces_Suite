@@ -3,7 +3,7 @@
   <div class="flex justify-between items-center mb-6">
     <div class="flex items-center gap-4">
       <div class="w-14 h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg">
-        <span class="text-[10px] font-black text-black uppercase leading-none">Visita</span>
+        <span class="text-xs font-black text-black uppercase leading-none">Visita</span>
         <span class="text-2xl font-black text-black">#{{visitaNumero()}}</span>
       </div>
       <div>
@@ -19,6 +19,28 @@
     </div>
   </div>
 
+  <!-- Banner de Ruta Asignada -->
+  <div *ngIf="svc.currentAssignment()" class="mb-6 bg-brand/10 border border-brand/20 p-4 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-4 duration-500">
+    <div class="flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-brand/20 flex items-center justify-center text-brand">
+            <i class="pi pi-map text-xl"></i>
+        </div>
+        <div>
+            <div class="text-xs font-black uppercase tracking-[0.2em] text-brand">Ruta Asignada para Hoy</div>
+            <div class="text-lg font-black text-content-main uppercase">{{ svc.currentAssignment().route_name }}</div>
+        </div>
+    </div>
+    <div class="bg-surface-card px-4 py-2 rounded-xl border border-surface-border shadow-sm flex items-center gap-3">
+        <div class="flex flex-col items-end">
+            <span class="text-[9px] font-black text-content-faint uppercase tracking-tighter">Progreso de Jornada</span>
+            <span class="text-sm font-black text-content-main">Visita #{{ visitaNumero() }}</span>
+        </div>
+        <div class="w-2 h-8 bg-brand/20 rounded-full overflow-hidden">
+            <div class="w-full bg-brand transition-all duration-1000" [style.height]="(visitaNumero() * 10) + '%'"></div>
+        </div>
+    </div>
+  </div>
+
   <!-- Contenido Activo de la Visita -->
   <ng-container *ngIf="svc.hasActiveVisit()">
     <!-- Stats del Día -->
@@ -28,7 +50,7 @@
           <i [class]="stat.icon" class="text-xl" [style.color]="stat.valueColor"></i>
         </div>
         <div>
-          <div class="text-[10px] uppercase font-bold text-content-muted tracking-wider">{{stat.label}}</div>
+          <div class="text-xs uppercase font-bold text-content-muted tracking-wider">{{stat.label}}</div>
           <div class="text-xl font-bold font-mono" [style.color]="stat.valueColor">{{stat.value}}</div>
           <div class="text-xs text-content-dim">{{stat.description}}</div>
         </div>
@@ -44,7 +66,7 @@
       
       <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
         <ng-template pTemplate="header">
-          <tr class="text-[10px] text-content-muted uppercase">
+          <tr class="text-xs text-content-muted uppercase">
             <th class="pl-4">Ubicación</th>
             <th>Tipo / Formato</th>
             <th>Nivel</th>
@@ -121,7 +143,7 @@
     <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden">
       <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
         <ng-template pTemplate="header">
-          <tr class="text-[10px] text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
             <th style="width: 3rem"></th>
             <th>Folio</th>
             <th>Finalizada</th>
@@ -162,15 +184,15 @@
                     <div class="w-8 h-8 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
                       <i [class]="getConceptIcon(ex.conceptoId)"></i>
                     </div>
-                    <span class="text-[10px] font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded border border-divider shadow-inner">{{ ex.puntuacionCalculada }} pts</span>
+                    <span class="text-xs font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded border border-divider shadow-inner">{{ ex.puntuacionCalculada }} pts</span>
                   </div>
-                  <div class="text-[10px] font-black text-content-main uppercase mb-1 tracking-tighter">{{ getConceptNombre(ex.conceptoId) }}</div>
-                  <div class="text-[10px] text-content-dim flex items-center gap-1 mb-2">
+                  <div class="text-xs font-black text-content-main uppercase mb-1 tracking-tighter">{{ getConceptNombre(ex.conceptoId) }}</div>
+                  <div class="text-xs text-content-dim flex items-center gap-1 mb-2">
                     <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
                   </div>
                   <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
                     <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
-                    <span class="font-mono text-[10px] text-emerald-600 font-bold">${{ex.ventaAdicional || 0}}</span>
+                    <span class="font-mono text-xs text-emerald-600 font-bold">${{ex.ventaAdicional || 0}}</span>
                   </div>
                 </div>
               </div>
@@ -186,6 +208,63 @@
           </tr>
         </ng-template>
       </p-table>
+    </div>
+
+    <!-- Mobile Card View for Visit History -->
+    <div class="lg:hidden space-y-4 mt-4">
+      <div *ngFor="let visita of svc.visitasHoy()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{visita.folio}}</span>
+            <h3 class="text-sm font-bold text-content-main">{{ formatDate(visita.horaFin) }}</h3>
+          </div>
+          <p-tag severity="success" value="SINCRONIZADO" [rounded]="true" styleClass="text-xs"></p-tag>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-content-muted">Exhibiciones:</span>
+            <span class="text-sm font-medium text-content-main">{{visita.exhibiciones?.length}} items</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-content-muted">Venta Total:</span>
+            <span class="text-sm font-bold text-emerald-600">${{visita.stats?.ventaTotal?.toLocaleString()}}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-content-muted">Score:</span>
+            <span class="text-sm font-bold text-content-main">{{visita.stats?.puntuacionTotal}} pts</span>
+          </div>
+        </div>
+        <!-- Expandable exhibiciones details -->
+        <div *ngIf="expandedRows[visita.folio]" class="mt-4 pt-4 border-t border-surface-border">
+          <div class="text-xs font-bold text-content-muted mb-3">DETALLE DE EXHIBIDORES:</div>
+          <div class="space-y-2">
+            <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-ground p-3 rounded-lg border border-surface-border">
+              <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center gap-2">
+                  <div class="w-6 h-6 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
+                    <i [class]="getConceptIcon(ex.conceptoId)"></i>
+                  </div>
+                  <span class="text-xs font-bold text-content-main">{{ getConceptNombre(ex.conceptoId) }}</span>
+                </div>
+                <span class="text-xs font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded">{{ ex.puntuacionCalculada }} pts</span>
+              </div>
+              <div class="text-xs text-content-dim flex items-center gap-1 mb-2">
+                <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+              </div>
+              <div class="flex items-center justify-between">
+                <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
+                <span class="font-mono text-xs text-emerald-600 font-bold">${{ex.ventaAdicional || 0}}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-surface-border">
+          <p-button type="button" [text]="true" [rounded]="true" 
+                    [icon]="expandedRows[visita.folio] ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                    (onClick)="toggleRowExpansion(visita)"
+                    label="Ver Detalles"></p-button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -263,7 +342,7 @@
         <h4 class="font-bold text-content-main underline decoration-blue-500/30 underline-offset-4">4. Impacto Comercial</h4>
         
         <div class="space-y-2">
-           <label class="text-[10px] font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
+           <label class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
            <p-inputNumber 
               [ngModel]="currentExhibicion().ventaAdicional" 
               (ngModelChange)="onVentaAdicionalChange($event)"
@@ -272,7 +351,7 @@
         </div>
 
         <div class="space-y-2">
-           <label class="text-[10px] font-black text-content-muted uppercase tracking-widest">Rango de Compra del Socio</label>
+           <label class="text-xs font-black text-content-muted uppercase tracking-widest">Rango de Compra del Socio</label>
            <p-select [options]="RANGOS_COMPRA" 
                       [ngModel]="currentExhibicion().rangoCompra" 
                       (ngModelChange)="onRangoCompraChange($event)"
@@ -290,7 +369,7 @@
         
         <div class="max-h-[300px] overflow-y-auto space-y-4 pr-2">
            <div *ngFor="let brand of svc.groupedProducts()" class="space-y-2">
-              <div class="text-[10px] font-black text-content-muted uppercase tracking-widest border-l-2 border-blue-500 pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
+              <div class="text-xs font-black text-content-muted uppercase tracking-widest border-l-2 border-blue-500 pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
               <div class="grid grid-cols-1 gap-2">
                  <div *ngFor="let prod of brand.items" 
                       class="flex items-center gap-3 p-2 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-hover transition-colors">
@@ -350,16 +429,16 @@
     
     <div class="p-6 bg-surface-ground border border-surface-border rounded-3xl relative overflow-hidden">
        <div class="absolute top-0 right-0 p-2 opacity-5 italic text-[8px] font-black uppercase tracking-widest rotate-6">Verified Operations</div>
-       <div class="text-[10px] text-content-muted uppercase font-black tracking-[0.2em] mb-4">Folio de Operación</div>
+       <div class="text-xs text-content-muted uppercase font-black tracking-[0.2em] mb-4">Folio de Operación</div>
        <div class="text-4xl font-black font-mono text-blue-600 my-2 tracking-tighter">#{{lastResult.folio}}</div>
        <div class="mt-6 flex justify-center gap-4">
           <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
              <div class="text-[8px] uppercase text-content-dim font-bold">Items</div>
-             <div class="text-sm font-black">{{lastResult.exhibiciones?.length}}</div>
+             <div class="text-sm font-black">{{lastResult.exhibiciones.length}}</div>
           </div>
           <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
              <div class="text-[8px] uppercase text-content-dim font-bold">Score</div>
-             <div class="text-sm font-black text-emerald-600">{{lastResult.stats?.puntuacionTotal}}</div>
+             <div class="text-sm font-black text-emerald-600">{{lastResult.stats.puntuacionTotal}}</div>
           </div>
        </div>
     </div>
