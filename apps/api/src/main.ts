@@ -1,5 +1,4 @@
-import '@angular/compiler'; // <--- Añade esto
-import { NestFactory } from '@nestjs/core';
+import '@angular/compiler';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';

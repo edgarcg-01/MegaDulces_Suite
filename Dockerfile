@@ -7,7 +7,7 @@ ENV NX_DAEMON=false \
     CI=true \
     NODE_OPTIONS="--max-old-space-size=4096"
 
-# Copiamos archivos de configuración de dependencias (incluye el nuevo .npmrc)
+# Copiamos archivos de configuración de dependencias (incluye el .npmrc)
 COPY package*.json .npmrc ./
 COPY apps/view/package*.json ./apps/view/
 
@@ -17,8 +17,9 @@ RUN npm install
 # Copiamos el resto del código
 COPY . .
 
-# Compilamos las aplicaciones (NestJS y Angular)
-RUN npm run build
+# Compilamos las aplicaciones explícitamente una por una para mejor diagnóstico
+# Primero la API, luego el View (Angular)
+RUN npx nx build api --prod && npx nx build view --prod
 
 # --- Stage 2: Production dependencies ---
 FROM node:20 AS prod-deps
@@ -38,14 +39,11 @@ ENV NODE_ENV=production \
     API_PREFIX=api
 
 # Copiamos todo lo necesario desde el builder y prod-deps
-# Copiamos la carpeta dist completa (contiene api y view)
 COPY --from=builder /app/dist ./dist
-# Copiamos las dependencias de producción
 COPY --from=prod-deps /app/node_modules ./node_modules
 
-# Exponemos el puerto 80 (el puerto que el hosting suele esperar)
+# Exponemos el puerto 80
 EXPOSE 80
 
-# El comando de inicio ahora es un solo proceso de Node.js
 # El backend sirve automáticamente el frontend gracias a @nestjs/serve-static
 CMD ["node", "dist/apps/api/main.js"]
