@@ -10,3 +10,5 @@ dist
 swagger.json
 build_view_err.log
 .angular/
+.vercel
+.env*.local
