@@ -1,0 +1,10 @@
+node_modules
+dist
+.nx
+.cache
+*.log
+.git
+.vscode
+.idea
+tmp
+coverage
