@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
@@ -22,8 +27,10 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
 
+    if (user?.role_name === 'superadmin') return true;
+
     if (!user) {
-        throw new ForbiddenException('Usuario no autenticado.');
+      throw new ForbiddenException('Usuario no autenticado.');
     }
 
     // SI HAY PERMISOS REQUERIDOS: Validar contra el objeto permissions del JWT

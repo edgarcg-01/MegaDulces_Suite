@@ -14,21 +14,25 @@ exports.seed = async function(knex) {
   console.log('🧹 Database cleaned...');
 
   // 2. INSERTAR ROL SUPERADMIN
-  await knex("role_permissions").insert({
-    role_name: "superadmin",
-    permissions: JSON.stringify({
-      users: ["create", "read", "update", "delete"],
-      captures: ["create", "read", "update", "delete"],
-      daily_captures: ["create", "read", "update", "delete"],
-      catalogs: ["create", "read", "update", "delete"],
-      reports: ["create", "read", "update", "delete"],
-      stores: ["create", "read", "update", "delete"],
-      visits: ["create", "read", "update", "delete"],
-      exhibitions: ["create", "read", "update", "delete"],
-      planograms: ["create", "read", "update", "delete"],
-      scoring: ["create", "read", "update", "delete"],
-    }),
-  });
+ await knex("role_permissions").insert({
+      role_name: "superadmin",
+      permissions: JSON.stringify({
+        // Tu Guard busca la llave exacta del endpoint y verifica que sea === true
+        users: true,
+        captures: true,
+        daily_captures: true,
+        catalogs: true,
+        reports: true,        // <--- Esto activará /api/reports/summary
+        summary: true,        // <--- Por si el decorator usa la ruta
+        stores: true,
+        visits: true,
+        exhibitions: true,
+        planograms: true,
+        scoring: true
+      }),
+    })
+    .onConflict("role_name")
+    .merge();
 
   // 3. GENERAR HASHES
   const adminHash = await bcrypt.hash("admin1", 10);
