@@ -21,12 +21,12 @@ import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assign
   imports: [
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'view', 'browser'),
-      exclude: ['/api/:path(.*)'],
+      exclude: ['/api/{*path}'],
     }),
-    DatabaseModule, 
-    AuthModule, 
-    UsersModule, 
-    CapturesModule, 
+    DatabaseModule,
+    AuthModule,
+    UsersModule,
+    CapturesModule,
     DailyCapturesModule,
     PlanogramsModule,
     CatalogsModule,
@@ -35,7 +35,7 @@ import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assign
     StoresModule,
     VisitsModule,
     ExhibitionsModule,
-    DailyAssignmentsModule
+    DailyAssignmentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
