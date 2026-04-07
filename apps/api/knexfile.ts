@@ -9,20 +9,25 @@ const config: Knex.Config = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     // SSL es requerido por Render para conexiones de base de datos
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl:
+      process.env.NODE_ENV === 'production'
+        ? { rejectUnauthorized: false }
+        : false,
   },
   migrations: {
     tableName: 'knex_migrations',
     // En producción (Docker), las migraciones se copian a dist/apps/api/shared/database/migrations
-    directory: process.env.NODE_ENV === 'production' 
-      ? './shared/database/migrations' 
-      : './apps/api/src/shared/database/migrations',
+    directory:
+      process.env.NODE_ENV === 'production'
+        ? './shared/database/migrations'
+        : './apps/api/src/shared/database/migrations',
   },
   seeds: {
-    directory: process.env.NODE_ENV === 'production'
-      ? './shared/database/seeds'
-      : './apps/api/src/shared/database/seeds',
-  }
+    directory:
+      process.env.NODE_ENV === 'production'
+        ? './shared/database/seeds'
+        : './apps/api/src/shared/database/seeds',
+  },
 };
 
 export default config;

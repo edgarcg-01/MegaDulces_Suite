@@ -7,7 +7,7 @@ import { json, urlencoded } from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import knex from 'knex';
-import knexConfig from './knexfile'; // Asegúrate de que la ruta relativa sea correcta
+import knexConfig from '../knexfile'; // Asegúrate de que la ruta relativa sea correcta
 
 const execPromise = promisify(exec);
 async function bootstrap() {
@@ -15,8 +15,7 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'production') {
     console.log('⚙️ Running database migrations...');
 
-    // Inicializamos una instancia temporal de Knex usando la configuración de producción
-    const db = knex(knexConfig.production);
+    const db = knex(knexConfig);
 
     try {
       // API nativa de Knex para migrar, no usa la consola
@@ -33,14 +32,15 @@ async function bootstrap() {
   }
 
   // Arranque normal de NestJS
-  const app = await NestFactory.create(AppModule);
-
-  // ... resto de tu configuración de CORS, prefijos, etc.
-  await app.listen(process.env.PORT || 3000);
-
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
+
+  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
+    prefix: '/uploads/',
+  });
+
+  await app.listen(process.env.PORT || 3000);
 
   app.enableCors({
     origin: true, // Refleja el origen de la petición (permite el mismo dominio y subdominios)
