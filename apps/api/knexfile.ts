@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import { join } from 'path';
 
 const config: Knex.Config = {
   client: 'pg',
@@ -8,7 +9,7 @@ const config: Knex.Config = {
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    // SSL es requerido por Render para conexiones de base de datos
+    // SSL va exclusivamente aquí adentro de connection
     ssl:
       process.env.NODE_ENV === 'production'
         ? { rejectUnauthorized: false }
@@ -16,16 +17,16 @@ const config: Knex.Config = {
   },
   migrations: {
     tableName: 'knex_migrations',
-    // En producción (Docker), las migraciones se copian a dist/apps/api/shared/database/migrations
     directory:
       process.env.NODE_ENV === 'production'
-        ? './shared/database/migrations'
+        // process.cwd() apunta a /app en Docker, y de ahí bajamos a dist/...
+        ? join(process.cwd(), 'dist', 'apps', 'api', 'shared', 'database', 'migrations')
         : './apps/api/src/shared/database/migrations',
   },
   seeds: {
     directory:
       process.env.NODE_ENV === 'production'
-        ? './shared/database/seeds'
+        ? join(process.cwd(), 'dist', 'apps', 'api', 'shared', 'database', 'seeds')
         : './apps/api/src/shared/database/seeds',
   },
 };
