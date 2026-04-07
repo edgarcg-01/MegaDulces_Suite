@@ -19,12 +19,12 @@ async function bootstrap() {
   // Aumentar el límite del payload JSON para permitir el envío de imágenes en Base64
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ extended: true, limit: '50mb' }));
-  
+
   // Exponer el file system estático de evidencias fotográficas para pruebas
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',
   });
-  
+
   const apiPrefix = process.env.API_PREFIX || 'api';
   app.setGlobalPrefix(apiPrefix);
 
@@ -34,7 +34,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .addBearerAuth()
     .build();
-    
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
 
