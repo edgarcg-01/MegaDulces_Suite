@@ -11,19 +11,7 @@ async function bootstrap() {
   });
 
   app.enableCors({
-    origin: (origin, callback) => {
-      const allowedOrigins = [
-        'http://localhost:4200',
-        'http://localhost',
-        process.env.FRONTEND_URL,
-      ].filter((url): url is string => !!url);
-      
-      if (!origin || allowedOrigins.some(allowed => origin.includes(allowed)) || process.env.NODE_ENV !== 'production') {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: true, // Refleja el origen de la petición (permite el mismo dominio y subdominios)
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
