@@ -20,7 +20,7 @@ import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assign
 @Module({
   imports: [
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'view', 'browser'),
+      rootPath: join(__dirname, '..', 'view'),
       exclude: ['/api/{*path}'],
     }),
     DatabaseModule,
