@@ -42,8 +42,6 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
-  await app.listen(process.env.PORT || 3000);
-
   app.enableCors({
     origin: true, // Refleja el origen de la petición (permite el mismo dominio y subdominios)
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
