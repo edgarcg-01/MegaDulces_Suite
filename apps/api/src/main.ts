@@ -8,21 +8,40 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execPromise = promisify(exec);
+// Importamos knex y tu configuración directamente
+import knex from 'knex';
+import knexConfig from './knexfile'; // Asegúrate de que la ruta relativa sea correcta
 
 async function bootstrap() {
   // Ejecutar migraciones en producción antes de arrancar el servidor
   if (process.env.NODE_ENV === 'production') {
+    console.log('⚙️ Running database migrations...');
+    
+    // Inicializamos una instancia temporal de Knex usando la configuración de producción
+    const db = knex(knexConfig.production);
+
     try {
-      console.log('Running database migrations...');
-      // Usamos el knexfile que está en la misma carpeta que main.js en dist
-      const { stdout, stderr } = await execPromise('npx knex migrate:latest --knexfile ./knexfile.js');
-      console.log('Migrations stdout:', stdout);
-      if (stderr) console.error('Migrations stderr:', stderr);
+      // API nativa de Knex para migrar, no usa la consola
+      await db.migrate.latest();
+      console.log('✅ Migrations completed successfully.');
+      
+      // (Opcional) Cerramos esta conexión temporal, NestJS abrirá la suya luego
+      await db.destroy(); 
     } catch (error) {
-      console.error('Migration failed:', error);
-      // Opcional: process.exit(1) si quieres que el contenedor falle si no migra
+      console.error('❌ Migration failed:', error);
+      // Es vital matar el proceso si la BD falla, para que el contenedor no levante roto
+      process.exit(1); 
     }
   }
+
+  // Arranque normal de NestJS
+  const app = await NestFactory.create(AppModule);
+  
+  // ... resto de tu configuración de CORS, prefijos, etc.
+  
+  await app.listen(process.env.PORT || 3000);
+}
+
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
