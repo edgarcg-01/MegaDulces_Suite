@@ -16,7 +16,7 @@ async function bootstrap() {
         'http://localhost:4200',
         'http://localhost',
         process.env.FRONTEND_URL,
-      ].filter(Boolean);
+      ].filter((url): url is string => !!url);
       
       if (!origin || allowedOrigins.some(allowed => origin.includes(allowed)) || process.env.NODE_ENV !== 'production') {
         callback(null, true);
