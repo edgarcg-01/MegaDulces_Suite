@@ -24,8 +24,7 @@
             "glob": "**/*",
             "input": "apps/api/src/shared/database/seeds",
             "output": "shared/database/seeds"
-          },
-          "apps/api/knexfile.ts"
+          }
         ]
       },
       "configurations": {
