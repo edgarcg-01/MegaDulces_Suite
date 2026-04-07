@@ -1,29 +1,22 @@
-const bcrypt = require('bcryptjs'); // Asegúrate de usar el que instalaste
+const bcrypt = require('bcryptjs');
 
 /**
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // 1. LIMPIEZA EN ORDEN (Vital para evitar el error de Foreign Key)
-  // Primero borramos lo que DEPENDE de los roles (los usuarios)
-  await knex("users").del();
-  // Ahora sí podemos borrar los roles
-  await knex("role_permissions").del();
-
-  console.log('🧹 Database cleaned...');
-
-  // 2. INSERTAR ROL SUPERADMIN
- await knex("role_permissions").insert({
+  // 1. INSERTAR/ACTUALIZAR ROL SUPERADMIN
+  await knex("role_permissions")
+    .insert({
       role_name: "superadmin",
       permissions: JSON.stringify({
-        // Tu Guard busca la llave exacta del endpoint y verifica que sea === true
         users: true,
         captures: true,
         daily_captures: true,
         catalogs: true,
-        reports: true,        // <--- Esto activará /api/reports/summary
-        summary: true,        // <--- Por si el decorator usa la ruta
+        reports: true,
+        summary: true, // Crucial para /api/reports/summary
+        data: true,    // Crucial para /api/reports/data
         stores: true,
         visits: true,
         exhibitions: true,
@@ -34,12 +27,12 @@ exports.seed = async function(knex) {
     .onConflict("role_name")
     .merge();
 
-  // 3. GENERAR HASHES
+  // 2. GENERAR HASHES
   const adminHash = await bcrypt.hash("admin1", 10);
   const superootHash = await bcrypt.hash("superoot", 10);
 
-  // 4. INSERTAR USUARIOS
-  await knex("users").insert([
+  // 3. UPSERT DE USUARIOS (Para evitar errores de duplicados)
+  const users = [
     {
       username: "admin",
       password_hash: adminHash,
@@ -55,8 +48,15 @@ exports.seed = async function(knex) {
       zona: "Nacional",
       role_name: "superadmin",
       activo: true,
-    },
-  ]);
+    }
+  ];
+
+  for (const user of users) {
+    await knex("users")
+      .insert(user)
+      .onConflict("username")
+      .merge(); // Si ya existe, actualiza sus datos y permisos
+  }
 
   console.log(' Admin Users and Roles seed completed successfully.');
 };
