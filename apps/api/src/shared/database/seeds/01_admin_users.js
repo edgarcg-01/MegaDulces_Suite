@@ -1,4 +1,5 @@
-const bcrypt = require('bcrypt'); // O require('bcryptjs') según tu package.json
+
+const bcryptjs = require('bcryptjs'); // O require('bcryptjs') según tu package.json
 
 /**
  * @param { import("knex").Knex } knex
@@ -26,8 +27,8 @@ exports.seed = async function(knex) {
     .merge();
 
   // 2. Hash de contraseñas (10 salt rounds)
-  const adminHash = await bcrypt.hash("admin1", 10);
-  const superootHash = await bcrypt.hash("superoot", 10);
+  const adminHash = await bcryptjs.hash("admin1", 10);
+  const superootHash = await bcryptjs.hash("superoot", 10);
 
   // 3. Definición de usuarios admin
   const users = [
