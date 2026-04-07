@@ -1,6 +1,8 @@
-import type { Knex } from "knex";
-
-export async function up(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.up = async function(knex) {
   await knex.schema.createTable("scoring_config", (table) => {
     table.uuid("id").primary().defaultTo(knex.raw("gen_random_uuid()"));
     table.jsonb("config").notNullable().defaultTo(JSON.stringify({
@@ -12,6 +14,10 @@ export async function up(knex: Knex): Promise<void> {
   });
 }
 
-export async function down(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.down = async function(knex) {
   await knex.schema.dropTableIfExists("scoring_config");
 }

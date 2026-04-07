@@ -1,6 +1,8 @@
-import { Knex } from "knex";
-
-export async function seed(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.seed = async function(knex) {
   await knex("scoring_config").del();
 
   await knex("scoring_config").insert([

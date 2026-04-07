@@ -1,7 +1,10 @@
-import type { Knex } from "knex";
-import * as bcrypt from "bcryptjs";
+const bcrypt = require('bcrypt'); // O require('bcryptjs') según tu package.json
 
-export async function seed(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.seed = async function(knex) {
   // 1. Upsert del rol superadmin con todos los permisos
   await knex("role_permissions")
     .insert({
@@ -22,11 +25,11 @@ export async function seed(knex: Knex): Promise<void> {
     .onConflict("role_name")
     .merge();
 
-  // 2. Hash de contraseñas con bcrypt (10 salt rounds)
+  // 2. Hash de contraseñas (10 salt rounds)
   const adminHash = await bcrypt.hash("admin1", 10);
   const superootHash = await bcrypt.hash("superoot", 10);
 
-  // 3. Insertar usuarios admin
+  // 3. Definición de usuarios admin
   const users = [
     {
       username: "admin",
@@ -46,6 +49,7 @@ export async function seed(knex: Knex): Promise<void> {
     },
   ];
 
+  // 4. Ejecutar Upserts individuales para usuarios
   for (const user of users) {
     await knex("users")
       .insert(user)
@@ -58,4 +62,6 @@ export async function seed(knex: Knex): Promise<void> {
         activo: user.activo,
       });
   }
-}
+  
+  console.log('Admin Users and Roles seed completed.');
+};

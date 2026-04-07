@@ -1,4 +1,7 @@
-import { Knex } from "knex";
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
 
 const DEFAULT_PLANOGRAMA = [
   {marca:'LA ROSA', productos:['Mazapán Clásico','Mazapán Gigante','Nugs','Nugs Recreo','Suizo','Japonés 200g','Japonés 60g','Gummy Pop','Paleta Jumbo','Bombón Chocolate','Ranita','Suave Acidito','Bombón Mini','Malvabón','Mazapán Chocolate','Pulparindo','Bombón Gigante','Confichoky']},
@@ -16,7 +19,7 @@ const DEFAULT_PLANOGRAMA = [
   {marca:'FRUTI FRESK', productos:['Cometinix','Freskiice','Freskysoda','Agua Calid']},
 ];
 
-export async function seed(knex: Knex): Promise<void> {
+exports.seed = async function(knex) {
   // 1. Limpieza total (Usando los nuevos nombres de tablas en inglés)
   await knex("products").del();
   await knex("brands").del();

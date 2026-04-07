@@ -1,8 +1,9 @@
-import type { Knex } from "knex";
-
-export async function up(knex: Knex): Promise<void> {
-  // Rename tables
-  await knex.schema.renameTable("planograma_marcas", "brands");
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.up = async function(knex) {
+    await knex.schema.renameTable("planograma_marcas", "brands");
   await knex.schema.renameTable("planograma_productos", "products");
 
   // Rename columns if needed
@@ -11,7 +12,7 @@ export async function up(knex: Knex): Promise<void> {
   });
 }
 
-export async function down(knex: Knex): Promise<void> {
+exports.down = async function(knex) {
   await knex.schema.alterTable("products", (table) => {
     table.renameColumn("brand_id", "marca_id");
   });

@@ -1,6 +1,8 @@
-import type { Knex } from "knex";
-
-export async function seed(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.seed = async function(knex) {
   // Borra los roles existentes para evitar duplicados
   await knex('role_permissions').del();
   

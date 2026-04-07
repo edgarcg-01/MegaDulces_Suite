@@ -1,6 +1,8 @@
-import type { Knex } from "knex";
-
-export async function up(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.up = async function(knex) {
   // 1. Borramos la tabla oríginal para eliminar permanentemente el UNIQUE Constraint
   await knex.schema.dropTableIfExists("daily_captures");
 
@@ -25,6 +27,10 @@ export async function up(knex: Knex): Promise<void> {
   });
 }
 
-export async function down(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.down = async function(knex) {
   await knex.schema.dropTableIfExists("daily_captures");
 }

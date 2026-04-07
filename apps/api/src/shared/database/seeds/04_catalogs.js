@@ -1,6 +1,8 @@
-import { Knex } from "knex";
-
-export async function seed(knex: Knex): Promise<void> {
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.seed = async function(knex) {
   // 1. Limpiamos la tabla
   await knex("catalogs").del();
 

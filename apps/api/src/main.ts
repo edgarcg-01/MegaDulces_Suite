@@ -13,20 +13,22 @@ const execPromise = promisify(exec);
 async function bootstrap() {
   // Ejecutar migraciones en producción antes de arrancar el servidor
   if (process.env.NODE_ENV === 'production') {
-    console.log('⚙️ Running database migrations...');
+    console.log(' Running database migrations...');
 
     const db = knex(knexConfig);
 
+    // Dentro de tu bloque try/catch en main.ts
     try {
-      // API nativa de Knex para migrar, no usa la consola
+      console.log(' Running database migrations...');
       await db.migrate.latest();
-      console.log('✅ Migrations completed successfully.');
 
-      // (Opcional) Cerramos esta conexión temporal, NestJS abrirá la suya luego
+      console.log(' Running database seeds...');
+      await db.seed.run(); // Esto ejecutará todos los archivos .js en tu carpeta de seeds
+
+      console.log(' DB Setup completed.');
       await db.destroy();
     } catch (error) {
-      console.error('❌ Migration failed:', error);
-      // Es vital matar el proceso si la BD falla, para que el contenedor no levante roto
+      console.error(' DB Setup failed:', error);
       process.exit(1);
     }
   }
