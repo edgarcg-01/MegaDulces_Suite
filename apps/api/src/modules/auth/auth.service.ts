@@ -9,7 +9,7 @@ interface JwtPayload {
   sub: string;
   username: string;
   zona: string;
-  rol: string;
+  role_name: string;
   permissions: Record<string, boolean>;
 }
 
@@ -47,7 +47,7 @@ export class AuthService {
       sub: user.id,
       username: user.username,
       zona: user.zona,
-      rol: user.role_name,
+      role_name: user.role_name,
       permissions: permissions,
     };
 
@@ -58,7 +58,7 @@ export class AuthService {
         username: user.username,
         nombre: user.nombre,
         zona: user.zona,
-        role: user.role_name,
+        role_name: user.role_name,
         permissions: permissions,
       },
     };

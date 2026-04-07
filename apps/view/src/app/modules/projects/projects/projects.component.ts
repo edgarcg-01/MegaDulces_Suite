@@ -9,7 +9,7 @@ import { ButtonModule } from 'primeng/button';
   standalone: true,
   imports: [CommonModule, ButtonModule],
   templateUrl: './projects.component.html',
-  styleUrls: ['./projects.component.css']
+  styleUrls: ['./projects.component.css'],
 })
 export class ProjectsComponent {
   private router = inject(Router);

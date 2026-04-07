@@ -92,8 +92,8 @@
       <button
         (click)="themeService.toggleMonochrome()"
         class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors"
-        [ngClass]="themeService.isMonochrome() 
-          ? 'bg-surface-active text-content-active' 
+        [ngClass]="themeService.isMonochrome()
+          ? 'bg-surface-active text-content-active'
           : 'text-content-muted hover:bg-surface-hover hover:text-content-main'"
         [title]="themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N'">
         <i [ngClass]="themeService.isMonochrome() ? 'pi pi-sun' : 'pi pi-moon'" class="shrink-0 w-8 text-center text-sm"></i>
@@ -138,7 +138,7 @@
 
         <div class="text-right">
           <p class="text-sm font-semibold text-content-main">{{ user()?.username }}</p>
-          <p class="text-xs text-content-muted uppercase tracking-wider">{{ user()?.rol }} · {{ user()?.zona }}</p>
+          <p class="text-xs text-content-muted uppercase tracking-wider">{{ user()?.role_name }} · {{ user()?.zona }}</p>
         </div>
         <div class="h-8 w-8 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-bold uppercase transition-colors">
           {{ user()?.username?.charAt(0) }}

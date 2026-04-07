@@ -19,7 +19,7 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Usuario no autenticado.');
     }
 
-    const userRole = user.rol || user.role_name;
+    const userRole = user.role_name;
 
     if (userRole === 'superadmin') {
       console.log(' Acceso concedido por Llave Maestra (superadmin)');
@@ -33,6 +33,7 @@ export class RolesGuard implements CanActivate {
     );
 
     if (requiredPermissions && requiredPermissions.length > 0) {
+      // Check if the user has any of the required permissions
       const hasPermission = requiredPermissions.every(
         (p) => user.permissions && user.permissions[p] === true,
     );

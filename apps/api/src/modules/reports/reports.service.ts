@@ -10,11 +10,11 @@ export class ReportsService {
     let dcQuery = this.knex('daily_captures');
     let sQuery = this.knex('stores');
 
-    if (user.rol === 'colaborador') {
+    if (user.role_name === 'colaborador') {
       dcQuery = dcQuery.where('user_id', user.sub);
       // For stores, we might want to filter by the user's assigned stores if that existed, 
       // but for now let's just filter the captures.
-    } else if (user.rol === 'supervisor_v') {
+    } else if (user.role_name === 'supervisor_v') {
       const teamIds = await this.getTeamIds(user.sub);
       dcQuery = dcQuery.whereIn('user_id', teamIds);
     }
@@ -99,9 +99,9 @@ export class ReportsService {
   async getFilteredData(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }, user: any) {
     const query = this.knex('daily_captures').select('*');
 
-    if (user.rol === 'colaborador') {
+    if (user.role_name === 'colaborador') {
       query.where('user_id', user.sub);
-    } else if (user.rol === 'supervisor_v') {
+    } else if (user.role_name === 'supervisor_v')  {
       const teamIds = await this.getTeamIds(user.sub);
       query.whereIn('user_id', teamIds);
     }
@@ -163,12 +163,12 @@ export class ReportsService {
     };
   }
 
-  async exportCsvInBuffer(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }, user: any) {
+  async exportCsvInBuffer(filters: { startDate?: string; endDate?: string; userId?: string; userIds?: string[]; zone?: string; }, user: any) {  
     const query = this.knex('daily_captures').select('*');
 
-    if (user.rol === 'colaborador') {
+    if (user.role_name === 'colaborador') {
       query.where('user_id', user.sub);
-    } else if (user.rol === 'supervisor_v') {
+    } else if (user.role_name === 'supervisor_v')  {
       const teamIds = await this.getTeamIds(user.sub);
       query.whereIn('user_id', teamIds);
     }

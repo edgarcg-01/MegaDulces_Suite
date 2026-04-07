@@ -58,9 +58,9 @@ export class VisitsService {
   async findAll(user: any) {
     const query = this.knex('visits').orderBy('checkin_at', 'desc').limit(500);
 
-    if (user.rol === 'colaborador') {
+    if (user.role_name === 'colaborador') {
       query.where('user_id', user.sub);
-    } else if (user.rol === 'supervisor_v') {
+    } else if (user.role_name === 'supervisor_v') {
       const subquery = this.knex('users')
         .select('id')
         .where('supervisor_id', user.sub)

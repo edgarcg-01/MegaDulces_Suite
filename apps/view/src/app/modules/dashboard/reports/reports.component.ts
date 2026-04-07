@@ -583,7 +583,7 @@ export class ReportsComponent implements OnInit {
 
   ngOnInit() {
     const user = this.auth.user();
-    this.isSuperAdmin.set(user?.rol === 'superadmin');
+    this.isSuperAdmin.set(user?.role_name === 'superadmin');
     this.loadUsers();
     this.applyPeriodPreset();
     this.loadData();
