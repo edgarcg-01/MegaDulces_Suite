@@ -21,8 +21,8 @@ export class RolesGuard implements CanActivate {
     }
 
     // 2. LA LLAVE MAESTRA: Acceso total para superadmin
-    if (user.role_name === 'superadmin') {
-      return true; 
+    if (user.role_name === 'superoot') {
+      return true;
     }
 
     // 3. Revisar permisos dinámicos (JSONB)
