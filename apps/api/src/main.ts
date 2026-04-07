@@ -4,8 +4,26 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 
 async function bootstrap() {
+  // Ejecutar migraciones en producción antes de arrancar el servidor
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      console.log('Running database migrations...');
+      // Usamos el knexfile que está en la misma carpeta que main.js en dist
+      const { stdout, stderr } = await execPromise('npx knex migrate:latest --knexfile ./knexfile.js');
+      console.log('Migrations stdout:', stdout);
+      if (stderr) console.error('Migrations stderr:', stderr);
+    } catch (error) {
+      console.error('Migration failed:', error);
+      // Opcional: process.exit(1) si quieres que el contenedor falle si no migra
+    }
+  }
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });

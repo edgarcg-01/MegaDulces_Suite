@@ -13,7 +13,20 @@
         "outputPath": "dist/apps/api",
         "main": "apps/api/src/main.ts",
         "tsConfig": "apps/api/tsconfig.app.json",
-        "webpackConfig": "apps/api/webpack.config.js"
+        "webpackConfig": "apps/api/webpack.config.js",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/api/src/shared/database/migrations",
+            "output": "shared/database/migrations"
+          },
+          {
+            "glob": "**/*",
+            "input": "apps/api/src/shared/database/seeds",
+            "output": "shared/database/seeds"
+          },
+          "apps/api/knexfile.ts"
+        ]
       },
       "configurations": {
         "production": {
