@@ -93,6 +93,9 @@ import autoTable from 'jspdf-autotable';
             [options]="periodos"
             [(ngModel)]="selectedPeriod"
             (onChange)="onPeriodChange()"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Seleccionar período"
             class="w-full"
           />
         </div>
@@ -106,6 +109,9 @@ import autoTable from 'jspdf-autotable';
             [showIcon]="true"
             class="w-full"
             (onSelect)="onDateChange()"
+            (onBlur)="onDateChange()"
+            [readonlyInput]="true"
+            [showButtonBar]="true"
           />
         </div>
         <div class="flex flex-col gap-1">
@@ -116,19 +122,43 @@ import autoTable from 'jspdf-autotable';
             [options]="zonas"
             [(ngModel)]="selectedZone"
             (onChange)="onZoneChange()"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Todas las zonas"
+            [showClear]="true"
             class="w-full"
           />
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[10px] font-bold text-content-faint uppercase"
-            >Ejecutivos</label
+            >Encargado</label
+          >
+          <p-select
+            [options]="supervisors"
+            [(ngModel)]="selectedSupervisorId"
+            (onChange)="onSupervisorChange()"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Todos los encargados"
+            [showClear]="true"
+            class="w-full"
+          />
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] font-bold text-content-faint uppercase"
+            >Vendedor</label
           >
           <p-multiSelect
-            [options]="filteredUsers"
-            [(ngModel)]="selectedUserIds"
+            [options]="filteredSellers"
+            [(ngModel)]="selectedSellerIds"
+            (onChange)="onSellerChange()"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Todos los vendedores"
+            [filter]="true"
+            filterBy="label"
             display="chip"
             class="w-full"
-            (onChange)="onUserChange()"
           />
         </div>
       </div>
@@ -156,7 +186,7 @@ import autoTable from 'jspdf-autotable';
                     <div class="text-content-faint text-xs font-bold uppercase">
                       Avg Score
                     </div>
-                    <div class="text-2xl text-accent-brand">
+                    <div class="text-2xl text-content-main">
                       \${{ data.metrics.avgScore }}%
                     </div>
                   </div>
@@ -164,7 +194,7 @@ import autoTable from 'jspdf-autotable';
                     <div class="text-content-faint text-xs font-bold uppercase">
                       Impacto Venta
                     </div>
-                    <div class="text-2xl text-accent-brand">
+                    <div class="text-2xl text-content-main">
                       \${{ data.metrics.totalVentas | number }}
                     </div>
                   </div>
@@ -274,10 +304,10 @@ import autoTable from 'jspdf-autotable';
                     <tr>
                       <td
                         colspan="5"
-                        class="bg-zinc-100 p-4 border-b border-zinc-200"
+                        class="bg-surface-ground p-4 border-b border-surface-border"
                       >
                         <div
-                          class="bg-white rounded border border-zinc-200 shadow-sm overflow-hidden auto-mx"
+                          class="bg-surface-card rounded border border-surface-border shadow-sm overflow-hidden auto-mx"
                         >
                           <p-table
                             [value]="day.visits"
@@ -285,7 +315,7 @@ import autoTable from 'jspdf-autotable';
                           >
                             <ng-template pTemplate="header">
                               <tr
-                                class="text-[10px] uppercase text-zinc-500 bg-zinc-50 border-b"
+                                class="text-[10px] uppercase text-content-muted bg-surface-ground border-b border-surface-border"
                               >
                                 <th class="pl-4 py-2 w-24">Folio</th>
                                 <th>Ejecutivo</th>
@@ -296,28 +326,23 @@ import autoTable from 'jspdf-autotable';
                             </ng-template>
                             <ng-template pTemplate="body" let-visit>
                               <tr
-                                class="text-xs hover:bg-zinc-50 border-b border-zinc-100 last:border-0 cursor-pointer"
+                                class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer"
                                 (click)="viewDetail(visit)"
                               >
-                                <td class="pl-4 font-black text-zinc-700 py-3">
+                                <td class="pl-4 font-black text-content-main py-3">
                                   #\${{ visit.folio }}
                                 </td>
-                                <td class="font-medium text-zinc-900">
+                                <td class="font-medium text-content-main">
                                   \${{ visit.captured_by_username }}
                                 </td>
                                 <td>
                                   <span
-                                    class="bg-zinc-200 px-2 py-0.5 rounded text-[9px] uppercase font-bold text-zinc-600"
+                                    class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted"
                                     >\${{ visit.zona_captura }}</span
                                   >
                                 </td>
                                 <td
-                                  class="text-center font-black"
-                                  [ngClass]="
-                                    visit.stats?.puntuacionTotal >= 80
-                                      ? 'text-emerald-600'
-                                      : 'text-amber-600'
-                                  "
+                                  class="text-center font-black text-content-main"
                                 >
                                   \${{ visit.stats?.puntuacionTotal }}%
                                 </td>
@@ -357,13 +382,13 @@ import autoTable from 'jspdf-autotable';
       >
         <div *ngIf="selectedRow" class="space-y-4 pt-2">
           <div
-            class="flex justify-between items-center bg-zinc-50 p-3 rounded-lg border"
+            class="flex justify-between items-center bg-surface-ground p-3 rounded-lg border border-surface-border"
           >
             <div>
-              <div class="text-[10px] font-bold text-zinc-400 uppercase">
+              <div class="text-[10px] font-bold text-content-muted uppercase">
                 Visita Folio
               </div>
-              <div class="text-lg font-bold text-blue-600">
+              <div class="text-lg font-bold text-content-main">
                 #\${{ selectedRow.folio }}
               </div>
             </div>
@@ -376,39 +401,39 @@ import autoTable from 'jspdf-autotable';
           <div class="grid grid-cols-2 gap-4 text-sm">
             <div class="space-y-1">
               <p>
-                <span class="text-zinc-500">Ejecutivo:</span>
-                <span class="font-bold"
+                <span class="text-content-muted">Ejecutivo:</span>
+                <span class="font-bold text-content-main"
                   >\${{ selectedRow.captured_by_username }}</span
                 >
               </p>
               <p>
-                <span class="text-zinc-500">Zona:</span>
-                <span class="font-bold">\${{ selectedRow.zona_captura }}</span>
+                <span class="text-content-muted">Zona:</span>
+                <span class="font-bold text-content-main">\${{ selectedRow.zona_captura }}</span>
               </p>
               <p>
-                <span class="text-zinc-500">Fecha:</span>
-                <span class="font-bold"
+                <span class="text-content-muted">Fecha:</span>
+                <span class="font-bold text-content-main"
                   >\${{ selectedRow.fecha | date: 'mediumDate' }}</span
                 >
               </p>
               <p>
-                <span class="text-zinc-500">Hora Inicio:</span>
-                <span class="font-bold"
+                <span class="text-content-muted">Hora Inicio:</span>
+                <span class="font-bold text-content-main"
                   >\${{ selectedRow.hora_inicio | date: 'shortTime' }}</span
                 >
               </p>
               <p>
-                <span class="text-zinc-500">Hora Fin:</span>
-                <span class="font-bold"
+                <span class="text-content-muted">Hora Fin:</span>
+                <span class="font-bold text-content-main"
                   >\${{ selectedRow.hora_fin | date: 'shortTime' }}</span
                 >
               </p>
             </div>
             <div
-              class="bg-zinc-900 text-white p-3 rounded-xl text-center flex flex-col justify-center shadow-lg"
+              class="bg-surface-active text-content-active p-3 rounded-xl text-center flex flex-col justify-center shadow-lg border border-surface-border"
             >
               <div
-                class="text-[10px] opacity-70 uppercase font-black tracking-widest text-emerald-400"
+                class="text-[10px] opacity-70 uppercase font-black tracking-widest text-content-active"
               >
                 Score Final
               </div>
@@ -423,20 +448,20 @@ import autoTable from 'jspdf-autotable';
 
           <!-- Geolocation Card -->
           <div
-            class="flex items-center justify-between p-3 border border-blue-100 bg-blue-50/50 rounded-xl"
+            class="flex items-center justify-between p-3 border border-surface-border bg-surface-ground rounded-xl"
           >
             <div class="flex items-center gap-3">
               <div
-                class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center"
+                class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center"
               >
-                <i class="pi pi-map-marker text-blue-600"></i>
+                <i class="pi pi-map-marker text-content-main"></i>
               </div>
               <div>
-                <div class="text-[10px] font-bold text-blue-600 uppercase">
+                <div class="text-[10px] font-bold text-content-main uppercase">
                   Ubicación Geo-Referenciada
                 </div>
                 <div
-                  class="text-xs text-blue-500 font-mono"
+                  class="text-xs text-content-dim font-mono"
                   *ngIf="selectedRow.latitud && selectedRow.longitud"
                 >
                   \${{ selectedRow.latitud | number: '1.6-6' }}, \${{
@@ -444,7 +469,7 @@ import autoTable from 'jspdf-autotable';
                   }}
                 </div>
                 <div
-                  class="text-xs text-amber-600 font-bold"
+                  class="text-xs text-content-faint font-bold"
                   *ngIf="!selectedRow.latitud"
                 >
                   No se capturó GPS
@@ -460,13 +485,13 @@ import autoTable from 'jspdf-autotable';
               (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"
             />
           </div>
-          <div class="border rounded-lg overflow-hidden">
+          <div class="border border-surface-border rounded-lg overflow-hidden">
             <p-table
               [value]="selectedRow.exhibiciones || []"
               styleClass="p-datatable-sm"
             >
               <ng-template pTemplate="header">
-                <tr class="text-[10px] bg-zinc-50 uppercase">
+                <tr class="text-[10px] bg-surface-ground uppercase text-content-muted">
                   <th>Concepto</th>
                   <th>Ubicación</th>
                   <th class="text-right pr-3">Puntuación</th>
@@ -494,7 +519,16 @@ import autoTable from 'jspdf-autotable';
         padding: 0.5rem;
       }
       :host ::ng-deep .p-tablist-tablist {
-        border-bottom: 2px solid #e5e7eb;
+        border-bottom: 2px solid var(--surface-border);
+      }
+      :host ::ng-deep .p-button.p-button-info {
+        color: var(--content-muted);
+        background: transparent;
+        border: none;
+      }
+      :host ::ng-deep .p-button.p-button-info:hover {
+        color: var(--content-main);
+        background: var(--surface-hover);
       }
     `,
   ],
@@ -561,13 +595,15 @@ export class ReportsComponent implements OnInit {
 
   allUsers: any[] = [];
   filteredUsers: any[] = [];
+  allZones: any[] = [];
+  zonas: { label: string; value: string | null }[] = [{ label: 'Todas las Zonas', value: null }];
 
-  zonas = [
-    { label: 'Todas las Zonas', value: null },
-    { label: 'Norte', value: 'Norte' },
-    { label: 'Centro', value: 'Centro' },
-    { label: 'Sur', value: 'Sur' },
-  ];
+  // Filtros separados: Encargados y Vendedores
+  supervisors: any[] = [];
+  allSellers: any[] = [];
+  filteredSellers: any[] = [];
+  selectedSupervisorId: string | null = null;
+  selectedSellerIds: string[] = [];
 
   periodos = [
     { label: 'Hoy', value: 'hoy' },
@@ -584,42 +620,134 @@ export class ReportsComponent implements OnInit {
   ngOnInit() {
     const user = this.auth.user();
     this.isSuperAdmin.set(user?.role_name === 'superadmin');
+    this.loadZones();
     this.loadUsers();
     this.applyPeriodPreset();
     this.loadData();
     this.initChartConfig();
   }
 
-  loadUsers() {
-    this.reportsService.getUsers().subscribe((users) => {
-      this.allUsers = users.map((u) => ({
-        label: u.nombre,
-        value: u.id,
-        zona: u.zona,
-      }));
-      this.updateFilteredUsers();
+  loadZones() {
+    this.reportsService.getZones().subscribe({
+      next: (zones) => {
+        console.log('Zonas cargadas:', zones);
+        this.allZones = zones;
+        this.zonas = [
+          { label: 'Todas las Zonas', value: null },
+          ...zones.map((z: any) => ({
+            label: z.value,
+            value: z.value as string | null,
+          })),
+        ];
+        console.log('Zonas mapeadas:', this.zonas);
+      },
+      error: (err) => {
+        console.error('Error cargando zonas:', err);
+        // Fallback a zonas estáticas si falla la carga
+        this.zonas = [
+          { label: 'Todas las Zonas', value: null },
+          { label: 'Norte', value: 'Norte' as string | null },
+          { label: 'Centro', value: 'Centro' as string | null },
+          { label: 'Sur', value: 'Sur' as string | null },
+        ];
+      },
     });
   }
 
-  updateFilteredUsers() {
-    if (!this.selectedZone) {
-      this.filteredUsers = [...this.allUsers];
-    } else {
-      this.filteredUsers = this.allUsers.filter(
-        (u) => u.zona === this.selectedZone,
+  loadUsers() {
+    // Cargar supervisores y vendedores por separado
+    this.loadSupervisors();
+    this.loadSellers();
+  }
+
+  loadSupervisors() {
+    const zona = this.selectedZone || undefined;
+    console.log('[loadSupervisors] Cargando supervisores, zona:', zona);
+
+    this.reportsService.getSupervisors(zona).subscribe({
+      next: (supervisors) => {
+        console.log('[loadSupervisors] Respuesta:', supervisors);
+        this.supervisors = [
+          { label: 'Todos los encargados', value: null },
+          ...supervisors.map((s: any) => ({
+            label: `${s.username}`,
+            value: s.id,
+            zona: s.zona,
+          })),
+        ];
+        console.log('[loadSupervisors] Mapeado:', this.supervisors);
+      },
+      error: (err) => {
+        console.error('[loadSupervisors] Error:', err);
+        this.supervisors = [{ label: 'Todos los encargados', value: null }];
+      },
+    });
+  }
+
+  loadSellers() {
+    const zona = this.selectedZone || undefined;
+    const supervisorId = this.selectedSupervisorId || undefined;
+    console.log('[loadSellers] Cargando vendedores, zona:', zona, 'supervisorId:', supervisorId);
+
+    this.reportsService.getSellers(zona, supervisorId).subscribe({
+      next: (sellers) => {
+        console.log('[loadSellers] Respuesta:', sellers);
+        this.allSellers = sellers.map((s: any) => ({
+          label: `${s.username}`,
+          value: s.id,
+          zona: s.zona,
+          supervisor_id: s.supervisor_id,
+        }));
+        console.log('[loadSellers] Mapeado:', this.allSellers);
+        this.updateFilteredSellers();
+      },
+      error: (err) => {
+        console.error('[loadSellers] Error:', err);
+        this.allSellers = [];
+        this.filteredSellers = [];
+      },
+    });
+  }
+
+  updateFilteredSellers() {
+    // Si hay un supervisor seleccionado, filtrar vendedores por ese supervisor
+    if (this.selectedSupervisorId) {
+      this.filteredSellers = this.allSellers.filter(
+        (s) => s.supervisor_id === this.selectedSupervisorId,
       );
+    } else {
+      this.filteredSellers = [...this.allSellers];
     }
-    this.selectedUserIds = this.selectedUserIds.filter((id) =>
-      this.filteredUsers.find((u) => u.value === id),
+    // Limpiar vendedores seleccionados que ya no están en la lista filtrada
+    this.selectedSellerIds = this.selectedSellerIds.filter((id) =>
+      this.filteredSellers.find((s) => s.value === id),
     );
+  }
+
+  onSupervisorChange() {
+    // Cuando cambia el supervisor, recargar vendedores y actualizar filtro
+    this.loadSellers();
+    this.loadData();
+  }
+
+  onSellerChange() {
+    this.loadData();
+  }
+
+  // Legacy method - mantener para compatibilidad
+  updateFilteredUsers() {
+    // Actualizar vendedores filtrados
+    this.updateFilteredSellers();
   }
 
   resetFilters() {
     this.selectedPeriod = 'semanal';
     this.selectedZone = null;
-    this.selectedUserIds = [];
+    this.selectedSupervisorId = null;
+    this.selectedSellerIds = [];
     this.applyPeriodPreset();
-    this.updateFilteredUsers();
+    this.loadSupervisors();
+    this.loadSellers();
     this.loadData();
   }
 
@@ -664,12 +792,15 @@ export class ReportsComponent implements OnInit {
   }
 
   onZoneChange() {
-    this.updateFilteredUsers();
+    // Cuando cambia la zona, recargar supervisores y vendedores filtrados por zona
+    this.loadSupervisors();
+    this.loadSellers();
     this.loadData();
   }
 
   onUserChange() {
-    this.loadData();
+    // Legacy - redirigir a onSellerChange
+    this.onSellerChange();
   }
 
   onDateChange() {
@@ -681,13 +812,21 @@ export class ReportsComponent implements OnInit {
   loadData() {
     if (!this.dateRange || !this.dateRange[0]) return;
     this.loading.set(true);
+
+    // Combinar IDs: si hay vendedores seleccionados, usarlos. Si no, usar el filtro legacy
+    const userIds = this.selectedSellerIds.length > 0
+      ? this.selectedSellerIds
+      : this.selectedUserIds;
+
     const filters = {
       startDate: this.dateRange[0].toLocaleDateString('en-CA'),
       endDate:
         this.dateRange[1]?.toLocaleDateString('en-CA') ||
         this.dateRange[0].toLocaleDateString('en-CA'),
       zone: this.selectedZone,
-      userIds: this.selectedUserIds,
+      supervisorId: this.selectedSupervisorId,
+      sellerIds: this.selectedSellerIds,
+      userIds: userIds, // Legacy support
     };
     this.reportsService.getReportsData(filters).subscribe({
       next: (data: ReportsData) => {
@@ -708,13 +847,15 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas',
           data: data.trendData.map((d: any) => d.visits),
-          borderColor: '#2563eb',
+          borderColor: 'var(--content-main)',
+          backgroundColor: 'var(--content-main)',
           tension: 0.4,
         },
         {
           label: 'Score',
           data: data.trendData.map((d: any) => d.avgScore),
-          borderColor: '#059669',
+          borderColor: 'var(--content-dim)',
+          backgroundColor: 'var(--content-dim)',
           tension: 0.4,
         },
       ],

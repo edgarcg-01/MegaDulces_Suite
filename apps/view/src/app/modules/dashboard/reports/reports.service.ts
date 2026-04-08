@@ -30,11 +30,19 @@ export class ReportsService {
     if (filters.startDate) params = params.set('startDate', filters.startDate);
     if (filters.endDate) params = params.set('endDate', filters.endDate);
     if (filters.userId) params = params.set('userId', filters.userId);
-    if (filters.userIds && filters.userIds.length > 0) {
-      filters.userIds.forEach((id: string) => {
+    if (filters.supervisorId) params = params.set('supervisorId', filters.supervisorId);
+
+    // Prioridad: sellerIds > userIds > legacy userIds
+    const idsToSend = filters.sellerIds?.length > 0
+      ? filters.sellerIds
+      : (filters.userIds?.length > 0 ? filters.userIds : []);
+
+    if (idsToSend.length > 0) {
+      idsToSend.forEach((id: string) => {
         params = params.append('userIds[]', id);
       });
     }
+
     if (filters.zone) params = params.set('zone', filters.zone);
 
     return this.http.get<ReportsData>(`${this.apiUrl}/data`, { params });
@@ -60,6 +68,23 @@ export class ReportsService {
 
   getUsers(): Observable<any[]> {
     return this.http.get<any[]>(`${environment.apiUrl}/users`);
+  }
+
+  getZones(): Observable<any[]> {
+    return this.http.get<any[]>(`${environment.apiUrl}/users/zones`);
+  }
+
+  getSupervisors(zona?: string): Observable<any[]> {
+    let params = new HttpParams();
+    if (zona) params = params.set('zona', zona);
+    return this.http.get<any[]>(`${environment.apiUrl}/users/supervisors`, { params });
+  }
+
+  getSellers(zona?: string, supervisorId?: string): Observable<any[]> {
+    let params = new HttpParams();
+    if (zona) params = params.set('zona', zona);
+    if (supervisorId) params = params.set('supervisor_id', supervisorId);
+    return this.http.get<any[]>(`${environment.apiUrl}/users/sellers`, { params });
   }
 
   getSummary(): Observable<any> {

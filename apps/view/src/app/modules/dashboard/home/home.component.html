@@ -1,7 +1,7 @@
 <div class="dashboard-container w-full h-full text-content-main transition-colors duration-300">
     <!-- Header -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
-        <div>
+        <div class="text-reveal">
             <h1 class="title-premium">Dashboard Estratégico</h1>
             <p class="text-sm text-content-muted opacity-80 mt-2">Visión avanzada y métricas de campo en tiempo real</p>
         </div>
@@ -19,17 +19,17 @@
             </div>
         </ng-container>
         <ng-container *ngIf="!loading()">
-            <div *ngFor="let kpi of kpiCards(); let i = index" 
-                 class="card-premium animate-slide-up"
-                 [style.animation-delay]="i * 0.1 + 's'">
+            <div *ngFor="let kpi of kpiCards(); let i = index"
+                 class="card-premium animate-slide-up elevation-hover border-ghost morph-borders group"
+                 [style.animation-delay]="i * 0.08 + 's'">
                 <div class="flex items-center justify-between mb-4">
                     <div class="stat-label">{{ kpi.label }}</div>
-                    <div class="text-xs font-black tracking-widest uppercase" [class]="kpi.color">{{ kpi.trend }}</div>
+                    <div class="text-xs font-black tracking-widest uppercase text-content-muted transition-transform duration-200 group-hover:scale-110">{{ kpi.trend }}</div>
                 </div>
                 <div class="flex items-end justify-between">
-                    <div class="stat-value">{{ kpi.value }}</div>
-                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center bg-surface-layout border border-divider transition-colors">
-                        <i [class]="kpi.icon" class="text-xl" [class]="kpi.color"></i>
+                    <div class="stat-value transition-transform duration-200 group-hover:scale-105">{{ kpi.value }}</div>
+                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center bg-surface-layout border border-divider transition-all duration-200 group-hover:border-content-muted/30">
+                        <i [class]="kpi.icon" class="text-xl text-content-muted transition-transform duration-200 group-hover:scale-110"></i>
                     </div>
                 </div>
             </div>
@@ -43,12 +43,12 @@
         <div class="lg:col-span-8 space-y-8">
             
             <!-- Performance Chart -->
-            <div class="card-premium card-premium-accent">
+            <div class="card-premium elevation-hover border-ghost morph-borders transition-all duration-300">
                 <div class="flex items-center justify-between mb-8">
                     <h3 class="stat-label">Evaluación de Ejecución Semanal</h3>
                     <div class="flex items-center gap-3">
                         <div class="flex items-center gap-2 text-xs text-content-muted font-bold uppercase tracking-tighter">
-                            <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span> Score Compliance
+                            <span class="w-1.5 h-1.5 rounded-full bg-content-muted"></span> Score Compliance
                         </div>
                     </div>
                 </div>
@@ -92,7 +92,7 @@
                                         <div class="progress-container flex-1">
                                             <div class="progress-bar" 
                                                  [style.width.%]="kpi.pct"
-                                                 [ngClass]="kpi.pct >= 90 ? 'bg-blue-600' : (kpi.pct >= 70 ? 'bg-amber-400' : 'bg-rose-500')">
+                                                 [ngClass]="kpi.pct >= 90 ? 'progress-bar-brand' : (kpi.pct >= 70 ? 'progress-bar-orange' : 'bg-rose-500')">
                                             </div>
                                         </div>
                                         <span class="text-xs font-mono font-black w-8 text-right">{{ kpi.pct }}%</span>
@@ -174,7 +174,7 @@
                             </div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs text-content-muted uppercase tracking-tighter">{{ cap.zona_captura }}</span>
-                                <span class="text-xs font-black" [class]="cap.stats?.puntuacionTotal >= 80 ? 'text-blue-600' : 'text-rose-500'">{{ cap.stats?.puntuacionTotal }}%</span>
+                                <span class="text-xs font-black" [class]="cap.stats?.puntuacionTotal >= 80 ? 'text-brand' : 'text-rose-500'">{{ cap.stats?.puntuacionTotal }}%</span>
                             </div>
                         </div>
                     </div>

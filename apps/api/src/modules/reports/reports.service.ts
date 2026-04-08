@@ -96,7 +96,7 @@ export class ReportsService {
     };
   }
 
-  async getFilteredData(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string }, user: any) {
+  async getFilteredData(filters: { startDate?: string, endDate?: string, userId?: string, userIds?: string[], zone?: string, supervisorId?: string }, user: any) {
     const query = this.knex('daily_captures').select('*');
 
     if (user.role_name === 'colaborador') {
@@ -109,7 +109,15 @@ export class ReportsService {
     if (filters.startDate) query.where('fecha', '>=', filters.startDate);
     if (filters.endDate) query.where('fecha', '<=', filters.endDate);
     if (filters.userId) query.where('user_id', filters.userId);
-    if (filters.userIds && filters.userIds.length > 0) query.whereIn('user_id', filters.userIds);
+
+    // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
+    if (filters.supervisorId) {
+      const teamIds = await this.getTeamIds(filters.supervisorId);
+      query.whereIn('user_id', teamIds);
+    } else if (filters.userIds && filters.userIds.length > 0) {
+      query.whereIn('user_id', filters.userIds);
+    }
+
     if (filters.zone) query.where('zona_captura', filters.zone);
 
     const rows = await query.orderBy('fecha', 'desc');
@@ -163,7 +171,7 @@ export class ReportsService {
     };
   }
 
-  async exportCsvInBuffer(filters: { startDate?: string; endDate?: string; userId?: string; userIds?: string[]; zone?: string; }, user: any) {  
+  async exportCsvInBuffer(filters: { startDate?: string; endDate?: string; userId?: string; userIds?: string[]; zone?: string; supervisorId?: string }, user: any) {  
     const query = this.knex('daily_captures').select('*');
 
     if (user.role_name === 'colaborador') {
@@ -176,7 +184,15 @@ export class ReportsService {
     if (filters.startDate) query.where('fecha', '>=', filters.startDate);
     if (filters.endDate) query.where('fecha', '<=', filters.endDate);
     if (filters.userId) query.where('user_id', filters.userId);
-    if (filters.userIds && filters.userIds.length > 0) query.whereIn('user_id', filters.userIds);
+
+    // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
+    if (filters.supervisorId) {
+      const teamIds = await this.getTeamIds(filters.supervisorId);
+      query.whereIn('user_id', teamIds);
+    } else if (filters.userIds && filters.userIds.length > 0) {
+      query.whereIn('user_id', filters.userIds);
+    }
+
     if (filters.zone) query.where('zona_captura', filters.zone);
 
     const data = await query.orderBy('fecha', 'desc');

@@ -1,8 +1,8 @@
-<div class="p-6">
+﻿<div class="p-6">
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h2 class="text-2xl font-bold text-content-main">Administración de Usuarios</h2>
-      <p class="text-sm text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
+      <h2 class="text-headline text-content-main">Administración de Usuarios</h2>
+      <p class="text-body text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
     </div>
     <div class="flex gap-2">
       <p-button label="Exportar" icon="pi pi-file-excel" severity="secondary" [outlined]="true"></p-button>
@@ -14,44 +14,54 @@
     <!-- Tabla de Usuarios -->
     <p-table [value]="users()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
-        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+        <tr class="table-header text-content-muted bg-surface-ground border-b border-surface-border">
           <th pSortableColumn="username">Usuario <p-sortIcon field="username"></p-sortIcon></th>
           <th pSortableColumn="nombre">Vendedor Asignado <p-sortIcon field="nombre"></p-sortIcon></th>
           <th pSortableColumn="role_name">Rol <p-sortIcon field="role_name"></p-sortIcon></th>
           <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
-          <th class="text-xs text-content-muted uppercase">Jefe Directo</th>
-          <th class="text-center">Estado</th>
-          <th class="text-center w-28">Acciones</th>
+          <th class="table-header">Jefe Directo</th>
+          <th class="text-center table-header">Estado</th>
+          <th class="text-center w-28 table-header">Acciones</th>
         </tr>
       </ng-template>
       <ng-template pTemplate="body" let-user>
         <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
-          <td class="font-bold text-content-main font-mono">{{ user.username }}</td>
+          <td class="table-cell-strong font-mono">{{ user.username }}</td>
           <td class="text-content-dim">{{ user.nombre }}</td>
           <td>
-            <p-tag [severity]="user.role_name === 'superadmin' ? 'contrast' : user.role_name === 'ejecutivo' ? 'info' : 'success'" 
+            <p-tag [severity]="user.role_name === 'superadmin' ? 'contrast' : user.role_name === 'ejecutivo' ? 'secondary' : 'secondary'"
                    [value]="user.role_name | uppercase" [rounded]="true"></p-tag>
           </td>
           <td>
-             <span class="text-xs bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+             <span class="text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
           </td>
-          <td class="text-xs text-content-dim">
+          <td class="text-content-dim">
             {{ user.role_name === 'colaborador' ? getSupervisorName(user.supervisor_id) : '-' }}
           </td>
           <td class="text-center">
-            <i class="pi" [ngClass]="user.activo ? 'pi-check-circle text-emerald-500' : 'pi-times-circle text-content-muted'"></i>
+            <i class="pi" [ngClass]="user.activo ? 'pi-check-circle text-content-main' : 'pi-times-circle text-content-muted'"></i>
           </td>
           <td class="text-center">
             <div class="flex justify-center gap-1">
-              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(user)"></p-button>
-              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteUser(user)"></p-button>
+              <button
+                (click)="openEditDialog(user)"
+                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
+                title="Editar">
+                <i class="pi pi-pencil text-sm"></i>
+              </button>
+              <button
+                (click)="deleteUser(user)"
+                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+                title="Eliminar">
+                <i class="pi pi-trash text-sm"></i>
+              </button>
             </div>
           </td>
         </tr>
       </ng-template>
       <ng-template pTemplate="emptymessage">
         <tr>
-          <td colspan="6" class="text-center p-8 text-content-dim">
+          <td colspan="7" class="text-center p-8 text-content-dim">
              No hay usuarios configurados. Intenta recargar la página.
           </td>
         </tr>
@@ -64,30 +74,40 @@
     <div *ngFor="let user of users()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-3">
-          <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ user.username }}</span>
-          <h3 class="text-sm font-bold text-content-main">{{ user.nombre }}</h3>
+          <span class="text-label font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ user.username }}</span>
+          <h3 class="table-cell-strong text-content-main">{{ user.nombre }}</h3>
         </div>
         <div class="flex gap-1">
-          <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(user)"></p-button>
-          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteUser(user)"></p-button>
+          <button
+            (click)="openEditDialog(user)"
+            class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
+            title="Editar">
+            <i class="pi pi-pencil text-sm"></i>
+          </button>
+          <button
+            (click)="deleteUser(user)"
+            class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+            title="Eliminar">
+            <i class="pi pi-trash text-sm"></i>
+          </button>
         </div>
       </div>
       <div class="space-y-2">
         <div class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Rol:</span>
-          <span class="text-sm font-medium text-content-main">{{ user.role_name }}</span>
+          <span class="text-label text-content-muted">Rol:</span>
+          <span class="text-body font-medium text-content-main">{{ user.role_name }}</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Zona:</span>
-          <span class="text-xs bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+          <span class="text-label text-content-muted">Zona:</span>
+          <span class="text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Jefe:</span>
-          <span class="text-sm text-content-dim">{{ getSupervisorName(user.supervisor_id) }}</span>
+          <span class="text-label text-content-muted">Jefe:</span>
+          <span class="text-body text-content-dim">{{ getSupervisorName(user.supervisor_id) }}</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Estado:</span>
-          <span [ngClass]="user.activo ? 'text-green-600' : 'text-red-600'" class="text-sm font-medium">
+          <span class="text-label text-content-muted">Estado:</span>
+          <span [ngClass]="user.activo ? 'text-content-main' : 'text-content-muted'" class="text-body font-medium">
             {{ user.activo ? 'Activo' : 'Inactivo' }}
           </span>
         </div>
@@ -97,37 +117,37 @@
 </div>
 
 <!-- Diálogo Creación/Edición -->
-<p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'" 
-          [(visible)]="displayDialog" 
-          [modal]="true" 
-          [style]="{width: '500px'}" 
+<p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'"
+          [(visible)]="displayDialog"
+          [modal]="true"
+          [style]="{width: '500px'}"
           styleClass="p-fluid rounded-xl overflow-hidden shadow-2xl">
-  
+
   <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">
-    
+
     <div class="grid grid-cols-2 gap-4">
        <!-- Nombres -->
        <div class="flex flex-col gap-2">
-         <label for="nombre" class="text-xs font-bold text-content-muted">Nombre del Empleado</label>
+         <label for="nombre" class="text-label text-content-muted">Nombre del Empleado</label>
          <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" class="w-full" />
        </div>
-       
+
        <!-- Zona -->
        <div class="flex flex-col gap-2">
-         <label for="zona" class="text-xs font-bold text-content-muted">Región Comercial</label>
+         <label for="zona" class="text-label text-content-muted">Región Comercial</label>
          <input pInputText id="zona" formControlName="zona" placeholder="Ej: Pacífico Norte" class="w-full" />
        </div>
     </div>
 
     <!-- Usuario -->
     <div class="flex flex-col gap-2">
-      <label for="username" class="text-xs font-bold text-content-muted">Nombre de Usuario (Login)</label>
+      <label for="username" class="text-label text-content-muted">Nombre de Usuario (Login)</label>
       <div class="p-inputgroup border-surface-border">
           <span class="p-inputgroup-addon bg-surface-ground">
               <i class="pi pi-user text-content-dim"></i>
           </span>
-          <input pInputText id="username" formControlName="username" placeholder="jperez" 
-                 [readOnly]="isEditing()" 
+          <input pInputText id="username" formControlName="username" placeholder="jperez"
+                 [readOnly]="isEditing()"
                  [ngClass]="{'opacity-60 cursor-not-allowed': isEditing()}" />
       </div>
       <small class="text-red-500" *ngIf="userForm.get('username')?.invalid && userForm.get('username')?.touched">
@@ -137,15 +157,15 @@
 
     <!-- Rol -->
     <div class="flex flex-col gap-2">
-      <label for="role_name" class="text-xs font-bold text-content-muted">Nivel de Acceso</label>
-      <p-select id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol" 
+      <label for="role_name" class="text-label text-content-muted">Nivel de Acceso</label>
+      <p-select id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol"
                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
     </div>
 
     <!-- Supervisor (Solo para Colaborador) -->
     <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300" *ngIf="userForm.get('role_name')?.value === 'colaborador'">
-      <label for="supervisor_id" class="text-xs font-bold text-content-muted">Jefe / Supervisor de Ventas</label>
-      <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe" 
+      <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
+      <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe"
                   optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
       <small class="text-red-500" *ngIf="userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched">
         Debes asignar un supervisor para este colaborador.
@@ -154,8 +174,8 @@
 
     <!-- Contraseña -->
     <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-surface-border rounded-lg">
-      <label for="password" class="text-xs font-bold text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
-      <input pInputText id="password" type="password" formControlName="password" 
+      <label for="password" class="text-label text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
+      <input pInputText id="password" type="password" formControlName="password"
              placeholder="{{ isEditing() ? 'Dejar en blanco para no cambiar' : 'Min. 6 caracteres' }}" />
       <small class="text-red-500" *ngIf="userForm.get('password')?.hasError('minlength')">
         Requiere al menos 6 caracteres.
@@ -165,8 +185,8 @@
     <!-- Activo -->
     <div class="flex items-center justify-between p-4 bg-surface-ground border border-surface-border rounded-lg">
       <div>
-         <div class="text-sm font-bold text-content-main">Estado Activo</div>
-         <div class="text-xs text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
+         <div class="text-body font-bold text-content-main">Estado Activo</div>
+         <div class="text-label text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
       </div>
       <p-inputSwitch formControlName="activo"></p-inputSwitch>
     </div>

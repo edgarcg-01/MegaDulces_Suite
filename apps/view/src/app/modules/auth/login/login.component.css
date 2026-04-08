@@ -68,17 +68,11 @@
   text-shadow: 0 0 40px rgba(255, 255, 0, 0.1);
 }
 
-/* Font Families */
-.font-headline {
-  font-family: 'Inter', sans-serif;
-}
-
-.font-body {
-  font-family: 'Inter', sans-serif;
-}
-
+/* Tipografía unificada: Inter para todo */
+.font-headline,
+.font-body,
 .font-label {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: 'Inter', sans-serif;
 }
 
 /* Animations */

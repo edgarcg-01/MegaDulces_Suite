@@ -92,20 +92,83 @@ export class UsersService {
   }
 
   async findSupervisors(zona?: string) {
+    console.log('[findSupervisors] Buscando supervisores, zona:', zona);
+
     const query = this.knex('users')
       .where({ role_name: 'supervisor_v', activo: true })
       .select('id', 'nombre', 'username', 'zona');
-    
+
     if (zona) {
       query.where({ zona });
     }
-    
-    return query;
+
+    const result = await query;
+    console.log('[findSupervisors] Encontrados:', result.length);
+    return result;
+  }
+
+  async findSellers(zona?: string, supervisorId?: string) {
+    console.log('[findSellers] Buscando vendedores, zona:', zona, 'supervisorId:', supervisorId);
+
+    // Vendedores/ejecutivos: usuarios con role_name que no sea supervisor_v, admin, superadmin
+    const query = this.knex('users')
+      .whereNotIn('role_name', ['supervisor_v', 'admin', 'superadmin'])
+      .where({ activo: true })
+      .select('id', 'nombre', 'username', 'zona', 'role_name', 'supervisor_id');
+
+    if (zona) {
+      query.where({ zona });
+    }
+
+    if (supervisorId) {
+      query.where({ supervisor_id: supervisorId });
+    }
+
+    const result = await query;
+    console.log('[findSellers] Encontrados:', result.length);
+    return result;
   }
 
   async findBySupervisor(supervisorId: string) {
     return this.knex('users')
       .where({ supervisor_id: supervisorId, activo: true })
       .select('id', 'nombre', 'username', 'zona', 'role_name');
+  }
+
+  async getZones() {
+    try {
+      console.log('[getZones] Ejecutando consulta SQL...');
+
+      // Obtener zonas únicas de la tabla users
+      const result = await this.knex.raw(`
+        SELECT DISTINCT zona as value
+        FROM users
+        WHERE zona IS NOT NULL
+          AND zona != ''
+          AND activo = true
+        ORDER BY zona ASC
+      `);
+
+      console.log('[getZones] Resultado raw:', result);
+
+      // Knex raw retorna diferentes formatos según el driver
+      const rows = result.rows || result[0] || result;
+
+      console.log('[getZones] Rows extraídas:', rows);
+      console.log('[getZones] Cantidad de zonas encontradas:', rows?.length || 0);
+
+      const mapped = rows.map((z: any, index: number) => ({
+        id: z.value,
+        value: z.value,
+        orden: index + 1,
+      }));
+
+      console.log('[getZones] Zonas mapeadas:', mapped);
+      return mapped;
+    } catch (error) {
+      console.error('[getZones] Error:', error);
+      // Retornar array vacío en caso de error para no romper el frontend
+      return [];
+    }
   }
 }

@@ -1,16 +1,16 @@
 <div class="min-h-screen bg-surface-layout">
 
   <!-- Top Bar -->
-  <header class="bg-surface-card border-b border-divider px-6 py-4">
+  <header class="bg-surface-card border-b border-surface-border px-6 py-4">
     <div class="max-w-6xl mx-auto flex items-center justify-between">
       <div>
-        <h1 class="text-lg font-bold text-content-main tracking-tight">Plataforma Operativa</h1>
-        <p class="text-xs text-[#71717a]">Seleccione un proyecto para continuar</p>
+        <h1 class="text-headline text-content-main">Plataforma Operativa</h1>
+        <p class="text-label text-content-dim">Seleccione un proyecto para continuar</p>
       </div>
       <div class="flex items-center gap-4">
         <div class="text-right">
-          <p class="text-sm font-semibold text-[#09090b]">{{ user()?.username }}</p>
-          <p class="text-xs text-[#71717a] uppercase tracking-wider">{{ user()?.role_name }}</p>
+          <p class="text-body font-semibold text-content-main">{{ user()?.username }}</p>
+          <p class="text-label text-content-muted">{{ user()?.role_name }}</p>
         </div>
         <p-button
           label="Cerrar Sesión"
@@ -29,10 +29,10 @@
 
     <!-- Greeting -->
     <div class="mb-10">
-      <h2 class="text-2xl font-bold text-[#09090b]">
-        Bienvenido, <span class="text-[#52525b]">{{ user()?.username }}</span>
+      <h2 class="text-display text-content-main">
+        Bienvenido, <span class="text-content-dim">{{ user()?.username }}</span>
       </h2>
-      <p class="text-sm text-[#71717a] mt-1">Estos son los proyectos asignados a tu cuenta.</p>
+      <p class="text-body text-content-dim mt-1">Estos son los proyectos asignados a tu cuenta.</p>
     </div>
 
     <!-- Projects Grid -->
@@ -41,28 +41,28 @@
       <div
         *ngFor="let project of projects"
         (click)="navigateTo(project.route)"
-        class="group bg-white rounded-lg border border-[#e4e4e7] p-6 cursor-pointer transition-all duration-200 hover:border-[#09090b] hover:shadow-lg">
+        class="group bg-surface-card rounded-xl border border-surface-border p-6 cursor-pointer transition-all duration-200 hover:border-content-muted hover:shadow-lg">
 
         <!-- Card Header -->
         <div class="flex items-start justify-between mb-4">
-          <div class="h-10 w-10 rounded-md bg-[#f4f4f5] group-hover:bg-[#09090b] flex items-center justify-center transition-colors">
-            <i [ngClass]="project.icon" class="text-[#09090b] group-hover:text-white text-lg transition-colors"></i>
+          <div class="h-10 w-10 rounded-lg bg-surface-ground group-hover:bg-content-main flex items-center justify-center transition-colors">
+            <i [ngClass]="project.icon" class="text-content-main group-hover:text-surface-card text-lg transition-colors"></i>
           </div>
-          <span class="inline-flex items-center rounded-full border border-[#d1fae5] bg-[#d1fae5] px-2.5 py-0.5 text-xs font-semibold text-[#059669]">
+          <span class="inline-flex items-center rounded-full border border-surface-border bg-surface-ground px-2.5 py-0.5 text-label text-content-main">
             {{ project.status }}
           </span>
         </div>
 
         <!-- Card Body -->
-        <h3 class="text-base font-bold text-[#09090b] group-hover:underline underline-offset-4 mb-2">
+        <h3 class="text-title text-content-main group-hover:underline underline-offset-4 mb-2">
           {{ project.name }}
         </h3>
-        <p class="text-sm text-[#71717a] leading-relaxed">
+        <p class="text-body text-content-dim leading-relaxed">
           {{ project.description }}
         </p>
 
         <!-- Card Footer -->
-        <div class="mt-6 flex items-center text-sm font-medium text-[#09090b]">
+        <div class="mt-6 flex items-center text-body font-medium text-content-main">
           Acceder
           <i class="pi pi-arrow-right ml-2 text-xs transition-transform group-hover:translate-x-1"></i>
         </div>

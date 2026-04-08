@@ -1,5 +1,9 @@
 :host {
   display: block;
+}
+
+/* Theme Variables */
+:host {
   --layout-bg: #f8fafc;
   --sidebar-bg: #ffffff;
   --border: #e2e8f0;
@@ -7,8 +11,16 @@
   --text-muted: #64748b;
   --text-faint: #94a3b8;
   --hover-bg: #f1f5f9;
-  --active-bg: #0f172a;
-  --active-text: #ffffff;
+
+  /* Brand Colors */
+  --brand-primary: rgba(253, 231, 7, 1);
+  --brand-orange: #f68f1e;
+  --brand-sunset: #f05a28;
+  --brand-light: #fff8bc;
+
+  /* Active State */
+  --active-bg: var(--brand-light);
+  --active-text: var(--brand-sunset);
 }
 
 :host-context(.theme-monochrome) {
@@ -23,147 +35,103 @@
   --active-text: #000000;
 }
 
-/* Responsive Design */
-@media (max-width: 1024px) {
-  :host aside {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100vh;
-    z-index: 50;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
-  }
+/* Custom Scrollbar for Nav - visible pero sutil */
+:host nav::-webkit-scrollbar {
+  width: 4px;
+}
 
+:host nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:host nav::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 4px;
+}
+
+:host nav::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-faint);
+}
+
+/* Firefox scrollbar */
+:host nav {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ============================================================
+   ANIMACIONES PARA SIDEBAR CONTRAÍDO
+   ============================================================ */
+
+/* Transición suave para el aside */
+:host aside {
+  will-change: width;
+}
+
+/* Cuando el sidebar está colapsado, centrar iconos */
+:host aside.w-16 nav button {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+:host aside.w-16 nav button i {
+  margin: 0 auto;
+}
+
+/* Ocultar indicador de activo en modo colapsado para no sobrecargar */
+:host aside.w-16 nav button .animate-pulse {
+  display: none;
+}
+
+/* Efecto de resaltado en icono activo cuando está colapsado */
+:host aside.w-16 nav button.border-brand {
+  background: var(--active-bg);
+  transform: scale(1.05);
+}
+
+/* Transición del footer cuando colapsa */
+:host aside.w-16 .border-t button span {
+  opacity: 0;
+  width: 0;
+  transition: opacity 0.15s ease, width 0.2s ease;
+}
+
+/* Header logo mantiene visibilidad suave */
+:host aside .overflow-hidden {
+  transition: opacity 0.2s ease 0.1s, width 0.25s ease;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1024px) {
   :host .main-content {
     margin-left: 0;
-  }
-
-  /* Ensure main content has proper spacing on tablets */
-  :host main {
-    padding: 0 1rem;
   }
 }
 
 @media (max-width: 768px) {
-  :host header {
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
-
-  :host aside {
-    width: 280px !important;
-  }
-
-  /* Mobile navigation adjustments */
   :host nav {
     padding: 0.5rem;
   }
 
-  :host .nav-item {
-    padding: 0.75rem 1rem;
-    font-size: 0.9rem;
-  }
-
-  /* Mobile main content adjustments */
-  :host main {
-    padding: 0 0.5rem;
-  }
-
-  /* Mobile table adjustments */
   :host ::ng-deep .p-datatable-responsive {
     font-size: 0.8rem;
     margin: 0 -0.5rem;
   }
-
-  :host ::ng-deep .p-datatable .p-datatable-tbody > tr > td {
-    padding: 0.5rem;
-  }
-
-  :host ::ng-deep .p-datatable .p-datatable-thead > tr > th {
-    padding: 0.5rem;
-  }
-
-  /* Mobile card spacing */
-  :host ::ng-deep .p-6 {
-    padding: 1rem !important;
-  }
-
-  :host ::ng-deep .mb-6 {
-    margin-bottom: 1rem !important;
-  }
 }
 
 @media (max-width: 480px) {
-  :host aside {
-    width: 100vw !important;
-  }
-
-  :host header {
-    height: 3.5rem;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-
   :host .user-info {
     display: none;
   }
 
-  /* Mobile main content */
-  :host main {
-    padding: 0 0.25rem;
-  }
-
-  /* Mobile card adjustments */
-  :host .card-premium {
-    padding: 0.75rem;
-  }
-
-  :host .stat-value {
-    font-size: 1.25rem;
-  }
-
-  /* Mobile button adjustments */
-  :host ::ng-deep .p-button {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.8rem;
-  }
-
-  /* Mobile table extreme adjustments */
   :host ::ng-deep .p-datatable-responsive {
     font-size: 0.75rem;
     margin: 0 -0.25rem;
   }
 
-  :host ::ng-deep .p-datatable .p-datatable-tbody > tr > td,
-  :host ::ng-deep .p-datatable .p-datatable-thead > tr > th {
-    padding: 0.375rem 0.5rem;
-  }
-
-  /* Hide breadcrumbs on very small screens */
-  :host nav {
+  :host .breadcrumb-mobile {
     display: none;
-  }
-}
-
-/* Mobile Menu Overlay */
-.mobile-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  z-index: 40;
-}
-
-/* Smooth transitions for mobile */
-@media (max-width: 1024px) {
-  :host aside {
-    transition: transform 0.3s ease-in-out;
-  }
-
-  :host .mobile-overlay {
-    animation: fadeIn 0.3s ease-in-out;
   }
 }
 

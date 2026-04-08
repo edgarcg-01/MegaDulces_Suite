@@ -1,3 +1,8 @@
+/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+
 const DEFAULT_PLANOGRAMA = [
   {marca:'LA ROSA', productos:['Mazapán Clásico','Mazapán Gigante','Nugs','Nugs Recreo','Suizo','Japonés 200g','Japonés 60g','Gummy Pop','Paleta Jumbo','Bombón Chocolate','Ranita','Suave Acidito','Bombón Mini','Malvabón','Mazapán Chocolate','Pulparindo','Bombón Gigante','Confichoky']},
   {marca:'HERSHEY', productos:['Pelón Gde','Pelón Mini','Kisses','Hershey Barra 20g','Crayón','Pelonetes','Hershey Miniatura','Hershey Barra 40g','Peloneta']},
@@ -44,4 +49,4 @@ exports.seed = async function(knex) {
       await knex("products").insert(prodInserts);
     }
   }
-};
+}

@@ -6,7 +6,7 @@ import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
-import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiQuery, ApiOperation } from '@nestjs/swagger';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -39,13 +39,35 @@ export class UsersController {
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiQuery({ name: 'zona', required: false })
   getSupervisors(@Query('zona') zona?: string) {
+    console.log('[UsersController] GET /users/supervisors, zona:', zona);
     return this.usersService.findSupervisors(zona);
+  }
+
+  @Get('sellers')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiQuery({ name: 'zona', required: false })
+  @ApiQuery({ name: 'supervisor_id', required: false })
+  @ApiOperation({ summary: 'Obtener vendedores/ejecutivos activos' })
+  getSellers(
+    @Query('zona') zona?: string,
+    @Query('supervisor_id') supervisorId?: string,
+  ) {
+    console.log('[UsersController] GET /users/sellers, zona:', zona, 'supervisor_id:', supervisorId);
+    return this.usersService.findSellers(zona, supervisorId);
   }
 
   @Get('supervisor/:id/team')
   @RequirePermissions(Permission.USUARIOS_VER)
   getTeamBySupervisor(@Param('id') id: string) {
+    console.log('[UsersController] GET /users/supervisor/:id/team, id:', id);
     return this.usersService.findBySupervisor(id);
+  }
+
+  @Get('zones')
+  @ApiOperation({ summary: 'Obtener zonas únicas de usuarios activos' })
+  getZones() {
+    console.log('[UsersController] GET /users/zones');
+    return this.usersService.getZones();
   }
 
   @Get(':id')

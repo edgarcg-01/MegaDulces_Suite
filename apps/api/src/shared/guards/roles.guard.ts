@@ -28,7 +28,7 @@ export class RolesGuard implements CanActivate {
 
     // 3. Revisar permisos dinámicos (JSONB)
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
-    PERMISSIONS_KEY,
+      PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
 
@@ -36,7 +36,7 @@ export class RolesGuard implements CanActivate {
       // Check if the user has any of the required permissions
       const hasPermission = requiredPermissions.every(
         (p) => user.permissions && user.permissions[p] === true,
-    );
+      );
 
       if (!hasPermission) {
         console.error(

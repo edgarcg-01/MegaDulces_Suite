@@ -90,14 +90,14 @@
             <td>
               <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : ex.nivelEjecucion === 'basico' ? 'warn' : 'danger'" [value]="ex.nivelEjecucion | uppercase" [rounded]="true"></p-tag>
             </td>
-            <td class="text-right font-mono text-emerald-600 font-bold border-r border-surface-border/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
+            <td class="text-right font-mono text-brand-orange font-bold border-r border-surface-border/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
             <td class="text-center bg-surface-ground/50">
-               <span class="font-bold font-mono text-emerald-600">
+               <span class="font-bold font-mono text-brand-orange">
                  {{ ex.puntuacionCalculada }} pts
                </span>
             </td>
             <td class="text-center">
-              <i *ngIf="ex.fotoBase64" class="pi pi-image text-blue-500" title="Evidencia Guardada"></i>
+              <i *ngIf="ex.fotoBase64" class="pi pi-image text-brand" title="Evidencia Guardada"></i>
             </td>
             <td class="text-center">
               <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
@@ -136,7 +136,7 @@
   <!-- SECCIÓN: HISTORIAL DE VISITAS DEL DÍA -->
   <div class="mt-12">
     <div class="flex items-center gap-2 mb-4">
-      <i class="pi pi-history text-blue-600"></i>
+      <i class="pi pi-history text-brand-orange"></i>
       <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
     </div>
 
@@ -162,11 +162,11 @@
             <td class="font-bold text-content-main font-mono">#{{visita.folio}}</td>
             <td class="text-content-dim">{{ formatDate(visita.horaFin) }}</td>
             <td>
-               <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+               <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-brand-light text-brand-sunset">
                  {{visita.exhibiciones?.length}} items
                </span>
             </td>
-            <td class="text-right font-bold text-emerald-600 font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
+            <td class="text-right font-bold text-brand-orange font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
             <td class="text-center font-bold text-content-main">{{visita.stats?.puntuacionTotal}} pts</td>
             <td>
               <p-tag severity="success" value="SINCRONIZADO" [rounded]="true"></p-tag>
@@ -192,7 +192,7 @@
                   </div>
                   <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
                     <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
-                    <span class="font-mono text-xs text-emerald-600 font-bold">${{ex.ventaAdicional || 0}}</span>
+                    <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
                   </div>
                 </div>
               </div>
@@ -227,7 +227,7 @@
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-content-muted">Venta Total:</span>
-            <span class="text-sm font-bold text-emerald-600">${{visita.stats.ventaTotal.toLocaleString()}}</span>
+            <span class="text-sm font-bold text-brand-orange">${{visita.stats.ventaTotal.toLocaleString()}}</span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-content-muted">Score:</span>
@@ -253,7 +253,7 @@
               </div>
               <div class="flex items-center justify-between">
                 <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
-                <span class="font-mono text-xs text-emerald-600 font-bold">${{ex.ventaAdicional || 0}}</span>
+                <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
               </div>
             </div>
           </div>
@@ -276,10 +276,10 @@
     <div class="mb-6 mt-4 px-4">
       <div class="flex justify-between items-center relative">
         <div class="absolute top-1/2 left-0 right-0 h-0.5 bg-surface-border -z-10 -translate-y-1/2"></div>
-        <div class="absolute top-1/2 left-0 h-0.5 bg-blue-500 -z-10 -translate-y-1/2 transition-all duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'"></div>
+        <div class="absolute top-1/2 left-0 h-0.5 bg-brand-orange -z-10 -translate-y-1/2 transition-all duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'"></div>
         
         <div *ngFor="let s of [1,2,3,4,5,6]" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 bg-surface-card transition-colors z-10"
-             [ngClass]="s <= wizardStep ? 'border-blue-500 text-blue-500' : 'border-surface-border text-content-muted'">
+             [ngClass]="s <= wizardStep ? 'border-brand-orange text-brand-orange' : 'border-surface-border text-content-muted'">
           {{s}}
         </div>
       </div>
@@ -292,8 +292,8 @@
         <div class="grid grid-cols-2 gap-3" *ngIf="configPosiciones().length > 0">
           <div *ngFor="let ubi of configPosiciones()" 
                (click)="onUbicacionSelect(ubi.id)"
-               class="p-4 border rounded-xl text-center cursor-pointer transition-all border-surface-border hover:border-blue-500 bg-surface-ground flex flex-col gap-2 items-center"
-               [ngClass]="{'ring-2 ring-blue-500 bg-blue-50/10 font-bold border-blue-500 text-blue-700': currentExhibicion().ubicacionId === ubi.id}">
+               class="p-4 border rounded-xl text-center cursor-pointer transition-all border-surface-border hover:border-brand-orange bg-surface-ground flex flex-col gap-2 items-center"
+               [ngClass]="{'ring-2 ring-brand-orange bg-brand-light/30 font-bold border-brand-orange text-brand-sunset': currentExhibicion().ubicacionId === ubi.id}">
             <i class="pi pi-directions text-lg opacity-40"></i>
             {{ ubi.nombre }}
           </div>
@@ -330,16 +330,16 @@
            <div *ngFor="let niv of configNiveles()" 
                 (click)="onNivelSelect(niv)"
                 class="p-4 border rounded-xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
-                [ngClass]="{'bg-blue-50/10 ring-2 ring-blue-500 font-bold border-blue-500 text-blue-700 shadow-sm': currentExhibicion().nivelEjecucion === niv}">
+                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().nivelEjecucion === niv}">
              <span class="uppercase tracking-wider text-sm">{{ niv }}</span>
-             <i class="pi" [ngClass]="currentExhibicion().nivelEjecucion === niv ? 'pi-check-circle text-blue-500' : 'pi-circle text-content-muted opacity-20'"></i>
+             <i class="pi" [ngClass]="currentExhibicion().nivelEjecucion === niv ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
            </div>
         </div>
       </div>
 
       <!-- Step 4: Dinámica Comercial -->
       <div *ngIf="wizardStep === 4" class="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <h4 class="font-bold text-content-main underline decoration-blue-500/30 underline-offset-4">4. Impacto Comercial</h4>
+          <h4 class="font-bold text-content-main underline decoration-brand-orange/30 underline-offset-4">4. Impacto Comercial</h4>
         
         <div class="space-y-2">
            <label class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
@@ -364,12 +364,12 @@
       <div *ngIf="wizardStep === 5" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div class="flex justify-between items-center mb-2">
           <h4 class="font-bold text-content-main">5. Productos Identificados</h4>
-          <span class="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{{currentExhibicion().productosMarcados?.length || 0}} marcados</span>
+          <span class="text-[9px] font-bold text-brand-sunset bg-brand-light px-2 py-0.5 rounded-full">{{currentExhibicion().productosMarcados?.length || 0}} marcados</span>
         </div>
         
         <div class="max-h-[300px] overflow-y-auto space-y-4 pr-2">
            <div *ngFor="let brand of svc.groupedProducts()" class="space-y-2">
-              <div class="text-xs font-black text-content-muted uppercase tracking-widest border-l-2 border-blue-500 pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
+              <div class="text-xs font-black text-content-muted uppercase tracking-widest border-l-2 border-brand-orange pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
               <div class="grid grid-cols-1 gap-2">
                  <div *ngFor="let prod of brand.items" 
                       class="flex items-center gap-3 p-2 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-hover transition-colors">
@@ -387,7 +387,7 @@
         
         <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-2xl p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
            <input type="file" accept="image/*" capture="environment" (change)="onFileSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
-           <div class="w-16 h-16 bg-blue-500 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
+           <div class="w-16 h-16 bg-brand-orange text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-orange/30">
               <i class="pi pi-camera text-2xl"></i>
            </div>
            <div class="text-sm font-bold text-content-main">Tomar Fotografía</div>
@@ -421,7 +421,7 @@
 <!-- RESULT DIALOG -->
 <p-dialog [(visible)]="showResultDialog" [modal]="true" [style]="{width: '450px'}" styleClass="rounded-2xl border-0 shadow-2xl">
   <div class="py-6 text-center" *ngIf="lastResult">
-    <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-500/20 animate-bounce">
+    <div class="w-20 h-20 bg-brand-light text-brand-sunset rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-orange/20 animate-bounce">
        <i class="pi pi-check text-4xl"></i>
     </div>
     <h3 class="text-2xl font-black text-content-main mb-2">¡Visita Registrada!</h3>
@@ -430,7 +430,7 @@
     <div class="p-6 bg-surface-ground border border-surface-border rounded-3xl relative overflow-hidden">
        <div class="absolute top-0 right-0 p-2 opacity-5 italic text-[8px] font-black uppercase tracking-widest rotate-6">Verified Operations</div>
        <div class="text-xs text-content-muted uppercase font-black tracking-[0.2em] mb-4">Folio de Operación</div>
-       <div class="text-4xl font-black font-mono text-blue-600 my-2 tracking-tighter">#{{lastResult.folio}}</div>
+       <div class="text-4xl font-black font-mono text-brand-sunset my-2 tracking-tighter">#{{lastResult.folio}}</div>
        <div class="mt-6 flex justify-center gap-4">
           <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
              <div class="text-[8px] uppercase text-content-dim font-bold">Items</div>
@@ -438,7 +438,7 @@
           </div>
           <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
              <div class="text-[8px] uppercase text-content-dim font-bold">Score</div>
-             <div class="text-sm font-black text-emerald-600">{{lastResult.stats.puntuacionTotal}}</div>
+             <div class="text-sm font-black text-brand-orange">{{lastResult.stats.puntuacionTotal}}</div>
           </div>
        </div>
     </div>

@@ -47,9 +47,15 @@ body {
 
   --surface-ground: #f8fafc;
 
-  /* BRAND ACCENT: CORPORATE YELLOW (F6D200) */
-  --accent-brand: rgb(246, 210, 0);
-  --accent-brand-light: rgba(246, 210, 0, 0.1);
+  /* BRAND PALETTE: Yellow-Orange Gradient */
+  --brand-primary: rgba(253, 231, 7, 1);
+  --brand-orange: #f68f1e;
+  --brand-sunset: #f05a28;
+  --brand-light: #fff8bc;
+  --accent-brand: var(--brand-primary);
+  --accent-brand-light: rgba(253, 231, 7, 0.15);
+  --accent-brand-orange: var(--brand-orange);
+  --accent-brand-sunset: var(--brand-sunset);
 
   font-family: 'Inter', sans-serif;
   background-color: var(--layout-bg);
@@ -84,9 +90,15 @@ body.theme-monochrome {
 
   --surface-ground: #111111;
 
-  /* BRAND ACCENT: CORPORATE YELLOW (VIBRANT) */
-  --accent-brand: rgb(246, 210, 0);
-  --accent-brand-light: rgba(246, 210, 0, 0.15);
+  /* BRAND PALETTE: Yellow-Orange Gradient */
+  --brand-primary: rgba(253, 231, 7, 1);
+  --brand-orange: #f68f1e;
+  --brand-sunset: #f05a28;
+  --brand-light: #fff8bc;
+  --accent-brand: var(--brand-primary);
+  --accent-brand-light: rgba(253, 231, 7, 0.2);
+  --accent-brand-orange: var(--brand-orange);
+  --accent-brand-sunset: var(--brand-sunset);
 }
 
 *, *::before, *::after {
@@ -122,6 +134,74 @@ body.theme-monochrome {
 
 .border-brand {
   border-color: var(--accent-brand) !important;
+}
+
+/* Brand Gradient Utilities */
+.bg-gradient-brand {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-orange) 50%, var(--brand-sunset) 100%) !important;
+}
+
+.bg-gradient-brand-subtle {
+  background: linear-gradient(135deg, var(--brand-light) 0%, rgba(253, 231, 7, 0.3) 100%) !important;
+}
+
+.bg-gradient-brand-horizontal {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+}
+
+.text-brand-orange {
+  color: var(--brand-orange) !important;
+}
+
+.text-brand-sunset {
+  color: var(--brand-sunset) !important;
+}
+
+.text-brand-gradient {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-sunset) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.border-brand-orange {
+  border-color: var(--brand-orange) !important;
+}
+
+.border-brand-sunset {
+  border-color: var(--brand-sunset) !important;
+}
+
+/* Score/Status colors using brand palette instead of green/blue */
+.text-score-high {
+  color: var(--brand-orange) !important;
+}
+
+.text-score-medium {
+  color: var(--brand-sunset) !important;
+}
+
+.text-score-low {
+  color: #dc2626 !important;
+}
+
+.bg-score-high {
+  background-color: rgba(246, 143, 30, 0.15) !important;
+  color: var(--brand-orange) !important;
+}
+
+.bg-score-medium {
+  background-color: rgba(240, 90, 40, 0.15) !important;
+  color: var(--brand-sunset) !important;
+}
+
+/* Progress bars with brand colors */
+.progress-bar-brand {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+}
+
+.progress-bar-orange {
+  background: linear-gradient(90deg, var(--brand-orange) 0%, var(--brand-sunset) 100%) !important;
 }
 
 .p-button.p-button-brand {
@@ -482,4 +562,417 @@ input:focus, textarea:focus, select:focus {
 
 .theme-monochrome .p-tabpanel div.text-blue-600 {
   color: var(--accent-brand) !important;
+}
+
+/* ============================================================
+   ANIMACIONES SUTILES
+   ============================================================ */
+
+/* Fade in con movimiento suave hacia arriba */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Pulse sutil para indicadores activos */
+@keyframes subtlePulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+.animate-subtle-pulse {
+  animation: subtlePulse 2s ease-in-out infinite;
+}
+
+/* Slide in desde la izquierda para sidebar */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+/* Efecto shimmer monocromático */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.03) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.theme-monochrome .animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+}
+
+/* Hover lift effect suave */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Focus ring con marca */
+.focus-brand:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-primary), 0 0 0 4px white;
+}
+
+/* ============================================================
+   12 MEJORAS MODERNAS, SUTILES Y MONOCRÓMATICAS
+   ============================================================ */
+
+/* 1. MICRO-SOMBRAS DE PROFUNDIDAD (Elevation) */
+.elevation-1 {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+}
+
+.elevation-2 {
+  box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+}
+
+.elevation-3 {
+  box-shadow: 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 2px 8px -1px rgba(0, 0, 0, 0.03);
+}
+
+.elevation-hover {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.elevation-hover:hover {
+  box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
+}
+
+/* 2. BORDES "GHOST" (Fantasma) */
+.border-ghost {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.border-ghost:hover {
+  border-color: rgba(0, 0, 0, 0.25);
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.theme-monochrome .border-ghost {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-monochrome .border-ghost:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* 3. GLASSMORPHISM MONOCRÓMATICO */
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.theme-monochrome .glass {
+  background: rgba(17, 17, 17, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 4. EFECTO SPOTLIGHT/HALO - Monocromático sutil */
+.spotlight {
+  position: relative;
+  overflow: hidden;
+}
+
+.spotlight::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.03) 0%, transparent 70%);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.4s ease;
+  pointer-events: none;
+}
+
+.spotlight:hover::before {
+  transform: translate(-50%, -50%) scale(2);
+}
+
+.theme-monochrome .spotlight::before {
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.04) 0%, transparent 70%);
+}
+
+/* 5. MORPHING DE BORDES */
+.morph-borders {
+  border-radius: 8px;
+  transition: border-radius 0.3s ease, background-color 0.25s ease;
+}
+
+.morph-borders:hover {
+  border-radius: 12px;
+}
+
+/* 6. MAGNETIC BUTTONS (Sutil) - CSS-only approximation */
+.magnetic {
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.magnetic:hover {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.magnetic:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* 7. TEXT REVEAL PROGRESIVO */
+@keyframes textReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.text-reveal > * {
+  animation: textReveal 0.5s ease forwards;
+  opacity: 0;
+}
+
+.text-reveal > *:nth-child(1) { animation-delay: 0ms; }
+.text-reveal > *:nth-child(2) { animation-delay: 50ms; }
+.text-reveal > *:nth-child(3) { animation-delay: 100ms; }
+.text-reveal > *:nth-child(4) { animation-delay: 150ms; }
+.text-reveal > *:nth-child(5) { animation-delay: 200ms; }
+
+/* 8. FOCUS RING ANIMADO */
+@keyframes focusRingDraw {
+  from {
+    box-shadow: 0 0 0 0 var(--brand-primary);
+  }
+  to {
+    box-shadow: 0 0 0 3px var(--brand-primary), 0 0 0 6px rgba(253, 231, 7, 0.2);
+  }
+}
+
+.focus-ring-animated:focus {
+  outline: none;
+  animation: focusRingDraw 0.3s ease forwards;
+}
+
+/* 9. PARALLAX SUTIL EN CARDS */
+.parallax-card {
+  transform-style: preserve-3d;
+  transition: transform 0.1s ease-out;
+}
+
+.parallax-card:hover {
+  transform: perspective(1000px) rotateX(1deg) rotateY(-1deg) translateZ(10px);
+}
+
+/* 10. NOISE/GRAIN TEXTURE */
+.noise-bg {
+  position: relative;
+}
+
+.noise-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.theme-monochrome .noise-bg::after {
+  opacity: 0.03;
+}
+
+/* 11. SCROLL PROGRESS INDICATOR - Monocromático */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  transition: width 0.1s linear;
+}
+
+.theme-monochrome .scroll-progress {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* 12. SMOOTH PAGE TRANSITIONS */
+.page-transition-enter {
+  animation: pageEnter 0.3s ease forwards;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition-exit {
+  animation: pageExit 0.2s ease forwards;
+}
+
+@keyframes pageExit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* ============================================================
+   SISTEMA TIPOGRÁFICO CONSISTENTE - Inter
+   ============================================================ */
+
+/* Escala tipográfica estandarizada */
+.text-display {
+  font-size: 2.25rem;    /* 36px */
+  line-height: 2.5rem;   /* 40px */
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.text-headline {
+  font-size: 1.5rem;     /* 24px */
+  line-height: 2rem;     /* 32px */
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.text-title {
+  font-size: 1.25rem;    /* 20px */
+  line-height: 1.75rem;  /* 28px */
+  font-weight: 600;
+}
+
+.text-body-large {
+  font-size: 1rem;       /* 16px */
+  line-height: 1.5rem;   /* 24px */
+  font-weight: 400;
+}
+
+.text-body {
+  font-size: 0.875rem;   /* 14px */
+  line-height: 1.25rem;  /* 20px */
+  font-weight: 400;
+}
+
+.text-label {
+  font-size: 0.75rem;    /* 12px */
+  line-height: 1rem;     /* 16px */
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Tablas - consistencia */
+.table-header {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.table-cell {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+
+.table-cell-strong {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .text-display {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+
+  .text-headline {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+
+  .text-title {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
 }

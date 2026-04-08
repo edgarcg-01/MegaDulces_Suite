@@ -30,9 +30,12 @@ export class ReportsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('userId') userId?: string,
+    @Query('userIds') userIds?: string[],
     @Query('zone') zone?: string,
+    @Query('supervisorId') supervisorId?: string,
   ) {
-    return this.reportsService.getFilteredData({ startDate, endDate, userId, zone }, user);
+    console.log('[ReportsController] GET /reports/data', { startDate, endDate, userId, userIds, zone, supervisorId });
+    return this.reportsService.getFilteredData({ startDate, endDate, userId, userIds, zone, supervisorId }, user);
   }
 
   @Get('export')
@@ -44,9 +47,11 @@ export class ReportsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('userId') userId?: string,
+    @Query('userIds') userIds?: string[],
     @Query('zone') zone?: string,
+    @Query('supervisorId') supervisorId?: string,
   ) {
-    const csvBuffer = await this.reportsService.exportCsvInBuffer({ startDate, endDate, userId, zone }, user);
+    const csvBuffer = await this.reportsService.exportCsvInBuffer({ startDate, endDate, userId, userIds, zone, supervisorId }, user);
     
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="reporte_ejecutivos_trade.csv"');

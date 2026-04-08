@@ -14,6 +14,24 @@ module.exports = {
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
+        // Brand palette
+        brand: {
+          primary: 'rgba(253, 231, 7, 1)',
+          orange: '#f68f1e',
+          sunset: '#f05a28',
+          light: '#fff8bc',
+        },
+        // Legacy aliases for backwards compatibility
+        yellow: 'rgba(253, 231, 7, 1)',
+        orange: '#f68f1e',
+        sunset: '#f05a28',
+        cream: '#fff8bc',
+        // Score/status colors using brand palette
+        score: {
+          high: '#f68f1e',
+          medium: '#f05a28',
+          low: '#dc2626',
+        },
         surface: {
           layout: 'var(--layout-bg)',
           card: 'var(--card-bg)',

@@ -41,7 +41,7 @@
 
     <!-- Login Form -->
     <div class="w-full max-w-sm sm:max-w-md">
-      <div class="bg-surface-card border border-divider backdrop-blur-sm p-6 sm:p-8 rounded-lg sm:rounded-xl shadow-lg">
+      <div class="bg-surface-card border border-divider/50 p-6 sm:p-8 rounded-2xl shadow-sm">
 
         <!-- Error Message -->
         <div *ngIf="errorMessage" class="bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">
@@ -53,9 +53,9 @@
 
         <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="space-y-6">
 
-          <!-- Username Input - Centered text -->
+          <!-- Username Input - Modern rounded style -->
           <div class="relative group">
-            <label for="username" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-accent-brand transition-colors">
+            <label for="username" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-content-main transition-colors">
               Usuario
             </label>
             <input
@@ -63,17 +63,17 @@
               type="text"
               formControlName="username"
               placeholder="Nombre de usuario"
-              class="w-full bg-transparent border-b-2 border-divider px-0 py-2 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-accent-brand transition-colors placeholder:text-content-faint"
-              [ngClass]="{'border-red-500': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
+              class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
+              [ngClass]="{'border-red-400 focus:border-red-400': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
             <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
                class="text-xs text-red-500 mt-1 font-medium">
               El usuario es requerido
             </p>
           </div>
 
-          <!-- Password Input - Centered text -->
+          <!-- Password Input - Modern rounded style -->
           <div class="relative group">
-            <label for="password" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-accent-brand transition-colors">
+            <label for="password" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-content-main transition-colors">
               Contraseña
             </label>
             <input
@@ -81,20 +81,20 @@
               type="password"
               formControlName="password"
               placeholder="Mínimo 6 caracteres"
-              class="w-full bg-transparent border-b-2 border-divider px-0 py-2 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-accent-brand transition-colors placeholder:text-content-faint"
-              [ngClass]="{'border-red-500': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
+              class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
+              [ngClass]="{'border-red-400 focus:border-red-400': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
             <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"
                class="text-xs text-red-500 mt-1 font-medium">
               Mínimo 6 caracteres
             </p>
           </div>
 
-          <!-- Submit Button -->
+          <!-- Submit Button - Monocromático sutil -->
           <div class="pt-2">
             <button
               type="submit"
               [disabled]="isLoading"
-              class="w-full bg-accent-brand hover:bg-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed text-black font-black py-3 px-4 text-sm sm:text-base rounded-lg transition-all duration-200 uppercase tracking-tight">
+              class="w-full bg-content-main hover:bg-content-muted disabled:opacity-40 disabled:cursor-not-allowed text-surface-card font-semibold py-3.5 px-4 text-sm sm:text-base rounded-full transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]">
               {{ isLoading ? 'Verificando...' : 'Iniciar Sesión' }}
             </button>
           </div>
