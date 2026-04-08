@@ -14,13 +14,13 @@ async function bootstrap() {
     try {
       console.log('Running database migrations...');
       await db.migrate.latest({
-        directory: join(process.cwd(), 'database', 'migrations'),
+        directory: join(__dirname, 'database', 'migrations'),
       });
 
       if (process.env.RUN_SEEDS === 'true') {
         console.log('Running database seeds...');
         await db.seed.run({
-          directory: join(process.cwd(), 'database', 'seeds'),
+          directory: join(__dirname, 'database', 'seeds'),
         });
       }
 

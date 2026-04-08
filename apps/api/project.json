@@ -17,12 +17,12 @@
         "assets": [
           {
             "glob": "**/*",
-            "input": "database/migrations",
+            "input": "src/shared/database/migrations",
             "output": "database/migrations"
           },
           {
             "glob": "**/*",
-            "input": "database/seeds",
+            "input": "src/shared/database/seeds",
             "output": "database/seeds"
           }
         ]
