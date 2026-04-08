@@ -14,11 +14,11 @@ module.exports = {
     pool: { min: 2, max: 10 },
     migrations: {
       tableName: 'knex_migrations',
-      directory: './migrations',   // ✅ relativo a database/
+      directory: path.join(__dirname, 'migrations'),  
       loadExtensions: ['.ts', '.js'],
     },
     seeds: {
-      directory: './seeds',        // ✅ relativo a database/
+      directory: path.join(__dirname, 'seeds'),
     },
   },
   production: {
@@ -34,7 +34,7 @@ module.exports = {
     pool: { min: 2, max: 10 },
     migrations: {
       tableName: 'knex_migrations',
-      directory: './migrations',
+      directory: path.join(__dirname, 'migrations'),
       extension: 'js',
     },
     seeds: {
