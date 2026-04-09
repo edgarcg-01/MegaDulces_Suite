@@ -30,10 +30,6 @@ RUN npm install --omit=dev
 
 # --- Stage 3: Final Image (Ultra Optimized) ---
 FROM node:20-slim AS runner
-COPY --from=builder /app/database ./database
-COPY --from=builder /app/dist ./dist
-COPY --from=prod-deps /app/node_modules ./node_modules
-
 WORKDIR /app
 
 # Variables de entorno para producción
@@ -41,7 +37,8 @@ ENV NODE_ENV=production \
     PORT=80 \
     API_PREFIX=api
 
-# Copiamos todo lo necesario desde el builder y prod-deps
+# Copiamos todo lo necesario desde los stages previos
+COPY --from=builder /app/database ./database
 COPY --from=builder /app/dist ./dist
 COPY --from=prod-deps /app/node_modules ./node_modules
 
