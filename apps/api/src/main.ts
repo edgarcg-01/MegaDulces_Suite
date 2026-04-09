@@ -4,37 +4,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
-import knex from 'knex';
-import { connectionConfig } from '../../../database/knexfile';
 
 async function bootstrap() {
-  if (process.env.NODE_ENV === 'production') {
-    const db = knex(connectionConfig['production']);
-
-    try {
-      const migrationsPath = join(process.cwd(), 'database', 'migrations');
-      const seedsPath = join(process.cwd(), 'database', 'seeds');
-
-      console.log('Running database migrations from:', migrationsPath);
-      await db.migrate.latest({
-        directory: join(__dirname, 'database', 'migrations'),
-      });
-
-      if (process.env.RUN_SEEDS === 'true') {
-        console.log('Running database seeds from:', seedsPath);
-        await db.seed.run({
-          directory: join(__dirname, 'database', 'seeds'),
-        });
-      }
-
-      console.log('DB Setup completed.');
-      await db.destroy();
-    } catch (error) {
-      console.error('DB Setup failed:', error);
-      process.exit(1);
-    }
-  }
-
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
