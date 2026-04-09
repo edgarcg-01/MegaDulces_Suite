@@ -30,9 +30,10 @@ RUN npm install --omit=dev
 # --- Stage 3: Final Image (Ultra Optimized) ---
 FROM node:20-slim AS runner
 
-# Instalamos nginx y dependencias mínimas requeridas para el despliegue
-RUN apt-get update && apt-get install -y nginx && \
+# Instalamos nginx y gettext-base (necesario para envsubst en start.sh)
+RUN apt-get update && apt-get install -y nginx gettext-base && \
     rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /app
 
