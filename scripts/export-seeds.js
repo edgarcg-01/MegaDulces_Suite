@@ -37,6 +37,19 @@ async function exportTable(table) {
     return;
   }
 
+  // Pre-process data to stringify objects (JSON/JSONB columns)
+  // This avoids "invalid input syntax for type json" errors in some Postgres environments
+  const processedData = data.map(row => {
+    const newRow = { ...row };
+    for (const key in newRow) {
+      const val = newRow[key];
+      if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
+        newRow[key] = JSON.stringify(val);
+      }
+    }
+    return newRow;
+  });
+
   const fileName = TABLE_MAPPING[table] || `seed_${table}.js`;
   const filePath = path.join(SEEDS_DIR, fileName);
 
@@ -46,7 +59,7 @@ async function exportTable(table) {
  */
 exports.seed = async function(knex) {
   // Inserts seed entries
-  await knex("${table}").insert(${JSON.stringify(data, null, 2)});
+  await knex("${table}").insert(${JSON.stringify(processedData, null, 2)});
 };
 `;
 
