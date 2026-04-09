@@ -179,7 +179,7 @@ import autoTable from 'jspdf-autotable';
                       Visitas
                     </div>
                     <div class="text-2xl font-bold text-content-main">
-                      \${{ data.metrics.totalVisitas }}
+                      {{ data.metrics.totalVisitas }}
                     </div>
                   </div>
                   <div class="card-premium text-center font-bold">
@@ -187,7 +187,7 @@ import autoTable from 'jspdf-autotable';
                       Avg Score
                     </div>
                     <div class="text-2xl text-content-main">
-                      \${{ data.metrics.avgScore }}%
+                      {{ data.metrics.avgScore }}%
                     </div>
                   </div>
                   <div class="card-premium text-center font-bold">
@@ -195,7 +195,7 @@ import autoTable from 'jspdf-autotable';
                       Impacto Venta
                     </div>
                     <div class="text-2xl text-content-main">
-                      \${{ data.metrics.totalVentas | number }}
+                      {{ data.metrics.totalVentas | number }}
                     </div>
                   </div>
                 </div>
@@ -270,18 +270,18 @@ import autoTable from 'jspdf-autotable';
                       </td>
                       <td class="py-4 px-4 font-bold text-content-main">
                         <!-- Utilizamos 'UTC' para que no desplace la fecha 1 día atrás -->
-                        \${{ day.fecha | date: 'fullDate' : 'UTC' }}
+                        {{ day.fecha | date: 'fullDate' : 'UTC' }}
                       </td>
                       <td class="text-center">
                         <span
                           class="bg-surface-active text-content-active px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-                          >\${{ day.totalVisitas }}</span
+                          >{{ day.totalVisitas }}</span
                         >
                       </td>
                       <td class="text-center">
                         <div class="flex flex-col items-center">
                           <span class="font-black text-accent-brand"
-                            >\${{ day.avgScore }}%</span
+                            >{{ day.avgScore }}%</span
                           >
                           <div
                             class="w-16 h-1 bg-surface-ground rounded-full mt-1 overflow-hidden"
@@ -294,7 +294,7 @@ import autoTable from 'jspdf-autotable';
                         </div>
                       </td>
                       <td class="text-right pr-6 font-black text-accent-brand">
-                        \${{ day.totalVenta | number: '1.0-0' }}
+                        {{ day.totalVenta | number: '1.0-0' }}
                       </td>
                     </tr>
                   </ng-template>
@@ -330,21 +330,21 @@ import autoTable from 'jspdf-autotable';
                                 (click)="viewDetail(visit)"
                               >
                                 <td class="pl-4 font-black text-content-main py-3">
-                                  #\${{ visit.folio }}
+                                  #{{ visit.folio }}
                                 </td>
                                 <td class="font-medium text-content-main">
-                                  \${{ visit.captured_by_username }}
+                                  {{ visit.captured_by_username }}
                                 </td>
                                 <td>
                                   <span
                                     class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted"
-                                    >\${{ visit.zona_captura }}</span
+                                    >{{ visit.zona_captura }}</span
                                   >
                                 </td>
                                 <td
                                   class="text-center font-black text-content-main"
                                 >
-                                  \${{ visit.stats?.puntuacionTotal }}%
+                                  {{ visit.stats?.puntuacionTotal }}%
                                 </td>
                                 <td class="text-center">
                                   <p-button
@@ -379,6 +379,8 @@ import autoTable from 'jspdf-autotable';
         [(visible)]="showDetail"
         [modal]="true"
         [style]="{ width: '35rem' }"
+        styleClass="surface-card border-divider"
+        [contentStyleClass]="'bg-surface-card text-content-main'"
       >
         <div *ngIf="selectedRow" class="space-y-4 pt-2">
           <div
@@ -389,7 +391,7 @@ import autoTable from 'jspdf-autotable';
                 Visita Folio
               </div>
               <div class="text-lg font-bold text-content-main">
-                #\${{ selectedRow.folio }}
+                #{{ selectedRow.folio }}
               </div>
             </div>
             <p-button
@@ -403,29 +405,29 @@ import autoTable from 'jspdf-autotable';
               <p>
                 <span class="text-content-muted">Ejecutivo:</span>
                 <span class="font-bold text-content-main"
-                  >\${{ selectedRow.captured_by_username }}</span
+                  >{{ selectedRow.captured_by_username }}</span
                 >
               </p>
               <p>
                 <span class="text-content-muted">Zona:</span>
-                <span class="font-bold text-content-main">\${{ selectedRow.zona_captura }}</span>
+                <span class="font-bold text-content-main">{{ selectedRow.zona_captura }}</span>
               </p>
               <p>
                 <span class="text-content-muted">Fecha:</span>
                 <span class="font-bold text-content-main"
-                  >\${{ selectedRow.fecha | date: 'mediumDate' }}</span
+                  >{{ selectedRow.fecha | date: 'mediumDate' }}</span
                 >
               </p>
               <p>
                 <span class="text-content-muted">Hora Inicio:</span>
                 <span class="font-bold text-content-main"
-                  >\${{ selectedRow.hora_inicio | date: 'shortTime' }}</span
+                  >{{ selectedRow.hora_inicio | date: 'shortTime' }}</span
                 >
               </p>
               <p>
                 <span class="text-content-muted">Hora Fin:</span>
                 <span class="font-bold text-content-main"
-                  >\${{ selectedRow.hora_fin | date: 'shortTime' }}</span
+                  >{{ selectedRow.hora_fin | date: 'shortTime' }}</span
                 >
               </p>
             </div>
@@ -438,10 +440,10 @@ import autoTable from 'jspdf-autotable';
                 Score Final
               </div>
               <div class="text-3xl font-black">
-                \${{ selectedRow.stats?.puntuacionTotal }}%
+                {{ selectedRow.stats?.puntuacionTotal }}%
               </div>
               <div class="text-xs opacity-80 mt-1">
-                \${{ selectedRow.exhibiciones?.length || 0 }} exhibiciones
+                {{ selectedRow.exhibiciones?.length || 0 }} exhibiciones
               </div>
             </div>
           </div>
@@ -464,7 +466,7 @@ import autoTable from 'jspdf-autotable';
                   class="text-xs text-content-dim font-mono"
                   *ngIf="selectedRow.latitud && selectedRow.longitud"
                 >
-                  \${{ selectedRow.latitud | number: '1.6-6' }}, \${{
+                  {{ selectedRow.latitud | number: '1.6-6' }}, {{
                     selectedRow.longitud | number: '1.6-6'
                   }}
                 </div>
@@ -499,10 +501,10 @@ import autoTable from 'jspdf-autotable';
               </ng-template>
               <ng-template pTemplate="body" let-ex>
                 <tr class="text-xs">
-                  <td>\${{ ex.conceptoId || 'N/A' }}</td>
-                  <td>\${{ ex.ubicacionId || 'N/A' }}</td>
+                  <td>{{ ex.conceptoId || 'N/A' }}</td>
+                  <td>{{ ex.ubicacionId || 'N/A' }}</td>
                   <td class="text-right pr-3 font-bold">
-                    \${{ ex.puntuacionCalculada || 0 }}
+                    {{ ex.puntuacionCalculada || 0 }}
                   </td>
                 </tr>
               </ng-template>

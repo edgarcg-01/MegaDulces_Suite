@@ -75,7 +75,7 @@
 </div>
 
 <!-- Diálogo de Nueva Llave -->
-<p-dialog [header]="'Nueva categoría en ' + activeSection" [(visible)]="showAddKeyDialog" [modal]="true" [style]="{width: '350px'}">
+<p-dialog [header]="'Nueva categoría en ' + activeSection" [(visible)]="showAddKeyDialog" [modal]="true" [style]="{width: '350px'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="flex flex-col gap-4 py-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted">Nombre Técnico (ej: isla, vitrina, excelente)</label>

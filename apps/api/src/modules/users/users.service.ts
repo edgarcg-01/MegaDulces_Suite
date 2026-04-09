@@ -137,30 +137,21 @@ export class UsersService {
 
   async getZones() {
     try {
-      console.log('[getZones] Ejecutando consulta SQL...');
+      console.log('[getZones] Obteniendo zonas del catálogo...');
 
-      // Obtener zonas únicas de la tabla users
-      const result = await this.knex.raw(`
-        SELECT DISTINCT zona as value
-        FROM users
-        WHERE zona IS NOT NULL
-          AND zona != ''
-          AND activo = true
-        ORDER BY zona ASC
-      `);
+      // Obtener zonas del catálogo 'zonas'
+      const rows = await this.knex('catalogs')
+        .where({ catalog_id: 'zonas' })
+        .orderBy('orden', 'asc')
+        .select('id', 'value', 'orden');
 
-      console.log('[getZones] Resultado raw:', result);
-
-      // Knex raw retorna diferentes formatos según el driver
-      const rows = result.rows || result[0] || result;
-
-      console.log('[getZones] Rows extraídas:', rows);
+      console.log('[getZones] Zonas del catálogo:', rows);
       console.log('[getZones] Cantidad de zonas encontradas:', rows?.length || 0);
 
-      const mapped = rows.map((z: any, index: number) => ({
-        id: z.value,
+      const mapped = rows.map((z: any) => ({
+        id: z.id,
         value: z.value,
-        orden: index + 1,
+        orden: z.orden,
       }));
 
       console.log('[getZones] Zonas mapeadas:', mapped);

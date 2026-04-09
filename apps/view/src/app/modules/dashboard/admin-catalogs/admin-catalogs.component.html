@@ -91,7 +91,7 @@
 </div>
 
 <!-- Diálogo de Ítem -->
-<p-dialog [header]="isEditMode() ? 'Editar Ítem' : 'Nuevo Ítem'" [(visible)]="showAddDialog" [modal]="true" [style]="{width: '400px'}">
+<p-dialog [header]="isEditMode() ? 'Editar Ítem' : 'Nuevo Ítem'" [(visible)]="showAddDialog" [modal]="true" [style]="{width: '400px'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="flex flex-col gap-4 py-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted">Nombre / Valor</label>

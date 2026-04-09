@@ -38,7 +38,7 @@ module.exports = {
       extension: 'js',
     },
     seeds: {
-      directory: './seeds',
+      directory: path.join(__dirname, 'seeds'),
     },
   },
 };

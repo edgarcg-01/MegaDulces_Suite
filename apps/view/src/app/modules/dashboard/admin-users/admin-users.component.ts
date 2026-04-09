@@ -51,6 +51,7 @@ export class AdminUsersComponent implements OnInit {
 
   roles = signal<{ label: string; value: string }[]>([]);
   supervisors = signal<{ label: string; value: string }[]>([]);
+  zones = signal<{ label: string; value: string }[]>([]);
 
   constructor() {
     this.userForm = this.fb.group({
@@ -79,6 +80,22 @@ export class AdminUsersComponent implements OnInit {
     this.loadRoles();
     this.loadUsers();
     this.loadSupervisors();
+    this.loadZones();
+  }
+
+  loadZones(): void {
+    this.usersService.getZones().subscribe({
+      next: (data: any[]) => {
+        console.log('[loadZones] Zonas recibidas del backend:', data);
+        const mappedZones = data.map((z) => ({
+          label: z.value,
+          value: z.value,
+        }));
+        console.log('[loadZones] Zonas mapeadas:', mappedZones);
+        this.zones.set(mappedZones);
+      },
+      error: (err) => console.error('Error al cargar zonas', err),
+    });
   }
 
   loadRoles(): void {

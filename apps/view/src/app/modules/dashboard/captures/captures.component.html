@@ -270,7 +270,7 @@
 </div>
 
 <!-- CAPTURE WIZARD DIALOG -->
-<p-dialog [(visible)]="showWizard" [modal]="true" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="rounded-2xl">
+<p-dialog [(visible)]="showWizard" [modal]="true" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
   <ng-container *ngIf="showWizard">
     <!-- Progress Indicator -->
     <div class="mb-6 mt-4 px-4">
@@ -419,7 +419,7 @@
 </p-dialog>
 
 <!-- RESULT DIALOG -->
-<p-dialog [(visible)]="showResultDialog" [modal]="true" [style]="{width: '450px'}" styleClass="rounded-2xl border-0 shadow-2xl">
+<p-dialog [(visible)]="showResultDialog" [modal]="true" [style]="{width: '450px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="py-6 text-center" *ngIf="lastResult">
     <div class="w-20 h-20 bg-brand-light text-brand-sunset rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-orange/20 animate-bounce">
        <i class="pi pi-check text-4xl"></i>

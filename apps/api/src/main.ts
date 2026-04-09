@@ -12,13 +12,16 @@ async function bootstrap() {
     const db = knex(connectionConfig['production']);
 
     try {
-      console.log('Running database migrations...');
+      const migrationsPath = join(process.cwd(), 'database', 'migrations');
+      const seedsPath = join(process.cwd(), 'database', 'seeds');
+
+      console.log('Running database migrations from:', migrationsPath);
       await db.migrate.latest({
         directory: join(__dirname, 'database', 'migrations'),
       });
 
       if (process.env.RUN_SEEDS === 'true') {
-        console.log('Running database seeds...');
+        console.log('Running database seeds from:', seedsPath);
         await db.seed.run({
           directory: join(__dirname, 'database', 'seeds'),
         });

@@ -60,4 +60,8 @@ export class UsersService {
       `${this.apiUrl}/supervisor/${supervisorId}/team`,
     );
   }
+
+  getZones(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.apiUrl}/zones`);
+  }
 }

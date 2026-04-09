@@ -121,7 +121,8 @@
           [(visible)]="displayDialog"
           [modal]="true"
           [style]="{width: '500px'}"
-          styleClass="p-fluid rounded-xl overflow-hidden shadow-2xl">
+          styleClass="surface-card border-divider rounded-xl"
+          [contentStyleClass]="'bg-surface-card text-content-main'">
 
   <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">
 
@@ -134,8 +135,9 @@
 
        <!-- Zona -->
        <div class="flex flex-col gap-2">
-         <label for="zona" class="text-label text-content-muted">Región Comercial</label>
-         <input pInputText id="zona" formControlName="zona" placeholder="Ej: Pacífico Norte" class="w-full" />
+         <label for="zona" class="text-label text-content-muted">Zona</label>
+         <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"
+                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
        </div>
     </div>
 
