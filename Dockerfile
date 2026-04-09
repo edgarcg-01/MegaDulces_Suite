@@ -38,8 +38,11 @@ RUN apt-get update && apt-get install -y nginx gettext-base && \
 WORKDIR /app
 
 # Variables de entorno para producción
+# API_PORT: puerto interno fijo del backend NestJS (siempre 3000)
+# PORT:     es inyectado por Render en tiempo de ejecución (ej. 10000)
+#           Nginx escucha en él. NO coincidir con API_PORT.
 ENV NODE_ENV=production \
-    PORT=3000 \
+    API_PORT=3000 \
     API_PREFIX=api
 
 # Copiamos todo lo necesario desde los stages previos
@@ -59,8 +62,8 @@ RUN mkdir -p /usr/share/nginx/html && \
     cp -r dist/apps/view/browser/* /usr/share/nginx/html/ || \
     cp -r dist/apps/view/* /usr/share/nginx/html/
 
-# Exponemos el puerto 80 (Nginx)
-EXPOSE 80
+# Render usa PORT dinámico (normalmente 10000); exponemos ese como hint
+EXPOSE 10000
 
 # El comando de inicio coordina migraciones, seeds, api y nginx
 CMD ["sh", "./start.sh"]
