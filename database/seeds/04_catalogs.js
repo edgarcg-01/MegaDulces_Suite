@@ -31,12 +31,7 @@ exports.seed = async function(knex) {
     { catalog_id: "niveles", value: "Crítico", puntuacion: 40, orden: 3 },
   ]);
 
-  // 5. ZONES: Zonas geográficas (Norte, Centro, Sur)
-  await knex("catalogs").insert([
-    { catalog_id: "zones", value: "Norte", orden: 1 },
-    { catalog_id: "zones", value: "Centro", orden: 2 },
-    { catalog_id: "zones", value: "Sur", orden: 3 },
-  ]);
+ 
 
   // 6. RUTAS: 15 Rutas
   const rutas = Array.from({ length: 15 }, (_, i) => ({
