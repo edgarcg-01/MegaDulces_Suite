@@ -38,11 +38,11 @@ RUN apt-get update && apt-get install -y nginx gettext-base && \
 WORKDIR /app
 
 # Variables de entorno para producción
-# API_PORT: puerto interno fijo del backend NestJS (siempre 3000)
-# PORT:     es inyectado por Render en tiempo de ejecución (ej. 10000)
+# API_PORT: puerto interno fijo del backend NestJS (siempre 3333)
+# PORT:     es inyectado por Render en tiempo de ejecución (ej. 10000 o 3000)
 #           Nginx escucha en él. NO coincidir con API_PORT.
 ENV NODE_ENV=production \
-    API_PORT=3000 \
+    API_PORT=3333 \
     API_PREFIX=api
 
 # Copiamos todo lo necesario desde los stages previos
