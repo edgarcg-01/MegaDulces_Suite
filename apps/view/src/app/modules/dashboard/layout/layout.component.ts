@@ -98,7 +98,7 @@ export class LayoutComponent {
   private rawAdminItems = [
     { label: 'Usuarios',    icon: 'pi pi-users',   route: '/dashboard/admin/users',                permission: Permission.USUARIOS_GESTIONAR  },
     { label: 'Conceptos',   icon: 'pi pi-box',     route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR  },
-    { label: 'Ubicaciones', icon: 'pi pi-map-pin', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR  },
+    { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR  },
     { label: 'Niveles',     icon: 'pi pi-bolt',    route: '/dashboard/admin/catalogs/niveles',     permission: Permission.CATALOGO_GESTIONAR  },
     { label: 'Planograma',  icon: 'pi pi-list',    route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR},
     { label: 'Zonas',       icon: 'pi pi-globe',   route: '/dashboard/admin/catalogs/zonas',       permission: Permission.CATALOGO_GESTIONAR  },

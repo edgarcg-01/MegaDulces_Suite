@@ -1,34 +1,44 @@
-<div class="dashboard-container w-full h-full text-content-main transition-colors duration-300">
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+<div class="dashboard-container w-full min-h-screen text-content-main transition-all duration-500 ease-in-out">
+    <!-- Header: Dynamic & Premium -->
+    <header class="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-12 animate-fade-in-up">
         <div class="text-reveal">
             <h1 class="title-premium">Dashboard Estratégico</h1>
-            <p class="text-sm text-content-muted opacity-80 mt-2">Visión avanzada y métricas de campo en tiempo real</p>
+            <div class="flex items-center gap-3 mt-3">
+                <span class="px-2 py-0.5 rounded-full bg-accent-brand-light text-[10px] font-black text-brand tracking-widest uppercase">Live Metrics</span>
+                <p class="text-xs text-content-muted font-medium opacity-70">Visión avanzada y métricas de campo en tiempo real</p>
+            </div>
         </div>
-        <div class="flex items-center gap-4">
-            <p-button icon="pi pi-refresh" [text]="true" severity="secondary" (click)="loadDashboardData()" [loading]="loading()" />
-            <p-button label="Configurar Metas" icon="pi pi-cog" styleClass="p-button-brand" size="small" (click)="openMetasDialog()" />
+        <div class="flex items-center gap-3 p-1 rounded-2xl bg-surface-layout border border-divider shadow-sm">
+            <p-button icon="pi pi-refresh" [text]="true" severity="secondary" rounded="true" (click)="loadDashboardData()" [loading]="loading()" pTooltip="Refrescar Datos" />
+            <div class="h-4 w-px bg-divider"></div>
+            <p-button label="Metas" icon="pi pi-plus-circle" styleClass="p-button-brand" size="small" (click)="openMetasDialog()" />
         </div>
-    </div>
+    </header>
 
     <!-- Score Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
         <ng-container *ngIf="loading()">
-            <div *ngFor="let i of [1,2,3,4]" class="card-premium animate-pulse border-divider">
+            <div *ngFor="let i of [1,2,3,4]" class="card-premium h-full animate-pulse border-divider">
                 <p-skeleton width="100%" height="4rem" />
             </div>
         </ng-container>
         <ng-container *ngIf="!loading()">
             <div *ngFor="let kpi of kpiCards(); let i = index"
-                 class="card-premium animate-slide-up elevation-hover border-ghost morph-borders group"
+                 class="card-premium h-full flex flex-col justify-between animate-slide-up elevation-hover border-ghost morph-borders group"
                  [style.animation-delay]="i * 0.08 + 's'">
-                <div class="flex items-center justify-between mb-4">
-                    <div class="stat-label">{{ kpi.label }}</div>
-                    <div class="text-xs font-black tracking-widest uppercase text-content-muted transition-transform duration-200 group-hover:scale-110">{{ kpi.trend }}</div>
+                
+                <!-- Information Top Row -->
+                <div class="flex items-start justify-between gap-2 mb-6">
+                    <div class="stat-label min-h-[2rem] flex items-start">{{ kpi.label }}</div>
+                    <div class="text-[10px] font-black tracking-widest uppercase text-content-faint bg-surface-layout px-2 py-1 rounded-md border border-divider transition-transform duration-200 group-hover:scale-110 shrink-0">
+                        {{ kpi.trend }}
+                    </div>
                 </div>
-                <div class="flex items-end justify-between">
-                    <div class="stat-value transition-transform duration-200 group-hover:scale-105">{{ kpi.value }}</div>
-                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center bg-surface-layout border border-divider transition-all duration-200 group-hover:border-content-muted/30">
+
+                <!-- Metrics Bottom Row -->
+                <div class="flex items-center justify-between mt-auto">
+                    <div class="stat-value leading-none transition-transform duration-200 group-hover:scale-105">{{ kpi.value }}</div>
+                    <div class="w-12 h-12 flex-shrink-0 rounded-2xl flex items-center justify-center bg-surface-layout border border-divider transition-all duration-200 group-hover:border-content-muted/30 shadow-inner">
                         <i [class]="kpi.icon" class="text-xl text-content-muted transition-transform duration-200 group-hover:scale-110"></i>
                     </div>
                 </div>
@@ -79,7 +89,7 @@
                             <tr *ngFor="let kpi of furnitureKPIs()" class="border-b border-divider-table hover:bg-divider-table-hover transition-colors">
                                 <td class="py-5">
                                     <div class="flex items-center gap-4">
-                                        <div class="w-10 h-10 rounded-xl bg-surface-layout flex items-center justify-center text-lg text-content-muted shadow-sm transition-colors border border-divider">
+                                        <div class="w-10 h-10 flex-shrink-0 rounded-xl bg-surface-layout flex items-center justify-center text-lg text-content-muted shadow-sm transition-colors border border-divider">
                                             <i [class]="kpi.icon"></i>
                                         </div>
                                         <span class="text-sm font-extrabold text-content-main tracking-tight">{{ kpi.name }}</span>
@@ -145,7 +155,7 @@
                        [routerLink]="action.route"
                        class="flex items-center justify-between p-4 rounded-xl bg-surface-layout hover:bg-surface-hover transition-all no-underline group border border-transparent hover:border-divider">
                         <div class="flex items-center gap-4">
-                            <div class="w-10 h-10 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors shadow-sm">
+                            <div class="w-10 h-10 flex-shrink-0 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors shadow-sm">
                                 <i [class]="action.icon"></i>
                             </div>
                             <span class="text-xs font-black text-content-main tracking-tight">{{ action.label }}</span>
@@ -203,7 +213,9 @@
         <div class="grid grid-cols-1 gap-4">
             <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
                 <div class="flex items-center gap-3">
-                    <i class="pi pi-objects-column text-xl text-content-muted"></i>
+                    <div class="w-8 flex justify-center items-center">
+                        <i class="pi pi-objects-column text-xl text-content-muted"></i>
+                    </div>
                     <span class="font-medium text-content-main">Vitrinas</span>
                 </div>
                 <div class="w-28">
@@ -227,7 +239,9 @@
 
             <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
                 <div class="flex items-center gap-3">
-                    <i class="pi pi-box text-xl text-content-muted"></i>
+                    <div class="w-8 flex justify-center items-center">
+                        <i class="pi pi-box text-xl text-content-muted"></i>
+                    </div>
                     <span class="font-medium text-content-main">Exhibidores</span>
                 </div>
                 <div class="w-28">
@@ -251,7 +265,9 @@
 
             <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
                 <div class="flex items-center gap-3">
-                    <i class="pi pi-database text-xl text-content-muted"></i>
+                    <div class="w-8 flex justify-center items-center">
+                        <i class="pi pi-database text-xl text-content-muted"></i>
+                    </div>
                     <span class="font-medium text-content-main">Vitroleros</span>
                 </div>
                 <div class="w-28">
@@ -275,7 +291,9 @@
 
             <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
                 <div class="flex items-center gap-3">
-                    <i class="pi pi-stop-circle text-xl text-content-muted"></i>
+                    <div class="w-8 flex justify-center items-center">
+                        <i class="pi pi-stop-circle text-xl text-content-muted"></i>
+                    </div>
                     <span class="font-medium text-content-main">Paleteros</span>
                 </div>
                 <div class="w-28">
@@ -299,7 +317,9 @@
 
             <div class="flex items-center justify-between p-4 bg-surface-layout rounded-lg border border-divider">
                 <div class="flex items-center gap-3">
-                    <i class="pi pi-list text-xl text-content-muted"></i>
+                    <div class="w-8 flex justify-center items-center">
+                        <i class="pi pi-list text-xl text-content-muted"></i>
+                    </div>
                     <span class="font-medium text-content-main">Tiras</span>
                 </div>
                 <div class="w-28">

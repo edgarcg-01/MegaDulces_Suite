@@ -13,7 +13,9 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { CheckboxModule } from 'primeng/checkbox';
 import { RadioButtonModule } from 'primeng/radiobutton';
-import { ConfirmationService, MessageService } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import { ThemeService } from '../../../core/services/theme.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 // Spartan
 import { HlmBadgeDirective } from '@spartan-ng/helm/badge';
@@ -58,8 +60,13 @@ import {
 })
 export class CapturesComponent implements OnInit {
   readonly svc = inject(DailyCaptureService);
+  readonly themeService = inject(ThemeService);
+  readonly authService = inject(AuthService);
   readonly toast = inject(MessageService);
   readonly confirmSvc = inject(ConfirmationService);
+
+  // ── Auth ──────────────────────────────────────────────────────────
+  user = this.authService.user;
 
   // ── Initialization ───────────────────────────────────────────────────────
   ngOnInit() {
@@ -87,27 +94,29 @@ export class CapturesComponent implements OnInit {
 
   statCards = computed(() => {
     const s = this.svc.stats();
+    const isDark = this.themeService.isMonochrome();
+
     return [
       {
         label: 'Exhibidores Registrados',
         value: s.totalExhibiciones.toString(),
         description: 'En esta visita',
         icon: 'pi pi-box',
-        valueColor: '#09090b',
+        valueColor: 'var(--text-main)',
       },
       {
         label: 'Ejecución Auditada',
         value: `${s.puntuacionTotal} pts`,
         description: 'Basado en configuración dinámica',
         icon: 'pi pi-star-fill',
-        valueColor: s.puntuacionTotal >= 50 ? '#059669' : '#09090b',
+        valueColor: s.puntuacionTotal >= 50 ? '#10b981' : 'var(--text-main)',
       },
       {
         label: 'Venta Adicional Total',
         value: `$${s.ventaTotal.toLocaleString('es-MX')}`,
         description: 'Impacto comercial',
         icon: 'pi pi-dollar',
-        valueColor: s.ventaTotal > 0 ? '#059669' : '#09090b',
+        valueColor: s.ventaTotal > 0 ? '#10b981' : 'var(--text-main)',
       },
     ];
   });
@@ -216,7 +225,10 @@ export class CapturesComponent implements OnInit {
   }
 
   toggleRowExpansion(visita: any) {
-    this.expandedRows[visita.folio] = !this.expandedRows[visita.folio];
+    this.expandedRows = {
+      ...this.expandedRows,
+      [visita.folio]: !this.expandedRows[visita.folio]
+    };
   }
 
   // ── Wizard Actions ────────────────────────────────────────────────────────

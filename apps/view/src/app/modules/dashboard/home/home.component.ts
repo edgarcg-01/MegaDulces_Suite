@@ -149,15 +149,46 @@ export class HomeComponent implements OnInit {
     this.chartOptions = {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      animation: {
+        duration: 1000,
+        easing: 'easeOutQuart'
+      },
+      plugins: { 
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: isDark ? '#18181b' : '#ffffff',
+          titleColor: isDark ? '#ffffff' : '#09090b',
+          bodyColor: isDark ? '#a1a1aa' : '#64748b',
+          borderColor: isDark ? '#3f3f46' : '#e2e8f0',
+          borderWidth: 1,
+          padding: 12,
+          boxPadding: 6,
+          usePointStyle: true,
+          callbacks: {
+            label: (context: any) => ` Score: ${context.parsed.y}%`
+          }
+        }
+      },
       scales: {
         x: { 
           grid: { display: false }, 
-          ticks: { color: isDark ? '#a1a1aa' : '#64748b' } 
+          ticks: { 
+            color: isDark ? '#71717a' : '#94a3b8',
+            font: { size: 10, weight: '600' }
+          } 
         },
         y: { 
-          grid: { color: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }, 
-          ticks: { color: isDark ? '#a1a1aa' : '#64748b' } 
+          min: 0,
+          max: 100,
+          grid: { 
+            color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+            drawTicks: false
+          }, 
+          ticks: { 
+            color: isDark ? '#71717a' : '#94a3b8',
+            font: { size: 10, weight: '600' },
+            callback: (value: any) => `${value}%`
+          } 
         }
       }
     };

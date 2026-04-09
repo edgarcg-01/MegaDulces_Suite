@@ -236,7 +236,7 @@ import autoTable from 'jspdf-autotable';
                   [rows]="10"
                   dataKey="id"
                   [expandedRowKeys]="expandedRows"
-                  styleClass="p-datatable-modern overflow-hidden rounded-xl border border-divider"
+                  styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider"
                 >
                   <ng-template pTemplate="header">
                     <tr
@@ -378,25 +378,28 @@ import autoTable from 'jspdf-autotable';
         header="Detalle Visita"
         [(visible)]="showDetail"
         [modal]="true"
-        [style]="{ width: '35rem' }"
-        styleClass="surface-card border-divider"
+        appendTo="body"
+        [style]="{ width: '90vw', maxWidth: '600px' }"
+        styleClass="surface-card border-divider rounded-2xl"
         [contentStyleClass]="'bg-surface-card text-content-main'"
       >
         <div *ngIf="selectedRow" class="space-y-4 pt-2">
           <div
-            class="flex justify-between items-center bg-surface-ground p-3 rounded-lg border border-surface-border"
+            class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-surface-ground p-4 rounded-2xl border border-surface-border gap-3"
           >
             <div>
-              <div class="text-[10px] font-bold text-content-muted uppercase">
+              <div class="text-[10px] font-black text-content-faint uppercase tracking-widest">
                 Visita Folio
               </div>
-              <div class="text-lg font-bold text-content-main">
+              <div class="text-xl font-black text-content-main">
                 #{{ selectedRow.folio }}
               </div>
             </div>
             <p-button
               label="Exportar PDF"
               icon="pi pi-file-pdf"
+              severity="success"
+              styleClass="w-full sm:w-auto p-button-sm"
               (onClick)="exportSingleVisitPdf(selectedRow)"
             />
           </div>
@@ -432,17 +435,17 @@ import autoTable from 'jspdf-autotable';
               </p>
             </div>
             <div
-              class="bg-surface-active text-content-active p-3 rounded-xl text-center flex flex-col justify-center shadow-lg border border-surface-border"
+              class="bg-surface-active text-content-active p-4 rounded-2xl text-center flex flex-col justify-center shadow-lg border border-surface-border transition-all hover:scale-[1.02]"
             >
               <div
-                class="text-[10px] opacity-70 uppercase font-black tracking-widest text-content-active"
+                class="text-[10px] opacity-70 uppercase font-black tracking-[0.2em] text-content-active"
               >
                 Score Final
               </div>
-              <div class="text-3xl font-black">
+              <div class="text-4xl font-black my-1">
                 {{ selectedRow.stats?.puntuacionTotal }}%
               </div>
-              <div class="text-xs opacity-80 mt-1">
+              <div class="text-[10px] font-bold opacity-80 uppercase">
                 {{ selectedRow.exhibiciones?.length || 0 }} exhibiciones
               </div>
             </div>
@@ -450,7 +453,7 @@ import autoTable from 'jspdf-autotable';
 
           <!-- Geolocation Card -->
           <div
-            class="flex items-center justify-between p-3 border border-surface-border bg-surface-ground rounded-xl"
+            class="flex items-center justify-between p-4 border border-surface-border bg-surface-ground rounded-2xl shadow-sm"
           >
             <div class="flex items-center gap-3">
               <div
@@ -487,7 +490,7 @@ import autoTable from 'jspdf-autotable';
               (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"
             />
           </div>
-          <div class="border border-surface-border rounded-lg overflow-hidden">
+          <div class="border border-surface-border rounded-2xl overflow-hidden shadow-inner">
             <p-table
               [value]="selectedRow.exhibiciones || []"
               styleClass="p-datatable-sm"

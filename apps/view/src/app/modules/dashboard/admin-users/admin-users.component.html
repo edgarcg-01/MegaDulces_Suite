@@ -1,4 +1,4 @@
-﻿<div class="p-6">
+<div class="p-6">
   <div class="flex justify-between items-center mb-6">
     <div>
       <h2 class="text-headline text-content-main">Administración de Usuarios</h2>
@@ -15,9 +15,9 @@
     <p-table [value]="users()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
         <tr class="table-header text-content-muted bg-surface-ground border-b border-surface-border">
-          <th pSortableColumn="username">Usuario <p-sortIcon field="username"></p-sortIcon></th>
-          <th pSortableColumn="nombre">Vendedor Asignado <p-sortIcon field="nombre"></p-sortIcon></th>
-          <th pSortableColumn="role_name">Rol <p-sortIcon field="role_name"></p-sortIcon></th>
+          <th pSortableColumn="nombre" class="pl-4">Vendedor / Empleado <p-sortIcon field="nombre"></p-sortIcon></th>
+          <th pSortableColumn="username">Acceso (Usuario) <p-sortIcon field="username"></p-sortIcon></th>
+          <th pSortableColumn="role_name">Puesto / Rol <p-sortIcon field="role_name"></p-sortIcon></th>
           <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
           <th class="table-header">Jefe Directo</th>
           <th class="text-center table-header">Estado</th>
@@ -25,12 +25,24 @@
         </tr>
       </ng-template>
       <ng-template pTemplate="body" let-user>
-        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
-          <td class="table-cell-strong font-mono">{{ user.username }}</td>
-          <td class="text-content-dim">{{ user.nombre }}</td>
+        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover transition-colors">
+          <td class="pl-4">
+            <div class="flex flex-col">
+              <span class="font-bold text-content-main">{{ user.nombre || 'SIN NOMBRE' }}</span>
+              <span class="text-[10px] text-content-faint uppercase tracking-tighter">{{ user.id.split('-')[0] }}</span>
+            </div>
+          </td>
           <td>
-            <p-tag [severity]="user.role_name === 'superadmin' ? 'contrast' : user.role_name === 'ejecutivo' ? 'secondary' : 'secondary'"
-                   [value]="user.role_name | uppercase" [rounded]="true"></p-tag>
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded bg-surface-ground border border-divider flex items-center justify-center">
+                <i class="pi pi-user text-[10px] text-content-faint"></i>
+              </div>
+              <span class="font-mono text-xs text-content-dim bg-surface-layout px-1.5 py-0.5 rounded border border-divider">{{ user.username }}</span>
+            </div>
+          </td>
+          <td>
+            <p-tag [severity]="user.role_name === 'superadmin' ? 'contrast' : user.role_name === 'ejecutivo' ? 'info' : 'secondary'"
+                   [value]="user.role_name | uppercase" [rounded]="true" styleClass="text-[9px] font-bold"></p-tag>
           </td>
           <td>
              <span class="text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
@@ -71,11 +83,14 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-4">
-    <div *ngFor="let user of users()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+    <div *ngFor="let user of users()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">
+      <!-- Decorator for Role -->
+      <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground" [ngClass]="{'!bg-brand-sunset': user.role_name === 'superadmin'}"></div>
+      
       <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-3">
-          <span class="text-label font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ user.username }}</span>
-          <h3 class="table-cell-strong text-content-main">{{ user.nombre }}</h3>
+        <div class="flex flex-col gap-1">
+          <h3 class="font-bold text-content-main leading-tight">{{ user.nombre || 'SIN NOMBRE' }}</h3>
+          <span class="text-[10px] font-mono text-content-faint bg-surface-ground w-fit px-1.5 py-0.5 rounded border border-divider uppercase">ID: {{ user.username }}</span>
         </div>
         <div class="flex gap-1">
           <button
@@ -84,33 +99,26 @@
             title="Editar">
             <i class="pi pi-pencil text-sm"></i>
           </button>
-          <button
-            (click)="deleteUser(user)"
-            class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-            title="Eliminar">
-            <i class="pi pi-trash text-sm"></i>
-          </button>
         </div>
       </div>
-      <div class="space-y-2">
-        <div class="flex items-center gap-2">
-          <span class="text-label text-content-muted">Rol:</span>
-          <span class="text-body font-medium text-content-main">{{ user.role_name }}</span>
+
+      <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-divider/50">
+        <div class="flex flex-col">
+          <span class="text-[9px] font-black text-content-muted uppercase tracking-widest">Puesto</span>
+          <span class="text-xs font-bold text-content-main truncate">{{ user.role_name | uppercase }}</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-label text-content-muted">Zona:</span>
-          <span class="text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+        <div class="flex flex-col items-end">
+          <span class="text-[9px] font-black text-content-muted uppercase tracking-widest">Zona</span>
+          <span class="text-xs font-bold text-content-main">{{ user.zona }}</span>
         </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between bg-surface-ground/50 -mx-4 -mb-4 p-3 border-t border-divider/30">
         <div class="flex items-center gap-2">
-          <span class="text-label text-content-muted">Jefe:</span>
-          <span class="text-body text-content-dim">{{ getSupervisorName(user.supervisor_id) }}</span>
+            <div class="w-1.5 h-1.5 rounded-full" [ngClass]="user.activo ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-400'"></div>
+            <span class="text-[10px] font-bold" [ngClass]="user.activo ? 'text-content-main' : 'text-content-muted'">{{ user.activo ? 'ACCESO ACTIVO' : 'SIN ACCESO' }}</span>
         </div>
-        <div class="flex items-center gap-2">
-          <span class="text-label text-content-muted">Estado:</span>
-          <span [ngClass]="user.activo ? 'text-content-main' : 'text-content-muted'" class="text-body font-medium">
-            {{ user.activo ? 'Activo' : 'Inactivo' }}
-          </span>
-        </div>
+        <button (click)="deleteUser(user)" class="text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter">Eliminar</button>
       </div>
     </div>
   </div>

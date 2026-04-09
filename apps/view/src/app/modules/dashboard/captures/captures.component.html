@@ -1,21 +1,25 @@
 <div class="p-6">
-  <!-- Encabezado y Toolbar -->
-  <div class="flex justify-between items-center mb-6">
+  <!-- Encabezado y Toolbar - Responsive Stack -->
+  <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
     <div class="flex items-center gap-4">
-      <div class="w-14 h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg">
-        <span class="text-xs font-black text-black uppercase leading-none">Visita</span>
-        <span class="text-2xl font-black text-black">#{{visitaNumero()}}</span>
+      <div class="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg shrink-0">
+        <span class="text-[10px] md:text-xs font-black text-black uppercase leading-none">Visita</span>
+        <span class="text-xl md:text-2xl font-black text-black">#{{visitaNumero()}}</span>
       </div>
       <div>
-        <h2 class="text-2xl font-bold text-content-main leading-tight tracking-tighter flex items-center gap-2">
+        <h2 class="text-xl md:text-2xl font-bold text-content-main leading-tight tracking-tighter flex items-center gap-2">
           <i class="pi pi-file-edit text-brand"></i> Registro de Visita
         </h2>
-        <p class="text-sm text-content-dim">Capturando auditoría en tiempo real · {{ formatDate(svc.horaInicio() || '') }}</p>
+        <p class="text-xs md:text-sm text-content-dim">
+           Capturador: <span class="font-bold text-content-main">{{ user()?.username }}</span> 
+           <span class="mx-2 opacity-30">|</span> 
+           Inicio: <span class="font-bold text-content-main">{{ formatDate(svc.horaInicio() || '') }}</span>
+        </p>
       </div>
     </div>
-    <div class="flex gap-2">
-      <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()" styleClass="p-button-brand"></p-button>
-      <p-button *ngIf="svc.hasActiveVisit()" label="Auditar Exhibidor" icon="pi pi-plus" (onClick)="startWizard()" styleClass="p-button-brand"></p-button>
+    <div class="flex gap-2 w-full md:w-auto">
+      <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar Visita" icon="pi pi-play" (onClick)="onIniciarVisita()" styleClass="p-button-brand w-full md:w-auto"></p-button>
+      <p-button *ngIf="svc.hasActiveVisit()" label="Auditar Exhibidor" icon="pi pi-plus" (onClick)="startWizard()" styleClass="p-button-brand w-full md:w-auto"></p-button>
     </div>
   </div>
 
@@ -58,7 +62,7 @@
     </div>
 
     <!-- Exhibidores Auditados -->
-    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden mb-6">
+    <div class="bg-surface-card border border-surface-border rounded-2xl shadow-sm overflow-hidden mb-6">
       <div class="p-4 border-b border-surface-border bg-surface-ground flex justify-between items-center">
         <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
         <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
@@ -140,7 +144,7 @@
       <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
     </div>
 
-    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden">
+    <div class="bg-surface-card border border-surface-border rounded-2xl shadow-sm overflow-hidden hidden md:block">
       <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
         <ng-template pTemplate="header">
           <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
@@ -177,8 +181,11 @@
         <!-- Expansión de la Fila (Detalle por Visita) -->
         <ng-template pTemplate="rowexpansion" let-visita>
           <tr>
-            <td colspan="7" class="p-4 bg-surface-ground">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <td colspan="7" class="p-6 bg-surface-ground">
+              <div class="mb-4">
+                <h4 class="text-xs font-black text-content-muted uppercase tracking-[0.2em]">Detalle de Exhibidores registrados</h4>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-card p-3 rounded-lg border border-surface-border shadow-sm">
                   <div class="flex justify-between items-start mb-2">
                     <div class="w-8 h-8 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
@@ -211,8 +218,8 @@
     </div>
 
     <!-- Mobile Card View for Visit History -->
-    <div class="lg:hidden space-y-4 mt-4">
-      <div *ngFor="let visita of svc.visitasHoy()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+    <div class="md:hidden space-y-4 mt-4">
+      <div *ngFor="let visita of svc.visitasHoy()" class="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{visita.folio}}</span>
@@ -235,34 +242,40 @@
           </div>
         </div>
         <!-- Expandable exhibiciones details -->
-        <div *ngIf="expandedRows[visita.folio]" class="mt-4 pt-4 border-t border-surface-border">
-          <div class="text-xs font-bold text-content-muted mb-3">DETALLE DE EXHIBIDORES:</div>
-          <div class="space-y-2">
-            <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-ground p-3 rounded-lg border border-surface-border">
+        <div *ngIf="expandedRows[visita.folio]" class="mt-4 pt-4 border-t border-surface-border animate-in fade-in slide-in-from-top-2 duration-300">
+          <div class="text-[10px] font-black text-content-faint uppercase tracking-[0.2em] mb-3">Auditoría Técnica:</div>
+          <div class="grid grid-cols-1 gap-3">
+            <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-ground/50 p-3 rounded-xl border border-surface-border/50">
               <div class="flex justify-between items-start mb-2">
                 <div class="flex items-center gap-2">
-                  <div class="w-6 h-6 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
+                  <div class="w-8 h-8 rounded-lg bg-surface-card border border-divider flex items-center justify-center text-xs text-content-faint shadow-sm">
                     <i [class]="getConceptIcon(ex.conceptoId)"></i>
                   </div>
-                  <span class="text-xs font-bold text-content-main">{{ getConceptNombre(ex.conceptoId) }}</span>
+                  <div class="flex flex-col">
+                    <span class="text-xs font-black text-content-main uppercase tracking-tight">{{ getConceptNombre(ex.conceptoId) }}</span>
+                    <span class="text-[9px] text-content-dim flex items-center gap-1">
+                      <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                    </span>
+                  </div>
                 </div>
-                <span class="text-xs font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded">{{ ex.puntuacionCalculada }} pts</span>
+                <div class="flex flex-col items-end">
+                  <span class="text-[9px] font-bold text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
+                  <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[8px] px-1 py-0 px-2 mt-1"></p-tag>
+                </div>
               </div>
-              <div class="text-xs text-content-dim flex items-center gap-1 mb-2">
-                <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
-              </div>
-              <div class="flex items-center justify-between">
-                <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
+              <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/10">
+                <span class="text-[9px] text-content-faint italic">Impacto Venta:</span>
                 <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
               </div>
             </div>
           </div>
         </div>
-        <div class="mt-3 pt-3 border-t border-surface-border">
+        <div class="mt-3 pt-3 border-t border-surface-border flex justify-center">
           <p-button type="button" [text]="true" [rounded]="true" 
                     [icon]="expandedRows[visita.folio] ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
                     (onClick)="toggleRowExpansion(visita)"
-                    label="Ver Detalles"></p-button>
+                    [label]="expandedRows[visita.folio] ? 'Cerrar Detalles' : 'Ver Detalles del Reporte'"
+                    styleClass="text-xs font-bold text-brand uppercase tracking-wider"></p-button>
         </div>
       </div>
     </div>
@@ -270,7 +283,7 @@
 </div>
 
 <!-- CAPTURE WIZARD DIALOG -->
-<p-dialog [(visible)]="showWizard" [modal]="true" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+<p-dialog [(visible)]="showWizard" [modal]="true" appendTo="body" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
   <ng-container *ngIf="showWizard">
     <!-- Progress Indicator -->
     <div class="mb-6 mt-4 px-4">
@@ -419,7 +432,7 @@
 </p-dialog>
 
 <!-- RESULT DIALOG -->
-<p-dialog [(visible)]="showResultDialog" [modal]="true" [style]="{width: '450px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+<p-dialog [(visible)]="showResultDialog" [modal]="true" appendTo="body" [style]="{width: '90vw', maxWidth: '450px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="py-6 text-center" *ngIf="lastResult">
     <div class="w-20 h-20 bg-brand-light text-brand-sunset rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-orange/20 animate-bounce">
        <i class="pi pi-check text-4xl"></i>

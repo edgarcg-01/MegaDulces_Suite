@@ -5,9 +5,21 @@
 
 .dashboard-container {
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
   font-family: 'Inter', sans-serif;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-x: hidden;
+}
+
+@media (max-width: 640px) {
+  .dashboard-container {
+    padding: 1rem;
+    gap: 1rem;
+  }
 }
 
 /* Header */
