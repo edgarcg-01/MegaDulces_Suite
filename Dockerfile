@@ -17,7 +17,6 @@ RUN npm install
 COPY . .
 
 # Compilamos las aplicaciones usando el cargador global SOLO en este paso
-# Esto inyecta @angular/compiler necesario para resolver ActionsSubject durante el build
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" npx nx build view --prod && \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" npx nx build api --prod
 
@@ -30,11 +29,16 @@ RUN npm install --omit=dev
 
 # --- Stage 3: Final Image (Ultra Optimized) ---
 FROM node:20-slim AS runner
+
+# Instalamos nginx y dependencias mínimas requeridas para el despliegue
+RUN apt-get update && apt-get install -y nginx && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Variables de entorno para producción
 ENV NODE_ENV=production \
-    PORT=80 \
+    PORT=3000 \
     API_PREFIX=api
 
 # Copiamos todo lo necesario desde los stages previos
@@ -42,10 +46,20 @@ COPY --from=builder /app/database ./database
 COPY --from=builder /app/dist ./dist
 COPY --from=prod-deps /app/node_modules ./node_modules
 
-# Exponemos el puerto 80
+# Copiamos configuración de Nginx y script de inicio
+# Nota: La ruta de Nginx en debian-slim suele ser /etc/nginx/sites-available/default o /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/sites-available/default
+COPY start.sh ./start.sh
+RUN chmod +x ./start.sh
+
+# Aseguramos que el frontend se sirve desde la ruta configurada en nginx.conf
+# Angular v17+ compila usualmente a dist/apps/view/browser
+RUN mkdir -p /usr/share/nginx/html && \
+    cp -r dist/apps/view/browser/* /usr/share/nginx/html/ || \
+    cp -r dist/apps/view/* /usr/share/nginx/html/
+
+# Exponemos el puerto 80 (Nginx)
 EXPOSE 80
 
-# El comando de inicio corre migraciones, seeds y luego el servidor
-CMD npx knex migrate:latest --knexfile database/knexfile.js && \
-    npx knex seed:run --knexfile database/knexfile.js && \
-    node dist/apps/api/main.js
+# El comando de inicio coordina migraciones, seeds, api y nginx
+CMD ["sh", "./start.sh"]
