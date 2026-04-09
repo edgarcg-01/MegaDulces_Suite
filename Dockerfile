@@ -30,6 +30,9 @@ RUN npm install --omit=dev
 
 # --- Stage 3: Final Image (Ultra Optimized) ---
 FROM node:20-slim AS runner
+COPY --from=builder /app/database ./database
+COPY --from=builder /app/dist ./dist
+COPY --from=prod-deps /app/node_modules ./node_modules
 
 WORKDIR /app
 
