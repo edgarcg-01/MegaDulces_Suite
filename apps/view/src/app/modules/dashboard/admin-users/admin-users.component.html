@@ -128,9 +128,10 @@
 <p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'"
           [(visible)]="displayDialog"
           [modal]="true"
-          [style]="{width: '500px'}"
-          styleClass="surface-card border-divider rounded-xl"
-          [contentStyleClass]="'bg-surface-card text-content-main'">
+          appendTo="body"
+          [style]="{width: '500px', maxWidth: '90vw'}"
+          styleClass="surface-card border-divider rounded-2xl"
+          [contentStyleClass]="'bg-surface-card text-content-main p-6'">
 
   <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">
 

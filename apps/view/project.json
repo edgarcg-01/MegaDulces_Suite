@@ -16,7 +16,11 @@
           "apps/view/src/polyfills.ts"
         ],
         "tsConfig": "apps/view/tsconfig.app.json",
-        "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
+        "assets": [
+          "apps/view/src/favicon.ico",
+          "apps/view/src/assets",
+          "apps/view/src/manifest.json"
+        ],
         "styles": ["apps/view/src/styles.css"],
         "scripts": []
       },
