@@ -3,9 +3,6 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Deletes ALL existing entries
-  await knex("role_permissions").del();
-
   // Inserts seed entries
   await knex("role_permissions").insert([
   {

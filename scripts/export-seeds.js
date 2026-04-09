@@ -45,9 +45,6 @@ async function exportTable(table) {
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Deletes ALL existing entries
-  await knex("${table}").del();
-
   // Inserts seed entries
   await knex("${table}").insert(${JSON.stringify(data, null, 2)});
 };
@@ -55,6 +52,28 @@ exports.seed = async function(knex) {
 
   fs.writeFileSync(filePath, content);
   console.log(`Saved ${filePath}`);
+}
+
+async function createCleanupSeed(tables) {
+  const filePath = path.join(SEEDS_DIR, '000_cleanup.js');
+  
+  // Use TRUNCATE CASCADE for Postgres to handle FKs automatically
+  // We list all tables to ensure they are all cleared
+  const truncateCommands = tables.map(t => `await knex.raw('TRUNCATE TABLE "${t}" CASCADE');`).join('\n  ');
+
+  const content = `/**
+ * @param { import("knex").Knex } knex
+ * @returns { Promise<void> }
+ */
+exports.seed = async function(knex) {
+  // Disable foreign key checks or use TRUNCATE CASCADE
+  // For PostgreSQL, TRUNCATE with CASCADE is the most reliable way
+  ${truncateCommands}
+};
+`;
+
+  fs.writeFileSync(filePath, content);
+  console.log(`Saved cleanup seed: ${filePath}`);
 }
 
 async function run() {
@@ -67,6 +86,10 @@ async function run() {
       fs.mkdirSync(SEEDS_DIR, { recursive: true });
     }
 
+    // 1. Create the master cleanup seed first
+    await createCleanupSeed(tables);
+
+    // 2. Export individual tables (they will now only handle INSERTS)
     for (const table of tables) {
       await exportTable(table);
     }
