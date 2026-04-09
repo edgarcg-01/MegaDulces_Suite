@@ -3,31 +3,36 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
+  // Deletes ALL existing entries
   await knex("scoring_config").del();
 
+  // Inserts seed entries
   await knex("scoring_config").insert([
-    {
-      config: JSON.stringify({
-        pesos_posicion: { 
-          "caja registradora": 100, 
-          "al frente": 80, 
-          "pasillo principal": 60, 
-          "lado del refrigerador": 50, 
-          "al fondo": 20 
-        },
-        tipos_exhibicion: { 
-          "exhibidor": 1.5, 
-          "vitrina": 1.2, 
-          "vitrolero": 1.0, 
-          "paletero": 1.0, 
-          "tiras": 0.8 
-        },
-        niveles_ejecucion: { 
-          "excelente": 1.2, 
-          "basico": 0.8, 
-          "critico": 0.4 
-        }
-      })
-    }
-  ]);
-}
+  {
+    "id": "91528fd9-463d-4121-990a-53cdcb5b9cdf",
+    "config": {
+      "factores_tipo": {
+        "tira": 1,
+        "vitrina": 1.5,
+        "exhibidor": 2,
+        "refrigerador": 1.8
+      },
+      "pesos_posicion": {
+        "caja": 100,
+        "detras": 10,
+        "anaquel": 25,
+        "vitrina": 60,
+        "adyacente": 70,
+        "exhibidor": 50,
+        "refrigerador": 40
+      },
+      "niveles_ejecucion": {
+        "alto": 1,
+        "bajo": 0.4,
+        "medio": 0.7
+      }
+    },
+    "updated_at": "2026-04-02T15:52:21.186Z"
+  }
+]);
+};

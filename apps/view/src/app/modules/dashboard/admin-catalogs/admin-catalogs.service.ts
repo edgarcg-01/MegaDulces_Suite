@@ -10,11 +10,19 @@ export class AdminCatalogsService {
   private http = inject(HttpClient);
   private apiUrl = `${environment.apiUrl}/catalogs`;
 
-  getCatalog(type: string): Observable<any[]> {
-    return this.http.get<any[]>(`${this.apiUrl}/${type}`);
+  getCatalog(type: string, parentId?: string): Observable<any[]> {
+    let url = `${this.apiUrl}/${type}`;
+    if (parentId) {
+      url += `?parent=${parentId}`;
+    }
+    return this.http.get<any[]>(url);
   }
 
-  addItem(type: string, data: { value: string; orden?: number; puntuacion?: number; icono?: string }): Observable<any> {
+  getRoutesByZone(zoneId: string): Observable<any[]> {
+    return this.http.get<any[]>(`${this.apiUrl}/rutas?parent=${zoneId}`);
+  }
+
+  addItem(type: string, data: { value: string; orden?: number; puntuacion?: number; icono?: string; parent_id?: string }): Observable<any> {
     return this.http.post<any>(`${this.apiUrl}/${type}`, data);
   }
 

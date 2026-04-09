@@ -44,13 +44,20 @@ export class AdminCatalogsComponent implements OnInit {
   loading = signal<boolean>(false);
 
   showAddDialog = false;
+  showRouteDialog = false;
   isEditMode = signal<boolean>(false);
   currentEditingId = signal<string | null>(null);
+  currentZoneId = signal<string | null>(null);
+  isRouteMode = signal<boolean>(false);
 
   newItemValue = '';
   newItemOrder = 0;
   newItemScore = 0;
   newItemIcon = '';
+
+  // Zonas expandibles y sus rutas
+  expandedZones: { [key: string]: boolean } = {};
+  zoneRoutes: { [key: string]: any[] } = {};
 
   constructor() {
     // Listen to route param changes to switch catalog type
@@ -84,12 +91,124 @@ export class AdminCatalogsComponent implements OnInit {
     this.catalogsService.getCatalog(type).subscribe({
       next: (data) => {
         this.items.set(data);
+        // Si es zonas, cargar las rutas para cada zona expandida
+        if (type === 'zonas') {
+          this.loadRoutesForExpandedZones();
+        }
         this.loading.set(false);
       },
       error: (err) => {
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el catálogo' });
         this.loading.set(false);
       },
+    });
+  }
+
+  // --- Funciones para Zonas y Rutas ---
+
+  toggleZoneExpansion(zone: any) {
+    const zoneId = zone.id;
+    this.expandedZones[zoneId] = !this.expandedZones[zoneId];
+
+    if (this.expandedZones[zoneId] && !this.zoneRoutes[zoneId]) {
+      this.loadRoutesForZone(zoneId);
+    }
+  }
+
+  isZoneExpanded(zoneId: string): boolean {
+    return this.expandedZones[zoneId] || false;
+  }
+
+  loadRoutesForZone(zoneId: string) {
+    this.catalogsService.getRoutesByZone(zoneId).subscribe({
+      next: (routes) => {
+        this.zoneRoutes[zoneId] = routes;
+      },
+      error: (err) => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las rutas' });
+      }
+    });
+  }
+
+  loadRoutesForExpandedZones() {
+    Object.keys(this.expandedZones).forEach(zoneId => {
+      if (this.expandedZones[zoneId]) {
+        this.loadRoutesForZone(zoneId);
+      }
+    });
+  }
+
+  // --- Diálogos para Rutas ---
+
+  openAddRouteDialog(zone: any) {
+    this.isRouteMode.set(true);
+    this.currentZoneId.set(zone.id);
+    this.isEditMode.set(false);
+    this.currentEditingId.set(null);
+    this.newItemValue = '';
+    this.newItemOrder = (this.zoneRoutes[zone.id]?.length || 0) + 1;
+    this.newItemScore = 0;
+    this.newItemIcon = '';
+    this.showRouteDialog = true;
+  }
+
+  openEditRouteDialog(route: any, zone: any) {
+    this.isRouteMode.set(true);
+    this.currentZoneId.set(zone.id);
+    this.isEditMode.set(true);
+    this.currentEditingId.set(route.id);
+    this.newItemValue = route.value;
+    this.newItemOrder = route.orden;
+    this.newItemScore = route.puntuacion || 0;
+    this.newItemIcon = route.icono || '';
+    this.showRouteDialog = true;
+  }
+
+  saveRoute() {
+    if (!this.newItemValue.trim()) return;
+
+    const data = {
+      value: this.newItemValue,
+      orden: this.newItemOrder,
+      puntuacion: this.newItemScore,
+      icono: this.newItemIcon,
+      parent_id: this.currentZoneId() || undefined
+    };
+
+    if (this.isEditMode()) {
+      this.catalogsService.updateItem('rutas', this.currentEditingId()!, data).subscribe({
+        next: () => {
+          this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta actualizada correctamente' });
+          this.loadRoutesForZone(this.currentZoneId()!);
+          this.showRouteDialog = false;
+        },
+        error: (err) => {
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar la ruta' });
+        }
+      });
+    } else {
+      this.catalogsService.addItem('rutas', data).subscribe({
+        next: () => {
+          this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta agregada correctamente' });
+          this.loadRoutesForZone(this.currentZoneId()!);
+          this.showRouteDialog = false;
+        },
+        error: (err) => {
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo agregar la ruta' });
+        }
+      });
+    }
+  }
+
+  deleteRoute(routeId: string, zoneId: string) {
+    this.catalogsService.deleteItem('rutas', routeId).subscribe({
+      next: () => {
+        this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta eliminada correctamente' });
+        this.loadRoutesForZone(zoneId);
+      },
+      error: (err) => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar la ruta' });
+      }
     });
   }
 

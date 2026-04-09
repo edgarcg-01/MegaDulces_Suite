@@ -12,100 +12,210 @@
     </div>
   </div>
 
-  <!-- Tabla de Ítems -->
-  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden hidden lg:block">
-    <p-table [value]="items()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
-      <ng-template pTemplate="header">
-        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
-          <th style="width: 10%">Orden</th>
-          <th>Valor / Nombre</th>
-          <th *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones'">Puntuación</th>
-          <th *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'">Puntuación</th>
-          <th *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'">Icono</th>
-          <th class="text-center w-28">Acciones</th>
-        </tr>
-      </ng-template>
-      <ng-template pTemplate="body" let-item>
-        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
-          <td class="font-mono text-content-dim">{{ item.orden }}</td>
-          <td class="font-bold text-content-main">{{ item.value }}</td>
-          <td *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="text-brand-orange font-bold">
-            {{ item.puntuacion }} pts
-          </td>
-          <td *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'">
-            <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-content-faint">
-              <i [class]="item.icono || 'pi pi-tag'"></i>
+  <!-- Vista Especial para ZONAS con Rutas expandibles -->
+  @if (selectedType() === 'zonas') {
+    <div class="space-y-4">
+      @for (zone of items(); track zone.id) {
+        <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden">
+          <!-- Header de Zona -->
+          <div class="flex items-center justify-between p-4 bg-surface-ground border-b border-surface-border">
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                (click)="toggleZoneExpansion(zone)"
+                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all"
+              >
+                <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>
+              </button>
+              <div>
+                <span class="text-xs font-mono text-content-dim bg-surface-card px-2 py-1 rounded">#{{ zone.orden }}</span>
+                <span class="font-bold text-content-main ml-2">{{ zone.value }}</span>
+              </div>
             </div>
-          </td>
-          <td class="text-center">
-            <div class="flex justify-center gap-1">
-              @if (selectedType() === 'roles') {
-                <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-content-muted">{{ zoneRoutes[zone.id]?.length || 0 }} rutas</span>
+              <p-button icon="pi pi-plus" label="Agregar Ruta" size="small" [text]="true" (onClick)="openAddRouteDialog(zone)"></p-button>
+              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id)"></p-button>
+            </div>
+          </div>
+
+          <!-- Rutas de la Zona (expandible) -->
+          @if (isZoneExpanded(zone.id)) {
+            <div class="p-4 bg-surface-card">
+              @if (zoneRoutes[zone.id] && zoneRoutes[zone.id].length > 0) {
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  @for (route of zoneRoutes[zone.id]; track route.id) {
+                    <div class="flex items-center justify-between p-3 bg-surface-ground border border-surface-border rounded-lg">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono text-content-dim">#{{ route.orden }}</span>
+                        <span class="text-sm font-medium text-content-main">{{ route.value }}</span>
+                      </div>
+                      <div class="flex gap-1">
+                        <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditRouteDialog(route, zone)"></p-button>
+                        <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteRoute(route.id, zone.id)"></p-button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="text-center py-4 text-content-dim text-sm">
+                  No hay rutas asignadas a esta zona. Haz clic en "Agregar Ruta" para crear una.
+                </div>
               }
-              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
-              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
             </div>
-          </td>
-        </tr>
-      </ng-template>
-      <ng-template pTemplate="emptymessage">
-        <tr>
-          <td colspan="5" class="text-center p-8 text-content-dim">
-            No hay registros para este catálogo.
-          </td>
-        </tr>
-      </ng-template>
-    </p-table>
-  </div>
+          }
+        </div>
+      }
+    </div>
+  } @else {
+    <!-- Tabla normal para otros catálogos -->
+    <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden hidden lg:block">
+      <p-table [value]="items()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+        <ng-template pTemplate="header">
+          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+            <th style="width: 10%">Orden</th>
+            <th>Valor / Nombre</th>
+            <th *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'">Puntuación</th>
+            <th *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'">Icono</th>
+            <th class="text-center w-28">Acciones</th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-item>
+          <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
+            <td class="font-mono text-content-dim">{{ item.orden }}</td>
+            <td class="font-bold text-content-main">{{ item.value }}</td>
+            <td *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="text-brand-orange font-bold">
+              {{ item.puntuacion }} pts
+            </td>
+            <td *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'">
+              <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-content-faint">
+                <i [class]="item.icono || 'pi pi-tag'"></i>
+              </div>
+            </td>
+            <td class="text-center">
+              <div class="flex justify-center gap-1">
+                @if (selectedType() === 'roles') {
+                  <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+                }
+                <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
+                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr>
+            <td colspan="5" class="text-center p-8 text-content-dim">
+              No hay registros para este catálogo.
+            </td>
+          </tr>
+        </ng-template>
+      </p-table>
+    </div>
+  }
 
   <!-- Mobile Card View -->
-  <div class="lg:hidden space-y-4">
-    <div *ngFor="let item of items()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-3">
-          <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>
-          <h3 class="text-sm font-bold text-content-main">{{ item.value }}</h3>
-        </div>
-        <div class="flex gap-1">
-          @if (selectedType() === 'roles') {
-            <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+  @if (selectedType() === 'zonas') {
+    <!-- Vista Mobile para Zonas -->
+    <div class="lg:hidden space-y-4">
+      @for (zone of items(); track zone.id) {
+        <div class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                (click)="toggleZoneExpansion(zone)"
+                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all"
+              >
+                <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>
+              </button>
+              <div>
+                <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{ zone.orden }}</span>
+                <h3 class="text-sm font-bold text-content-main ml-2">{{ zone.value }}</h3>
+              </div>
+            </div>
+            <div class="flex gap-1">
+              <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddRouteDialog(zone)"></p-button>
+              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id)"></p-button>
+            </div>
+          </div>
+
+          <!-- Rutas expandibles en mobile -->
+          @if (isZoneExpanded(zone.id)) {
+            <div class="mt-3 pt-3 border-t border-surface-border">
+              <div class="text-xs text-content-muted mb-2">Rutas ({{ zoneRoutes[zone.id]?.length || 0 }}):</div>
+              @if (zoneRoutes[zone.id] && zoneRoutes[zone.id].length > 0) {
+                <div class="space-y-2">
+                  @for (route of zoneRoutes[zone.id]; track route.id) {
+                    <div class="flex items-center justify-between p-2 bg-surface-ground border border-surface-border rounded">
+                      <span class="text-sm text-content-main">{{ route.value }}</span>
+                      <div class="flex gap-1">
+                        <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditRouteDialog(route, zone)"></p-button>
+                        <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteRoute(route.id, zone.id)"></p-button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="text-xs text-content-dim">No hay rutas asignadas</div>
+              }
+            </div>
           }
-          <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
-          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
         </div>
-      </div>
-      <div class="space-y-2">
-        <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Puntuación:</span>
-          <span class="text-sm font-bold text-brand-orange">{{ item.puntuacion }} pts</span>
+      }
+    </div>
+  } @else {
+    <!-- Vista Mobile para otros catálogos -->
+    <div class="lg:hidden space-y-4">
+      <div *ngFor="let item of items()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>
+            <h3 class="text-sm font-bold text-content-main">{{ item.value }}</h3>
+          </div>
+          <div class="flex gap-1">
+            @if (selectedType() === 'roles') {
+              <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+            }
+            <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
+            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
+          </div>
         </div>
-        <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'" class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Icono:</span>
-          <div class="w-6 h-6 rounded bg-surface-layout border border-divider flex items-center justify-center text-content-faint">
-            <i [class]="item.icono || 'pi pi-tag'" class="text-xs"></i>
+        <div class="space-y-2">
+          <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="flex items-center gap-2">
+            <span class="text-xs text-content-muted">Puntuación:</span>
+            <span class="text-sm font-bold text-brand-orange">{{ item.puntuacion }} pts</span>
+          </div>
+          <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'" class="flex items-center gap-2">
+            <span class="text-xs text-content-muted">Icono:</span>
+            <div class="w-6 h-6 rounded bg-surface-layout border border-divider flex items-center justify-center text-content-faint">
+              <i [class]="item.icono || 'pi pi-tag'" class="text-xs"></i>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  }
 </div>
 
 <!-- Diálogo de Ítem -->
-<p-dialog [header]="isEditMode() ? 'Editar Ítem' : 'Nuevo Ítem'" [(visible)]="showAddDialog" [modal]="true" [style]="{width: '400px'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="'bg-surface-card text-content-main'">
-  <div class="flex flex-col gap-4 py-4">
+<p-dialog [header]="isEditMode() ? 'Editar Ítem' : 'Nuevo Ítem'" [(visible)]="showAddDialog" [modal]="true" [style]="{width: '400px'}" styleClass="p-dialog surface-card border-divider rounded-xl" [contentStyleClass]="'bg-surface-card text-content-main p-4'">
+  <div class="flex flex-col gap-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted">Nombre / Valor</label>
-      <input pInputText [(ngModel)]="newItemValue" [placeholder]="selectedType() === 'roles' ? 'Ej: supervisor' : 'Ej: Zona Norte'" />
+      <input pInputText [(ngModel)]="newItemValue" [placeholder]="selectedType() === 'roles' ? 'Ej: supervisor' : 'Ej: Zona Norte'" class="w-full bg-surface-ground border-surface-border text-content-main" />
     </div>
 
     <div class="grid grid-cols-2 gap-4">
       <div class="flex flex-col gap-2">
         <label class="text-xs font-bold text-content-muted">Orden</label>
-        <p-inputNumber [(ngModel)]="newItemOrder"></p-inputNumber>
+        <p-inputNumber [(ngModel)]="newItemOrder" class="w-full"></p-inputNumber>
       </div>
       <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="flex flex-col gap-2">
         <label class="text-xs font-bold text-content-muted">Puntuación</label>
-        <p-inputNumber 
+        <p-inputNumber
           [(ngModel)]="newItemScore"
           [step]="0.1"
           mode="decimal"
@@ -118,7 +228,7 @@
 
     <div *ngIf="selectedType() === 'conceptos' || selectedType() === 'niveles'" class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted font-mono">Icono (PrimeIcon)</label>
-      <input pInputText [(ngModel)]="newItemIcon" placeholder="Ej: pi pi-star" />
+      <input pInputText [(ngModel)]="newItemIcon" placeholder="Ej: pi pi-star" class="w-full bg-surface-ground border-surface-border text-content-main" />
       <div class="mt-1 flex items-center gap-2 px-3 py-2 bg-surface-ground border border-divider rounded-lg">
         <span class="text-xs text-content-faint uppercase font-bold">Vista previa:</span>
         <i [class]="newItemIcon || 'pi pi-question-circle'" class="text-brand"></i>
@@ -128,6 +238,25 @@
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddDialog = false"></p-button>
     <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveItem()" styleClass="p-button-brand"></p-button>
+  </ng-template>
+</p-dialog>
+
+<!-- Diálogo de Ruta (para Zonas) -->
+<p-dialog [header]="isEditMode() ? 'Editar Ruta' : 'Nueva Ruta'" [(visible)]="showRouteDialog" [modal]="true" [style]="{width: '400px'}" styleClass="p-dialog surface-card border-divider rounded-xl" [contentStyleClass]="'bg-surface-card text-content-main p-4'">
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted">Nombre de la Ruta</label>
+      <input pInputText [(ngModel)]="newItemValue" placeholder="Ej: Ruta 1 - Centro" class="w-full bg-surface-ground border-surface-border text-content-main" />
+    </div>
+
+    <div class="flex flex-col gap-2">
+      <label class="text-xs font-bold text-content-muted">Orden</label>
+      <p-inputNumber [(ngModel)]="newItemOrder" class="w-full"></p-inputNumber>
+    </div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showRouteDialog = false"></p-button>
+    <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveRoute()" styleClass="p-button-brand"></p-button>
   </ng-template>
 </p-dialog>
 

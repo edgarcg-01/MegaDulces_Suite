@@ -48,5 +48,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 # Exponemos el puerto 80
 EXPOSE 80
 
-# El comando de inicio es un solo proceso de Node.js
-CMD ["node", "dist/apps/api/main.js"]
+# El comando de inicio corre migraciones, seeds y luego el servidor
+CMD npx knex migrate:latest --knexfile database/knexfile.js && \
+    npx knex seed:run --knexfile database/knexfile.js && \
+    node dist/apps/api/main.js
