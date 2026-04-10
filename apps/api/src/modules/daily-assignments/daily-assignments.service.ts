@@ -28,11 +28,12 @@ export class DailyAssignmentsService {
   }) {
     const query = this.knex('daily_assignments as da')
       .join('users as u', 'da.user_id', 'u.id')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .join('catalogs as c', 'da.route_id', 'c.id')
       .select(
         'da.*',
         'u.nombre as user_nombre',
-        'u.zona as user_zona',
+        'z.name as user_zona',
         'c.value as route_name',
       );
 

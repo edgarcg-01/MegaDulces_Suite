@@ -9,37 +9,67 @@ import * as bcrypt from 'bcryptjs';
 export class UsersService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
+  private async resolveZonaId(zonaName?: string): Promise<string | null> {
+    if (!zonaName) return null;
+    const zone = await this.knex('zones').where({ name: zonaName }).select('id').first();
+    return zone ? zone.id : null;
+  }
+
   async create(createUserDto: CreateUserDto) {
-    const { password, ...rest } = createUserDto;
+    const { password, zona, ...rest } = createUserDto;
     const password_hash = await bcrypt.hash(password, 10);
+    const zona_id = await this.resolveZonaId(zona);
 
     const [user] = await this.knex('users')
-      .insert({ ...rest, password_hash })
+      .insert({ ...rest, zona_id, password_hash })
       .returning([
         'id',
         'username',
         'nombre',
-        'zona',
+        'zona_id',
         'role_name',
         'activo',
         'supervisor_id',
         'created_at',
       ]);
 
-    return user;
+    // Return with zona name for compatibility
+    return { ...user, zona: zona };
   }
 
   async findAll(zona?: string, activo?: string) {
-    const query = this.knex('users').select('id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'supervisor_id', 'created_at');
-    if (zona) query.where({ zona });
-    if (activo) query.where({ activo: activo === 'true' });
+    const query = this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .select(
+        'u.id',
+        'u.username',
+        'u.nombre',
+        'z.name as zona',
+        'u.role_name',
+        'u.activo',
+        'u.supervisor_id',
+        'u.created_at'
+      );
+
+    if (zona) query.where('z.name', zona);
+    if (activo) query.where('u.activo', activo === 'true');
     return query;
   }
 
   async findOne(id: string) {
-    const user = await this.knex('users')
-      .where({ id })
-      .select('id', 'username', 'nombre', 'zona', 'role_name', 'activo', 'supervisor_id', 'created_at')
+    const user = await this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .where('u.id', id)
+      .select(
+        'u.id',
+        'u.username',
+        'u.nombre',
+        'z.name as zona',
+        'u.role_name',
+        'u.activo',
+        'u.supervisor_id',
+        'u.created_at'
+      )
       .first();
 
     if (!user) {
@@ -49,11 +79,15 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const { password, ...rest } = updateUserDto;
+    const { password, zona, ...rest } = updateUserDto;
     const updateData: Record<string, any> = { ...rest };
 
     if (password) {
       updateData.password_hash = await bcrypt.hash(password, 10);
+    }
+
+    if (zona !== undefined) {
+      updateData.zona_id = await this.resolveZonaId(zona);
     }
 
     const [user] = await this.knex('users')
@@ -63,7 +97,7 @@ export class UsersService {
         'id',
         'username',
         'nombre',
-        'zona',
+        'zona_id',
         'role_name',
         'activo',
         'supervisor_id',
@@ -73,7 +107,10 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
-    return user;
+
+    // Map back for compatibility
+    const zoneName = zona !== undefined ? zona : (await this.knex('zones').where({ id: user.zona_id }).select('name').first())?.name;
+    return { ...user, zona: zoneName };
   }
 
   async remove(id: string) {
@@ -94,12 +131,13 @@ export class UsersService {
   async findSupervisors(zona?: string) {
     console.log('[findSupervisors] Buscando supervisores, zona:', zona);
 
-    const query = this.knex('users')
-      .where({ role_name: 'supervisor_v', activo: true })
-      .select('id', 'nombre', 'username', 'zona');
+    const query = this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .where({ 'u.role_name': 'supervisor_v', 'u.activo': true })
+      .select('u.id', 'u.nombre', 'u.username', 'z.name as zona');
 
     if (zona) {
-      query.where({ zona });
+      query.where('z.name', zona);
     }
 
     const result = await query;
@@ -108,20 +146,20 @@ export class UsersService {
   }
 
   async findSellers(zona?: string, supervisorId?: string) {
-    console.log('[findSellers] Buscando vendedores, zona:', zona, 'supervisorId:', supervisorId);
+    console.log('[findSellers] Buscando vendedodores, zona:', zona, 'supervisorId:', supervisorId);
 
-    // Vendedores/ejecutivos: usuarios con role_name que no sea supervisor_v, admin, superadmin
-    const query = this.knex('users')
-      .whereNotIn('role_name', ['supervisor_v', 'admin', 'superadmin'])
-      .where({ activo: true })
-      .select('id', 'nombre', 'username', 'zona', 'role_name', 'supervisor_id');
+    const query = this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .whereNotIn('u.role_name', ['supervisor_v', 'admin', 'superadmin'])
+      .where({ 'u.activo': true })
+      .select('u.id', 'u.nombre', 'u.username', 'z.name as zona', 'u.role_name', 'u.supervisor_id');
 
     if (zona) {
-      query.where({ zona });
+      query.where('z.name', zona);
     }
 
     if (supervisorId) {
-      query.where({ supervisor_id: supervisorId });
+      query.where({ 'u.supervisor_id': supervisorId });
     }
 
     const result = await query;
@@ -130,36 +168,26 @@ export class UsersService {
   }
 
   async findBySupervisor(supervisorId: string) {
-    return this.knex('users')
-      .where({ supervisor_id: supervisorId, activo: true })
-      .select('id', 'nombre', 'username', 'zona', 'role_name');
+    return this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .where({ 'u.supervisor_id': supervisorId, 'u.activo': true })
+      .select('u.id', 'u.nombre', 'u.username', 'z.name as zona', 'u.role_name');
   }
 
   async getZones() {
     try {
-      console.log('[getZones] Obteniendo zonas del catálogo...');
+      console.log('[getZones] Obteniendo zonas de la tabla zones...');
 
-      // Obtener zonas del catálogo 'zonas'
-      const rows = await this.knex('catalogs')
-        .where({ catalog_id: 'zonas' })
+      const rows = await this.knex('zones')
         .orderBy('orden', 'asc')
-        .select('id', 'value', 'orden');
+        .select('id', 'name as value', 'orden');
 
-      console.log('[getZones] Zonas del catálogo:', rows);
-      console.log('[getZones] Cantidad de zonas encontradas:', rows?.length || 0);
-
-      const mapped = rows.map((z: any) => ({
-        id: z.id,
-        value: z.value,
-        orden: z.orden,
-      }));
-
-      console.log('[getZones] Zonas mapeadas:', mapped);
-      return mapped;
+      console.log('[getZones] Zonas encontradas:', rows);
+      return rows;
     } catch (error) {
       console.error('[getZones] Error:', error);
-      // Retornar array vacío en caso de error para no romper el frontend
       return [];
     }
   }
+
 }

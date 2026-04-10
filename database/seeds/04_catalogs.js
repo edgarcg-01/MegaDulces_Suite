@@ -60,33 +60,6 @@ exports.seed = async function(knex) {
     "parent_id": null
   },
   {
-    "id": "fb136f01-5efe-4c9f-b297-48f06574002c",
-    "catalog_id": "zonas",
-    "value": "LA PIEDAD",
-    "orden": 1,
-    "puntuacion": 0,
-    "icono": "",
-    "parent_id": null
-  },
-  {
-    "id": "b3e5d1cf-bf7e-419f-9037-b02f070bd2bc",
-    "catalog_id": "zonas",
-    "value": "ZAMORA",
-    "orden": 2,
-    "puntuacion": 0,
-    "icono": "",
-    "parent_id": null
-  },
-  {
-    "id": "f63125c2-025f-4122-89f0-14f3c80ac0ca",
-    "catalog_id": "zonas",
-    "value": "CANINDO",
-    "orden": 5,
-    "puntuacion": 0,
-    "icono": "",
-    "parent_id": null
-  },
-  {
     "id": "a7022833-0c65-4db2-8e82-4dbb196a5771",
     "catalog_id": "conceptos",
     "value": "Vitrolero",
@@ -155,24 +128,6 @@ exports.seed = async function(knex) {
     "value": "Al fondo",
     "orden": 5,
     "puntuacion": 20,
-    "icono": null,
-    "parent_id": null
-  },
-  {
-    "id": "2107b482-7d3a-4c82-9377-c9f2427e699e",
-    "catalog_id": "zonas",
-    "value": "MORELIA",
-    "orden": 3,
-    "puntuacion": 0,
-    "icono": null,
-    "parent_id": null
-  },
-  {
-    "id": "a5f9532e-a836-455c-9c8c-3df906615a5b",
-    "catalog_id": "zonas",
-    "value": "NACIONAL",
-    "orden": 4,
-    "puntuacion": 0,
     "icono": null,
     "parent_id": null
   },

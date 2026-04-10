@@ -8,12 +8,19 @@ export class CatalogsService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
   async getByType(type: string, parentId?: string) {
+    if (type === 'zonas' || type === 'zones') {
+      return this.knex('zones')
+        .orderBy('orden', 'asc')
+        .select('id', 'name as value', 'orden');
+    }
+
     const query = this.knex('catalogs').where({ catalog_id: type }).orderBy('orden', 'asc');
     if (parentId) {
       query.where({ parent_id: parentId });
     }
     return query;
   }
+
 
   async create(type: string, data: { value: string; orden?: number; puntuacion?: number; icono?: string }) {
     const [item] = await this.knex('catalogs')

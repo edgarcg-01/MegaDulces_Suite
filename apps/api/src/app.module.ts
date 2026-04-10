@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { AppController } from './app.controller';
@@ -16,9 +17,14 @@ import { StoresModule } from './modules/stores/stores.module';
 import { VisitsModule } from './modules/visits/visits.module';
 import { ExhibitionsModule } from './modules/exhibitions/exhibitions.module';
 import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assignments.module';
+import { CronModule } from './modules/cron/cron.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'view'),
       exclude: ['/api/{*path}'],
@@ -36,6 +42,8 @@ import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assign
     VisitsModule,
     ExhibitionsModule,
     DailyAssignmentsModule,
+    CronModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -2,37 +2,46 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
-import * as fs from 'fs';
-import * as path from 'path';
+import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
 
 @Injectable()
 export class DailyCapturesService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
-  async create(dto: CreateDailyCaptureDto, userId: string, username: string, zona: string) {
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-       fs.mkdirSync(uploadDir, { recursive: true });
-    }
+  async create(
+    dto: CreateDailyCaptureDto,
+    userId: string,
+    username: string,
+    zona: string,
+  ) {
+    // Procesar fotos Base64 subiéndolas a Cloudinary y guardando URL + Public ID
+    const processedExhibiciones = await Promise.all(
+      dto.exhibiciones.map(async (ex) => {
+        if (ex.fotoBase64) {
+          try {
+            const cloudinaryResult =
+              await this.cloudinaryService.uploadImageBase64(
+                ex.fotoBase64,
+                `daily-captures/${dto.folio}`,
+              );
 
-    // Procesar fotos Base64 convirtiéndolas a archivos .jpg y extrayendo URL
-    const processedExhibiciones = dto.exhibiciones.map((ex) => {
-       if (ex.fotoBase64) {
-          const matches = ex.fotoBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-          if (matches && matches.length === 3) {
-             const imageBuffer = Buffer.from(matches[2], 'base64');
-             let ext = matches[1].split('/')[1] || 'jpg';
-             if (ext === 'jpeg') ext = 'jpg';
-             
-             const filename = `exh_${dto.folio}_${ex.id}_${Date.now()}.${ext}`;
-             fs.writeFileSync(path.join(uploadDir, filename), imageBuffer);
-             ex.fotoUrl = `/uploads/${filename}`;
+            ex.fotoUrl = cloudinaryResult.secure_url;
+            ex.fotoPublicId = cloudinaryResult.public_id;
+          } catch (error) {
+            console.error('Error uploading to Cloudinary:', error);
+            // En caso de error, dejar sin foto pero continuar el proceso
+            ex.fotoUrl = null;
+            ex.fotoPublicId = null;
           }
           // Remove heavy payload before persisting
           delete ex.fotoBase64;
-       }
-       return ex;
-    });
+        }
+        return ex;
+      }),
+    );
 
     const [dailyCapture] = await this.knex('daily_captures')
       .insert({
@@ -53,13 +62,18 @@ export class DailyCapturesService {
     return dailyCapture;
   }
 
-  async findAll(fecha?: string, zona?: string, ejecutivo?: string, userId?: string) {
+  async findAll(
+    fecha?: string,
+    zona?: string,
+    ejecutivo?: string,
+    userId?: string,
+  ) {
     const query = this.knex('daily_captures').select('*');
     if (fecha) query.where({ fecha });
     if (zona) query.where({ zona_captura: zona });
     if (ejecutivo) query.where({ captured_by_username: ejecutivo });
     if (userId) query.where({ user_id: userId });
-    
+
     query.orderBy('created_at', 'desc');
     return query;
   }
@@ -71,7 +85,9 @@ export class DailyCapturesService {
       const fallback = await this.knex('daily_captures').where({ folio: id }).first();
       if (fallback) return fallback;
 
-      throw new NotFoundException(`Validación fallida: Captura con identificador ${id} no encontrada`);
+      throw new NotFoundException(
+        `Validación fallida: Captura con identificador ${id} no encontrada`,
+      );
     }
     return dailyCapture;
   }

@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
+import { ScheduleModule } from '@nestjs/schedule';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -38,7 +39,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
 
-  const port = process.env.API_PORT ?? 3333;
+  const port = process.env.API_PORT || process.env.PORT || 3333;
   await app.listen(port);
   console.log(`Application running on port ${port}`);
 }

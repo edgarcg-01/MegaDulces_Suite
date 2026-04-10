@@ -23,8 +23,10 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { username, password } = loginDto;
 
-    const user = await this.knex('users')
-      .where({ 'users.username': username, 'users.activo': true })
+    const user = await this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .where({ 'u.username': username, 'u.activo': true })
+      .select('u.*', 'z.name as zona')
       .first();
 
     if (!user) {

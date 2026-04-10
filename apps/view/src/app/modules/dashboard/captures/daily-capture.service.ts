@@ -317,16 +317,18 @@ export class DailyCaptureService {
         );
 
         // Mapear planograma: Marcas -> Productos
-        this._groupedProducts.set(res.planograma.map(b => ({
+        this._groupedProducts.set(
+          res.planograma.map((b) => ({
             marca: b.nombre,
             items: (b.products || b.productos || []).map((p: any) => ({
               ame: p.nombre,
-            puntuacion: p.puntuacion
+              puntuacion: p.puntuacion,
             })),
           })),
         );
       },
-      error: (err) => console.error('Error loading master data from backend', err)
+      error: (err) =>
+        console.error('Error loading master data from backend', err),
     });
   }
 

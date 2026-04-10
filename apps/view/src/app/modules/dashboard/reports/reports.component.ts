@@ -17,6 +17,7 @@ import { InputIconModule } from 'primeng/inputicon';
 import { InputTextModule } from 'primeng/inputtext';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { DialogModule } from 'primeng/dialog';
+import { ImageModule } from 'primeng/image';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -39,6 +40,7 @@ import autoTable from 'jspdf-autotable';
     InputTextModule,
     MultiSelectModule,
     DialogModule,
+    ImageModule,
   ],
   providers: [MessageService],
   template: `
@@ -499,6 +501,7 @@ import autoTable from 'jspdf-autotable';
                 <tr class="text-[10px] bg-surface-ground uppercase text-content-muted">
                   <th>Concepto</th>
                   <th>Ubicación</th>
+                  <th class="text-center">Imagen</th>
                   <th class="text-right pr-3">Puntuación</th>
                 </tr>
               </ng-template>
@@ -506,6 +509,17 @@ import autoTable from 'jspdf-autotable';
                 <tr class="text-xs">
                   <td>{{ ex.conceptoId || 'N/A' }}</td>
                   <td>{{ ex.ubicacionId || 'N/A' }}</td>
+                  <td class="text-center">
+                    <p-image 
+                      *ngIf="ex.fotoUrl"
+                      [src]="ex.fotoUrl" 
+                      alt="Exhibición" 
+                      width="50"
+                      [preview]="true"
+                      class="rounded shadow-sm cursor-zoom-in"
+                    />
+                    <span *ngIf="!ex.fotoUrl" class="text-[9px] text-content-faint">Sin foto</span>
+                  </td>
                   <td class="text-right pr-3 font-bold">
                     {{ ex.puntuacionCalculada || 0 }}
                   </td>
