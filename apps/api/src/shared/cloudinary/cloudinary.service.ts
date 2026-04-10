@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import { Readable } from 'stream';
 
@@ -6,11 +6,16 @@ import { Readable } from 'stream';
 export class CloudinaryService {
   private readonly logger = new Logger(CloudinaryService.name);
 
+  constructor(@Inject('CLOUDINARY') private cloudinaryConfig: any) {
+    this.logger.log('Cloudinary Service initialized with config');
+  }
+
   // Buffer (from Multer memory storage)
   async uploadImage(
     file: Express.Multer.File,
     folder: string = 'trade_marketing',
   ): Promise<UploadApiResponse> {
+    this.logger.log(`Iniciando carga de imagen (Buffer) a carpeta: ${folder}`);
     return new Promise((resolve, reject) => {
       const upload = cloudinary.uploader.upload_stream(
         { folder },
@@ -28,6 +33,7 @@ export class CloudinaryService {
     base64Str: string,
     folder: string = 'trade_marketing'
   ): Promise<UploadApiResponse> {
+    this.logger.log(`Iniciando carga de imagen (Base64) a carpeta: ${folder}`);
     return cloudinary.uploader.upload(base64Str, {
       folder,
     });

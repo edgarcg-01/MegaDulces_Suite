@@ -31,7 +31,10 @@ export class DailyCapturesService {
             ex.fotoUrl = cloudinaryResult.secure_url;
             ex.fotoPublicId = cloudinaryResult.public_id;
           } catch (error) {
-            console.error('Error uploading to Cloudinary:', error);
+            console.error(
+              `Error uploading exhibition photo to Cloudinary for folio ${dto.folio}:`,
+              error,
+            );
             // En caso de error, dejar sin foto pero continuar el proceso
             ex.fotoUrl = null;
             ex.fotoPublicId = null;
