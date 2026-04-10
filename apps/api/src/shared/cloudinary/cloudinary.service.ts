@@ -12,17 +12,19 @@ export class CloudinaryService {
 
   constructor(@Inject('CLOUDINARY') private cloudinaryConfig: any) {
     this.logger.log('Cloudinary Service initialized');
-    
+
     // Verificar si faltan variables de entorno críticas
-    const missing = [];
-    if (!process.env.CLOUDINARY_CLOUD_NAME) missing.push('CLOUDINARY_CLOUD_NAME');
+    const missing: string[] = [];
+    if (!process.env.CLOUDINARY_CLOUD_NAME)
+      missing.push('CLOUDINARY_CLOUD_NAME');
     if (!process.env.CLOUDINARY_API_KEY) missing.push('CLOUDINARY_API_KEY');
-    if (!process.env.CLOUDINARY_API_SECRET) missing.push('CLOUDINARY_API_SECRET');
+    if (!process.env.CLOUDINARY_API_SECRET)
+      missing.push('CLOUDINARY_API_SECRET');
 
     if (missing.length > 0) {
       this.logger.warn(
         `¡ALERTA!: Faltan las siguientes variables de entorno para Cloudinary: ${missing.join(', ')}. ` +
-        `Las fotos NO se almacenarán en producción hasta que se configuren.`
+          'Las fotos NO se almacenarán en producción hasta que se configuren.',
       );
     }
   }

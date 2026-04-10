@@ -35,9 +35,9 @@ export class AuthService {
   }
 
   public hasPermission(key: Permission | string): boolean {
-    const currentUser = this.user() as any;
+    const currentUser = this.user();
 
-    if (currentUser && currentUser['role_name'] === 'superadmin') {
+    if (currentUser && currentUser.role_name === 'superadmin') {
       return true;
     }
 
@@ -52,7 +52,7 @@ export class AuthService {
       .pipe(
         tap((response) => {
           this.setSession(response.access_token);
-        })
+        }),
       );
   }
 
@@ -66,7 +66,7 @@ export class AuthService {
   private setSession(token: string, writeCookie: boolean = true): void {
     try {
       const payloadBase64 = token.split('.')[1];
-      const payload: any = JSON.parse(atob(payloadBase64));
+      const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean> };
 
       // Normalizamos el rol a una sola propiedad para facilitar el código
       payload.role_name = payload.rol || payload.role_name;
