@@ -978,7 +978,16 @@ export class ReportsComponent implements OnInit {
 
   openMap(lat: number, lng: number) {
     const url = `https://www.google.com/maps?q=${lat},${lng}`;
-    window.open(url, '_blank');
+    
+    // Detectar si es móvil para evitar bloqueos de ventanas emergentes o pantallas en blanco
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      // En móvil, es más seguro redirigir la pestaña actual o usar un enlace directo
+      window.location.href = url;
+    } else {
+      window.open(url, '_blank');
+    }
   }
 
   getImageUrl(url: string): string {

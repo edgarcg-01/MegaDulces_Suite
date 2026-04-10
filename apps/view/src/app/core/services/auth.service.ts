@@ -74,6 +74,12 @@ export class AuthService {
       this.token.set(token);
       this.user.set(payload);
       this.permissions.set(payload.permissions || {});
+
+      if (writeCookie) {
+        const d = new Date();
+        d.setTime(d.getTime() + (1 * 24 * 60 * 60 * 1000));
+        document.cookie = `auth_token=${token}; expires=${d.toUTCString()}; path=/; SameSite=Lax;`;
+      }
     } catch (error) {
       console.error('Invalid token format', error);
       this.logout();

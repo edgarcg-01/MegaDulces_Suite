@@ -1,5 +1,9 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
+import {
+  v2 as cloudinary,
+  UploadApiResponse,
+  UploadApiErrorResponse,
+} from 'cloudinary';
 import { Readable } from 'stream';
 
 @Injectable()
@@ -7,7 +11,20 @@ export class CloudinaryService {
   private readonly logger = new Logger(CloudinaryService.name);
 
   constructor(@Inject('CLOUDINARY') private cloudinaryConfig: any) {
-    this.logger.log('Cloudinary Service initialized with config');
+    this.logger.log('Cloudinary Service initialized');
+    
+    // Verificar si faltan variables de entorno críticas
+    const missing = [];
+    if (!process.env.CLOUDINARY_CLOUD_NAME) missing.push('CLOUDINARY_CLOUD_NAME');
+    if (!process.env.CLOUDINARY_API_KEY) missing.push('CLOUDINARY_API_KEY');
+    if (!process.env.CLOUDINARY_API_SECRET) missing.push('CLOUDINARY_API_SECRET');
+
+    if (missing.length > 0) {
+      this.logger.warn(
+        `¡ALERTA!: Faltan las siguientes variables de entorno para Cloudinary: ${missing.join(', ')}. ` +
+        `Las fotos NO se almacenarán en producción hasta que se configuren.`
+      );
+    }
   }
 
   // Buffer (from Multer memory storage)
@@ -22,7 +39,7 @@ export class CloudinaryService {
         (error: UploadApiErrorResponse, result: UploadApiResponse) => {
           if (error) return reject(error);
           resolve(result);
-        }
+        },
       );
       Readable.from(file.buffer).pipe(upload);
     });
@@ -31,7 +48,7 @@ export class CloudinaryService {
   // Base64 (from daily-captures)
   async uploadImageBase64(
     base64Str: string,
-    folder: string = 'trade_marketing'
+    folder: string = 'trade_marketing',
   ): Promise<UploadApiResponse> {
     this.logger.log(`Iniciando carga de imagen (Base64) a carpeta: ${folder}`);
     return cloudinary.uploader.upload(base64Str, {

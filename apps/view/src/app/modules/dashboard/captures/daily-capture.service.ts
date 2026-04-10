@@ -103,10 +103,17 @@ export class DailyCaptureService {
     // Intentar capturar ubicación al iniciar la visita
     try {
       await this.capturarUbicacion();
-      console.log('GPS capturado exitosamente:', this._latitud(), this._longitud());
+      console.log(
+        'GPS capturado exitosamente:',
+        this._latitud(),
+        this._longitud(),
+      );
       return true;
     } catch (error) {
-      console.warn('No se pudo capturar GPS, continuando sin ubicación:', error);
+      console.warn(
+        'No se pudo caspturar GPS, continuando sin ubicación:',
+        error,
+      );
       // No fallar la visita por GPS, pero registrar el problema
       return true;
     }
