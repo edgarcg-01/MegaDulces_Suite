@@ -9,7 +9,7 @@ export class ExhibitionsService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly scoringService: ScoringService,
-    private readonly cloudinaryService: CloudinaryService
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async create(data: { visit_id: string; posicion: string; tipo: string; nivel_ejecucion: string; notas?: string }) {

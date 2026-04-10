@@ -52,6 +52,10 @@ export class CloudinaryService {
     base64Str: string,
     folder: string = 'trade_marketing',
   ): Promise<UploadApiResponse> {
+    console.log(
+      '>>> CLOUDINARY INSTANCE CONFIG:',
+      JSON.stringify(this.cloudinary.config()),
+    );
     this.logger.log(`Iniciando carga de imagen (Base64) a carpeta: ${folder}`);
     return cloudinary.uploader.upload(base64Str, {
       folder,
