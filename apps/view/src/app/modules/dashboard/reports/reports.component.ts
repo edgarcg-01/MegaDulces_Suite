@@ -512,7 +512,7 @@ import autoTable from 'jspdf-autotable';
                   <td class="text-center">
                     <p-image 
                       *ngIf="ex.fotoUrl"
-                      [src]="ex.fotoUrl" 
+                      [src]="getImageUrl(ex.fotoUrl)" 
                       alt="Exhibición" 
                       width="50"
                       [preview]="true"
@@ -979,5 +979,13 @@ export class ReportsComponent implements OnInit {
   openMap(lat: number, lng: number) {
     const url = `https://www.google.com/maps?q=${lat},${lng}`;
     window.open(url, '_blank');
+  }
+
+  getImageUrl(url: string): string {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    // Si empieza con '/', asumir que es relativo a la API
+    const apiBase = (this.reportsService as any).apiUrl.replace('/reports', ''); // Obtener base URL
+    return `${apiBase}${url}`;
   }
 }

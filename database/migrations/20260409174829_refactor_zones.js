@@ -48,8 +48,10 @@ exports.up = async function (knex) {
     WHERE stores.zona = zones.name
   `);
 
-  // 5. Cleanup: Remove 'zonas' from catalogs to avoid confusion
-  await knex('catalogs').where({ catalog_id: 'zonas' }).delete();
+  // 5. Cleanup: We avoid deleting from catalogs here because it can trigger 
+  // CASCADE deletes on Rutas that might be referenced by daily_assignments.
+  // The seeds will handle creating a clean state for fresh installs.
+  // await knex('catalogs').where({ catalog_id: 'zonas' }).delete();
   
   // 6. We keep the 'zona' string columns for now as 'legacy' to avoid breaking code 
   // until we refactor the services in the next step.
