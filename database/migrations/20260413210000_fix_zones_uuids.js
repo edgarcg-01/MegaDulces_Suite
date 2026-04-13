@@ -16,43 +16,65 @@ exports.up = async function(knex) {
 
   console.log('[fix_zones_uuids] Checking zones UUID consistency...');
 
+  // STEP 1: Insert all zones with correct UUIDs first
   for (const zone of fixedZones) {
-    // Check if zone exists with the correct ID
     const existingCorrect = await knex('zones').where({ id: zone.id }).first();
-    
     if (existingCorrect) {
       console.log(`[fix_zones_uuids] Zone ${zone.name} already has correct UUID`);
       continue;
     }
 
-    // Check if zone exists with a different ID (old random UUID)
+    // Check if zone exists with wrong ID
     const existingByName = await knex('zones').where({ name: zone.name }).first();
     
     if (existingByName) {
-      const oldId = existingByName.id;
-      console.log(`[fix_zones_uuids] Zone ${zone.name} has wrong UUID: ${oldId} -> ${zone.id}`);
-
-      // Update foreign key references in users table
-      const updatedUsers = await knex('users')
-        .where({ zona_id: oldId })
-        .update({ zona_id: zone.id });
-      console.log(`[fix_zones_uuids] Updated ${updatedUsers} users`);
-
-      // Update foreign key references in stores table
-      const updatedStores = await knex('stores')
-        .where({ zona_id: oldId })
-        .update({ zona_id: zone.id });
-      console.log(`[fix_zones_uuids] Updated ${updatedStores} stores`);
-
-      // Delete old zone record and insert with correct ID
-      await knex('zones').where({ id: oldId }).delete();
-      await knex('zones').insert(zone);
-      console.log(`[fix_zones_uuids] Replaced zone ${zone.name}`);
-    } else {
-      // Zone doesn't exist at all, insert it
-      await knex('zones').insert(zone);
-      console.log(`[fix_zones_uuids] Inserted missing zone ${zone.name}`);
+      // Zone exists with wrong ID - temporarily rename old zone to avoid unique constraint
+      await knex('zones').where({ id: existingByName.id }).update({ name: `${zone.name}_OLD` });
+      console.log(`[fix_zones_uuids] Renamed old zone ${zone.name} to ${zone.name}_OLD`);
     }
+    
+    // Insert zone with correct ID
+    await knex('zones').insert(zone);
+    console.log(`[fix_zones_uuids] Inserted zone ${zone.name} with correct UUID`);
+  }
+
+  // STEP 2: Update foreign key references from old zones to new ones and delete old zones
+  for (const zone of fixedZones) {
+    // Find the old zone (with _OLD suffix)
+    const oldZone = await knex('zones').where({ name: `${zone.name}_OLD` }).first();
+    
+    if (!oldZone) {
+      // Check if there's a zone with a different ID (not correct, not _OLD)
+      const wrongZone = await knex('zones').where({ name: zone.name }).whereNot({ id: zone.id }).first();
+      if (!wrongZone) {
+        console.log(`[fix_zones_uuids] No old zone to migrate for ${zone.name}`);
+        continue;
+      }
+      
+      // Found a zone with wrong ID but not renamed - rename it now
+      await knex('zones').where({ id: wrongZone.id }).update({ name: `${zone.name}_OLD` });
+      console.log(`[fix_zones_uuids] Renamed wrong zone ${zone.name} to ${zone.name}_OLD`);
+      oldZone = wrongZone;
+    }
+
+    const oldId = oldZone.id;
+    console.log(`[fix_zones_uuids] Migrating references from ${zone.name}_OLD (${oldId}) -> ${zone.name} (${zone.id})`);
+
+    // Update foreign key references in users table
+    const updatedUsers = await knex('users')
+      .where({ zona_id: oldId })
+      .update({ zona_id: zone.id });
+    console.log(`[fix_zones_uuids] Updated ${updatedUsers} users`);
+
+    // Update foreign key references in stores table
+    const updatedStores = await knex('stores')
+      .where({ zona_id: oldId })
+      .update({ zona_id: zone.id });
+    console.log(`[fix_zones_uuids] Updated ${updatedStores} stores`);
+
+    // Delete old zone record
+    await knex('zones').where({ id: oldId }).delete();
+    console.log(`[fix_zones_uuids] Deleted old zone ${zone.name}_OLD with ID ${oldId}`);
   }
 
   console.log('[fix_zones_uuids] Zones UUID fix completed');
