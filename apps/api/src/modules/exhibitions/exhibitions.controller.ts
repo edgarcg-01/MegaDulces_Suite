@@ -53,7 +53,8 @@ export class ExhibitionsController {
       },
     },
   })
-  @UseInterceptors(FileInterceptor('file', {
+  @UseInterceptors(
+    FileInterceptor('file', {
       storage: memoryStorage(),
     }),
   )

@@ -327,8 +327,9 @@ export class DailyCaptureService {
         this._groupedProducts.set(
           res.planograma.map((b) => ({
             marca: b.nombre,
-            items: (b.products || b.productos || []).map((p: any) => ({
-              ame: p.nombre,
+            items: (b.productos || []).map((p: any) => ({
+              pid: p.id,
+              name: p.nombre,
               puntuacion: p.puntuacion,
             })),
           })),

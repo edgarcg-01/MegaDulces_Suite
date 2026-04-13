@@ -14,15 +14,24 @@ export class CatalogsService {
         .select('id', 'name as value', 'orden');
     }
 
-    const query = this.knex('catalogs').where({ catalog_id: type }).orderBy('orden', 'asc');
+    const query = this.knex('catalogs')
+      .where({ catalog_id: type })
+      .orderBy('orden', 'asc');
     if (parentId) {
       query.where({ parent_id: parentId });
     }
     return query;
   }
 
-
-  async create(type: string, data: { value: string; orden?: number; puntuacion?: number; icono?: string }) {
+  async create(
+    type: string,
+    data: {
+      value: string;
+      orden?: number;
+      puntuacion?: number;
+      icono?: string;
+    },
+  ) {
     const [item] = await this.knex('catalogs')
       .insert({
         catalog_id: type,
@@ -36,12 +45,24 @@ export class CatalogsService {
   }
 
   async delete(type: string, id: string) {
-    const deleted = await this.knex('catalogs').where({ catalog_id: type, id }).del();
-    if (deleted === 0) throw new NotFoundException('Elemento paramétrico no encontrado');
+    const deleted = await this.knex('catalogs')
+      .where({ catalog_id: type, id })
+      .del();
+    if (deleted === 0)
+      throw new NotFoundException('Elemento paramétrico no encontrado');
     return { success: true };
   }
 
-  async update(type: string, id: string, data: Partial<{ value: string; orden: number; puntuacion: number; icono: string }>) {
+  async update(
+    type: string,
+    id: string,
+    data: Partial<{
+      value: string;
+      orden: number;
+      puntuacion: number;
+      icono: string;
+    }>,
+  ) {
     const [item] = await this.knex('catalogs')
       .where({ catalog_id: type, id })
       .update({
@@ -51,15 +72,20 @@ export class CatalogsService {
         icono: data.icono,
       })
       .returning('*');
-    
-    if (!item) throw new NotFoundException('Elemento paramétrico no encontrado para actualizar');
+
+    if (!item)
+      throw new NotFoundException(
+        'Elemento paramétrico no encontrado para actualizar',
+      );
     return item;
   }
 
   // --- Funciones Dinámicas para Roles ---
 
   async getRolePermissions(roleName: string) {
-    const role = await this.knex('role_permissions').where({ role_name: roleName }).first();
+    const role = await this.knex('role_permissions')
+      .where({ role_name: roleName })
+      .first();
     if (!role) {
       // Si no existe el registro en role_permissions, lo creamos con permisos vacíos
       const [newRole] = await this.knex('role_permissions')
@@ -75,11 +101,15 @@ export class CatalogsService {
       .where({ role_name: roleName })
       .update({ permissions: permissions })
       .returning('*');
-    
+
     if (!role) {
       // Si por alguna razón no existe, lo creamos
       const [newRole] = await this.knex('role_permissions')
-        .insert({ id: randomUUID(), role_name: roleName, permissions: permissions })
+        .insert({
+          id: randomUUID(),
+          role_name: roleName,
+          permissions: permissions,
+        })
         .returning('*');
       return newRole;
     }

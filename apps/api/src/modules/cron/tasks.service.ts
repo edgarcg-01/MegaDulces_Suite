@@ -58,7 +58,7 @@ export class TasksService {
 
     // Al borrar la foto de BD, se quita la tupla, o si borramos de 'visits' vuela en cascada
     if (oldPhotos.length > 0) {
-      const ids = oldPhotos.map(p => p.id);
+      const ids = oldPhotos.map((p) => p.id);
       await this.knex('exhibition_photos').whereIn('id', ids).delete();
       this.logger.log(
         `Registros de fotos en exhibition_photos limpiados: ${ids.length}`,
@@ -75,16 +75,23 @@ export class TasksService {
         // Tipado explícito aplicado aquí
         let exhibiciones: ExhibicionDiaria[] = [];
         try {
-          exhibiciones = typeof dc.exhibiciones === 'string' ? JSON.parse(dc.exhibiciones) : dc.exhibiciones;
+          exhibiciones =
+            typeof dc.exhibiciones === 'string'
+              ? JSON.parse(dc.exhibiciones)
+              : dc.exhibiciones;
         } catch (e) {}
 
         for (const ex of exhibiciones) {
           if (ex.fotoPublicId) {
             try {
-               await this.cloudinaryService.deleteImage(ex.fotoPublicId);
-               this.logger.log(`Cloudinary public_id: ${ex.fotoPublicId} borrado.`);
+              await this.cloudinaryService.deleteImage(ex.fotoPublicId);
+              this.logger.log(
+                `Cloudinary public_id: ${ex.fotoPublicId} borrado.`,
+              );
             } catch (err) {
-               this.logger.error(`Error de Cloudinary al borrar daily capture img: ${ex.fotoPublicId}`);
+              this.logger.error(
+                `Error de Cloudinary al borrar daily capture img: ${ex.fotoPublicId}`,
+              );
             }
           }
         }
@@ -92,9 +99,11 @@ export class TasksService {
     }
 
     if (oldDailyCaptures.length > 0) {
-      const ids = oldDailyCaptures.map(dc => dc.id);
+      const ids = oldDailyCaptures.map((dc) => dc.id);
       await this.knex('daily_captures').whereIn('id', ids).delete();
-      this.logger.log(`Fueron purgadas ${ids.length} capturas diarias muy antiguas.`);
+      this.logger.log(
+        `Fueron purgadas ${ids.length} capturas diarias muy antiguas.`,
+      );
     }
 
     this.logger.log('Limpieza 30-días finalizada.');

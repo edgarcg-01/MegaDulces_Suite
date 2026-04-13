@@ -13,7 +13,10 @@ export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lista completa de todos los PDV activos para el dispositivo móvil' })
+  @ApiOperation({
+    summary:
+      'Lista completa de todos los PDV activos para el dispositivo móvil',
+  })
   findAll() {
     return this.storesService.findAll();
   }

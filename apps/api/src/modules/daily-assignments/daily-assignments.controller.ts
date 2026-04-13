@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Put, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { DailyAssignmentsService } from './daily-assignments.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
@@ -30,9 +40,9 @@ export class DailyAssignmentsController {
     @Query('day_of_week') dayOfWeek?: string,
   ) {
     return this.service.findAll({
-      supervisor_id: supervisorId, 
-      user_id: userId, 
-      day_of_week: dayOfWeek ? parseInt(dayOfWeek, 10) : undefined 
+      supervisor_id: supervisorId,
+      user_id: userId,
+      day_of_week: dayOfWeek ? parseInt(dayOfWeek, 10) : undefined,
     });
   }
 

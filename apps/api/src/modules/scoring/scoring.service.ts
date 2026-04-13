@@ -14,9 +14,13 @@ export class ScoringService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
   async getConfig() {
-    const record = await this.knex('scoring_config').orderBy('updated_at', 'desc').first();
+    const record = await this.knex('scoring_config')
+      .orderBy('updated_at', 'desc')
+      .first();
     if (!record) return {};
-    return typeof record.config === 'string' ? JSON.parse(record.config) : record.config;
+    return typeof record.config === 'string'
+      ? JSON.parse(record.config)
+      : record.config;
   }
 
   async setConfig(configData: Record<string, any>) {
@@ -25,7 +29,10 @@ export class ScoringService {
     if (records.length > 0) {
       const updated = await this.knex('scoring_config')
         .where({ id: records[0].id })
-        .update({ config: JSON.stringify(configData), updated_at: this.knex.fn.now() })
+        .update({
+          config: JSON.stringify(configData),
+          updated_at: this.knex.fn.now(),
+        })
         .returning('*');
       return updated[0];
     } else {
@@ -36,22 +43,29 @@ export class ScoringService {
     }
   }
 
-  async calculateScore(dto: ScoringCalculateDto): Promise<{ score: number; reason?: string }> {
-    // REGLA ABSOLUTA DEL DUEÑO: 
+  async calculateScore(
+    dto: ScoringCalculateDto,
+  ): Promise<{ score: number; reason?: string }> {
+    // REGLA ABSOLUTA DEL DUEÑO:
     // "No, tiene que subir explícitamente la foto para dar un scoring"
     if (!dto.photo_url || dto.photo_url.trim() === '') {
-      return { score: 0, reason: "Ausencia de Evidencia Fotográfica anula la puntuación." };
+      return {
+        score: 0,
+        reason: 'Ausencia de Evidencia Fotográfica anula la puntuación.',
+      };
     }
 
     const config = await this.getConfig();
 
-    const pesoPosicion = config.pesos_posicion?.[dto.posicion?.toLowerCase()] ?? 0;
+    const pesoPosicion =
+      config.pesos_posicion?.[dto.posicion?.toLowerCase()] ?? 0;
     const factorTipo = config.tipos_exhibicion?.[dto.tipo?.toLowerCase()] ?? 0;
-    const multiplicador = config.niveles_ejecucion?.[dto.nivel_ejecucion?.toLowerCase()] ?? 0;
+    const multiplicador =
+      config.niveles_ejecucion?.[dto.nivel_ejecucion?.toLowerCase()] ?? 0;
 
     // Ecuación definida en Documentación Técnica: Score = peso_posición × factor_tipo_exhibición × nivel_ejecución
     const scoreVal = pesoPosicion * factorTipo * multiplicador;
-    
+
     return { score: Number(scoreVal.toFixed(2)) };
   }
 }

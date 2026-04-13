@@ -7,6 +7,6 @@ import { CloudinaryModule } from '../../shared/cloudinary/cloudinary.module';
 @Module({
   imports: [ScoringModule, CloudinaryModule],
   controllers: [ExhibitionsController],
-  providers: [ExhibitionsService]
+  providers: [ExhibitionsService],
 })
 export class ExhibitionsModule {}

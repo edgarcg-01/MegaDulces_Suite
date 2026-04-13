@@ -122,7 +122,7 @@
     <!-- Finalizar / Cancelar -->
     <div class="flex justify-end gap-3 mt-6">
       <p-button label="Cancelar Visita" severity="secondary" [outlined]="true" (onClick)="onCancelarVisita()"></p-button>
-      <p-button label="Terminar y Guardar Visita" icon="pi pi-check-circle" styleClass="p-button-brand" (onClick)="onSaveCapturaTotal()" [disabled]="svc.activeExhibiciones().length === 0"></p-button>
+      <p-button label="Terminar y Guardar Visita" icon="pi pi-check-circle" styleClass="p-button-brand" (onClick)="onSaveCapturaTotal()" [disabled]="svc.activeExhibiciones().length === 0 || isSaving()" [loading]="isSaving()"></p-button>
     </div>
   </ng-container>
 

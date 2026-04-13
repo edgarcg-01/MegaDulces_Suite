@@ -5,6 +5,6 @@ import { CloudinaryModule } from '../../shared/cloudinary/cloudinary.module';
 
 @Module({
   imports: [ScheduleModule.forRoot(), CloudinaryModule],
-  providers: [TasksService]
+  providers: [TasksService],
 })
 export class TasksModule {}

@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Subscription, take } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -58,7 +59,7 @@ import {
   providers: [MessageService, ConfirmationService],
   templateUrl: './captures.component.html',
 })
-export class CapturesComponent implements OnInit {
+export class CapturesComponent implements OnInit, OnDestroy {
   readonly svc = inject(DailyCaptureService);
   readonly themeService = inject(ThemeService);
   readonly authService = inject(AuthService);
@@ -80,6 +81,8 @@ export class CapturesComponent implements OnInit {
   showResultDialog = false;
   lastResult: VisitaSnapshot | null = null;
   expandedRows: { [key: string]: boolean } = {};
+  isSaving = signal<boolean>(false);
+  private saveSubscription: Subscription | null = null;
 
   // ── Wizard State ──────────────────────────────────────────────────────────
   showWizard = false;
@@ -169,6 +172,16 @@ export class CapturesComponent implements OnInit {
   }
 
   onSaveCapturaTotal() {
+    // Prevent if already saving
+    if (this.isSaving()) {
+      this.toast.add({
+        severity: 'info',
+        summary: 'Enviando...',
+        detail: 'La visita ya se está guardando, por favor espera.',
+      });
+      return;
+    }
+
     const ex = this.svc.activeExhibiciones();
 
     if (ex.length === 0) {
@@ -184,8 +197,16 @@ export class CapturesComponent implements OnInit {
     const obs = this.svc.saveCapturaTotal();
     if (!obs) return;
 
-    obs.subscribe({
+    // Cancel any previous subscription
+    if (this.saveSubscription) {
+      this.saveSubscription.unsubscribe();
+    }
+
+    this.isSaving.set(true);
+
+    this.saveSubscription = obs.pipe(take(1)).subscribe({
       next: (result) => {
+        this.isSaving.set(false);
         this.lastResult = result;
         this.showResultDialog = true;
         this.toast.add({
@@ -195,6 +216,7 @@ export class CapturesComponent implements OnInit {
         });
       },
       error: (err) => {
+        this.isSaving.set(false);
         this.toast.add({
           severity: 'error',
           summary: 'Error de Red',
@@ -202,6 +224,13 @@ export class CapturesComponent implements OnInit {
         });
       },
     });
+  }
+
+  ngOnDestroy() {
+    // Cleanup subscription when component is destroyed
+    if (this.saveSubscription) {
+      this.saveSubscription.unsubscribe();
+    }
   }
 
   onCancelarVisita() {

@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, Put, Delete, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Put,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
 import { PlanogramsService } from './planograms.service';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
@@ -14,7 +23,9 @@ export class PlanogramsController {
   constructor(private readonly planogramsService: PlanogramsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Obtiene todo el catálogo jerárquico de Marcas y Productos' })
+  @ApiOperation({
+    summary: 'Obtiene todo el catálogo jerárquico de Marcas y Productos',
+  })
   async getAll() {
     return this.planogramsService.getAll();
   }

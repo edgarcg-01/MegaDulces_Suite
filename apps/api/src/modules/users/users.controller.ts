@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Put, Param, Delete, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Param,
+  Delete,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -6,7 +16,12 @@ import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
-import { ApiTags, ApiBearerAuth, ApiQuery, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiQuery,
+  ApiOperation,
+} from '@nestjs/swagger';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -28,7 +43,6 @@ export class UsersController {
   findAll(@Query('zona') zona?: string, @Query('activo') activo?: string) {
     return this.usersService.findAll(zona, activo);
   }
-
 
   @Get('roles')
   getRoles() {
@@ -52,7 +66,12 @@ export class UsersController {
     @Query('zona') zona?: string,
     @Query('supervisor_id') supervisorId?: string,
   ) {
-    console.log('[UsersController] GET /users/sellers, zona:', zona, 'supervisor_id:', supervisorId);
+    console.log(
+      '[UsersController] GET /users/sellers, zona:',
+      zona,
+      'supervisor_id:',
+      supervisorId,
+    );
     return this.usersService.findSellers(zona, supervisorId);
   }
 
@@ -87,6 +106,4 @@ export class UsersController {
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }
-
-  
 }

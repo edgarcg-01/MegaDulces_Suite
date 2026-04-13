@@ -11,7 +11,10 @@ export class CronController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post('cleanup')
-  @ApiOperation({ summary: 'Ejecuta manualmente la limpieza de imágenes antiguas (más de 30 días)' })
+  @ApiOperation({
+    summary:
+      'Ejecuta manualmente la limpieza de imágenes antiguas (más de 30 días)',
+  })
   async manualCleanup() {
     await this.tasksService.manualCleanup();
     return { message: 'Cleanup task executed successfully' };

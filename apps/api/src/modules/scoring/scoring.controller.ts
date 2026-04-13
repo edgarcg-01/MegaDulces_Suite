@@ -28,7 +28,10 @@ export class ScoringController {
   }
 
   @Get('calculate')
-  @ApiOperation({ summary: 'Calculadora dinámica de simulación de Exhibiciones. IMPORTANTE: Exige URL Foto' })
+  @ApiOperation({
+    summary:
+      'Calculadora dinámica de simulación de Exhibiciones. IMPORTANTE: Exige URL Foto',
+  })
   calculate(@Query() query: any) {
     return this.scoringService.calculateScore(query as ScoringCalculateDto);
   }

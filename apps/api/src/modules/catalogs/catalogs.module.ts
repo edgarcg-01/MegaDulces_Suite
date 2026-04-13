@@ -4,6 +4,6 @@ import { CatalogsService } from './catalogs.service';
 
 @Module({
   controllers: [CatalogsController],
-  providers: [CatalogsService]
+  providers: [CatalogsService],
 })
 export class CatalogsModule {}
