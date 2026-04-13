@@ -3,8 +3,11 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Inserts seed entries
-  await knex("brands").insert([
+  // Check existing brands to avoid duplicates
+  const existingBrands = await knex("brands").select("nombre");
+  const existingNames = existingBrands.map(b => b.nombre);
+
+  const brandsToInsert = [
   {
     "id": "45e91aae-d16b-4d19-a723-25382af60747",
     "nombre": "LA ROSA",
@@ -83,5 +86,13 @@ exports.seed = async function(knex) {
     "activo": true,
     "orden": 13
   }
-]);
+  ].filter(brand => !existingNames.includes(brand.nombre));
+
+  if (brandsToInsert.length === 0) {
+    console.log("[02_brands] All brands already exist, skipping seed.");
+    return;
+  }
+
+  await knex("brands").insert(brandsToInsert);
+  console.log(`[02_brands] Inserted ${brandsToInsert.length} new brands.`);
 };

@@ -1165,7 +1165,7 @@ export class ReportsComponent implements OnInit {
   kpiCards = computed(() => {
     const data = this.reportsData();
     if (!data) return [];
-    const m = data.metrics ?? {};
+    const m = (data.metrics ?? {}) as ReportsData['metrics'];
     const defs = [
       {
         id: 'visitas',
@@ -1191,14 +1191,14 @@ export class ReportsComponent implements OnInit {
       {
         id: 'exhibiciones',
         label: 'Exhibiciones',
-        raw: m.totalExhibiciones ?? 0,
+        raw: (m as any).totalExhibiciones ?? 0,
         fmt: (v: number) => v.toLocaleString(),
         unit: '',
       },
       {
         id: 'gps',
         label: 'GPS cobertura',
-        raw: m.gpsPct ?? 0,
+        raw: (m as any).gpsPct ?? 0,
         fmt: (v: number) => v + '%',
         unit: '%',
       },
@@ -1207,7 +1207,7 @@ export class ReportsComponent implements OnInit {
       const range = this.metasConfig.getRange(d.id);
       const status = this.metasConfig.statusFor(d.id, d.raw);
       const pct = this.metasConfig.progressPct(d.id, d.raw);
-      const prev = Number(m['prev_' + d.id] ?? d.raw);
+      const prev = Number((m as any)['prev_' + d.id] ?? d.raw);
       const diff = prev ? Math.round(((d.raw - prev) / prev) * 100) : 0;
       return {
         label: d.label,
@@ -1299,7 +1299,7 @@ export class ReportsComponent implements OnInit {
     };
 
     // Score por zona
-    const zones = data.zoneStats ?? [];
+    const zones = (data as any).zoneStats ?? [];
     this.zoneChartData = {
       labels: zones.map((z: any) => z.zone),
       datasets: [
@@ -1318,7 +1318,7 @@ export class ReportsComponent implements OnInit {
     };
 
     // Top vendedores
-    const sellers = (data.sellerStats ?? []).slice(0, 7);
+    const sellers = ((data as any).sellerStats ?? []).slice(0, 7);
     this.sellerChartData = {
       labels: sellers.map((s: any) => s.username),
       datasets: [
@@ -1560,7 +1560,7 @@ export class ReportsComponent implements OnInit {
             f.target,
             this.statusLabel(
               this.metasConfig.furnitureStatus(
-                data.furniture?.[f.id] ?? 0,
+                (data as any).furniture?.[f.id] ?? 0,
                 f.target,
               ),
             ),
@@ -1593,7 +1593,7 @@ export class ReportsComponent implements OnInit {
     // Sección: ranking
     if (
       this.pdfSections.find((s) => s.id === 'ranking')?.checked &&
-      data.sellerStats
+      (data as any).sellerStats
     ) {
       doc.addPage();
       doc.setFontSize(12);
@@ -1601,7 +1601,7 @@ export class ReportsComponent implements OnInit {
       autoTable(doc, {
         startY: 20,
         head: [['Vendedor', 'Visitas', 'Avg score']],
-        body: data.sellerStats.map((s: any) => [
+        body: (data as any).sellerStats.map((s: any) => [
           s.username,
           s.totalVisitas,
           s.avgScore + '%',

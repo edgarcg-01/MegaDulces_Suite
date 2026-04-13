@@ -203,7 +203,7 @@ export class ReportsComponent implements OnInit {
   kpiCards = computed(() => {
     const data = this.reportsData();
     if (!data) return [];
-    const m = data.metrics ?? {};
+    const m = (data.metrics ?? {}) as ReportsData['metrics'];
     const defs = [
       {
         id: 'visitas',
@@ -229,14 +229,14 @@ export class ReportsComponent implements OnInit {
       {
         id: 'exhibiciones',
         label: 'Exhibiciones',
-        raw: m.totalExhibiciones ?? 0,
+        raw: (m as any).totalExhibiciones ?? 0,
         fmt: (v: number) => v.toLocaleString(),
         unit: '',
       },
       {
         id: 'gps',
         label: 'GPS cobertura',
-        raw: m.gpsPct ?? 0,
+        raw: (m as any).gpsPct ?? 0,
         fmt: (v: number) => v + '%',
         unit: '%',
       },
@@ -245,7 +245,7 @@ export class ReportsComponent implements OnInit {
       const range = this.metasConfig.getRange(d.id);
       const status = this.metasConfig.statusFor(d.id, d.raw);
       const pct = this.metasConfig.progressPct(d.id, d.raw);
-      const prev = Number(m['prev_' + d.id] ?? d.raw);
+      const prev = (m as any)['prev_' + d.id] ?? d.raw;
       const diff = prev ? Math.round(((d.raw - prev) / prev) * 100) : 0;
       return {
         label: d.label,
@@ -335,7 +335,7 @@ export class ReportsComponent implements OnInit {
       ],
     };
 
-    const zones = data.zoneStats ?? [];
+    const zones = (data as any).zoneStats ?? [];
     this.zoneChartData = {
       labels: zones.map((z: any) => z.zone),
       datasets: [
@@ -353,7 +353,7 @@ export class ReportsComponent implements OnInit {
       ],
     };
 
-    const sellers = (data.sellerStats ?? []).slice(0, 7);
+    const sellers = ((data as any).sellerStats ?? []).slice(0, 7);
     this.sellerChartData = {
       labels: sellers.map((s: any) => s.username),
       datasets: [
@@ -997,256 +997,186 @@ export class ReportsComponent implements OnInit {
     const margin = 14;
 
     // Colores corporativos
-    const colors: any = {
-      primary: [24, 95, 165],      // #185FA5 - Azul corporativo
-      secondary: [91, 155, 213],   // #5B9BD5 - Azul claro
-      accent: [246, 210, 0],       // #f6d200 - Amarillo
-      success: [34, 197, 94],      // Verde éxito
-      warning: [251, 191, 36],     // Amarillo warning
-      danger: [239, 68, 68],       // Rojo peligro
-      text: [9, 9, 11],            // Texto principal
-      textMuted: [82, 82, 91],     // Texto secundario
-      bgLight: [244, 244, 245],    // Fondo claro
-    };
+    const primary: [number, number, number] = [24, 95, 165];
+    const text: [number, number, number] = [9, 9, 11];
+    const textMuted: [number, number, number] = [82, 82, 91];
+    const bgLight: [number, number, number] = [244, 244, 245];
+    const success: [number, number, number] = [34, 197, 94];
+    const warning: [number, number, number] = [251, 191, 36];
+    const danger: [number, number, number] = [239, 68, 68];
 
-    // Helper para agregar logo
-    const addLogo = () => {
-      if (this.logoBase64) {
-        try {
-          doc.addImage(this.logoBase64, 'PNG', margin, 10, 40, 20);
-          return 32; // Altura del logo + espacio
-        } catch {
-          // Si falla, usar texto como fallback
-          doc.setFontSize(20);
-          doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
-          doc.setFont('helvetica', 'bold');
-          doc.text('MEGA DULCES', margin, 20);
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-          doc.setFontSize(8);
-          doc.text('Trade Marketing', margin, 26);
-          return 32;
-        }
-      } else {
-        // Logo placeholder con diseño
-        doc.setFillColor(colors.primary[0], colors.primary[1], colors.primary[2]);
-        doc.roundedRect(margin, 10, 50, 22, 3, 3, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(12);
+    // Header con logo
+    if (this.logoBase64) {
+      try {
+        doc.addImage(this.logoBase64, 'PNG', margin, 10, 40, 20);
+      } catch {
+        doc.setFontSize(20);
+        doc.setTextColor(primary[0], primary[1], primary[2]);
         doc.setFont('helvetica', 'bold');
-        doc.text('MEGA', margin + 5, 20);
-        doc.text('DULCES', margin + 5, 28);
+        doc.text('MEGA DULCES', margin, 20);
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-        return 38;
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.setFontSize(8);
+        doc.text('Trade Marketing', margin, 26);
       }
-    };
-
-    // Helper para tarjeta de KPI
-    const addKpiCard = (label: string, value: string, status: string, x: number, y: number, width: number) => {
-      // Fondo de tarjeta
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(x, y, width, 28, 4, 4, 'F');
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(x, y, width, 28, 4, 4, 'S');
-
-      // Color de estado
-      let statusColor = colors.success;
-      if (status === 'warn') statusColor = colors.warning;
-      if (status === 'bad') statusColor = colors.danger;
-
-      // Barra lateral de color
-      doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-      doc.rect(x, y, 4, 28, 'F');
-
-      // Label
-      doc.setFontSize(8);
-      doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-      doc.text(label.toUpperCase(), x + 8, y + 9);
-
-      // Valor
-      doc.setFontSize(16);
+    } else {
+      doc.setFillColor(primary[0], primary[1], primary[2]);
+      doc.roundedRect(margin, 10, 50, 22, 3, 3, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
-      doc.text(value, x + 8, y + 22);
-      doc.setFont('helvetica', 'normal');
-    };
-
-    // Helper para barra de progreso
-    const addProgressBar = (label: string, current: number, target: number, x: number, y: number, width: number) => {
-      const percentage = Math.min(100, (current / target) * 100);
-      let barColor = colors.success;
-      if (percentage < 50) barColor = colors.danger;
-      else if (percentage < 80) barColor = colors.warning;
-
-      // Label
-      doc.setFontSize(9);
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
-      doc.text(label, x, y + 4);
-      doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-      doc.setFontSize(8);
-      doc.text(`${current}/${target}`, x + width - 20, y + 4);
-
-      // Fondo de barra
-      doc.setFillColor(226, 232, 240);
-      doc.roundedRect(x, y + 7, width, 6, 3, 3, 'F');
-
-      // Barra de progreso
-      if (percentage > 0) {
-        doc.setFillColor(barColor[0], barColor[1], barColor[2]);
-        doc.roundedRect(x, y + 7, (width * percentage) / 100, 6, 3, 3, 'F');
-      }
-
-      // Porcentaje
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
-      doc.text(`${percentage.toFixed(0)}%`, x + width + 3, y + 12);
-      doc.setFont('helvetica', 'normal');
-    };
-
-    // ========== PORTADA / HEADER ==========
-    let y = addLogo();
+      doc.text('MEGA', margin + 5, 20);
+      doc.text('DULCES', margin + 5, 28);
+    }
 
     // Título del reporte
     doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
-    doc.text('Reporte Ejecutivo', pageWidth - margin, y - 10, { align: 'right' });
+    doc.setTextColor(text[0], text[1], text[2]);
+    doc.text('Reporte Ejecutivo', pageWidth - margin, 20, { align: 'right' });
 
-    // Subtítulo
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-    doc.text('Mercadeo Inteligente · Trade Marketing', pageWidth - margin, y - 3, { align: 'right' });
+    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+    doc.text('Mercadeo Inteligente · Trade Marketing', pageWidth - margin, 28, { align: 'right' });
 
-    // Línea separadora
-    y += 5;
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 10;
-
-    // Información del período
-    doc.setFillColor(colors.bgLight[0], colors.bgLight[1], colors.bgLight[2]);
+    // Período
+    let y = 50;
+    doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
     doc.roundedRect(margin, y, pageWidth - (margin * 2), 20, 4, 4, 'F');
     doc.setFontSize(9);
-    doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
+    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
     doc.text('PERÍODO DE ANÁLISIS', margin + 6, y + 7);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+    doc.setTextColor(primary[0], primary[1], primary[2]);
     doc.text(this.filtersState.rangeLabel(), margin + 6, y + 16);
-
-    // Fecha de generación
-    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-    doc.text(`Generado: ${new Date().toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' })}`, pageWidth - margin - 80, y + 16);
 
-    y += 28;
+    y += 35;
 
-    // ========== SECCIÓN KPIs ==========
+    // KPIs
     if (this.pdfSections.find((s) => s.id === 'metrics')?.checked) {
-      const kpis = this.kpiCards();
-      const cardWidth = (pageWidth - (margin * 2) - 12) / 3;
-
-      // Título de sección
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
+      doc.setTextColor(text[0], text[1], text[2]);
       doc.text('MÉTRICAS PRINCIPALES', margin, y);
+      y += 10;
 
-      y += 8;
-
-      // Tarjetas de KPI en fila
-      let x = margin;
-      kpis.slice(0, 3).forEach((kpi, index) => {
-        addKpiCard(kpi.label, kpi.value, kpi.status, x, y, cardWidth);
-        x += cardWidth + 6;
+      autoTable(doc, {
+        startY: y,
+        head: [['KPI', 'Valor', 'Meta', 'Estado']],
+        body: this.kpiCards().map((k) => [
+          k.label,
+          k.value,
+          k.meta,
+          this.statusLabel(k.status),
+        ]),
+        theme: 'grid',
+        headStyles: {
+          fillColor: primary,
+          textColor: 255,
+          fontSize: 9,
+          fontStyle: 'bold',
+        },
+        bodyStyles: {
+          fontSize: 9,
+          textColor: text,
+        },
+        alternateRowStyles: {
+          fillColor: bgLight,
+        },
+        margin: { left: margin, right: margin },
       });
 
-      y += 36;
-
-      // Segunda fila si hay más KPIs
-      if (kpis.length > 3) {
-        x = margin;
-        kpis.slice(3, 6).forEach((kpi) => {
-          addKpiCard(kpi.label, kpi.value, kpi.status, x, y, cardWidth);
-          x += cardWidth + 6;
-        });
-        y += 36;
-      }
+      y = (doc as any).lastAutoTable.finalY + 15;
     }
 
-    // ========== SECCIÓN MOBILIARIO ==========
+    // Mobiliario
     if (this.pdfSections.find((s) => s.id === 'furniture')?.checked) {
-      // Verificar si necesitamos nueva página
       if (y > 220) {
         doc.addPage();
-        y = addLogo();
-        y += 10;
+        y = 20;
       }
 
-      // Título de sección
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
+      doc.setTextColor(text[0], text[1], text[2]);
       doc.text('CUMPLIMIENTO POR MOBILIARIO', margin, y);
-
       y += 10;
 
-      // Barras de progreso
-      const barWidth = pageWidth - (margin * 2) - 30;
-      this.metasConfig.furniture().forEach((f) => {
+      const furnitureData = this.metasConfig.furniture().map((f) => {
         const current = data.furniture?.[f.id] ?? 0;
-        addProgressBar(f.label, current, f.target, margin, y, barWidth);
-        y += 20;
+        const pct = Math.min(100, (current / f.target) * 100);
+        let status: KpiStatus = 'ok';
+        if (pct < 50) status = 'bad';
+        else if (pct < 80) status = 'warn';
+        return [
+          f.label,
+          `${current}/${f.target}`,
+          `${pct.toFixed(0)}%`,
+          this.statusLabel(status),
+        ];
       });
 
-      y += 10;
+      autoTable(doc, {
+        startY: y,
+        head: [['Activo', 'Progreso', 'Porcentaje', 'Estado']],
+        body: furnitureData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: primary,
+          textColor: 255,
+          fontSize: 9,
+          fontStyle: 'bold',
+        },
+        bodyStyles: {
+          fontSize: 9,
+          textColor: text,
+        },
+        alternateRowStyles: {
+          fillColor: bgLight,
+        },
+        margin: { left: margin, right: margin },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 15;
     }
 
-    // ========== SECCIÓN RANKING ==========
-    if (this.pdfSections.find((s) => s.id === 'ranking')?.checked && data.sellerStats?.length) {
-      // Verificar si necesitamos nueva página
+    // Ranking
+    if (this.pdfSections.find((s) => s.id === 'ranking')?.checked && data.sellerStats) {
       if (y > 180) {
         doc.addPage();
-        y = addLogo();
-        y += 10;
+        y = 20;
       }
 
-      // Título de sección
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
+      doc.setTextColor(text[0], text[1], text[2]);
       doc.text('RANKING DE EJECUTIVOS', margin, y);
+      y += 10;
 
-      y += 8;
-
-      // Tabla de ranking con estilo
       autoTable(doc, {
         startY: y,
         head: [['#', 'Ejecutivo', 'Visitas', 'Score Prom.', 'Calificación']],
         body: data.sellerStats.map((s: any, index: number) => {
-          let calif = '★★★';
-          if (s.avgScore >= 90) calif = '★★★★★';
-          else if (s.avgScore >= 80) calif = '★★★★';
-          else if (s.avgScore >= 70) calif = '★★★';
-          else if (s.avgScore >= 60) calif = '★★';
-          else calif = '★';
-
+          let stars = '★★★';
+          if (s.avgScore >= 90) stars = '★★★★★';
+          else if (s.avgScore >= 80) stars = '★★★★';
+          else if (s.avgScore >= 70) stars = '★★★';
+          else if (s.avgScore >= 60) stars = '★★';
+          else stars = '★';
           return [
             (index + 1).toString(),
             s.username,
             s.totalVisitas.toString(),
             `${s.avgScore}%`,
-            calif,
+            stars,
           ];
         }),
         theme: 'grid',
         headStyles: {
-          fillColor: colors.primary,
+          fillColor: primary,
           textColor: 255,
           fontSize: 9,
           fontStyle: 'bold',
@@ -1254,7 +1184,7 @@ export class ReportsComponent implements OnInit {
         },
         bodyStyles: {
           fontSize: 9,
-          textColor: colors.text,
+          textColor: text,
         },
         columnStyles: {
           0: { halign: 'center', cellWidth: 15 },
@@ -1263,7 +1193,7 @@ export class ReportsComponent implements OnInit {
           4: { halign: 'center', cellWidth: 30 },
         },
         alternateRowStyles: {
-          fillColor: colors.bgLight,
+          fillColor: bgLight,
         },
         margin: { left: margin, right: margin },
       });
@@ -1271,21 +1201,17 @@ export class ReportsComponent implements OnInit {
       y = (doc as any).lastAutoTable.finalY + 15;
     }
 
-    // ========== SECCIÓN DETALLE COMPLETO ==========
+    // Detalle
     if (this.pdfSections.find((s) => s.id === 'table')?.checked && data.rows?.length) {
       doc.addPage();
-      let yDetail = addLogo();
-      yDetail += 10;
+      let yDetail = 20;
 
-      // Título
       doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
+      doc.setTextColor(text[0], text[1], text[2]);
       doc.text('REGISTROS DETALLADOS', margin, yDetail);
+      yDetail += 10;
 
-      yDetail += 8;
-
-      // Tabla detallada
       autoTable(doc, {
         startY: yDetail,
         head: [['Folio', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta']],
@@ -1294,7 +1220,6 @@ export class ReportsComponent implements OnInit {
           let statusText = 'OK';
           if (status === 'warn') statusText = 'REGULAR';
           if (status === 'bad') statusText = 'BAJO';
-
           return [
             r.folio?.substring(0, 8) || 'N/A',
             new Date(r.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
@@ -1307,14 +1232,14 @@ export class ReportsComponent implements OnInit {
         }),
         theme: 'grid',
         headStyles: {
-          fillColor: colors.primary,
+          fillColor: primary,
           textColor: 255,
           fontSize: 8,
           fontStyle: 'bold',
         },
         bodyStyles: {
           fontSize: 8,
-          textColor: colors.text,
+          textColor: text,
         },
         columnStyles: {
           0: { cellWidth: 22 },
@@ -1324,29 +1249,18 @@ export class ReportsComponent implements OnInit {
           6: { cellWidth: 25, halign: 'right' },
         },
         alternateRowStyles: {
-          fillColor: colors.bgLight,
+          fillColor: bgLight,
         },
         margin: { left: margin, right: margin },
-        didDrawPage: (data: any) => {
-          // Footer en cada página
-          doc.setFontSize(8);
-          doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
-          doc.text(
-            `Página ${data.pageNumber} de ${(doc as any).getNumberOfPages()}`,
-            pageWidth / 2,
-            doc.internal.pageSize.height - 10,
-            { align: 'center' }
-          );
-        },
       });
     }
 
-    // ========== FOOTER FINAL ==========
+    // Footer
     const totalPages = (doc as any).getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
-      doc.setTextColor(colors.textMuted[0], colors.textMuted[1], colors.textMuted[2]);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
       doc.text(
         `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
         pageWidth / 2,

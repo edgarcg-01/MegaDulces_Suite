@@ -5,11 +5,11 @@
       <h1 class="text-3xl font-bold tracking-tight text-content-main">Mercadeo Inteligente</h1>
       <p class="text-content-muted text-sm">Reportes avanzados · {{ filtersState.rangeLabel() }}</p>
     </div>
-    <div class="flex gap-2 flex-wrap">
+    <div class="flex gap-2 flex-wrap sm:flex-nowrap">
       <p-button icon="pi pi-refresh" severity="secondary" [text]="true" [rounded]="true" (onClick)="resetAll()" [disabled]="loading()" pTooltip="Resetear filtros"></p-button>
-      <p-button label="CSV" icon="pi pi-file-excel" severity="secondary" (onClick)="exportCsv()" [disabled]="loading()"></p-button>
-      <p-button *ngIf="canEditMetas()" label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand" (onClick)="openMetasDialog()" [disabled]="loading()"></p-button>
-      <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand" (onClick)="showPdfBuilder = true" [disabled]="loading()"></p-button>
+      <p-button label="CSV" icon="pi pi-file-excel" severity="secondary" (onClick)="exportCsv()" [disabled]="loading()" styleClass="text-xs sm:text-sm whitespace-nowrap"></p-button>
+      <p-button *ngIf="canEditMetas()" label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="openMetasDialog()" [disabled]="loading()"></p-button>
+      <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="showPdfBuilder = true" [disabled]="loading()"></p-button>
     </div>
   </div>
 
@@ -17,11 +17,11 @@
 
   <div class="modern-tabs-wrapper">
     <p-tabs [value]="0">
-      <p-tablist>
-        <p-tab [value]="0">Métricas</p-tab>
-        <p-tab [value]="1">Gráficas</p-tab>
-        <p-tab [value]="2">Registros</p-tab>
-        <p-tab [value]="3">Visitas individuales</p-tab>
+      <p-tablist class="flex-wrap sm:flex-nowrap overflow-x-auto">
+        <p-tab [value]="0" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Métricas</p-tab>
+        <p-tab [value]="1" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Gráficas</p-tab>
+        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
+        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Visitas</p-tab>
       </p-tablist>
 
       <p-tabpanels>

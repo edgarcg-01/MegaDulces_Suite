@@ -3,8 +3,11 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Inserts seed entries
-  await knex("role_permissions").insert([
+  // Check if roles already exist to avoid duplicates
+  const existingRoles = await knex("role_permissions").select("role_name");
+  const existingRoleNames = existingRoles.map(r => r.role_name);
+  
+  const rolesToInsert = [
   {
     "id": "67515dde-792c-4a79-aa29-69589003b5df",
     "role_name": "superadmin",
@@ -40,5 +43,13 @@ exports.seed = async function(knex) {
     "role_name": "ejecutivo",
     "permissions": "{\"VISITAS_VER\":true,\"USUARIOS_VER\":false,\"VISITAS_AUDITAR\":false,\"ROLES_CONFIGURAR\":false,\"REPORTES_EXPORTAR\":false,\"VISITAS_REGISTRAR\":true,\"CATALOGO_GESTIONAR\":false,\"SCORING_CONFIG_VER\":true,\"USUARIOS_GESTIONAR\":false,\"USUARIOS_PASSWORDS\":false,\"REPORTES_VER_EQUIPO\":false,\"REPORTES_VER_GLOBAL\":false,\"REPORTES_VER_PROPIO\":true,\"PLANOGRAMAS_GESTIONAR\":false,\"USUARIOS_ASIGNAR_RUTA\":false,\"SCORING_CONFIG_GESTIONAR\":false}"
   }
-]);
+  ].filter(role => !existingRoleNames.includes(role.role_name));
+  
+  if (rolesToInsert.length === 0) {
+    console.log("[00_roles] All roles already exist, skipping seed.");
+    return;
+  }
+  
+  await knex("role_permissions").insert(rolesToInsert);
+  console.log(`[00_roles] Inserted ${rolesToInsert.length} new roles.`);
 };

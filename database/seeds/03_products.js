@@ -3,8 +3,11 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Inserts seed entries
-  await knex("products").insert([
+  // Check existing products to avoid duplicates
+  const existingProducts = await knex("products").select("nombre");
+  const existingNames = existingProducts.map(p => p.nombre);
+
+  const productsToInsert = [
   {
     "id": "3d4d7a21-464b-43da-a010-5b31e6309a2f",
     "brand_id": "45e91aae-d16b-4d19-a723-25382af60747",
@@ -637,5 +640,13 @@ exports.seed = async function(knex) {
     "orden": 4,
     "puntuacion": 5
   }
-]);
+  ].filter(product => !existingNames.includes(product.nombre));
+
+  if (productsToInsert.length === 0) {
+    console.log("[03_products] All products already exist, skipping seed.");
+    return;
+  }
+
+  await knex("products").insert(productsToInsert);
+  console.log(`[03_products] Inserted ${productsToInsert.length} new products.`);
 };

@@ -3,6 +3,12 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
+  // Only insert if zones table is empty (migration may have already populated it)
+  const count = await knex("zones").count("id as count").first();
+  if (count && count.count > 0) {
+    console.log("[00a_zones] Zones already exist, skipping seed.");
+    return;
+  }
   // Inserts seed entries
   await knex("zones").insert([
     {
