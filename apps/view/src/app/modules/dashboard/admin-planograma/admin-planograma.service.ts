@@ -20,7 +20,7 @@ export class AdminPlanogramaService {
   }
 
   updateBrand(brandId: string, data: { nombre?: string; activo?: boolean; orden?: number }): Observable<any> {
-    return this.http.patch<any>(`${this.apiUrl}/${brandId}`, data);
+    return this.http.put<any>(`${this.apiUrl}/${brandId}`, data);
   }
 
   deleteBrand(brandId: string): Observable<any> {
@@ -32,7 +32,7 @@ export class AdminPlanogramaService {
   }
 
   updateProduct(productId: string, data: { nombre?: string; activo?: boolean; orden?: number }): Observable<any> {
-    return this.http.patch<any>(`${this.productsUrl}/${productId}`, data);
+    return this.http.put<any>(`${this.productsUrl}/${productId}`, data);
   }
 
   deleteProduct(productId: string): Observable<any> {

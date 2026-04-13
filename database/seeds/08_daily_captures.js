@@ -3,8 +3,11 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Inserts seed entries
-  await knex("daily_captures").insert([
+  // Check existing captures to avoid duplicates
+  const existingCaptures = await knex("daily_captures").select("id");
+  const existingIds = existingCaptures.map(c => c.id);
+
+  const capturesToInsert = [
   {
     "id": "51737c63-b30b-4ed3-ab2a-6841652f9e3f",
     "folio": "J-154441",
@@ -50,5 +53,13 @@ exports.seed = async function(knex) {
     "latitud": "20.35270000",
     "longitud": "-102.01760000"
   }
-]);
+  ].filter(c => !existingIds.includes(c.id));
+
+  if (capturesToInsert.length === 0) {
+    console.log("[08_daily_captures] All captures already exist, skipping seed.");
+    return;
+  }
+
+  await knex("daily_captures").insert(capturesToInsert);
+  console.log(`[08_daily_captures] Inserted ${capturesToInsert.length} new captures.`);
 };

@@ -3,8 +3,11 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Inserts seed entries
-  await knex("daily_assignments").insert([
+  // Check existing assignments to avoid duplicates
+  const existingAssignments = await knex("daily_assignments").select("id");
+  const existingIds = existingAssignments.map(a => a.id);
+
+  const assignmentsToInsert = [
   {
     "id": "9539b459-18f1-4aae-bdff-bff897757ee9",
     "user_id": "413e02ec-0691-464c-ad11-d3e5cfe2113f",
@@ -131,5 +134,13 @@ exports.seed = async function(knex) {
     "created_at": "2026-04-02T21:28:27.773Z",
     "day_of_week": 7
   }
-]);
+  ].filter(a => !existingIds.includes(a.id));
+
+  if (assignmentsToInsert.length === 0) {
+    console.log("[07_daily_assignments] All assignments already exist, skipping seed.");
+    return;
+  }
+
+  await knex("daily_assignments").insert(assignmentsToInsert);
+  console.log(`[07_daily_assignments] Inserted ${assignmentsToInsert.length} new assignments.`);
 };
