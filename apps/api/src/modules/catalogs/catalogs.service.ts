@@ -28,16 +28,21 @@ export class CatalogsService {
     data: {
       value: string;
       orden?: number;
-      puntuacion?: number;
+      puntuacion?: number | string;
       icono?: string;
     },
   ) {
+    // Parse puntuacion as float to support decimals (0.7, 1.2, etc.)
+    let puntuacion = data.puntuacion ?? 0;
+    if (typeof puntuacion === 'string') {
+      puntuacion = parseFloat(puntuacion);
+    }
     const [item] = await this.knex('catalogs')
       .insert({
         catalog_id: type,
         value: data.value,
         orden: data.orden ?? 0,
-        puntuacion: data.puntuacion ?? 0,
+        puntuacion: puntuacion,
         icono: data.icono,
       })
       .returning('*');
@@ -59,18 +64,32 @@ export class CatalogsService {
     data: Partial<{
       value: string;
       orden: number;
-      puntuacion: number;
+      puntuacion: number | string;
       icono: string;
     }>,
   ) {
+    // Parse puntuacion as float to support decimals (0.7, 1.2, etc.)
+    let puntuacion = data.puntuacion;
+    if (puntuacion !== undefined && puntuacion !== null) {
+      if (typeof puntuacion === 'string') {
+        puntuacion = parseFloat(puntuacion);
+      }
+    }
+
+    const updateData: any = {
+      value: data.value,
+      orden: data.orden,
+      icono: data.icono,
+    };
+    
+    // Only include puntuacion if it was provided
+    if (puntuacion !== undefined && puntuacion !== null) {
+      updateData.puntuacion = puntuacion;
+    }
+
     const [item] = await this.knex('catalogs')
       .where({ catalog_id: type, id })
-      .update({
-        value: data.value,
-        orden: data.orden,
-        puntuacion: data.puntuacion,
-        icono: data.icono,
-      })
+      .update(updateData)
       .returning('*');
 
     if (!item)
