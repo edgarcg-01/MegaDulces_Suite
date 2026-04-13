@@ -9,6 +9,11 @@ export interface ReportsData {
     avgScore: number;
     totalVentas: number;
     count: number;
+    // Propiedades opcionales usadas por KPI cards
+    totalExhibiciones?: number;
+    gpsPct?: number;
+    // Permitir propiedades dinámicas prev_* para comparativos
+    [key: string]: number | string | undefined;
   };
   trendData: Array<{
     date: string;
@@ -16,6 +21,18 @@ export interface ReportsData {
     avgScore: number;
   }>;
   rows: any[];
+  // Propiedades opcionales para gráficos adicionales
+  zoneStats?: Array<{
+    zone: string;
+    avgScore: number;
+    totalVisitas?: number;
+  }>;
+  sellerStats?: Array<{
+    username: string;
+    totalVisitas: number;
+    avgScore?: number;
+  }>;
+  furniture?: Record<string, number>;
 }
 
 @Injectable({

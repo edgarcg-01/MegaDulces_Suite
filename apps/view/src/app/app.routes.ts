@@ -5,6 +5,7 @@ import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { HomeComponent } from './modules/dashboard/home/home.component';
 import { CapturesComponent } from './modules/dashboard/captures/captures.component';
 import { ReportsComponent } from './modules/dashboard/reports/reports.component';
+import { DashboardComponent } from './modules/dashboard/reports/graphics/dashboard.component';
 import { StoresComponent } from './modules/dashboard/stores/stores.component';
 import { VisitsComponent } from './modules/dashboard/visits/visits.component';
 import { ExhibitionsComponent } from './modules/dashboard/exhibitions/exhibitions.component';
@@ -32,6 +33,7 @@ export const routes: Routes = [
     component: LayoutComponent,
     children: [
       { path: '', component: HomeComponent },
+      { path: 'dashboard', component: DashboardComponent },
       { path: 'captures', component: CapturesComponent },
       { path: 'reports', component: ReportsComponent },
       { path: 'stores', component: StoresComponent },

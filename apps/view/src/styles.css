@@ -976,3 +976,145 @@ input:focus, textarea:focus, select:focus {
     line-height: 1.5rem;
   }
 }
+
+/* ============================================================
+   CLASES PARA REPORTS - CONTENT COLORS
+   ============================================================ */
+
+.text-content-main {
+  color: var(--text-main);
+}
+
+.text-content-muted {
+  color: var(--text-muted);
+}
+
+.text-content-faint {
+  color: var(--text-faint);
+}
+
+/* Surface colors */
+.bg-surface-layout {
+  background-color: var(--layout-bg);
+}
+
+.bg-surface-ground {
+  background-color: var(--surface-ground);
+}
+
+.bg-surface-card {
+  background-color: var(--card-bg);
+}
+
+.bg-surface-hover {
+  background-color: var(--hover-bg);
+}
+
+/* Border colors */
+.border-divider {
+  border-color: var(--border-color);
+}
+
+/* ============================================================
+   CARD PREMIUM - Para reports y dashboard
+   ============================================================ */
+
+.card-premium {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: var(--shadow-light);
+  transition: all 0.2s ease;
+}
+
+.card-premium:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.theme-monochrome .card-premium {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+}
+
+/* Card con acento superior */
+.card-premium-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-premium-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%);
+  z-index: 10;
+}
+
+/* ============================================================
+   MODERN TABS WRAPPER
+   ============================================================ */
+
+.modern-tabs-wrapper {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.theme-monochrome .modern-tabs-wrapper {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+}
+
+/* ============================================================
+   TABLAS MODERNAS
+   ============================================================ */
+
+.p-datatable-modern {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.p-datatable-modern .p-datatable-thead > tr > th {
+  background: var(--surface-ground);
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.p-datatable-modern .p-datatable-tbody > tr {
+  background: var(--card-bg);
+  transition: background-color 0.15s ease;
+}
+
+.p-datatable-modern .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg);
+}
+
+.p-datatable-modern .p-datatable-tbody > tr > td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+/* PrimeNG Button Brand */
+.p-button-brand {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+  border: none !important;
+  color: #000 !important;
+  font-weight: 600 !important;
+}
+
+.p-button-brand:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

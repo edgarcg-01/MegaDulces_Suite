@@ -15,36 +15,57 @@ export class CatalogsController {
 
   @Get('permissions/:role_name')
   @RequirePermissions(Permission.ROLES_CONFIGURAR)
-  @ApiOperation({ summary: 'Obtener los permisos dinámicos (JSONB) de un rol específico' })
+  @ApiOperation({
+    summary: 'Obtener los permisos dinámicos (JSONB) de un rol específico',
+  })
   getRolePermissions(@Param('role_name') roleName: string) {
     return this.catalogsService.getRolePermissions(roleName); 
   }
 
   @Put('permissions/:role_name')
   @RequirePermissions(Permission.ROLES_CONFIGURAR)
-  @ApiOperation({ summary: 'Actualizar los permisos dinámicos (JSONB) de un rol específico' })
-  updateRolePermissions(@Param('role_name') roleName: string, @Body() body: any) {
+  @ApiOperation({
+    summary: 'Actualizar los permisos dinámicos (JSONB) de un rol específico',
+  })
+  updateRolePermissions(
+    @Param('role_name') roleName: string,
+    @Body() body: any,
+  ) {
     return this.catalogsService.updateRolePermissions(roleName, body);
   }
 
   @Get(':type')
-  @ApiOperation({ summary: 'Obtener un catálogo estructurado (ej. zonas, periodos, semanas, roles)' })
+  @ApiOperation({
+    summary:
+      'Obtener un catálogo estructurado (ej. zonas, periodos, semanas, roles)',
+  })
   @ApiParam({ name: 'type', description: 'El catálogo que deseas consumir' })
-  @ApiQuery({ name: 'parent', required: false, description: 'Filtrar por ID del padre (ej. zona para obtener rutas)' })
+  @ApiQuery({
+    name: 'parent',
+    required: false,
+    description: 'Filtrar por ID del padre (ej. zona para obtener rutas)',
+  })
   getByType(@Param('type') type: string, @Query('parent') parentId?: string) {
     return this.catalogsService.getByType(type, parentId);
   }
 
   @Post(':type')
   @RequirePermissions(Permission.CATALOGO_GESTIONAR)
-  @ApiOperation({ summary: 'Añadir un ítem dinámico nuevo al tipo de catálogo definido' })
-  create(@Param('type') type: string, @Body() body: { value: string; orden?: number }) {
+  @ApiOperation({
+    summary: 'Añadir un ítem dinámico nuevo al tipo de catálogo definido',
+  })
+  create(
+    @Param('type') type: string,
+    @Body() body: { value: string; orden?: number },
+  ) {
     return this.catalogsService.create(type, body);
   }
 
   @Delete(':type/:id')
   @RequirePermissions(Permission.CATALOGO_GESTIONAR)
-  @ApiOperation({ summary: 'Eliminar el nodo de un catálogo usando su ID primario UUID' })
+  @ApiOperation({
+    summary: 'Eliminar el nodo de un catálogo usando su ID primario UUID',
+  })
   deleteItem(@Param('type') type: string, @Param('id') id: string) {
     return this.catalogsService.delete(type, id);
   }
@@ -52,7 +73,11 @@ export class CatalogsController {
   @Put(':type/:id')
   @RequirePermissions(Permission.CATALOGO_GESTIONAR)
   @ApiOperation({ summary: 'Actualizar la información de un ítem de catálogo' })
-  updateItem(@Param('type') type: string, @Param('id') id: string, @Body() body: any) {
+  updateItem(
+    @Param('type') type: string,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
     return this.catalogsService.update(type, id, body);
   }
 }
