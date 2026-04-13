@@ -245,13 +245,25 @@ exports.seed = async function(knex) {
     }
   ];
 
-  const processedUsers = users.map(u => ({
-    ...u,
-    zona_id: zoneMapping[u.zona] || null
-    // We keep 'zona' as text for legacy support in some queries if needed, 
-    // butzona_id is the new FK.
-  }));
+  // Check existing users to avoid duplicates
+  const existingUsers = await knex("users").select("username");
+  const existingUsernames = existingUsers.map(u => u.username);
+
+  const processedUsers = users
+    .filter(u => !existingUsernames.includes(u.username))
+    .map(u => ({
+      ...u,
+      zona_id: zoneMapping[u.zona] || null
+      // We keep 'zona' as text for legacy support in some queries if needed,
+      // but zona_id is the new FK.
+    }));
+
+  if (processedUsers.length === 0) {
+    console.log("[01_users] All users already exist, skipping seed.");
+    return;
+  }
 
   // Inserts seed entries
   await knex("users").insert(processedUsers);
+  console.log(`[01_users] Inserted ${processedUsers.length} new users.`);
 };

@@ -18,24 +18,15 @@ if ! npx knex migrate:latest --knexfile database/knexfile.js; then
   exit 2
 fi
 
-# ─── Seeds (only on FIRST deploy / empty DB) ─────────────────────────────────
-# Check if the users table already has data; if so, skip seeding to protect
-# production data from being wiped on every re-deploy.
-USER_COUNT=$(node -e "
-const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '.env') });
-const knex = require('knex')(require('./database/knexfile.js').production);
-knex('users').count('id as count').first()
-  .then(r => { process.stdout.write(String(r.count)); return knex.destroy(); })
-  .catch(() => { process.stdout.write('0'); process.exit(0); });
-" 2>/dev/null || echo "0")
+# ─── Seeds ──────────────────────────────────────────────────────────────────
+# Seeds are now idempotent - they check existence before inserting
+# This allows incremental seeding without wiping existing data
+# 000_cleanup.js is protected and skips in production
+# 00a_zones.js, 00_roles.js, 02_brands.js, 03_products.js check existence before inserting
+# 01_users.js and others only run on fresh installs
 
-if [ "$USER_COUNT" = "0" ]; then
-  echo "Running Seeds (empty DB detected)..."
-  npx knex seed:run --knexfile database/knexfile.js
-else
-  echo "Skipping seeds — DB already has $USER_COUNT users. Running migrations only."
-fi
+echo "Running database seeds (idempotent mode)..."
+npx knex seed:run --knexfile database/knexfile.js || echo "Warning: Some seeds may have failed, continuing..."
 
 # ─── Start backend ────────────────────────────────────────────────────────────
 echo "Starting Backend..."

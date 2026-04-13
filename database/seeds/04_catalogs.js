@@ -3,8 +3,11 @@
  * @returns { Promise<void> }
  */
 exports.seed = async function(knex) {
-  // Inserts seed entries
-  await knex("catalogs").insert([
+  // Check existing catalogs to avoid duplicates
+  const existingCatalogs = await knex("catalogs").select("id");
+  const existingIds = existingCatalogs.map(c => c.id);
+
+  const catalogsToInsert = [
   {
     "id": "e920b0b2-d9b4-481a-bf69-8eb9b4b04b51",
     "catalog_id": "roles",
@@ -293,5 +296,13 @@ exports.seed = async function(knex) {
     "icono": null,
     "parent_id": null
   }
-]);
+  ].filter(c => !existingIds.includes(c.id));
+
+  if (catalogsToInsert.length === 0) {
+    console.log("[04_catalogs] All catalogs already exist, skipping seed.");
+    return;
+  }
+
+  await knex("catalogs").insert(catalogsToInsert);
+  console.log(`[04_catalogs] Inserted ${catalogsToInsert.length} new catalogs.`);
 };
