@@ -12,7 +12,7 @@ export class PlanogramsService {
 
     return brands.map((brand) => ({
       ...brand,
-      products: products.filter((p) => p.brand_id === brand.id),
+      productos: products.filter((p) => p.brand_id === brand.id),
     }));
   }
 
