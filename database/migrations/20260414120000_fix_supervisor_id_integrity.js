@@ -12,25 +12,25 @@ exports.up = async function(knex) {
     'MORELIA': '504b1d53'   // jose_herrera
   };
   
-  // Mapeo específico de usuario -> supervisor para casos especiales
+  // Mapeo específico de usuario -> supervisor para casos especiales (basado en datos de producción)
   const userToSupervisorMapping = {
-    'joaquin_hurtado': '7dc8ef21',
-    'victorino_urbano': '7dc8ef21',
-    'mariano_martinez': '7dc8ef21',
-    'victor_garcia': '7dc8ef21',
-    'victor_mata': '7dc8ef21',
-    'jose_garcia': '7dc8ef21',
-    'maria_valadez': '7dc8ef21',
     'maria_rocha': '7dc8ef21',
+    'maria_valadez': '7dc8ef21',
+    'victor_mata': '7dc8ef21',
+    'victor_garcia': '7dc8ef21',
+    'mariano_martinez': '7dc8ef21',
+    'victorino_urbano': '7dc8ef21',
+    'joaquin_hurtado': '7dc8ef21',
+    'jose_garcia': '7dc8ef21',
     'victor_zalapa': 'f5ca24b4',
     'daniel_rojano': 'f5ca24b4',
     'jose_munoz': 'f5ca24b4',
     'jose_zavala': 'f5ca24b4',
-    'cesar_plascencia': '504b1d53',
-    'guillermo_hernandez': '504b1d53',
-    'enrique_herrera': '504b1d53',
+    'eduardo_miranda': '504b1d53',
     'joseph_guerrero': '504b1d53',
-    'eduardo_miranda': '504b1d53'
+    'enrique_herrera': '504b1d53',
+    'guillermo_hernandez': '504b1d53',
+    'cesar_plascencia': '504b1d53'
   };
   
   // Paso 1: Identificar usuarios colaboradores sin supervisor
