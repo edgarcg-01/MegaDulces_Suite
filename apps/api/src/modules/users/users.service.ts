@@ -141,7 +141,8 @@ export class UsersService {
 
     const query = this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
-      .where({ 'u.role_name': 'supervisor_v', 'u.activo': true })
+      .where('u.role_name', 'like', '%supervisor%')
+      .where({ 'u.activo': true })
       .select('u.id', 'u.nombre', 'u.username', 'z.name as zona');
 
     if (zona) {
