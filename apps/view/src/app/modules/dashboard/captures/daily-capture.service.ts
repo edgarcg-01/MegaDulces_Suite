@@ -178,6 +178,7 @@ export class DailyCaptureService {
     console.log('  - ubicaciones available:', this._ubicaciones());
     console.log('  - conceptos available:', this._conceptos());
     console.log('  - niveles available:', this._niveles());
+    console.log('  - registro.nivelEjecucion:', registro.nivelEjecucion);
     console.log('  - ubi found:', ubi);
     console.log('  - con found:', con);
     console.log('  - niv found:', niv);
@@ -198,7 +199,7 @@ export class DailyCaptureService {
       this._groupedProducts().forEach((brand) => {
         brand.items.forEach((prod) => {
           if (registro.productosMarcados.includes(prod.pid)) {
-            puntosProductos += prod.puntuacion || 0;
+            puntosProductos += Number(prod.puntuacion) || 0;
           }
         });
       });
