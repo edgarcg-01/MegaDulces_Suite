@@ -146,12 +146,11 @@ export class ReportsComponent implements OnInit {
 
     const groups: Record<string, DayGroup> = {};
     data.rows.forEach((row: any) => {
-      const dStr =
-        typeof row.fecha === 'string'
-          ? row.fecha.split('T')[0]
-          : row.fecha instanceof Date
-            ? row.fecha.toISOString().split('T')[0]
-            : row.fecha;
+      const dStr = (typeof row.hora_inicio === 'string'
+        ? row.hora_inicio.split('T')[0]
+        : row.hora_inicio instanceof Date
+          ? row.hora_inicio.toISOString().split('T')[0]
+          : row.fecha) || row.fecha;
       if (!groups[dStr]) {
         groups[dStr] = {
           id: dStr,
@@ -173,7 +172,7 @@ export class ReportsComponent implements OnInit {
     return Object.values(groups)
       .map((day: any) => {
         const totalScore = day.visits.reduce(
-          (s: number, v: any) => s + (v.stats?.puntuacionTotal ?? 0),
+          (s: number, v: any) => s + (v.stats?.score_calidad_pct ?? 0),
           0,
         );
         day.avgScore = day.visits.length
@@ -367,16 +366,16 @@ export class ReportsComponent implements OnInit {
 
     const rows = data.rows ?? [];
     const dist = [
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) < 50).length,
+      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) < 50).length,
       rows.filter((r: any) => {
-        const v = r.stats?.puntuacionTotal ?? 0;
+        const v = r.stats?.score_calidad_pct ?? 0;
         return v >= 50 && v < 70;
       }).length,
       rows.filter((r: any) => {
-        const v = r.stats?.puntuacionTotal ?? 0;
+        const v = r.stats?.score_calidad_pct ?? 0;
         return v >= 70 && v < 85;
       }).length,
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
+      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) >= 85).length,
     ];
     this.scoreDistData = {
       labels: ['0–49%', '50–69%', '70–84%', '85–100%'],
@@ -432,10 +431,10 @@ export class ReportsComponent implements OnInit {
     // 1. DOUGHNUT CHART - Distribución porcentual de visitas por rango de score
     // Muestra el % del total de visitas que caen en cada rango de calidad
     const scoreRanges = [
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) < 50).length,
-      rows.filter((r: any) => { const v = r.stats?.puntuacionTotal ?? 0; return v >= 50 && v < 70; }).length,
-      rows.filter((r: any) => { const v = r.stats?.puntuacionTotal ?? 0; return v >= 70 && v < 85; }).length,
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
+      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) < 50).length,
+      rows.filter((r: any) => { const v = r.stats?.score_calidad_pct ?? 0; return v >= 50 && v < 70; }).length,
+      rows.filter((r: any) => { const v = r.stats?.score_calidad_pct ?? 0; return v >= 70 && v < 85; }).length,
+      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) >= 85).length,
     ];
     this.doughnutChartData = {
       labels: ['Bajo (0-49%)', 'Regular (50-69%)', 'Bueno (70-84%)', 'Excelente (85-100%)'],
@@ -491,7 +490,7 @@ export class ReportsComponent implements OnInit {
     // 4. SCATTER CHART - Correlación entre Score y Ventas
     // Cada punto representa una visita, mostrando relación calidad vs impacto económico
     const scatterData = rows.slice(0, 50).map((r: any) => ({
-      x: r.stats?.puntuacionTotal ?? 0,
+      x: r.stats?.score_calidad_pct ?? 0,
       y: r.stats?.ventaTotal ?? 0,
     }));
     this.scatterChartData = {
@@ -886,7 +885,7 @@ export class ReportsComponent implements OnInit {
   visitScoreStatus(visit: any): KpiStatus {
     return this.metasConfig.statusFor(
       'score',
-      visit.stats?.puntuacionTotal ?? 0,
+      visit.stats?.score_calidad_pct ?? 0,
     );
   }
   toggleExpand(day: DayGroup) {
@@ -950,7 +949,7 @@ export class ReportsComponent implements OnInit {
       v.folio,
       v.captured_by_username,
       v.zona_captura,
-      v.stats?.puntuacionTotal,
+      v.stats?.score_calidad_pct,
       v.stats?.ventaTotal,
     ]);
     const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');

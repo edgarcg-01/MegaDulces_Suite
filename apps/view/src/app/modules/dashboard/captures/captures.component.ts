@@ -97,6 +97,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   statCards = computed(() => {
     const s = this.svc.stats();
+    const maxScore = this.svc.maxScore();
+    const scorePct = this.svc.scorePercentage();
     const isDark = this.themeService.isMonochrome();
 
     return [
@@ -109,10 +111,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
       },
       {
         label: 'Ejecución Auditada',
-        value: `${s.puntuacionTotal} pts`,
-        description: 'Basado en configuración dinámica',
+        value: `${scorePct}%`,
+        description: `Score de calidad`,
         icon: 'pi pi-star-fill',
-        valueColor: s.puntuacionTotal >= 50 ? '#10b981' : 'var(--text-main)',
+        valueColor: scorePct >= 50 ? '#10b981' : 'var(--text-main)',
+        progress: scorePct,
       },
       {
         label: 'Venta Adicional Total',

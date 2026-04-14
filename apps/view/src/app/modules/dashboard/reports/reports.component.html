@@ -237,7 +237,7 @@
                             <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
                             <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
                             <td class="text-center">
-                              <span class="font-black" [ngClass]="{ 'text-green-600': visitScoreStatus(visit) === 'ok', 'text-amber-500': visitScoreStatus(visit) === 'warn', 'text-red-500': visitScoreStatus(visit) === 'bad' }">{{ visit.stats?.puntuacionTotal }}%</span>
+                              <span class="font-black" [ngClass]="{ 'text-green-600': visitScoreStatus(visit) === 'ok', 'text-amber-500': visitScoreStatus(visit) === 'warn', 'text-red-500': visitScoreStatus(visit) === 'bad' }">{{ visit.stats?.score_calidad_pct }}%</span>
                             </td>
                             <td class="text-center">
                               <span class="text-[9px] px-2 py-0.5 rounded-full font-bold"
@@ -279,7 +279,7 @@
                   </div>
                   <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                     [ngClass]="{ 'border-green-400 text-green-700': visitScoreStatus(visit) === 'ok', 'border-amber-400 text-amber-700': visitScoreStatus(visit) === 'warn', 'border-red-400 text-red-700': visitScoreStatus(visit) === 'bad' }">
-                    {{ visit.stats?.puntuacionTotal }}%
+                    {{ visit.stats?.score_calidad_pct }}%
                   </div>
                 </div>
                 <div class="flex gap-2">
@@ -370,7 +370,7 @@
           <div class="text-center px-4 py-2 rounded-xl border-2"
             [ngClass]="{ 'border-green-400 bg-green-50': visitScoreStatus(selectedRow) === 'ok', 'border-amber-400 bg-amber-50': visitScoreStatus(selectedRow) === 'warn', 'border-red-400 bg-red-50': visitScoreStatus(selectedRow) === 'bad' }">
             <div class="text-[9px] uppercase font-black opacity-60">Score</div>
-            <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ selectedRow.stats?.puntuacionTotal }}%</div>
+            <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ selectedRow.stats?.score_calidad_pct }}%</div>
             <div class="text-[9px] font-bold uppercase opacity-60">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
           </div>
           <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
@@ -404,16 +404,26 @@
         <p-table [value]="selectedRow.exhibiciones || []" styleClass="p-datatable-sm">
           <ng-template pTemplate="header">
             <tr class="text-[10px] bg-surface-ground uppercase text-content-muted">
-              <th>Concepto</th><th>Ubicación</th><th class="text-center">Imagen</th><th class="text-right pr-3">Puntuación</th>
+              <th>Concepto</th><th class="text-center">Nivel</th><th class="text-center">Imagen</th><th class="text-right pr-3">Venta Adicional</th><th class="text-center">Productos</th><th class="text-right pr-3">Puntos</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-ex>
             <tr class="text-xs">
-              <td>{{ ex.conceptoId || 'N/A' }}</td>
-              <td>{{ ex.ubicacionId || 'N/A' }}</td>
+              <td>{{ ex.conceptoNombre || ex.conceptoId || 'N/A' }}</td>
+              <td class="text-center">
+                <span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                  [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion === 'excelente', 'bg-amber-100 text-amber-800': ex.nivelEjecucion === 'medio', 'bg-red-100 text-red-800': ex.nivelEjecucion === 'bajo' }">
+                  {{ ex.nivelEjecucion || 'N/A' }}
+                </span>
+              </td>
               <td class="text-center">
                 <p-image *ngIf="ex.fotoUrl" [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición" width="50" [preview]="true" class="rounded shadow-sm cursor-zoom-in"></p-image>
                 <span *ngIf="!ex.fotoUrl" class="text-[9px] text-content-faint">Sin foto</span>
+              </td>
+              <td class="text-right pr-3 font-bold">${{ ex.ventaAdicional || 0 }}</td>
+              <td class="text-center">
+                <span *ngIf="ex.productosMarcados && ex.productosMarcados.length > 0" class="text-[9px] font-bold text-brand">{{ ex.productosMarcados.length }}</span>
+                <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-[9px] text-content-faint">0</span>
               </td>
               <td class="text-right pr-3 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
             </tr>

@@ -27,7 +27,7 @@ export class ReportsService {
       .clone()
       .select(
         this.knex.raw("SUM((stats->>'totalExhibiciones')::int) as visitas"),
-        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
+        this.knex.raw("AVG((stats->>'score_calidad_pct')::float) as avg_score"),
         this.knex.raw("SUM((stats->>'ventaTotal')::float) as ventas"),
         this.knex.raw(
           'AVG(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60) as avg_duration_min',
@@ -39,7 +39,7 @@ export class ReportsService {
       .clone()
       .select('captured_by_username')
       .select(
-        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
+        this.knex.raw("AVG((stats->>'score_calidad_pct')::float) as avg_score"),
       )
       .groupBy('captured_by_username')
       .orderBy('avg_score', 'desc')
@@ -121,6 +121,9 @@ export class ReportsService {
     },
     user: any,
   ) {
+    console.log('[ReportsService] getFilteredData called with filters:', filters);
+    console.log('[ReportsService] user role:', user.role_name, 'user sub:', user.sub);
+
     const query = this.knex('daily_captures').select('*');
 
     if (user.role_name === 'colaborador') {
@@ -130,8 +133,8 @@ export class ReportsService {
       query.whereIn('user_id', teamIds);
     }
 
-    if (filters.startDate) query.where('fecha', '>=', filters.startDate);
-    if (filters.endDate) query.where('fecha', '<=', filters.endDate);
+    if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) query.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
     if (filters.userId) query.where('user_id', filters.userId);
 
     // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
@@ -142,9 +145,22 @@ export class ReportsService {
       query.whereIn('user_id', filters.userIds);
     }
 
-    if (filters.zone) query.where('zona_captura', filters.zone);
+    if (filters.zone) {
+      const zone = await this.knex('zones').where({ id: filters.zone }).first();
+      if (zone && zone.name) {
+        // Usar el valor directamente como string primitivo
+        const zoneValue = String(zone.name);
+        query.where('zona_captura', zoneValue);
+      } else {
+        // Si no se encuentra la zona, no aplicar filtro
+        console.log('[ReportsService] Zone not found for ID:', filters.zone);
+      }
+    }
 
-    const rows = await query.orderBy('fecha', 'desc');
+    console.log('[ReportsService] SQL Query:', query.toSQL());
+    const rows = await query.orderBy('hora_inicio', 'desc');
+    console.log('[ReportsService] Number of rows returned:', rows.length);
+    console.log('[ReportsService] zona_captura values:', rows.map(r => r.zona_captura));
 
     // Calculate aggregated metrics for the filtered set
     let totalVisitas = 0;
@@ -156,17 +172,18 @@ export class ReportsService {
       const stats =
         typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats;
       const numVisitas = stats.totalExhibiciones || 1; // Falling back to 1 if not present
-      const score = stats.puntuacionTotal || 0;
+      const score = stats.score_calidad_pct || 0;
       const ventas = stats.ventaTotal || 0;
 
       totalVisitas += numVisitas;
       totalScore += score;
       totalVentas += ventas;
 
-      const dateKey =
-        row.fecha instanceof Date
-          ? row.fecha.toISOString().split('T')[0]
-          : row.fecha;
+      const dateKey = (row.hora_inicio instanceof Date
+        ? row.hora_inicio.toISOString().split('T')[0]
+        : typeof row.hora_inicio === 'string'
+          ? row.hora_inicio.split('T')[0]
+          : row.fecha) || row.fecha;
       if (!dailyTrend[dateKey]) {
         dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
       }
@@ -224,8 +241,8 @@ export class ReportsService {
       query.whereIn('user_id', teamIds);
     }
 
-    if (filters.startDate) query.where('fecha', '>=', filters.startDate);
-    if (filters.endDate) query.where('fecha', '<=', filters.endDate);
+    if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) query.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
     if (filters.userId) query.where('user_id', filters.userId);
 
     // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
@@ -236,7 +253,17 @@ export class ReportsService {
       query.whereIn('user_id', filters.userIds);
     }
 
-    if (filters.zone) query.where('zona_captura', filters.zone);
+    if (filters.zone) {
+      const zone = await this.knex('zones').where({ id: filters.zone }).first();
+      if (zone && zone.name) {
+        // Usar el valor directamente como string primitivo
+        const zoneValue = String(zone.name);
+        query.where('zona_captura', zoneValue);
+      } else {
+        // Si no se encuentra la zona, no aplicar filtro
+        console.log('[ReportsService] Zone not found for ID:', filters.zone);
+      }
+    }
 
     const data = await query.orderBy('fecha', 'desc');
 

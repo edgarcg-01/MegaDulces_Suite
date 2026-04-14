@@ -58,17 +58,36 @@ export class DailyCapturesService {
     console.log('  - stats to insert:', dto.stats);
     console.log('  - stats JSON:', JSON.stringify(dto.stats));
 
+    // Consultar score_maximo dinámico desde scoring_config_versions
+    const activeVersion = await this.knex('scoring_config_versions')
+      .whereNull('fecha_fin')
+      .orderBy('fecha_inicio', 'desc')
+      .first();
+    
+    const maxPerExhibicion = (activeVersion && activeVersion.score_maximo) ? Number(activeVersion.score_maximo) : 200;
+    const totalExhibiciones = processedExhibiciones.length;
+    const scoreMaximoVisita = maxPerExhibicion * totalExhibiciones;
+    const scoreCalidadPct = scoreMaximoVisita > 0 
+      ? (dto.stats.puntuacionTotal / scoreMaximoVisita) * 100 
+      : 0;
+
+    // Agregar score_calidad_pct a los stats
+    const statsWithPct = {
+      ...dto.stats,
+      score_calidad_pct: Number(scoreCalidadPct.toFixed(2)),
+      score_maximo: scoreMaximoVisita,
+    };
+
     const [dailyCapture] = await this.knex('daily_captures')
       .insert({
         folio: dto.folio,
         user_id: userId,
         captured_by_username: username,
         zona_captura: zona || 'No Asignada',
-        fecha: dto.fechaCaptura,
         hora_inicio: dto.horaInicio,
         hora_fin: dto.horaFin,
         exhibiciones: JSON.stringify(processedExhibiciones),
-        stats: JSON.stringify(dto.stats),
+        stats: JSON.stringify(statsWithPct),
         latitud: Number(dto.latitud),
         longitud: Number(dto.longitud),
       })
@@ -87,7 +106,10 @@ export class DailyCapturesService {
     userId?: string,
   ) {
     const query = this.knex('daily_captures').select('*');
-    if (fecha) query.where({ fecha });
+    if (fecha) {
+      // Usar hora_inicio en lugar de fecha para evitar problemas de timezone
+      query.whereRaw("DATE(hora_inicio) = ?", [fecha]);
+    }
     if (zona) query.where({ zona_captura: zona });
     if (ejecutivo) query.where({ captured_by_username: ejecutivo });
     if (userId) query.where({ user_id: userId });

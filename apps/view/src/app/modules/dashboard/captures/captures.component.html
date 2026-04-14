@@ -53,10 +53,14 @@
         <div class="w-12 h-12 rounded-lg bg-surface-ground flex items-center justify-center flex-shrink-0 border border-surface-border">
           <i [class]="stat.icon" class="text-xl" [style.color]="stat.valueColor"></i>
         </div>
-        <div>
+        <div class="flex-1">
           <div class="text-xs uppercase font-bold text-content-muted tracking-wider">{{stat.label}}</div>
           <div class="text-xl font-bold font-mono" [style.color]="stat.valueColor">{{stat.value}}</div>
           <div class="text-xs text-content-dim">{{stat.description}}</div>
+          <!-- Progress Bar for Score -->
+          <div *ngIf="stat.progress !== undefined" class="mt-2 w-full bg-surface-ground rounded-full h-2 overflow-hidden">
+            <div class="h-full bg-brand transition-all duration-300" [style.width]="stat.progress + '%'"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -171,7 +175,7 @@
                </span>
             </td>
             <td class="text-right font-bold text-brand-orange font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
-            <td class="text-center font-bold text-content-main">{{visita.stats?.puntuacionTotal}} pts</td>
+            <td class="text-center font-bold text-content-main">{{visita.stats?.score_calidad_pct}}%</td>
             <td>
               <p-tag severity="success" value="SINCRONIZADO" [rounded]="true"></p-tag>
             </td>

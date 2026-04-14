@@ -82,6 +82,32 @@ export class DailyCaptureService {
     };
   });
 
+  // --- Computed Max Score from Catalogs ---
+  readonly maxScore = computed(() => {
+    const ubicaciones = this._ubicaciones();
+    const conceptos = this._conceptos();
+    const niveles = this._niveles();
+
+    const maxUbicacion = Math.max(...ubicaciones.map(u => Number(u.puntuacion) || 0));
+    const maxConcepto = Math.max(...conceptos.map(c => Number(c.puntuacion) || 0));
+    const maxNivel = Math.max(...niveles.map(n => Number(n.puntuacion) || 0));
+
+    return maxUbicacion * maxConcepto * maxNivel;
+  });
+
+  // --- Computed Percentage ---
+  readonly scorePercentage = computed(() => {
+    const s = this.stats();
+    const maxPerExhibicion = this.maxScore();
+    const numExhibiciones = s.totalExhibiciones;
+    
+    // El máximo de la visita es el máximo por exhibición × número de exhibiciones
+    const maxVisita = maxPerExhibicion * numExhibiciones;
+    
+    if (maxVisita === 0) return 0;
+    return Math.round((s.puntuacionTotal / maxVisita) * 100);
+  });
+
   constructor() {
     // Reactively load data when user state becomes available
     effect(() => {
@@ -187,7 +213,7 @@ export class DailyCaptureService {
     // 2. Base points from Catalog Items
     const puntosPosicion = Number(ubi?.puntuacion) || 0;
     const puntosConcepto = Number(con?.puntuacion) || 0;
-    const multiplicador = (Number(niv?.puntuacion) || 100) / 100; // Ej: 120 -> 1.2x
+    const multiplicador = Number(niv?.puntuacion) || 1; // Niveles ahora usan valores decimales: 1.0, 0.7, 0.4, 0.2
 
     console.log('[addExhibicion] Base points:');
     console.log('  - puntosPosicion:', puntosPosicion);
@@ -208,9 +234,8 @@ export class DailyCaptureService {
 
     console.log('[addExhibicion] Productos points:', puntosProductos);
 
-    // 4. Fórmula Final Unificada: [(Posición + Concepto) + Productos] * Multiplicador
-    const score =
-      (puntosPosicion + puntosConcepto + puntosProductos) * multiplicador;
+    // 4. Fórmula Final Unificada: Posición × Concepto × Nivel (según backend)
+    const score = puntosPosicion * puntosConcepto * multiplicador;
 
     console.log('[addExhibicion] Final score:', score);
 
@@ -243,8 +268,9 @@ export class DailyCaptureService {
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
     const customFolio = `${user.username.charAt(0).toUpperCase()}-${hh}${mm}${ss}`;
-    // Usar formato local YYYY-MM-DD para evitar desplazamientos por UTC
-    const localDateStr = d.toLocaleDateString('en-CA');
+    // Usar la fecha de inicio de la visita para fechaCaptura (extraer del timestamp ISO)
+    const fechaInicio = this._horaInicio()!;
+    const localDateStr = fechaInicio.split('T')[0];
 
     const payload = {
       folio: customFolio,

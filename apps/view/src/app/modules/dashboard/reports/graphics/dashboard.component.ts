@@ -404,21 +404,21 @@ interface KpiCard {
                         'text-green-600':
                           metasConfig.statusFor(
                             'score',
-                            cap.stats?.puntuacionTotal ?? 0
+                            cap.stats?.score_calidad_pct ?? 0
                           ) === 'ok',
                         'text-amber-500':
                           metasConfig.statusFor(
                             'score',
-                            cap.stats?.puntuacionTotal ?? 0
+                            cap.stats?.score_calidad_pct ?? 0
                           ) === 'warn',
                         'text-red-500':
                           metasConfig.statusFor(
                             'score',
-                            cap.stats?.puntuacionTotal ?? 0
+                            cap.stats?.score_calidad_pct ?? 0
                           ) === 'bad',
                       }"
                     >
-                      {{ cap.stats?.puntuacionTotal }}%
+                      {{ cap.stats?.score_calidad_pct ?? 0 }}%
                     </span>
                   </div>
                 </div>

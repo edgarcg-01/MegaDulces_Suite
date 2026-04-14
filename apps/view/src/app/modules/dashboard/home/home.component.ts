@@ -357,15 +357,17 @@ export class HomeComponent implements OnInit {
   // --- Lógica del Diálogo de Metas ---
   openMetasDialog() {
     this.editableFurniture = this.metasConfig.furniture().map(f => ({ ...f }));
+    this.editableKpi = this.metasConfig.kpiRanges().map((k: any) => ({ ...k }));
     this.showMetasDialog = true;
   }
 
   saveMetas() {
     // Al guardar, actualizamos el servicio local que maneja el localStorage
     this.editableFurniture.forEach(f => this.metasConfig.updateFurnitureTarget(f.id, f.target));
+    this.editableKpi.forEach(k => this.metasConfig.updateKpiRange(k.id, k.min, k.opt));
     this.showMetasDialog = false;
-    // Forzamos un refresco de las propiedades computadas
-    this.summary.set({...this.summary()});
+    // Recargar datos del dashboard para reflejar cambios en las metas
+    this.loadDashboardData();
   }
 
   cancelMetas() {

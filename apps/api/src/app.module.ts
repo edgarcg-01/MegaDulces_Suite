@@ -12,6 +12,7 @@ import { DailyCapturesModule } from './modules/daily-captures/daily-captures.mod
 import { PlanogramsModule } from './modules/planograms/planograms.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
 import { ScoringModule } from './modules/scoring/scoring.module';
+import { ScoringV2Module } from './modules/scoring/scoring-v2.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { StoresModule } from './modules/stores/stores.module';
 import { VisitsModule } from './modules/visits/visits.module';
@@ -37,6 +38,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PlanogramsModule,
     CatalogsModule,
     ScoringModule,
+    ScoringV2Module,
     ReportsModule,
     StoresModule,
     VisitsModule,

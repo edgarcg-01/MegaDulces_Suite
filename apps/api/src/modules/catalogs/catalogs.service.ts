@@ -2,10 +2,14 @@ import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { randomUUID } from 'crypto';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { ScoringV2Service } from '../scoring/scoring-v2.service';
 
 @Injectable()
 export class CatalogsService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly scoringV2Service: ScoringV2Service
+  ) {}
 
   async getByType(type: string, parentId?: string) {
     if (type === 'zonas' || type === 'zones') {
@@ -46,6 +50,12 @@ export class CatalogsService {
         icono: data.icono,
       })
       .returning('*');
+    
+    // Recalcular score_maximo si es un catálogo de scoring
+    if (['ubicaciones', 'conceptos', 'niveles'].includes(type)) {
+      await this.recalcularScoreMaximoActivo();
+    }
+    
     return item;
   }
 
@@ -55,7 +65,23 @@ export class CatalogsService {
       .del();
     if (deleted === 0)
       throw new NotFoundException('Elemento paramétrico no encontrado');
+    
+    // Recalcular score_maximo si es un catálogo de scoring
+    if (['ubicaciones', 'conceptos', 'niveles'].includes(type)) {
+      await this.recalcularScoreMaximoActivo();
+    }
+    
     return { success: true };
+  }
+
+  /**
+   * Recalcula el score_maximo de la versión activa
+   */
+  private async recalcularScoreMaximoActivo() {
+    const activeVersion = await this.scoringV2Service.getActiveVersion();
+    if (activeVersion) {
+      await this.scoringV2Service.recalcularScoreMaximo(activeVersion.id);
+    }
   }
 
   async update(
@@ -96,6 +122,12 @@ export class CatalogsService {
       throw new NotFoundException(
         'Elemento paramétrico no encontrado para actualizar',
       );
+    
+    // Recalcular score_maximo si es un catálogo de scoring y cambió la puntuación
+    if (['ubicaciones', 'conceptos', 'niveles'].includes(type) && data.puntuacion !== undefined) {
+      await this.recalcularScoreMaximoActivo();
+    }
+    
     return item;
   }
 

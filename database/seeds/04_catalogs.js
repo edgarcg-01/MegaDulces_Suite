@@ -31,16 +31,25 @@ exports.seed = async function(knex) {
     "catalog_id": "niveles",
     "value": "Medio",
     "orden": 2,
-    "puntuacion": 0,
+    "puntuacion": 0.7,
     "icono": "",
     "parent_id": null
   },
   {
     "id": "ef320f32-eeef-4988-8b54-4a490a7e14c5",
     "catalog_id": "niveles",
-    "value": "Crítico",
+    "value": "Bajo",
     "orden": 3,
-    "puntuacion": 4,
+    "puntuacion": 0.4,
+    "icono": "",
+    "parent_id": null
+  },
+  {
+    "id": "f8a7b3c1-d4e5-4f6a-9b2c-3d8e7f1a2b3c",
+    "catalog_id": "niveles",
+    "value": "Crítico",
+    "orden": 4,
+    "puntuacion": 0.2,
     "icono": "",
     "parent_id": null
   },
@@ -49,50 +58,41 @@ exports.seed = async function(knex) {
     "catalog_id": "conceptos",
     "value": "Exhibidor",
     "orden": 1,
-    "puntuacion": 2,
+    "puntuacion": 2.0,
     "icono": "",
     "parent_id": null
   },
   {
     "id": "98e94f6e-a382-47bf-9c75-71e082dbe971",
     "catalog_id": "conceptos",
-    "value": "Vitrina",
+    "value": "Refrigerador",
     "orden": 2,
-    "puntuacion": 1,
+    "puntuacion": 1.8,
     "icono": "",
     "parent_id": null
   },
   {
     "id": "a7022833-0c65-4db2-8e82-4dbb196a5771",
     "catalog_id": "conceptos",
-    "value": "Vitrolero",
+    "value": "Vitrina",
     "orden": 3,
-    "puntuacion": 100,
-    "icono": null,
-    "parent_id": null
-  },
-  {
-    "id": "caa6eb53-8690-420d-9074-dd90cc36bcd3",
-    "catalog_id": "conceptos",
-    "value": "Paletero",
-    "orden": 4,
-    "puntuacion": 400,
+    "puntuacion": 1.5,
     "icono": null,
     "parent_id": null
   },
   {
     "id": "eb3812d8-fbc9-4f53-9245-c878a8697a13",
     "catalog_id": "conceptos",
-    "value": "Tiras",
-    "orden": 5,
-    "puntuacion": 100,
+    "value": "Tira",
+    "orden": 4,
+    "puntuacion": 1.0,
     "icono": null,
     "parent_id": null
   },
   {
     "id": "0e83a84a-59bb-4e94-a25a-04b6c0b77d84",
     "catalog_id": "ubicaciones",
-    "value": "Caja registradora",
+    "value": "Caja",
     "orden": 1,
     "puntuacion": 100,
     "icono": null,
@@ -101,16 +101,16 @@ exports.seed = async function(knex) {
   {
     "id": "4b1ec990-a73b-4039-b7fa-381f4d7ed1fa",
     "catalog_id": "ubicaciones",
-    "value": "Al frente",
+    "value": "Adyacente",
     "orden": 2,
-    "puntuacion": 80,
+    "puntuacion": 70,
     "icono": null,
     "parent_id": null
   },
   {
     "id": "83bfb372-870e-4be1-8612-ee361703cc03",
     "catalog_id": "ubicaciones",
-    "value": "Pasillo principal",
+    "value": "Vitrina",
     "orden": 3,
     "puntuacion": 60,
     "icono": null,
@@ -119,18 +119,9 @@ exports.seed = async function(knex) {
   {
     "id": "91637da2-8743-4ac0-9feb-8dac29275b51",
     "catalog_id": "ubicaciones",
-    "value": "Lado del refrigerador",
+    "value": "Anaquel",
     "orden": 4,
-    "puntuacion": 50,
-    "icono": null,
-    "parent_id": null
-  },
-  {
-    "id": "ecce723f-796c-4b90-9374-f1428166c21d",
-    "catalog_id": "ubicaciones",
-    "value": "Al fondo",
-    "orden": 5,
-    "puntuacion": 20,
+    "puntuacion": 25,
     "icono": null,
     "parent_id": null
   },
