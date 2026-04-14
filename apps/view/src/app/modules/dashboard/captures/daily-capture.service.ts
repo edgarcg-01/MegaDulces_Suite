@@ -178,15 +178,16 @@ export class DailyCaptureService {
     console.log('  - ubicaciones available:', this._ubicaciones());
     console.log('  - conceptos available:', this._conceptos());
     console.log('  - niveles available:', this._niveles());
+    console.log('  - niveles structure:', this._niveles().map(n => ({ value: n.value, puntuacion: n.puntuacion })));
     console.log('  - registro.nivelEjecucion:', registro.nivelEjecucion);
     console.log('  - ubi found:', ubi);
     console.log('  - con found:', con);
     console.log('  - niv found:', niv);
 
     // 2. Base points from Catalog Items
-    const puntosPosicion = ubi?.puntuacion || 0;
-    const puntosConcepto = con?.puntuacion || 0;
-    const multiplicador = (niv?.puntuacion || 100) / 100; // Ej: 120 -> 1.2x
+    const puntosPosicion = Number(ubi?.puntuacion) || 0;
+    const puntosConcepto = Number(con?.puntuacion) || 0;
+    const multiplicador = (Number(niv?.puntuacion) || 100) / 100; // Ej: 120 -> 1.2x
 
     console.log('[addExhibicion] Base points:');
     console.log('  - puntosPosicion:', puntosPosicion);
