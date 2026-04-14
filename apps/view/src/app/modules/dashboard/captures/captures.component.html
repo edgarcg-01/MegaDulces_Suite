@@ -384,10 +384,10 @@
            <div *ngFor="let brand of svc.groupedProducts()" class="space-y-2">
               <div class="text-xs font-black text-content-muted uppercase tracking-widest border-l-2 border-brand-orange pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
               <div class="grid grid-cols-1 gap-2">
-                 <div *ngFor="let prod of brand.items" 
+                 <div *ngFor="let prod of brand.items"
                       class="flex items-center gap-3 p-2 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-hover transition-colors">
-                    <p-checkbox [binary]="true" [ngModel]="currentExhibicion().productosMarcados?.includes(prod.pid)" (onChange)="toggleProducto(prod.pid, $event.checked)"></p-checkbox>
-                    <span class="text-xs font-medium text-content-main">{{prod.name}}</span>
+                    <p-checkbox [binary]="true" [ngModel]="currentExhibicion().productosMarcados?.includes(prod.pid)" (onChange)="toggleProducto(prod.pid, $event.checked)" class="shrink-0" styleClass="sm"></p-checkbox>
+                    <span class="text-xs sm:text-sm font-medium text-content-main flex-1">{{prod.name}}</span>
                  </div>
               </div>
            </div>

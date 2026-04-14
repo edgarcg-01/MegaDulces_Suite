@@ -989,21 +989,29 @@ export class ReportsComponent implements OnInit {
   private logoBase64 = ''; // Aquí irá el logo en base64
 
   exportBuiltPdf() {
-    const data = this.reportsData();
-    if (!data) return;
-    const doc = new jsPDF();
-    const f = this.filtersState.filters();
-    const pageWidth = doc.internal.pageSize.width;
-    const margin = 14;
+    try {
+      const data = this.reportsData();
+      if (!data) {
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Sin datos',
+          detail: 'No hay datos disponibles para generar el PDF.',
+        });
+        return;
+      }
+      const doc = new jsPDF();
+      const f = this.filtersState.filters();
+      const pageWidth = doc.internal.pageSize.width;
+      const margin = 14;
 
-    // Colores corporativos
-    const primary: [number, number, number] = [24, 95, 165];
-    const text: [number, number, number] = [9, 9, 11];
-    const textMuted: [number, number, number] = [82, 82, 91];
-    const bgLight: [number, number, number] = [244, 244, 245];
-    const success: [number, number, number] = [34, 197, 94];
-    const warning: [number, number, number] = [251, 191, 36];
-    const danger: [number, number, number] = [239, 68, 68];
+      // Colores corporativos
+      const primary: [number, number, number] = [24, 95, 165];
+      const text: [number, number, number] = [9, 9, 11];
+      const textMuted: [number, number, number] = [82, 82, 91];
+      const bgLight: [number, number, number] = [244, 244, 245];
+      const success: [number, number, number] = [34, 197, 94];
+      const warning: [number, number, number] = [251, 191, 36];
+      const danger: [number, number, number] = [239, 68, 68];
 
     // Header con logo
     if (this.logoBase64) {
@@ -1271,6 +1279,19 @@ export class ReportsComponent implements OnInit {
 
     doc.save(`reporte_${f.startDate}_${f.endDate}.pdf`);
     this.showPdfBuilder = false;
+    this.messageService.add({
+      severity: 'success',
+      summary: 'PDF generado',
+      detail: 'El reporte se ha generado correctamente.',
+    });
+    } catch (error) {
+      console.error('Error generando PDF:', error);
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo generar el PDF. Por favor intenta nuevamente.',
+      });
+    }
   }
 
   exportSingleVisitPdf(row: any) {

@@ -236,6 +236,9 @@ export class DailyCaptureService {
 
     return this.http.post<any>(`${this.apiUrl}/daily-captures`, payload).pipe(
       tap((res: any) => {
+        console.log('[saveCapturaTotal] Response from backend:', res);
+        console.log('[saveCapturaTotal] Stats in response:', res.stats);
+
         const parsedRes: VisitaSnapshot = {
           folio: res.folio,
           userId: res.user_id,
@@ -247,6 +250,8 @@ export class DailyCaptureService {
           exhibiciones: typeof res.exhibiciones === 'string' ? JSON.parse(res.exhibiciones) : (res.exhibiciones || []),
           stats: typeof res.stats === 'string' ? JSON.parse(res.stats) : (res.stats || {})
         };
+
+        console.log('[saveCapturaTotal] Parsed stats:', parsedRes.stats);
 
         this._captures.update((curr) => [parsedRes, ...curr]);
         this.clearActiveState();
