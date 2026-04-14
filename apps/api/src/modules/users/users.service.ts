@@ -16,12 +16,15 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto) {
-    const { password, zona, ...rest } = createUserDto;
+    const { password, zona, role_name, ...rest } = createUserDto;
     const password_hash = await bcrypt.hash(password, 10);
     const zona_id = await this.resolveZonaId(zona);
 
+    // Normalize role_name to lowercase to match role_permissions
+    const normalizedRoleName = role_name ? role_name.toLowerCase() : role_name;
+
     const [user] = await this.knex('users')
-      .insert({ ...rest, zona_id, password_hash })
+      .insert({ ...rest, zona_id, password_hash, role_name: normalizedRoleName })
       .returning([
         'id',
         'username',
@@ -79,7 +82,7 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const { password, zona, ...rest } = updateUserDto;
+    const { password, zona, role_name, ...rest } = updateUserDto;
     const updateData: Record<string, any> = { ...rest };
 
     if (password) {
@@ -88,6 +91,11 @@ export class UsersService {
 
     if (zona !== undefined) {
       updateData.zona_id = await this.resolveZonaId(zona);
+    }
+
+    // Normalize role_name to lowercase to match role_permissions
+    if (role_name) {
+      updateData.role_name = role_name.toLowerCase();
     }
 
     const [user] = await this.knex('users')

@@ -178,6 +178,11 @@ export class AdminUsersComponent implements OnInit {
     if (this.userForm.invalid) return;
     const formData = this.userForm.getRawValue();
 
+    // Normalize role_name to lowercase to match role_permissions
+    if (formData.role_name) {
+      formData.role_name = formData.role_name.toLowerCase();
+    }
+
     if (this.isEditing() && this.currentUserId()) {
       const { username, ...updateData } = formData;
       if (!updateData.password || updateData.password.trim() === '') {
