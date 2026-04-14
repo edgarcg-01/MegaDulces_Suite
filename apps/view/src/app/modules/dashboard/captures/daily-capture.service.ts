@@ -167,15 +167,30 @@ export class DailyCaptureService {
 
   // --- Exhibition Actions ---
   addExhibicion(registro: Omit<RegistroExhibicion, 'id' | 'puntuacionCalculada' | 'horaRegistro'>) {
+    console.log('[addExhibicion] Called with:', registro);
+
     // 1. Resolve objects from Catalogs (Source of Truth)
     const ubi = this._ubicaciones().find((u) => u.id === registro.ubicacionId);
     const con = this._conceptos().find((c) => c.id === registro.conceptoId);
     const niv = this._niveles().find(n => n.value.toLowerCase() === registro.nivelEjecucion?.toLowerCase());
 
+    console.log('[addExhibicion] Catalog lookup:');
+    console.log('  - ubicaciones available:', this._ubicaciones());
+    console.log('  - conceptos available:', this._conceptos());
+    console.log('  - niveles available:', this._niveles());
+    console.log('  - ubi found:', ubi);
+    console.log('  - con found:', con);
+    console.log('  - niv found:', niv);
+
     // 2. Base points from Catalog Items
     const puntosPosicion = ubi?.puntuacion || 0;
     const puntosConcepto = con?.puntuacion || 0;
     const multiplicador = (niv?.puntuacion || 100) / 100; // Ej: 120 -> 1.2x
+
+    console.log('[addExhibicion] Base points:');
+    console.log('  - puntosPosicion:', puntosPosicion);
+    console.log('  - puntosConcepto:', puntosConcepto);
+    console.log('  - multiplicador:', multiplicador);
 
     // 3. Sumar puntos de productos marcados
     let puntosProductos = 0;
@@ -189,9 +204,13 @@ export class DailyCaptureService {
       });
     }
 
+    console.log('[addExhibicion] Productos points:', puntosProductos);
+
     // 4. Fórmula Final Unificada: [(Posición + Concepto) + Productos] * Multiplicador
     const score =
       (puntosPosicion + puntosConcepto + puntosProductos) * multiplicador;
+
+    console.log('[addExhibicion] Final score:', score);
 
     const newExhibicion: RegistroExhibicion = {
       ...registro,
@@ -199,6 +218,8 @@ export class DailyCaptureService {
       puntuacionCalculada: Math.round(score * 100) / 100,
       horaRegistro: new Date().toISOString(),
     };
+
+    console.log('[addExhibicion] New exhibicion:', newExhibicion);
 
     this._activeExhibiciones.update((curr) => [...curr, newExhibicion]);
   }
