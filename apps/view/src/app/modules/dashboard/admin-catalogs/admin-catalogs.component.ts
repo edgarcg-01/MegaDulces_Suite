@@ -10,7 +10,8 @@ import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
-import { MessageService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { AdminCatalogsService } from './admin-catalogs.service';
 
 @Component({
@@ -26,15 +27,17 @@ import { AdminCatalogsService } from './admin-catalogs.service';
     SelectModule,
     DialogModule,
     ToastModule,
+    ConfirmDialogModule,
     TooltipModule,
   ],
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   templateUrl: './admin-catalogs.component.html',
   styleUrls: ['./admin-catalogs.component.css'],
 })
 export class AdminCatalogsComponent implements OnInit {
   private catalogsService = inject(AdminCatalogsService);
   private messageService = inject(MessageService);
+  private confirmationService = inject(ConfirmationService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
@@ -267,15 +270,62 @@ export class AdminCatalogsComponent implements OnInit {
     }
   }
 
-  deleteItem(id: string) {
+  deleteItem(id: string, itemName?: string) {
+    // Confirmation dialog for all catalog types
+    const typeLabel = this.getTypeLabel(this.selectedType());
+    this.confirmationService.confirm({
+      message: `¿Estás seguro de eliminar ${typeLabel} "${itemName || 'seleccionado'}"? Esta acción no se puede deshacer.`,
+      header: 'Confirmar Eliminación',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        this.executeDelete(id);
+      },
+      reject: () => {
+        this.messageService.add({
+          severity: 'info',
+          summary: 'Cancelado',
+          detail: 'Eliminación cancelada.',
+        });
+      }
+    });
+  }
+
+  private getTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      'roles': 'el rol',
+      'zonas': 'la zona',
+      'rutas': 'la ruta',
+      'conceptos': 'el concepto',
+      'ubicaciones': 'la ubicación',
+      'niveles': 'el nivel',
+      'periodos': 'el periodo',
+      'semanas': 'la semana',
+    };
+    return labels[type] || 'el elemento';
+  }
+
+  private executeDelete(id: string) {
     this.catalogsService.deleteItem(this.selectedType(), id).subscribe({
       next: () => {
-        this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ítem eliminado correctamente' });
-        this.loadCatalog(this.selectedType());
+        this.items.update((items) => items.filter((i) => i.id !== id));
+        const typeLabel = this.getTypeLabel(this.selectedType()).charAt(0).toUpperCase() + this.getTypeLabel(this.selectedType()).slice(1);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Eliminado',
+          detail: `${typeLabel} eliminado correctamente.`,
+        });
       },
-      error: (err) => {
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar el ítem' });
-      }
+      error: (err: any) => {
+        const errorMsg = err?.error?.message || 'No se pudo eliminar el elemento.';
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: errorMsg,
+        });
+      },
     });
   }
 

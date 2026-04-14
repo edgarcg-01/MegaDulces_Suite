@@ -1,4 +1,16 @@
 <div class="p-6">
+  <!-- Toast for notifications -->
+  <p-toast position="top-right"></p-toast>
+
+  <!-- Confirm Dialog -->
+  <p-confirmDialog 
+    header="Confirmar" 
+    icon="pi pi-exclamation-triangle"
+    [style]="{width: '450px'}"
+    acceptButtonStyleClass="p-button-danger"
+    rejectButtonStyleClass="p-button-secondary">
+  </p-confirmDialog>
+
   <div class="flex justify-between items-center mb-6">
     <div>
       <h2 class="text-headline text-content-main">Administración de Usuarios</h2>

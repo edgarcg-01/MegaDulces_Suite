@@ -248,10 +248,12 @@
 </div>
 
 <p-dialog header="Metas y rangos de cumplimiento" [(visible)]="showMetasDialog" [modal]="true"
-  [style]="{ width: '90vw', maxWidth: '680px' }" [draggable]="false" [resizable]="false"
+  [style]="{ width: '95vw', maxWidth: '600px' }" [draggable]="false" [resizable]="false" [blockScroll]="true"
+  [focusOnShow]="false" appendTo="body"
+  [contentStyle]="{'overflow-y': 'auto', 'max-height': '70vh', 'padding': '0.5rem'}"
   styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card'">
 
-  <div class="space-y-6 pt-2">
+  <div class="space-y-6 p-2 sm:p-0 pt-2">
     <div class="flex gap-3 p-3 bg-surface-layout rounded-xl border border-divider text-xs text-content-muted">
       <i class="pi pi-info-circle mt-0.5 text-content-faint"></i>
       <span>Define dos umbrales por KPI. El dashboard y los reportes usarán estos rangos para colorear el semáforo automáticamente.</span>
@@ -267,23 +269,27 @@
       <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">KPIs de ejecución</h4>
       <div class="space-y-4">
         <div *ngFor="let r of editableKpi" class="p-4 bg-surface-layout rounded-xl border border-divider">
-          <div class="flex items-center justify-between mb-3">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
             <span class="font-bold text-sm">{{ r.label }}</span>
-            <div class="flex gap-2 text-[10px]">
+            <div class="flex flex-wrap gap-2 text-[10px]">
               <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700">&lt; {{ r.min }}{{ r.unit }} = bajo</span>
               <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700">≥ {{ r.opt }}{{ r.unit }} = óptimo</span>
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div class="flex flex-col gap-1">
               <label class="text-[10px] font-bold text-content-faint uppercase">Meta mínima</label>
-              <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="true" buttonLayout="horizontal"
-                decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full"></p-inputNumber>
+              <div class="w-full">
+                <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
+                  decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+              </div>
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[10px] font-bold text-content-faint uppercase">Meta óptima</label>
-              <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="true" buttonLayout="horizontal"
-                decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full"></p-inputNumber>
+              <div class="w-full">
+                <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
+                  decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+              </div>
             </div>
           </div>
           <div class="mt-3 h-2 rounded-full overflow-hidden flex">
@@ -298,14 +304,14 @@
     <div>
       <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">Mobiliario</h4>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div *ngFor="let f of editableFurniture" class="flex items-center justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3">
-          <div class="flex items-center gap-2">
-            <i [class]="f.icon" class="text-content-muted w-5 text-center"></i>
-            <span class="font-medium text-sm">{{ f.label }}</span>
+        <div *ngFor="let f of editableFurniture" class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3">
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <i [class]="f.icon" class="text-content-muted w-5 text-center shrink-0"></i>
+            <span class="font-medium text-sm truncate">{{ f.label }}</span>
           </div>
-          <div class="w-28">
-            <p-inputNumber [(ngModel)]="f.target" [min]="0" [showButtons]="true" buttonLayout="horizontal"
-              decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" class="w-full"></p-inputNumber>
+          <div class="shrink-0 w-20 sm:w-16">
+            <input type="number" [(ngModel)]="f.target" [min]="0" 
+              class="w-full px-2 py-1 border border-divider rounded text-sm bg-surface-card text-content-main focus:outline-none focus:ring-2 focus:ring-brand" />
           </div>
         </div>
       </div>
@@ -313,9 +319,9 @@
   </div>
 
   <ng-template pTemplate="footer">
-    <div class="flex justify-end gap-3">
-      <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()"></p-button>
-      <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()"></p-button>
+    <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 p-2">
+      <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()" class="w-full sm:w-auto"></p-button>
+      <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()" class="w-full sm:w-auto"></p-button>
     </div>
   </ng-template>
 </p-dialog>

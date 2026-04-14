@@ -6,7 +6,8 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
-import { MessageService } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { AdminScoringService } from './admin-scoring.service';
 
 @Component({
@@ -19,15 +20,17 @@ import { AdminScoringService } from './admin-scoring.service';
     InputNumberModule,
     InputTextModule,
     ToastModule,
-    DialogModule
+    DialogModule,
+    ConfirmDialogModule
   ],
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   templateUrl: './admin-scoring.component.html',
   styleUrls: ['./admin-scoring.component.css']
 })
 export class AdminScoringComponent implements OnInit {
   private scoringService = inject(AdminScoringService);
   private messageService = inject(MessageService);
+  private confirmationService = inject(ConfirmationService);
 
   config = signal<any>(null);
   loading = signal<boolean>(false);
@@ -101,11 +104,33 @@ export class AdminScoringComponent implements OnInit {
   }
 
   removeKey(section: string, key: string) {
-    const current = this.config();
-    if (current && current[section]) {
-      delete current[section][key];
-      this.config.set({ ...current });
-    }
+    this.confirmationService.confirm({
+      message: `¿Estás seguro de eliminar la categoría "${key}"? Esta acción no se puede deshacer.`,
+      header: 'Confirmar Eliminación',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        const current = this.config();
+        if (current && current[section]) {
+          delete current[section][key];
+          this.config.set({ ...current });
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Eliminado',
+            detail: `Categoría "${key}" eliminada correctamente`,
+          });
+        }
+      },
+      reject: () => {
+        this.messageService.add({
+          severity: 'info',
+          summary: 'Cancelado',
+          detail: 'Eliminación cancelada.',
+        });
+      }
+    });
   }
 
   // --- Helpers ---

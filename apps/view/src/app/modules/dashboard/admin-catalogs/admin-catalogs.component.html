@@ -1,4 +1,16 @@
 <div class="p-6">
+  <!-- Toast for notifications -->
+  <p-toast position="top-right"></p-toast>
+
+  <!-- Confirm Dialog -->
+  <p-confirmDialog 
+    header="Confirmar" 
+    icon="pi pi-exclamation-triangle"
+    [style]="{width: '450px'}"
+    acceptButtonStyleClass="p-button-danger"
+    rejectButtonStyleClass="p-button-secondary">
+  </p-confirmDialog>
+
   <!-- Encabezado -->
   <div class="flex justify-between items-center mb-6">
     <div>
@@ -36,7 +48,7 @@
               <span class="text-xs text-content-muted">{{ zoneRoutes[zone.id]?.length || 0 }} rutas</span>
               <p-button icon="pi pi-plus" label="Agregar Ruta" size="small" [text]="true" (onClick)="openAddRouteDialog(zone)"></p-button>
               <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)"></p-button>
-              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id, zone.value)"></p-button>
             </div>
           </div>
 
@@ -99,7 +111,7 @@
                   <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
                 }
                 <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
-                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
+                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)"></p-button>
               </div>
             </td>
           </tr>
@@ -138,7 +150,7 @@
             <div class="flex gap-1">
               <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddRouteDialog(zone)"></p-button>
               <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)"></p-button>
-              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id)"></p-button>
+              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id, zone.value)"></p-button>
             </div>
           </div>
 
@@ -180,7 +192,7 @@
               <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
             }
             <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
-            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id)"></p-button>
+            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)"></p-button>
           </div>
         </div>
         <div class="space-y-2">

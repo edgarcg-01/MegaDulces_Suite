@@ -14,8 +14,10 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { InputSwitchModule } from 'primeng/inputswitch';
 import { ToastModule } from 'primeng/toast';
-import { MessageService } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { UsersService, User } from './users.service';
+import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 
 @Component({
   selector: 'app-admin-users',
@@ -31,15 +33,18 @@ import { UsersService, User } from './users.service';
     SelectModule,
     InputSwitchModule,
     ToastModule,
+    ConfirmDialogModule,
   ],
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   templateUrl: './admin-users.component.html',
   styleUrls: ['./admin-users.component.css'],
 })
 export class AdminUsersComponent implements OnInit {
   private usersService = inject(UsersService);
+  private catalogsService = inject(AdminCatalogsService);
   private fb = inject(FormBuilder);
   private messageService = inject(MessageService);
+  private confirmationService = inject(ConfirmationService);
 
   users = signal<User[]>([]);
   loading = signal<boolean>(true);
@@ -99,11 +104,11 @@ export class AdminUsersComponent implements OnInit {
   }
 
   loadRoles(): void {
-    this.usersService.getRoles().subscribe({
+    this.catalogsService.getCatalog('roles').subscribe({
       next: (data: any[]) => {
         const mappedRoles = data.map((item) => ({
-          label: item.role_name.charAt(0).toUpperCase() + item.role_name.slice(1),
-          value: item.role_name,
+          label: item.value.charAt(0).toUpperCase() + item.value.slice(1),
+          value: item.value,
         }));
         this.roles.set(mappedRoles);
       },
@@ -222,26 +227,47 @@ export class AdminUsersComponent implements OnInit {
 
   deleteUser(user: User): void {
     if (!user.id) return;
-    if (confirm('¿Estás seguro de eliminar este usuario?')) {
-      this.usersService.remove(user.id).subscribe({
-        next: () => {
-          this.loadUsers();
-          this.messageService.add({
-            severity: 'success',
-            summary: 'Éxito',
-            detail: 'Usuario eliminado correctamente',
-          });
-        },
-        error: (err) => {
-          console.error('Error eliminando', err);
-          this.messageService.add({
-            severity: 'error',
-            summary: 'Error',
-            detail: 'Error al eliminar usuario',
-          });
-        },
-      });
-    }
+    
+    const userName = user.nombre || user.username;
+    this.confirmationService.confirm({
+      message: `¿Estás seguro de eliminar el usuario "${userName}"? Esta acción desactivará el usuario.`,
+      header: 'Confirmar Eliminación',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        this.executeDelete(user.id);
+      },
+      reject: () => {
+        this.messageService.add({
+          severity: 'info',
+          summary: 'Cancelado',
+          detail: 'Eliminación cancelada.',
+        });
+      }
+    });
+  }
+
+  private executeDelete(id: string): void {
+    this.usersService.remove(id).subscribe({
+      next: () => {
+        this.loadUsers();
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Eliminado',
+          detail: 'Usuario desactivado correctamente',
+        });
+      },
+      error: (err: any) => {
+        const errorMsg = err?.error?.message || 'No se pudo eliminar el usuario.';
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: errorMsg,
+        });
+      },
+    });
   }
 
   getSupervisorName(id: string | undefined): string {

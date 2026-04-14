@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, OnInit, inject, signal, computed, ViewEncapsulation } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
@@ -40,6 +40,7 @@ import { GlobalFiltersComponent } from '../reports/graphics/global-filters.compo
   ],
   providers: [MessageService],
   templateUrl: './home.component.html',
+  encapsulation: ViewEncapsulation.None,
 })
 export class HomeComponent implements OnInit {
   // Inyecciones adaptadas a tu código anterior

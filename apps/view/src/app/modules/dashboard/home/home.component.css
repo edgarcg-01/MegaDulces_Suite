@@ -108,4 +108,20 @@
   animation: slideUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
+/* Fix for PrimeNG inputNumber width in metas dialog */
+.metas-input-full-width {
+  width: 100% !important;
+  display: flex !important;
+}
+
+.metas-input-full-width .p-inputnumber-input {
+  width: 100% !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.metas-input-full-width .p-inputnumber-button-group {
+  flex-shrink: 0 !important;
+}
+
 
