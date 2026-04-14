@@ -7,6 +7,8 @@ import { MultiSelectModule } from 'primeng/multiselect';
 
 import { FiltersStateService } from './filters-state.service';
 import { ReportsService } from '../reports.service';
+import { AuthService } from '../../../../core/services/auth.service';
+import { Permission } from '../../../../core/constants/permissions';
 
 interface DropOption {
   label: string;
@@ -109,6 +111,7 @@ export class GlobalFiltersComponent implements OnInit {
 
   private filtersState = inject(FiltersStateService);
   private reportsService = inject(ReportsService);
+  private authService = inject(AuthService);
 
   // ── Opciones de dropdowns (cargadas desde API) ──
   zones: DropOption[] = [{ label: 'Todas las zonas', value: null }];
@@ -161,6 +164,11 @@ export class GlobalFiltersComponent implements OnInit {
   }
 
   private loadSupervisors() {
+    // Solo cargar supervisores si el usuario tiene el permiso USUARIOS_VER
+    if (!this.authService.hasPermission(Permission.USUARIOS_VER)) {
+      return;
+    }
+
     this.reportsService.getSupervisors().subscribe({
       next: (supervisors) => {
         this.supervisors = [

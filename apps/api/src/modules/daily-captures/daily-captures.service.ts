@@ -17,6 +17,14 @@ export class DailyCapturesService {
     username: string,
     zona: string,
   ) {
+    console.log('[DailyCapturesService] create called with:');
+    console.log('  - folio:', dto.folio);
+    console.log('  - userId:', userId);
+    console.log('  - username:', username);
+    console.log('  - zona:', zona);
+    console.log('  - stats:', dto.stats);
+    console.log('  - exhibiciones count:', dto.exhibiciones?.length);
+
     // Procesar fotos Base64 subiéndolas a Cloudinary y guardando URL + Public ID
     const processedExhibiciones = await Promise.all(
       dto.exhibiciones.map(async (ex) => {
@@ -46,6 +54,10 @@ export class DailyCapturesService {
       }),
     );
 
+    console.log('[DailyCapturesService] Inserting into daily_captures table...');
+    console.log('  - stats to insert:', dto.stats);
+    console.log('  - stats JSON:', JSON.stringify(dto.stats));
+
     const [dailyCapture] = await this.knex('daily_captures')
       .insert({
         folio: dto.folio,
@@ -61,6 +73,9 @@ export class DailyCapturesService {
         longitud: Number(dto.longitud),
       })
       .returning('*');
+
+    console.log('[DailyCapturesService] Insert successful. Returning:', dailyCapture);
+    console.log('[DailyCapturesService] stats from database:', dailyCapture.stats);
 
     return dailyCapture;
   }
