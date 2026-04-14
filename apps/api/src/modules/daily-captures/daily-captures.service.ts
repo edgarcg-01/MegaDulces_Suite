@@ -131,4 +131,9 @@ export class DailyCapturesService {
     }
     return dailyCapture;
   }
+
+  async cleanup() {
+    const count = await this.knex('daily_captures').delete();
+    return { message: `Eliminados ${count} registros de visitas` };
+  }
 }

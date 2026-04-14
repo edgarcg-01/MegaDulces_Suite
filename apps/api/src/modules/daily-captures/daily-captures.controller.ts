@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   Query,
@@ -74,5 +75,12 @@ export class DailyCapturesController {
   @ApiOperation({ summary: 'Obtener visita por Folio o ID' })
   findOne(@Param('id') id: string) {
     return this.dailyCapturesService.findOne(id);
+  }
+
+  @Delete('cleanup')
+  @RequirePermissions(Permission.REPORTES_VER_GLOBAL)
+  @ApiOperation({ summary: 'Eliminar todos los registros de visitas (solo superadmin)' })
+  async cleanup() {
+    return this.dailyCapturesService.cleanup();
   }
 }
