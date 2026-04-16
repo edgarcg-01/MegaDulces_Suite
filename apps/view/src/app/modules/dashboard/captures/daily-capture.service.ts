@@ -150,6 +150,8 @@ export class DailyCaptureService {
         if (lat && lng && lat !== 0 && lng !== 0) {
           console.log('[iniciarVisita] ✅ GPS capturado exitosamente (intento', i + 1, '):', lat, lng);
           gpsCapturado = true;
+          // Guardar última posición conocida en localStorage
+          this.guardarUltimaPosicionConocida(lat, lng);
           break;
         } else {
           console.warn('[iniciarVisita] ⚠️ GPS capturado pero coordenadas inválidas (intento', i + 1, '):', lat, lng);
@@ -164,17 +166,26 @@ export class DailyCaptureService {
     if (!gpsCapturado) {
       console.error('[iniciarVisita] ❌ No se pudo capturar GPS después de', MAX_RETRIES, 'intentos');
       
-      // Usar coordenadas simuladas como último recurso (descomentar en producción si es necesario)
-      const USE_SIMULATED_GPS = false;
-      if (USE_SIMULATED_GPS) {
+      // Intentar usar última posición conocida del localStorage
+      const ultimaPosicion = this.obtenerUltimaPosicionConocida();
+      if (ultimaPosicion) {
+        console.warn('[iniciarVisita] 🔧 Usando ÚLTIMA POSICIÓN CONOCIDA:', ultimaPosicion);
+        this._latitud.set(ultimaPosicion.lat);
+        this._longitud.set(ultimaPosicion.lng);
+        return true;
+      }
+      
+      // Como último recurso, usar coordenadas simuladas cuando está offline
+      const isOffline = !navigator.onLine;
+      if (isOffline) {
         const SIMULATED_COORDS = { lat: 19.7033, lng: -101.1949 };
-        console.warn('[iniciarVisita] 🔧 Usando coordenadas SIMULADAS:', SIMULATED_COORDS);
+        console.warn('[iniciarVisita] 🔧 MODO OFFLINE: Usando coordenadas SIMULADAS (último recurso):', SIMULATED_COORDS);
         this._latitud.set(SIMULATED_COORDS.lat);
         this._longitud.set(SIMULATED_COORDS.lng);
         return true;
       }
       
-      // No permitir iniciar visita sin GPS
+      // No permitir iniciar visita sin GPS cuando está online
       this._horaInicio.set(null);
       this._activeExhibiciones.set([]);
       throw new Error('No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.');
@@ -182,6 +193,45 @@ export class DailyCaptureService {
 
     console.log('[iniciarVisita] ✅ Visita iniciada con GPS:', { latitud: this._latitud(), longitud: this._longitud() });
     return true;
+  }
+
+  // --- Helpers para última posición conocida ---
+  private guardarUltimaPosicionConocida(lat: number, lng: number): void {
+    try {
+      const posicion = {
+        lat,
+        lng,
+        timestamp: new Date().toISOString()
+      };
+      localStorage.setItem('ultimaPosicionGPS', JSON.stringify(posicion));
+      console.log('[GPS] 💾 Última posición guardada en localStorage:', posicion);
+    } catch (error) {
+      console.error('[GPS] Error al guardar última posición:', error);
+    }
+  }
+
+  private obtenerUltimaPosicionConocida(): { lat: number; lng: number } | null {
+    try {
+      const data = localStorage.getItem('ultimaPosicionGPS');
+      if (data) {
+        const posicion = JSON.parse(data);
+        const edad = Date.now() - new Date(posicion.timestamp).getTime();
+        const MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
+        
+        if (edad < MAX_AGE) {
+          console.log('[GPS] 📦 Última posición recuperada (edad:', Math.round(edad / 1000 / 60), 'minutos):', posicion);
+          return { lat: posicion.lat, lng: posicion.lng };
+        } else {
+          console.warn('[GPS] ⚠️ Última posición muy antigua (>24 horas), ignorando');
+          localStorage.removeItem('ultimaPosicionGPS');
+          return null;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('[GPS] Error al recuperar última posición:', error);
+      return null;
+    }
   }
 
   capturarUbicacion(): Promise<{ lat: number; lng: number; precision: number }> {
