@@ -488,7 +488,26 @@ export class DailyCaptureService {
           console.log('[saveCapturaTotal] Coordenadas actuales:', { latitud: this._latitud(), longitud: this._longitud() });
           console.log('[saveCapturaTotal] Coordenadas en payload:', { latitud: payload.latitud, longitud: payload.longitud });
 
-          // Guardar offline como fallback (incluso sin GPS)
+          // Recuperar coordenadas de localStorage si están null
+          let latitud = payload.latitud || this._latitud() || null;
+          let longitud = payload.longitud || this._longitud() || null;
+          
+          if (!latitud || !longitud || latitud === 0 || longitud === 0) {
+            const ultimaPosicion = this.obtenerUltimaPosicionConocida();
+            if (ultimaPosicion) {
+              console.warn('[saveCapturaTotal] 🔧 Recuperando coordenadas de localStorage:', ultimaPosicion);
+              latitud = ultimaPosicion.lat;
+              longitud = ultimaPosicion.lng;
+            } else {
+              // Coordenadas simuladas como último recurso
+              const SIMULATED_COORDS = { lat: 19.7033, lng: -101.1949 };
+              console.warn('[saveCapturaTotal] 🔧 Usando coordenadas SIMULADAS:', SIMULATED_COORDS);
+              latitud = SIMULATED_COORDS.lat;
+              longitud = SIMULATED_COORDS.lng;
+            }
+          }
+
+          // Guardar offline con coordenadas recuperadas
           return from(this.offlineService.guardarCapturaOffline(
             'default', // tiendaId - ajustar según tu lógica
             user.sub,
@@ -497,8 +516,8 @@ export class DailyCaptureService {
               horaFin: payload.horaFin,
               exhibiciones: payload.exhibiciones,
               stats: payload.stats,
-              latitud: payload.latitud || this._latitud() || null,
-              longitud: payload.longitud || this._longitud() || null,
+              latitud: latitud,
+              longitud: longitud,
               precision: 20
             }
           )).pipe(

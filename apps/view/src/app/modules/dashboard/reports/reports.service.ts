@@ -33,6 +33,8 @@ export interface ReportsData {
     avgScore?: number;
   }>;
   furniture?: Record<string, number>;
+  productStats?: Record<string, { total: number; exhibidores: Record<string, number> }>;
+  exhibidoresHealth?: { optimo: number; regular: number; critico: number };
 }
 
 @Injectable({

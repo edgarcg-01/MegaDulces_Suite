@@ -8,6 +8,7 @@ export interface FiltersState {
   supervisorId: string | null;
   sellerIds: string[];
   furniture: string | null;
+  brand: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -21,6 +22,7 @@ export class FiltersStateService {
     supervisorId: null,
     sellerIds: [],
     furniture: null,
+    brand: null,
   });
 
   readonly filters = this._filters.asReadonly();
@@ -83,6 +85,10 @@ export class FiltersStateService {
     this._filters.update(f => ({ ...f, furniture }));
   }
 
+  setBrand(brand: string | null) {
+    this._filters.update(f => ({ ...f, brand }));
+  }
+
   reset() {
     this._filters.set({
       period: 'semanal',
@@ -92,6 +98,7 @@ export class FiltersStateService {
       supervisorId: null,
       sellerIds: [],
       furniture: null,
+      brand: null,
     });
   }
 

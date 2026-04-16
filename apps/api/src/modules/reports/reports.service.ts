@@ -162,18 +162,31 @@ export class ReportsService {
     console.log('[ReportsService] Number of rows returned:', rows.length);
     console.log('[ReportsService] zona_captura values:', rows.map(r => r.zona_captura));
 
+    // Get conceptos catalog for mapping IDs to names contextually faster
+    const conceptos = await this.knex('catalogs')
+      .where({ catalog_id: 'conceptos' })
+      .select('id', 'value');
+    const conceptoMap: Record<string, string> = {};
+    conceptos.forEach((c) => {
+      conceptoMap[c.id] = c.value; // Guardamos el nombre original para display
+    });
+
     // Calculate aggregated metrics for the filtered set
     let totalVisitas = 0;
     let totalScore = 0;
     let totalVentas = 0;
-    const dailyTrend = {};
+    const dailyTrend: Record<string, any> = {};
+    const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
+    const exhibidoresHealth = { optimo: 0, regular: 0, critico: 0 };
 
     rows.forEach((row) => {
       const stats =
-        typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats;
+        typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
       const numVisitas = stats.totalExhibiciones || 1; // Falling back to 1 if not present
       const score = stats.score_calidad_pct || 0;
       const ventas = stats.ventaTotal || 0;
+      const exhibiciones = 
+        typeof row.exhibiciones === 'string' ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
 
       totalVisitas += numVisitas;
       totalScore += score;
@@ -190,6 +203,33 @@ export class ReportsService {
       dailyTrend[dateKey].visits += numVisitas;
       dailyTrend[dateKey].score += score;
       dailyTrend[dateKey].count += 1;
+
+      // Product Analysis Aggregation
+      exhibiciones.forEach((ex: any) => {
+        const conceptoId = ex.conceptoId || 'otros';
+        const conceptoName = conceptoMap[conceptoId] || conceptoId;
+        const productosMarcados = ex.productosMarcados || [];
+        
+        const val = ex.nivelEjecucion;
+        const isOptimo = val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80);
+        const isRegular = val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50);
+
+        if (isOptimo) exhibidoresHealth.optimo++;
+        else if (isRegular) exhibidoresHealth.regular++;
+        else exhibidoresHealth.critico++;
+        
+        productosMarcados.forEach((pid: string) => {
+          if (!productStats[pid]) {
+            productStats[pid] = { total: 0, exhibidores: {} };
+          }
+          productStats[pid].total += 1;
+          
+          if (!productStats[pid].exhibidores[conceptoName]) {
+            productStats[pid].exhibidores[conceptoName] = 0;
+          }
+          productStats[pid].exhibidores[conceptoName] += 1;
+        });
+      });
     });
 
     const metrics = {
@@ -210,6 +250,8 @@ export class ReportsService {
     return {
       metrics,
       trendData,
+      productStats,
+      exhibidoresHealth,
       rows: rows.map((r) => ({
         ...r,
         stats: typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats,

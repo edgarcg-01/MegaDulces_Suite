@@ -9,6 +9,7 @@ import { FiltersStateService } from './filters-state.service';
 import { ReportsService } from '../reports.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
+import { DailyCaptureService } from '../../captures/daily-capture.service';
 
 interface DropOption {
   label: string;
@@ -112,11 +113,13 @@ export class GlobalFiltersComponent implements OnInit {
   private filtersState = inject(FiltersStateService);
   private reportsService = inject(ReportsService);
   private authService = inject(AuthService);
+  private dailyCaptureService = inject(DailyCaptureService);
 
   // ── Opciones de dropdowns (cargadas desde API) ──
   zones: DropOption[] = [{ label: 'Todas las zonas', value: null }];
   supervisors: DropOption[] = [{ label: 'Todos', value: null }];
   sellers: DropOption[] = [];
+  brands: DropOption[] = [{ label: 'Todas las marcas', value: null }];
 
   periods: DropOption[] = [
     { label: 'Hoy', value: 'hoy' },
@@ -132,6 +135,7 @@ export class GlobalFiltersComponent implements OnInit {
   selectedZone: string | null = null;
   selectedSupervisorId: string | null = null;
   selectedSellerIds: string[] = [];
+  selectedBrand: string | null = null;
 
   ngOnInit() {
     const f = this.filtersState.filters();
@@ -139,11 +143,13 @@ export class GlobalFiltersComponent implements OnInit {
     this.selectedZone = f.zone;
     this.selectedSupervisorId = f.supervisorId;
     this.selectedSellerIds = f.sellerIds;
+    this.selectedBrand = f.brand;
 
     // Cargar filtros desde la API
     this.loadZones();
     this.loadSupervisors();
     this.loadSellers();
+    this.loadBrands();
   }
 
   private loadZones() {
@@ -199,6 +205,19 @@ export class GlobalFiltersComponent implements OnInit {
     });
   }
 
+  private loadBrands() {
+    const groupedProducts = this.dailyCaptureService.groupedProducts();
+    if (groupedProducts && groupedProducts.length > 0) {
+      this.brands = [
+        { label: 'Todas las marcas', value: null },
+        ...groupedProducts.map((brand: any) => ({
+          label: brand.name || brand.brand || brand.id,
+          value: brand.name || brand.brand || brand.id
+        }))
+      ];
+    }
+  }
+
   onPeriodChange() {
     this.filtersState.setPeriod(this.selectedPeriod);
     if (this.selectedPeriod !== 'custom') this.emit();
@@ -223,6 +242,11 @@ export class GlobalFiltersComponent implements OnInit {
 
   onSellerChange() {
     this.filtersState.setSellers(this.selectedSellerIds);
+    this.emit();
+  }
+
+  onBrandChange() {
+    this.filtersState.setBrand(this.selectedBrand);
     this.emit();
   }
 

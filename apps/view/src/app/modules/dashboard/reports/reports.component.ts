@@ -1,4 +1,11 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  inject,
+  signal,
+  computed,
+  effect,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -16,6 +23,7 @@ import { ImageModule } from 'primeng/image';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ChipModule } from 'primeng/chip';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { DropdownModule } from 'primeng/dropdown';
 import { MessageService } from 'primeng/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -24,11 +32,11 @@ import { ReportsService, ReportsData } from './reports.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { FiltersStateService } from '../reports/graphics/filters-state.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
-import { 
-  UBICACIONES_EXHIBICION, 
-  CONCEPTOS_EXHIBICION, 
+import {
+  UBICACIONES_EXHIBICION,
+  CONCEPTOS_EXHIBICION,
   PRODUCTOS_PLANOGRAMA,
-  BrandGroup 
+  BrandGroup,
 } from '../captures/daily-capture.models';
 import {
   MetasConfigService,
@@ -75,6 +83,7 @@ interface PdfSection {
     CheckboxModule,
     ChipModule,
     MultiSelectModule,
+    DropdownModule,
     GlobalFiltersComponent,
   ],
   providers: [MessageService],
@@ -129,8 +138,8 @@ export class ReportsComponent implements OnInit {
 
   // Modal de metas (solo superadmin y supervisor_m)
   showMetasDialog = false;
-  editableFurniture = [...this.metasConfig.furniture()].map(f => ({ ...f }));
-  editableKpi = [...this.metasConfig.kpiRanges()].map(k => ({ ...k }));
+  editableFurniture = [...this.metasConfig.furniture()].map((f) => ({ ...f }));
+  editableKpi = [...this.metasConfig.kpiRanges()].map((k) => ({ ...k }));
 
   // Verificar si el usuario puede editar metas
   canEditMetas = computed(() => {
@@ -138,6 +147,17 @@ export class ReportsComponent implements OnInit {
     if (!user) return false;
     return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
   });
+
+  constructor() {
+    effect(() => {
+      // Re-construir los charts de productos cuando cambien los datos Y los catálogos se hayan cargado
+      const data = this.reportsData();
+      const products = this.dailyCaptureService.groupedProducts();
+      if (data?.productStats && products.length > 0) {
+        this.buildProductCharts(data);
+      }
+    });
+  }
 
   chartData: any;
   chartOptions: any;
@@ -151,17 +171,32 @@ export class ReportsComponent implements OnInit {
   stackedChartData: any;
   stackedChartOptions: any;
   // Gráficas adicionales de PrimeNG
-  doughnutChartData: any;      // Distribución porcentual de visitas por score
+  doughnutChartData: any; // Distribución porcentual de visitas por score
   doughnutChartOptions: any;
-  radarChartData: any;         // Comparación multivariable de KPIs por zona
+  radarChartData: any; // Comparación multivariable de KPIs por zona
   radarChartOptions: any;
-  polarAreaChartData: any;     // Distribución de calidad de visitas
+  polarAreaChartData: any; // Distribución de calidad de visitas
   polarAreaChartOptions: any;
-  scatterChartData: any;       // Correlación entre score y ventas
+  scatterChartData: any; // Correlación entre score y ventas
   scatterChartOptions: any;
   // Gráfica de línea movida desde Home (Ejecución semanal vs meta)
   lineChartData: any;
   lineChartOptions: any;
+
+  // Propiedades para filtrado de productos
+  selectedBrand: string | null = null;
+  availableBrands: any[] = [];
+  allProductStatsRaw: any[] = [];
+
+  // Analysis de Productos
+  productTopChartData: any;
+  topProducts: any[] = [];
+  bottomProducts: any[] = [];
+  productStatsProcessed: boolean = false;
+  
+  // Nuevas Métricas
+  exhibidoresHealthChartData: any;
+  topFaltantes: any[] = [];
 
   groupedRows = computed<DayGroup[]>(() => {
     const data = this.reportsData();
@@ -169,11 +204,12 @@ export class ReportsComponent implements OnInit {
 
     const groups: Record<string, DayGroup> = {};
     data.rows.forEach((row: any) => {
-      const dStr = (typeof row.hora_inicio === 'string'
-        ? row.hora_inicio.split('T')[0]
-        : row.hora_inicio instanceof Date
-          ? row.hora_inicio.toISOString().split('T')[0]
-          : row.fecha) || row.fecha;
+      const dStr =
+        (typeof row.hora_inicio === 'string'
+          ? row.hora_inicio.split('T')[0]
+          : row.hora_inicio instanceof Date
+            ? row.hora_inicio.toISOString().split('T')[0]
+            : row.fecha) || row.fecha;
       if (!groups[dStr]) {
         groups[dStr] = {
           id: dStr,
@@ -420,7 +456,7 @@ export class ReportsComponent implements OnInit {
       return {
         high: Math.max(0, highVisits),
         medium: Math.max(0, mediumVisits),
-        low: Math.max(0, lowVisits)
+        low: Math.max(0, lowVisits),
       };
     });
 
@@ -447,35 +483,52 @@ export class ReportsComponent implements OnInit {
           backgroundColor: '#BDD7EE', // Azul claro
           borderRadius: 4,
           borderSkipped: false,
-        }
-      ]
+        },
+      ],
     };
 
     // 1. DOUGHNUT CHART - Distribución porcentual de visitas por rango de score
     // Muestra el % del total de visitas que caen en cada rango de calidad
     const scoreRanges = [
       rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) < 50).length,
-      rows.filter((r: any) => { const v = r.stats?.score_calidad_pct ?? 0; return v >= 50 && v < 70; }).length,
-      rows.filter((r: any) => { const v = r.stats?.score_calidad_pct ?? 0; return v >= 70 && v < 85; }).length,
+      rows.filter((r: any) => {
+        const v = r.stats?.score_calidad_pct ?? 0;
+        return v >= 50 && v < 70;
+      }).length,
+      rows.filter((r: any) => {
+        const v = r.stats?.score_calidad_pct ?? 0;
+        return v >= 70 && v < 85;
+      }).length,
       rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) >= 85).length,
     ];
     this.doughnutChartData = {
-      labels: ['Bajo (0-49%)', 'Regular (50-69%)', 'Bueno (70-84%)', 'Excelente (85-100%)'],
+      labels: [
+        'Bajo (0-49%)',
+        'Regular (50-69%)',
+        'Bueno (70-84%)',
+        'Excelente (85-100%)',
+      ],
       datasets: [
         {
           data: scoreRanges,
           backgroundColor: ['#F09595', '#FAC775', '#85B7EB', '#97C459'],
           borderWidth: 0,
-          hoverOffset: 4
-        }
-      ]
+          hoverOffset: 4,
+        },
+      ],
     };
 
     // 2. RADAR CHART - Comparación multivariable de KPIs por zona
     // Muestra el desempeño de cada zona en múltiples dimensiones
     const radarZones = data.zoneStats?.slice(0, 5) ?? [];
-    const radarLabels = ['Score Promedio', 'Visitas', 'Cumplimiento GPS', 'Exhibiciones', 'Ventas'];
-    
+    const radarLabels = [
+      'Score Promedio',
+      'Visitas',
+      'Cumplimiento GPS',
+      'Exhibiciones',
+      'Ventas',
+    ];
+
     // Si no hay datos de zonas, generar datos desde las filas agrupadas por zona
     let zoneData = radarZones;
     if (zoneData.length === 0) {
@@ -490,28 +543,30 @@ export class ReportsComponent implements OnInit {
             gpsPct: 0,
             totalExhibiciones: 0,
             totalVentas: 0,
-            count: 0
+            count: 0,
           });
         }
         const z = zoneMap.get(zone);
-        z.avgScore += (r.stats?.score_calidad_pct ?? 0);
+        z.avgScore += r.stats?.score_calidad_pct ?? 0;
         z.totalVisitas += 1;
-        z.gpsPct += (r.stats?.gpsPct ?? 0);
-        z.totalExhibiciones += (r.exhibiciones?.length ?? 0);
-        z.totalVentas += (r.stats?.ventaTotal ?? 0);
+        z.gpsPct += r.stats?.gpsPct ?? 0;
+        z.totalExhibiciones += r.exhibiciones?.length ?? 0;
+        z.totalVentas += r.stats?.ventaTotal ?? 0;
         z.count += 1;
       });
-      
-      zoneData = Array.from(zoneMap.values()).map((z: any) => ({
-        zone: z.zone,
-        avgScore: z.count > 0 ? z.avgScore / z.count : 0,
-        totalVisitas: z.totalVisitas,
-        gpsPct: z.count > 0 ? z.gpsPct / z.count : 0,
-        totalExhibiciones: z.totalExhibiciones,
-        totalVentas: z.totalVentas
-      })).slice(0, 5);
+
+      zoneData = Array.from(zoneMap.values())
+        .map((z: any) => ({
+          zone: z.zone,
+          avgScore: z.count > 0 ? z.avgScore / z.count : 0,
+          totalVisitas: z.totalVisitas,
+          gpsPct: z.count > 0 ? z.gpsPct / z.count : 0,
+          totalExhibiciones: z.totalExhibiciones,
+          totalVentas: z.totalVentas,
+        }))
+        .slice(0, 5);
     }
-    
+
     this.radarChartData = {
       labels: radarLabels,
       datasets: zoneData.map((z: any, idx: number) => ({
@@ -523,9 +578,17 @@ export class ReportsComponent implements OnInit {
           Math.min(100, (z.totalExhibiciones ?? 0) / 2), // Normalizado a 100
           Math.min(100, (z.totalVentas ?? 0) / 1000), // Normalizado a 100 (asumiendo ventas en miles)
         ],
-        borderColor: ['#185FA5', '#5B9BD5', '#97C459', '#FAC775', '#F09595'][idx],
-        backgroundColor: ['rgba(24,95,165,0.2)', 'rgba(91,155,213,0.2)', 'rgba(151,196,89,0.2)', 'rgba(250,199,117,0.2)', 'rgba(240,149,149,0.2)'][idx],
-      }))
+        borderColor: ['#185FA5', '#5B9BD5', '#97C459', '#FAC775', '#F09595'][
+          idx
+        ],
+        backgroundColor: [
+          'rgba(24,95,165,0.2)',
+          'rgba(91,155,213,0.2)',
+          'rgba(151,196,89,0.2)',
+          'rgba(250,199,117,0.2)',
+          'rgba(240,149,149,0.2)',
+        ][idx],
+      })),
     };
 
     // 3. POLAR AREA CHART - Distribución de calidad de visitas
@@ -534,17 +597,22 @@ export class ReportsComponent implements OnInit {
       labels: ['Excelente', 'Bueno', 'Regular', 'Bajo'],
       datasets: [
         {
-          data: [scoreRanges[3], scoreRanges[2], scoreRanges[1], scoreRanges[0]],
+          data: [
+            scoreRanges[3],
+            scoreRanges[2],
+            scoreRanges[1],
+            scoreRanges[0],
+          ],
           backgroundColor: [
-            'rgba(151, 196, 89, 0.7)',  // Verde - Excelente
+            'rgba(151, 196, 89, 0.7)', // Verde - Excelente
             'rgba(133, 183, 235, 0.7)', // Azul - Bueno
             'rgba(250, 199, 117, 0.7)', // Amarillo - Regular
             'rgba(240, 149, 149, 0.7)', // Rojo - Bajo
           ],
           borderWidth: 1,
-          borderColor: '#fff'
-        }
-      ]
+          borderColor: '#fff',
+        },
+      ],
     };
 
     // 4. SCATTER CHART - Correlación entre Score y Ventas
@@ -562,25 +630,179 @@ export class ReportsComponent implements OnInit {
           borderColor: '#185FA5',
           pointRadius: 4,
           pointHoverRadius: 6,
-        }
-      ]
+        },
+      ],
     };
 
     // 5. LINE CHART - Ejecución Semanal vs Meta (movida desde Home)
     // Muestra la tendencia del score promedio a lo largo del tiempo
     this.lineChartData = {
       labels: trend.map((d: any) => d.date),
+      datasets: [
+        {
+          label: 'Score Promedio',
+          data: trend.map((d: any) => d.avgScore),
+          borderColor: '#f6d200',
+          backgroundColor: 'rgba(246, 210, 0, 0.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: '#f6d200',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+        },
+      ],
+    };
+
+    if (data.productStats) {
+      this.buildProductCharts(data);
+    }
+  }
+
+  buildProductCharts(data: ReportsData) {
+    console.log('[ReportsComponent] buildProductCharts() -> productStats received:', data.productStats);
+
+    if (!data.productStats || Object.keys(data.productStats).length === 0) {
+      console.warn('[ReportsComponent] No product stats available or is empty object.');
+      this.productStatsProcessed = false;
+      return;
+    }
+    this.productStatsProcessed = true;
+    const stats = data.productStats;
+    
+    // Build Health Chart
+    this.refreshHealthData(data.exhibidoresHealth);
+
+    const groups = this.dailyCaptureService.groupedProducts();
+    // Poblar mapa de productos para búsqueda rápida por marca
+    this.pidToBrandMap = {};
+    groups.forEach(g => {
+      g.items.forEach((i: any) => this.pidToBrandMap[i.pid] = g.marca);
+    });
+    
+    // Extraer marcas directamente de la Base de Datos (del catálogo asíncrono)
+    const dbBrands = groups.length > 0 ? groups.map(g => g.marca) : PRODUCTOS_PLANOGRAMA.map(g => g.marca);
+    const uniqueBrands = Array.from(new Set(dbBrands));
+
+    // Preparar lista de marcas para el dropdown
+    this.availableBrands = [
+      { label: 'Todas las marcas', value: null },
+      ...uniqueBrands.map(marca => ({ label: marca, value: marca }))
+    ];
+
+    this.allProductStatsRaw = Object.keys(stats).map(pid => {
+      const pData = stats[pid];
+      const name = this.getProductName(pid);
+      
+      // Asociar la marca: Primero buscar directamente en la DB
+      let marca = 'Otros';
+      const dbGroup = groups.find(g => g.items.some((i: any) => i.pid === pid));
+      
+      if (dbGroup) {
+        marca = dbGroup.marca;
+      } else {
+        // Fallback a catálogo local estático por si acaso
+        const staticGroup = PRODUCTOS_PLANOGRAMA.find(g => g.items.some(i => i.pid === pid));
+        if (staticGroup) marca = staticGroup.marca;
+      }
+      
+      console.log(`[ReportsComponent] Mapping PID: ${pid} -> Name: ${name}, Marca: ${marca}`);
+      return {
+        pid,
+        name,
+        marca,
+        total: pData.total,
+        exhibidores: pData.exhibidores
+      };
+    });
+
+    // Ordenar de mayor a menor globalmente
+    this.allProductStatsRaw.sort((a, b) => b.total - a.total);
+    
+    this.applyBrandFilter();
+  }
+
+  applyBrandFilter() {
+    const filtered = this.selectedBrand 
+      ? this.allProductStatsRaw.filter(p => p.marca === this.selectedBrand)
+      : this.allProductStatsRaw;
+
+    this.topProducts = filtered.slice(0, 7); 
+    this.bottomProducts = [...filtered].reverse().slice(0, 5); 
+    
+    this.productTopChartData = {
+      labels: this.topProducts.map(p => p.name.length > 20 ? p.name.substring(0,20)+'...' : p.name),
+      datasets: [
+        {
+          label: 'Frecuencia en puntos de venta',
+          data: this.topProducts.map(p => p.total),
+          backgroundColor: '#97C459', 
+          borderRadius: 4,
+        }
+      ]
+    };
+
+    const rData = this.reportsData();
+    const totalVisitas = rData?.metrics?.count || 1; 
+    
+    const stockoutData = filtered.map(p => {
+       const rate = Math.max(0, 100 - ((p.total / totalVisitas) * 100));
+       return {
+          ...p,
+          stockoutRate: rate.toFixed(1),
+          rateNum: rate
+       };
+    }).sort((a, b) => b.rateNum - a.rateNum);
+    
+    this.topFaltantes = stockoutData.slice(0, 5); 
+    this.updateHealthByBrand();
+  }
+
+  pidToBrandMap: Record<string, string> = {};
+  currentHealthStats = { optimo: 0, regular: 0, critico: 0 };
+
+  updateHealthByBrand() {
+    const data = this.reportsData();
+    if (!data?.rows) return;
+
+    if (!this.selectedBrand) {
+      // Usar datos globales del backend si no hay marca
+      this.refreshHealthData(data.exhibidoresHealth);
+      return;
+    }
+
+    const health = { optimo: 0, regular: 0, critico: 0 };
+    
+    data.rows.forEach(row => {
+      const exhibiciones = row.exhibiciones || [];
+      exhibiciones.forEach((ex: any) => {
+        // ¿Este exhibidor tiene productos de la marca seleccionada?
+        const hasBrandProduct = ex.productosMarcados?.some((pid: string) => this.pidToBrandMap[pid] === this.selectedBrand);
+        
+        if (hasBrandProduct) {
+          const val = ex.nivelEjecucion;
+          const isOptimo = val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80);
+          const isRegular = val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50);
+
+          if (isOptimo) health.optimo++;
+          else if (isRegular) health.regular++;
+          else health.critico++;
+        }
+      });
+    });
+
+    this.refreshHealthData(health);
+  }
+
+  refreshHealthData(h: any) {
+    this.currentHealthStats = h || { optimo: 0, regular: 0, critico: 0 };
+    this.exhibidoresHealthChartData = {
+      labels: ['Óptimo', 'Regular', 'Crítico'],
       datasets: [{
-        label: 'Score Promedio',
-        data: trend.map((d: any) => d.avgScore),
-        borderColor: '#f6d200',
-        backgroundColor: 'rgba(246, 210, 0, 0.1)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 4,
-        pointBackgroundColor: '#f6d200',
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
+        data: [this.currentHealthStats.optimo, this.currentHealthStats.regular, this.currentHealthStats.critico],
+        backgroundColor: ['#97C459', '#F59E0B', '#EF4444'],
+        hoverBackgroundColor: ['#86b04f', '#d97706', '#dc2626'],
+        borderWidth: 0
       }]
     };
   }
@@ -599,8 +821,8 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'circle',
             padding: 20,
             font: { size: 12, weight: '500' },
-            color: '#52525b'
-          }
+            color: '#52525b',
+          },
         },
         tooltip: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -613,8 +835,8 @@ export class ReportsComponent implements OnInit {
           displayColors: true,
           boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
           titleFont: { size: 13, weight: '600' },
-          bodyFont: { size: 12 }
-        }
+          bodyFont: { size: 12 },
+        },
       },
     };
 
@@ -631,8 +853,8 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'rect',
             padding: 20,
             font: { size: 12, weight: '500' },
-            color: '#52525b'
-          }
+            color: '#52525b',
+          },
         },
         tooltip: {
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
@@ -645,21 +867,21 @@ export class ReportsComponent implements OnInit {
           displayColors: true,
           boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
           titleFont: { size: 13, weight: '600' },
-          bodyFont: { size: 12 }
-        }
+          bodyFont: { size: 12 },
+        },
       },
       scales: {
         x: {
           grid: { display: false },
           ticks: {
             font: { size: 11, weight: '500' },
-            color: '#71717a'
-          }
+            color: '#71717a',
+          },
         },
         y: {
           beginAtZero: true,
           grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' }
+          ticks: { font: { size: 11 }, color: '#71717a' },
         },
       },
     };
@@ -669,17 +891,17 @@ export class ReportsComponent implements OnInit {
       ...base,
       plugins: {
         ...base.plugins,
-        legend: { display: false }
+        legend: { display: false },
       },
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 11, weight: '500' }, color: '#71717a' }
+          ticks: { font: { size: 11, weight: '500' }, color: '#71717a' },
         },
         y: {
           beginAtZero: true,
           grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' }
+          ticks: { font: { size: 11 }, color: '#71717a' },
         },
       },
     };
@@ -690,17 +912,17 @@ export class ReportsComponent implements OnInit {
       indexAxis: 'y' as const,
       plugins: {
         ...base.plugins,
-        legend: { display: false }
+        legend: { display: false },
       },
       scales: {
         x: {
           beginAtZero: true,
           grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' }
+          ticks: { font: { size: 11 }, color: '#71717a' },
         },
         y: {
           grid: { display: false },
-          ticks: { font: { size: 12, weight: '500' }, color: '#52525b' }
+          ticks: { font: { size: 12, weight: '500' }, color: '#52525b' },
         },
       },
     };
@@ -710,17 +932,17 @@ export class ReportsComponent implements OnInit {
       ...base,
       plugins: {
         ...base.plugins,
-        legend: { display: false }
+        legend: { display: false },
       },
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 11, weight: '500' }, color: '#52525b' }
+          ticks: { font: { size: 11, weight: '500' }, color: '#52525b' },
         },
         y: {
           beginAtZero: true,
           grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' }
+          ticks: { font: { size: 11 }, color: '#71717a' },
         },
       },
     };
@@ -738,8 +960,8 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'circle',
             padding: 15,
             font: { size: 11, weight: '500' },
-            color: '#52525b'
-          }
+            color: '#52525b',
+          },
         },
         tooltip: {
           backgroundColor: 'rgba(255, 255, 255, 0.98)',
@@ -751,7 +973,7 @@ export class ReportsComponent implements OnInit {
           cornerRadius: 10,
           displayColors: true,
           callbacks: {
-            label: function(context: any) {
+            label: function (context: any) {
               let label = context.dataset.label || '';
               if (label) {
                 label += ': ';
@@ -760,9 +982,9 @@ export class ReportsComponent implements OnInit {
                 label += context.parsed.y;
               }
               return label;
-            }
-          }
-        }
+            },
+          },
+        },
       },
       scales: {
         x: {
@@ -770,8 +992,8 @@ export class ReportsComponent implements OnInit {
           grid: { display: false },
           ticks: {
             font: { size: 11, weight: '500' },
-            color: '#71717a'
-          }
+            color: '#71717a',
+          },
         },
         y: {
           stacked: true,
@@ -780,20 +1002,20 @@ export class ReportsComponent implements OnInit {
           ticks: {
             font: { size: 11 },
             color: '#71717a',
-            callback: function(value: number) {
+            callback: function (value: number) {
               return value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value;
-            }
-          }
-        }
+            },
+          },
+        },
       },
       interaction: {
         mode: 'index' as const,
-        intersect: false
+        intersect: false,
       },
       animation: {
         duration: 750,
-        easing: 'easeOutQuart' as any
-      }
+        easing: 'easeOutQuart' as any,
+      },
     };
 
     // 1. DOUGHNUT CHART OPTIONS - Distribución porcentual
@@ -808,21 +1030,25 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'circle',
             padding: 15,
             font: { size: 11 },
-            color: '#52525b'
-          }
+            color: '#52525b',
+          },
         },
         tooltip: {
           callbacks: {
-            label: function(context: any) {
+            label: function (context: any) {
               const label = context.label || '';
               const value = context.parsed;
-              const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
-              const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+              const total = context.dataset.data.reduce(
+                (a: number, b: number) => a + b,
+                0,
+              );
+              const percentage =
+                total > 0 ? ((value / total) * 100).toFixed(1) : 0;
               return `${label}: ${value} visitas (${percentage}%)`;
-            }
-          }
-        }
-      }
+            },
+          },
+        },
+      },
     };
 
     // 2. RADAR CHART OPTIONS - Comparación multivariable
@@ -834,17 +1060,17 @@ export class ReportsComponent implements OnInit {
           grid: { color: '#f4f4f5' },
           pointLabels: {
             font: { size: 11, weight: '500' },
-            color: '#52525b'
+            color: '#52525b',
           },
           ticks: {
             backdropColor: 'transparent',
             color: '#71717a',
-            font: { size: 10 }
+            font: { size: 10 },
           },
           suggestedMin: 0,
-          suggestedMax: 100
-        }
-      }
+          suggestedMax: 100,
+        },
+      },
     };
 
     // 3. POLAR AREA CHART OPTIONS - Distribución por ángulo
@@ -856,14 +1082,14 @@ export class ReportsComponent implements OnInit {
           angleLines: { color: '#e4e4e7' },
           pointLabels: {
             font: { size: 11 },
-            color: '#52525b'
+            color: '#52525b',
           },
           ticks: {
             backdropColor: 'transparent',
-            color: '#71717a'
-          }
-        }
-      }
+            color: '#71717a',
+          },
+        },
+      },
     };
 
     // 4. SCATTER CHART OPTIONS - Correlación entre variables
@@ -873,11 +1099,11 @@ export class ReportsComponent implements OnInit {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: function(context: any) {
+            label: function (context: any) {
               return `Score: ${context.parsed.x}%, Ventas: $${context.parsed.y}`;
-            }
-          }
-        }
+            },
+          },
+        },
       },
       scales: {
         x: {
@@ -887,22 +1113,22 @@ export class ReportsComponent implements OnInit {
             display: true,
             text: 'Score (%)',
             font: { size: 12, weight: '500' },
-            color: '#52525b'
+            color: '#52525b',
           },
           grid: { color: '#f4f4f5' },
-          ticks: { color: '#71717a' }
+          ticks: { color: '#71717a' },
         },
         y: {
           title: {
             display: true,
             text: 'Ventas ($)',
             font: { size: 12, weight: '500' },
-            color: '#52525b'
+            color: '#52525b',
           },
           grid: { color: '#f4f4f5' },
-          ticks: { color: '#71717a' }
-        }
-      }
+          ticks: { color: '#71717a' },
+        },
+      },
     };
 
     // 5. LINE CHART OPTIONS - Ejecución Semanal vs Meta (movida desde Home)
@@ -921,21 +1147,27 @@ export class ReportsComponent implements OnInit {
           padding: 12,
           boxPadding: 6,
           usePointStyle: true,
-          callbacks: { label: (context: any) => ` Score: ${context.parsed.y}%` }
-        }
+          callbacks: {
+            label: (context: any) => ` Score: ${context.parsed.y}%`,
+          },
+        },
       },
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: '#71717a', font: { size: 11, weight: '500' } }
+          ticks: { color: '#71717a', font: { size: 11, weight: '500' } },
         },
         y: {
           min: 0,
           max: 100,
           grid: { color: '#f4f4f5', drawTicks: false },
-          ticks: { color: '#71717a', font: { size: 11 }, callback: (value: any) => `${value}%` }
-        }
-      }
+          ticks: {
+            color: '#71717a',
+            font: { size: 11 },
+            callback: (value: any) => `${value}%`,
+          },
+        },
+      },
     };
   }
 
@@ -980,7 +1212,7 @@ export class ReportsComponent implements OnInit {
           console.error('Error loading users:', error);
           this.availableUsers.set([]);
           this.selectedRouteUsers = [];
-        }
+        },
       });
     }
 
@@ -1000,7 +1232,8 @@ export class ReportsComponent implements OnInit {
       userIds = [user.sub];
     } else {
       // Si es supervisor y no seleccionó usuarios, usar array vacío para indicar todos
-      userIds = this.selectedRouteUsers.length === 0 ? [] : this.selectedRouteUsers;
+      userIds =
+        this.selectedRouteUsers.length === 0 ? [] : this.selectedRouteUsers;
     }
 
     // Generar PDF de rutas diarias (array vacío significa todos los usuarios para supervisor)
@@ -1026,8 +1259,8 @@ export class ReportsComponent implements OnInit {
 
       // Header con gradiente amarillo-naranja
       doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
-      doc.rect(margin, 10, pageWidth - (margin * 2), 35, 'F');
-      
+      doc.rect(margin, 10, pageWidth - margin * 2, 35, 'F');
+
       // Logo circular (simulado)
       doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
       doc.circle(margin + 15, 27.5, 10, 'F');
@@ -1035,7 +1268,7 @@ export class ReportsComponent implements OnInit {
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.text('MD', margin + 15, 32, { align: 'center' });
-      
+
       // Título centrado
       doc.setTextColor(white[0], white[1], white[2]);
       doc.setFontSize(18);
@@ -1043,7 +1276,12 @@ export class ReportsComponent implements OnInit {
       doc.text('REPORTE DE RUTAS', pageWidth / 2, 25, { align: 'center' });
       doc.setFontSize(12);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Fecha: ${new Date(date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth / 2, 35, { align: 'center' });
+      doc.text(
+        `Fecha: ${new Date(date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+        pageWidth / 2,
+        35,
+        { align: 'center' },
+      );
 
       // Información del reporte
       let y = 55;
@@ -1057,7 +1295,14 @@ export class ReportsComponent implements OnInit {
         startY: y,
         body: [
           ['Fecha del reporte', new Date(date).toLocaleDateString('es-MX')],
-          ['Usuarios', userIds.length === 0 ? 'Todos los usuarios' : (userIds.length === 1 && userIds[0] === this.auth.user()?.sub ? 'Mi reporte' : `${userIds.length} usuarios seleccionados`)],
+          [
+            'Usuarios',
+            userIds.length === 0
+              ? 'Todos los usuarios'
+              : userIds.length === 1 && userIds[0] === this.auth.user()?.sub
+                ? 'Mi reporte'
+                : `${userIds.length} usuarios seleccionados`,
+          ],
           ['Generado por', this.auth.user()?.username || 'N/A'],
           ['Rol', this.auth.user()?.role_name || 'N/A'],
         ],
@@ -1086,7 +1331,11 @@ export class ReportsComponent implements OnInit {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-      doc.text('Las rutas detalladas se mostrarán aquí con la información de visitas, GPS y tiempos.', margin, y);
+      doc.text(
+        'Las rutas detalladas se mostrarán aquí con la información de visitas, GPS y tiempos.',
+        margin,
+        y,
+      );
 
       // Footer
       const totalPages = (doc as any).getNumberOfPages();
@@ -1098,7 +1347,7 @@ export class ReportsComponent implements OnInit {
           `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
           pageWidth / 2,
           doc.internal.pageSize.height - 10,
-          { align: 'center' }
+          { align: 'center' },
         );
       }
 
@@ -1113,7 +1362,8 @@ export class ReportsComponent implements OnInit {
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.',
+        detail:
+          'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.',
       });
     }
   }
@@ -1132,29 +1382,42 @@ export class ReportsComponent implements OnInit {
 
   // Helper methods to get names from IDs
   getProductName(pid: string): string {
+    // Buscar primero en los catálogos importados estáticos para máxima confiabilidad
+    for (const group of PRODUCTOS_PLANOGRAMA) {
+      const prod = group.items.find((p) => p.pid === pid);
+      if (prod) {
+        return prod.name;
+      }
+    }
+    
+    // Fallback: tratar de buscar en el signal service si llegaran dinámicamente
     const allProducts = this.dailyCaptureService.groupedProducts();
     for (const brand of allProducts) {
-      const prod = brand.items.find(p => p.pid === pid);
-      if (prod) return prod.name;
+      const prod = brand.items.find((p) => p.pid === pid);
+      if (prod) {
+        return prod.name;
+      }
     }
+
+    console.warn('[getProductName] Product not found for PID:', pid, '- returning PID as fallback');
     return pid;
   }
 
   getLocationName(ubicacionId: string): string {
     const ubicaciones = this.dailyCaptureService.ubicaciones();
-    const loc = ubicaciones.find(u => u.id === ubicacionId);
+    const loc = ubicaciones.find((u) => u.id === ubicacionId);
     return loc ? loc.nombre : ubicacionId;
   }
 
   getConceptoName(conceptoId: string): string {
     const conceptos = this.dailyCaptureService.conceptos();
-    const concept = conceptos.find(c => c.id === conceptoId);
+    const concept = conceptos.find((c) => c.id === conceptoId);
     return concept ? concept.nombre : conceptoId;
   }
 
   getProductNames(pids: string[]): string[] {
     if (!pids || pids.length === 0) return [];
-    return pids.map(pid => this.getProductName(pid));
+    return pids.map((pid) => this.getProductName(pid));
   }
   captureChartAndExport(_type: string) {
     this.messageService.add({
@@ -1246,8 +1509,8 @@ export class ReportsComponent implements OnInit {
       const pageWidth = doc.internal.pageSize.width;
       const margin = 14;
 
-      // Colores corporativos
-      const primary: [number, number, number] = [24, 95, 165];
+      // Colores corporativos (simplified to reduce excessive color)
+      const primary: [number, number, number] = [100, 100, 100];
       const text: [number, number, number] = [9, 9, 11];
       const textMuted: [number, number, number] = [82, 82, 91];
       const bgLight: [number, number, number] = [244, 244, 245];
@@ -1255,277 +1518,426 @@ export class ReportsComponent implements OnInit {
       const warning: [number, number, number] = [251, 191, 36];
       const danger: [number, number, number] = [239, 68, 68];
 
-    // Header con logo
-    if (this.logoBase64) {
-      try {
-        doc.addImage(this.logoBase64, 'PNG', margin, 10, 40, 20);
-      } catch {
-        doc.setFontSize(20);
-        doc.setTextColor(primary[0], primary[1], primary[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.text('MEGA DULCES', margin, 20);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-        doc.setFontSize(8);
-        doc.text('Trade Marketing', margin, 26);
-      }
-    } else {
-      doc.setFillColor(primary[0], primary[1], primary[2]);
-      doc.roundedRect(margin, 10, 50, 22, 3, 3, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('MEGA', margin + 5, 20);
-      doc.text('DULCES', margin + 5, 28);
-    }
-
-    // Título del reporte
-    doc.setFontSize(20);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(text[0], text[1], text[2]);
-    doc.text('Reporte Ejecutivo', pageWidth - margin, 20, { align: 'right' });
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-    doc.text('Mercadeo Inteligente · Trade Marketing', pageWidth - margin, 28, { align: 'right' });
-
-    // Período
-    let y = 50;
-    doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
-    doc.roundedRect(margin, y, pageWidth - (margin * 2), 20, 4, 4, 'F');
-    doc.setFontSize(9);
-    doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-    doc.text('PERÍODO DE ANÁLISIS', margin + 6, y + 7);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(primary[0], primary[1], primary[2]);
-    doc.text(this.filtersState.rangeLabel(), margin + 6, y + 16);
-    doc.setFont('helvetica', 'normal');
-
-    y += 35;
-
-    // KPIs
-    if (this.pdfSections.find((s) => s.id === 'metrics')?.checked) {
-      doc.setFontSize(12);
+      // Header simplificado
+      doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('MÉTRICAS PRINCIPALES', margin, y);
-      y += 10;
-
-      autoTable(doc, {
-        startY: y,
-        head: [['KPI', 'Valor', 'Meta', 'Estado']],
-        body: this.kpiCards().map((k) => [
-          k.label,
-          k.value,
-          k.meta,
-          this.statusLabel(k.status),
-        ]),
-        theme: 'grid',
-        headStyles: {
-          fillColor: primary,
-          textColor: 255,
-          fontSize: 9,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 9,
-          textColor: text,
-        },
-        alternateRowStyles: {
-          fillColor: bgLight,
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      y = (doc as any).lastAutoTable.finalY + 15;
-    }
-
-    // Mobiliario
-    if (this.pdfSections.find((s) => s.id === 'furniture')?.checked) {
-      if (y > 220) {
-        doc.addPage();
-        y = 20;
-      }
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('CUMPLIMIENTO POR MOBILIARIO', margin, y);
-      y += 10;
-
-      const furnitureData = this.metasConfig.furniture().map((f) => {
-        const current = data.furniture?.[f.id] ?? 0;
-        const pct = Math.min(100, (current / f.target) * 100);
-        let status: KpiStatus = 'ok';
-        if (pct < 50) status = 'bad';
-        else if (pct < 80) status = 'warn';
-        return [
-          f.label,
-          `${current}/${f.target}`,
-          `${pct.toFixed(0)}%`,
-          this.statusLabel(status),
-        ];
-      });
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Activo', 'Progreso', 'Porcentaje', 'Estado']],
-        body: furnitureData,
-        theme: 'grid',
-        headStyles: {
-          fillColor: primary,
-          textColor: 255,
-          fontSize: 9,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 9,
-          textColor: text,
-        },
-        alternateRowStyles: {
-          fillColor: bgLight,
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      y = (doc as any).lastAutoTable.finalY + 15;
-    }
-
-    // Ranking
-    if (this.pdfSections.find((s) => s.id === 'ranking')?.checked && data.sellerStats) {
-      if (y > 180) {
-        doc.addPage();
-        y = 20;
-      }
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('RANKING DE EJECUTIVOS', margin, y);
-      y += 10;
-
-      autoTable(doc, {
-        startY: y,
-        head: [['#', 'Ejecutivo', 'Visitas', 'Score Prom.', 'Calificación']],
-        body: data.sellerStats.map((s: any, index: number) => {
-          let stars = '★★★';
-          if (s.avgScore >= 90) stars = '★★★★★';
-          else if (s.avgScore >= 80) stars = '★★★★';
-          else if (s.avgScore >= 70) stars = '★★★';
-          else if (s.avgScore >= 60) stars = '★★';
-          else stars = '★';
-          return [
-            (index + 1).toString(),
-            s.username,
-            s.totalVisitas.toString(),
-            `${s.avgScore}%`,
-            stars,
-          ];
-        }),
-        theme: 'grid',
-        headStyles: {
-          fillColor: primary,
-          textColor: 255,
-          fontSize: 9,
-          fontStyle: 'bold',
-          halign: 'center',
-        },
-        bodyStyles: {
-          fontSize: 9,
-          textColor: text,
-        },
-        columnStyles: {
-          0: { halign: 'center', cellWidth: 15 },
-          2: { halign: 'center', cellWidth: 20 },
-          3: { halign: 'center', cellWidth: 25 },
-          4: { halign: 'center', cellWidth: 30 },
-        },
-        alternateRowStyles: {
-          fillColor: bgLight,
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      y = (doc as any).lastAutoTable.finalY + 15;
-    }
-
-    // Detalle
-    if (this.pdfSections.find((s) => s.id === 'table')?.checked && data.rows?.length) {
-      doc.addPage();
-      let yDetail = 20;
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('REGISTROS DETALLADOS', margin, yDetail);
-      yDetail += 10;
-
-      autoTable(doc, {
-        startY: yDetail,
-        head: [['Folio', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta']],
-        body: data.rows.map((r: any) => {
-          const status = this.metasConfig.statusFor('score', r.stats?.puntuacionTotal ?? 0);
-          let statusText = 'OK';
-          if (status === 'warn') statusText = 'REGULAR';
-          if (status === 'bad') statusText = 'BAJO';
-          return [
-            r.folio?.substring(0, 8) || 'N/A',
-            new Date(r.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }),
-            r.captured_by_username?.substring(0, 20) || 'N/A',
-            r.zona_captura?.substring(0, 15) || 'N/A',
-            `${r.stats?.puntuacionTotal ?? 0}%`,
-            statusText,
-            `$${(r.stats?.ventaTotal ?? 0).toLocaleString()}`,
-          ];
-        }),
-        theme: 'grid',
-        headStyles: {
-          fillColor: primary,
-          textColor: 255,
-          fontSize: 8,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: text,
-        },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 20, halign: 'center' },
-          4: { cellWidth: 18, halign: 'center' },
-          5: { cellWidth: 20, halign: 'center' },
-          6: { cellWidth: 25, halign: 'right' },
-        },
-        alternateRowStyles: {
-          fillColor: bgLight,
-        },
-        margin: { left: margin, right: margin },
-      });
-    }
-
-    // Footer
-    const totalPages = (doc as any).getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
+      doc.text('MEGA DULCES', margin, 20);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
       doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-      doc.text(
-        `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
-        pageWidth / 2,
-        doc.internal.pageSize.height - 10,
-        { align: 'center' }
-      );
-    }
+      doc.text('Trade Marketing Report', margin, 28);
 
-    doc.save(`reporte_${f.startDate}_${f.endDate}.pdf`);
-    this.showPdfBuilder = false;
-    this.messageService.add({
-      severity: 'success',
-      summary: 'PDF generado',
-      detail: 'El reporte se ha generado correctamente.',
-    });
+      // Título del reporte
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.text('Reporte Ejecutivo', pageWidth - margin, 20, { align: 'right' });
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('Análisis de desempeño comercial', pageWidth - margin, 28, {
+        align: 'right',
+      });
+
+      // Período
+      let y = 50;
+      doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
+      doc.roundedRect(margin, y, pageWidth - margin * 2, 20, 4, 4, 'F');
+      doc.setFontSize(9);
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PERÍODO DE ANÁLISIS', margin + 6, y + 7);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(primary[0], primary[1], primary[2]);
+      doc.text(this.filtersState.rangeLabel(), margin + 6, y + 16);
+      doc.setFont('helvetica', 'normal');
+
+      y += 35;
+
+      // KPIs
+      if (this.pdfSections.find((s) => s.id === 'metrics')?.checked) {
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('MÉTRICAS PRINCIPALES', margin, y);
+        y += 10;
+
+        autoTable(doc, {
+          startY: y,
+          head: [['KPI', 'Valor', 'Meta', 'Estado']],
+          body: this.kpiCards().map((k) => [
+            k.label,
+            k.value,
+            k.meta,
+            this.statusLabel(k.status),
+          ]),
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 9,
+            fontStyle: 'bold',
+          },
+          bodyStyles: {
+            fontSize: 9,
+            textColor: text,
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Mobiliario
+      if (this.pdfSections.find((s) => s.id === 'furniture')?.checked) {
+        if (y > 220) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('CUMPLIMIENTO POR MOBILIARIO', margin, y);
+        y += 10;
+
+        const furnitureData = this.metasConfig.furniture().map((f) => {
+          const current = data.furniture?.[f.id] ?? 0;
+          const pct = Math.min(100, (current / f.target) * 100);
+          let status: KpiStatus = 'ok';
+          if (pct < 50) status = 'bad';
+          else if (pct < 80) status = 'warn';
+          return [
+            f.label,
+            `${current}/${f.target}`,
+            `${pct.toFixed(0)}%`,
+            this.statusLabel(status),
+          ];
+        });
+
+        autoTable(doc, {
+          startY: y,
+          head: [['Activo', 'Progreso', 'Porcentaje', 'Estado']],
+          body: furnitureData,
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 9,
+            fontStyle: 'bold',
+          },
+          bodyStyles: {
+            fontSize: 9,
+            textColor: text,
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Ranking
+      if (
+        this.pdfSections.find((s) => s.id === 'ranking')?.checked &&
+        data.sellerStats
+      ) {
+        if (y > 180) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('RANKING DE EJECUTIVOS', margin, y);
+        y += 10;
+
+        autoTable(doc, {
+          startY: y,
+          head: [['#', 'Ejecutivo', 'Visitas', 'Score Prom.', 'Calificación']],
+          body: data.sellerStats.map((s: any, index: number) => {
+            let stars = '★★★';
+            if (s.avgScore >= 90) stars = '★★★★★';
+            else if (s.avgScore >= 80) stars = '★★★★';
+            else if (s.avgScore >= 70) stars = '★★★';
+            else if (s.avgScore >= 60) stars = '★★';
+            else stars = '★';
+            return [
+              (index + 1).toString(),
+              s.username,
+              s.totalVisitas.toString(),
+              `${s.avgScore}%`,
+              stars,
+            ];
+          }),
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 9,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          bodyStyles: {
+            fontSize: 9,
+            textColor: text,
+          },
+          columnStyles: {
+            0: { halign: 'center', cellWidth: 15 },
+            2: { halign: 'center', cellWidth: 20 },
+            3: { halign: 'center', cellWidth: 25 },
+            4: { halign: 'center', cellWidth: 30 },
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Gráficas como tablas
+      if (this.pdfSections.find((s) => s.id === 'charts')?.checked) {
+        if (y > 200) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('ANÁLISIS VISUAL', margin, y);
+        y += 10;
+
+        // Tendencia de ejecución semanal (line chart data)
+        if (this.lineChartData && this.lineChartData.labels?.length > 0) {
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          doc.text('Tendencia de Ejecución Semanal', margin, y);
+          y += 8;
+
+          const trendData = this.lineChartData.labels.map(
+            (label: string, index: number) => ({
+              fecha: label,
+              score:
+                typeof this.lineChartData.datasets[0].data[index] === 'number'
+                  ? this.lineChartData.datasets[0].data[index].toFixed(1)
+                  : '0',
+            }),
+          );
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Fecha', 'Score']],
+            body: trendData.map((d: any) => [d.fecha, d.score + '%']),
+            theme: 'grid',
+            headStyles: {
+              fillColor: bgLight,
+              textColor: text,
+              fontSize: 8,
+              fontStyle: 'bold',
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: text,
+            },
+            alternateRowStyles: {
+              fillColor: [250, 250, 250],
+            },
+            margin: { left: margin, right: margin },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+        }
+
+        // Distribución de scores (doughnut chart data)
+        if (
+          this.doughnutChartData &&
+          this.doughnutChartData.labels?.length > 0
+        ) {
+          if (y > 220) {
+            doc.addPage();
+            y = 20;
+          }
+
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          doc.text('Distribución de Calidad de Visitas', margin, y);
+          y += 8;
+
+          const distData = this.doughnutChartData.labels.map(
+            (label: string, index: number) => ({
+              rango: label,
+              cantidad: this.doughnutChartData.datasets[0].data[index],
+            }),
+          );
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Rango', 'Cantidad']],
+            body: distData.map((d: any) => [d.rango, d.cantidad]),
+            theme: 'grid',
+            headStyles: {
+              fillColor: bgLight,
+              textColor: text,
+              fontSize: 8,
+              fontStyle: 'bold',
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: text,
+            },
+            alternateRowStyles: {
+              fillColor: [250, 250, 250],
+            },
+            margin: { left: margin, right: margin },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+        }
+
+        // Performance por zona (radar chart data)
+        if (this.radarChartData && this.radarChartData.datasets?.length > 0) {
+          if (y > 220) {
+            doc.addPage();
+            y = 20;
+          }
+
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          doc.text('Performance por Zona', margin, y);
+          y += 8;
+
+          const zoneData = this.radarChartData.datasets.map((ds: any) => ({
+            zona: ds.label,
+            score: ds.data[0]?.toFixed(1) || '0',
+            visitas: ds.data[1]?.toFixed(0) || '0',
+          }));
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Zona', 'Score', 'Visitas']],
+            body: zoneData.map((d: any) => [d.zona, d.score + '%', d.visitas]),
+            theme: 'grid',
+            headStyles: {
+              fillColor: bgLight,
+              textColor: text,
+              fontSize: 8,
+              fontStyle: 'bold',
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: text,
+            },
+            alternateRowStyles: {
+              fillColor: [250, 250, 250],
+            },
+            margin: { left: margin, right: margin },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+        }
+      }
+
+      // Detalle
+      if (
+        this.pdfSections.find((s) => s.id === 'table')?.checked &&
+        data.rows?.length
+      ) {
+        doc.addPage();
+        let yDetail = 20;
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(text[0], text[1], text[2]);
+        doc.text('REGISTROS DETALLADOS', margin, yDetail);
+        yDetail += 10;
+
+        autoTable(doc, {
+          startY: yDetail,
+          head: [
+            ['Folio', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta'],
+          ],
+          body: data.rows.map((r: any) => {
+            const status = this.metasConfig.statusFor(
+              'score',
+              r.stats?.puntuacionTotal ?? 0,
+            );
+            let statusText = 'OK';
+            if (status === 'warn') statusText = 'REGULAR';
+            if (status === 'bad') statusText = 'BAJO';
+            return [
+              r.folio?.substring(0, 8) || 'N/A',
+              new Date(r.fecha).toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: 'short',
+              }),
+              r.captured_by_username?.substring(0, 20) || 'N/A',
+              r.zona_captura?.substring(0, 15) || 'N/A',
+              `${r.stats?.puntuacionTotal ?? 0}%`,
+              statusText,
+              `$${(r.stats?.ventaTotal ?? 0).toLocaleString()}`,
+            ];
+          }),
+          theme: 'grid',
+          headStyles: {
+            fillColor: bgLight,
+            textColor: text,
+            fontSize: 8,
+            fontStyle: 'bold',
+          },
+          bodyStyles: {
+            fontSize: 8,
+            textColor: text,
+          },
+          columnStyles: {
+            0: { cellWidth: 22 },
+            1: { cellWidth: 20, halign: 'center' },
+            4: { cellWidth: 18, halign: 'center' },
+            5: { cellWidth: 20, halign: 'center' },
+            6: { cellWidth: 25, halign: 'right' },
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250],
+          },
+          margin: { left: margin, right: margin },
+        });
+      }
+
+      // Footer
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text(
+          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
+          pageWidth / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' },
+        );
+      }
+
+      doc.save(`reporte_${f.startDate}_${f.endDate}.pdf`);
+      this.showPdfBuilder = false;
+      this.messageService.add({
+        severity: 'success',
+        summary: 'PDF generado',
+        detail: 'El reporte se ha generado correctamente.',
+      });
     } catch (error) {
       console.error('Error generando PDF:', error);
       this.messageService.add({
@@ -1540,16 +1952,16 @@ export class ReportsComponent implements OnInit {
     try {
       console.log('Generando PDF para visita:', row.folio);
       console.log('Datos de visita:', row);
-      
+
       const doc = new jsPDF();
       const margin = 15;
       const pageWidth = doc.internal.pageSize.width;
 
       // Colores corporativos (paleta amarillo-naranja de la empresa)
-      const brandPrimary: [number, number, number] = [253, 231, 7];  // Amarillo
-      const brandOrange: [number, number, number] = [246, 143, 30];  // Naranja
-      const brandSunset: [number, number, number] = [240, 90, 40];   // Naranja oscuro
-      const brandLight: [number, number, number] = [255, 248, 188];  // Amarillo claro
+      const brandPrimary: [number, number, number] = [253, 231, 7]; // Amarillo
+      const brandOrange: [number, number, number] = [246, 143, 30]; // Naranja
+      const brandSunset: [number, number, number] = [240, 90, 40]; // Naranja oscuro
+      const brandLight: [number, number, number] = [255, 248, 188]; // Amarillo claro
       const text: [number, number, number] = [30, 30, 30];
       const textMuted: [number, number, number] = [100, 100, 100];
       const white: [number, number, number] = [255, 255, 255];
@@ -1557,8 +1969,8 @@ export class ReportsComponent implements OnInit {
 
       // Header con gradiente amarillo-naranja
       doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
-      doc.rect(margin, 10, pageWidth - (margin * 2), 35, 'F');
-      
+      doc.rect(margin, 10, pageWidth - margin * 2, 35, 'F');
+
       // Logo circular (simulado)
       doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
       doc.circle(margin + 15, 27.5, 10, 'F');
@@ -1566,7 +1978,7 @@ export class ReportsComponent implements OnInit {
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.text('MD', margin + 15, 32, { align: 'center' });
-      
+
       // Título centrado
       doc.setTextColor(white[0], white[1], white[2]);
       doc.setFontSize(18);
@@ -1577,43 +1989,76 @@ export class ReportsComponent implements OnInit {
 
       // Bloque de datos emisor/receptor
       let y = 55;
-      
+
       // Línea divisoria vertical
       doc.setDrawColor(textMuted[0], textMuted[1], textMuted[2]);
       doc.setLineWidth(0.1);
       doc.line(pageWidth / 2, y - 5, pageWidth / 2, y + 35);
-      
+
       // Columna izquierda - Datos del ejecutivo
       doc.setTextColor(text[0], text[1], text[2]);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
       doc.text('DATOS DEL EJECUTIVO', margin, y);
       y += 7;
-      
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(`Nombre: ${row.captured_by_username || 'N/A'}`, margin, y); y += 5;
-      doc.text(`Zona: ${row.zona_captura || 'N/A'}`, margin, y); y += 5;
-      doc.text(`Fecha: ${row.fecha ? new Date(row.fecha).toLocaleDateString('es-MX') : 'N/A'}`, margin, y); y += 5;
-      doc.text(`Hora inicio: ${row.hora_inicio ? new Date(row.hora_inicio).toLocaleTimeString('es-MX') : 'N/A'}`, margin, y); y += 5;
-      doc.text(`Hora fin: ${row.hora_fin ? new Date(row.hora_fin).toLocaleTimeString('es-MX') : 'N/A'}`, margin, y);
-      
+      doc.text(`Nombre: ${row.captured_by_username || 'N/A'}`, margin, y);
+      y += 5;
+      doc.text(`Zona: ${row.zona_captura || 'N/A'}`, margin, y);
+      y += 5;
+      doc.text(
+        `Fecha: ${row.fecha ? new Date(row.fecha).toLocaleDateString('es-MX') : 'N/A'}`,
+        margin,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `Hora inicio: ${row.hora_inicio ? new Date(row.hora_inicio).toLocaleTimeString('es-MX') : 'N/A'}`,
+        margin,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `Hora fin: ${row.hora_fin ? new Date(row.hora_fin).toLocaleTimeString('es-MX') : 'N/A'}`,
+        margin,
+        y,
+      );
+
       // Columna derecha - Datos de la visita
       y = 55;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.text('DATOS DE LA VISITA', pageWidth / 2 + 5, y);
       y += 7;
-      
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text(`Exhibiciones: ${row.exhibiciones?.length ?? 0}`, pageWidth / 2 + 5, y); y += 5;
-      doc.text(`Venta total: $${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`, pageWidth / 2 + 5, y); y += 5;
-      doc.text(`GPS: ${row.latitud && typeof row.latitud === 'number' ? `${row.latitud.toFixed(6)}, ${row.longitud.toFixed(6)}` : 'No capturado'}`, pageWidth / 2 + 5, y); y += 5;
-      
+      doc.text(
+        `Exhibiciones: ${row.exhibiciones?.length ?? 0}`,
+        pageWidth / 2 + 5,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `Venta total: $${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`,
+        pageWidth / 2 + 5,
+        y,
+      );
+      y += 5;
+      doc.text(
+        `GPS: ${row.latitud && typeof row.latitud === 'number' ? `${row.latitud.toFixed(6)}, ${row.longitud.toFixed(6)}` : 'No capturado'}`,
+        pageWidth / 2 + 5,
+        y,
+      );
+      y += 5;
+
       // Score badge
       const score = row.stats?.score_calidad_pct ?? 0;
-      const status = this.statusLabel(this.metasConfig.statusFor('score', score));
+      const status = this.statusLabel(
+        this.metasConfig.statusFor('score', score),
+      );
       doc.text(`Score: ${score}% (${status})`, pageWidth / 2 + 5, y);
 
       y += 15;
@@ -1622,16 +2067,17 @@ export class ReportsComponent implements OnInit {
       if (row.exhibiciones && row.exhibiciones.length > 0) {
         const exhibicionesData = row.exhibiciones.map((ex: any) => {
           try {
-            const productos = ex.productosMarcados && ex.productosMarcados.length > 0
-              ? this.getProductNames(ex.productosMarcados).join(', ')
-              : 'Sin productos';
-            
+            const productos =
+              ex.productosMarcados && ex.productosMarcados.length > 0
+                ? this.getProductNames(ex.productosMarcados).join(', ')
+                : 'Sin productos';
+
             return [
               this.getConceptoName(ex.conceptoId),
               ex.nivelEjecucion || 'N/A',
               ex.rangoCompra || ex.rango_compra || ex.rango || '-',
               productos,
-              '$' + ((ex.ventaAdicional || 0) || 0).toLocaleString('es-MX'),
+              '$' + (ex.ventaAdicional || 0 || 0).toLocaleString('es-MX'),
               (ex.puntuacionCalculada || 0).toString(),
             ];
           } catch (e) {
@@ -1685,9 +2131,20 @@ export class ReportsComponent implements OnInit {
         startY: y,
         body: [
           ['Score Total', `${row.stats?.score_calidad_pct ?? 0}%`],
-          ['Venta Total', `$${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`],
+          [
+            'Venta Total',
+            `$${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`,
+          ],
           ['Exhibiciones', (row.exhibiciones?.length ?? 0).toString()],
-          ['Estado', this.statusLabel(this.metasConfig.statusFor('score', row.stats?.score_calidad_pct ?? 0))],
+          [
+            'Estado',
+            this.statusLabel(
+              this.metasConfig.statusFor(
+                'score',
+                row.stats?.score_calidad_pct ?? 0,
+              ),
+            ),
+          ],
         ],
         theme: 'plain',
         bodyStyles: {
@@ -1697,7 +2154,12 @@ export class ReportsComponent implements OnInit {
         },
         columnStyles: {
           0: { cellWidth: 80, fontStyle: 'normal', textColor: textMuted },
-          1: { cellWidth: 40, fontStyle: 'bold', halign: 'right', textColor: brandSunset },
+          1: {
+            cellWidth: 40,
+            fontStyle: 'bold',
+            halign: 'right',
+            textColor: brandSunset,
+          },
         },
         margin: { left: pageWidth - 125, right: margin },
       });
@@ -1707,14 +2169,14 @@ export class ReportsComponent implements OnInit {
       // Pie de documento con firmas
       doc.setDrawColor(textMuted[0], textMuted[1], textMuted[2]);
       doc.setLineWidth(0.3);
-      
+
       // Firma ejecutivo
       doc.line(margin, y, margin + 60, y);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
       doc.text('Firma del Ejecutivo', margin, y + 5);
-      
+
       // Firma cliente
       doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
       doc.text('Firma del Cliente', pageWidth - margin - 60, y + 5);
@@ -1729,7 +2191,7 @@ export class ReportsComponent implements OnInit {
           `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
           pageWidth / 2,
           doc.internal.pageSize.height - 10,
-          { align: 'center' }
+          { align: 'center' },
         );
       }
 
@@ -1744,7 +2206,8 @@ export class ReportsComponent implements OnInit {
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'No se pudo generar el PDF de la visita. Por favor intenta nuevamente.',
+        detail:
+          'No se pudo generar el PDF de la visita. Por favor intenta nuevamente.',
       });
     }
   }
@@ -1782,21 +2245,25 @@ export class ReportsComponent implements OnInit {
 
   // --- Lógica del Diálogo de Metas ---
   openMetasDialog() {
-    this.editableFurniture = this.metasConfig.furniture().map(f => ({ ...f }));
-    this.editableKpi = this.metasConfig.kpiRanges().map(k => ({ ...k }));
+    this.editableFurniture = this.metasConfig
+      .furniture()
+      .map((f) => ({ ...f }));
+    this.editableKpi = this.metasConfig.kpiRanges().map((k) => ({ ...k }));
     this.showMetasDialog = true;
   }
 
   saveMetas() {
     // Al guardar, actualizamos el servicio local que maneja el localStorage
-    this.editableFurniture.forEach(f => this.metasConfig.updateFurnitureTarget(f.id, f.target));
+    this.editableFurniture.forEach((f) =>
+      this.metasConfig.updateFurnitureTarget(f.id, f.target),
+    );
     this.showMetasDialog = false;
     // Forzamos un refresco de los datos para aplicar los nuevos rangos
-    this.reportsData.set({...this.reportsData()!});
+    this.reportsData.set({ ...this.reportsData()! });
     this.messageService.add({
       severity: 'success',
       summary: 'Metas actualizadas',
-      detail: 'Las metas se han guardado correctamente'
+      detail: 'Las metas se han guardado correctamente',
     });
   }
 
