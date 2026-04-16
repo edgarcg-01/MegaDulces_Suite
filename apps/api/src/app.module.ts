@@ -19,6 +19,7 @@ import { VisitsModule } from './modules/visits/visits.module';
 import { ExhibitionsModule } from './modules/exhibitions/exhibitions.module';
 import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assignments.module';
 import { CronModule } from './modules/cron/cron.module';
+import { VisitasSyncModule } from './modules/visitas/visitas-sync.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -45,6 +46,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ExhibitionsModule,
     DailyAssignmentsModule,
     CronModule,
+    VisitasSyncModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],

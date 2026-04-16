@@ -14,6 +14,8 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { CheckboxModule } from 'primeng/checkbox';
 import { RadioButtonModule } from 'primeng/radiobutton';
+import { ChipModule } from 'primeng/chip';
+import { CardModule } from 'primeng/card';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ThemeService } from '../../../core/services/theme.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -50,6 +52,8 @@ import {
     ToastModule,
     CheckboxModule,
     RadioButtonModule,
+    ChipModule,
+    CardModule,
     // Spartan
     HlmBadgeDirective,
     HlmButtonDirective,
@@ -87,6 +91,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
   // ── Wizard State ──────────────────────────────────────────────────────────
   showWizard = false;
   wizardStep = 1;
+  searchQuery = signal<string>('');
 
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
     productosMarcados: [],
@@ -94,6 +99,29 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   // ── Computed ──────────────────────────────────────────────────────────────
   visitaNumero = computed(() => this.svc.visitasHoy().length + 1);
+
+  filteredProducts = computed(() => {
+    const query = this.searchQuery().toLowerCase();
+    const allProducts = this.svc.groupedProducts();
+    
+    if (!query) return [];
+    
+    const results: Array<{ pid: string; name: string; brand: string }> = [];
+    
+    for (const brand of allProducts) {
+      for (const prod of brand.items) {
+        if (prod.name.toLowerCase().includes(query) || brand.marca.toLowerCase().includes(query)) {
+          results.push({
+            pid: prod.pid,
+            name: prod.name,
+            brand: brand.marca
+          });
+        }
+      }
+    }
+    
+    return results.slice(0, 20); // Limit to 20 results
+  });
 
   statCards = computed(() => {
     const s = this.svc.stats();
@@ -333,6 +361,40 @@ export class CapturesComponent implements OnInit, OnDestroy {
       const updated = checked ? [...pm, pid] : pm.filter((id) => id !== pid);
       return { ...curr, productosMarcados: updated };
     });
+  }
+
+  onSearchChange(query: string) {
+    this.searchQuery.set(query);
+  }
+
+  clearSearch() {
+    this.searchQuery.set('');
+  }
+
+  addProducto(pid: string) {
+    this.currentExhibicion.update((curr) => {
+      const pm = curr.productosMarcados || [];
+      if (!pm.includes(pid)) {
+        return { ...curr, productosMarcados: [...pm, pid] };
+      }
+      return curr;
+    });
+  }
+
+  removeProducto(pid: string) {
+    this.currentExhibicion.update((curr) => {
+      const pm = curr.productosMarcados || [];
+      return { ...curr, productosMarcados: pm.filter((id) => id !== pid) };
+    });
+  }
+
+  getProductName(pid: string): string {
+    const allProducts = this.svc.groupedProducts();
+    for (const brand of allProducts) {
+      const prod = brand.items.find(p => p.pid === pid);
+      if (prod) return prod.name;
+    }
+    return pid;
   }
 
   onRangoCompraChange(val: string) {

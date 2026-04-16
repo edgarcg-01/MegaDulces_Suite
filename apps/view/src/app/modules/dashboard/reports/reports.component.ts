@@ -14,6 +14,8 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { ImageModule } from 'primeng/image';
 import { CheckboxModule } from 'primeng/checkbox';
+import { ChipModule } from 'primeng/chip';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { MessageService } from 'primeng/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -21,6 +23,13 @@ import autoTable from 'jspdf-autotable';
 import { ReportsService, ReportsData } from './reports.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { FiltersStateService } from '../reports/graphics/filters-state.service';
+import { DailyCaptureService } from '../captures/daily-capture.service';
+import { 
+  UBICACIONES_EXHIBICION, 
+  CONCEPTOS_EXHIBICION, 
+  PRODUCTOS_PLANOGRAMA,
+  BrandGroup 
+} from '../captures/daily-capture.models';
 import {
   MetasConfigService,
   KpiStatus,
@@ -64,6 +73,8 @@ interface PdfSection {
     DialogModule,
     ImageModule,
     CheckboxModule,
+    ChipModule,
+    MultiSelectModule,
     GlobalFiltersComponent,
   ],
   providers: [MessageService],
@@ -85,6 +96,7 @@ export class ReportsComponent implements OnInit {
   private messageService = inject(MessageService);
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
+  private dailyCaptureService = inject(DailyCaptureService);
 
   loading = signal(false);
   reportsData = signal<ReportsData | null>(null);
@@ -94,6 +106,17 @@ export class ReportsComponent implements OnInit {
   showDetail = false;
   showPdfBuilder = false;
   showComparison = false;
+  showRouteReportDialog = false;
+  selectedRouteUsers: string[] = [];
+  routeReportDate: string = '';
+  availableUsers = signal<any[]>([]);
+
+  // Verificar si el usuario es supervisor (para selección de usuarios en reporte de rutas)
+  isSupervisor = computed(() => {
+    const user = this.auth.user();
+    if (!user) return false;
+    return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
+  });
 
   pdfTitle = 'Reporte de mercadeo';
   pdfSections: PdfSection[] = [
@@ -452,16 +475,53 @@ export class ReportsComponent implements OnInit {
     // Muestra el desempeño de cada zona en múltiples dimensiones
     const radarZones = data.zoneStats?.slice(0, 5) ?? [];
     const radarLabels = ['Score Promedio', 'Visitas', 'Cumplimiento GPS', 'Exhibiciones', 'Ventas'];
+    
+    // Si no hay datos de zonas, generar datos desde las filas agrupadas por zona
+    let zoneData = radarZones;
+    if (zoneData.length === 0) {
+      const zoneMap = new Map<string, any>();
+      rows.forEach((r: any) => {
+        const zone = r.zona_captura || 'Sin zona';
+        if (!zoneMap.has(zone)) {
+          zoneMap.set(zone, {
+            zone,
+            avgScore: 0,
+            totalVisitas: 0,
+            gpsPct: 0,
+            totalExhibiciones: 0,
+            totalVentas: 0,
+            count: 0
+          });
+        }
+        const z = zoneMap.get(zone);
+        z.avgScore += (r.stats?.score_calidad_pct ?? 0);
+        z.totalVisitas += 1;
+        z.gpsPct += (r.stats?.gpsPct ?? 0);
+        z.totalExhibiciones += (r.exhibiciones?.length ?? 0);
+        z.totalVentas += (r.stats?.ventaTotal ?? 0);
+        z.count += 1;
+      });
+      
+      zoneData = Array.from(zoneMap.values()).map((z: any) => ({
+        zone: z.zone,
+        avgScore: z.count > 0 ? z.avgScore / z.count : 0,
+        totalVisitas: z.totalVisitas,
+        gpsPct: z.count > 0 ? z.gpsPct / z.count : 0,
+        totalExhibiciones: z.totalExhibiciones,
+        totalVentas: z.totalVentas
+      })).slice(0, 5);
+    }
+    
     this.radarChartData = {
       labels: radarLabels,
-      datasets: radarZones.map((z: any, idx: number) => ({
+      datasets: zoneData.map((z: any, idx: number) => ({
         label: z.zone,
         data: [
-          z.avgScore,
+          z.avgScore || 0,
           Math.min(100, (z.totalVisitas ?? 0) / 2), // Normalizado a 100
-          Math.random() * 40 + 60, // Simulado
-          Math.random() * 30 + 70, // Simulado
-          Math.random() * 50 + 50, // Simulado
+          z.gpsPct || 0,
+          Math.min(100, (z.totalExhibiciones ?? 0) / 2), // Normalizado a 100
+          Math.min(100, (z.totalVentas ?? 0) / 1000), // Normalizado a 100 (asumiendo ventas en miles)
         ],
         borderColor: ['#185FA5', '#5B9BD5', '#97C459', '#FAC775', '#F09595'][idx],
         backgroundColor: ['rgba(24,95,165,0.2)', 'rgba(91,155,213,0.2)', 'rgba(151,196,89,0.2)', 'rgba(250,199,117,0.2)', 'rgba(240,149,149,0.2)'][idx],
@@ -901,6 +961,162 @@ export class ReportsComponent implements OnInit {
     this.selectedRow = row;
     this.showDetail = true;
   }
+
+  openRouteReportDialog() {
+    const user = this.auth.user();
+    if (!user) return;
+
+    // Si es colaborador, usar su propio ID
+    if (!this.isSupervisor()) {
+      this.selectedRouteUsers = [user.sub];
+    } else {
+      // Si es supervisor, cargar usuarios disponibles
+      this.reportsService.getSellers().subscribe({
+        next: (users) => {
+          this.availableUsers.set(users || []);
+          this.selectedRouteUsers = [];
+        },
+        error: (error) => {
+          console.error('Error loading users:', error);
+          this.availableUsers.set([]);
+          this.selectedRouteUsers = [];
+        }
+      });
+    }
+
+    // Establecer fecha de hoy por defecto
+    this.routeReportDate = new Date().toISOString().split('T')[0];
+    this.showRouteReportDialog = true;
+  }
+
+  exportRouteReportPdf() {
+    const user = this.auth.user();
+    if (!user) return;
+
+    // Si es colaborador, usar su propio ID
+    // Si es supervisor y deja vacío, significa "todos sus usuarios"
+    let userIds: string[];
+    if (!this.isSupervisor()) {
+      userIds = [user.sub];
+    } else {
+      // Si es supervisor y no seleccionó usuarios, usar array vacío para indicar todos
+      userIds = this.selectedRouteUsers.length === 0 ? [] : this.selectedRouteUsers;
+    }
+
+    // Generar PDF de rutas diarias (array vacío significa todos los usuarios para supervisor)
+    this.generateRouteReportPdf(userIds, this.routeReportDate);
+    this.showRouteReportDialog = false;
+  }
+
+  generateRouteReportPdf(userIds: string[], date: string) {
+    try {
+      const doc = new jsPDF();
+      const margin = 15;
+      const pageWidth = doc.internal.pageSize.width;
+
+      // Colores corporativos (paleta amarillo-naranja de la empresa)
+      const brandPrimary: [number, number, number] = [253, 231, 7];
+      const brandOrange: [number, number, number] = [246, 143, 30];
+      const brandSunset: [number, number, number] = [240, 90, 40];
+      const brandLight: [number, number, number] = [255, 248, 188];
+      const text: [number, number, number] = [30, 30, 30];
+      const textMuted: [number, number, number] = [100, 100, 100];
+      const white: [number, number, number] = [255, 255, 255];
+      const grayLight: [number, number, number] = [245, 245, 245];
+
+      // Header con gradiente amarillo-naranja
+      doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
+      doc.rect(margin, 10, pageWidth - (margin * 2), 35, 'F');
+      
+      // Logo circular (simulado)
+      doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
+      doc.circle(margin + 15, 27.5, 10, 'F');
+      doc.setTextColor(brandSunset[0], brandSunset[1], brandSunset[2]);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MD', margin + 15, 32, { align: 'center' });
+      
+      // Título centrado
+      doc.setTextColor(white[0], white[1], white[2]);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('REPORTE DE RUTAS', pageWidth / 2, 25, { align: 'center' });
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Fecha: ${new Date(date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth / 2, 35, { align: 'center' });
+
+      // Información del reporte
+      let y = 55;
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('INFORMACIÓN DEL REPORTE', margin, y);
+      y += 8;
+
+      autoTable(doc, {
+        startY: y,
+        body: [
+          ['Fecha del reporte', new Date(date).toLocaleDateString('es-MX')],
+          ['Usuarios', userIds.length === 0 ? 'Todos los usuarios' : (userIds.length === 1 && userIds[0] === this.auth.user()?.sub ? 'Mi reporte' : `${userIds.length} usuarios seleccionados`)],
+          ['Generado por', this.auth.user()?.username || 'N/A'],
+          ['Rol', this.auth.user()?.role_name || 'N/A'],
+        ],
+        theme: 'plain',
+        bodyStyles: {
+          fontSize: 9,
+          textColor: text,
+          cellPadding: 3,
+        },
+        columnStyles: {
+          0: { cellWidth: 40, fontStyle: 'bold', textColor: textMuted },
+          1: { cellWidth: 'auto' },
+        },
+        margin: { left: margin, right: margin },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 15;
+
+      // Sección de rutas (placeholder por ahora)
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('RUTAS DEL DÍA', margin, y);
+      y += 8;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('Las rutas detalladas se mostrarán aquí con la información de visitas, GPS y tiempos.', margin, y);
+
+      // Footer
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text(
+          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
+          pageWidth / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' }
+        );
+      }
+
+      doc.save(`rutas_${date}.pdf`);
+      this.messageService.add({
+        severity: 'success',
+        summary: 'PDF generado',
+        detail: 'El reporte de rutas se ha generado correctamente.',
+      });
+    } catch (error) {
+      console.error('Error generando PDF de rutas:', error);
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.',
+      });
+    }
+  }
   openMap(lat: number, lng: number) {
     const url = `https://www.google.com/maps?q=${lat},${lng}`;
     const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -912,6 +1128,33 @@ export class ReportsComponent implements OnInit {
     const base =
       (this.reportsService as any).apiUrl?.replace('/reports', '') ?? '';
     return `${base}${url}`;
+  }
+
+  // Helper methods to get names from IDs
+  getProductName(pid: string): string {
+    const allProducts = this.dailyCaptureService.groupedProducts();
+    for (const brand of allProducts) {
+      const prod = brand.items.find(p => p.pid === pid);
+      if (prod) return prod.name;
+    }
+    return pid;
+  }
+
+  getLocationName(ubicacionId: string): string {
+    const ubicaciones = this.dailyCaptureService.ubicaciones();
+    const loc = ubicaciones.find(u => u.id === ubicacionId);
+    return loc ? loc.nombre : ubicacionId;
+  }
+
+  getConceptoName(conceptoId: string): string {
+    const conceptos = this.dailyCaptureService.conceptos();
+    const concept = conceptos.find(c => c.id === conceptoId);
+    return concept ? concept.nombre : conceptoId;
+  }
+
+  getProductNames(pids: string[]): string[] {
+    if (!pids || pids.length === 0) return [];
+    return pids.map(pid => this.getProductName(pid));
   }
   captureChartAndExport(_type: string) {
     this.messageService.add({
@@ -1294,47 +1537,216 @@ export class ReportsComponent implements OnInit {
   }
 
   exportSingleVisitPdf(row: any) {
-    const doc = new jsPDF();
-    doc.setFontSize(14);
-    doc.text(`Visita #${row.folio}`, 14, 20);
-    const status = this.statusLabel(
-      this.metasConfig.statusFor('score', row.stats?.puntuacionTotal ?? 0),
-    );
-    autoTable(doc, {
-      startY: 28,
-      body: [
-        ['Ejecutivo', row.captured_by_username],
-        ['Zona', row.zona_captura],
-        ['Fecha', new Date(row.fecha).toLocaleDateString()],
-        ['Hora inicio', new Date(row.hora_inicio).toLocaleTimeString()],
-        ['Hora fin', new Date(row.hora_fin).toLocaleTimeString()],
-        ['Score', (row.stats?.puntuacionTotal ?? 0) + '%'],
-        ['Estado', status],
-        ['Venta total', '$' + (row.stats?.ventaTotal ?? 0).toLocaleString()],
-        ['Exhibiciones', row.exhibiciones?.length ?? 0],
-        [
-          'GPS',
-          row.latitud
-            ? `${row.latitud.toFixed(6)}, ${row.longitud.toFixed(6)}`
-            : 'No capturado',
-        ],
-      ],
-    });
-    if (row.exhibiciones?.length) {
-      const afterY = (doc as any).lastAutoTable.finalY + 10;
-      doc.setFontSize(11);
-      doc.text('Exhibiciones:', 14, afterY);
+    try {
+      console.log('Generando PDF para visita:', row.folio);
+      console.log('Datos de visita:', row);
+      
+      const doc = new jsPDF();
+      const margin = 15;
+      const pageWidth = doc.internal.pageSize.width;
+
+      // Colores corporativos (paleta amarillo-naranja de la empresa)
+      const brandPrimary: [number, number, number] = [253, 231, 7];  // Amarillo
+      const brandOrange: [number, number, number] = [246, 143, 30];  // Naranja
+      const brandSunset: [number, number, number] = [240, 90, 40];   // Naranja oscuro
+      const brandLight: [number, number, number] = [255, 248, 188];  // Amarillo claro
+      const text: [number, number, number] = [30, 30, 30];
+      const textMuted: [number, number, number] = [100, 100, 100];
+      const white: [number, number, number] = [255, 255, 255];
+      const grayLight: [number, number, number] = [245, 245, 245];
+
+      // Header con gradiente amarillo-naranja
+      doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
+      doc.rect(margin, 10, pageWidth - (margin * 2), 35, 'F');
+      
+      // Logo circular (simulado)
+      doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
+      doc.circle(margin + 15, 27.5, 10, 'F');
+      doc.setTextColor(brandSunset[0], brandSunset[1], brandSunset[2]);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MD', margin + 15, 32, { align: 'center' });
+      
+      // Título centrado
+      doc.setTextColor(white[0], white[1], white[2]);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('REPORTE DE VISITA', pageWidth / 2, 25, { align: 'center' });
+      doc.setFontSize(12);
+      doc.text(`#${row.folio}`, pageWidth / 2, 35, { align: 'center' });
+
+      // Bloque de datos emisor/receptor
+      let y = 55;
+      
+      // Línea divisoria vertical
+      doc.setDrawColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.setLineWidth(0.1);
+      doc.line(pageWidth / 2, y - 5, pageWidth / 2, y + 35);
+      
+      // Columna izquierda - Datos del ejecutivo
+      doc.setTextColor(text[0], text[1], text[2]);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DATOS DEL EJECUTIVO', margin, y);
+      y += 7;
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`Nombre: ${row.captured_by_username || 'N/A'}`, margin, y); y += 5;
+      doc.text(`Zona: ${row.zona_captura || 'N/A'}`, margin, y); y += 5;
+      doc.text(`Fecha: ${row.fecha ? new Date(row.fecha).toLocaleDateString('es-MX') : 'N/A'}`, margin, y); y += 5;
+      doc.text(`Hora inicio: ${row.hora_inicio ? new Date(row.hora_inicio).toLocaleTimeString('es-MX') : 'N/A'}`, margin, y); y += 5;
+      doc.text(`Hora fin: ${row.hora_fin ? new Date(row.hora_fin).toLocaleTimeString('es-MX') : 'N/A'}`, margin, y);
+      
+      // Columna derecha - Datos de la visita
+      y = 55;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('DATOS DE LA VISITA', pageWidth / 2 + 5, y);
+      y += 7;
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`Exhibiciones: ${row.exhibiciones?.length ?? 0}`, pageWidth / 2 + 5, y); y += 5;
+      doc.text(`Venta total: $${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`, pageWidth / 2 + 5, y); y += 5;
+      doc.text(`GPS: ${row.latitud && typeof row.latitud === 'number' ? `${row.latitud.toFixed(6)}, ${row.longitud.toFixed(6)}` : 'No capturado'}`, pageWidth / 2 + 5, y); y += 5;
+      
+      // Score badge
+      const score = row.stats?.score_calidad_pct ?? 0;
+      const status = this.statusLabel(this.metasConfig.statusFor('score', score));
+      doc.text(`Score: ${score}% (${status})`, pageWidth / 2 + 5, y);
+
+      y += 15;
+
+      // Tabla de exhibiciones
+      if (row.exhibiciones && row.exhibiciones.length > 0) {
+        const exhibicionesData = row.exhibiciones.map((ex: any) => {
+          try {
+            const productos = ex.productosMarcados && ex.productosMarcados.length > 0
+              ? this.getProductNames(ex.productosMarcados).join(', ')
+              : 'Sin productos';
+            
+            return [
+              this.getConceptoName(ex.conceptoId),
+              ex.nivelEjecucion || 'N/A',
+              ex.rangoCompra || ex.rango_compra || ex.rango || '-',
+              productos,
+              '$' + ((ex.ventaAdicional || 0) || 0).toLocaleString('es-MX'),
+              (ex.puntuacionCalculada || 0).toString(),
+            ];
+          } catch (e) {
+            console.error('Error procesando exhibición:', e);
+            return ['N/A', 'N/A', 'N/A', 'Error', '$0', '0'];
+          }
+        });
+
+        autoTable(doc, {
+          startY: y,
+          head: [['FORMATO', 'NIVEL', 'RANGO', 'PRODUCTOS', 'VENTA', 'PUNTOS']],
+          body: exhibicionesData,
+          theme: 'grid',
+          headStyles: {
+            fillColor: brandOrange,
+            textColor: white,
+            fontSize: 9,
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          bodyStyles: {
+            fontSize: 8,
+            textColor: text,
+            cellPadding: 4,
+            valign: 'top',
+          },
+          columnStyles: {
+            0: { cellWidth: 25 },
+            1: { cellWidth: 20, halign: 'center' },
+            2: { cellWidth: 20, halign: 'center' },
+            3: { cellWidth: 'auto' },
+            4: { cellWidth: 25, halign: 'right' },
+            5: { cellWidth: 15, halign: 'right' },
+          },
+          alternateRowStyles: {
+            fillColor: grayLight,
+          },
+          margin: { left: margin, right: margin },
+        });
+
+        y = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // Bloque de totales
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('RESUMEN', pageWidth - margin, y, { align: 'right' });
+      y += 8;
+
       autoTable(doc, {
-        startY: afterY + 4,
-        head: [['Concepto', 'Ubicación', 'Puntuación']],
-        body: row.exhibiciones.map((ex: any) => [
-          ex.conceptoId ?? 'N/A',
-          ex.ubicacionId ?? 'N/A',
-          ex.puntuacionCalculada ?? 0,
-        ]),
+        startY: y,
+        body: [
+          ['Score Total', `${row.stats?.score_calidad_pct ?? 0}%`],
+          ['Venta Total', `$${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`],
+          ['Exhibiciones', (row.exhibiciones?.length ?? 0).toString()],
+          ['Estado', this.statusLabel(this.metasConfig.statusFor('score', row.stats?.score_calidad_pct ?? 0))],
+        ],
+        theme: 'plain',
+        bodyStyles: {
+          fontSize: 9,
+          textColor: text,
+          cellPadding: 3,
+        },
+        columnStyles: {
+          0: { cellWidth: 80, fontStyle: 'normal', textColor: textMuted },
+          1: { cellWidth: 40, fontStyle: 'bold', halign: 'right', textColor: brandSunset },
+        },
+        margin: { left: pageWidth - 125, right: margin },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 30;
+
+      // Pie de documento con firmas
+      doc.setDrawColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.setLineWidth(0.3);
+      
+      // Firma ejecutivo
+      doc.line(margin, y, margin + 60, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+      doc.text('Firma del Ejecutivo', margin, y + 5);
+      
+      // Firma cliente
+      doc.line(pageWidth - margin - 60, y, pageWidth - margin, y);
+      doc.text('Firma del Cliente', pageWidth - margin - 60, y + 5);
+
+      // Footer
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text(
+          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
+          pageWidth / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' }
+        );
+      }
+
+      doc.save(`visita_${row.folio}.pdf`);
+      this.messageService.add({
+        severity: 'success',
+        summary: 'PDF generado',
+        detail: 'El reporte de visita se ha generado correctamente.',
+      });
+    } catch (error) {
+      console.error('Error generando PDF de visita:', error);
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo generar el PDF de la visita. Por favor intenta nuevamente.',
       });
     }
-    doc.save(`visita_${row.folio}.pdf`);
   }
 
   exportSelectedVisitsPdf() {

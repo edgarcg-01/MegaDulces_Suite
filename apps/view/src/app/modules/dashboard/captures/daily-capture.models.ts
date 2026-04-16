@@ -70,7 +70,7 @@ export const UBICACIONES_EXHIBICION: UbicacionExhibicion[] = [
   { id: 'fondo', nombre: 'Al fondo', puntuacion: 5 },
 ];
 
-export const RANGOS_COMPRA = ['>500', '>1000', '>1500', '>2000', '+2000'];
+export const RANGOS_COMPRA = ['>500', '>1000', '>1500', '>2000', '>2500'];
 
 export const PRODUCTOS_PLANOGRAMA: BrandGroup[] = [
   {

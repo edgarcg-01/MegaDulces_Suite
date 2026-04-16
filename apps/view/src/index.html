@@ -2,34 +2,146 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Trade Marketing</title>
+  <title>Trade Marketing Offline</title>
   <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 
   <!-- Favicon - Logo Mega Dulces -->
   <link rel="icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
   <link rel="shortcut icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
 
   <!-- PWA - Web App Manifest -->
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="assets/manifest.webmanifest">
 
-  <!-- Theme Color para navegadores móviles (amarillo marca) -->
-  <meta name="theme-color" content="#fde707">
-  <meta name="msapplication-TileColor" content="#fde707">
+  <!-- Theme Color para navegadores móviles (azul trade marketing) -->
+  <meta name="theme-color" content="#1976d2">
+  <meta name="msapplication-TileColor" content="#1976d2">
+  <meta name="msapplication-config" content="browserconfig.xml">
 
   <!-- Apple Touch Icon - Logo Mega Dulces -->
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/logos/mega-dulces-logo.png">
-  <link rel="apple-touch-icon" sizes="152x152" href="assets/logos/mega-dulces-logo.png">
-  <link rel="apple-touch-icon" sizes="120x120" href="assets/logos/mega-dulces-logo.png">
-  <link rel="apple-touch-icon" sizes="76x76" href="assets/logos/mega-dulces-logo.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/icon-192x192.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="assets/icons/icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="assets/icons/icon-120x120.png">
+  <link rel="apple-touch-icon" sizes="76x76" href="assets/icons/icon-76x76.png">
 
   <!-- Meta tags para iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="TM Offline">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Trade Marketing">
 
-  <!-- Meta tags para descripción -->
-  <meta name="description" content="Sistema de Trade Marketing - Gestión de exhibiciones y captura de datos">
+  <!-- Meta tags para PWA -->
+  <meta name="application-name" content="TM Offline">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-touch-fullscreen" content="yes">
+  <meta name="format-detection" content="telephone=no">
+
+  <!-- Meta tags para descripción y SEO -->
+  <meta name="description" content="Sistema de Trade Marketing Offline - Gestión de visitas y exhibiciones sin conexión">
+  <meta name="keywords" content="trade marketing, offline, visitas, exhibiciones, sincronización">
+  <meta name="author" content="Trade Marketing Team">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="/">
+  <meta property="og:title" content="Trade Marketing Offline">
+  <meta property="og:description" content="Sistema de Trade Marketing Offline - Gestión de visitas y exhibiciones sin conexión">
+  <meta property="og:image" content="assets/icons/icon-512x512.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="/">
+  <meta property="twitter:title" content="Trade Marketing Offline">
+  <meta property="twitter:description" content="Sistema de Trade Marketing Offline - Gestión de visitas y exhibiciones sin conexión">
+  <meta property="twitter:image" content="assets/icons/icon-512x512.png">
+
+  <!-- Preload critical resources -->
+  <link rel="preload" href="assets/icons/icon-192x192.png" as="image">
+  <link rel="preload" href="assets/sw-offline.js" as="script">
+
+  <!-- Security headers (X-Frame-Options debe ir en headers HTTP, no en meta) -->
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+
+  <!-- PWA Installation prompt styles -->
+  <style>
+    .pwa-install-prompt {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+      color: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      animation: slideUp 0.3s ease-out;
+    }
+
+    .pwa-install-prompt.hide {
+      animation: slideDown 0.3s ease-out forwards;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(100px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes slideDown {
+      from { transform: translateY(0); opacity: 1; }
+      to { transform: translateY(100px); opacity: 0; }
+    }
+
+    .pwa-install-prompt-content {
+      flex: 1;
+    }
+
+    .pwa-install-prompt-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .pwa-install-prompt-text {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .pwa-install-prompt-buttons {
+      display: flex;
+      gap: 8px;
+      margin-left: 16px;
+    }
+
+    .pwa-install-prompt button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .pwa-install-prompt .install-btn {
+      background: white;
+      color: #1976d2;
+    }
+
+    .pwa-install-prompt .dismiss-btn {
+      background: transparent;
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+
+    .pwa-install-prompt .install-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+  </style>
 </head>
 <body>
   <app-root></app-root>

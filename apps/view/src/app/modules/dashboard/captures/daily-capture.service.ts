@@ -145,46 +145,89 @@ export class DailyCaptureService {
     }
   }
 
-  capturarUbicacion(): Promise<void> {
+  capturarUbicacion(): Promise<{ lat: number; lng: number; precision: number }> {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        console.error('Geolocalización no soportada en este navegador');
+        console.error('[GPS] Geolocalización no soportada en este navegador');
         reject('Geolocation not supported');
         return;
       }
 
-      // Intentar con alta precisión primero
+      console.log('[GPS] Iniciando captura de ubicación...');
+
+      // Coordenadas simuladas para desarrollo (Morelia, Michoacán)
+      const SIMULATED_GPS = false; // Cambiar a true para usar coordenadas simuladas
+      const SIMULATED_COORDS = {
+        lat: 19.7033,
+        lng: -101.1949,
+        precision: 15
+      };
+
+      if (SIMULATED_GPS) {
+        console.warn('[GPS] 🔧 Usando coordenadas SIMULADAS (modo desarrollo)');
+        this._latitud.set(SIMULATED_COORDS.lat);
+        this._longitud.set(SIMULATED_COORDS.lng);
+        resolve(SIMULATED_COORDS);
+        return;
+      }
+
+      // Intentar con alta precisión primero (timeout aumentado a 30s)
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          this._latitud.set(pos.coords.latitude);
-          this._longitud.set(pos.coords.longitude);
-          console.log('GPS capturado con alta precisión:', pos.coords.latitude, pos.coords.longitude);
-          resolve();
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const precision = pos.coords.accuracy;
+
+          this._latitud.set(lat);
+          this._longitud.set(lng);
+
+          console.log('[GPS] ✅ Señal GPS recuperada exitosamente:', {
+            latitud: lat,
+            longitud: lng,
+            precision: precision + ' metros',
+            timestamp: new Date(pos.timestamp).toISOString()
+          });
+
+          resolve({ lat, lng, precision });
         },
         (err) => {
-          console.warn('Error con GPS de alta precisión:', err.message);
-          // Intentar con baja precisión como fallback
+          console.warn('[GPS] ⚠️ Error con GPS de alta precisión:', err.message, '- Código:', err.code);
+          console.log('[GPS] Intentando con baja precisión...');
+
+          // Intentar con baja precisión como fallback (timeout aumentado a 20s)
           navigator.geolocation.getCurrentPosition(
             (pos) => {
-              this._latitud.set(pos.coords.latitude);
-              this._longitud.set(pos.coords.longitude);
-              console.log('GPS capturado con baja precisión:', pos.coords.latitude, pos.coords.longitude);
-              resolve();
+              const lat = pos.coords.latitude;
+              const lng = pos.coords.longitude;
+              const precision = pos.coords.accuracy;
+
+              this._latitud.set(lat);
+              this._longitud.set(lng);
+
+              console.log('[GPS] ✅ Señal GPS recuperada (baja precisión):', {
+                latitud: lat,
+                longitud: lng,
+                precision: precision + ' metros',
+                modo: 'baja precisión'
+              });
+
+              resolve({ lat, lng, precision });
             },
             (err2) => {
-              console.error('Fallo absoluto de GPS:', err2.message);
+              console.error('[GPS] ❌ Fallo absoluto de GPS:', err2.message, '- Código:', err2.code);
+              console.warn('[GPS] 💡 Tip: Activa el GPS del navegador o usa coordenadas simuladas cambiando SIMULATED_GPS=true en el código');
               reject(err2);
             },
             {
               enableHighAccuracy: false,
-              timeout: 10000,
+              timeout: 20000, // Aumentado de 10s a 20s
               maximumAge: 60000
             }
           );
         },
         {
           enableHighAccuracy: true,
-          timeout: 20000,
+          timeout: 30000, // Aumentado de 20s a 30s
           maximumAge: 0
         }
       );
@@ -272,6 +315,24 @@ export class DailyCaptureService {
     const fechaInicio = this._horaInicio()!;
     const localDateStr = fechaInicio.split('T')[0];
 
+    const latitud = this._latitud();
+    const longitud = this._longitud();
+
+    console.log('[saveCapturaTotal] 📤 Enviando datos al backend:', {
+      folio: customFolio,
+      latitud: latitud,
+      longitud: longitud,
+      totalExhibiciones: s.totalExhibiciones,
+      puntuacionTotal: s.puntuacionTotal,
+      horaInicio: this._horaInicio(),
+      horaFin: d.toISOString()
+    });
+
+    // Validar que tenemos coordenadas válidas
+    if (!latitud || !longitud || latitud === 0 || longitud === 0) {
+      console.warn('[saveCapturaTotal] ⚠️ GPS no disponible o inválido:', { latitud, longitud });
+    }
+
     const payload = {
       folio: customFolio,
       fechaCaptura: localDateStr,
@@ -279,13 +340,23 @@ export class DailyCaptureService {
       horaFin: d.toISOString(),
       exhibiciones: this._activeExhibiciones(),
       stats: s,
-      latitud: this._latitud(),
-      longitud: this._longitud(),
+      latitud: latitud || 0,
+      longitud: longitud || 0,
     };
+
+    console.log('[saveCapturaTotal] 📡 POST a /daily-captures con payload:', JSON.stringify(payload, null, 2));
 
     return this.http.post<any>(`${this.apiUrl}/daily-captures`, payload).pipe(
       tap((res: any) => {
-        console.log('[saveCapturaTotal] Response from backend:', res);
+        console.log('[saveCapturaTotal] ✅ Respuesta del backend:', res);
+        console.log('[saveCapturaTotal] 💾 Datos guardados en BD:', {
+          id: res.id,
+          folio: res.folio,
+          latitud: res.latitud,
+          longitud: res.longitud,
+          fecha: res.fecha,
+          hora_inicio: res.hora_inicio
+        });
         console.log('[saveCapturaTotal] Stats in response:', res.stats);
 
         const parsedRes: VisitaSnapshot = {

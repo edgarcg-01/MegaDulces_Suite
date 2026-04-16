@@ -10,6 +10,7 @@
       <p-button label="CSV" icon="pi pi-file-excel" severity="secondary" (onClick)="exportCsv()" [disabled]="loading()" styleClass="text-xs sm:text-sm whitespace-nowrap"></p-button>
       <p-button *ngIf="canEditMetas()" label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="openMetasDialog()" [disabled]="loading()"></p-button>
       <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="showPdfBuilder = true" [disabled]="loading()"></p-button>
+      <p-button label="Rutas" icon="pi pi-route" severity="secondary" styleClass="text-xs sm:text-sm whitespace-nowrap" (onClick)="openRouteReportDialog()" [disabled]="loading()"></p-button>
     </div>
   </div>
 
@@ -404,12 +405,12 @@
         <p-table [value]="selectedRow.exhibiciones || []" styleClass="p-datatable-sm">
           <ng-template pTemplate="header">
             <tr class="text-[10px] bg-surface-ground uppercase text-content-muted">
-              <th>Concepto</th><th class="text-center">Nivel</th><th class="text-center">Imagen</th><th class="text-right pr-3">Venta Adicional</th><th class="text-center">Productos</th><th class="text-right pr-3">Puntos</th>
+              <th>Formato</th><th class="text-center">Nivel</th><th class="text-center">Rango</th><th class="text-center">Imagen</th><th>Productos</th><th class="text-right pr-3">Venta</th><th class="text-right pr-3">Puntos</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-ex>
             <tr class="text-xs">
-              <td>{{ ex.conceptoNombre || ex.conceptoId || 'N/A' }}</td>
+              <td><span class="text-[9px] px-1.5 py-0.5 rounded bg-surface-100 border border-surface-300 font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span></td>
               <td class="text-center">
                 <span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
                   [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion === 'excelente', 'bg-amber-100 text-amber-800': ex.nivelEjecucion === 'medio', 'bg-red-100 text-red-800': ex.nivelEjecucion === 'bajo' }">
@@ -417,20 +418,56 @@
                 </span>
               </td>
               <td class="text-center">
-                <p-image *ngIf="ex.fotoUrl" [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición" width="50" [preview]="true" class="rounded shadow-sm cursor-zoom-in"></p-image>
-                <span *ngIf="!ex.fotoUrl" class="text-[9px] text-content-faint">Sin foto</span>
+                <span class="text-[9px] font-bold text-brand">{{ ex.rangoCompra || ex.rango_compra || ex.rango || '-' }}</span>
+              </td>
+              <td class="text-center">
+                <p-image *ngIf="ex.fotoUrl" [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición" width="40" [preview]="true" class="rounded shadow-sm cursor-zoom-in"></p-image>
+                <span *ngIf="!ex.fotoUrl" class="text-[9px] text-content-faint">-</span>
+              </td>
+              <td>
+                <div *ngIf="ex.productosMarcados && ex.productosMarcados.length > 0" class="flex flex-wrap gap-1">
+                  <p-chip *ngFor="let pid of ex.productosMarcados" [label]="getProductName(pid)" class="text-[8px] px-1 py-0.5 bg-surface-50 border border-surface-200 text-content-main"></p-chip>
+                </div>
+                <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-[9px] text-content-faint">Sin productos</span>
               </td>
               <td class="text-right pr-3 font-bold">${{ ex.ventaAdicional || 0 }}</td>
-              <td class="text-center">
-                <span *ngIf="ex.productosMarcados && ex.productosMarcados.length > 0" class="text-[9px] font-bold text-brand">{{ ex.productosMarcados.length }}</span>
-                <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-[9px] text-content-faint">0</span>
-              </td>
               <td class="text-right pr-3 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
             </tr>
           </ng-template>
         </p-table>
       </div>
     </div>
+  </p-dialog>
+
+  <p-dialog header="Reporte de Rutas" [(visible)]="showRouteReportDialog" [modal]="true" [style]="{ width: '400px' }">
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-2">Fecha del reporte</label>
+        <input type="date" [(ngModel)]="routeReportDate" name="routeReportDate" pInputText class="w-full" />
+      </div>
+      
+      <div *ngIf="isSupervisor()">
+        <label class="block text-sm font-medium mb-2">Seleccionar usuarios</label>
+        <p-multiSelect 
+          [options]="availableUsers()" 
+          [(ngModel)]="selectedRouteUsers" 
+          optionLabel="username" 
+          optionValue="id"
+          placeholder="Selecciona usuarios..."
+          class="w-full">
+        </p-multiSelect>
+        <p class="text-xs text-content-muted mt-1">Deja vacío para seleccionar todos tus usuarios</p>
+      </div>
+      
+      <div *ngIf="!isSupervisor()" class="p-3 bg-surface-ground rounded-lg border border-surface-border">
+        <p class="text-sm text-content-muted">Solo puedes generar tu reporte diario como colaborador.</p>
+      </div>
+    </div>
+    
+    <ng-template pTemplate="footer">
+      <p-button label="Cancelar" severity="secondary" (onClick)="showRouteReportDialog = false" text></p-button>
+      <p-button label="Generar PDF" icon="pi pi-file-pdf" styleClass="p-button-brand" (onClick)="exportRouteReportPdf()"></p-button>
+    </ng-template>
   </p-dialog>
 
   <p-toast></p-toast>

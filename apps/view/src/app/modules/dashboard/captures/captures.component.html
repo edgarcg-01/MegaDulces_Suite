@@ -305,6 +305,21 @@
     <div class="py-4 px-2" style="min-height: 320px;">
       <!-- Step 1: Ubicación -->
       <div *ngIf="wizardStep === 1" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Selecciona la ubicación exacta donde se encuentra el exhibidor que estás auditando. Esto ayuda a evaluar el impacto según la posición en la tienda.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
         <h4 class="font-bold text-content-main mb-2">1. ¿Dónde se encuentra la exhibición?</h4>
         <div class="grid grid-cols-2 gap-3" *ngIf="configPosiciones().length > 0">
           <div *ngFor="let ubi of configPosiciones()" 
@@ -326,6 +341,21 @@
 
       <!-- Step 2: Formato -->
       <div *ngIf="wizardStep === 2" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Identifica el tipo de mueble o formato del exhibidor. Cada formato tiene un peso diferente en la evaluación de calidad.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
         <h4 class="font-bold text-content-main mb-2">2. Formato del Mueble</h4>
         <div class="grid grid-cols-2 gap-3">
             <div *ngFor="let tip of configTipos()" 
@@ -342,6 +372,21 @@
 
       <!-- Step 3: Nivel -->
       <div *ngIf="wizardStep === 3" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Evalúa qué tan lleno y ordenado está el exhibidor. <strong>Bajo:</strong> espacios vacíos o a medio llenar. <strong>Alto:</strong> lleno solo con los dulces correctos.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
         <h4 class="font-bold text-content-main mb-2">3. Calidad de la Ejecución</h4>
         <div class="flex flex-col gap-2">
            <div *ngFor="let niv of configNiveles()" 
@@ -354,9 +399,158 @@
         </div>
       </div>
 
-      <!-- Step 4: Dinámica Comercial -->
-      <div *ngIf="wizardStep === 4" class="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <h4 class="font-bold text-content-main underline decoration-brand-orange/30 underline-offset-4">4. Impacto Comercial</h4>
+      <!-- Step 4: Productos -->
+      <div *ngIf="wizardStep === 4" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Busca y selecciona los productos que están presentes en el exhibidor. Puedes buscar por nombre de producto o marca. Los productos seleccionados se mostrarán arriba.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
+        <div class="flex justify-between items-center mb-2">
+          <h4 class="font-bold text-content-main">4. Productos Identificados</h4>
+          <span class="text-[9px] font-bold text-brand-sunset bg-brand-light px-2 py-0.5 rounded-full">{{currentExhibicion().productosMarcados?.length || 0}} seleccionados</span>
+        </div>
+
+        <!-- Selected Products Display -->
+        <div *ngIf="currentExhibicion().productosMarcados && currentExhibicion().productosMarcados!.length > 0" class="flex flex-wrap gap-2 p-3 bg-surface-ground rounded-xl border border-surface-border">
+          <p-chip 
+            *ngFor="let pid of currentExhibicion().productosMarcados" 
+            [label]="getProductName(pid)"
+            (onRemove)="removeProducto(pid)"
+            removable="true"
+            class="bg-brand-light border-brand/30 text-brand-sunset">
+          </p-chip>
+        </div>
+        
+        <!-- Smart Search Input -->
+        <div class="relative">
+          <div class="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted">
+            <i class="pi pi-search text-lg"></i>
+          </div>
+          <input 
+            type="text" 
+            [ngModel]="searchQuery()" 
+            (ngModelChange)="onSearchChange($event)"
+            placeholder="Buscar marcas o productos..." 
+            class="w-full pl-12 pr-12 py-4 bg-white border border-surface-border rounded-full text-base shadow-sm hover:shadow-md focus:shadow-lg focus:outline-none focus:border-brand-orange transition-all duration-200"
+            #searchInput>
+          <div *ngIf="searchQuery()" 
+               (click)="clearSearch()"
+               class="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-surface-ground hover:bg-surface-border flex items-center justify-center cursor-pointer transition-colors">
+            <i class="pi pi-times text-xs text-content-muted"></i>
+          </div>
+        </div>
+
+        <!-- Search Results Dropdown -->
+        <div *ngIf="searchQuery()" class="border border-surface-border rounded-2xl bg-white shadow-lg overflow-hidden">
+          <div *ngIf="filteredProducts().length === 0" class="p-6 text-center text-content-dim">
+            <i class="pi pi-search text-2xl mb-2 opacity-30"></i>
+            <p class="text-sm">No se encontraron productos</p>
+            <p class="text-xs text-content-faint mt-1">Intenta con otra búsqueda</p>
+          </div>
+          
+          <div *ngIf="filteredProducts().length > 0" class="max-h-[300px] overflow-y-auto">
+            <div class="px-4 py-2 bg-surface-ground border-b border-surface-border">
+              <span class="text-xs font-bold text-content-muted uppercase tracking-wider">{{filteredProducts().length}} resultados</span>
+            </div>
+            <div *ngFor="let prod of filteredProducts(); let last = last" 
+                 (click)="addProducto(prod.pid)"
+                 class="flex items-center gap-3 p-4 hover:bg-surface-ground cursor-pointer transition-colors"
+                 [class.border-b]="!last"
+                 [class.border-surface-border]="!last">
+              <div class="w-10 h-10 rounded-xl bg-brand-light flex items-center justify-center text-brand-orange">
+                <i class="pi pi-box"></i>
+              </div>
+              <div class="flex-1">
+                <div class="text-sm font-semibold text-content-main">{{prod.name}}</div>
+                <div class="text-xs text-content-dim flex items-center gap-1">
+                  <span class="px-1.5 py-0.5 bg-surface-ground rounded text-[10px] uppercase tracking-wider">{{prod.brand}}</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span *ngIf="currentExhibicion().productosMarcados?.includes(prod.pid)" class="text-xs font-bold text-brand">Seleccionado</span>
+                <i *ngIf="!currentExhibicion().productosMarcados?.includes(prod.pid)" class="pi pi-plus-circle text-brand-orange text-xl"></i>
+                <i *ngIf="currentExhibicion().productosMarcados?.includes(prod.pid)" class="pi pi-check-circle text-brand text-xl"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State - No Search -->
+        <div *ngIf="!searchQuery() && (!currentExhibicion().productosMarcados || currentExhibicion().productosMarcados!.length === 0)" 
+             class="p-8 text-center text-content-dim">
+          <div class="w-16 h-16 rounded-full bg-surface-ground flex items-center justify-center mx-auto mb-4">
+            <i class="pi pi-search text-2xl opacity-40"></i>
+          </div>
+          <p class="text-sm font-medium">Escribe para buscar productos</p>
+          <p class="text-xs text-content-faint mt-1">Busca por nombre de producto o marca</p>
+        </div>
+      </div>
+
+      <!-- Step 5: Evidencia -->
+      <div *ngIf="wizardStep === 5" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Toma una fotografía del exhibidor como evidencia de la auditoría. Esta foto es obligatoria y sirve como comprobante de la ejecución.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
+        <h4 class="font-bold text-content-main mb-2">5. Evidencia Fotográfica</h4>
+        
+        <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-2xl p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
+           <input type="file" accept="image/*" capture="environment" (change)="onFileSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
+           <div class="w-16 h-16 bg-brand-orange text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-orange/30">
+              <i class="pi pi-camera text-2xl"></i>
+           </div>
+           <div class="text-sm font-bold text-content-main">Tomar Fotografía</div>
+           <p class="text-xs text-content-dim mt-2 italic">Requerido para auditoría técnica</p>
+        </div>
+
+        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-2xl border-4 border-white shadow-xl overflow-hidden bg-black max-w-[280px] mx-auto">
+           <img [src]="currentExhibicion().fotoBase64" class="w-full h-64 object-cover">
+           <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center p-4">
+              <p-button icon="pi pi-trash" label="Cambiar Foto" severity="danger" size="small" (onClick)="removeFoto()"></p-button>
+           </div>
+        </div>
+      </div>
+
+      <!-- Step 6: Dinámica Comercial -->
+      <div *ngIf="wizardStep === 6" class="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Registra el impacto comercial de la exhibición: el monto de venta adicional obtenido y el rango de compra del socio. Estos datos ayudan a medir el éxito comercial.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
+          <h4 class="font-bold text-content-main underline decoration-brand-orange/30 underline-offset-4">6. Impacto Comercial</h4>
         
         <div class="space-y-2">
            <label class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
@@ -374,48 +568,6 @@
                       (ngModelChange)="onRangoCompraChange($event)"
                       placeholder="Seleccionar Rango..." 
                       class="w-full" styleClass="w-full"></p-select>
-        </div>
-      </div>
-
-      <!-- Step 5: Productos -->
-      <div *ngIf="wizardStep === 5" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div class="flex justify-between items-center mb-2">
-          <h4 class="font-bold text-content-main">5. Productos Identificados</h4>
-          <span class="text-[9px] font-bold text-brand-sunset bg-brand-light px-2 py-0.5 rounded-full">{{currentExhibicion().productosMarcados?.length || 0}} marcados</span>
-        </div>
-        
-        <div class="max-h-[300px] overflow-y-auto space-y-4 pr-2">
-           <div *ngFor="let brand of svc.groupedProducts()" class="space-y-2">
-              <div class="text-xs font-black text-content-muted uppercase tracking-widest border-l-2 border-brand-orange pl-2 bg-surface-ground py-1">{{brand.marca}}</div>
-              <div class="grid grid-cols-1 gap-2">
-                 <div *ngFor="let prod of brand.items"
-                      class="flex items-center gap-3 p-2 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-hover transition-colors">
-                    <p-checkbox [binary]="true" [ngModel]="currentExhibicion().productosMarcados?.includes(prod.pid)" (onChange)="toggleProducto(prod.pid, $event.checked)" class="shrink-0" styleClass="sm"></p-checkbox>
-                    <span class="text-xs sm:text-sm font-medium text-content-main flex-1">{{prod.name}}</span>
-                 </div>
-              </div>
-           </div>
-        </div>
-      </div>
-
-      <!-- Step 6: Evidencia -->
-      <div *ngIf="wizardStep === 6" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <h4 class="font-bold text-content-main mb-2">6. Evidencia Fotográfica</h4>
-        
-        <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-2xl p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
-           <input type="file" accept="image/*" capture="environment" (change)="onFileSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
-           <div class="w-16 h-16 bg-brand-orange text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-orange/30">
-              <i class="pi pi-camera text-2xl"></i>
-           </div>
-           <div class="text-sm font-bold text-content-main">Tomar Fotografía</div>
-           <p class="text-xs text-content-dim mt-2 italic">Requerido para auditoría técnica</p>
-        </div>
-
-        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-2xl border-4 border-white shadow-xl overflow-hidden bg-black max-w-[280px] mx-auto">
-           <img [src]="currentExhibicion().fotoBase64" class="w-full h-64 object-cover">
-           <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center p-4">
-              <p-button icon="pi pi-trash" label="Cambiar Foto" severity="danger" size="small" (onClick)="removeFoto()"></p-button>
-           </div>
         </div>
       </div>
 
