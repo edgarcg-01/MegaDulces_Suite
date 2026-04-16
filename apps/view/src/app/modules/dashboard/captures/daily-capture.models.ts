@@ -50,6 +50,7 @@ export interface VisitaSnapshot {
     puntuacionTotal: number;
     ventaTotal: number;
   };
+  _offline?: boolean; // Flag para identificar visitas guardadas offline
 }
 
 // ─── Mocks con puntuaciones (Simulando DB) ───────────────────────────────────

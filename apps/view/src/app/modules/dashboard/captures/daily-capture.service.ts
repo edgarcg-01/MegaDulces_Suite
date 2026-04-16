@@ -1,6 +1,6 @@
 import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, tap, forkJoin } from 'rxjs';
+import { Observable, tap, forkJoin, catchError, of, throwError, from, map } from 'rxjs';
 import {
   VisitaSnapshot,
   RegistroExhibicion,
@@ -9,12 +9,14 @@ import {
   BrandGroup,
 } from './daily-capture.models';
 import { AuthService } from '../../../core/services/auth.service';
+import { OfflineDailyCaptureService } from '../../../core/services/offline-daily-capture.service';
 import { environment } from '../../../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
 export class DailyCaptureService {
   private auth = inject(AuthService);
   private http = inject(HttpClient);
+  private offlineService = inject(OfflineDailyCaptureService);
   private apiUrl = environment.apiUrl;
 
   // --- Master Data (Fetched from API) ---
@@ -376,6 +378,81 @@ export class DailyCaptureService {
         this._captures.update((curr) => [parsedRes, ...curr]);
         this.clearActiveState();
       }),
+      catchError((error) => {
+        console.error('[saveCapturaTotal] ❌ Error al enviar al backend:', error);
+        console.error('[saveCapturaTotal] Error details:', {
+          status: error.status,
+          statusText: error.statusText,
+          message: error.message,
+          errorType: error.error?.type || 'unknown'
+        });
+
+        // Detectar si es error de red (offline)
+        const isNetworkError = !error.status || error.status === 0 || error.message?.includes('NetworkError') || error.message?.includes('ERR_INTERNET_DISCONNECTED');
+
+        if (isNetworkError) {
+          console.warn('[saveCapturaTotal] 📶 Detectado error de red, intentando guardar offline...');
+
+          // Guardar offline como fallback
+          return from(this.offlineService.guardarCapturaOffline(
+            'default', // tiendaId - ajustar según tu lógica
+            user.sub,
+            {
+              horaInicio: payload.horaInicio,
+              horaFin: payload.horaFin,
+              exhibiciones: payload.exhibiciones,
+              stats: payload.stats,
+              latitud: payload.latitud,
+              longitud: payload.longitud,
+              precision: 20
+            }
+          )).pipe(
+            tap((result) => {
+              console.log('[saveCapturaTotal] ✅ Visita guardada offline:', result);
+              
+              // Crear una respuesta simulada para mantener consistencia
+              const offlineRes: VisitaSnapshot = {
+                folio: `${customFolio}-OFFLINE`,
+                userId: user.sub,
+                fechaCaptura: localDateStr,
+                horaInicio: payload.horaInicio,
+                horaFin: payload.horaFin,
+                capturedBy: user.username,
+                zona: 'Offline',
+                exhibiciones: payload.exhibiciones,
+                stats: payload.stats
+              };
+
+              this._captures.update((curr) => [offlineRes, ...curr]);
+              this.clearActiveState();
+            }),
+            map(() => {
+              // Retornar un objeto simulado para que el componente funcione
+              return {
+                folio: `${customFolio}-OFFLINE`,
+                user_id: user.sub,
+                fecha: localDateStr,
+                hora_inicio: payload.horaInicio,
+                hora_fin: payload.horaFin,
+                captured_by_username: user.username,
+                zona_captura: 'Offline',
+                exhibiciones: payload.exhibiciones,
+                stats: payload.stats,
+                latitud: payload.latitud,
+                longitud: payload.longitud,
+                _offline: true // Flag para identificar visitas offline
+              } as any;
+            }),
+            catchError((offlineError) => {
+              console.error('[saveCapturaTotal] ❌ Error también al guardar offline:', offlineError);
+              return throwError(() => new Error(`Error de red y fallo al guardar offline: ${offlineError.message}`));
+            })
+          );
+        }
+
+        // Si no es error de red, propagar el error
+        return throwError(() => error);
+      })
     );
   }
 

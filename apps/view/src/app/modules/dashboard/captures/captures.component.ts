@@ -239,15 +239,30 @@ export class CapturesComponent implements OnInit, OnDestroy {
       next: (result) => {
         this.isSaving.set(false);
         this.lastResult = result;
+        
+        // Detectar si es visita offline
+        const isOffline = result._offline === true;
+        
         this.showResultDialog = true;
-        this.toast.add({
-          severity: 'success',
-          summary: 'Visita Finalizada',
-          detail: `Se ha registrado el folio ${result.folio}.`,
-        });
+        
+        if (isOffline) {
+          this.toast.add({
+            severity: 'warn',
+            summary: 'Visita Guardada Offline',
+            detail: `Folio ${result.folio}. Se sincronizará cuando haya conexión.`,
+            life: 5000
+          });
+        } else {
+          this.toast.add({
+            severity: 'success',
+            summary: 'Visita Finalizada',
+            detail: `Se ha registrado el folio ${result.folio}.`,
+          });
+        }
       },
       error: (err) => {
         this.isSaving.set(false);
+        console.error('[captures.component] Error al guardar visita:', err);
         this.toast.add({
           severity: 'error',
           summary: 'Error de Red',
