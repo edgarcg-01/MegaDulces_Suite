@@ -245,26 +245,22 @@ export class OfflineSyncService {
     }
 
     try {
-      // Preparar payload para el backend
+      // Preparar payload para el backend (mismo formato que daily-captures)
       const payload = {
-        id: visita.id, // UUID para idempotencia
-        tienda_id: visita.tiendaId,
-        user_id: visita.userId,
-        fecha: visita.fecha,
-        hora_inicio: visita.horaInicio,
-        hora_fin: visita.horaFin,
-        latitud: visita.latitud,
-        longitud: visita.longitud,
-        precision_gps: visita.precision,
+        folio: visita.id.substring(0, 8), // Usar parte del UUID como folio
+        fechaCaptura: visita.fecha,
+        horaInicio: visita.horaInicio,
+        horaFin: visita.horaFin,
         exhibiciones: visita.exhibiciones,
         stats: visita.stats,
-        flag_fraude: visita.flag_fraude || false,
-        fecha_creacion: visita.fecha, // Para auditoría
-        intentos_sincronizacion: visita.intentos_fallidos
+        latitud: visita.latitud,
+        longitud: visita.longitud,
+        precision: visita.precision
       };
 
-      // Enviar al backend
-      const response = await this.http.post<any>(`${this.apiUrl}/visitas/sincronizar`, payload).toPromise();
+      // Enviar al backend usando el mismo endpoint que daily-captures
+      const response = await this.http.post<any>(`${this.apiUrl}/daily-captures`, payload).toPromise();
+      console.log('[OfflineSync] Respuesta del backend:', response);
       
       // Marcar como sincronizada
       await this.db.marcarVisitaSincronizada(visita.id);
