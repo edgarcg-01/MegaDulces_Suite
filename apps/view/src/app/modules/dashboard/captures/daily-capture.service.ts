@@ -123,28 +123,65 @@ export class DailyCaptureService {
 
   // --- Visit Lifecycle Actions ---
   async iniciarVisita(): Promise<boolean> {
+    console.log('[iniciarVisita] 🚀 Iniciando visita...');
+    console.log('[iniciarVisita] Estado inicial de GPS:', { latitud: this._latitud(), longitud: this._longitud() });
+    console.log('[iniciarVisita] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
+
     this._horaInicio.set(new Date().toISOString());
     this._activeExhibiciones.set([]);
     this._latitud.set(null);
     this._longitud.set(null);
 
-    // Intentar capturar ubicación al iniciar la visita
-    try {
-      await this.capturarUbicacion();
-      console.log(
-        'GPS capturado exitosamente:',
-        this._latitud(),
-        this._longitud(),
-      );
-      return true;
-    } catch (error) {
-      console.warn(
-        'No se pudo caspturar GPS, continuando sin ubicación:',
-        error,
-      );
-      // No fallar la visita por GPS, pero registrar el problema
-      return true;
+    // Intentar capturar ubicación al iniciar la visita (con reintentos)
+    const MAX_RETRIES = 3;
+    let gpsCapturado = false;
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      console.log(`[iniciarVisita] 📡 Intento ${i + 1}/${MAX_RETRIES} de capturar GPS...`);
+      try {
+        await this.capturarUbicacion();
+        
+        // Verificar que se capturaron coordenadas válidas
+        const lat = this._latitud();
+        const lng = this._longitud();
+        
+        console.log(`[iniciarVisita] 📍 Coordenadas después de intento ${i + 1}:`, { latitud: lat, longitud: lng });
+        
+        if (lat && lng && lat !== 0 && lng !== 0) {
+          console.log('[iniciarVisita] ✅ GPS capturado exitosamente (intento', i + 1, '):', lat, lng);
+          gpsCapturado = true;
+          break;
+        } else {
+          console.warn('[iniciarVisita] ⚠️ GPS capturado pero coordenadas inválidas (intento', i + 1, '):', lat, lng);
+        }
+      } catch (error) {
+        console.warn('[iniciarVisita] ❌ Error capturando GPS (intento', i + 1, '):', error);
+      }
     }
+
+    console.log('[iniciarVisita] Estado final de GPS después de reintentos:', { latitud: this._latitud(), longitud: this._longitud() });
+
+    if (!gpsCapturado) {
+      console.error('[iniciarVisita] ❌ No se pudo capturar GPS después de', MAX_RETRIES, 'intentos');
+      
+      // Usar coordenadas simuladas como último recurso (descomentar en producción si es necesario)
+      const USE_SIMULATED_GPS = false;
+      if (USE_SIMULATED_GPS) {
+        const SIMULATED_COORDS = { lat: 19.7033, lng: -101.1949 };
+        console.warn('[iniciarVisita] 🔧 Usando coordenadas SIMULADAS:', SIMULATED_COORDS);
+        this._latitud.set(SIMULATED_COORDS.lat);
+        this._longitud.set(SIMULATED_COORDS.lng);
+        return true;
+      }
+      
+      // No permitir iniciar visita sin GPS
+      this._horaInicio.set(null);
+      this._activeExhibiciones.set([]);
+      throw new Error('No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.');
+    }
+
+    console.log('[iniciarVisita] ✅ Visita iniciada con GPS:', { latitud: this._latitud(), longitud: this._longitud() });
+    return true;
   }
 
   capturarUbicacion(): Promise<{ lat: number; lng: number; precision: number }> {
@@ -304,6 +341,9 @@ export class DailyCaptureService {
   saveCapturaTotal(): Observable<VisitaSnapshot> | null {
     if (!this.hasActiveVisit()) return null;
 
+    console.log('[saveCapturaTotal] 🚀 Iniciando guardado de visita total...');
+    console.log('[saveCapturaTotal] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
+
     const s = this.stats();
     const user = this.auth.user();
     if (!user) return null;
@@ -333,6 +373,9 @@ export class DailyCaptureService {
     // Validar que tenemos coordenadas válidas
     if (!latitud || !longitud || latitud === 0 || longitud === 0) {
       console.warn('[saveCapturaTotal] ⚠️ GPS no disponible o inválido:', { latitud, longitud });
+      console.warn('[saveCapturaTotal] 💡 El GPS debería haberse capturado al iniciar la visita');
+    } else {
+      console.log('[saveCapturaTotal] ✅ GPS disponible y válido:', { latitud, longitud });
     }
 
     const payload = {
@@ -392,8 +435,10 @@ export class DailyCaptureService {
 
         if (isNetworkError) {
           console.warn('[saveCapturaTotal] 📶 Detectado error de red, intentando guardar offline...');
+          console.log('[saveCapturaTotal] Coordenadas actuales:', { latitud: this._latitud(), longitud: this._longitud() });
+          console.log('[saveCapturaTotal] Coordenadas en payload:', { latitud: payload.latitud, longitud: payload.longitud });
 
-          // Guardar offline como fallback
+          // Guardar offline como fallback (incluso sin GPS)
           return from(this.offlineService.guardarCapturaOffline(
             'default', // tiendaId - ajustar según tu lógica
             user.sub,
@@ -402,8 +447,8 @@ export class DailyCaptureService {
               horaFin: payload.horaFin,
               exhibiciones: payload.exhibiciones,
               stats: payload.stats,
-              latitud: payload.latitud,
-              longitud: payload.longitud,
+              latitud: payload.latitud || this._latitud() || null,
+              longitud: payload.longitud || this._longitud() || null,
               precision: 20
             }
           )).pipe(

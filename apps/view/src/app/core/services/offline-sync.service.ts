@@ -297,19 +297,24 @@ export class OfflineSyncService {
     ubicacion: Coordenada & { precision: number }
   ): Promise<string> {
     try {
-      // Validar geolocalización
-      const tienda = await this.db.getTiendaById(tiendaId);
-      if (!tienda) {
-        throw new Error('Tienda no encontrada en catálogo offline');
-      }
+      console.log('[OfflineSync] Guardando visita offline:', { tiendaId, userId, ubicacion });
 
-      const validacion = this.geoValidation.validarUbicacion(
-        ubicacion,
-        { lat: tienda.lat, lng: tienda.lng }
-      );
-
-      if (!validacion.valido) {
-        throw new Error(validacion.mensaje);
+      // Validar geolocalización (opcional - solo si hay tienda en catálogo)
+      let flag_fraude = false;
+      try {
+        const tienda = await this.db.getTiendaById(tiendaId);
+        if (tienda) {
+          const validacion = this.geoValidation.validarUbicacion(
+            ubicacion,
+            { lat: tienda.lat, lng: tienda.lng }
+          );
+          flag_fraude = !validacion.valido || validacion.nivelConfianza === 'baja';
+          console.log('[OfflineSync] Validación de ubicación:', validacion);
+        } else {
+          console.warn('[OfflineSync] Tienda no encontrada en catálogo, guardando sin validación');
+        }
+      } catch (geoError) {
+        console.warn('[OfflineSync] Error en validación geográfica, continuando:', geoError);
       }
 
       // Guardar visita pendiente
@@ -324,7 +329,7 @@ export class OfflineSyncService {
         precision: ubicacion.precision,
         exhibiciones: datosVisita.exhibiciones,
         stats: datosVisita.stats,
-        flag_fraude: validacion.nivelConfianza === 'baja'
+        flag_fraude
       });
 
       // Actualizar contador de pendientes

@@ -193,11 +193,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
           detail: 'Ubicación capturada correctamente.',
         });
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[captures.component] Error al iniciar visita:', error);
       this.toast.add({
-        severity: 'warn',
-        summary: 'Visita Iniciada',
-        detail: 'Sin ubicación GPS, pero puede continuar.',
+        severity: 'error',
+        summary: 'Error de GPS',
+        detail: error.message || 'No se pudo capturar la ubicación. Verifique que el GPS esté activado.',
+        life: 5000
       });
     }
   }

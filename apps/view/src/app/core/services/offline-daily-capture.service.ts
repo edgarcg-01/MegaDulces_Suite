@@ -93,10 +93,20 @@ export class OfflineDailyCaptureService {
     visitaId?: string;
   }> {
     try {
-      if (!datosVisita.latitud || !datosVisita.longitud) {
+      console.log('[OfflineDailyCapture] Intentando guardar visita offline:', {
+        latitud: datosVisita.latitud,
+        longitud: datosVisita.longitud
+      });
+
+      // GPS es obligatorio
+      if (!datosVisita.latitud || !datosVisita.longitud || datosVisita.latitud === 0 || datosVisita.longitud === 0) {
+        console.error('[OfflineDailyCapture] ❌ GPS no disponible o inválido:', {
+          latitud: datosVisita.latitud,
+          longitud: datosVisita.longitud
+        });
         return {
           exito: false,
-          mensaje: 'No se ha capturado la ubicación GPS'
+          mensaje: 'GPS no disponible. Por favor espere a que se capture la ubicación antes de guardar la visita.'
         };
       }
 
