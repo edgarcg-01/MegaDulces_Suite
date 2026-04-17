@@ -66,6 +66,12 @@ export class PlanogramsController {
 export class PlanogramsProductsController {
   constructor(private readonly planogramsService: PlanogramsService) {}
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Obtiene un producto por ID' })
+  async getProduct(@Param('id') id: string) {
+    return this.planogramsService.getProduct(id);
+  }
+
   @Put(':id')
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Actualiza datos de un producto' })

@@ -10,7 +10,7 @@ import { Router } from '@angular/router';
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule],
   templateUrl: './login.component.html',
-  styleUrls: ['./login.component.css']
+  styleUrls: ['./login.component.css'],
 })
 export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
@@ -20,7 +20,7 @@ export class LoginComponent implements OnInit {
 
   loginForm = this.fb.group({
     username: ['', [Validators.required]],
-    password: ['', [Validators.required, Validators.minLength(6)]]
+    password: ['', [Validators.required, Validators.minLength(6)]],
   });
 
   errorMessage: string | null = null;
@@ -45,7 +45,7 @@ export class LoginComponent implements OnInit {
 
     const credentials = {
       username: this.loginForm.value.username!,
-      password: this.loginForm.value.password!
+      password: this.loginForm.value.password!,
     };
 
     // Usando HttpClient subscripción estándar
@@ -53,7 +53,7 @@ export class LoginComponent implements OnInit {
       next: () => {
         this.isLoading = false;
         const user = this.authService.user();
-        
+
         if (user && user.role_name === 'colaborador') {
           // Colaboradores van directamente a la captura diaria
           this.router.navigate(['/dashboard/captures']);
@@ -65,11 +65,12 @@ export class LoginComponent implements OnInit {
       error: (err) => {
         this.isLoading = false;
         if (err.status === 401) {
-          this.errorMessage = 'Credenciales incorrectas. Verifica tu usuario y contraseña.';
+          this.errorMessage =
+            'Credenciales incorrectas. Verifica tu usuario y contraseña.';
         } else {
           this.errorMessage = 'Error de conexión. Inténtalo de nuevo.';
         }
-      }
+      },
     });
   }
 }

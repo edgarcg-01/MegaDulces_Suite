@@ -82,6 +82,17 @@ export class PwaInstallService {
   dismissInstallPrompt(): void {
     this.deferredPrompt = null;
     this.installPromptSource.next(false);
+    
+    // Ocultar/remover el prompt visualmente
+    const prompt = document.querySelector('.pwa-install-prompt');
+    if (prompt) {
+      prompt.classList.add('hide');
+      setTimeout(() => {
+        if (prompt.parentElement) {
+          prompt.remove();
+        }
+      }, 300);
+    }
   }
 
   canInstall(): boolean {
@@ -149,21 +160,41 @@ export class PwaInstallService {
     // Crear nuevo prompt
     const prompt = document.createElement('div');
     prompt.className = 'pwa-install-prompt';
-    prompt.innerHTML = `
-      <div class="pwa-install-prompt-content">
-        <div class="pwa-install-prompt-title">📱 Instalar Trade Marketing Offline</div>
-        <div class="pwa-install-prompt-text">
-          Instala esta app para usarla sin conexión y acceder más rápido.
-        </div>
-      </div>
-      <div class="pwa-install-prompt-buttons">
-        <button class="install-btn" onclick="window.pwaInstallService.installPWA()">Instalar</button>
-        <button class="dismiss-btn" onclick="window.pwaInstallService.dismissInstallPrompt()">Ahora no</button>
-      </div>
-    `;
 
-    // Hacer el servicio disponible globalmente para los onclick
-    (window as any).pwaInstallService = this;
+    // Crear contenido
+    const content = document.createElement('div');
+    content.className = 'pwa-install-prompt-content';
+
+    const title = document.createElement('div');
+    title.className = 'pwa-install-prompt-title';
+    title.textContent = '📱 Instalar Trade Marketing';
+
+    const text = document.createElement('div');
+    text.className = 'pwa-install-prompt-text';
+    text.textContent = 'Instala esta app para acceder más rápido.';
+
+    content.appendChild(title);
+    content.appendChild(text);
+
+    // Crear botones
+    const buttonsDiv = document.createElement('div');
+    buttonsDiv.className = 'pwa-install-prompt-buttons';
+
+    const installBtn = document.createElement('button');
+    installBtn.className = 'install-btn';
+    installBtn.textContent = 'Instalar';
+    installBtn.addEventListener('click', () => this.installPWA());
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.className = 'dismiss-btn';
+    dismissBtn.textContent = 'Ahora no';
+    dismissBtn.addEventListener('click', () => this.dismissInstallPrompt());
+
+    buttonsDiv.appendChild(installBtn);
+    buttonsDiv.appendChild(dismissBtn);
+
+    prompt.appendChild(content);
+    prompt.appendChild(buttonsDiv);
 
     // Agregar al DOM
     document.body.appendChild(prompt);

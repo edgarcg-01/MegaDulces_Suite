@@ -31,6 +31,12 @@ export class PlanogramsService {
     return product;
   }
 
+  async getProduct(id: string) {
+    const product = await this.knex('products').where({ id }).first();
+    if (!product) throw new Error('Product not found');
+    return product;
+  }
+
   async updateBrand(id: string, data: any) {
     const [brand] = await this.knex('brands')
       .where({ id })

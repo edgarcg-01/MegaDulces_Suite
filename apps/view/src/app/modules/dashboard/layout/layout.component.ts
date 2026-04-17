@@ -9,11 +9,14 @@ import {
   HostListener,
   ViewChild,
   ElementRef,
+  OnInit,
+  OnDestroy,
 } from '@angular/core';
 import { CommonModule, DOCUMENT } from '@angular/common';
 import { RouterModule, Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ThemeService } from '../../../core/services/theme.service';
+import { DataUpdateService } from '../../../core/services/data-update.service';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -23,12 +26,13 @@ import { Permission } from '../../../core/constants/permissions';
   templateUrl: './layout.component.html',
   styleUrls: ['./layout.component.css'],
 })
-export class LayoutComponent {
+export class LayoutComponent implements OnInit, OnDestroy {
   private authService = inject(AuthService);
   private router      = inject(Router);
   themeService        = inject(ThemeService);
   private renderer    = inject(Renderer2);
   private document    = inject(DOCUMENT);
+  private dataUpdateService = inject(DataUpdateService);
 
   @ViewChild('mainContainer') mainContainer!: ElementRef<HTMLElement>;
 
@@ -43,6 +47,10 @@ export class LayoutComponent {
   showScrollTop    = signal(false);
   isMobile         = signal(window.innerWidth < 1024);
 
+  // ── Data Update ──────────────────────────────────────────────────
+  hasPendingUpdate = this.dataUpdateService.hasPendingUpdate;
+  isPwaInstalled = this.dataUpdateService.isPwaInstalled;
+
   // ── Effects ──────────────────────────────────────────────────────
   constructor() {
     effect(() => {
@@ -52,6 +60,27 @@ export class LayoutComponent {
         this.renderer.removeClass(this.document.body, 'theme-monochrome');
       }
     });
+  }
+
+  ngOnInit(): void {
+    // Iniciar polling para detectar actualizaciones cada 5 minutos
+    this.dataUpdateService.startPolling(5);
+    
+    console.log('[LayoutComponent] Inicializado con polling de actualizaciones');
+  }
+
+  ngOnDestroy(): void {
+    // Detener polling al destruir el componente
+    this.dataUpdateService.stopPolling();
+  }
+
+  // ── Data Update Methods ────────────────────────────────────────────
+  refreshData(): void {
+    this.dataUpdateService.refreshData();
+  }
+
+  forceCheckUpdates(): void {
+    this.dataUpdateService.forceCheckUpdates();
   }
 
   // ── Listeners ────────────────────────────────────────────────────

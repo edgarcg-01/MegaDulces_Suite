@@ -1,7 +1,7 @@
 {
-  "name": "Trade Marketing Offline",
-  "short_name": "TM Offline",
-  "description": "Aplicación offline para registro de visitas a tiendas",
+  "name": "Trade Marketing - Mega Dulces",
+  "short_name": "Trade Marketing",
+  "description": "Sistema de Trade Marketing - Gestión de exhibiciones y captura de datos",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

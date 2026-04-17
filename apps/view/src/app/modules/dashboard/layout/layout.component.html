@@ -205,6 +205,23 @@
 
       <!-- Right: User Info -->
       <div class="flex items-center gap-3">
+        <!-- Refresh Button (Visible in PWA mode or when pending update) -->
+        <button
+          (click)="refreshData()"
+          class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative"
+          [class.text-blue-500]="hasPendingUpdate()"
+          title="Actualizar datos"
+        >
+          <i 
+            class="pi pi-refresh text-lg"
+            [class.pi-spin]="hasPendingUpdate()"
+          ></i>
+          <span
+            *ngIf="hasPendingUpdate()"
+            class="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse"
+          ></span>
+        </button>
+
         <!-- Loading Indicator -->
         <div
           *ngIf="loading()"
