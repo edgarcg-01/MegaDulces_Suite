@@ -4,8 +4,8 @@
  */
 exports.seed = async function(knex) {
   // Check existing catalogs to avoid duplicates
-  const existingCatalogs = await knex("catalogs").select("id");
-  const existingIds = existingCatalogs.map(c => c.id);
+  const existingCatalogs = await knex("catalogs").select("catalog_id", "value");
+  const existingKeys = new Set(existingCatalogs.map(c => `${c.catalog_id}:${c.value}`));
 
   const catalogsToInsert = [
   {
@@ -287,7 +287,7 @@ exports.seed = async function(knex) {
     "icono": null,
     "parent_id": null
   }
-  ].filter(c => !existingIds.includes(c.id));
+  ].filter(c => !existingKeys.has(`${c.catalog_id}:${c.value}`));
 
   if (catalogsToInsert.length === 0) {
     console.log("[04_catalogs] All catalogs already exist, skipping seed.");
