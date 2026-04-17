@@ -30,7 +30,7 @@
         <p-tabpanel [value]="0">
           <div class="pt-4 space-y-6" *ngIf="reportsData() as data">
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div *ngFor="let k of kpiCards()" class="card-premium flex flex-col gap-2 border-l-4"
                 [ngClass]="{
                   'border-l-green-500': k.status === 'ok',
@@ -425,8 +425,9 @@
                   <h3 class="text-sm font-bold text-content-main">Presencia de Productos por Marca</h3>
                   <p class="text-[10px] text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
                 </div>
-                <div class="w-full sm:w-auto">
+                <div class="flex gap-2 w-full sm:w-auto">
                   <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
+                  <p-button icon="pi pi-file-pdf" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand" pTooltip="Generar reporte PDF por marca"></p-button>
                 </div>
               </div>
               <div class="h-[280px]">

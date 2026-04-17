@@ -97,6 +97,9 @@ export class MetasConfigService {
       { id: 'exhibiciones',  label: 'Exhibiciones',    unit: '',  min: 800, opt: 1000 },
       { id: 'avgVenta',      label: 'Venta promedio',  unit: '',  min: 1000, opt: 1500 },
       { id: 'metaDiaria',    label: 'Meta diaria',     unit: '',  min: 3,   opt: 5    },
+      { id: 'stockoutRate',  label: 'Stockout Rate',   unit: '%', min: 10,  opt: 5    },
+      { id: 'healthRate',    label: 'Health Rate',     unit: '%', min: 60,  opt: 80   },
+      { id: 'uniqueProducts',label: 'Productos Únicos',unit: '',  min: 15,  opt: 20   },
     ];
   }
   private _loadFurniture(): FurnitureMeta[] {

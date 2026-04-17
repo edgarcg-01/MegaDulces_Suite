@@ -200,6 +200,7 @@ export class ReportsService {
     // Log productMap for debugging
     console.log('[ReportsService] productMap keys:', Object.keys(productMap));
     console.log('[ReportsService] productMap sample:', Object.keys(productMap).slice(0, 5));
+    console.log('[ReportsService] productMap sample with names:', Object.entries(productMap).slice(0, 5).map(([k, v]) => ({ id: k, name: v.name })));
 
     // Calculate aggregated metrics for the filtered set
     let totalVisitas = 0;
@@ -268,12 +269,13 @@ export class ReportsService {
       });
     });
 
-    // Find PIDs that are in exhibiciones but not in productMap
-    // Try to get their names from the planogram (brands/products tables)
-    const missingPIDs = Array.from(allPIDsInExhibiciones).filter(pid => !productMap[pid]);
-    console.log('[ReportsService] Missing PIDs in productMap:', missingPIDs);
+    // Find PIDs that are in productStats but not in productMap (deleted products)
+    // Remove them from productStats to avoid showing deleted products in reports
+    const allPIDsInStats = Object.keys(productStats);
+    const missingPIDs = allPIDsInStats.filter(pid => !productMap[pid]);
+    console.log('[ReportsService] PIDs in productStats not in productMap (deleted products):', missingPIDs);
     console.log('[ReportsService] Total products in productMap:', Object.keys(productMap).length);
-    console.log('[ReportsService] Total PIDs in exhibiciones:', allPIDsInExhibiciones.size);
+    console.log('[ReportsService] Total PIDs in productStats before filtering:', allPIDsInStats.length);
     
     if (missingPIDs.length > 0) {
       // Try to get product info from products table (in case we missed some)
@@ -283,6 +285,7 @@ export class ReportsService {
       
       console.log('[ReportsService] Found missing products in DB:', missingProducts.length);
       
+      // Add the found products to productMap
       missingProducts.forEach(p => {
         productMap[p.id] = { 
           name: p.nombre, 
@@ -291,19 +294,28 @@ export class ReportsService {
         console.log('[ReportsService] Added to productMap:', p.id, '->', p.nombre);
       });
       
-      // For still missing PIDs, mark them as "Producto eliminado"
+      // Remove still missing PIDs from productStats (deleted products should not appear in reports)
       const stillMissing = missingPIDs.filter(pid => !productMap[pid]);
       stillMissing.forEach(pid => {
-        productMap[pid] = { 
-          name: `[Producto eliminado: ${pid}]`, 
-          brandName: 'N/A' 
-        };
-        console.warn('[ReportsService] PID not found in products table:', pid);
+        delete productStats[pid];
+        console.warn('[ReportsService] Removed deleted product from productStats:', pid);
       });
       
       console.log('[ReportsService] Summary: Found', missingProducts.length, 'of', missingPIDs.length, 'missing products');
-      console.log('[ReportsService] Still missing (deleted products):', stillMissing.length);
+      console.log('[ReportsService] Removed', stillMissing.length, 'deleted products from productStats');
+      console.log('[ReportsService] Total PIDs in productStats after filtering:', Object.keys(productStats).length);
     }
+
+    // Calculate stockout rate: percentage of products not appearing in any exhibition
+    const totalUniqueProducts = Object.keys(productStats).length;
+    const avgProductsPerVisit = totalVisitas > 0 ? (totalUniqueProducts / totalVisitas).toFixed(2) : 0;
+    
+    // Calculate total exhibiciones
+    const totalExhibiciones = Object.values(productStats).reduce((sum, p) => sum + p.total, 0);
+    
+    // Calculate exhibidores health percentage
+    const totalExhibidores = exhibidoresHealth.optimo + exhibidoresHealth.regular + exhibidoresHealth.critico;
+    const healthRate = totalExhibidores > 0 ? ((exhibidoresHealth.optimo / totalExhibidores) * 100).toFixed(2) : 0;
 
     const metrics = {
       totalVisitas,
@@ -311,6 +323,10 @@ export class ReportsService {
       totalVentas,
       avgVentaPorVisita: totalVisitas > 0 ? (totalVentas / totalVisitas).toFixed(2) : 0,
       count: rows.length,
+      totalExhibiciones,
+      stockoutRate: avgProductsPerVisit,
+      healthRate,
+      uniqueProducts: totalUniqueProducts,
     };
 
     const trendData = Object.keys(dailyTrend)
