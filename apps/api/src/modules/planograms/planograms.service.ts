@@ -10,10 +10,17 @@ export class PlanogramsService {
     const brands = await this.knex('brands').orderBy('orden', 'asc');
     const products = await this.knex('products').orderBy('orden', 'asc');
 
-    return brands.map((brand) => ({
+    console.log('[PlanogramsService] Brands:', JSON.stringify(brands, null, 2));
+    console.log('[PlanogramsService] Products:', JSON.stringify(products, null, 2));
+
+    const result = brands.map((brand) => ({
       ...brand,
       productos: products.filter((p) => p.brand_id === brand.id),
     }));
+
+    console.log('[PlanogramsService] Result:', JSON.stringify(result, null, 2));
+
+    return result;
   }
 
   async createBrand(data: any) {
@@ -22,12 +29,27 @@ export class PlanogramsService {
   }
 
   async addProduct(brandId: string, data: any) {
+    console.log('[PlanogramsService] addProduct - brandId:', brandId);
+    console.log('[PlanogramsService] addProduct - data:', JSON.stringify(data, null, 2));
+
     const brand = await this.knex('brands').where({ id: brandId }).first();
     if (!brand) throw new Error('Brand not found');
 
+    const insertData = { ...data, brand_id: brandId };
+    console.log('[PlanogramsService] addProduct - insertData:', JSON.stringify(insertData, null, 2));
+
     const [product] = await this.knex('products')
-      .insert({ ...data, brand_id: brandId })
+      .insert(insertData)
       .returning('*');
+    
+    console.log('[PlanogramsService] addProduct - inserted product:', JSON.stringify(product, null, 2));
+    
+    // Asegurar que el producto tiene todos los campos necesarios
+    if (!product.nombre && data.nombre) {
+      product.nombre = data.nombre;
+      console.log('[PlanogramsService] addProduct - added nombre from data:', data.nombre);
+    }
+    
     return product;
   }
 

@@ -34,6 +34,7 @@ export interface ReportsData {
   }>;
   furniture?: Record<string, number>;
   productStats?: Record<string, { total: number; exhibidores: Record<string, number> }>;
+  productMap?: Record<string, { name: string; brandName: string }>;
   exhibidoresHealth?: { optimo: number; regular: number; critico: number };
 }
 
@@ -108,5 +109,9 @@ export class ReportsService {
 
   getSummary(): Observable<any> {
     return this.http.get<any>(`${this.apiUrl}/summary`);
+  }
+
+  deleteReport(id: string): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/${id}`);
   }
 }

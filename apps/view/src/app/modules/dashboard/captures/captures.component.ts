@@ -83,6 +83,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   // ── UI State ──────────────────────────────────────────────────────────────
   showResultDialog = false;
+  showImpactDialog = false;
   lastResult: VisitaSnapshot | null = null;
   expandedRows: { [key: string]: boolean } = {};
   isSaving = signal<boolean>(false);
@@ -96,6 +97,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
     productosMarcados: [],
   });
+
+  // ── Impacto Comercial State ───────────────────────────────────────────────
+  impactoVentaAdicional: number = 0;
+  impactoRangoCompra: string = '';
 
   // ── Computed ──────────────────────────────────────────────────────────────
   visitaNumero = computed(() => this.svc.visitasHoy().length + 1);
@@ -204,6 +209,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
   }
 
+  openImpactDialog() {
+    const ex = this.svc.activeExhibiciones();
+
+    if (ex.length === 0) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Visita vacía',
+        detail:
+          'Debe agregar al menos un exhibidor antes de guardar la visita total.',
+      });
+      return;
+    }
+
+    // Inicializar valores desde el servicio
+    this.impactoVentaAdicional = this.svc.visitaVentaAdicional();
+    this.impactoRangoCompra = this.svc.visitaRangoCompra();
+
+    this.showImpactDialog = true;
+  }
+
   onSaveCapturaTotal() {
     // Prevent if already saving
     if (this.isSaving()) {
@@ -246,6 +271,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         const isOffline = result._offline === true;
         
         this.showResultDialog = true;
+        this.showImpactDialog = false;
         
         if (isOffline) {
           this.toast.add({
@@ -346,7 +372,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       });
       return;
     }
-    if (this.wizardStep < 6) {
+    if (this.wizardStep < 5) {
       this.wizardStep++;
     }
   }
@@ -388,6 +414,23 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.searchQuery.set('');
   }
 
+  onSearchFocus() {
+    // En móvil, cuando el input obtiene foco, scroll para que sea visible
+    if (window.innerWidth < 768) {
+      setTimeout(() => {
+        const container = document.getElementById('step-4-container');
+        const searchResults = document.getElementById('search-results');
+        if (container) {
+          container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 300);
+    }
+  }
+
+  onSearchBlur() {
+    // Manejar blur si es necesario
+  }
+
   addProducto(pid: string) {
     this.currentExhibicion.update((curr) => {
       const pm = curr.productosMarcados || [];
@@ -420,6 +463,16 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   onVentaAdicionalChange(val: number) {
     this.currentExhibicion.update((curr) => ({ ...curr, ventaAdicional: val }));
+  }
+
+  onImpactoVentaChange(val: number) {
+    this.impactoVentaAdicional = val;
+    this.svc.updateVisitaVentaAdicional(val);
+  }
+
+  onImpactoRangoChange(val: string) {
+    this.impactoRangoCompra = val;
+    this.svc.updateVisitaRangoCompra(val);
   }
 
   onFileSelected(event: Event) {

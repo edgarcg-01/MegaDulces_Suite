@@ -171,6 +171,21 @@ export class ReportsService {
       conceptoMap[c.id] = c.value; // Guardamos el nombre original para display
     });
 
+    // Get all products and brands for mapping IDs to names
+    const products = await this.knex('products').select('id', 'nombre', 'brand_id');
+    const brands = await this.knex('brands').select('id', 'nombre');
+    
+    const productMap: Record<string, { name: string; brandName: string }> = {};
+    const brandMap: Record<string, string> = {};
+    
+    brands.forEach(b => brandMap[b.id] = b.nombre);
+    products.forEach(p => {
+      productMap[p.id] = { 
+        name: p.nombre, 
+        brandName: brandMap[p.brand_id] || 'Otras' 
+      };
+    });
+
     // Calculate aggregated metrics for the filtered set
     let totalVisitas = 0;
     let totalScore = 0;
@@ -251,6 +266,7 @@ export class ReportsService {
       metrics,
       trendData,
       productStats,
+      productMap, // We send the mapping to the frontend
       exhibidoresHealth,
       rows: rows.map((r) => ({
         ...r,
@@ -322,6 +338,21 @@ export class ReportsService {
     }
 
     return csvString;
+  }
+
+  async deleteReport(id: string, user: any) {
+    const report = await this.knex('daily_captures').where({ id }).first();
+
+    if (!report) {
+      throw new Error('Reporte no encontrado');
+    }
+
+    // Role check: Only superadmin or Permission allowed (controller handles Permission)
+    // Here we just perform the deletion.
+    console.log(`[ReportsService] Deleting report ${id} by user ${user.username}`);
+    await this.knex('daily_captures').where({ id }).del();
+
+    return { success: true, message: 'Reporte eliminado correctamente' };
   }
 
   private async getTeamIds(supervisorId: string): Promise<string[]> {

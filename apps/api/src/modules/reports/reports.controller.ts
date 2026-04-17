@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Res, Query } from '@nestjs/common';
+import { Controller, Get, UseGuards, Res, Query, Delete, Param } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
@@ -80,5 +80,14 @@ export class ReportsController {
 
     // Disparar
     res.send(csvBuffer);
+  }
+
+  @Delete(':id')
+  @RequirePermissions(Permission.REPORTES_GESTIONAR)
+  @ApiOperation({
+    summary: 'Elimina un reporte (captura diaria) permanentemente',
+  })
+  deleteReport(@Param('id') id: string, @ReqUser() user: any) {
+    return this.reportsService.deleteReport(id, user);
   }
 }

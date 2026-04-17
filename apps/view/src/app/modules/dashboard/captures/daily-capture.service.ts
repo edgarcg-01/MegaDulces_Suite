@@ -49,6 +49,13 @@ export class DailyCaptureService {
   private _activeExhibiciones = signal<RegistroExhibicion[]>([]);
   readonly activeExhibiciones = this._activeExhibiciones.asReadonly();
 
+  // --- Visit-Level Commercial Impact ---
+  private _visitaVentaAdicional = signal<number>(0);
+  readonly visitaVentaAdicional = this._visitaVentaAdicional.asReadonly();
+
+  private _visitaRangoCompra = signal<string>('');
+  readonly visitaRangoCompra = this._visitaRangoCompra.asReadonly();
+
   // --- Captures History ---
   private _captures = signal<VisitaSnapshot[]>([]);
   readonly captures = this._captures.asReadonly();
@@ -434,7 +441,11 @@ export class DailyCaptureService {
       horaInicio: this._horaInicio()!,
       horaFin: d.toISOString(),
       exhibiciones: this._activeExhibiciones(),
-      stats: s,
+      stats: {
+        ...s,
+        ventaAdicional: this._visitaVentaAdicional(),
+        rangoCompra: this._visitaRangoCompra()
+      },
       latitud: latitud || 0,
       longitud: longitud || 0,
     };
@@ -668,6 +679,16 @@ export class DailyCaptureService {
   clearActiveState() {
     this._horaInicio.set(null);
     this._activeExhibiciones.set([]);
+    this._visitaVentaAdicional.set(0);
+    this._visitaRangoCompra.set('');
+  }
+
+  updateVisitaVentaAdicional(valor: number) {
+    this._visitaVentaAdicional.set(valor);
+  }
+
+  updateVisitaRangoCompra(rango: string) {
+    this._visitaRangoCompra.set(rango);
   }
 
   isPastCutoff(): boolean {

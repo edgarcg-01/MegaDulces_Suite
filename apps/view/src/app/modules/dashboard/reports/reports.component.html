@@ -247,6 +247,7 @@
                             </td>
                             <td class="text-center">
                               <p-button icon="pi pi-eye" [text]="true" [rounded]="true" severity="info" size="small" (click)="viewDetail(visit); $event.stopPropagation()"></p-button>
+                              <p-button *ngIf="canManageReports()" icon="pi pi-trash" [text]="true" [rounded]="true" severity="danger" size="small" (click)="confirmDelete(visit); $event.stopPropagation()"></p-button>
                             </td>
                           </tr>
                         </ng-template>
@@ -287,6 +288,7 @@
                 <div class="flex gap-2">
                   <p-button label="Ver detalle" icon="pi pi-eye" severity="secondary" size="small" styleClass="flex-1 justify-center" (onClick)="viewDetail(visit)"></p-button>
                   <p-button icon="pi pi-file-pdf" [text]="true" size="small" (onClick)="exportSingleVisitPdf(visit); $event.stopPropagation()"></p-button>
+                  <p-button *ngIf="canManageReports()" icon="pi pi-trash" [text]="true" severity="danger" size="small" (click)="confirmDelete(visit); $event.stopPropagation()"></p-button>
                 </div>
               </div>
             </div>
@@ -624,6 +626,7 @@
   </p-dialog>
 
   <p-toast></p-toast>
+  <p-confirmDialog></p-confirmDialog>
 
   <!-- Diálogo de Metas (solo visible para superadmin y supervisor_m) -->
   <p-dialog *ngIf="canEditMetas()" header="Metas y rangos de cumplimiento" [(visible)]="showMetasDialog" [modal]="true"

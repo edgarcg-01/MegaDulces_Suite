@@ -24,7 +24,8 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { ChipModule } from 'primeng/chip';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { DropdownModule } from 'primeng/dropdown';
-import { MessageService } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -43,6 +44,7 @@ import {
   KpiStatus,
 } from '../reports/graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
+import { Permission } from '../../../core/constants/permissions';
 
 interface DayGroup {
   id: string;
@@ -85,8 +87,9 @@ interface PdfSection {
     MultiSelectModule,
     DropdownModule,
     GlobalFiltersComponent,
+    ConfirmDialogModule,
   ],
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   templateUrl: './reports.component.html',
   styles: [
     `
@@ -103,6 +106,7 @@ export class ReportsComponent implements OnInit {
   private reportsService = inject(ReportsService);
   private auth = inject(AuthService);
   private messageService = inject(MessageService);
+  private confirmationService = inject(ConfirmationService);
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
   private dailyCaptureService = inject(DailyCaptureService);
@@ -147,6 +151,47 @@ export class ReportsComponent implements OnInit {
     if (!user) return false;
     return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
   });
+
+  canManageReports = computed(() => {
+    return this.auth.hasPermission(Permission.REPORTES_GESTIONAR);
+  });
+
+  confirmDelete(report: any) {
+    this.confirmationService.confirm({
+      message: `¿Estás seguro de que deseas eliminar permanentemente el reporte con folio <b>${report.folio}</b>? Esta acción no se puede deshacer.`,
+      header: 'Confirmar Eliminación',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger p-button-text',
+      rejectButtonStyleClass: 'p-button-text p-button-secondary',
+      accept: () => {
+        this.deleteReport(report.id);
+      },
+    });
+  }
+
+  private deleteReport(id: string) {
+    this.loading.set(true);
+    this.reportsService.deleteReport(id).subscribe({
+      next: () => {
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Eliminado',
+          detail: 'El reporte ha sido eliminado correctamente',
+        });
+        this.loadData();
+      },
+      error: () => {
+        this.loading.set(false);
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'No se pudo eliminar el reporte',
+        });
+      },
+    });
+  }
 
   constructor() {
     effect(() => {
@@ -692,18 +737,20 @@ export class ReportsComponent implements OnInit {
 
     this.allProductStatsRaw = Object.keys(stats).map(pid => {
       const pData = stats[pid];
-      const name = this.getProductName(pid);
       
-      // Asociar la marca: Primero buscar directamente en la DB
+      // Intentar obtener nombre y marca del mapa del backend (Fuente de Verdad de la DB)
+      let name = pid;
       let marca = 'Otros';
-      const dbGroup = groups.find(g => g.items.some((i: any) => i.pid === pid));
       
-      if (dbGroup) {
-        marca = dbGroup.marca;
+      const dbProduct = data.productMap?.[pid];
+      if (dbProduct) {
+        name = dbProduct.name;
+        marca = dbProduct.brandName || 'Otros';
       } else {
-        // Fallback a catálogo local estático por si acaso
-        const staticGroup = PRODUCTOS_PLANOGRAMA.find(g => g.items.some(i => i.pid === pid));
-        if (staticGroup) marca = staticGroup.marca;
+        // Fallback a los catálogos locales si no viene en el mapa
+        name = this.getProductName(pid);
+        const dbGroup = groups.find(g => g.items.some((i: any) => i.pid === pid));
+        if (dbGroup) marca = dbGroup.marca;
       }
       
       console.log(`[ReportsComponent] Mapping PID: ${pid} -> Name: ${name}, Marca: ${marca}`);
@@ -1382,7 +1429,13 @@ export class ReportsComponent implements OnInit {
 
   // Helper methods to get names from IDs
   getProductName(pid: string): string {
-    // Buscar primero en los catálogos importados estáticos para máxima confiabilidad
+    // 1. Priorizar el mapa que viene del reporte actual (backend DB)
+    const reportData = this.reportsData();
+    if (reportData?.productMap?.[pid]) {
+      return reportData.productMap[pid].name;
+    }
+
+    // 2. Buscar en los catálogos importados estáticos
     for (const group of PRODUCTOS_PLANOGRAMA) {
       const prod = group.items.find((p) => p.pid === pid);
       if (prod) {
@@ -1390,7 +1443,7 @@ export class ReportsComponent implements OnInit {
       }
     }
     
-    // Fallback: tratar de buscar en el signal service si llegaran dinámicamente
+    // 3. Fallback: tratar de buscar en el signal service
     const allProducts = this.dailyCaptureService.groupedProducts();
     for (const brand of allProducts) {
       const prod = brand.items.find((p) => p.pid === pid);
