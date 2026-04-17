@@ -93,6 +93,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
   showWizard = false;
   wizardStep = 1;
   searchQuery = signal<string>('');
+  showSearchInput = false;
 
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
     productosMarcados: [],
@@ -402,6 +403,43 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.currentExhibicion.update((curr) => {
       const pm = curr.productosMarcados || [];
       const updated = checked ? [...pm, pid] : pm.filter((id) => id !== pid);
+      return { ...curr, productosMarcados: updated };
+    });
+  }
+
+  isBrandFullySelected(brand: any): boolean {
+    const pm = this.currentExhibicion().productosMarcados || [];
+    const brandPids = brand.items.map((p: any) => p.pid);
+    return brandPids.length > 0 && brandPids.every((pid: string) => pm.includes(pid));
+  }
+
+  isBrandPartiallySelected(brand: any): boolean {
+    const pm = this.currentExhibicion().productosMarcados || [];
+    const brandPids = brand.items.map((p: any) => p.pid);
+    const selectedCount = brandPids.filter((pid: string) => pm.includes(pid)).length;
+    return selectedCount > 0 && selectedCount < brandPids.length;
+  }
+
+  getSelectedCountInBrand(brand: any): number {
+    const pm = this.currentExhibicion().productosMarcados || [];
+    const brandPids = brand.items.map((p: any) => p.pid);
+    return brandPids.filter((pid: string) => pm.includes(pid)).length;
+  }
+
+  toggleBrandSelection(brand: any, checked: boolean) {
+    const brandPids = brand.items.map((p: any) => p.pid);
+    this.currentExhibicion.update((curr) => {
+      const pm = curr.productosMarcados || [];
+      let updated: string[];
+      
+      if (checked) {
+        // Add all products from this brand
+        updated = [...pm, ...brandPids.filter((pid: string) => !pm.includes(pid))];
+      } else {
+        // Remove all products from this brand
+        updated = pm.filter((id: string) => !brandPids.includes(id));
+      }
+      
       return { ...curr, productosMarcados: updated };
     });
   }

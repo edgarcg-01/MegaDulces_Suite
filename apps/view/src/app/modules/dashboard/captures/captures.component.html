@@ -410,7 +410,7 @@
               </div>
               <div>
                 <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
-                <p class="text-xs text-content-dim leading-relaxed">Busca y selecciona los productos que están presentes en el exhibidor. Puedes buscar por nombre de producto o marca. Los productos seleccionados se mostrarán arriba.</p>
+                <p class="text-xs text-content-dim leading-relaxed">Selecciona los productos que están presentes en el exhibidor marcando los checkboxes. Los productos están organizados por marca para facilitar la búsqueda.</p>
               </div>
             </div>
           </ng-template>
@@ -432,77 +432,86 @@
             class="bg-brand-light border-brand/30 text-brand-sunset touch-manipulation">
           </p-chip>
         </div>
-        
-        <!-- Smart Search Input - Mobile Optimized -->
-        <div class="relative sticky top-0 z-10">
-          <div class="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted pointer-events-none">
-            <i class="pi pi-search text-lg"></i>
-          </div>
-          <input 
-            type="search" 
-            inputmode="search"
-            [ngModel]="searchQuery()" 
-            (ngModelChange)="onSearchChange($event)"
-            (focus)="onSearchFocus()"
-            (blur)="onSearchBlur()"
-            placeholder="Buscar marcas o productos..." 
-            class="w-full pl-12 pr-12 py-4 bg-white border border-surface-border rounded-full text-base shadow-sm hover:shadow-md focus:shadow-lg focus:outline-none focus:border-brand-orange transition-all duration-200 touch-manipulation"
-            #searchInput
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off">
-          <div *ngIf="searchQuery()" 
-               (click)="clearSearch()"
-               class="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface-ground hover:bg-surface-border flex items-center justify-center cursor-pointer transition-colors touch-manipulation active:scale-95">
-            <i class="pi pi-times text-sm text-content-muted"></i>
+
+        <!-- Brand Filter - Minimized Icon -->
+        <div class="relative">
+          <button *ngIf="!showSearchInput"
+                  (click)="showSearchInput = true"
+                  class="w-10 h-10 rounded-full bg-surface-card border border-surface-border flex items-center justify-center text-content-muted hover:border-brand-orange hover:text-brand-orange transition-all shadow-sm">
+            <i class="pi pi-search"></i>
+          </button>
+          <div *ngIf="showSearchInput" class="flex items-center gap-2">
+            <div class="relative flex-1">
+              <div class="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted pointer-events-none">
+                <i class="pi pi-search text-lg"></i>
+              </div>
+              <input 
+                type="search" 
+                inputmode="search"
+                [ngModel]="searchQuery()" 
+                (ngModelChange)="onSearchChange($event)"
+                placeholder="Filtrar por marca..." 
+                class="w-full pl-12 pr-12 py-3 bg-surface-card border border-surface-border rounded-full text-sm shadow-sm hover:shadow-md focus:shadow-lg focus:outline-none focus:border-brand-orange transition-all duration-200 touch-manipulation"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off">
+              <div *ngIf="searchQuery()" 
+                   (click)="clearSearch()"
+                   class="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-surface-ground hover:bg-surface-border flex items-center justify-center cursor-pointer transition-colors touch-manipulation active:scale-95">
+                <i class="pi pi-times text-sm text-content-muted"></i>
+              </div>
+            </div>
+            <button (click)="showSearchInput = false; clearSearch()" class="w-10 h-10 rounded-full bg-surface-ground hover:bg-surface-border flex items-center justify-center text-content-muted transition-all">
+              <i class="pi pi-times"></i>
+            </button>
           </div>
         </div>
 
-        <!-- Search Results Dropdown - Mobile Optimized -->
-        <div *ngIf="searchQuery()" 
-             class="border border-surface-border rounded-2xl bg-white shadow-lg overflow-hidden max-h-[calc(100vh-400px)] overflow-y-auto touch-pan-y"
-             id="search-results">
-          <div *ngIf="filteredProducts().length === 0" class="p-6 text-center text-content-dim">
-            <i class="pi pi-search text-2xl mb-2 opacity-30"></i>
-            <p class="text-sm">No se encontraron productos</p>
-            <p class="text-xs text-content-faint mt-1">Intenta con otra búsqueda</p>
-          </div>
-          
-          <div *ngIf="filteredProducts().length > 0">
-            <div class="px-4 py-2 bg-surface-ground border-b border-surface-border sticky top-0">
-              <span class="text-xs font-bold text-content-muted uppercase tracking-wider">{{filteredProducts().length}} resultados</span>
+        <!-- Products by Brand with Checkboxes -->
+        <div class="space-y-4 max-h-[calc(100vh-400px)] overflow-y-auto">
+          <div *ngFor="let brand of svc.groupedProducts()" 
+               class="border border-surface-border rounded-xl overflow-hidden bg-surface-card"
+               [class.hidden]="searchQuery() && !brand.marca.toLowerCase().includes(searchQuery().toLowerCase())">
+            <!-- Brand Header -->
+            <div class="px-4 py-3 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+              <div class="flex items-center gap-3">
+                <p-checkbox 
+                  [ngModel]="isBrandFullySelected(brand)"
+                  (onChange)="toggleBrandSelection(brand, $event.checked)"
+                  binary="true"
+                  [disabled]="isBrandPartiallySelected(brand)">
+                </p-checkbox>
+                <span class="font-bold text-content-main uppercase tracking-wider text-sm">{{brand.marca}}</span>
+              </div>
+              <span class="text-xs text-content-muted">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
             </div>
-            <div *ngFor="let prod of filteredProducts(); let last = last" 
-                 (click)="addProducto(prod.pid)"
-                 class="flex items-center gap-3 p-4 hover:bg-surface-ground cursor-pointer transition-colors active:bg-surface-hover touch-manipulation"
-                 [class.border-b]="!last"
-                 [class.border-surface-border]="!last">
-              <div class="w-10 h-10 rounded-xl bg-brand-light flex items-center justify-center text-brand-orange shrink-0">
-                <i class="pi pi-box"></i>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-semibold text-content-main truncate">{{prod.name}}</div>
-                <div class="text-xs text-content-dim flex items-center gap-1">
-                  <span class="px-1.5 py-0.5 bg-surface-ground rounded text-[10px] uppercase tracking-wider">{{prod.brand}}</span>
-                </div>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <span *ngIf="currentExhibicion().productosMarcados?.includes(prod.pid)" class="text-xs font-bold text-brand">Seleccionado</span>
-                <i *ngIf="!currentExhibicion().productosMarcados?.includes(prod.pid)" class="pi pi-plus-circle text-brand-orange text-xl"></i>
-                <i *ngIf="currentExhibicion().productosMarcados?.includes(prod.pid)" class="pi pi-check-circle text-brand text-xl"></i>
+
+            <!-- Products Grid -->
+            <div class="p-3 grid grid-cols-1 gap-2">
+              <div *ngFor="let prod of brand.items" 
+                   class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-ground transition-colors cursor-pointer"
+                   [class.hidden]="searchQuery() && !prod.name.toLowerCase().includes(searchQuery().toLowerCase())"
+                   (click)="toggleProducto(prod.pid, !currentExhibicion().productosMarcados?.includes(prod.pid))">
+                <p-checkbox 
+                  [ngModel]="currentExhibicion().productosMarcados?.includes(prod.pid)"
+                  (onChange)="toggleProducto(prod.pid, $event.checked)"
+                  binary="true"
+                  (click)="$event.stopPropagation()">
+                </p-checkbox>
+                <span class="text-sm text-content-main flex-1">{{prod.name}}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Empty State - No Search -->
-        <div *ngIf="!searchQuery() && (!currentExhibicion().productosMarcados || currentExhibicion().productosMarcados!.length === 0)" 
+        <!-- Empty State -->
+        <div *ngIf="svc.groupedProducts().length === 0" 
              class="p-8 text-center text-content-dim">
           <div class="w-16 h-16 rounded-full bg-surface-ground flex items-center justify-center mx-auto mb-4">
-            <i class="pi pi-search text-2xl opacity-40"></i>
+            <i class="pi pi-box text-2xl opacity-40"></i>
           </div>
-          <p class="text-sm font-medium">Escribe para buscar productos</p>
-          <p class="text-xs text-content-faint mt-1">Busca por nombre de producto o marca</p>
+          <p class="text-sm font-medium">No hay productos disponibles</p>
+          <p class="text-xs text-content-faint mt-1">Intenta recargar la página</p>
         </div>
       </div>
 
@@ -534,7 +543,7 @@
            <p class="text-xs text-content-dim mt-2 italic">Requerido para auditoría técnica</p>
         </div>
 
-        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-2xl border-4 border-white shadow-xl overflow-hidden bg-black max-w-[280px] mx-auto">
+        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-2xl border-4 border-surface-border shadow-xl overflow-hidden bg-black max-w-[280px] mx-auto">
            <img [src]="currentExhibicion().fotoBase64" class="w-full h-64 object-cover">
            <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center p-4">
               <p-button icon="pi pi-trash" label="Cambiar Foto" severity="danger" size="small" (onClick)="removeFoto()"></p-button>
