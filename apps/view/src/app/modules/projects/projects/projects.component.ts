@@ -29,6 +29,13 @@ export class ProjectsComponent {
   ];
 
   navigateTo(route: string): void {
+    if (route === '/dashboard') {
+      const user = this.authService.user();
+      if (user && user.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+        return;
+      }
+    }
     this.router.navigate([route]);
   }
 

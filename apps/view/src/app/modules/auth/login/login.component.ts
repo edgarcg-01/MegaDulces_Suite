@@ -52,8 +52,15 @@ export class LoginComponent implements OnInit {
     this.authService.login(credentials).subscribe({
       next: () => {
         this.isLoading = false;
-        // Redirigir al selector de proyectos
-        this.router.navigate(['/projects']);
+        const user = this.authService.user();
+        
+        if (user && user.role_name === 'colaborador') {
+          // Colaboradores van directamente a la captura diaria
+          this.router.navigate(['/dashboard/captures']);
+        } else {
+          // Administradores y otros roles van al dashboard principal
+          this.router.navigate(['/dashboard']);
+        }
       },
       error: (err) => {
         this.isLoading = false;
