@@ -516,82 +516,142 @@
     </ng-template>
   </p-dialog>
 
-  <p-dialog header="Detalle visita" [(visible)]="showDetail" [modal]="true" appendTo="body" [style]="{ width: '90vw', maxWidth: '600px' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+  <p-dialog header="Detalle visita" [(visible)]="showDetail" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
     <div *ngIf="selectedRow" class="space-y-4 pt-2">
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-surface-ground p-4 rounded-2xl border border-surface-border gap-3">
-        <div>
-          <div class="text-[10px] font-black text-content-faint uppercase tracking-widest">Visita Folio</div>
-          <div class="text-xl font-black text-content-main">#{{ selectedRow.folio }}</div>
+      
+      <!-- Card: Información General -->
+      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="flex items-center gap-2 mb-3">
+          <i class="pi pi-info-circle text-content-muted"></i>
+          <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
         </div>
-        <div class="flex items-center gap-3">
-          <div class="text-center px-4 py-2 rounded-xl border-2"
-            [ngClass]="{ 'border-green-400 bg-green-50': visitScoreStatus(selectedRow) === 'ok', 'border-amber-400 bg-amber-50': visitScoreStatus(selectedRow) === 'warn', 'border-red-400 bg-red-50': visitScoreStatus(selectedRow) === 'bad' }">
-            <div class="text-[9px] uppercase font-black opacity-60">Score</div>
-            <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ selectedRow.stats?.score_calidad_pct }}%</div>
-            <div class="text-[9px] font-bold uppercase opacity-60">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="space-y-1">
+            <p class="text-[10px] text-content-muted uppercase">Folio</p>
+            <p class="font-bold text-content-main">#{{ selectedRow.folio }}</p>
           </div>
-          <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-2 gap-4 text-sm">
-        <div class="space-y-2">
-          <p><span class="text-content-muted">Ejecutivo: </span><span class="font-bold">{{ selectedRow.captured_by_username }}</span></p>
-          <p><span class="text-content-muted">Zona: </span><span class="font-bold">{{ selectedRow.zona_captura }}</span></p>
-          <p><span class="text-content-muted">Fecha: </span><span class="font-bold">{{ selectedRow.fecha | date:'mediumDate' }}</span></p>
-          <p><span class="text-content-muted">Hora inicio: </span><span class="font-bold">{{ selectedRow.hora_inicio | date:'shortTime' }}</span></p>
-          <p><span class="text-content-muted">Hora fin: </span><span class="font-bold">{{ selectedRow.hora_fin | date:'shortTime' }}</span></p>
-          <p><span class="text-content-muted">Exhibiciones: </span><span class="font-bold">{{ selectedRow.exhibiciones?.length ?? 0 }}</span></p>
-        </div>
-      </div>
-
-      <div class="flex items-center justify-between p-4 border border-surface-border bg-surface-ground rounded-2xl">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center"><i class="pi pi-map-marker text-content-main"></i></div>
-          <div>
-            <div class="text-[10px] font-bold uppercase">Ubicación geo-referenciada</div>
-            <div class="text-xs font-mono text-content-dim" *ngIf="selectedRow.latitud">{{ selectedRow.latitud | number:'1.6-6' }}, {{ selectedRow.longitud | number:'1.6-6' }}</div>
-            <div class="text-xs text-content-faint font-bold" *ngIf="!selectedRow.latitud">No se capturó GPS</div>
+          <div class="space-y-1">
+            <p class="text-[10px] text-content-muted uppercase">Ejecutivo</p>
+            <p class="font-bold text-content-main">{{ selectedRow.captured_by_username }}</p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-[10px] text-content-muted uppercase">Zona</p>
+            <p class="font-bold text-content-main">{{ selectedRow.zona_captura }}</p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-[10px] text-content-muted uppercase">Fecha</p>
+            <p class="font-bold text-content-main">{{ selectedRow.fecha | date:'mediumDate' }}</p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-[10px] text-content-muted uppercase">Hora inicio</p>
+            <p class="font-bold text-content-main">{{ selectedRow.hora_inicio | date:'shortTime' }}</p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-[10px] text-content-muted uppercase">Hora fin</p>
+            <p class="font-bold text-content-main">{{ selectedRow.hora_fin | date:'shortTime' }}</p>
+          </div>
+          <div class="space-y-1 col-span-2">
+            <p class="text-[10px] text-content-muted uppercase">Exhibiciones registradas</p>
+            <p class="font-bold text-content-main">{{ selectedRow.exhibiciones?.length ?? 0 }}</p>
           </div>
         </div>
-        <p-button *ngIf="selectedRow.latitud" label="Ver mapa" icon="pi pi-external-link" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
       </div>
 
-      <div class="border border-surface-border rounded-2xl overflow-hidden">
-        <p-table [value]="selectedRow.exhibiciones || []" styleClass="p-datatable-sm">
-          <ng-template pTemplate="header">
-            <tr class="text-[10px] bg-surface-ground uppercase text-content-muted">
-              <th>Formato</th><th class="text-center">Nivel</th><th class="text-center">Rango</th><th class="text-center">Imagen</th><th>Productos</th><th class="text-right pr-3">Venta</th><th class="text-right pr-3">Puntos</th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-ex>
-            <tr class="text-xs">
-              <td><span class="text-[9px] px-1.5 py-0.5 rounded bg-surface-100 border border-surface-300 font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span></td>
-              <td class="text-center">
-                <span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
-                  [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion === 'excelente', 'bg-amber-100 text-amber-800': ex.nivelEjecucion === 'medio', 'bg-red-100 text-red-800': ex.nivelEjecucion === 'bajo' }">
-                  {{ ex.nivelEjecucion || 'N/A' }}
-                </span>
-              </td>
-              <td class="text-center">
-                <span class="text-[9px] font-bold text-brand">{{ ex.rangoCompra || ex.rango_compra || ex.rango || '-' }}</span>
-              </td>
-              <td class="text-center">
-                <p-image *ngIf="ex.fotoUrl" [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición" width="40" [preview]="true" class="rounded shadow-sm cursor-zoom-in"></p-image>
-                <span *ngIf="!ex.fotoUrl" class="text-[9px] text-content-faint">-</span>
-              </td>
-              <td>
-                <div *ngIf="ex.productosMarcados && ex.productosMarcados.length > 0" class="flex flex-wrap gap-1">
-                  <p-chip *ngFor="let pid of ex.productosMarcados" [label]="getProductName(pid)" class="text-[8px] px-1 py-0.5 bg-surface-50 border border-surface-200 text-content-main"></p-chip>
-                </div>
-                <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-[9px] text-content-faint">Sin productos</span>
-              </td>
-              <td class="text-right pr-3 font-bold">${{ ex.ventaAdicional || 0 }}</td>
-              <td class="text-right pr-3 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
-            </tr>
-          </ng-template>
-        </p-table>
+      <!-- Card: Score y Métricas -->
+      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i class="pi pi-chart-bar text-content-muted"></i>
+            <h3 class="text-sm font-bold text-content-main uppercase">Score y Métricas</h3>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="text-center px-4 py-2 rounded-xl border-2"
+              [ngClass]="{ 'border-green-400 bg-green-50': visitScoreStatus(selectedRow) === 'ok', 'border-amber-400 bg-amber-50': visitScoreStatus(selectedRow) === 'warn', 'border-red-400 bg-red-50': visitScoreStatus(selectedRow) === 'bad' }">
+              <div class="text-[9px] uppercase font-black opacity-60">Score</div>
+              <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ selectedRow.stats?.score_calidad_pct }}%</div>
+              <div class="text-[9px] font-bold uppercase opacity-60">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
+            </div>
+            <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
+          </div>
+        </div>
       </div>
+
+      <!-- Card: Ubicación GPS -->
+      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="flex items-center gap-2 mb-3">
+          <i class="pi pi-map-marker text-content-muted"></i>
+          <h3 class="text-sm font-bold text-content-main uppercase">Ubicación</h3>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center">
+              <i class="pi pi-map-marker text-content-main"></i>
+            </div>
+            <div>
+              <div class="text-[10px] font-bold uppercase text-content-muted">Coordenadas GPS</div>
+              <div class="text-xs font-mono text-content-dim" *ngIf="selectedRow.latitud">{{ selectedRow.latitud | number:'1.6-6' }}, {{ selectedRow.longitud | number:'1.6-6' }}</div>
+              <div class="text-xs text-content-faint font-bold" *ngIf="!selectedRow.latitud">No se capturó GPS</div>
+            </div>
+          </div>
+          <p-button *ngIf="selectedRow.latitud" label="Ver mapa" icon="pi pi-external-link" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
+        </div>
+      </div>
+
+      <!-- Card: Exhibiciones -->
+      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="flex items-center gap-2 mb-3">
+          <i class="pi pi-list text-content-muted"></i>
+          <h3 class="text-sm font-bold text-content-main uppercase">Exhibiciones</h3>
+        </div>
+        <div class="border border-surface-border rounded-xl overflow-hidden">
+          <p-table [value]="selectedRow.exhibiciones || []" [rows]="10" [paginator]="true">
+            <ng-template pTemplate="header">
+              <tr class="text-sm bg-surface-ground uppercase text-content-muted">
+                <th class="py-4 px-5">Formato</th><th class="text-center py-4 px-5">Nivel</th><th class="text-center py-4 px-5">Rango</th><th class="text-center py-4 px-5">Imagen</th><th class="py-4 px-5">Productos</th><th class="text-right pr-5 py-4">Venta</th><th class="text-right pr-5 py-4">Puntos</th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-ex>
+              <tr class="text-base">
+                <td class="py-4 px-5"><span class="text-sm px-3 py-2 rounded bg-surface-100 border border-surface-300 font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span></td>
+                <td class="text-center py-4 px-5">
+                  <span class="text-sm px-3 py-2 rounded-full font-bold"
+                    [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion === 'excelente', 'bg-amber-100 text-amber-800': ex.nivelEjecucion === 'medio', 'bg-red-100 text-red-800': ex.nivelEjecucion === 'bajo' }">
+                    {{ ex.nivelEjecucion || 'N/A' }}
+                  </span>
+                </td>
+                <td class="text-center py-4 px-5">
+                  <span class="text-sm font-bold text-brand">{{ ex.rangoCompra || ex.rango_compra || ex.rango || '-' }}</span>
+                </td>
+                <td class="text-center py-4 px-5">
+                  <img *ngIf="ex.fotoUrl" [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición" class="w-24 h-24 rounded-lg shadow-sm cursor-pointer hover:shadow-md hover:scale-105 transition-all object-cover" (click)="openImagePreview(getImageUrl(ex.fotoUrl))">
+                  <span *ngIf="!ex.fotoUrl" class="text-sm text-content-faint">-</span>
+                </td>
+                <td class="py-4 px-5">
+                  <div *ngIf="ex.productosMarcados && ex.productosMarcados.length > 0" class="flex flex-wrap gap-3">
+                    <p-chip *ngFor="let pid of ex.productosMarcados" [label]="getProductName(pid)" class="text-sm px-3 py-2 bg-surface-50 border border-surface-200 text-content-main"></p-chip>
+                  </div>
+                  <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-sm text-content-faint">Sin productos</span>
+                </td>
+                <td class="text-right pr-5 py-4 font-bold">${{ ex.ventaAdicional || 0 }}</td>
+                <td class="text-right pr-5 py-4 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </div>
+      </div>
+    </div>
+  </p-dialog>
+
+  <!-- Modal personalizado para preview de imágenes -->
+  <p-dialog [(visible)]="showImagePreview" [modal]="true" [closable]="false" appendTo="body" [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-black p-0 overflow-hidden'">
+    <div class="relative w-full h-full flex flex-col">
+      <!-- Botón de cerrar en la esquina superior derecha -->
+      <button (click)="closeImagePreview()" class="absolute top-4 right-4 z-10 w-12 h-12 bg-[#185FA5] text-white rounded-full flex items-center justify-center shadow-lg hover:bg-[#0d4a8a] hover:scale-110 transition-all border-2 border-white">
+        <i class="pi pi-times text-xl"></i>
+      </button>
+      
+      <!-- Imagen -->
+      <img [src]="previewImageUrl" alt="Preview" class="w-full h-full object-contain max-h-[85vh]" (click)="closeImagePreview()">
     </div>
   </p-dialog>
 

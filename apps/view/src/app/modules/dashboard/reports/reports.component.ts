@@ -120,6 +120,8 @@ export class ReportsComponent implements OnInit {
   showPdfBuilder = false;
   showComparison = false;
   showRouteReportDialog = false;
+  showImagePreview = false;
+  previewImageUrl = '';
   selectedRouteUsers: string[] = [];
   routeReportDate: string = '';
   availableUsers = signal<any[]>([]);
@@ -1436,10 +1438,21 @@ export class ReportsComponent implements OnInit {
     }
   }
   openMap(lat: number, lng: number) {
-    const url = `https://www.google.com/maps?q=${lat},${lng}`;
-    const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-    isMobile ? (window.location.href = url) : window.open(url, '_blank');
+    if (lat && lng) {
+      window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+    }
   }
+
+  openImagePreview(imageUrl: string) {
+    this.previewImageUrl = imageUrl;
+    this.showImagePreview = true;
+  }
+
+  closeImagePreview() {
+    this.showImagePreview = false;
+    this.previewImageUrl = '';
+  }
+
   getImageUrl(url: string): string {
     if (!url) return '';
     if (url.startsWith('http')) return url;
