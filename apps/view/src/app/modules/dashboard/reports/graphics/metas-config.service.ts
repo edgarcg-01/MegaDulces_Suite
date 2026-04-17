@@ -95,7 +95,8 @@ export class MetasConfigService {
       { id: 'score',         label: 'Avg score',       unit: '%', min: 65,  opt: 80  },
       { id: 'venta',         label: 'Impacto venta',   unit: '',  min: 150000, opt: 200000 },
       { id: 'exhibiciones',  label: 'Exhibiciones',    unit: '',  min: 800, opt: 1000 },
-      { id: 'gps',           label: 'GPS cobertura',   unit: '%', min: 85,  opt: 95  },
+      { id: 'avgVenta',      label: 'Venta promedio',  unit: '',  min: 1000, opt: 1500 },
+      { id: 'metaDiaria',    label: 'Meta diaria',     unit: '',  min: 3,   opt: 5    },
     ];
   }
   private _loadFurniture(): FurnitureMeta[] {

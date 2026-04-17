@@ -337,11 +337,11 @@ export class ReportsComponent implements OnInit {
         unit: '',
       },
       {
-        id: 'gps',
-        label: 'GPS cobertura',
-        raw: (m as any).gpsPct ?? 0,
-        fmt: (v: number) => v + '%',
-        unit: '%',
+        id: 'avgVenta',
+        label: 'Venta promedio',
+        raw: (m as any).avgVentaPorVisita ?? 0,
+        fmt: (v: number) => '$' + v.toLocaleString(),
+        unit: '',
       },
     ];
     return defs.map((d) => {

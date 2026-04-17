@@ -78,9 +78,12 @@ export class HomeComponent implements OnInit {
   // 1. Computed: Tarjetas KPI (Mapea la lógica de tu mapKPICards original)
   kpiCards = computed(() => {
     const metrics = this.summary() || {};
-    const totalTiendas = metrics.total_tiendas || 0;
-    const visitadasHoy = metrics.cierres_diarios_registrados || 0;
-    const pending = Math.max(0, totalTiendas - visitadasHoy);
+    const cierresHoy = metrics.cierres_hoy || 0;
+
+    // Usar el sistema de metas para obtener la meta diaria configurada
+    const metaDiariaRange = this.metasConfig.getRange('metaDiaria');
+    const metaDiaria = metaDiariaRange?.opt || 5;
+    const pending = Math.max(0, metaDiaria - cierresHoy);
 
     // Integramos el semáforo para el Score usando el MetasConfigService
     const scoreVal = parseFloat(metrics.puntuacion_promedio) || 0;
@@ -125,16 +128,16 @@ export class HomeComponent implements OnInit {
         pct: 0
       },
       {
-        label: 'Tiendas Pendientes',
-        value: pending.toString(),
-        icon: 'pi pi-exclamation-triangle',
-        colorClass: 'text-rose-500',
+        label: 'Meta Diaria',
+        value: `${cierresHoy}/${metaDiaria}`,
+        icon: 'pi pi-bullseye',
+        colorClass: 'text-green-500',
         trend: 'Hoy',
         status: pending > 0 ? 'warn' : 'ok',
-        meta: '—',
+        meta: `${metaDiaria} visitas`,
         delta: pending > 0 ? `${pending} restantes` : 'Completado',
         deltaDir: pending > 0 ? 'down' : 'up',
-        pct: 0
+        pct: metaDiaria > 0 ? Math.round((cierresHoy / metaDiaria) * 100) : 0
       }
     ];
   });

@@ -19,8 +19,16 @@ export class ReportsService {
       dcQuery = dcQuery.whereIn('user_id', teamIds);
     }
 
+    // Filtrar por fecha actual para cierres de hoy
+    const today = new Date().toISOString().split('T')[0];
+    const todayQuery = dcQuery.clone().whereRaw("DATE(hora_inicio) = ?", [today]);
+    const [totalDailyToday] = await todayQuery.count('id as count');
+
     const [totalDaily] = await dcQuery.clone().count('id as count');
     const [totalTiendas] = await sQuery.count('id as count');
+
+    // Calcular meta diaria: 5 visitas por día como base (puede ajustarse)
+    const metaDiaria = 5;
 
     // Aggregates for the dashboard
     const [stats] = await dcQuery
@@ -98,6 +106,8 @@ export class ReportsService {
       metricas_globales: {
         total_tiendas: Number(totalTiendas?.count || 0),
         cierres_diarios_registrados: Number(totalDaily?.count || 0),
+        cierres_hoy: Number(totalDailyToday?.count || 0),
+        meta_diaria: metaDiaria,
         visitas_totales: Number(stats?.visitas || 0),
         puntuacion_promedio: Number(stats?.avg_score || 0).toFixed(2),
         ventas_totales: Number(stats?.ventas || 0),
@@ -172,6 +182,7 @@ export class ReportsService {
     });
 
     // Get all products and brands for mapping IDs to names
+    // Include products from the planogram to ensure all PIDs have names
     const products = await this.knex('products').select('id', 'nombre', 'brand_id');
     const brands = await this.knex('brands').select('id', 'nombre');
     
@@ -185,6 +196,10 @@ export class ReportsService {
         brandName: brandMap[p.brand_id] || 'Otras' 
       };
     });
+    
+    // Log productMap for debugging
+    console.log('[ReportsService] productMap keys:', Object.keys(productMap));
+    console.log('[ReportsService] productMap sample:', Object.keys(productMap).slice(0, 5));
 
     // Calculate aggregated metrics for the filtered set
     let totalVisitas = 0;
@@ -193,6 +208,9 @@ export class ReportsService {
     const dailyTrend: Record<string, any> = {};
     const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
     const exhibidoresHealth = { optimo: 0, regular: 0, critico: 0 };
+    
+    // Collect all unique PIDs from exhibiciones for later mapping
+    const allPIDsInExhibiciones = new Set<string>();
 
     rows.forEach((row) => {
       const stats =
@@ -243,14 +261,48 @@ export class ReportsService {
             productStats[pid].exhibidores[conceptoName] = 0;
           }
           productStats[pid].exhibidores[conceptoName] += 1;
+          
+          // Collect PID for later mapping
+          allPIDsInExhibiciones.add(pid);
         });
       });
     });
+
+    // Find PIDs that are in exhibiciones but not in productMap
+    // Try to get their names from the planogram (brands/products tables)
+    const missingPIDs = Array.from(allPIDsInExhibiciones).filter(pid => !productMap[pid]);
+    console.log('[ReportsService] Missing PIDs in productMap:', missingPIDs);
+    
+    if (missingPIDs.length > 0) {
+      // Try to get product info from products table (in case we missed some)
+      const missingProducts = await this.knex('products')
+        .whereIn('id', missingPIDs)
+        .select('id', 'nombre', 'brand_id');
+      
+      missingProducts.forEach(p => {
+        productMap[p.id] = { 
+          name: p.nombre, 
+          brandName: brandMap[p.brand_id] || 'Otras' 
+        };
+      });
+      
+      // For still missing PIDs, mark them as "Producto no encontrado"
+      const stillMissing = missingPIDs.filter(pid => !productMap[pid]);
+      stillMissing.forEach(pid => {
+        productMap[pid] = { 
+          name: `Producto (${pid.substring(0, 8)}...)`, 
+          brandName: 'No identificado' 
+        };
+      });
+      
+      console.log('[ReportsService] Added missing products to productMap. Still missing:', stillMissing.length);
+    }
 
     const metrics = {
       totalVisitas,
       avgScore: rows.length > 0 ? (totalScore / rows.length).toFixed(2) : 0,
       totalVentas,
+      avgVentaPorVisita: totalVisitas > 0 ? (totalVentas / totalVisitas).toFixed(2) : 0,
       count: rows.length,
     };
 

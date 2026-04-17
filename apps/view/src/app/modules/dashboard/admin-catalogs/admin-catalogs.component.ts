@@ -204,6 +204,27 @@ export class AdminCatalogsComponent implements OnInit {
   }
 
   deleteRoute(routeId: string, zoneId: string) {
+    this.confirmationService.confirm({
+      message: '¿Estás seguro de eliminar esta ruta? Esta acción no se puede deshacer.',
+      header: 'Confirmar Eliminación',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        this.executeDeleteRoute(routeId, zoneId);
+      },
+      reject: () => {
+        this.messageService.add({
+          severity: 'info',
+          summary: 'Cancelado',
+          detail: 'Eliminación cancelada.',
+        });
+      }
+    });
+  }
+
+  private executeDeleteRoute(routeId: string, zoneId: string) {
     this.catalogsService.deleteItem('rutas', routeId).subscribe({
       next: () => {
         this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta eliminada correctamente' });
