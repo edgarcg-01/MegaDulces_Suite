@@ -19,14 +19,10 @@ if ! npx knex migrate:latest --knexfile database/knexfile.js; then
 fi
 
 # ─── Seeds ──────────────────────────────────────────────────────────────────
-# Seeds are now idempotent - they check existence before inserting
-# This allows incremental seeding without wiping existing data
-# 000_cleanup.js is protected and skips in production
-# 00a_zones.js, 00_roles.js, 02_brands.js, 03_products.js check existence before inserting
-# 01_users.js and others only run on fresh installs
-
-echo "Running database seeds (idempotent mode)..."
-npx knex seed:run --knexfile database/knexfile.js || echo "Warning: Some seeds may have failed, continuing..."
+# Seeds are disabled as requested to avoid duplicate key errors during startup.
+# To run seeds manually, use: npx knex seed:run --knexfile database/knexfile.js
+# echo "Running database seeds (idempotent mode)..."
+# npx knex seed:run --knexfile database/knexfile.js || echo "Warning: Some seeds may have failed, continuing..."
 
 # ─── Start backend ────────────────────────────────────────────────────────────
 echo "Starting Backend..."

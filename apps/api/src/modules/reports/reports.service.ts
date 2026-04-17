@@ -272,6 +272,8 @@ export class ReportsService {
     // Try to get their names from the planogram (brands/products tables)
     const missingPIDs = Array.from(allPIDsInExhibiciones).filter(pid => !productMap[pid]);
     console.log('[ReportsService] Missing PIDs in productMap:', missingPIDs);
+    console.log('[ReportsService] Total products in productMap:', Object.keys(productMap).length);
+    console.log('[ReportsService] Total PIDs in exhibiciones:', allPIDsInExhibiciones.size);
     
     if (missingPIDs.length > 0) {
       // Try to get product info from products table (in case we missed some)
@@ -279,23 +281,28 @@ export class ReportsService {
         .whereIn('id', missingPIDs)
         .select('id', 'nombre', 'brand_id');
       
+      console.log('[ReportsService] Found missing products in DB:', missingProducts.length);
+      
       missingProducts.forEach(p => {
         productMap[p.id] = { 
           name: p.nombre, 
           brandName: brandMap[p.brand_id] || 'Otras' 
         };
+        console.log('[ReportsService] Added to productMap:', p.id, '->', p.nombre);
       });
       
-      // For still missing PIDs, mark them as "Producto no encontrado"
+      // For still missing PIDs, mark them as "Producto eliminado"
       const stillMissing = missingPIDs.filter(pid => !productMap[pid]);
       stillMissing.forEach(pid => {
         productMap[pid] = { 
-          name: `Producto (${pid.substring(0, 8)}...)`, 
-          brandName: 'No identificado' 
+          name: `[Producto eliminado: ${pid}]`, 
+          brandName: 'N/A' 
         };
+        console.warn('[ReportsService] PID not found in products table:', pid);
       });
       
-      console.log('[ReportsService] Added missing products to productMap. Still missing:', stillMissing.length);
+      console.log('[ReportsService] Summary: Found', missingProducts.length, 'of', missingPIDs.length, 'missing products');
+      console.log('[ReportsService] Still missing (deleted products):', stillMissing.length);
     }
 
     const metrics = {
