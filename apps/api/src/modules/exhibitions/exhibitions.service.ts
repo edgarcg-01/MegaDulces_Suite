@@ -16,6 +16,7 @@ export class ExhibitionsService {
     visit_id: string;
     posicion: string;
     tipo: string;
+    pertenece_mega_dulces?: boolean;
     nivel_ejecucion: string;
     notas?: string;
   }) {
@@ -25,6 +26,7 @@ export class ExhibitionsService {
         visit_id: data.visit_id,
         posicion: data.posicion,
         tipo: data.tipo,
+        pertenece_mega_dulces: data.pertenece_mega_dulces,
         nivel_ejecucion: data.nivel_ejecucion,
         notas: data.notas,
         score: 0,

@@ -293,9 +293,9 @@
     <div class="mb-6 mt-4 px-4">
       <div class="flex justify-between items-center relative">
         <div class="absolute top-1/2 left-0 right-0 h-0.5 bg-surface-border -z-10 -translate-y-1/2"></div>
-        <div class="absolute top-1/2 left-0 h-0.5 bg-brand-orange -z-10 -translate-y-1/2 transition-all duration-300" [style.width]="((wizardStep-1)/4)*100 + '%'"></div>
+        <div class="absolute top-1/2 left-0 h-0.5 bg-brand-orange -z-10 -translate-y-1/2 transition-all duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'"></div>
 
-        <div *ngFor="let s of [1,2,3,4,5]" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 bg-surface-card transition-colors z-10"
+        <div *ngFor="let s of [1,2,3,4,5,6]" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 bg-surface-card transition-colors z-10"
              [ngClass]="s <= wizardStep ? 'border-brand-orange text-brand-orange' : 'border-surface-border text-content-muted'">
           {{s}}
         </div>
@@ -370,8 +370,42 @@
         </div>
       </div>
 
-      <!-- Step 3: Nivel -->
+      <!-- Step 3: Pertenece a Mega Dulces -->
       <div *ngIf="wizardStep === 3" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <!-- Info Card -->
+        <p-card styleClass="bg-brand/5 border-brand/20">
+          <ng-template pTemplate="content">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+                <i class="pi pi-info-circle text-lg"></i>
+              </div>
+              <div>
+                <h5 class="font-bold text-brand text-sm mb-1">¿Qué hacer aquí?</h5>
+                <p class="text-xs text-content-dim leading-relaxed">Indica si este exhibidor pertenece a Mega Dulces. Esta información es importante para distinguir entre exhibidores propios y de la competencia.</p>
+              </div>
+            </div>
+          </ng-template>
+        </p-card>
+
+        <h4 class="font-bold text-content-main mb-2">3. ¿Pertenece a Mega Dulces?</h4>
+        <div class="flex flex-col gap-2">
+           <div (click)="onPerteneceMegaDulcesSelect(true)"
+                class="p-4 border rounded-xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
+                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().perteneceMegaDulces === true}">
+             <span class="uppercase tracking-wider text-sm">Sí, pertenece a Mega Dulces</span>
+             <i class="pi" [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+           </div>
+           <div (click)="onPerteneceMegaDulcesSelect(false)"
+                class="p-4 border rounded-xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
+                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().perteneceMegaDulces === false}">
+             <span class="uppercase tracking-wider text-sm">No, es de la competencia</span>
+             <i class="pi" [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+           </div>
+        </div>
+      </div>
+
+      <!-- Step 4: Nivel -->
+      <div *ngIf="wizardStep === 4" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <!-- Info Card -->
         <p-card styleClass="bg-brand/5 border-brand/20">
           <ng-template pTemplate="content">
@@ -387,7 +421,7 @@
           </ng-template>
         </p-card>
 
-        <h4 class="font-bold text-content-main mb-2">3. Calidad de la Ejecución</h4>
+        <h4 class="font-bold text-content-main mb-2">4. Calidad de la Ejecución</h4>
         <div class="flex flex-col gap-2">
            <div *ngFor="let niv of configNiveles()" 
                 (click)="onNivelSelect(niv)"
@@ -399,8 +433,8 @@
         </div>
       </div>
 
-      <!-- Step 4: Productos -->
-      <div *ngIf="wizardStep === 4" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300 pb-32" id="step-4-container">
+      <!-- Step 5: Productos -->
+      <div *ngIf="wizardStep === 5" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300 pb-32" id="step-5-container">
         <!-- Info Card -->
         <p-card styleClass="bg-brand/5 border-brand/20">
           <ng-template pTemplate="content">
@@ -515,8 +549,8 @@
         </div>
       </div>
 
-      <!-- Step 5: Evidencia -->
-      <div *ngIf="wizardStep === 5" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <!-- Step 6: Evidencia -->
+      <div *ngIf="wizardStep === 6" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <!-- Info Card -->
         <p-card styleClass="bg-brand/5 border-brand/20">
           <ng-template pTemplate="content">
@@ -532,7 +566,7 @@
           </ng-template>
         </p-card>
 
-        <h4 class="font-bold text-content-main mb-2">5. Evidencia Fotográfica</h4>
+        <h4 class="font-bold text-content-main mb-2">6. Evidencia Fotográfica</h4>
 
         <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-2xl p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
            <input type="file" accept="image/*" capture="environment" (change)="onFileSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
@@ -557,9 +591,9 @@
     <div class="flex justify-between items-center pt-6 border-t border-surface-border mt-4">
       <p-button label="Regresar" icon="pi pi-arrow-left" severity="secondary" [text]="true" (onClick)="prevStep()" [disabled]="wizardStep === 1"></p-button>
 
-      <p-button *ngIf="wizardStep < 5" label="Siguiente Paso" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()"></p-button>
+      <p-button *ngIf="wizardStep < 6" label="Siguiente Paso" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()"></p-button>
 
-      <div *ngIf="wizardStep === 5" class="flex gap-2">
+      <div *ngIf="wizardStep === 6" class="flex gap-2">
          <p-button label="Guardar y Continuar" [outlined]="true" severity="info" (onClick)="finishWizard(true)" size="small"></p-button>
          <p-button label="Finalizar Auditoría" styleClass="p-button-brand" (onClick)="finishWizard(false)"></p-button>
       </div>

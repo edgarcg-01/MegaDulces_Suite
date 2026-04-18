@@ -26,6 +26,7 @@ export interface RegistroExhibicion {
   id: string; // ID local único
   conceptoId: string; // Mapeado a faktor_tipo
   ubicacionId: string; // Mapeado a peso_posicion
+  perteneceMegaDulces?: boolean; // ¿Pertenece a Mega Dulces?
   nivelEjecucion: string; // Mapeado a niveles_ejecucion
   productosMarcados: string[]; // Lista de PIDs
   rangoCompra: string;

@@ -365,7 +365,15 @@ export class CapturesComponent implements OnInit, OnDestroy {
       });
       return;
     }
-    if (this.wizardStep === 3 && !curr.nivelEjecucion) {
+    if (this.wizardStep === 3 && curr.perteneceMegaDulces === undefined) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Selecciona si pertenece a Mega Dulces',
+        detail: 'Debe indicar si el exhibidor pertenece a Mega Dulces.',
+      });
+      return;
+    }
+    if (this.wizardStep === 4 && !curr.nivelEjecucion) {
       this.toast.add({
         severity: 'warn',
         summary: 'Selecciona nivel',
@@ -373,7 +381,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       });
       return;
     }
-    if (this.wizardStep < 5) {
+    if (this.wizardStep < 6) {
       this.wizardStep++;
     }
   }
@@ -396,6 +404,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.currentExhibicion.update((curr) => ({
       ...curr,
       nivelEjecucion: nivel,
+    }));
+  }
+
+  onPerteneceMegaDulcesSelect(value: boolean) {
+    this.currentExhibicion.update((curr) => ({
+      ...curr,
+      perteneceMegaDulces: value,
     }));
   }
 
