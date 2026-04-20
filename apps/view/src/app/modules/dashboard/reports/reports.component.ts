@@ -191,6 +191,34 @@ export class ReportsComponent implements OnInit {
     return result.sort((a, b) => b.totalProducts - a.totalProducts);
   });
 
+  /** Muestra el diálogo de todos los productos */
+  showAllProductsDialog = false;
+  /** Todos los productos procesados para mostrar en tabla */
+  allProductsTable = computed(() => {
+    const data = this.reportsData();
+    if (!data?.productStats || !data?.productMap) return [];
+
+    const result: Array<{
+      id: string;
+      name: string;
+      brandName: string;
+      total: number;
+      exhibidores: Record<string, number>;
+    }> = [];
+
+    Object.entries(data.productStats).forEach(([pid, stats]) => {
+      result.push({
+        id: pid,
+        name: data.productMap?.[pid]?.name || pid,
+        brandName: data.productMap?.[pid]?.brandName || 'Otras',
+        total: stats.total,
+        exhibidores: stats.exhibidores,
+      });
+    });
+
+    return result.sort((a, b) => b.total - a.total);
+  });
+
   /**
    * Verifica si el usuario es supervisor
    * @returns true si el usuario es superadmin o supervisor_m

@@ -428,6 +428,7 @@
                 <div class="flex gap-2 w-full sm:w-auto">
                   <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
                   <p-button icon="pi pi-file-pdf" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand" pTooltip="Generar reporte PDF por marca"></p-button>
+                  <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="showAllProductsDialog = true" pTooltip="Ver todos los productos"></p-button>
                 </div>
               </div>
               <div class="h-[280px]">
@@ -807,6 +808,43 @@
       <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 p-2">
         <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()" class="w-full sm:w-auto"></p-button>
         <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()" class="w-full sm:w-auto"></p-button>
+      </div>
+    </ng-template>
+  </p-dialog>
+
+  <!-- Diálogo de Todos los Productos -->
+  <p-dialog header="Todos los Productos" [(visible)]="showAllProductsDialog" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+    <div class="pt-2">
+      <p-table [value]="allProductsTable()" [rows]="20" [paginator]="true" [rowsPerPageOptions]="[10, 20, 50, 100]" styleClass="p-datatable-sm">
+        <ng-template pTemplate="header">
+          <tr class="text-[10px] uppercase text-content-muted bg-surface-ground">
+            <th class="py-2 px-3 text-left">Producto</th>
+            <th class="py-2 px-3 text-left">Marca</th>
+            <th class="py-2 px-3 text-center">Frecuencia Total</th>
+            <th class="py-2 px-3 text-left">Exhibidores</th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-p>
+          <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
+            <td class="py-2 px-3 font-bold text-content-main">{{ p.name }}</td>
+            <td class="py-2 px-3 text-content-muted">{{ p.brandName }}</td>
+            <td class="py-2 px-3 text-center">
+              <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 font-bold border border-green-200">{{ p.total }}</span>
+            </td>
+            <td class="py-2 px-3">
+              <div class="flex flex-wrap gap-1">
+                <span *ngFor="let exhibidor of Object.keys(p.exhibidores)" class="text-[9px] px-1.5 py-0.5 rounded bg-surface-hover border border-surface-border text-content-muted">
+                  {{ exhibidor }}: {{ p.exhibidores[exhibidor] }}
+                </span>
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+      </p-table>
+    </div>
+    <ng-template pTemplate="footer">
+      <div class="flex justify-end">
+        <p-button label="Cerrar" severity="secondary" (click)="showAllProductsDialog = false"></p-button>
       </div>
     </ng-template>
   </p-dialog>
