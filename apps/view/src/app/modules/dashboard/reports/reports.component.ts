@@ -2745,4 +2745,13 @@ export class ReportsComponent implements OnInit {
   cancelMetas() {
     this.showMetasDialog = false;
   }
+
+  /**
+   * Helper para obtener las claves de un objeto en el template
+   * @param obj Objeto del cual obtener las claves
+   * @returns Array de claves
+   */
+  objectKeys(obj: any): string[] {
+    return Object.keys(obj);
+  }
 }

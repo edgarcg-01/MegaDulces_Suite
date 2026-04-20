@@ -833,7 +833,7 @@
             </td>
             <td class="py-2 px-3">
               <div class="flex flex-wrap gap-1">
-                <span *ngFor="let exhibidor of Object.keys(p.exhibidores)" class="text-[9px] px-1.5 py-0.5 rounded bg-surface-hover border border-surface-border text-content-muted">
+                <span *ngFor="let exhibidor of objectKeys(p.exhibidores)" class="text-[9px] px-1.5 py-0.5 rounded bg-surface-hover border border-surface-border text-content-muted">
                   {{ exhibidor }}: {{ p.exhibidores[exhibidor] }}
                 </span>
               </div>
