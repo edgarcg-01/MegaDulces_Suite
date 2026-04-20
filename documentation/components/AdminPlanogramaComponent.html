@@ -1,0 +1,1563 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  AdminPlanogramaComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#templateData" class="nav-link"
+                role="tab" id="templateData-tab" data-bs-toggle="tab" data-link="template">Template</a>
+        </li>
+        <li class="nav-item">
+            <a href="#styleData" class="nav-link"
+                role="tab" id="styleData-tab" data-bs-toggle="tab" data-link="style">Styles</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/modules/dashboard/admin-planograma/admin-planograma.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">providers</td>
+                <td class="col-md-9">
+                            <code>MessageService</code>
+                            <code>ConfirmationService</code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-admin-planograma</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">standalone</td>
+                <td class="col-md-9"><code>true</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">imports</td>
+                <td class="col-md-9">
+                                <code><a href="https://angular.io/api/common/CommonModule" target="_blank" >CommonModule</a></code>
+                                <code><a href="https://angular.io/api/forms/FormsModule" target="_blank" >FormsModule</a></code>
+                            <code>TableModule</code>
+                            <code>ButtonModule</code>
+                            <code>InputTextModule</code>
+                            <code>InputNumberModule</code>
+                            <code>DialogModule</code>
+                            <code>ToastModule</code>
+                            <code>TagModule</code>
+                            <code>ConfirmDialogModule</code>
+                </td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">styleUrls</td>
+                <td class="col-md-9"><code>./admin-planograma.component.css</code></td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">templateUrl</td>
+                <td class="col-md-9"><code>./admin-planograma.component.html</code></td>
+            </tr>
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#brands" >brands</a>
+                            </li>
+                            <li>
+                                <a href="#editBrandName" >editBrandName</a>
+                            </li>
+                            <li>
+                                <a href="#editProductName" >editProductName</a>
+                            </li>
+                            <li>
+                                <a href="#expandedRows" >expandedRows</a>
+                            </li>
+                            <li>
+                                <a href="#loading" >loading</a>
+                            </li>
+                            <li>
+                                <a href="#newBrandName" >newBrandName</a>
+                            </li>
+                            <li>
+                                <a href="#newProductName" >newProductName</a>
+                            </li>
+                            <li>
+                                <a href="#selectedBrand" >selectedBrand</a>
+                            </li>
+                            <li>
+                                <a href="#selectedProduct" >selectedProduct</a>
+                            </li>
+                            <li>
+                                <a href="#showAddBrandDialog" >showAddBrandDialog</a>
+                            </li>
+                            <li>
+                                <a href="#showAddProductDialog" >showAddProductDialog</a>
+                            </li>
+                            <li>
+                                <a href="#showEditBrandDialog" >showEditBrandDialog</a>
+                            </li>
+                            <li>
+                                <a href="#showEditProductDialog" >showEditProductDialog</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#addProduct" >addProduct</a>
+                            </li>
+                            <li>
+                                <a href="#createBrand" >createBrand</a>
+                            </li>
+                            <li>
+                                <a href="#deleteBrand" >deleteBrand</a>
+                            </li>
+                            <li>
+                                <a href="#deleteProduct" >deleteProduct</a>
+                            </li>
+                            <li>
+                                <a href="#loadBrands" >loadBrands</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#openAddProduct" >openAddProduct</a>
+                            </li>
+                            <li>
+                                <a href="#openEditBrand" >openEditBrand</a>
+                            </li>
+                            <li>
+                                <a href="#openEditProduct" >openEditProduct</a>
+                            </li>
+                            <li>
+                                <a href="#toggleRowExpansion" >toggleRowExpansion</a>
+                            </li>
+                            <li>
+                                <a href="#updateBrand" >updateBrand</a>
+                            </li>
+                            <li>
+                                <a href="#updateProduct" >updateProduct</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="addProduct"></a>
+                    <span class="name">
+                        <span ><b>addProduct</b></span>
+                        <a href="#addProduct"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>addProduct()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="createBrand"></a>
+                    <span class="name">
+                        <span ><b>createBrand</b></span>
+                        <a href="#createBrand"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>createBrand()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="deleteBrand"></a>
+                    <span class="name">
+                        <span ><b>deleteBrand</b></span>
+                        <a href="#deleteBrand"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>deleteBrand(id: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>id</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="deleteProduct"></a>
+                    <span class="name">
+                        <span ><b>deleteProduct</b></span>
+                        <a href="#deleteProduct"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>deleteProduct(id: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>id</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadBrands"></a>
+                    <span class="name">
+                        <span ><b>loadBrands</b></span>
+                        <a href="#loadBrands"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadBrands()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openAddProduct"></a>
+                    <span class="name">
+                        <span ><b>openAddProduct</b></span>
+                        <a href="#openAddProduct"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openAddProduct(brandId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>brandId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openEditBrand"></a>
+                    <span class="name">
+                        <span ><b>openEditBrand</b></span>
+                        <a href="#openEditBrand"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openEditBrand(brand: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>brand</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openEditProduct"></a>
+                    <span class="name">
+                        <span ><b>openEditProduct</b></span>
+                        <a href="#openEditProduct"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openEditProduct(product: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>product</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="toggleRowExpansion"></a>
+                    <span class="name">
+                        <span ><b>toggleRowExpansion</b></span>
+                        <a href="#toggleRowExpansion"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>toggleRowExpansion(brand: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>brand</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="updateBrand"></a>
+                    <span class="name">
+                        <span ><b>updateBrand</b></span>
+                        <a href="#updateBrand"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>updateBrand()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="updateProduct"></a>
+                    <span class="name">
+                        <span ><b>updateProduct</b></span>
+                        <a href="#updateProduct"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>updateProduct()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="brands"></a>
+                    <span class="name">
+                        <span ><b>brands</b></span>
+                        <a href="#brands"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;any[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="editBrandName"></a>
+                    <span class="name">
+                        <span ><b>editBrandName</b></span>
+                        <a href="#editBrandName"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="editProductName"></a>
+                    <span class="name">
+                        <span ><b>editProductName</b></span>
+                        <a href="#editProductName"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="expandedRows"></a>
+                    <span class="name">
+                        <span ><b>expandedRows</b></span>
+                        <a href="#expandedRows"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>literal type</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>{}</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loading"></a>
+                    <span class="name">
+                        <span ><b>loading</b></span>
+                        <a href="#loading"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="newBrandName"></a>
+                    <span class="name">
+                        <span ><b>newBrandName</b></span>
+                        <a href="#newBrandName"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="newProductName"></a>
+                    <span class="name">
+                        <span ><b>newProductName</b></span>
+                        <a href="#newProductName"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedBrand"></a>
+                    <span class="name">
+                        <span ><b>selectedBrand</b></span>
+                        <a href="#selectedBrand"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>null</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedProduct"></a>
+                    <span class="name">
+                        <span ><b>selectedProduct</b></span>
+                        <a href="#selectedProduct"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>null</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showAddBrandDialog"></a>
+                    <span class="name">
+                        <span ><b>showAddBrandDialog</b></span>
+                        <a href="#showAddBrandDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showAddProductDialog"></a>
+                    <span class="name">
+                        <span ><b>showAddProductDialog</b></span>
+                        <a href="#showAddProductDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showEditBrandDialog"></a>
+                    <span class="name">
+                        <span ><b>showEditBrandDialog</b></span>
+                        <a href="#showEditBrandDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showEditProductDialog"></a>
+                    <span class="name">
+                        <span ><b>showEditProductDialog</b></span>
+                        <a href="#showEditProductDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+    <div class="tab-pane fade " id="templateData">
+        <pre class="line-numbers"><code class="language-html">&lt;div class&#x3D;&quot;p-6&quot;&gt;
+  &lt;!-- Encabezado --&gt;
+  &lt;div class&#x3D;&quot;flex justify-between items-center mb-6&quot;&gt;
+    &lt;div&gt;
+      &lt;h2 class&#x3D;&quot;text-2xl font-bold text-content-main&quot;&gt;🏷️ Jerarquía de Planograma&lt;/h2&gt;
+      &lt;p class&#x3D;&quot;text-sm text-content-dim&quot;&gt;Administra las marcas y sus productos por cada punto de venta.&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class&#x3D;&quot;flex gap-2&quot;&gt;
+      &lt;p-button label&#x3D;&quot;Nueva Marca&quot; icon&#x3D;&quot;pi pi-plus&quot; (onClick)&#x3D;&quot;showAddBrandDialog &#x3D; true&quot;&gt;&lt;/p-button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Tabla de Marcas con Expansión --&gt;
+  &lt;div class&#x3D;&quot;bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden&quot;&gt;
+    &lt;p-table [value]&#x3D;&quot;brands()&quot; [loading]&#x3D;&quot;loading()&quot; dataKey&#x3D;&quot;id&quot; [expandedRowKeys]&#x3D;&quot;expandedRows&quot; responsiveLayout&#x3D;&quot;scroll&quot; styleClass&#x3D;&quot;p-datatable-sm p-datatable-striped&quot;&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+        &lt;tr class&#x3D;&quot;text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border&quot;&gt;
+          &lt;th style&#x3D;&quot;width: 3rem&quot;&gt;&lt;/th&gt;
+          &lt;th&gt;Marca / Fabricante&lt;/th&gt;
+          &lt;th class&#x3D;&quot;text-center&quot;&gt;Productos&lt;/th&gt;
+          &lt;th class&#x3D;&quot;text-center w-28&quot;&gt;Acciones&lt;/th&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-brand let-expanded&#x3D;&quot;expanded&quot;&gt;
+        &lt;tr class&#x3D;&quot;text-sm border-b border-surface-border hover:bg-surface-hover&quot;&gt;
+          &lt;td&gt;
+            &lt;button type&#x3D;&quot;button&quot; pButton pRipple [pRowToggler]&#x3D;&quot;brand&quot; class&#x3D;&quot;p-button-text p-button-rounded p-button-plain&quot; [icon]&#x3D;&quot;expanded ? &#x27;pi pi-chevron-down&#x27; : &#x27;pi pi-chevron-right&#x27;&quot;&gt;&lt;/button&gt;
+          &lt;/td&gt;
+          &lt;td class&#x3D;&quot;font-bold text-content-main uppercase tracking-wider&quot;&gt;{{ brand.nombre }}&lt;/td&gt;
+          &lt;td class&#x3D;&quot;text-center font-mono&quot;&gt;
+            {{ brand.productos?.length || 0 }}
+          &lt;/td&gt;
+          &lt;td class&#x3D;&quot;text-center&quot;&gt;
+            &lt;div class&#x3D;&quot;flex justify-center gap-1&quot;&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-plus&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openAddProduct(brand.id)&quot;&gt;&lt;/p-button&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditBrand(brand)&quot;&gt;&lt;/p-button&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteBrand(brand.id)&quot;&gt;&lt;/p-button&gt;
+            &lt;/div&gt;
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+
+      &lt;!-- Expansión de Productos --&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;rowexpansion&quot; let-brand&gt;
+        &lt;tr&gt;
+          &lt;td colspan&#x3D;&quot;4&quot; class&#x3D;&quot;p-4 bg-surface-ground&quot;&gt;
+            &lt;div class&#x3D;&quot;p-3 border border-surface-border bg-surface-card rounded-lg shadow-inner&quot;&gt;
+               &lt;h4 class&#x3D;&quot;text-xs font-bold text-content-muted uppercase mb-3&quot;&gt;Productos de {{ brand.nombre }}&lt;/h4&gt;
+               &lt;p-table [value]&#x3D;&quot;brand.productos || []&quot; styleClass&#x3D;&quot;p-datatable-sm p-datatable-striped&quot;&gt;
+                  &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+                    &lt;tr class&#x3D;&quot;text-[9px] uppercase text-content-dim border-b&quot;&gt;
+                       &lt;th&gt;Nombre del Producto&lt;/th&gt;
+                       &lt;th class&#x3D;&quot;text-center w-20&quot;&gt;Acciones&lt;/th&gt;
+                    &lt;/tr&gt;
+                  &lt;/ng-template&gt;
+                  &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-product&gt;
+                    &lt;tr class&#x3D;&quot;text-xs&quot;&gt;
+                       &lt;td class&#x3D;&quot;font-medium text-content-main&quot;&gt;{{ product.nombre }}&lt;/td&gt;
+                       &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                          &lt;div class&#x3D;&quot;flex justify-center gap-1&quot;&gt;
+                             &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditProduct(product)&quot;&gt;&lt;/p-button&gt;
+                             &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteProduct(product.id)&quot;&gt;&lt;/p-button&gt;
+                          &lt;/div&gt;
+                       &lt;/td&gt;
+                    &lt;/tr&gt;
+                  &lt;/ng-template&gt;
+                  &lt;ng-template pTemplate&#x3D;&quot;emptymessage&quot;&gt;
+                    &lt;tr&gt;&lt;td colspan&#x3D;&quot;2&quot; class&#x3D;&quot;text-center p-4 text-xs text-content-dim italic&quot;&gt;No hay productos en esta marca.&lt;/td&gt;&lt;/tr&gt;
+                  &lt;/ng-template&gt;
+               &lt;/p-table&gt;
+            &lt;/div&gt;
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;emptymessage&quot;&gt;
+        &lt;tr&gt;
+          &lt;td colspan&#x3D;&quot;4&quot; class&#x3D;&quot;text-center p-8 text-content-dim&quot;&gt;
+            No hay marcas configuradas.
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+    &lt;/p-table&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Mobile Card View --&gt;
+  &lt;div class&#x3D;&quot;lg:hidden space-y-4 mt-4&quot;&gt;
+    &lt;div *ngFor&#x3D;&quot;let brand of brands()&quot; class&#x3D;&quot;bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm&quot;&gt;
+      &lt;div class&#x3D;&quot;flex items-center justify-between mb-3&quot;&gt;
+        &lt;div class&#x3D;&quot;flex items-center gap-3&quot;&gt;
+          &lt;span class&#x3D;&quot;text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded&quot;&gt;#{{brand.id}}&lt;/span&gt;
+          &lt;h3 class&#x3D;&quot;text-sm font-bold text-content-main uppercase&quot;&gt;{{ brand.nombre }}&lt;/h3&gt;
+        &lt;/div&gt;
+        &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+          &lt;p-button icon&#x3D;&quot;pi pi-plus&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openAddProduct(brand.id)&quot;&gt;&lt;/p-button&gt;
+          &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditBrand(brand)&quot;&gt;&lt;/p-button&gt;
+          &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteBrand(brand.id)&quot;&gt;&lt;/p-button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;space-y-2&quot;&gt;
+        &lt;div class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+          &lt;span class&#x3D;&quot;text-xs text-content-muted&quot;&gt;Productos:&lt;/span&gt;
+          &lt;span class&#x3D;&quot;text-sm font-medium text-content-main&quot;&gt;{{ brand.productos?.length || 0 }} items&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;!-- Expandable products details --&gt;
+      &lt;div *ngIf&#x3D;&quot;expandedRows[brand.id]&quot; class&#x3D;&quot;mt-4 pt-4 border-t border-surface-border&quot;&gt;
+        &lt;div class&#x3D;&quot;text-xs font-bold text-content-muted mb-3&quot;&gt;PRODUCTOS:&lt;/div&gt;
+        &lt;div class&#x3D;&quot;space-y-2&quot;&gt;
+          &lt;div *ngFor&#x3D;&quot;let product of brand.productos || []&quot; class&#x3D;&quot;bg-surface-ground p-3 rounded-lg border border-surface-border&quot;&gt;
+            &lt;div class&#x3D;&quot;flex justify-between items-center&quot;&gt;
+              &lt;span class&#x3D;&quot;text-xs font-medium text-content-main&quot;&gt;{{ product.nombre }}&lt;/span&gt;
+              &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+                &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditProduct(product)&quot;&gt;&lt;/p-button&gt;
+                &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteProduct(product.id)&quot;&gt;&lt;/p-button&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div *ngIf&#x3D;&quot;!brand.productos || brand.productos.length &#x3D;&#x3D;&#x3D; 0&quot; class&#x3D;&quot;text-xs text-content-dim italic p-3 bg-surface-ground rounded-lg&quot;&gt;
+          No hay productos en esta marca.
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;mt-3 pt-3 border-t border-surface-border&quot;&gt;
+        &lt;p-button type&#x3D;&quot;button&quot; [text]&#x3D;&quot;true&quot; [rounded]&#x3D;&quot;true&quot; 
+                  [icon]&#x3D;&quot;expandedRows[brand.id] ? &#x27;pi pi-chevron-up&#x27; : &#x27;pi pi-chevron-down&#x27;&quot;
+                  (onClick)&#x3D;&quot;toggleRowExpansion(brand)&quot;
+                  label&#x3D;&quot;Ver Productos&quot;&gt;&lt;/p-button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;!-- Diálogos de Marca --&gt;
+&lt;p-dialog header&#x3D;&quot;Nueva Marca&quot; [(visible)]&#x3D;&quot;showAddBrandDialog&quot; [modal]&#x3D;&quot;true&quot; [style]&#x3D;&quot;{width: &#x27;350px&#x27;}&quot; styleClass&#x3D;&quot;surface-card border-divider rounded-xl&quot; [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main&#x27;&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col gap-4 py-4&quot;&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted uppercase&quot;&gt;Nombre de Marca&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;newBrandName&quot; class&#x3D;&quot;uppercase&quot; /&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+    &lt;p-button label&#x3D;&quot;Cancelar&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; (onClick)&#x3D;&quot;showAddBrandDialog &#x3D; false&quot;&gt;&lt;/p-button&gt;
+    &lt;p-button label&#x3D;&quot;Guardar&quot; (onClick)&#x3D;&quot;createBrand()&quot;&gt;&lt;/p-button&gt;
+  &lt;/ng-template&gt;
+&lt;/p-dialog&gt;
+
+&lt;p-dialog header&#x3D;&quot;Editar Marca&quot; [(visible)]&#x3D;&quot;showEditBrandDialog&quot; [modal]&#x3D;&quot;true&quot; [style]&#x3D;&quot;{width: &#x27;350px&#x27;}&quot; styleClass&#x3D;&quot;surface-card border-divider rounded-xl&quot; [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main&#x27;&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col gap-4 py-4&quot;&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted uppercase&quot;&gt;Actualizar Nombre&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;editBrandName&quot; class&#x3D;&quot;uppercase&quot; /&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+    &lt;p-button label&#x3D;&quot;Cancelar&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; (onClick)&#x3D;&quot;showEditBrandDialog &#x3D; false&quot;&gt;&lt;/p-button&gt;
+    &lt;p-button label&#x3D;&quot;Actualizar&quot; (onClick)&#x3D;&quot;updateBrand()&quot;&gt;&lt;/p-button&gt;
+  &lt;/ng-template&gt;
+&lt;/p-dialog&gt;
+
+&lt;!-- Diálogos de Producto --&gt;
+&lt;p-dialog header&#x3D;&quot;Nuevo Producto&quot; [(visible)]&#x3D;&quot;showAddProductDialog&quot; [modal]&#x3D;&quot;true&quot; [style]&#x3D;&quot;{width: &#x27;350px&#x27;}&quot; styleClass&#x3D;&quot;surface-card border-divider rounded-xl&quot; [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main&#x27;&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col gap-4 py-4&quot;&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted uppercase&quot;&gt;Nombre SKU&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;newProductName&quot; /&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+    &lt;p-button label&#x3D;&quot;Cancelar&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; (onClick)&#x3D;&quot;showAddProductDialog &#x3D; false&quot;&gt;&lt;/p-button&gt;
+    &lt;p-button label&#x3D;&quot;Guardar&quot; (onClick)&#x3D;&quot;addProduct()&quot;&gt;&lt;/p-button&gt;
+  &lt;/ng-template&gt;
+&lt;/p-dialog&gt;
+
+&lt;p-dialog header&#x3D;&quot;Editar Producto&quot; [(visible)]&#x3D;&quot;showEditProductDialog&quot; [modal]&#x3D;&quot;true&quot; [style]&#x3D;&quot;{width: &#x27;350px&#x27;}&quot; styleClass&#x3D;&quot;surface-card border-divider rounded-xl&quot; [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main&#x27;&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col gap-4 py-4&quot;&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted uppercase&quot;&gt;Nombre del Producto&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;editProductName&quot; /&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+    &lt;p-button label&#x3D;&quot;Cancelar&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; (onClick)&#x3D;&quot;showEditProductDialog &#x3D; false&quot;&gt;&lt;/p-button&gt;
+    &lt;p-button label&#x3D;&quot;Actualizar&quot; (onClick)&#x3D;&quot;updateProduct()&quot;&gt;&lt;/p-button&gt;
+  &lt;/ng-template&gt;
+&lt;/p-dialog&gt;
+
+&lt;p-toast&gt;&lt;/p-toast&gt;
+&lt;p-confirmDialog&gt;&lt;/p-confirmDialog&gt;
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="styleData">
+                <p class="comment">
+                    <code>./admin-planograma.component.css</code>
+                </p>
+                <pre class="line-numbers"><code class="language-scss"></code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div><div class="p-6">  <!-- Encabezado -->  <div class="flex justify-between items-center mb-6">    <div>      <h2 class="text-2xl font-bold text-content-main">🏷️ Jerarquía de Planograma</h2>      <p class="text-sm text-content-dim">Administra las marcas y sus productos por cada punto de venta.</p>    </div>    <div class="flex gap-2">      <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="showAddBrandDialog = true"></p-button>    </div>  </div>  <!-- Tabla de Marcas con Expansión -->  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">    <p-table [value]="brands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">      <ng-template pTemplate="header">        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">          <th style="width: 3rem"></th>          <th>Marca / Fabricante</th>          <th class="text-center">Productos</th>          <th class="text-center w-28">Acciones</th>        </tr>      </ng-template>      <ng-template pTemplate="body" let-brand let-expanded="expanded">        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">          <td>            <button type="button" pButton pRipple [pRowToggler]="brand" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? \'pi pi-chevron-down\' : \'pi pi-chevron-right\'"></button>          </td>          <td class="font-bold text-content-main uppercase tracking-wider">{{ brand.nombre }}</td>          <td class="text-center font-mono">            {{ brand.productos?.length || 0 }}          </td>          <td class="text-center">            <div class="flex justify-center gap-1">              <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand.id)"></p-button>              <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)"></p-button>            </div>          </td>        </tr>      </ng-template>      <!-- Expansión de Productos -->      <ng-template pTemplate="rowexpansion" let-brand>        <tr>          <td colspan="4" class="p-4 bg-surface-ground">            <div class="p-3 border border-surface-border bg-surface-card rounded-lg shadow-inner">               <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>               <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">                  <ng-template pTemplate="header">                    <tr class="text-[9px] uppercase text-content-dim border-b">                       <th>Nombre del Producto</th>                       <th class="text-center w-20">Acciones</th>                    </tr>                  </ng-template>                  <ng-template pTemplate="body" let-product>                    <tr class="text-xs">                       <td class="font-medium text-content-main">{{ product.nombre }}</td>                       <td class="text-center">                          <div class="flex justify-center gap-1">                             <p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openEditProduct(product)"></p-button>                             <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteProduct(product.id)"></p-button>                          </div>                       </td>                    </tr>                  </ng-template>                  <ng-template pTemplate="emptymessage">                    <tr><td colspan="2" class="text-center p-4 text-xs text-content-dim italic">No hay productos en esta marca.</td></tr>                  </ng-template>               </p-table>            </div>          </td>        </tr>      </ng-template>      <ng-template pTemplate="emptymessage">        <tr>          <td colspan="4" class="text-center p-8 text-content-dim">            No hay marcas configuradas.          </td>        </tr>      </ng-template>    </p-table>  </div>  <!-- Mobile Card View -->  <div class="lg:hidden space-y-4 mt-4">    <div *ngFor="let brand of brands()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">      <div class="flex items-center justify-between mb-3">        <div class="flex items-center gap-3">          <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{brand.id}}</span>          <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>        </div>        <div class="flex gap-1">          <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand.id)"></p-button>          <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)"></p-button>        </div>      </div>      <div class="space-y-2">        <div class="flex items-center gap-2">          <span class="text-xs text-content-muted">Productos:</span>          <span class="text-sm font-medium text-content-main">{{ brand.productos?.length || 0 }} items</span>        </div>      </div>      <!-- Expandable products details -->      <div *ngIf="expandedRows[brand.id]" class="mt-4 pt-4 border-t border-surface-border">        <div class="text-xs font-bold text-content-muted mb-3">PRODUCTOS:</div>        <div class="space-y-2">          <div *ngFor="let product of brand.productos || []" class="bg-surface-ground p-3 rounded-lg border border-surface-border">            <div class="flex justify-between items-center">              <span class="text-xs font-medium text-content-main">{{ product.nombre }}</span>              <div class="flex gap-1">                <p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openEditProduct(product)"></p-button>                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteProduct(product.id)"></p-button>              </div>            </div>          </div>        </div>        <div *ngIf="!brand.productos || brand.productos.length === 0" class="text-xs text-content-dim italic p-3 bg-surface-ground rounded-lg">          No hay productos en esta marca.        </div>      </div>      <div class="mt-3 pt-3 border-t border-surface-border">        <p-button type="button" [text]="true" [rounded]="true"                   [icon]="expandedRows[brand.id] ? \'pi pi-chevron-up\' : \'pi pi-chevron-down\'"                  (onClick)="toggleRowExpansion(brand)"                  label="Ver Productos"></p-button>      </div>    </div>  </div></div><!-- Diálogos de Marca --><p-dialog header="Nueva Marca" [(visible)]="showAddBrandDialog" [modal]="true" [style]="{width: \'350px\'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="\'bg-surface-card text-content-main\'">  <div class="flex flex-col gap-4 py-4">    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted uppercase">Nombre de Marca</label>      <input pInputText [(ngModel)]="newBrandName" class="uppercase" />    </div>  </div>  <ng-template pTemplate="footer">    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddBrandDialog = false"></p-button>    <p-button label="Guardar" (onClick)="createBrand()"></p-button>  </ng-template></p-dialog><p-dialog header="Editar Marca" [(visible)]="showEditBrandDialog" [modal]="true" [style]="{width: \'350px\'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="\'bg-surface-card text-content-main\'">  <div class="flex flex-col gap-4 py-4">    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted uppercase">Actualizar Nombre</label>      <input pInputText [(ngModel)]="editBrandName" class="uppercase" />    </div>  </div>  <ng-template pTemplate="footer">    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showEditBrandDialog = false"></p-button>    <p-button label="Actualizar" (onClick)="updateBrand()"></p-button>  </ng-template></p-dialog><!-- Diálogos de Producto --><p-dialog header="Nuevo Producto" [(visible)]="showAddProductDialog" [modal]="true" [style]="{width: \'350px\'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="\'bg-surface-card text-content-main\'">  <div class="flex flex-col gap-4 py-4">    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted uppercase">Nombre SKU</label>      <input pInputText [(ngModel)]="newProductName" />    </div>  </div>  <ng-template pTemplate="footer">    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddProductDialog = false"></p-button>    <p-button label="Guardar" (onClick)="addProduct()"></p-button>  </ng-template></p-dialog><p-dialog header="Editar Producto" [(visible)]="showEditProductDialog" [modal]="true" [style]="{width: \'350px\'}" styleClass="surface-card border-divider rounded-xl" [contentStyleClass]="\'bg-surface-card text-content-main\'">  <div class="flex flex-col gap-4 py-4">    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted uppercase">Nombre del Producto</label>      <input pInputText [(ngModel)]="editProductName" />    </div>  </div>  <ng-template pTemplate="footer">    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showEditProductDialog = false"></p-button>    <p-button label="Actualizar" (onClick)="updateProduct()"></p-button>  </ng-template></p-dialog><p-toast></p-toast><p-confirmDialog></p-confirmDialog></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'AdminPlanogramaComponent'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'AdminPlanogramaComponent.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>

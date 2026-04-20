@@ -1,0 +1,685 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  AdminRolesPermissionsComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/modules/dashboard/admin-roles/admin-roles-permissions.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">providers</td>
+                <td class="col-md-9">
+                            <code>MessageService</code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-admin-roles-permissions</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">standalone</td>
+                <td class="col-md-9"><code>true</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">imports</td>
+                <td class="col-md-9">
+                                <code><a href="https://angular.io/api/common/CommonModule" target="_blank" >CommonModule</a></code>
+                                <code><a href="https://angular.io/api/forms/FormsModule" target="_blank" >FormsModule</a></code>
+                                <code><a href="https://angular.io/api/router/RouterModule" target="_blank" >RouterModule</a></code>
+                            <code>TableModule</code>
+                            <code>CheckboxModule</code>
+                            <code>ButtonModule</code>
+                            <code>ToastModule</code>
+                </td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">template</td>
+                <td class="col-md-9"><pre class="line-numbers"><code class="language-html">&lt;div class&#x3D;&quot;p-6 max-w-4xl mx-auto&quot;&gt;
+  &lt;p-toast&gt;&lt;/p-toast&gt;
+  &lt;div class&#x3D;&quot;flex justify-between items-center mb-6&quot;&gt;
+    &lt;div&gt;
+      &lt;h2
+        class&#x3D;&quot;text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-3&quot;
+      &gt;
+        &lt;i class&#x3D;&quot;pi pi-shield text-brand&quot;&gt;&lt;/i&gt; Permisos de Rol:
+        &lt;span class&#x3D;&quot;text-brand&quot;&gt;{{ roleName() }}&lt;/span&gt;
+      &lt;/h2&gt;
+      &lt;p class&#x3D;&quot;text-xs font-medium text-content-dim tracking-wide&quot;&gt;
+        Define las funciones y alcances dinámicos para este rol en el sistema.
+      &lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class&#x3D;&quot;flex gap-2&quot;&gt;
+      &lt;p-button
+        label&#x3D;&quot;Guardar Cambios&quot;
+        icon&#x3D;&quot;pi pi-save&quot;
+        (onClick)&#x3D;&quot;savePermissions()&quot;
+        styleClass&#x3D;&quot;p-button-brand&quot;
+        [loading]&#x3D;&quot;saving()&quot;
+      &gt;&lt;/p-button&gt;
+      &lt;p-button
+        label&#x3D;&quot;Regresar&quot;
+        icon&#x3D;&quot;pi pi-arrow-left&quot;
+        [text]&#x3D;&quot;true&quot;
+        routerLink&#x3D;&quot;/dashboard/admin/catalogs/roles&quot;
+      &gt;&lt;/p-button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div
+    class&#x3D;&quot;bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden&quot;
+  &gt;
+    &lt;p-table
+      [value]&#x3D;&quot;permissionRows()&quot;
+      sortField&#x3D;&quot;category&quot;
+      rowGroupMode&#x3D;&quot;subheader&quot;
+      groupRowsBy&#x3D;&quot;category&quot;
+      styleClass&#x3D;&quot;p-datatable-sm&quot;
+    &gt;
+      &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+        &lt;tr&gt;
+          &lt;th style&#x3D;&quot;width: 10%&quot;&gt;Activo&lt;/th&gt;
+          &lt;th&gt;Función / Permiso&lt;/th&gt;
+          &lt;th&gt;Descripción&lt;/th&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;groupheader&quot; let-row&gt;
+        &lt;tr pRowGroupHeader class&#x3D;&quot;bg-surface-layout/50&quot;&gt;
+          &lt;td colspan&#x3D;&quot;3&quot;&gt;
+            &lt;span
+              class&#x3D;&quot;font-black text-[10px] uppercase text-brand tracking-widest&quot;
+              &gt;{{ row.category }}&lt;/span
+            &gt;
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+
+      &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-row&gt;
+        &lt;tr&gt;
+          &lt;td&gt;
+            &lt;p-checkbox
+              [(ngModel)]&#x3D;&quot;row.enabled&quot;
+              [binary]&#x3D;&quot;true&quot;
+            &gt;&lt;/p-checkbox&gt;
+          &lt;/td&gt;
+          &lt;td&gt;
+            &lt;div class&#x3D;&quot;flex flex-col&quot;&gt;
+              &lt;span class&#x3D;&quot;font-bold text-content-main text-sm&quot;&gt;{{ row.label }}&lt;/span&gt;
+              &lt;span class&#x3D;&quot;text-[10px] font-mono text-content-faint&quot;&gt;{{ row.key }}&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/td&gt;
+          &lt;td class&#x3D;&quot;text-xs text-content-dim&quot;&gt;
+            {{ row.description }}
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+    &lt;/p-table&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+</code></pre></td>
+            </tr>
+
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#permissionRows" >permissionRows</a>
+                            </li>
+                            <li>
+                                <a href="#roleName" >roleName</a>
+                            </li>
+                            <li>
+                                <a href="#saving" >saving</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#loadPermissions" >loadPermissions</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#savePermissions" >savePermissions</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadPermissions"></a>
+                    <span class="name">
+                        <span ><b>loadPermissions</b></span>
+                        <a href="#loadPermissions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadPermissions(roleName: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>roleName</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="savePermissions"></a>
+                    <span class="name">
+                        <span ><b>savePermissions</b></span>
+                        <a href="#savePermissions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>savePermissions()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="permissionRows"></a>
+                    <span class="name">
+                        <span ><b>permissionRows</b></span>
+                        <a href="#permissionRows"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;PermissionRow[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="roleName"></a>
+                    <span class="name">
+                        <span ><b>roleName</b></span>
+                        <a href="#roleName"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;string&gt;(&#x27;&#x27;)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="saving"></a>
+                    <span class="name">
+                        <span ><b>saving</b></span>
+                        <a href="#saving"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div><div class="p-6 max-w-4xl mx-auto">  <p-toast></p-toast>  <div class="flex justify-between items-center mb-6">    <div>      <h2        class="text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-3"      >        <i class="pi pi-shield text-brand"></i> Permisos de Rol:        <span class="text-brand">{{ roleName() }}</span>      </h2>      <p class="text-xs font-medium text-content-dim tracking-wide">        Define las funciones y alcances dinámicos para este rol en el sistema.      </p>    </div>    <div class="flex gap-2">      <p-button        label="Guardar Cambios"        icon="pi pi-save"        (onClick)="savePermissions()"        styleClass="p-button-brand"        [loading]="saving()"      ></p-button>      <p-button        label="Regresar"        icon="pi pi-arrow-left"        [text]="true"        routerLink="/dashboard/admin/catalogs/roles"      ></p-button>    </div>  </div>  <div    class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden"  >    <p-table      [value]="permissionRows()"      sortField="category"      rowGroupMode="subheader"      groupRowsBy="category"      styleClass="p-datatable-sm"    >      <ng-template pTemplate="header">        <tr>          <th style="width: 10%">Activo</th>          <th>Función / Permiso</th>          <th>Descripción</th>        </tr>      </ng-template>      <ng-template pTemplate="groupheader" let-row>        <tr pRowGroupHeader class="bg-surface-layout/50">          <td colspan="3">            <span              class="font-black text-[10px] uppercase text-brand tracking-widest"              >{{ row.category }}</span            >          </td>        </tr>      </ng-template>      <ng-template pTemplate="body" let-row>        <tr>          <td>            <p-checkbox              [(ngModel)]="row.enabled"              [binary]="true"            ></p-checkbox>          </td>          <td>            <div class="flex flex-col">              <span class="font-bold text-content-main text-sm">{{ row.label }}</span>              <span class="text-[10px] font-mono text-content-faint">{{ row.key }}</span>            </div>          </td>          <td class="text-xs text-content-dim">            {{ row.description }}          </td>        </tr>      </ng-template>    </p-table>  </div></div></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'AdminRolesPermissionsComponent'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'AdminRolesPermissionsComponent.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>

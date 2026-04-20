@@ -21,4 +21,13 @@ export class AppController {
       timestamp: Date.now()
     };
   }
+
+  @Get('health')
+  getHealth() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    };
+  }
 }

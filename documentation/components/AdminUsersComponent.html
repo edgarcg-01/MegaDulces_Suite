@@ -1,0 +1,1334 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  AdminUsersComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#templateData" class="nav-link"
+                role="tab" id="templateData-tab" data-bs-toggle="tab" data-link="template">Template</a>
+        </li>
+        <li class="nav-item">
+            <a href="#styleData" class="nav-link"
+                role="tab" id="styleData-tab" data-bs-toggle="tab" data-link="style">Styles</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/modules/dashboard/admin-users/admin-users.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">providers</td>
+                <td class="col-md-9">
+                            <code>MessageService</code>
+                            <code>ConfirmationService</code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-admin-users</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">standalone</td>
+                <td class="col-md-9"><code>true</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">imports</td>
+                <td class="col-md-9">
+                                <code><a href="https://angular.io/api/common/CommonModule" target="_blank" >CommonModule</a></code>
+                                <code><a href="https://angular.io/api/forms/ReactiveFormsModule" target="_blank" >ReactiveFormsModule</a></code>
+                            <code>TableModule</code>
+                            <code>ButtonModule</code>
+                            <code>TagModule</code>
+                            <code>DialogModule</code>
+                            <code>InputTextModule</code>
+                            <code>SelectModule</code>
+                            <code>InputSwitchModule</code>
+                            <code>ToastModule</code>
+                            <code>ConfirmDialogModule</code>
+                </td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">styleUrls</td>
+                <td class="col-md-9"><code>./admin-users.component.css</code></td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">templateUrl</td>
+                <td class="col-md-9"><code>./admin-users.component.html</code></td>
+            </tr>
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#currentUserId" >currentUserId</a>
+                            </li>
+                            <li>
+                                <a href="#displayDialog" >displayDialog</a>
+                            </li>
+                            <li>
+                                <a href="#isEditing" >isEditing</a>
+                            </li>
+                            <li>
+                                <a href="#loading" >loading</a>
+                            </li>
+                            <li>
+                                <a href="#roles" >roles</a>
+                            </li>
+                            <li>
+                                <a href="#supervisors" >supervisors</a>
+                            </li>
+                            <li>
+                                <a href="#userForm" >userForm</a>
+                            </li>
+                            <li>
+                                <a href="#users" >users</a>
+                            </li>
+                            <li>
+                                <a href="#zones" >zones</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#deleteUser" >deleteUser</a>
+                            </li>
+                            <li>
+                                <a href="#getSupervisorName" >getSupervisorName</a>
+                            </li>
+                            <li>
+                                <a href="#loadRoles" >loadRoles</a>
+                            </li>
+                            <li>
+                                <a href="#loadSupervisors" >loadSupervisors</a>
+                            </li>
+                            <li>
+                                <a href="#loadUsers" >loadUsers</a>
+                            </li>
+                            <li>
+                                <a href="#loadZones" >loadZones</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#openEditDialog" >openEditDialog</a>
+                            </li>
+                            <li>
+                                <a href="#openNewDialog" >openNewDialog</a>
+                            </li>
+                            <li>
+                                <a href="#saveUser" >saveUser</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-constructor">
+    <h3 id="constructor">Constructor</h3>
+        <table class="table table-sm table-bordered">
+            <tbody>
+                <tr>
+                    <td class="col-md-4">
+<code>constructor()</code>
+                    </td>
+                </tr>
+
+            </tbody>
+        </table>
+</section>
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="deleteUser"></a>
+                    <span class="name">
+                        <span ><b>deleteUser</b></span>
+                        <a href="#deleteUser"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>deleteUser(user: <a href="../interfaces/User.html" target="_self">User</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>user</td>
+                                            <td>
+                                                            <code><a href="../interfaces/User.html" target="_self" >User</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getSupervisorName"></a>
+                    <span class="name">
+                        <span ><b>getSupervisorName</b></span>
+                        <a href="#getSupervisorName"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getSupervisorName(id: string | undefined)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>id</td>
+                                            <td>
+                                                        <code>string | undefined</code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadRoles"></a>
+                    <span class="name">
+                        <span ><b>loadRoles</b></span>
+                        <a href="#loadRoles"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadRoles()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadSupervisors"></a>
+                    <span class="name">
+                        <span ><b>loadSupervisors</b></span>
+                        <a href="#loadSupervisors"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadSupervisors()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadUsers"></a>
+                    <span class="name">
+                        <span ><b>loadUsers</b></span>
+                        <a href="#loadUsers"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadUsers()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadZones"></a>
+                    <span class="name">
+                        <span ><b>loadZones</b></span>
+                        <a href="#loadZones"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadZones()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openEditDialog"></a>
+                    <span class="name">
+                        <span ><b>openEditDialog</b></span>
+                        <a href="#openEditDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openEditDialog(user: <a href="../interfaces/User.html" target="_self">User</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>user</td>
+                                            <td>
+                                                            <code><a href="../interfaces/User.html" target="_self" >User</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openNewDialog"></a>
+                    <span class="name">
+                        <span ><b>openNewDialog</b></span>
+                        <a href="#openNewDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openNewDialog()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="saveUser"></a>
+                    <span class="name">
+                        <span ><b>saveUser</b></span>
+                        <a href="#saveUser"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>saveUser()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="currentUserId"></a>
+                    <span class="name">
+                        <span ><b>currentUserId</b></span>
+                        <a href="#currentUserId"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;string | null&gt;(null)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="displayDialog"></a>
+                    <span class="name">
+                        <span ><b>displayDialog</b></span>
+                        <a href="#displayDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isEditing"></a>
+                    <span class="name">
+                        <span ><b>isEditing</b></span>
+                        <a href="#isEditing"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loading"></a>
+                    <span class="name">
+                        <span ><b>loading</b></span>
+                        <a href="#loading"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(true)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="roles"></a>
+                    <span class="name">
+                        <span ><b>roles</b></span>
+                        <a href="#roles"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;{ label: string; value: string }[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="supervisors"></a>
+                    <span class="name">
+                        <span ><b>supervisors</b></span>
+                        <a href="#supervisors"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;{ label: string; value: string }[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="userForm"></a>
+                    <span class="name">
+                        <span ><b>userForm</b></span>
+                        <a href="#userForm"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://angular.io/api/forms/FormGroup" target="_blank" >FormGroup</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="users"></a>
+                    <span class="name">
+                        <span ><b>users</b></span>
+                        <a href="#users"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;User[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="zones"></a>
+                    <span class="name">
+                        <span ><b>zones</b></span>
+                        <a href="#zones"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;{ label: string; value: string }[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+    <div class="tab-pane fade " id="templateData">
+        <pre class="line-numbers"><code class="language-html">&lt;div class&#x3D;&quot;p-6&quot;&gt;
+  &lt;!-- Toast for notifications --&gt;
+  &lt;p-toast position&#x3D;&quot;top-right&quot;&gt;&lt;/p-toast&gt;
+
+  &lt;!-- Confirm Dialog --&gt;
+  &lt;p-confirmDialog 
+    header&#x3D;&quot;Confirmar&quot; 
+    icon&#x3D;&quot;pi pi-exclamation-triangle&quot;
+    [style]&#x3D;&quot;{width: &#x27;450px&#x27;}&quot;
+    acceptButtonStyleClass&#x3D;&quot;p-button-danger&quot;
+    rejectButtonStyleClass&#x3D;&quot;p-button-secondary&quot;&gt;
+  &lt;/p-confirmDialog&gt;
+
+  &lt;div class&#x3D;&quot;flex justify-between items-center mb-6&quot;&gt;
+    &lt;div&gt;
+      &lt;h2 class&#x3D;&quot;text-headline text-content-main&quot;&gt;Administración de Usuarios&lt;/h2&gt;
+      &lt;p class&#x3D;&quot;text-body text-content-dim&quot;&gt;Crea, edita y administra los accesos al sistema Trade Marketing.&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class&#x3D;&quot;flex gap-2&quot;&gt;
+      &lt;p-button label&#x3D;&quot;Exportar&quot; icon&#x3D;&quot;pi pi-file-excel&quot; severity&#x3D;&quot;secondary&quot; [outlined]&#x3D;&quot;true&quot;&gt;&lt;/p-button&gt;
+      &lt;p-button label&#x3D;&quot;Nuevo Usuario&quot; icon&#x3D;&quot;pi pi-plus&quot; (onClick)&#x3D;&quot;openNewDialog()&quot;&gt;&lt;/p-button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class&#x3D;&quot;bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden&quot;&gt;
+    &lt;!-- Tabla de Usuarios --&gt;
+    &lt;p-table [value]&#x3D;&quot;users()&quot; [loading]&#x3D;&quot;loading()&quot; responsiveLayout&#x3D;&quot;scroll&quot; styleClass&#x3D;&quot;p-datatable-sm p-datatable-striped&quot;&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+        &lt;tr class&#x3D;&quot;table-header text-content-muted bg-surface-ground border-b border-surface-border&quot;&gt;
+          &lt;th pSortableColumn&#x3D;&quot;nombre&quot; class&#x3D;&quot;pl-4&quot;&gt;Vendedor / Empleado &lt;p-sortIcon field&#x3D;&quot;nombre&quot;&gt;&lt;/p-sortIcon&gt;&lt;/th&gt;
+          &lt;th pSortableColumn&#x3D;&quot;username&quot;&gt;Acceso (Usuario) &lt;p-sortIcon field&#x3D;&quot;username&quot;&gt;&lt;/p-sortIcon&gt;&lt;/th&gt;
+          &lt;th pSortableColumn&#x3D;&quot;role_name&quot;&gt;Puesto / Rol &lt;p-sortIcon field&#x3D;&quot;role_name&quot;&gt;&lt;/p-sortIcon&gt;&lt;/th&gt;
+          &lt;th pSortableColumn&#x3D;&quot;zona&quot;&gt;Zona &lt;p-sortIcon field&#x3D;&quot;zona&quot;&gt;&lt;/p-sortIcon&gt;&lt;/th&gt;
+          &lt;th class&#x3D;&quot;table-header&quot;&gt;Jefe Directo&lt;/th&gt;
+          &lt;th class&#x3D;&quot;text-center table-header&quot;&gt;Estado&lt;/th&gt;
+          &lt;th class&#x3D;&quot;text-center w-28 table-header&quot;&gt;Acciones&lt;/th&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-user&gt;
+        &lt;tr class&#x3D;&quot;text-sm border-b border-surface-border hover:bg-surface-hover transition-colors&quot;&gt;
+          &lt;td class&#x3D;&quot;pl-4&quot;&gt;
+            &lt;div class&#x3D;&quot;flex flex-col&quot;&gt;
+              &lt;span class&#x3D;&quot;font-bold text-content-main&quot;&gt;{{ user.nombre || &#x27;SIN NOMBRE&#x27; }}&lt;/span&gt;
+              &lt;span class&#x3D;&quot;text-[10px] text-content-faint uppercase tracking-tighter&quot;&gt;{{ user.id.split(&#x27;-&#x27;)[0] }}&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/td&gt;
+          &lt;td&gt;
+            &lt;div class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+              &lt;div class&#x3D;&quot;w-6 h-6 rounded bg-surface-ground border border-divider flex items-center justify-center&quot;&gt;
+                &lt;i class&#x3D;&quot;pi pi-user text-[10px] text-content-faint&quot;&gt;&lt;/i&gt;
+              &lt;/div&gt;
+              &lt;span class&#x3D;&quot;font-mono text-xs text-content-dim bg-surface-layout px-1.5 py-0.5 rounded border border-divider&quot;&gt;{{ user.username }}&lt;/span&gt;
+            &lt;/div&gt;
+          &lt;/td&gt;
+          &lt;td&gt;
+            &lt;p-tag [severity]&#x3D;&quot;user.role_name &#x3D;&#x3D;&#x3D; &#x27;superadmin&#x27; ? &#x27;contrast&#x27; : user.role_name &#x3D;&#x3D;&#x3D; &#x27;ejecutivo&#x27; ? &#x27;info&#x27; : &#x27;secondary&#x27;&quot;
+                   [value]&#x3D;&quot;user.role_name | uppercase&quot; [rounded]&#x3D;&quot;true&quot; styleClass&#x3D;&quot;text-[9px] font-bold&quot;&gt;&lt;/p-tag&gt;
+          &lt;/td&gt;
+          &lt;td&gt;
+             &lt;span class&#x3D;&quot;text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main&quot;&gt;{{ user.zona }}&lt;/span&gt;
+          &lt;/td&gt;
+          &lt;td class&#x3D;&quot;text-content-dim&quot;&gt;
+            {{ user.role_name &#x3D;&#x3D;&#x3D; &#x27;colaborador&#x27; ? getSupervisorName(user.supervisor_id) : &#x27;-&#x27; }}
+          &lt;/td&gt;
+          &lt;td class&#x3D;&quot;text-center&quot;&gt;
+            &lt;i class&#x3D;&quot;pi&quot; [ngClass]&#x3D;&quot;user.activo ? &#x27;pi-check-circle text-content-main&#x27; : &#x27;pi-times-circle text-content-muted&#x27;&quot;&gt;&lt;/i&gt;
+          &lt;/td&gt;
+          &lt;td class&#x3D;&quot;text-center&quot;&gt;
+            &lt;div class&#x3D;&quot;flex justify-center gap-1&quot;&gt;
+              &lt;button
+                (click)&#x3D;&quot;openEditDialog(user)&quot;
+                class&#x3D;&quot;w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200&quot;
+                title&#x3D;&quot;Editar&quot;&gt;
+                &lt;i class&#x3D;&quot;pi pi-pencil text-sm&quot;&gt;&lt;/i&gt;
+              &lt;/button&gt;
+              &lt;button
+                (click)&#x3D;&quot;deleteUser(user)&quot;
+                class&#x3D;&quot;w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200&quot;
+                title&#x3D;&quot;Eliminar&quot;&gt;
+                &lt;i class&#x3D;&quot;pi pi-trash text-sm&quot;&gt;&lt;/i&gt;
+              &lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+      &lt;ng-template pTemplate&#x3D;&quot;emptymessage&quot;&gt;
+        &lt;tr&gt;
+          &lt;td colspan&#x3D;&quot;7&quot; class&#x3D;&quot;text-center p-8 text-content-dim&quot;&gt;
+             No hay usuarios configurados. Intenta recargar la página.
+          &lt;/td&gt;
+        &lt;/tr&gt;
+      &lt;/ng-template&gt;
+    &lt;/p-table&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Mobile Card View --&gt;
+  &lt;div class&#x3D;&quot;lg:hidden space-y-4&quot;&gt;
+    &lt;div *ngFor&#x3D;&quot;let user of users()&quot; class&#x3D;&quot;bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden&quot;&gt;
+      &lt;!-- Decorator for Role --&gt;
+      &lt;div class&#x3D;&quot;absolute top-0 right-0 w-16 h-1 bg-surface-ground&quot; [ngClass]&#x3D;&quot;{&#x27;!bg-brand-sunset&#x27;: user.role_name &#x3D;&#x3D;&#x3D; &#x27;superadmin&#x27;}&quot;&gt;&lt;/div&gt;
+      
+      &lt;div class&#x3D;&quot;flex items-center justify-between mb-3&quot;&gt;
+        &lt;div class&#x3D;&quot;flex flex-col gap-1&quot;&gt;
+          &lt;h3 class&#x3D;&quot;font-bold text-content-main leading-tight&quot;&gt;{{ user.nombre || &#x27;SIN NOMBRE&#x27; }}&lt;/h3&gt;
+          &lt;span class&#x3D;&quot;text-[10px] font-mono text-content-faint bg-surface-ground w-fit px-1.5 py-0.5 rounded border border-divider uppercase&quot;&gt;ID: {{ user.username }}&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+          &lt;button
+            (click)&#x3D;&quot;openEditDialog(user)&quot;
+            class&#x3D;&quot;w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200&quot;
+            title&#x3D;&quot;Editar&quot;&gt;
+            &lt;i class&#x3D;&quot;pi pi-pencil text-sm&quot;&gt;&lt;/i&gt;
+          &lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class&#x3D;&quot;grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-divider/50&quot;&gt;
+        &lt;div class&#x3D;&quot;flex flex-col&quot;&gt;
+          &lt;span class&#x3D;&quot;text-[9px] font-black text-content-muted uppercase tracking-widest&quot;&gt;Puesto&lt;/span&gt;
+          &lt;span class&#x3D;&quot;text-xs font-bold text-content-main truncate&quot;&gt;{{ user.role_name | uppercase }}&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;div class&#x3D;&quot;flex flex-col items-end&quot;&gt;
+          &lt;span class&#x3D;&quot;text-[9px] font-black text-content-muted uppercase tracking-widest&quot;&gt;Zona&lt;/span&gt;
+          &lt;span class&#x3D;&quot;text-xs font-bold text-content-main&quot;&gt;{{ user.zona }}&lt;/span&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;div class&#x3D;&quot;mt-4 flex items-center justify-between bg-surface-ground/50 -mx-4 -mb-4 p-3 border-t border-divider/30&quot;&gt;
+        &lt;div class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+            &lt;div class&#x3D;&quot;w-1.5 h-1.5 rounded-full&quot; [ngClass]&#x3D;&quot;user.activo ? &#x27;bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]&#x27; : &#x27;bg-red-400&#x27;&quot;&gt;&lt;/div&gt;
+            &lt;span class&#x3D;&quot;text-[10px] font-bold&quot; [ngClass]&#x3D;&quot;user.activo ? &#x27;text-content-main&#x27; : &#x27;text-content-muted&#x27;&quot;&gt;{{ user.activo ? &#x27;ACCESO ACTIVO&#x27; : &#x27;SIN ACCESO&#x27; }}&lt;/span&gt;
+        &lt;/div&gt;
+        &lt;button (click)&#x3D;&quot;deleteUser(user)&quot; class&#x3D;&quot;text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter&quot;&gt;Eliminar&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;!-- Diálogo Creación/Edición --&gt;
+&lt;p-dialog [header]&#x3D;&quot;isEditing() ? &#x27;Editar Usuario&#x27; : &#x27;Nuevo Usuario&#x27;&quot;
+          [(visible)]&#x3D;&quot;displayDialog&quot;
+          [modal]&#x3D;&quot;true&quot;
+          appendTo&#x3D;&quot;body&quot;
+          [style]&#x3D;&quot;{width: &#x27;500px&#x27;, maxWidth: &#x27;90vw&#x27;}&quot;
+          styleClass&#x3D;&quot;surface-card border-divider rounded-2xl&quot;
+          [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main p-6&#x27;&quot;&gt;
+
+  &lt;form [formGroup]&#x3D;&quot;userForm&quot; (ngSubmit)&#x3D;&quot;saveUser()&quot; class&#x3D;&quot;mt-4 flex flex-col gap-5&quot;&gt;
+
+    &lt;div class&#x3D;&quot;grid grid-cols-2 gap-4&quot;&gt;
+       &lt;!-- Nombres --&gt;
+       &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+         &lt;label for&#x3D;&quot;nombre&quot; class&#x3D;&quot;text-label text-content-muted&quot;&gt;Nombre del Empleado&lt;/label&gt;
+         &lt;input pInputText id&#x3D;&quot;nombre&quot; formControlName&#x3D;&quot;nombre&quot; placeholder&#x3D;&quot;Ej: Juan Pérez&quot; class&#x3D;&quot;w-full&quot; /&gt;
+       &lt;/div&gt;
+
+       &lt;!-- Zona --&gt;
+       &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+         &lt;label for&#x3D;&quot;zona&quot; class&#x3D;&quot;text-label text-content-muted&quot;&gt;Zona&lt;/label&gt;
+         &lt;p-select id&#x3D;&quot;zona&quot; [options]&#x3D;&quot;zones()&quot; formControlName&#x3D;&quot;zona&quot; placeholder&#x3D;&quot;Selecciona zona&quot;
+                   optionLabel&#x3D;&quot;label&quot; optionValue&#x3D;&quot;value&quot; class&#x3D;&quot;w-full&quot; styleClass&#x3D;&quot;w-full&quot;&gt;&lt;/p-select&gt;
+       &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Usuario --&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label for&#x3D;&quot;username&quot; class&#x3D;&quot;text-label text-content-muted&quot;&gt;Nombre de Usuario (Login)&lt;/label&gt;
+      &lt;div class&#x3D;&quot;p-inputgroup border-surface-border&quot;&gt;
+          &lt;span class&#x3D;&quot;p-inputgroup-addon bg-surface-ground&quot;&gt;
+              &lt;i class&#x3D;&quot;pi pi-user text-content-dim&quot;&gt;&lt;/i&gt;
+          &lt;/span&gt;
+          &lt;input pInputText id&#x3D;&quot;username&quot; formControlName&#x3D;&quot;username&quot; placeholder&#x3D;&quot;jperez&quot;
+                 [readOnly]&#x3D;&quot;isEditing()&quot;
+                 [ngClass]&#x3D;&quot;{&#x27;opacity-60 cursor-not-allowed&#x27;: isEditing()}&quot; /&gt;
+      &lt;/div&gt;
+      &lt;small class&#x3D;&quot;text-red-500&quot; *ngIf&#x3D;&quot;userForm.get(&#x27;username&#x27;)?.invalid &amp;&amp; userForm.get(&#x27;username&#x27;)?.touched&quot;&gt;
+        El usuario es obligatorio.
+      &lt;/small&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Rol --&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label for&#x3D;&quot;role_name&quot; class&#x3D;&quot;text-label text-content-muted&quot;&gt;Nivel de Acceso&lt;/label&gt;
+      &lt;p-select id&#x3D;&quot;role_name&quot; [options]&#x3D;&quot;roles()&quot; formControlName&#x3D;&quot;role_name&quot; placeholder&#x3D;&quot;Selecciona el rol&quot;
+                  optionLabel&#x3D;&quot;label&quot; optionValue&#x3D;&quot;value&quot; class&#x3D;&quot;w-full&quot; styleClass&#x3D;&quot;w-full&quot;&gt;&lt;/p-select&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Supervisor (Solo para Colaborador) --&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300&quot; *ngIf&#x3D;&quot;userForm.get(&#x27;role_name&#x27;)?.value &#x3D;&#x3D;&#x3D; &#x27;colaborador&#x27;&quot;&gt;
+      &lt;label for&#x3D;&quot;supervisor_id&quot; class&#x3D;&quot;text-label text-content-muted&quot;&gt;Jefe / Supervisor de Ventas&lt;/label&gt;
+      &lt;p-select id&#x3D;&quot;supervisor_id&quot; [options]&#x3D;&quot;supervisors()&quot; formControlName&#x3D;&quot;supervisor_id&quot; placeholder&#x3D;&quot;Asigna un jefe&quot;
+                  optionLabel&#x3D;&quot;label&quot; optionValue&#x3D;&quot;value&quot; [filter]&#x3D;&quot;true&quot; class&#x3D;&quot;w-full&quot; styleClass&#x3D;&quot;w-full&quot;&gt;&lt;/p-select&gt;
+      &lt;small class&#x3D;&quot;text-red-500&quot; *ngIf&#x3D;&quot;userForm.get(&#x27;supervisor_id&#x27;)?.invalid &amp;&amp; userForm.get(&#x27;supervisor_id&#x27;)?.touched&quot;&gt;
+        Debes asignar un supervisor para este colaborador.
+      &lt;/small&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Contraseña --&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2 p-4 bg-surface-ground border border-surface-border rounded-lg&quot;&gt;
+      &lt;label for&#x3D;&quot;password&quot; class&#x3D;&quot;text-label text-content-main&quot;&gt;{{ isEditing() ? &#x27;Actualizar Contraseña (Opcional)&#x27; : &#x27;Contraseña Segura&#x27; }}&lt;/label&gt;
+      &lt;input pInputText id&#x3D;&quot;password&quot; type&#x3D;&quot;password&quot; formControlName&#x3D;&quot;password&quot;
+             placeholder&#x3D;&quot;{{ isEditing() ? &#x27;Dejar en blanco para no cambiar&#x27; : &#x27;Min. 6 caracteres&#x27; }}&quot; /&gt;
+      &lt;small class&#x3D;&quot;text-red-500&quot; *ngIf&#x3D;&quot;userForm.get(&#x27;password&#x27;)?.hasError(&#x27;minlength&#x27;)&quot;&gt;
+        Requiere al menos 6 caracteres.
+      &lt;/small&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Activo --&gt;
+    &lt;div class&#x3D;&quot;flex items-center justify-between p-4 bg-surface-ground border border-surface-border rounded-lg&quot;&gt;
+      &lt;div&gt;
+         &lt;div class&#x3D;&quot;text-body font-bold text-content-main&quot;&gt;Estado Activo&lt;/div&gt;
+         &lt;div class&#x3D;&quot;text-label text-content-muted&quot;&gt;Al desactivar, se revocará el acceso al sistema.&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;p-inputSwitch formControlName&#x3D;&quot;activo&quot;&gt;&lt;/p-inputSwitch&gt;
+    &lt;/div&gt;
+
+    &lt;div class&#x3D;&quot;flex justify-end gap-2 mt-4 pt-4 border-t border-surface-border&quot;&gt;
+      &lt;p-button label&#x3D;&quot;Cancelar&quot; severity&#x3D;&quot;secondary&quot; [text]&#x3D;&quot;true&quot; (onClick)&#x3D;&quot;displayDialog.set(false)&quot;&gt;&lt;/p-button&gt;
+      &lt;p-button [label]&#x3D;&quot;isEditing() ? &#x27;Actualizar&#x27; : &#x27;Registrar&#x27;&quot; type&#x3D;&quot;submit&quot; [disabled]&#x3D;&quot;userForm.invalid&quot;&gt;&lt;/p-button&gt;
+    &lt;/div&gt;
+  &lt;/form&gt;
+&lt;/p-dialog&gt;
+
+&lt;p-toast&gt;&lt;/p-toast&gt;
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="styleData">
+                <p class="comment">
+                    <code>./admin-users.component.css</code>
+                </p>
+                <pre class="line-numbers"><code class="language-scss"></code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div><div class="p-6">  <!-- Toast for notifications -->  <p-toast position="top-right"></p-toast>  <!-- Confirm Dialog -->  <p-confirmDialog     header="Confirmar"     icon="pi pi-exclamation-triangle"    [style]="{width: \'450px\'}"    acceptButtonStyleClass="p-button-danger"    rejectButtonStyleClass="p-button-secondary">  </p-confirmDialog>  <div class="flex justify-between items-center mb-6">    <div>      <h2 class="text-headline text-content-main">Administración de Usuarios</h2>      <p class="text-body text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>    </div>    <div class="flex gap-2">      <p-button label="Exportar" icon="pi pi-file-excel" severity="secondary" [outlined]="true"></p-button>      <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()"></p-button>    </div>  </div>  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">    <!-- Tabla de Usuarios -->    <p-table [value]="users()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">      <ng-template pTemplate="header">        <tr class="table-header text-content-muted bg-surface-ground border-b border-surface-border">          <th pSortableColumn="nombre" class="pl-4">Vendedor / Empleado <p-sortIcon field="nombre"></p-sortIcon></th>          <th pSortableColumn="username">Acceso (Usuario) <p-sortIcon field="username"></p-sortIcon></th>          <th pSortableColumn="role_name">Puesto / Rol <p-sortIcon field="role_name"></p-sortIcon></th>          <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>          <th class="table-header">Jefe Directo</th>          <th class="text-center table-header">Estado</th>          <th class="text-center w-28 table-header">Acciones</th>        </tr>      </ng-template>      <ng-template pTemplate="body" let-user>        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover transition-colors">          <td class="pl-4">            <div class="flex flex-col">              <span class="font-bold text-content-main">{{ user.nombre || \'SIN NOMBRE\' }}</span>              <span class="text-[10px] text-content-faint uppercase tracking-tighter">{{ user.id.split(\'-\')[0] }}</span>            </div>          </td>          <td>            <div class="flex items-center gap-2">              <div class="w-6 h-6 rounded bg-surface-ground border border-divider flex items-center justify-center">                <i class="pi pi-user text-[10px] text-content-faint"></i>              </div>              <span class="font-mono text-xs text-content-dim bg-surface-layout px-1.5 py-0.5 rounded border border-divider">{{ user.username }}</span>            </div>          </td>          <td>            <p-tag [severity]="user.role_name === \'superadmin\' ? \'contrast\' : user.role_name === \'ejecutivo\' ? \'info\' : \'secondary\'"                   [value]="user.role_name | uppercase" [rounded]="true" styleClass="text-[9px] font-bold"></p-tag>          </td>          <td>             <span class="text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>          </td>          <td class="text-content-dim">            {{ user.role_name === \'colaborador\' ? getSupervisorName(user.supervisor_id) : \'-\' }}          </td>          <td class="text-center">            <i class="pi" [ngClass]="user.activo ? \'pi-check-circle text-content-main\' : \'pi-times-circle text-content-muted\'"></i>          </td>          <td class="text-center">            <div class="flex justify-center gap-1">              <button                (click)="openEditDialog(user)"                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"                title="Editar">                <i class="pi pi-pencil text-sm"></i>              </button>              <button                (click)="deleteUser(user)"                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"                title="Eliminar">                <i class="pi pi-trash text-sm"></i>              </button>            </div>          </td>        </tr>      </ng-template>      <ng-template pTemplate="emptymessage">        <tr>          <td colspan="7" class="text-center p-8 text-content-dim">             No hay usuarios configurados. Intenta recargar la página.          </td>        </tr>      </ng-template>    </p-table>  </div>  <!-- Mobile Card View -->  <div class="lg:hidden space-y-4">    <div *ngFor="let user of users()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">      <!-- Decorator for Role -->      <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground" [ngClass]="{\'!bg-brand-sunset\': user.role_name === \'superadmin\'}"></div>            <div class="flex items-center justify-between mb-3">        <div class="flex flex-col gap-1">          <h3 class="font-bold text-content-main leading-tight">{{ user.nombre || \'SIN NOMBRE\' }}</h3>          <span class="text-[10px] font-mono text-content-faint bg-surface-ground w-fit px-1.5 py-0.5 rounded border border-divider uppercase">ID: {{ user.username }}</span>        </div>        <div class="flex gap-1">          <button            (click)="openEditDialog(user)"            class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"            title="Editar">            <i class="pi pi-pencil text-sm"></i>          </button>        </div>      </div>      <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-divider/50">        <div class="flex flex-col">          <span class="text-[9px] font-black text-content-muted uppercase tracking-widest">Puesto</span>          <span class="text-xs font-bold text-content-main truncate">{{ user.role_name | uppercase }}</span>        </div>        <div class="flex flex-col items-end">          <span class="text-[9px] font-black text-content-muted uppercase tracking-widest">Zona</span>          <span class="text-xs font-bold text-content-main">{{ user.zona }}</span>        </div>      </div>      <div class="mt-4 flex items-center justify-between bg-surface-ground/50 -mx-4 -mb-4 p-3 border-t border-divider/30">        <div class="flex items-center gap-2">            <div class="w-1.5 h-1.5 rounded-full" [ngClass]="user.activo ? \'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]\' : \'bg-red-400\'"></div>            <span class="text-[10px] font-bold" [ngClass]="user.activo ? \'text-content-main\' : \'text-content-muted\'">{{ user.activo ? \'ACCESO ACTIVO\' : \'SIN ACCESO\' }}</span>        </div>        <button (click)="deleteUser(user)" class="text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter">Eliminar</button>      </div>    </div>  </div></div><!-- Diálogo Creación/Edición --><p-dialog [header]="isEditing() ? \'Editar Usuario\' : \'Nuevo Usuario\'"          [(visible)]="displayDialog"          [modal]="true"          appendTo="body"          [style]="{width: \'500px\', maxWidth: \'90vw\'}"          styleClass="surface-card border-divider rounded-2xl"          [contentStyleClass]="\'bg-surface-card text-content-main p-6\'">  <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">    <div class="grid grid-cols-2 gap-4">       <!-- Nombres -->       <div class="flex flex-col gap-2">         <label for="nombre" class="text-label text-content-muted">Nombre del Empleado</label>         <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" class="w-full" />       </div>       <!-- Zona -->       <div class="flex flex-col gap-2">         <label for="zona" class="text-label text-content-muted">Zona</label>         <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>       </div>    </div>    <!-- Usuario -->    <div class="flex flex-col gap-2">      <label for="username" class="text-label text-content-muted">Nombre de Usuario (Login)</label>      <div class="p-inputgroup border-surface-border">          <span class="p-inputgroup-addon bg-surface-ground">              <i class="pi pi-user text-content-dim"></i>          </span>          <input pInputText id="username" formControlName="username" placeholder="jperez"                 [readOnly]="isEditing()"                 [ngClass]="{\'opacity-60 cursor-not-allowed\': isEditing()}" />      </div>      <small class="text-red-500" *ngIf="userForm.get(\'username\')?.invalid && userForm.get(\'username\')?.touched">        El usuario es obligatorio.      </small>    </div>    <!-- Rol -->    <div class="flex flex-col gap-2">      <label for="role_name" class="text-label text-content-muted">Nivel de Acceso</label>      <p-select id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol"                  optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>    </div>    <!-- Supervisor (Solo para Colaborador) -->    <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300" *ngIf="userForm.get(\'role_name\')?.value === \'colaborador\'">      <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>      <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe"                  optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>      <small class="text-red-500" *ngIf="userForm.get(\'supervisor_id\')?.invalid && userForm.get(\'supervisor_id\')?.touched">        Debes asignar un supervisor para este colaborador.      </small>    </div>    <!-- Contraseña -->    <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-surface-border rounded-lg">      <label for="password" class="text-label text-content-main">{{ isEditing() ? \'Actualizar Contraseña (Opcional)\' : \'Contraseña Segura\' }}</label>      <input pInputText id="password" type="password" formControlName="password"             placeholder="{{ isEditing() ? \'Dejar en blanco para no cambiar\' : \'Min. 6 caracteres\' }}" />      <small class="text-red-500" *ngIf="userForm.get(\'password\')?.hasError(\'minlength\')">        Requiere al menos 6 caracteres.      </small>    </div>    <!-- Activo -->    <div class="flex items-center justify-between p-4 bg-surface-ground border border-surface-border rounded-lg">      <div>         <div class="text-body font-bold text-content-main">Estado Activo</div>         <div class="text-label text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>      </div>      <p-inputSwitch formControlName="activo"></p-inputSwitch>    </div>    <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-surface-border">      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="displayDialog.set(false)"></p-button>      <p-button [label]="isEditing() ? \'Actualizar\' : \'Registrar\'" type="submit" [disabled]="userForm.invalid"></p-button>    </div>  </form></p-dialog><p-toast></p-toast></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'AdminUsersComponent'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'AdminUsersComponent.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>

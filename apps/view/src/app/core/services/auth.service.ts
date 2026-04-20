@@ -9,18 +9,28 @@ import { Permission } from '../constants/permissions';
 @Injectable({
   providedIn: 'root',
 })
+/**
+ * Servicio de autenticación para gestionar sesiones de usuario,
+ * tokens JWT y permisos.
+ */
 export class AuthService {
   private apiUrl = environment.apiUrl;
 
   // Estado central usando Signals
+  /** Token de autenticación JWT */
   public token = signal<string | null>(null);
+  /** Información del usuario actual */
   public user = signal<JwtPayload | null>(null);
+  /** Permisos del usuario */
   public permissions = signal<Record<string, boolean>>({});
 
   constructor(private http: HttpClient) {
     this.restoreSessionFromCookie();
   }
 
+  /**
+   * Restaura la sesión desde la cookie del navegador
+   */
   private restoreSessionFromCookie() {
     const tokenMatch = document.cookie.match(
       /(^|;)\s*auth_token\s*=\s*([^;]+)/,
@@ -30,10 +40,19 @@ export class AuthService {
     }
   }
 
+  /**
+   * Verifica si el usuario está autenticado
+   * @returns true si hay un token de autenticación
+   */
   public get isAuthenticated(): boolean {
     return !!this.token();
   }
 
+  /**
+   * Verifica si el usuario tiene un permiso específico
+   * @param key Clave del permiso a verificar
+   * @returns true si el usuario tiene el permiso o es superadmin
+   */
   public hasPermission(key: Permission | string): boolean {
     const currentUser = this.user();
 
@@ -43,6 +62,12 @@ export class AuthService {
 
     return this.permissions()[key] === true;
   }
+
+  /**
+   * Inicia sesión con las credenciales proporcionadas
+   * @param credentials Credenciales de usuario (username y password)
+   * @returns Observable con la respuesta de login que incluye el token
+   */
   login(credentials: {
     username: string;
     password: string;
@@ -56,6 +81,9 @@ export class AuthService {
       );
   }
 
+  /**
+   * Cierra la sesión del usuario y limpia el estado
+   */
   logout(): void {
     this.token.set(null);
     this.user.set(null);
@@ -63,6 +91,11 @@ export class AuthService {
     document.cookie = 'auth_token=; max-age=0; path=/; SameSite=Lax;';
   }
 
+  /**
+   * Establece la sesión del usuario desde un token JWT
+   * @param token Token JWT de autenticación
+   * @param writeCookie Si es true, guarda el token en una cookie
+   */
   private setSession(token: string, writeCookie: boolean = true): void {
     try {
       const payloadBase64 = token.split('.')[1];

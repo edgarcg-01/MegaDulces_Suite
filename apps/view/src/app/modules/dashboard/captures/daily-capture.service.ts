@@ -13,6 +13,11 @@ import { OfflineDailyCaptureService } from '../../../core/services/offline-daily
 import { environment } from '../../../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
+/**
+ * Servicio principal para la gestión de capturas diarias de exhibidores.
+ * Maneja el estado de visitas activas, catálogos de productos, y sincronización
+ * con el backend y almacenamiento offline.
+ */
 export class DailyCaptureService {
   private auth = inject(AuthService);
   private http = inject(HttpClient);
@@ -20,49 +25,67 @@ export class DailyCaptureService {
   private apiUrl = environment.apiUrl;
 
   // --- Master Data (Fetched from API) ---
+  /** Catálogo de conceptos de exhibición */
   private _conceptos = signal<ConceptoExhibicion[]>([]);
   readonly conceptos = this._conceptos.asReadonly();
 
+  /** Catálogo de ubicaciones de exhibidores */
   private _ubicaciones = signal<UbicacionExhibicion[]>([]);
   readonly ubicaciones = this._ubicaciones.asReadonly();
 
+  /** Productos agrupados por marca */
   private _groupedProducts = signal<BrandGroup[]>([]);
   readonly groupedProducts = this._groupedProducts.asReadonly();
 
+  /** Configuración de scoring/evaluación */
   private _scoringConfig = signal<any>(null);
   readonly scoringConfig = this._scoringConfig.asReadonly();
 
+  /** Niveles de ejecución disponibles */
   private _niveles = signal<any[]>([]);
   readonly niveles = this._niveles.asReadonly();
 
   // --- Active Visit State ---
+  /** Hora de inicio de la visita activa */
   private _horaInicio = signal<string | null>(null);
   readonly horaInicio = this._horaInicio.asReadonly();
+  /** Indica si hay una visita activa */
   readonly hasActiveVisit = computed(() => this._horaInicio() !== null);
 
+  /** Latitud de la ubicación GPS */
   private _latitud = signal<number | null>(null);
   readonly latitud = this._latitud.asReadonly();
 
+  /** Longitud de la ubicación GPS */
   private _longitud = signal<number | null>(null);
   readonly longitud = this._longitud.asReadonly();
 
+  /** Exhibidores registrados en la visita activa */
   private _activeExhibiciones = signal<RegistroExhibicion[]>([]);
   readonly activeExhibiciones = this._activeExhibiciones.asReadonly();
 
   // --- Visit-Level Commercial Impact ---
+  /** Venta adicional total de la visita */
   private _visitaVentaAdicional = signal<number>(0);
   readonly visitaVentaAdicional = this._visitaVentaAdicional.asReadonly();
 
+  /** Rango de compra de la visita */
   private _visitaRangoCompra = signal<string>('');
   readonly visitaRangoCompra = this._visitaRangoCompra.asReadonly();
 
   // --- Captures History ---
+  /** Historial de capturas realizadas */
   private _captures = signal<VisitaSnapshot[]>([]);
   readonly captures = this._captures.asReadonly();
 
+  /** Asignación actual del usuario */
   private _currentAssignment = signal<any | null>(null);
   readonly currentAssignment = this._currentAssignment.asReadonly();
 
+  /**
+   * Filtra las visitas realizadas hoy por el usuario actual
+   * @returns Lista de visitas de hoy
+   */
   readonly visitasHoy = computed(() => {
     const today = new Date().toISOString().split('T')[0];
     const user = this.auth.user();
@@ -71,6 +94,10 @@ export class DailyCaptureService {
   });
 
   // --- Computed Stats for Active Capture ---
+  /**
+   * Calcula estadísticas de la captura activa
+   * @returns Estadísticas de exhibidores, productos, puntuación y ventas
+   */
   readonly stats = computed(() => {
     const exhibiciones = this._activeExhibiciones();
     let puntuacionTotal = 0;
@@ -92,6 +119,10 @@ export class DailyCaptureService {
   });
 
   // --- Computed Max Score from Catalogs ---
+  /**
+   * Calcula el puntaje máximo posible según los catálogos
+   * @returns Puntaje máximo calculado
+   */
   readonly maxScore = computed(() => {
     const ubicaciones = this._ubicaciones();
     const conceptos = this._conceptos();
@@ -104,7 +135,10 @@ export class DailyCaptureService {
     return maxUbicacion * maxConcepto * maxNivel;
   });
 
-  // --- Computed Percentage ---
+  /**
+   * Calcula el porcentaje de ejecución actual
+   * @returns Porcentaje de ejecución (0-100)
+   */
   readonly scorePercentage = computed(() => {
     const s = this.stats();
     const maxPerExhibicion = this.maxScore();
@@ -129,6 +163,11 @@ export class DailyCaptureService {
   }
 
   // --- Visit Lifecycle Actions ---
+  /**
+   * Inicia una nueva visita capturando la ubicación GPS
+   * @returns true si se inició exitosamente
+   * @throws Error si no se puede capturar la ubicación GPS
+   */
   async iniciarVisita(): Promise<boolean> {
     console.log('[iniciarVisita] 🚀 Iniciando visita...');
     console.log('[iniciarVisita] Estado inicial de GPS:', { latitud: this._latitud(), longitud: this._longitud() });
@@ -203,6 +242,11 @@ export class DailyCaptureService {
   }
 
   // --- Helpers para última posición conocida ---
+  /**
+   * Guarda la última posición GPS conocida en localStorage
+   * @param lat Latitud
+   * @param lng Longitud
+   */
   private guardarUltimaPosicionConocida(lat: number, lng: number): void {
     try {
       const posicion = {
@@ -217,6 +261,10 @@ export class DailyCaptureService {
     }
   }
 
+  /**
+   * Obtiene la última posición GPS conocida del localStorage
+   * @returns Última posición conocida o null si no existe o es muy antigua
+   */
   private obtenerUltimaPosicionConocida(): { lat: number; lng: number } | null {
     try {
       const data = localStorage.getItem('ultimaPosicionGPS');
@@ -241,6 +289,11 @@ export class DailyCaptureService {
     }
   }
 
+  /**
+   * Captura la ubicación GPS actual del dispositivo
+   * @returns Objeto con latitud, longitud y precisión en metros
+   * @throws Error si la geolocalización no está soportada o falla
+   */
   capturarUbicacion(): Promise<{ lat: number; lng: number; precision: number }> {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
@@ -331,6 +384,10 @@ export class DailyCaptureService {
   }
 
   // --- Exhibition Actions ---
+  /**
+   * Agrega una exhibición a la visita activa calculando su puntuación
+   * @param registro Datos de la exhibición sin ID, puntuación ni hora
+   */
   addExhibicion(registro: Omit<RegistroExhibicion, 'id' | 'puntuacionCalculada' | 'horaRegistro'>) {
     console.log('[addExhibicion] Called with:', registro);
 
@@ -371,39 +428,77 @@ export class DailyCaptureService {
       });
     }
 
-    console.log('[addExhibicion] Productos points:', puntosProductos);
+    // 4. Calcular puntuación total
+    const puntuacionCalculada = (puntosPosicion + puntosConcepto + puntosProductos) * multiplicador;
 
-    // 4. Fórmula Final Unificada: Posición × Concepto × Nivel (según backend)
-    const score = puntosPosicion * puntosConcepto * multiplicador;
+    console.log('[addExhibicion] Final calculation:');
+    console.log('  - puntosProductos:', puntosProductos);
+    console.log('  - puntuacionCalculada:', puntuacionCalculada);
 
-    console.log('[addExhibicion] Final score:', score);
-
-    const newExhibicion: RegistroExhibicion = {
+    const exhibicion: RegistroExhibicion = {
       ...registro,
-      id: Math.random().toString(36).substring(2, 9),
-      puntuacionCalculada: Math.round(score * 100) / 100,
+      id: crypto.randomUUID(),
+      puntuacionCalculada,
       horaRegistro: new Date().toISOString(),
     };
 
-    console.log('[addExhibicion] New exhibicion:', newExhibicion);
-
-    this._activeExhibiciones.update((curr) => [...curr, newExhibicion]);
+    this._activeExhibiciones.update((current) => [...current, exhibicion]);
   }
 
+  /**
+   * Elimina una exhibición de la visita activa por su ID
+   * @param id ID de la exhibición a eliminar
+   */
   removeExhibicion(id: string) {
-    this._activeExhibiciones.update((curr) => curr.filter((ex) => ex.id !== id));
+    this._activeExhibiciones.update((current) => current.filter((e) => e.id !== id));
   }
 
-  // --- External API Actions ---
-  saveCapturaTotal(): Observable<VisitaSnapshot> | null {
-    if (!this.hasActiveVisit()) return null;
+  /**
+   * Limpia el estado de la visita activa
+   */
+  clearActiveState() {
+    this._horaInicio.set(null);
+    this._latitud.set(null);
+    this._longitud.set(null);
+    this._activeExhibiciones.set([]);
+  }
 
-    console.log('[saveCapturaTotal] 🚀 Iniciando guardado de visita total...');
+  /**
+   * Actualiza la venta adicional de la visita
+   * @param valor Monto de venta adicional
+   */
+  updateVisitaVentaAdicional(valor: number) {
+    this._visitaVentaAdicional.set(valor);
+  }
+
+  /**
+   * Actualiza el rango de compra de la visita
+   * @param rango Rango de compra
+   */
+  updateVisitaRangoCompra(rango: string) {
+    this._visitaRangoCompra.set(rango);
+  }
+
+  /**
+   * Verifica si es después del horario de corte (6 PM)
+   * @returns true si es después de las 6 PM
+   */
+  isPastCutoff(): boolean {
+    const now = new Date();
+    const hour = now.getHours();
+    return hour >= 18; // 6 PM
+  }
+
+  /**
+   * Guarda la captura total de la visita en el backend o offline
+   * @returns Observable con el resultado de la operación
+   */
+  saveCapturaTotal(): Observable<any> {
     console.log('[saveCapturaTotal] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
 
     const s = this.stats();
     const user = this.auth.user();
-    if (!user) return null;
+    if (!user) return of(null);
 
     const d = new Date();
     const hh = String(d.getHours()).padStart(2, '0');
@@ -668,6 +763,9 @@ export class DailyCaptureService {
   }
 
   // Manual trigger if needed by components
+  /**
+   * Refresca todos los datos del servicio
+   */
   refreshAll() {
     if (this.auth.isAuthenticated) {
       this.loadTodayCaptures();
@@ -676,26 +774,11 @@ export class DailyCaptureService {
     }
   }
 
-  clearActiveState() {
-    this._horaInicio.set(null);
-    this._activeExhibiciones.set([]);
-    this._visitaVentaAdicional.set(0);
-    this._visitaRangoCompra.set('');
-  }
-
-  updateVisitaVentaAdicional(valor: number) {
-    this._visitaVentaAdicional.set(valor);
-  }
-
-  updateVisitaRangoCompra(rango: string) {
-    this._visitaRangoCompra.set(rango);
-  }
-
-  isPastCutoff(): boolean {
-    const now = new Date();
-    return now.getHours() >= 18;
-  }
-
+  /**
+   * Formatea una fecha a formato YYYY-MM-DD
+   * @param dateStr Fecha a formatear
+   * @returns Fecha formateada o string vacío
+   */
   private formatDate(dateStr: string | Date | undefined): string {
     if (!dateStr) return '';
     try {

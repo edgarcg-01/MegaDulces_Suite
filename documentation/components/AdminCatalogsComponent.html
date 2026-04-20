@@ -1,0 +1,2137 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  AdminCatalogsComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#templateData" class="nav-link"
+                role="tab" id="templateData-tab" data-bs-toggle="tab" data-link="template">Template</a>
+        </li>
+        <li class="nav-item">
+            <a href="#styleData" class="nav-link"
+                role="tab" id="styleData-tab" data-bs-toggle="tab" data-link="style">Styles</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/modules/dashboard/admin-catalogs/admin-catalogs.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">providers</td>
+                <td class="col-md-9">
+                            <code>MessageService</code>
+                            <code>ConfirmationService</code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-admin-catalogs</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">standalone</td>
+                <td class="col-md-9"><code>true</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">imports</td>
+                <td class="col-md-9">
+                                <code><a href="https://angular.io/api/common/CommonModule" target="_blank" >CommonModule</a></code>
+                                <code><a href="https://angular.io/api/forms/FormsModule" target="_blank" >FormsModule</a></code>
+                            <code>TableModule</code>
+                            <code>ButtonModule</code>
+                            <code>InputTextModule</code>
+                            <code>InputNumberModule</code>
+                            <code>SelectModule</code>
+                            <code>DialogModule</code>
+                            <code>ToastModule</code>
+                            <code>ConfirmDialogModule</code>
+                            <code>TooltipModule</code>
+                </td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">styleUrls</td>
+                <td class="col-md-9"><code>./admin-catalogs.component.css</code></td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">templateUrl</td>
+                <td class="col-md-9"><code>./admin-catalogs.component.html</code></td>
+            </tr>
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#currentEditingId" >currentEditingId</a>
+                            </li>
+                            <li>
+                                <a href="#currentZoneId" >currentZoneId</a>
+                            </li>
+                            <li>
+                                <a href="#expandedZones" >expandedZones</a>
+                            </li>
+                            <li>
+                                <a href="#isEditMode" >isEditMode</a>
+                            </li>
+                            <li>
+                                <a href="#isRouteMode" >isRouteMode</a>
+                            </li>
+                            <li>
+                                <a href="#items" >items</a>
+                            </li>
+                            <li>
+                                <a href="#loading" >loading</a>
+                            </li>
+                            <li>
+                                <a href="#newItemIcon" >newItemIcon</a>
+                            </li>
+                            <li>
+                                <a href="#newItemOrder" >newItemOrder</a>
+                            </li>
+                            <li>
+                                <a href="#newItemScore" >newItemScore</a>
+                            </li>
+                            <li>
+                                <a href="#newItemValue" >newItemValue</a>
+                            </li>
+                            <li>
+                                <a href="#selectedType" >selectedType</a>
+                            </li>
+                            <li>
+                                <a href="#showAddDialog" >showAddDialog</a>
+                            </li>
+                            <li>
+                                <a href="#showRouteDialog" >showRouteDialog</a>
+                            </li>
+                            <li>
+                                <a href="#title" >title</a>
+                            </li>
+                            <li>
+                                <a href="#zoneRoutes" >zoneRoutes</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#deleteItem" >deleteItem</a>
+                            </li>
+                            <li>
+                                <a href="#deleteRoute" >deleteRoute</a>
+                            </li>
+                            <li>
+                                <a href="#goToPermissions" >goToPermissions</a>
+                            </li>
+                            <li>
+                                <a href="#isZoneExpanded" >isZoneExpanded</a>
+                            </li>
+                            <li>
+                                <a href="#loadCatalog" >loadCatalog</a>
+                            </li>
+                            <li>
+                                <a href="#loadRoutesForExpandedZones" >loadRoutesForExpandedZones</a>
+                            </li>
+                            <li>
+                                <a href="#loadRoutesForZone" >loadRoutesForZone</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#onTypeChange" >onTypeChange</a>
+                            </li>
+                            <li>
+                                <a href="#openAddDialog" >openAddDialog</a>
+                            </li>
+                            <li>
+                                <a href="#openAddRouteDialog" >openAddRouteDialog</a>
+                            </li>
+                            <li>
+                                <a href="#openEditDialog" >openEditDialog</a>
+                            </li>
+                            <li>
+                                <a href="#openEditRouteDialog" >openEditRouteDialog</a>
+                            </li>
+                            <li>
+                                <a href="#saveItem" >saveItem</a>
+                            </li>
+                            <li>
+                                <a href="#saveRoute" >saveRoute</a>
+                            </li>
+                            <li>
+                                <a href="#toggleZoneExpansion" >toggleZoneExpansion</a>
+                            </li>
+                            <li>
+                                <a href="#updateTitle" >updateTitle</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-constructor">
+    <h3 id="constructor">Constructor</h3>
+        <table class="table table-sm table-bordered">
+            <tbody>
+                <tr>
+                    <td class="col-md-4">
+<code>constructor()</code>
+                    </td>
+                </tr>
+
+            </tbody>
+        </table>
+</section>
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="deleteItem"></a>
+                    <span class="name">
+                        <span ><b>deleteItem</b></span>
+                        <a href="#deleteItem"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>deleteItem(id: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>, itemName?: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>id</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                        <tr>
+                                                <td>itemName</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    Yes
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="deleteRoute"></a>
+                    <span class="name">
+                        <span ><b>deleteRoute</b></span>
+                        <a href="#deleteRoute"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>deleteRoute(routeId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>, zoneId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>routeId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                        <tr>
+                                                <td>zoneId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="goToPermissions"></a>
+                    <span class="name">
+                        <span ><b>goToPermissions</b></span>
+                        <a href="#goToPermissions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>goToPermissions(roleName: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>roleName</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isZoneExpanded"></a>
+                    <span class="name">
+                        <span ><b>isZoneExpanded</b></span>
+                        <a href="#isZoneExpanded"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>isZoneExpanded(zoneId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>zoneId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/boolean" target="_blank" >boolean</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadCatalog"></a>
+                    <span class="name">
+                        <span ><b>loadCatalog</b></span>
+                        <a href="#loadCatalog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadCatalog(type: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>type</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadRoutesForExpandedZones"></a>
+                    <span class="name">
+                        <span ><b>loadRoutesForExpandedZones</b></span>
+                        <a href="#loadRoutesForExpandedZones"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadRoutesForExpandedZones()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadRoutesForZone"></a>
+                    <span class="name">
+                        <span ><b>loadRoutesForZone</b></span>
+                        <a href="#loadRoutesForZone"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadRoutesForZone(zoneId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>zoneId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="onTypeChange"></a>
+                    <span class="name">
+                        <span ><b>onTypeChange</b></span>
+                        <a href="#onTypeChange"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>onTypeChange(event: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>event</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openAddDialog"></a>
+                    <span class="name">
+                        <span ><b>openAddDialog</b></span>
+                        <a href="#openAddDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openAddDialog()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openAddRouteDialog"></a>
+                    <span class="name">
+                        <span ><b>openAddRouteDialog</b></span>
+                        <a href="#openAddRouteDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openAddRouteDialog(zone: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>zone</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openEditDialog"></a>
+                    <span class="name">
+                        <span ><b>openEditDialog</b></span>
+                        <a href="#openEditDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openEditDialog(item: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>item</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openEditRouteDialog"></a>
+                    <span class="name">
+                        <span ><b>openEditRouteDialog</b></span>
+                        <a href="#openEditRouteDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openEditRouteDialog(route: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>, zone: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>route</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                        <tr>
+                                                <td>zone</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="saveItem"></a>
+                    <span class="name">
+                        <span ><b>saveItem</b></span>
+                        <a href="#saveItem"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>saveItem()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="saveRoute"></a>
+                    <span class="name">
+                        <span ><b>saveRoute</b></span>
+                        <a href="#saveRoute"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>saveRoute()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="toggleZoneExpansion"></a>
+                    <span class="name">
+                        <span ><b>toggleZoneExpansion</b></span>
+                        <a href="#toggleZoneExpansion"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>toggleZoneExpansion(zone: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>zone</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="updateTitle"></a>
+                    <span class="name">
+                        <span ><b>updateTitle</b></span>
+                        <a href="#updateTitle"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>updateTitle(type: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>type</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="currentEditingId"></a>
+                    <span class="name">
+                        <span ><b>currentEditingId</b></span>
+                        <a href="#currentEditingId"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;string | null&gt;(null)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="currentZoneId"></a>
+                    <span class="name">
+                        <span ><b>currentZoneId</b></span>
+                        <a href="#currentZoneId"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;string | null&gt;(null)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="expandedZones"></a>
+                    <span class="name">
+                        <span ><b>expandedZones</b></span>
+                        <a href="#expandedZones"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>literal type</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>{}</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isEditMode"></a>
+                    <span class="name">
+                        <span ><b>isEditMode</b></span>
+                        <a href="#isEditMode"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isRouteMode"></a>
+                    <span class="name">
+                        <span ><b>isRouteMode</b></span>
+                        <a href="#isRouteMode"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="items"></a>
+                    <span class="name">
+                        <span ><b>items</b></span>
+                        <a href="#items"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;any[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loading"></a>
+                    <span class="name">
+                        <span ><b>loading</b></span>
+                        <a href="#loading"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="newItemIcon"></a>
+                    <span class="name">
+                        <span ><b>newItemIcon</b></span>
+                        <a href="#newItemIcon"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="newItemOrder"></a>
+                    <span class="name">
+                        <span ><b>newItemOrder</b></span>
+                        <a href="#newItemOrder"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>0</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="newItemScore"></a>
+                    <span class="name">
+                        <span ><b>newItemScore</b></span>
+                        <a href="#newItemScore"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>0</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="newItemValue"></a>
+                    <span class="name">
+                        <span ><b>newItemValue</b></span>
+                        <a href="#newItemValue"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedType"></a>
+                    <span class="name">
+                        <span ><b>selectedType</b></span>
+                        <a href="#selectedType"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;string&gt;(&#x27;conceptos&#x27;)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showAddDialog"></a>
+                    <span class="name">
+                        <span ><b>showAddDialog</b></span>
+                        <a href="#showAddDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showRouteDialog"></a>
+                    <span class="name">
+                        <span ><b>showRouteDialog</b></span>
+                        <a href="#showRouteDialog"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="title"></a>
+                    <span class="name">
+                        <span ><b>title</b></span>
+                        <a href="#title"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;string&gt;(&#x27;Catálogos&#x27;)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="zoneRoutes"></a>
+                    <span class="name">
+                        <span ><b>zoneRoutes</b></span>
+                        <a href="#zoneRoutes"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>literal type</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>{}</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+    <div class="tab-pane fade " id="templateData">
+        <pre class="line-numbers"><code class="language-html">&lt;div class&#x3D;&quot;p-6&quot;&gt;
+  &lt;!-- Toast for notifications --&gt;
+  &lt;p-toast position&#x3D;&quot;top-right&quot;&gt;&lt;/p-toast&gt;
+
+  &lt;!-- Confirm Dialog --&gt;
+  &lt;p-confirmDialog 
+    header&#x3D;&quot;Confirmar&quot; 
+    icon&#x3D;&quot;pi pi-exclamation-triangle&quot;
+    [style]&#x3D;&quot;{width: &#x27;450px&#x27;}&quot;
+    acceptButtonStyleClass&#x3D;&quot;p-button-danger&quot;
+    rejectButtonStyleClass&#x3D;&quot;p-button-secondary&quot;&gt;
+  &lt;/p-confirmDialog&gt;
+
+  &lt;!-- Encabezado --&gt;
+  &lt;div class&#x3D;&quot;flex justify-between items-center mb-6&quot;&gt;
+    &lt;div&gt;
+      &lt;h2 class&#x3D;&quot;text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-3&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-cog text-brand&quot;&gt;&lt;/i&gt; {{ title() }}
+      &lt;/h2&gt;
+      &lt;p class&#x3D;&quot;text-xs font-medium text-content-dim tracking-wide&quot;&gt;Configura los parámetros maestros y puntuación de auditoría en tiempo real.&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class&#x3D;&quot;flex gap-2&quot;&gt;
+      &lt;p-button label&#x3D;&quot;Nuevo Ítem&quot; icon&#x3D;&quot;pi pi-plus&quot; (onClick)&#x3D;&quot;openAddDialog()&quot; styleClass&#x3D;&quot;p-button-brand&quot;&gt;&lt;/p-button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Vista Especial para ZONAS con Rutas expandibles --&gt;
+  @if (selectedType() &#x3D;&#x3D;&#x3D; &#x27;zonas&#x27;) {
+    &lt;div class&#x3D;&quot;space-y-4&quot;&gt;
+      @for (zone of items(); track zone.id) {
+        &lt;div class&#x3D;&quot;bg-surface-card border border-surface-border rounded-xl overflow-hidden&quot;&gt;
+          &lt;!-- Header de Zona --&gt;
+          &lt;div class&#x3D;&quot;flex items-center justify-between p-4 bg-surface-ground border-b border-surface-border&quot;&gt;
+            &lt;div class&#x3D;&quot;flex items-center gap-3&quot;&gt;
+              &lt;button
+                type&#x3D;&quot;button&quot;
+                (click)&#x3D;&quot;toggleZoneExpansion(zone)&quot;
+                class&#x3D;&quot;w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all&quot;
+              &gt;
+                &lt;i class&#x3D;&quot;pi&quot; [class.pi-chevron-down]&#x3D;&quot;isZoneExpanded(zone.id)&quot; [class.pi-chevron-right]&#x3D;&quot;!isZoneExpanded(zone.id)&quot;&gt;&lt;/i&gt;
+              &lt;/button&gt;
+              &lt;div&gt;
+                &lt;span class&#x3D;&quot;text-xs font-mono text-content-dim bg-surface-card px-2 py-1 rounded&quot;&gt;#{{ zone.orden }}&lt;/span&gt;
+                &lt;span class&#x3D;&quot;font-bold text-content-main ml-2&quot;&gt;{{ zone.value }}&lt;/span&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+              &lt;span class&#x3D;&quot;text-xs text-content-muted&quot;&gt;{{ zoneRoutes[zone.id]?.length || 0 }} rutas&lt;/span&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-plus&quot; label&#x3D;&quot;Agregar Ruta&quot; size&#x3D;&quot;small&quot; [text]&#x3D;&quot;true&quot; (onClick)&#x3D;&quot;openAddRouteDialog(zone)&quot;&gt;&lt;/p-button&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditDialog(zone)&quot;&gt;&lt;/p-button&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteItem(zone.id, zone.value)&quot;&gt;&lt;/p-button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+
+          &lt;!-- Rutas de la Zona (expandible) --&gt;
+          @if (isZoneExpanded(zone.id)) {
+            &lt;div class&#x3D;&quot;p-4 bg-surface-card&quot;&gt;
+              @if (zoneRoutes[zone.id] &amp;&amp; zoneRoutes[zone.id].length &gt; 0) {
+                &lt;div class&#x3D;&quot;grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3&quot;&gt;
+                  @for (route of zoneRoutes[zone.id]; track route.id) {
+                    &lt;div class&#x3D;&quot;flex items-center justify-between p-3 bg-surface-ground border border-surface-border rounded-lg&quot;&gt;
+                      &lt;div class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+                        &lt;span class&#x3D;&quot;text-xs font-mono text-content-dim&quot;&gt;#{{ route.orden }}&lt;/span&gt;
+                        &lt;span class&#x3D;&quot;text-sm font-medium text-content-main&quot;&gt;{{ route.value }}&lt;/span&gt;
+                      &lt;/div&gt;
+                      &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+                        &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditRouteDialog(route, zone)&quot;&gt;&lt;/p-button&gt;
+                        &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteRoute(route.id, zone.id)&quot;&gt;&lt;/p-button&gt;
+                      &lt;/div&gt;
+                    &lt;/div&gt;
+                  }
+                &lt;/div&gt;
+              } @else {
+                &lt;div class&#x3D;&quot;text-center py-4 text-content-dim text-sm&quot;&gt;
+                  No hay rutas asignadas a esta zona. Haz clic en &quot;Agregar Ruta&quot; para crear una.
+                &lt;/div&gt;
+              }
+            &lt;/div&gt;
+          }
+        &lt;/div&gt;
+      }
+    &lt;/div&gt;
+  } @else {
+    &lt;!-- Tabla normal para otros catálogos --&gt;
+    &lt;div class&#x3D;&quot;bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden hidden lg:block&quot;&gt;
+      &lt;p-table [value]&#x3D;&quot;items()&quot; [loading]&#x3D;&quot;loading()&quot; responsiveLayout&#x3D;&quot;scroll&quot; styleClass&#x3D;&quot;p-datatable-sm p-datatable-striped&quot;&gt;
+        &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+          &lt;tr class&#x3D;&quot;text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border&quot;&gt;
+            &lt;th style&#x3D;&quot;width: 10%&quot;&gt;Orden&lt;/th&gt;
+            &lt;th&gt;Valor / Nombre&lt;/th&gt;
+            &lt;th *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;ubicaciones&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot;&gt;Puntuación&lt;/th&gt;
+            &lt;th *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot;&gt;Icono&lt;/th&gt;
+            &lt;th class&#x3D;&quot;text-center w-28&quot;&gt;Acciones&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/ng-template&gt;
+        &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-item&gt;
+          &lt;tr class&#x3D;&quot;text-sm border-b border-surface-border hover:bg-surface-hover&quot;&gt;
+            &lt;td class&#x3D;&quot;font-mono text-content-dim&quot;&gt;{{ item.orden }}&lt;/td&gt;
+            &lt;td class&#x3D;&quot;font-bold text-content-main&quot;&gt;{{ item.value }}&lt;/td&gt;
+            &lt;td *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;ubicaciones&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot; class&#x3D;&quot;text-brand-orange font-bold&quot;&gt;
+              {{ item.puntuacion }} pts
+            &lt;/td&gt;
+            &lt;td *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot;&gt;
+              &lt;div class&#x3D;&quot;w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-content-faint&quot;&gt;
+                &lt;i [class]&#x3D;&quot;item.icono || &#x27;pi pi-tag&#x27;&quot;&gt;&lt;/i&gt;
+              &lt;/div&gt;
+            &lt;/td&gt;
+            &lt;td class&#x3D;&quot;text-center&quot;&gt;
+              &lt;div class&#x3D;&quot;flex justify-center gap-1&quot;&gt;
+                @if (selectedType() &#x3D;&#x3D;&#x3D; &#x27;roles&#x27;) {
+                  &lt;p-button icon&#x3D;&quot;pi pi-shield&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;help&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;goToPermissions(item.value)&quot; pTooltip&#x3D;&quot;Editar Funciones&quot;&gt;&lt;/p-button&gt;
+                }
+                &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditDialog(item)&quot;&gt;&lt;/p-button&gt;
+                &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteItem(item.id, item.value)&quot;&gt;&lt;/p-button&gt;
+              &lt;/div&gt;
+            &lt;/td&gt;
+          &lt;/tr&gt;
+        &lt;/ng-template&gt;
+        &lt;ng-template pTemplate&#x3D;&quot;emptymessage&quot;&gt;
+          &lt;tr&gt;
+            &lt;td colspan&#x3D;&quot;5&quot; class&#x3D;&quot;text-center p-8 text-content-dim&quot;&gt;
+              No hay registros para este catálogo.
+            &lt;/td&gt;
+          &lt;/tr&gt;
+        &lt;/ng-template&gt;
+      &lt;/p-table&gt;
+    &lt;/div&gt;
+  }
+
+  &lt;!-- Mobile Card View --&gt;
+  @if (selectedType() &#x3D;&#x3D;&#x3D; &#x27;zonas&#x27;) {
+    &lt;!-- Vista Mobile para Zonas --&gt;
+    &lt;div class&#x3D;&quot;lg:hidden space-y-4&quot;&gt;
+      @for (zone of items(); track zone.id) {
+        &lt;div class&#x3D;&quot;bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm&quot;&gt;
+          &lt;div class&#x3D;&quot;flex items-center justify-between mb-3&quot;&gt;
+            &lt;div class&#x3D;&quot;flex items-center gap-3&quot;&gt;
+              &lt;button
+                type&#x3D;&quot;button&quot;
+                (click)&#x3D;&quot;toggleZoneExpansion(zone)&quot;
+                class&#x3D;&quot;w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all&quot;
+              &gt;
+                &lt;i class&#x3D;&quot;pi&quot; [class.pi-chevron-down]&#x3D;&quot;isZoneExpanded(zone.id)&quot; [class.pi-chevron-right]&#x3D;&quot;!isZoneExpanded(zone.id)&quot;&gt;&lt;/i&gt;
+              &lt;/button&gt;
+              &lt;div&gt;
+                &lt;span class&#x3D;&quot;text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded&quot;&gt;#{{ zone.orden }}&lt;/span&gt;
+                &lt;h3 class&#x3D;&quot;text-sm font-bold text-content-main ml-2&quot;&gt;{{ zone.value }}&lt;/h3&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-plus&quot; [text]&#x3D;&quot;true&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openAddRouteDialog(zone)&quot;&gt;&lt;/p-button&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditDialog(zone)&quot;&gt;&lt;/p-button&gt;
+              &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteItem(zone.id, zone.value)&quot;&gt;&lt;/p-button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+
+          &lt;!-- Rutas expandibles en mobile --&gt;
+          @if (isZoneExpanded(zone.id)) {
+            &lt;div class&#x3D;&quot;mt-3 pt-3 border-t border-surface-border&quot;&gt;
+              &lt;div class&#x3D;&quot;text-xs text-content-muted mb-2&quot;&gt;Rutas ({{ zoneRoutes[zone.id]?.length || 0 }}):&lt;/div&gt;
+              @if (zoneRoutes[zone.id] &amp;&amp; zoneRoutes[zone.id].length &gt; 0) {
+                &lt;div class&#x3D;&quot;space-y-2&quot;&gt;
+                  @for (route of zoneRoutes[zone.id]; track route.id) {
+                    &lt;div class&#x3D;&quot;flex items-center justify-between p-2 bg-surface-ground border border-surface-border rounded&quot;&gt;
+                      &lt;span class&#x3D;&quot;text-sm text-content-main&quot;&gt;{{ route.value }}&lt;/span&gt;
+                      &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+                        &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditRouteDialog(route, zone)&quot;&gt;&lt;/p-button&gt;
+                        &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteRoute(route.id, zone.id)&quot;&gt;&lt;/p-button&gt;
+                      &lt;/div&gt;
+                    &lt;/div&gt;
+                  }
+                &lt;/div&gt;
+              } @else {
+                &lt;div class&#x3D;&quot;text-xs text-content-dim&quot;&gt;No hay rutas asignadas&lt;/div&gt;
+              }
+            &lt;/div&gt;
+          }
+        &lt;/div&gt;
+      }
+    &lt;/div&gt;
+  } @else {
+    &lt;!-- Vista Mobile para otros catálogos --&gt;
+    &lt;div class&#x3D;&quot;lg:hidden space-y-4&quot;&gt;
+      &lt;div *ngFor&#x3D;&quot;let item of items()&quot; class&#x3D;&quot;bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm&quot;&gt;
+        &lt;div class&#x3D;&quot;flex items-center justify-between mb-3&quot;&gt;
+          &lt;div class&#x3D;&quot;flex items-center gap-3&quot;&gt;
+            &lt;span class&#x3D;&quot;text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded&quot;&gt;{{ item.orden }}&lt;/span&gt;
+            &lt;h3 class&#x3D;&quot;text-sm font-bold text-content-main&quot;&gt;{{ item.value }}&lt;/h3&gt;
+          &lt;/div&gt;
+          &lt;div class&#x3D;&quot;flex gap-1&quot;&gt;
+            @if (selectedType() &#x3D;&#x3D;&#x3D; &#x27;roles&#x27;) {
+              &lt;p-button icon&#x3D;&quot;pi pi-shield&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;help&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;goToPermissions(item.value)&quot; pTooltip&#x3D;&quot;Editar Funciones&quot;&gt;&lt;/p-button&gt;
+            }
+            &lt;p-button icon&#x3D;&quot;pi pi-pencil&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;info&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;openEditDialog(item)&quot;&gt;&lt;/p-button&gt;
+            &lt;p-button icon&#x3D;&quot;pi pi-trash&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;danger&quot; size&#x3D;&quot;small&quot; (onClick)&#x3D;&quot;deleteItem(item.id, item.value)&quot;&gt;&lt;/p-button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class&#x3D;&quot;space-y-2&quot;&gt;
+          &lt;div *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;ubicaciones&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot; class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+            &lt;span class&#x3D;&quot;text-xs text-content-muted&quot;&gt;Puntuación:&lt;/span&gt;
+            &lt;span class&#x3D;&quot;text-sm font-bold text-brand-orange&quot;&gt;{{ item.puntuacion }} pts&lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot; class&#x3D;&quot;flex items-center gap-2&quot;&gt;
+            &lt;span class&#x3D;&quot;text-xs text-content-muted&quot;&gt;Icono:&lt;/span&gt;
+            &lt;div class&#x3D;&quot;w-6 h-6 rounded bg-surface-layout border border-divider flex items-center justify-center text-content-faint&quot;&gt;
+              &lt;i [class]&#x3D;&quot;item.icono || &#x27;pi pi-tag&#x27;&quot; class&#x3D;&quot;text-xs&quot;&gt;&lt;/i&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  }
+&lt;/div&gt;
+
+&lt;!-- Diálogo de Ítem --&gt;
+&lt;p-dialog [header]&#x3D;&quot;isEditMode() ? &#x27;Editar Ítem&#x27; : &#x27;Nuevo Ítem&#x27;&quot; [(visible)]&#x3D;&quot;showAddDialog&quot; [modal]&#x3D;&quot;true&quot; [style]&#x3D;&quot;{width: &#x27;400px&#x27;}&quot; styleClass&#x3D;&quot;p-dialog surface-card border-divider rounded-xl&quot; [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main p-4&#x27;&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col gap-4&quot;&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted&quot;&gt;Nombre / Valor&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;newItemValue&quot; [placeholder]&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;roles&#x27; ? &#x27;Ej: supervisor&#x27; : &#x27;Ej: Zona Norte&#x27;&quot; class&#x3D;&quot;w-full bg-surface-ground border-surface-border text-content-main&quot; /&gt;
+    &lt;/div&gt;
+
+    &lt;div class&#x3D;&quot;grid grid-cols-2 gap-4&quot;&gt;
+      &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+        &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted&quot;&gt;Orden&lt;/label&gt;
+        &lt;p-inputNumber [(ngModel)]&#x3D;&quot;newItemOrder&quot; class&#x3D;&quot;w-full&quot;&gt;&lt;/p-inputNumber&gt;
+      &lt;/div&gt;
+      &lt;div *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;ubicaciones&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot; class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+        &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted&quot;&gt;Puntuación&lt;/label&gt;
+        &lt;p-inputNumber
+          [(ngModel)]&#x3D;&quot;newItemScore&quot;
+          [step]&#x3D;&quot;0.1&quot;
+          mode&#x3D;&quot;decimal&quot;
+          [minFractionDigits]&#x3D;&quot;0&quot;
+          [maxFractionDigits]&#x3D;&quot;2&quot;
+          class&#x3D;&quot;w-full&quot;&gt;
+        &lt;/p-inputNumber&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div *ngIf&#x3D;&quot;selectedType() &#x3D;&#x3D;&#x3D; &#x27;conceptos&#x27; || selectedType() &#x3D;&#x3D;&#x3D; &#x27;niveles&#x27;&quot; class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted font-mono&quot;&gt;Icono (PrimeIcon)&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;newItemIcon&quot; placeholder&#x3D;&quot;Ej: pi pi-star&quot; class&#x3D;&quot;w-full bg-surface-ground border-surface-border text-content-main&quot; /&gt;
+      &lt;div class&#x3D;&quot;mt-1 flex items-center gap-2 px-3 py-2 bg-surface-ground border border-divider rounded-lg&quot;&gt;
+        &lt;span class&#x3D;&quot;text-xs text-content-faint uppercase font-bold&quot;&gt;Vista previa:&lt;/span&gt;
+        &lt;i [class]&#x3D;&quot;newItemIcon || &#x27;pi pi-question-circle&#x27;&quot; class&#x3D;&quot;text-brand&quot;&gt;&lt;/i&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+    &lt;p-button label&#x3D;&quot;Cancelar&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; (onClick)&#x3D;&quot;showAddDialog &#x3D; false&quot;&gt;&lt;/p-button&gt;
+    &lt;p-button [label]&#x3D;&quot;isEditMode() ? &#x27;Actualizar&#x27; : &#x27;Agregar&#x27;&quot; (onClick)&#x3D;&quot;saveItem()&quot; styleClass&#x3D;&quot;p-button-brand&quot;&gt;&lt;/p-button&gt;
+  &lt;/ng-template&gt;
+&lt;/p-dialog&gt;
+
+&lt;!-- Diálogo de Ruta (para Zonas) --&gt;
+&lt;p-dialog [header]&#x3D;&quot;isEditMode() ? &#x27;Editar Ruta&#x27; : &#x27;Nueva Ruta&#x27;&quot; [(visible)]&#x3D;&quot;showRouteDialog&quot; [modal]&#x3D;&quot;true&quot; [style]&#x3D;&quot;{width: &#x27;400px&#x27;}&quot; styleClass&#x3D;&quot;p-dialog surface-card border-divider rounded-xl&quot; [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main p-4&#x27;&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col gap-4&quot;&gt;
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted&quot;&gt;Nombre de la Ruta&lt;/label&gt;
+      &lt;input pInputText [(ngModel)]&#x3D;&quot;newItemValue&quot; placeholder&#x3D;&quot;Ej: Ruta 1 - Centro&quot; class&#x3D;&quot;w-full bg-surface-ground border-surface-border text-content-main&quot; /&gt;
+    &lt;/div&gt;
+
+    &lt;div class&#x3D;&quot;flex flex-col gap-2&quot;&gt;
+      &lt;label class&#x3D;&quot;text-xs font-bold text-content-muted&quot;&gt;Orden&lt;/label&gt;
+      &lt;p-inputNumber [(ngModel)]&#x3D;&quot;newItemOrder&quot; class&#x3D;&quot;w-full&quot;&gt;&lt;/p-inputNumber&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+    &lt;p-button label&#x3D;&quot;Cancelar&quot; [text]&#x3D;&quot;true&quot; severity&#x3D;&quot;secondary&quot; (onClick)&#x3D;&quot;showRouteDialog &#x3D; false&quot;&gt;&lt;/p-button&gt;
+    &lt;p-button [label]&#x3D;&quot;isEditMode() ? &#x27;Actualizar&#x27; : &#x27;Agregar&#x27;&quot; (onClick)&#x3D;&quot;saveRoute()&quot; styleClass&#x3D;&quot;p-button-brand&quot;&gt;&lt;/p-button&gt;
+  &lt;/ng-template&gt;
+&lt;/p-dialog&gt;
+
+&lt;p-toast&gt;&lt;/p-toast&gt;
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="styleData">
+                <p class="comment">
+                    <code>./admin-catalogs.component.css</code>
+                </p>
+                <pre class="line-numbers"><code class="language-scss"></code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div><div class="p-6">  <!-- Toast for notifications -->  <p-toast position="top-right"></p-toast>  <!-- Confirm Dialog -->  <p-confirmDialog     header="Confirmar"     icon="pi pi-exclamation-triangle"    [style]="{width: \'450px\'}"    acceptButtonStyleClass="p-button-danger"    rejectButtonStyleClass="p-button-secondary">  </p-confirmDialog>  <!-- Encabezado -->  <div class="flex justify-between items-center mb-6">    <div>      <h2 class="text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-3">        <i class="pi pi-cog text-brand"></i> {{ title() }}      </h2>      <p class="text-xs font-medium text-content-dim tracking-wide">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>    </div>    <div class="flex gap-2">      <p-button label="Nuevo Ítem" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>    </div>  </div>  <!-- Vista Especial para ZONAS con Rutas expandibles -->  @if (selectedType() === \'zonas\') {    <div class="space-y-4">      @for (zone of items(); track zone.id) {        <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden">          <!-- Header de Zona -->          <div class="flex items-center justify-between p-4 bg-surface-ground border-b border-surface-border">            <div class="flex items-center gap-3">              <button                type="button"                (click)="toggleZoneExpansion(zone)"                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all"              >                <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>              </button>              <div>                <span class="text-xs font-mono text-content-dim bg-surface-card px-2 py-1 rounded">#{{ zone.orden }}</span>                <span class="font-bold text-content-main ml-2">{{ zone.value }}</span>              </div>            </div>            <div class="flex items-center gap-2">              <span class="text-xs text-content-muted">{{ zoneRoutes[zone.id]?.length || 0 }} rutas</span>              <p-button icon="pi pi-plus" label="Agregar Ruta" size="small" [text]="true" (onClick)="openAddRouteDialog(zone)"></p-button>              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)"></p-button>              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id, zone.value)"></p-button>            </div>          </div>          <!-- Rutas de la Zona (expandible) -->          @if (isZoneExpanded(zone.id)) {            <div class="p-4 bg-surface-card">              @if (zoneRoutes[zone.id] && zoneRoutes[zone.id].length > 0) {                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">                  @for (route of zoneRoutes[zone.id]; track route.id) {                    <div class="flex items-center justify-between p-3 bg-surface-ground border border-surface-border rounded-lg">                      <div class="flex items-center gap-2">                        <span class="text-xs font-mono text-content-dim">#{{ route.orden }}</span>                        <span class="text-sm font-medium text-content-main">{{ route.value }}</span>                      </div>                      <div class="flex gap-1">                        <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditRouteDialog(route, zone)"></p-button>                        <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteRoute(route.id, zone.id)"></p-button>                      </div>                    </div>                  }                </div>              } @else {                <div class="text-center py-4 text-content-dim text-sm">                  No hay rutas asignadas a esta zona. Haz clic en "Agregar Ruta" para crear una.                </div>              }            </div>          }        </div>      }    </div>  } @else {    <!-- Tabla normal para otros catálogos -->    <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden hidden lg:block">      <p-table [value]="items()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">        <ng-template pTemplate="header">          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">            <th style="width: 10%">Orden</th>            <th>Valor / Nombre</th>            <th *ngIf="selectedType() === \'conceptos\' || selectedType() === \'ubicaciones\' || selectedType() === \'niveles\'">Puntuación</th>            <th *ngIf="selectedType() === \'conceptos\' || selectedType() === \'niveles\'">Icono</th>            <th class="text-center w-28">Acciones</th>          </tr>        </ng-template>        <ng-template pTemplate="body" let-item>          <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">            <td class="font-mono text-content-dim">{{ item.orden }}</td>            <td class="font-bold text-content-main">{{ item.value }}</td>            <td *ngIf="selectedType() === \'conceptos\' || selectedType() === \'ubicaciones\' || selectedType() === \'niveles\'" class="text-brand-orange font-bold">              {{ item.puntuacion }} pts            </td>            <td *ngIf="selectedType() === \'conceptos\' || selectedType() === \'niveles\'">              <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-content-faint">                <i [class]="item.icono || \'pi pi-tag\'"></i>              </div>            </td>            <td class="text-center">              <div class="flex justify-center gap-1">                @if (selectedType() === \'roles\') {                  <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>                }                <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)"></p-button>              </div>            </td>          </tr>        </ng-template>        <ng-template pTemplate="emptymessage">          <tr>            <td colspan="5" class="text-center p-8 text-content-dim">              No hay registros para este catálogo.            </td>          </tr>        </ng-template>      </p-table>    </div>  }  <!-- Mobile Card View -->  @if (selectedType() === \'zonas\') {    <!-- Vista Mobile para Zonas -->    <div class="lg:hidden space-y-4">      @for (zone of items(); track zone.id) {        <div class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">          <div class="flex items-center justify-between mb-3">            <div class="flex items-center gap-3">              <button                type="button"                (click)="toggleZoneExpansion(zone)"                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all"              >                <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>              </button>              <div>                <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{ zone.orden }}</span>                <h3 class="text-sm font-bold text-content-main ml-2">{{ zone.value }}</h3>              </div>            </div>            <div class="flex gap-1">              <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddRouteDialog(zone)"></p-button>              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)"></p-button>              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id, zone.value)"></p-button>            </div>          </div>          <!-- Rutas expandibles en mobile -->          @if (isZoneExpanded(zone.id)) {            <div class="mt-3 pt-3 border-t border-surface-border">              <div class="text-xs text-content-muted mb-2">Rutas ({{ zoneRoutes[zone.id]?.length || 0 }}):</div>              @if (zoneRoutes[zone.id] && zoneRoutes[zone.id].length > 0) {                <div class="space-y-2">                  @for (route of zoneRoutes[zone.id]; track route.id) {                    <div class="flex items-center justify-between p-2 bg-surface-ground border border-surface-border rounded">                      <span class="text-sm text-content-main">{{ route.value }}</span>                      <div class="flex gap-1">                        <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditRouteDialog(route, zone)"></p-button>                        <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteRoute(route.id, zone.id)"></p-button>                      </div>                    </div>                  }                </div>              } @else {                <div class="text-xs text-content-dim">No hay rutas asignadas</div>              }            </div>          }        </div>      }    </div>  } @else {    <!-- Vista Mobile para otros catálogos -->    <div class="lg:hidden space-y-4">      <div *ngFor="let item of items()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">        <div class="flex items-center justify-between mb-3">          <div class="flex items-center gap-3">            <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>            <h3 class="text-sm font-bold text-content-main">{{ item.value }}</h3>          </div>          <div class="flex gap-1">            @if (selectedType() === \'roles\') {              <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>            }            <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)"></p-button>          </div>        </div>        <div class="space-y-2">          <div *ngIf="selectedType() === \'conceptos\' || selectedType() === \'ubicaciones\' || selectedType() === \'niveles\'" class="flex items-center gap-2">            <span class="text-xs text-content-muted">Puntuación:</span>            <span class="text-sm font-bold text-brand-orange">{{ item.puntuacion }} pts</span>          </div>          <div *ngIf="selectedType() === \'conceptos\' || selectedType() === \'niveles\'" class="flex items-center gap-2">            <span class="text-xs text-content-muted">Icono:</span>            <div class="w-6 h-6 rounded bg-surface-layout border border-divider flex items-center justify-center text-content-faint">              <i [class]="item.icono || \'pi pi-tag\'" class="text-xs"></i>            </div>          </div>        </div>      </div>    </div>  }</div><!-- Diálogo de Ítem --><p-dialog [header]="isEditMode() ? \'Editar Ítem\' : \'Nuevo Ítem\'" [(visible)]="showAddDialog" [modal]="true" [style]="{width: \'400px\'}" styleClass="p-dialog surface-card border-divider rounded-xl" [contentStyleClass]="\'bg-surface-card text-content-main p-4\'">  <div class="flex flex-col gap-4">    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted">Nombre / Valor</label>      <input pInputText [(ngModel)]="newItemValue" [placeholder]="selectedType() === \'roles\' ? \'Ej: supervisor\' : \'Ej: Zona Norte\'" class="w-full bg-surface-ground border-surface-border text-content-main" />    </div>    <div class="grid grid-cols-2 gap-4">      <div class="flex flex-col gap-2">        <label class="text-xs font-bold text-content-muted">Orden</label>        <p-inputNumber [(ngModel)]="newItemOrder" class="w-full"></p-inputNumber>      </div>      <div *ngIf="selectedType() === \'conceptos\' || selectedType() === \'ubicaciones\' || selectedType() === \'niveles\'" class="flex flex-col gap-2">        <label class="text-xs font-bold text-content-muted">Puntuación</label>        <p-inputNumber          [(ngModel)]="newItemScore"          [step]="0.1"          mode="decimal"          [minFractionDigits]="0"          [maxFractionDigits]="2"          class="w-full">        </p-inputNumber>      </div>    </div>    <div *ngIf="selectedType() === \'conceptos\' || selectedType() === \'niveles\'" class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted font-mono">Icono (PrimeIcon)</label>      <input pInputText [(ngModel)]="newItemIcon" placeholder="Ej: pi pi-star" class="w-full bg-surface-ground border-surface-border text-content-main" />      <div class="mt-1 flex items-center gap-2 px-3 py-2 bg-surface-ground border border-divider rounded-lg">        <span class="text-xs text-content-faint uppercase font-bold">Vista previa:</span>        <i [class]="newItemIcon || \'pi pi-question-circle\'" class="text-brand"></i>      </div>    </div>  </div>  <ng-template pTemplate="footer">    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddDialog = false"></p-button>    <p-button [label]="isEditMode() ? \'Actualizar\' : \'Agregar\'" (onClick)="saveItem()" styleClass="p-button-brand"></p-button>  </ng-template></p-dialog><!-- Diálogo de Ruta (para Zonas) --><p-dialog [header]="isEditMode() ? \'Editar Ruta\' : \'Nueva Ruta\'" [(visible)]="showRouteDialog" [modal]="true" [style]="{width: \'400px\'}" styleClass="p-dialog surface-card border-divider rounded-xl" [contentStyleClass]="\'bg-surface-card text-content-main p-4\'">  <div class="flex flex-col gap-4">    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted">Nombre de la Ruta</label>      <input pInputText [(ngModel)]="newItemValue" placeholder="Ej: Ruta 1 - Centro" class="w-full bg-surface-ground border-surface-border text-content-main" />    </div>    <div class="flex flex-col gap-2">      <label class="text-xs font-bold text-content-muted">Orden</label>      <p-inputNumber [(ngModel)]="newItemOrder" class="w-full"></p-inputNumber>    </div>  </div>  <ng-template pTemplate="footer">    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showRouteDialog = false"></p-button>    <p-button [label]="isEditMode() ? \'Actualizar\' : \'Agregar\'" (onClick)="saveRoute()" styleClass="p-button-brand"></p-button>  </ng-template></p-dialog><p-toast></p-toast></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'AdminCatalogsComponent'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'AdminCatalogsComponent.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>

@@ -63,6 +63,11 @@ import {
   providers: [MessageService, ConfirmationService],
   templateUrl: './captures.component.html',
 })
+/**
+ * Componente principal para la captura diaria de exhibidores.
+ * Permite a los usuarios registrar visitas, capturar ubicación GPS, y documentar
+ * exhibidores con productos, fotos y evaluaciones de calidad.
+ */
 export class CapturesComponent implements OnInit, OnDestroy {
   readonly svc = inject(DailyCaptureService);
   readonly themeService = inject(ThemeService);
@@ -71,15 +76,22 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly confirmSvc = inject(ConfirmationService);
 
   // ── Auth ──────────────────────────────────────────────────────────
+  /** Usuario autenticado actual */
   user = this.authService.user;
 
   // ── Initialization ───────────────────────────────────────────────────────
+  /**
+   * Inicializa el componente, refresca los datos y bloquea el scroll del body
+   */
   ngOnInit() {
     this.svc.refreshAll();
     // Bloquear scroll del body cuando el componente se inicializa
     this.lockBodyScroll();
   }
 
+  /**
+   * Limpia las suscripciones y restaura el scroll del body al destruir el componente
+   */
   ngOnDestroy() {
     // Cleanup subscription when component is destroyed
     if (this.saveSubscription) {
@@ -90,34 +102,54 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   // ── Constants & Catalogs ──────────────────────────────────────────────────
+  /** Catálogo de rangos de compra disponibles */
   readonly RANGOS_COMPRA = RANGOS_COMPRA;
 
   // ── UI State ──────────────────────────────────────────────────────────────
+  /** Indica si se muestra el diálogo de resultados */
   showResultDialog = false;
+  /** Indica si se muestra el diálogo de impacto comercial */
   showImpactDialog = false;
+  /** Último resultado de visita capturado */
   lastResult: VisitaSnapshot | null = null;
+  /** Filas expandidas en la tabla de exhibidores */
   expandedRows: { [key: string]: boolean } = {};
+  /** Indica si se está guardando datos */
   isSaving = signal<boolean>(false);
+  /** Suscripción para guardar datos */
   private saveSubscription: Subscription | null = null;
 
   // ── Wizard State ──────────────────────────────────────────────────────────
+  /** Indica si el wizard está visible */
   showWizard = false;
+  /** Paso actual del wizard (1-6) */
   wizardStep = 1;
+  /** Query de búsqueda de productos */
   searchQuery = signal<string>('');
+  /** Indica si el input de búsqueda está visible */
   showSearchInput = false;
+  /** Indica si se muestran más productos en el chip */
   showMoreProducts = false;
 
+  /** Exhibición actual siendo editada en el wizard */
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
     productosMarcados: [],
   });
 
   // ── Impacto Comercial State ───────────────────────────────────────────────
+  /** Valor del impacto de venta adicional */
   impactoVentaAdicional: number = 0;
+  /** Rango de compra seleccionado */
   impactoRangoCompra: string = '';
 
   // ── Computed ──────────────────────────────────────────────────────────────
+  /** Número de visita actual (visitas hoy + 1) */
   visitaNumero = computed(() => this.svc.visitasHoy().length + 1);
 
+  /**
+   * Filtra productos según el query de búsqueda, ignorando acentos
+   * @returns Lista de productos filtrados (máximo 20)
+   */
   filteredProducts = computed(() => {
     const query = this.searchQuery().toLowerCase();
     const allProducts = this.svc.groupedProducts();
@@ -146,6 +178,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     return results.slice(0, 20); // Limit to 20 results
   });
 
+  /**
+   * Filtra marcas y sus productos según el query de búsqueda, ignorando acentos
+   * @returns Lista de marcas con productos filtrados
+   */
   filteredBrands = computed(() => {
     const query = this.searchQuery().toLowerCase();
     const allBrands = this.svc.groupedProducts();
@@ -171,6 +207,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }).filter(brand => brand.items.length > 0); // Solo mostrar marcas que tienen productos después del filtro
   });
 
+  /**
+   * Genera las tarjetas de estadísticas para el dashboard
+   * @returns Lista de tarjetas con información de exhibidores, ejecución y ventas
+   */
   statCards = computed(() => {
     const s = this.svc.stats();
     const maxScore = this.svc.maxScore();
@@ -204,8 +244,14 @@ export class CapturesComponent implements OnInit, OnDestroy {
   });
 
   // --- Dynamic Options (Map from Database Catalogs) ---
+  /** Configuración de posiciones de exhibidores desde el catálogo */
   configPosiciones = computed(() => this.svc.ubicaciones());
+  /** Configuración de tipos de exhibidores desde el catálogo */
   configTipos = computed(() => this.svc.conceptos());
+  /**
+   * Configuración de niveles de ejecución desde el catálogo de scoring
+   * @returns Lista de niveles de ejecución disponibles
+   */
   configNiveles = computed(() => {
     const cfg = this.svc.scoringConfig();
     return Object.keys(
@@ -215,6 +261,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   // ── Main View Actions ─────────────────────────────────────────────────────
 
+  /**
+   * Inicia una nueva visita capturando la ubicación GPS
+   * @throws Error si no se puede capturar la ubicación o si es después de las 6 PM
+   */
   async onIniciarVisita() {
     if (this.svc.isPastCutoff()) {
       this.toast.add({
@@ -343,6 +393,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Muestra el diálogo de confirmación para cancelar la visita activa
+   */
   onCancelarVisita() {
     this.confirmSvc.confirm({
       message:
@@ -372,6 +425,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   // ── Wizard Actions ────────────────────────────────────────────────────────
 
+  /**
+   * Inicia el wizard para agregar un nuevo exhibidor
+   */
   startWizard() {
     this.currentExhibicion.set({
       productosMarcados: [],
@@ -382,6 +438,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.showWizard = true;
   }
 
+  /**
+   * Avanza al siguiente paso del wizard con validaciones
+   */
   nextStep() {
     const curr = this.currentExhibicion();
     if (this.wizardStep === 1 && !curr.ubicacionId) {
@@ -427,14 +486,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Selecciona el tipo de exhibición en el wizard
+   * @param id ID del concepto de exhibición seleccionado
+   */
   onConceptoSelect(id: string) {
     this.currentExhibicion.update((curr) => ({ ...curr, conceptoId: id }));
   }
 
+  /**
+   * Selecciona la ubicación del exhibidor en el wizard
+   * @param id ID de la ubicación seleccionada
+   */
   onUbicacionSelect(id: string) {
     this.currentExhibicion.update((curr) => ({ ...curr, ubicacionId: id }));
   }
 
+  /**
+   * Selecciona el nivel de ejecución en el wizard
+   * @param nivel Nivel de ejecución seleccionado
+   */
   onNivelSelect(nivel: string) {
     this.currentExhibicion.update((curr) => ({
       ...curr,
@@ -442,6 +513,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }));
   }
 
+  /**
+   * Selecciona si el exhibidor pertenece a Mega Dulces
+   * @param value true si pertenece a Mega Dulces, false si es de la competencia
+   */
   onPerteneceMegaDulcesSelect(value: boolean) {
     this.currentExhibicion.update((curr) => ({
       ...curr,
@@ -449,6 +524,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }));
   }
 
+  /**
+   * Alterna la selección de un producto en la lista
+   * @param pid ID del producto
+   * @param checked Estado opcional del checkbox
+   */
   toggleProducto(pid: string, checked?: boolean) {
     this.currentExhibicion.update((curr) => {
       const pm = curr.productosMarcados || [];
@@ -467,6 +547,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
     return prod.pid;
   }
 
+  /**
+   * Verifica si un producto está seleccionado
+   * @param pid ID del producto a verificar
+   * @returns true si el producto está seleccionado
+   */
   isProductSelected(pid: string): boolean {
     const pm = this.currentExhibicion().productosMarcados || [];
     return pm.includes(pid);
@@ -475,6 +560,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
   // ── Body Scroll Control ──────────────────────────────────────────────────────
   private bodyScrollPosition = 0;
 
+  /**
+   * Bloquea el scroll del body para evitar scroll en iOS Safari
+   */
   lockBodyScroll() {
     this.bodyScrollPosition = window.scrollY;
     document.body.style.overflow = 'hidden';
@@ -483,6 +571,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
     document.body.style.width = '100%';
   }
 
+  /**
+   * Restaura el scroll del body a su posición original
+   */
   unlockBodyScroll() {
     document.body.style.removeProperty('overflow');
     document.body.style.removeProperty('position');
@@ -492,6 +583,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   @HostListener('touchmove', ['$event'])
+  /**
+   * Previene navegación hacia atrás con gestos horizontales
+   * @param event Evento de touch
+   */
   onTouchMove(event: TouchEvent) {
     // Detectar si el gesto es más horizontal que vertical
     const touchStartX = event.touches[0].clientX;
@@ -508,12 +603,22 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Verifica si todos los productos de una marca están seleccionados
+   * @param brand Objeto de marca con productos
+   * @returns true si todos los productos están seleccionados
+   */
   isBrandFullySelected(brand: any): boolean {
     const pm = this.currentExhibicion().productosMarcados || [];
     const brandPids = brand.items.map((p: any) => p.pid);
     return brandPids.length > 0 && brandPids.every((pid: string) => pm.includes(pid));
   }
 
+  /**
+   * Verifica si algunos productos de una marca están seleccionados
+   * @param brand Objeto de marca con productos
+   * @returns true si algunos pero no todos los productos están seleccionados
+   */
   isBrandPartiallySelected(brand: any): boolean {
     const pm = this.currentExhibicion().productosMarcados || [];
     const brandPids = brand.items.map((p: any) => p.pid);
@@ -521,12 +626,22 @@ export class CapturesComponent implements OnInit, OnDestroy {
     return selectedCount > 0 && selectedCount < brandPids.length;
   }
 
+  /**
+   * Obtiene el número de productos seleccionados en una marca
+   * @param brand Objeto de marca con productos
+   * @returns Número de productos seleccionados
+   */
   getSelectedCountInBrand(brand: any): number {
     const pm = this.currentExhibicion().productosMarcados || [];
     const brandPids = brand.items.map((p: any) => p.pid);
     return brandPids.filter((pid: string) => pm.includes(pid)).length;
   }
 
+  /**
+   * Alterna la selección de todos los productos de una marca
+   * @param brand Objeto de marca con productos
+   * @param checked Estado al que se debe cambiar la selección
+   */
   toggleBrandSelection(brand: any, checked: boolean) {
     const brandPids = brand.items.map((p: any) => p.pid);
     this.currentExhibicion.update((curr) => {
@@ -545,31 +660,65 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Actualiza el query de búsqueda de productos
+   * @param query Texto de búsqueda
+   */
   onSearchChange(query: string) {
     this.searchQuery.set(query);
   }
 
+  /**
+   * Limpia el query de búsqueda
+   */
   clearSearch() {
     this.searchQuery.set('');
   }
 
-  onSearchFocus() {
-    // En móvil, cuando el input obtiene foco, scroll para que sea visible
-    if (window.innerWidth < 768) {
-      setTimeout(() => {
-        const container = document.getElementById('step-4-container');
-        const searchResults = document.getElementById('search-results');
-        if (container) {
-          container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 300);
+  /**
+   * Agrega la exhibición actual a la lista de exhibidores
+   */
+  addExhibicion() {
+    const ex = this.currentExhibicion() as Omit<
+      RegistroExhibicion,
+      'id' | 'puntuacionCalculada' | 'horaRegistro'
+    >;
+    if (!ex.conceptoId || !ex.ubicacionId) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'Faltan datos requeridos (concepto/ubicación).',
+      });
+      return;
     }
+    this.svc.addExhibicion(ex);
+    this.toast.add({
+      severity: 'success',
+      summary: 'Exhibidor registrado',
+      detail: 'Guardado en la visita actual.',
+    });
+    this.showWizard = false;
+
+    // Scroll to the bottom of the list
+    setTimeout(() => {
+      const container = document.getElementById('exhibiciones-list');
+      if (container) {
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 300);
   }
 
+  /**
+   * Maneja el evento blur del input de búsqueda
+   */
   onSearchBlur() {
     // Manejar blur si es necesario
   }
 
+  /**
+   * Agrega un producto a la lista de productos seleccionados
+   * @param pid ID del producto a agregar
+   */
   addProducto(pid: string) {
     this.currentExhibicion.update((curr) => {
       const pm = curr.productosMarcados || [];
@@ -580,6 +729,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Elimina un producto de la lista de productos seleccionados
+   * @param pid ID del producto a eliminar
+   */
   removeProducto(pid: string) {
     this.currentExhibicion.update((curr) => {
       const pm = curr.productosMarcados || [];
@@ -587,6 +740,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Obtiene el nombre de un producto por su ID
+   * @param pid ID del producto
+   * @returns Nombre del producto o el ID si no se encuentra
+   */
   getProductName(pid: string): string {
     const allProducts = this.svc.groupedProducts();
     for (const brand of allProducts) {
@@ -596,24 +754,44 @@ export class CapturesComponent implements OnInit, OnDestroy {
     return pid;
   }
 
+  /**
+   * Actualiza el rango de compra de la exhibición actual
+   * @param val Rango de compra seleccionado
+   */
   onRangoCompraChange(val: string) {
     this.currentExhibicion.update((curr) => ({ ...curr, rangoCompra: val }));
   }
 
+  /**
+   * Actualiza la venta adicional de la exhibición actual
+   * @param val Monto de venta adicional
+   */
   onVentaAdicionalChange(val: number) {
     this.currentExhibicion.update((curr) => ({ ...curr, ventaAdicional: val }));
   }
 
+  /**
+   * Actualiza el impacto de venta adicional de la visita
+   * @param val Monto de impacto de venta
+   */
   onImpactoVentaChange(val: number) {
     this.impactoVentaAdicional = val;
     this.svc.updateVisitaVentaAdicional(val);
   }
 
+  /**
+   * Actualiza el rango de compra de la visita
+   * @param val Rango de compra
+   */
   onImpactoRangoChange(val: string) {
     this.impactoRangoCompra = val;
     this.svc.updateVisitaRangoCompra(val);
   }
 
+  /**
+   * Maneja la selección de archivo para la foto del exhibidor
+   * @param event Evento de selección de archivo
+   */
   onFileSelected(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (file) {
@@ -628,6 +806,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Elimina la foto del exhibidor
+   */
   removeFoto() {
     this.currentExhibicion.update((curr) => ({
       ...curr,
@@ -635,6 +816,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }));
   }
 
+  /**
+   * Finaliza el wizard y guarda la exhibición
+   * @param addAnother true para agregar otro exhibidor, false para cerrar el wizard
+   */
   finishWizard(addAnother: boolean) {
     const ex = this.currentExhibicion() as Omit<
       RegistroExhibicion,
@@ -673,34 +858,70 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Elimina un exhibidor de la lista
+   * @param id ID del exhibidor a eliminar
+   */
   onRemoveExhibicion(id: string) {
     this.svc.removeExhibicion(id);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  /**
+   * Obtiene el nombre del concepto por su ID
+   * @param id ID del concepto
+   * @returns Nombre del concepto o el ID si no se encuentra
+   */
   getConceptNombre(id: string): string {
     const c = this.svc.conceptos().find((x) => x.id === id);
     return c ? c.nombre : id;
   }
 
+  /**
+   * Obtiene el icono del concepto por su ID
+   * @param id ID del concepto
+   * @returns Icono del concepto o emoji por defecto
+   */
   getConceptIcon(id: string): string {
     const c = this.svc.conceptos().find((x) => x.id === id);
     return c?.icono || '📦';
   }
 
+  /**
+   * Obtiene el nombre de la ubicación por su ID
+   * @param id ID de la ubicación
+   * @returns Nombre de la ubicación o el ID si no se encuentra
+   */
   getUbicacionNombre(id: string): string {
     const u = this.svc.ubicaciones().find((x) => x.id === id);
     return u ? u.nombre : id;
   }
 
+  /**
+   * Función de trackBy para el folio de visita
+   * @param _ Índice (no usado)
+   * @param c Objeto de visita
+   * @returns Folio de la visita
+   */
   trackByFolio(_: number, c: VisitaSnapshot): string {
     return c.folio;
   }
+  /**
+   * Función de trackBy para ID
+   * @param _ Índice (no usado)
+   * @param c Objeto con ID o PID
+   * @returns ID o PID del objeto
+   */
   trackById(_: number, c: any): string {
     return c.id || c.pid;
   }
 
+  /**
+   * Formatea una fecha ISO a hora local
+   * @param isoString Fecha en formato ISO
+   * @returns Hora formateada o guion si es nulo
+   */
   formatDate(isoString: string): string {
     if (!isoString) return '—';
     try {

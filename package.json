@@ -20,7 +20,10 @@
     "affected:lint": "nx affected -t lint",
     "migrate:latest": "knex migrate:latest --knexfile database/knexfile.js",
     "migrate:rollback": "knex migrate:rollback --knexfile database/knexfile.js",
-    "seed:run": "knex seed:run --knexfile database/knexfile.js"
+    "seed:run": "knex seed:run --knexfile database/knexfile.js",
+    "doc:generate": "compodoc -p apps/view/tsconfig.json -d documentation --hideGenerator --disableGraph --disablePrivate --disableInternal --disableSourceCode",
+    "doc:serve": "npx http-server documentation -p 8080 -o",
+    "doc:build": "npm run doc:generate"
   },
   "dependencies": {
     "@angular/animations": "^18.2.0",
@@ -80,6 +83,7 @@
     "@angular-devkit/build-angular": "^18.2.12",
     "@angular/cli": "^18.2.12",
     "@angular/compiler-cli": "^18.2.0",
+    "@compodoc/compodoc": "^1.2.1",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.0",

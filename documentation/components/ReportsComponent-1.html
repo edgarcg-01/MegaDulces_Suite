@@ -1,0 +1,3190 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  ReportsComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#styleData" class="nav-link"
+                role="tab" id="styleData-tab" data-bs-toggle="tab" data-link="style">Styles</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/modules/dashboard/reports/graphics/reports.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">providers</td>
+                <td class="col-md-9">
+                            <code>MessageService</code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-reports</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">standalone</td>
+                <td class="col-md-9"><code>true</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">imports</td>
+                <td class="col-md-9">
+                                <code><a href="https://angular.io/api/common/CommonModule" target="_blank" >CommonModule</a></code>
+                                <code><a href="https://angular.io/api/forms/FormsModule" target="_blank" >FormsModule</a></code>
+                            <code>TableModule</code>
+                            <code>TagModule</code>
+                            <code>ButtonModule</code>
+                            <code>ChartModule</code>
+                            <code>ToastModule</code>
+                            <code>TabsModule</code>
+                            <code>IconFieldModule</code>
+                            <code>InputIconModule</code>
+                            <code>InputTextModule</code>
+                            <code>DialogModule</code>
+                            <code>ImageModule</code>
+                            <code>CheckboxModule</code>
+                                <code><a href="../components/GlobalFiltersComponent.html" target="_self" >GlobalFiltersComponent</a></code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">styles</td>
+                <td class="col-md-9"><code>
+      :host ::ng-deep .p-datatable-sm .p-datatable-tbody &gt; tr &gt; td {
+        padding: 0.5rem;
+      }
+      :host ::ng-deep .p-tablist-tablist {
+        border-bottom: 2px solid var(--surface-border);
+      }
+    </code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">template</td>
+                <td class="col-md-9"><pre class="line-numbers"><code class="language-html">  &lt;div class&#x3D;&quot;p-6 space-y-6&quot;&gt;
+    &lt;!-- ── Header ──────────────────────────────────────────────────── --&gt;
+    &lt;div
+      class&#x3D;&quot;flex flex-col md:flex-row md:items-center justify-between gap-4&quot;
+    &gt;
+      &lt;div&gt;
+        &lt;h1 class&#x3D;&quot;text-3xl font-bold tracking-tight text-content-main&quot;&gt;
+          Mercadeo Inteligente
+        &lt;/h1&gt;
+        &lt;p class&#x3D;&quot;text-content-muted text-sm&quot;&gt;
+          Reportes avanzados · {{ filtersState.rangeLabel() }}
+        &lt;/p&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;flex gap-2 flex-wrap&quot;&gt;
+        &lt;p-button
+          icon&#x3D;&quot;pi pi-refresh&quot;
+          severity&#x3D;&quot;secondary&quot;
+          [text]&#x3D;&quot;true&quot;
+          [rounded]&#x3D;&quot;true&quot;
+          (onClick)&#x3D;&quot;resetAll()&quot;
+          [disabled]&#x3D;&quot;loading()&quot;
+          pTooltip&#x3D;&quot;Resetear filtros&quot;
+        /&gt;
+        &lt;p-button
+          label&#x3D;&quot;CSV&quot;
+          icon&#x3D;&quot;pi pi-file-excel&quot;
+          severity&#x3D;&quot;secondary&quot;
+          (onClick)&#x3D;&quot;exportCsv()&quot;
+          [disabled]&#x3D;&quot;loading()&quot;
+        /&gt;
+        &lt;p-button
+          label&#x3D;&quot;PDF&quot;
+          icon&#x3D;&quot;pi pi-file-pdf&quot;
+          styleClass&#x3D;&quot;p-button-brand&quot;
+          (onClick)&#x3D;&quot;showPdfBuilder &#x3D; true&quot;
+          [disabled]&#x3D;&quot;loading()&quot;
+        /&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- ── Filtros globales ─────────────────────────────────────────── --&gt;
+    &lt;app-global-filters #globalFilters (filtersChanged)&#x3D;&quot;loadData()&quot; /&gt;
+
+    &lt;!-- ── Tabs ─────────────────────────────────────────────────────── --&gt;
+    &lt;div class&#x3D;&quot;modern-tabs-wrapper&quot;&gt;
+      &lt;p-tabs [value]&#x3D;&quot;0&quot;&gt;
+        &lt;p-tablist&gt;
+          &lt;p-tab [value]&#x3D;&quot;0&quot;&gt;Métricas&lt;/p-tab&gt;
+          &lt;p-tab [value]&#x3D;&quot;1&quot;&gt;Gráficas&lt;/p-tab&gt;
+          &lt;p-tab [value]&#x3D;&quot;2&quot;&gt;Registros&lt;/p-tab&gt;
+          &lt;p-tab [value]&#x3D;&quot;3&quot;&gt;Visitas individuales&lt;/p-tab&gt;
+        &lt;/p-tablist&gt;
+
+        &lt;p-tabpanels&gt;
+          &lt;!-- ──────────────────── TAB 0: MÉTRICAS ──────────────────── --&gt;
+          &lt;p-tabpanel [value]&#x3D;&quot;0&quot;&gt;
+            &lt;div class&#x3D;&quot;pt-4 space-y-6&quot; *ngIf&#x3D;&quot;reportsData() as data&quot;&gt;
+              &lt;!-- 5 KPI cards con semáforo --&gt;
+              &lt;div
+                class&#x3D;&quot;grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4&quot;
+              &gt;
+                &lt;div
+                  *ngFor&#x3D;&quot;let k of kpiCards()&quot;
+                  class&#x3D;&quot;card-premium flex flex-col gap-2 border-l-4&quot;
+                  [ngClass]&#x3D;&quot;{
+                    &#x27;border-l-green-500&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                    &#x27;border-l-amber-400&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                    &#x27;border-l-red-500&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                  }&quot;
+                &gt;
+                  &lt;div class&#x3D;&quot;flex items-center justify-between&quot;&gt;
+                    &lt;span
+                      class&#x3D;&quot;text-[10px] font-bold text-content-faint uppercase&quot;
+                      &gt;{{ k.label }}&lt;/span
+                    &gt;
+                    &lt;span
+                      class&#x3D;&quot;text-[9px] px-1.5 py-0.5 rounded-full font-bold&quot;
+                      [ngClass]&#x3D;&quot;{
+                        &#x27;bg-green-100 text-green-700&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                        &#x27;bg-amber-100 text-amber-700&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                        &#x27;bg-red-100 text-red-700&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                      }&quot;
+                      &gt;{{ statusLabel(k.status) }}&lt;/span
+                    &gt;
+                  &lt;/div&gt;
+                  &lt;div class&#x3D;&quot;text-2xl font-bold text-content-main&quot;&gt;
+                    {{ k.value }}
+                  &lt;/div&gt;
+                  &lt;div
+                    class&#x3D;&quot;text-[10px]&quot;
+                    [ngClass]&#x3D;&quot;{
+                      &#x27;text-green-600&#x27;: k.deltaDir &#x3D;&#x3D;&#x3D; &#x27;up&#x27;,
+                      &#x27;text-red-500&#x27;: k.deltaDir &#x3D;&#x3D;&#x3D; &#x27;down&#x27;,
+                      &#x27;text-content-faint&#x27;: k.deltaDir &#x3D;&#x3D;&#x3D; &#x27;flat&#x27;,
+                    }&quot;
+                  &gt;
+                    {{ k.delta }}
+                  &lt;/div&gt;
+                  &lt;div
+                    class&#x3D;&quot;h-1 rounded-full bg-surface-layout overflow-hidden&quot;
+                  &gt;
+                    &lt;div
+                      class&#x3D;&quot;h-full rounded-full&quot;
+                      [style.width.%]&#x3D;&quot;k.pct&quot;
+                      [ngClass]&#x3D;&quot;{
+                        &#x27;bg-green-500&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                        &#x27;bg-amber-400&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                        &#x27;bg-red-500&#x27;: k.status &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                      }&quot;
+                    &gt;&lt;/div&gt;
+                  &lt;/div&gt;
+                  &lt;div class&#x3D;&quot;text-[9px] text-content-faint&quot;&gt;
+                    Meta: {{ k.meta }}
+                  &lt;/div&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+
+              &lt;!-- Gráfica de tendencia principal --&gt;
+              &lt;div class&#x3D;&quot;card-premium&quot;&gt;
+                &lt;div class&#x3D;&quot;flex items-center justify-between mb-4&quot;&gt;
+                  &lt;h3 class&#x3D;&quot;text-sm font-bold text-content-main&quot;&gt;
+                    Tendencia del período
+                  &lt;/h3&gt;
+                  &lt;div class&#x3D;&quot;flex gap-3 text-[11px] text-content-muted&quot;&gt;
+                    &lt;span class&#x3D;&quot;flex items-center gap-1&quot;&gt;
+                      &lt;span class&#x3D;&quot;w-3 h-0.5 bg-blue-500 inline-block&quot;&gt;&lt;/span
+                      &gt;Visitas
+                    &lt;/span&gt;
+                    &lt;span class&#x3D;&quot;flex items-center gap-1&quot;&gt;
+                      &lt;span
+                        class&#x3D;&quot;w-3 h-0.5 bg-amber-400 inline-block&quot;
+                        style&#x3D;&quot;border-top:2px dashed #EF9F27&quot;
+                      &gt;&lt;/span
+                      &gt;Score
+                    &lt;/span&gt;
+                    &lt;span class&#x3D;&quot;flex items-center gap-1&quot;&gt;
+                      &lt;span
+                        class&#x3D;&quot;w-3 h-0.5 bg-red-400 inline-block&quot;
+                        style&#x3D;&quot;border-top:2px dashed #E24B4A&quot;
+                      &gt;&lt;/span
+                      &gt;Meta
+                    &lt;/span&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+                &lt;div class&#x3D;&quot;h-[300px]&quot; #chartContainer&gt;
+                  &lt;p-chart
+                    #mainChart
+                    type&#x3D;&quot;line&quot;
+                    [data]&#x3D;&quot;chartData&quot;
+                    [options]&#x3D;&quot;chartOptions&quot;
+                    height&#x3D;&quot;100%&quot;
+                    *ngIf&#x3D;&quot;chartData&quot;
+                  /&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/p-tabpanel&gt;
+
+          &lt;!-- ──────────────────── TAB 1: GRÁFICAS ─────────────────── --&gt;
+          &lt;p-tabpanel [value]&#x3D;&quot;1&quot;&gt;
+            &lt;div class&#x3D;&quot;pt-4 space-y-6&quot;&gt;
+              &lt;div class&#x3D;&quot;grid grid-cols-1 md:grid-cols-2 gap-4&quot;&gt;
+                &lt;!-- Score por zona --&gt;
+                &lt;div class&#x3D;&quot;card-premium&quot;&gt;
+                  &lt;div class&#x3D;&quot;flex items-center justify-between mb-4&quot;&gt;
+                    &lt;h3 class&#x3D;&quot;text-sm font-bold&quot;&gt;Score por zona&lt;/h3&gt;
+                    &lt;button
+                      (click)&#x3D;&quot;captureChartAndExport(&#x27;zona&#x27;)&quot;
+                      class&#x3D;&quot;text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout&quot;
+                    &gt;
+                      + PDF
+                    &lt;/button&gt;
+                  &lt;/div&gt;
+                  &lt;div class&#x3D;&quot;h-[220px]&quot;&gt;
+                    &lt;p-chart
+                      type&#x3D;&quot;bar&quot;
+                      [data]&#x3D;&quot;zoneChartData&quot;
+                      [options]&#x3D;&quot;zoneChartOptions&quot;
+                      height&#x3D;&quot;100%&quot;
+                      *ngIf&#x3D;&quot;zoneChartData&quot;
+                    /&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+
+                &lt;!-- Top vendedores --&gt;
+                &lt;div class&#x3D;&quot;card-premium&quot;&gt;
+                  &lt;div class&#x3D;&quot;flex items-center justify-between mb-4&quot;&gt;
+                    &lt;h3 class&#x3D;&quot;text-sm font-bold&quot;&gt;Top vendedores&lt;/h3&gt;
+                    &lt;button
+                      (click)&#x3D;&quot;captureChartAndExport(&#x27;seller&#x27;)&quot;
+                      class&#x3D;&quot;text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout&quot;
+                    &gt;
+                      + PDF
+                    &lt;/button&gt;
+                  &lt;/div&gt;
+                  &lt;div class&#x3D;&quot;h-[220px]&quot;&gt;
+                    &lt;p-chart
+                      type&#x3D;&quot;bar&quot;
+                      [data]&#x3D;&quot;sellerChartData&quot;
+                      [options]&#x3D;&quot;horizontalChartOptions&quot;
+                      height&#x3D;&quot;100%&quot;
+                      *ngIf&#x3D;&quot;sellerChartData&quot;
+                    /&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+
+                &lt;!-- Distribución de scores --&gt;
+                &lt;div class&#x3D;&quot;card-premium&quot;&gt;
+                  &lt;div class&#x3D;&quot;flex items-center justify-between mb-4&quot;&gt;
+                    &lt;h3 class&#x3D;&quot;text-sm font-bold&quot;&gt;Distribución de scores&lt;/h3&gt;
+                  &lt;/div&gt;
+                  &lt;div class&#x3D;&quot;h-[220px]&quot;&gt;
+                    &lt;p-chart
+                      type&#x3D;&quot;bar&quot;
+                      [data]&#x3D;&quot;scoreDistData&quot;
+                      [options]&#x3D;&quot;scoreDistOptions&quot;
+                      height&#x3D;&quot;100%&quot;
+                      *ngIf&#x3D;&quot;scoreDistData&quot;
+                    /&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+
+                &lt;!-- Visitas por día de la semana --&gt;
+                &lt;div class&#x3D;&quot;card-premium&quot;&gt;
+                  &lt;div class&#x3D;&quot;flex items-center justify-between mb-4&quot;&gt;
+                    &lt;h3 class&#x3D;&quot;text-sm font-bold&quot;&gt;Visitas por día&lt;/h3&gt;
+                  &lt;/div&gt;
+                  &lt;div class&#x3D;&quot;h-[220px]&quot;&gt;
+                    &lt;p-chart
+                      type&#x3D;&quot;line&quot;
+                      [data]&#x3D;&quot;chartData&quot;
+                      [options]&#x3D;&quot;chartOptions&quot;
+                      height&#x3D;&quot;100%&quot;
+                      *ngIf&#x3D;&quot;chartData&quot;
+                    /&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/p-tabpanel&gt;
+
+          &lt;!-- ──────────────────── TAB 2: REGISTROS ────────────────── --&gt;
+          &lt;p-tabpanel [value]&#x3D;&quot;2&quot;&gt;
+            &lt;div class&#x3D;&quot;pt-4 space-y-4&quot;&gt;
+              &lt;!-- Barra de acciones sobre selección --&gt;
+              &lt;div
+                *ngIf&#x3D;&quot;selectedDayCount() &gt; 0&quot;
+                class&#x3D;&quot;flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider&quot;
+              &gt;
+                &lt;span class&#x3D;&quot;text-xs text-content-muted flex-1&quot;&gt;
+                  {{ selectedDayCount() }} jornada(s) seleccionada(s)
+                &lt;/span&gt;
+                &lt;p-button
+                  label&#x3D;&quot;CSV selección&quot;
+                  icon&#x3D;&quot;pi pi-file-excel&quot;
+                  severity&#x3D;&quot;secondary&quot;
+                  size&#x3D;&quot;small&quot;
+                  (onClick)&#x3D;&quot;exportSelectedCsv()&quot;
+                /&gt;
+                &lt;p-button
+                  label&#x3D;&quot;PDF selección&quot;
+                  icon&#x3D;&quot;pi pi-file-pdf&quot;
+                  severity&#x3D;&quot;secondary&quot;
+                  size&#x3D;&quot;small&quot;
+                  (onClick)&#x3D;&quot;exportSelectedPdf()&quot;
+                /&gt;
+              &lt;/div&gt;
+
+              &lt;!-- Busqueda --&gt;
+              &lt;div class&#x3D;&quot;flex items-center justify-between&quot;&gt;
+                &lt;p class&#x3D;&quot;text-xs text-content-muted italic&quot;&gt;
+                  Desglose de visitas por fecha.
+                &lt;/p&gt;
+                &lt;p-iconfield&gt;
+                  &lt;p-inputicon class&#x3D;&quot;pi pi-search&quot; /&gt;
+                  &lt;input
+                    pInputText
+                    type&#x3D;&quot;text&quot;
+                    [(ngModel)]&#x3D;&quot;searchText&quot;
+                    placeholder&#x3D;&quot;Buscar día o folio...&quot;
+                    (input)&#x3D;&quot;dt.filterGlobal(searchText, &#x27;contains&#x27;)&quot;
+                  /&gt;
+                &lt;/p-iconfield&gt;
+              &lt;/div&gt;
+
+              &lt;p-table
+                #dt
+                [value]&#x3D;&quot;groupedRows()&quot;
+                [paginator]&#x3D;&quot;true&quot;
+                [rows]&#x3D;&quot;10&quot;
+                dataKey&#x3D;&quot;id&quot;
+                [expandedRowKeys]&#x3D;&quot;expandedRows&quot;
+                styleClass&#x3D;&quot;p-datatable-modern overflow-hidden rounded-2xl border border-divider&quot;
+              &gt;
+                &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+                  &lt;tr
+                    class&#x3D;&quot;text-[10px] uppercase text-content-faint bg-surface-ground border-b border-divider&quot;
+                  &gt;
+                    &lt;th style&#x3D;&quot;width:3rem&quot;&gt;
+                      &lt;input
+                        type&#x3D;&quot;checkbox&quot;
+                        (change)&#x3D;&quot;toggleSelectAll($event)&quot;
+                        style&#x3D;&quot;accent-color:#185FA5&quot;
+                      /&gt;
+                    &lt;/th&gt;
+                    &lt;th style&#x3D;&quot;width:3rem&quot;&gt;&lt;/th&gt;
+                    &lt;th class&#x3D;&quot;py-3 px-4&quot;&gt;Jornada / Fecha&lt;/th&gt;
+                    &lt;th class&#x3D;&quot;text-center&quot;&gt;Visitas&lt;/th&gt;
+                    &lt;th class&#x3D;&quot;text-center&quot;&gt;Avg Score&lt;/th&gt;
+                    &lt;th class&#x3D;&quot;text-center&quot;&gt;Score vs meta&lt;/th&gt;
+                    &lt;th class&#x3D;&quot;text-right pr-6&quot;&gt;Total venta&lt;/th&gt;
+                  &lt;/tr&gt;
+                &lt;/ng-template&gt;
+
+                &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-day let-expanded&#x3D;&quot;expanded&quot;&gt;
+                  &lt;tr
+                    class&#x3D;&quot;hover:bg-surface-hover cursor-pointer transition-colors&quot;
+                    (click)&#x3D;&quot;toggleExpand(day)&quot;
+                  &gt;
+                    &lt;!-- Checkbox de selección --&gt;
+                    &lt;td (click)&#x3D;&quot;$event.stopPropagation()&quot;&gt;
+                      &lt;input
+                        type&#x3D;&quot;checkbox&quot;
+                        [(ngModel)]&#x3D;&quot;day.selected&quot;
+                        style&#x3D;&quot;accent-color:#185FA5&quot;
+                      /&gt;
+                    &lt;/td&gt;
+
+                    &lt;td&gt;
+                      &lt;button
+                        type&#x3D;&quot;button&quot;
+                        pButton
+                        [pRowToggler]&#x3D;&quot;day&quot;
+                        class&#x3D;&quot;p-button-text p-button-rounded p-button-plain w-8 h-8&quot;
+                        [icon]&#x3D;&quot;
+                          expanded
+                            ? &#x27;pi pi-chevron-down&#x27;
+                            : &#x27;pi pi-chevron-right&#x27;
+                        &quot;
+                      &gt;&lt;/button&gt;
+                    &lt;/td&gt;
+
+                    &lt;td class&#x3D;&quot;py-4 px-4 font-bold text-content-main&quot;&gt;
+                      {{ day.fecha | date: &#x27;fullDate&#x27; : &#x27;UTC&#x27; }}
+                    &lt;/td&gt;
+
+                    &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                      &lt;span
+                        class&#x3D;&quot;px-2.5 py-0.5 rounded-full text-[10px] font-bold&quot;
+                        [ngClass]&#x3D;&quot;{
+                          &#x27;bg-green-100 text-green-800&#x27;:
+                            day.visitasStatus &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                          &#x27;bg-amber-100 text-amber-800&#x27;:
+                            day.visitasStatus &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                          &#x27;bg-red-100 text-red-800&#x27;:
+                            day.visitasStatus &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                        }&quot;
+                      &gt;
+                        {{ day.totalVisitas }}
+                      &lt;/span&gt;
+                    &lt;/td&gt;
+
+                    &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                      &lt;div class&#x3D;&quot;flex flex-col items-center gap-1&quot;&gt;
+                        &lt;span
+                          class&#x3D;&quot;font-black&quot;
+                          [ngClass]&#x3D;&quot;{
+                            &#x27;text-green-600&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                            &#x27;text-amber-500&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                            &#x27;text-red-500&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                          }&quot;
+                          &gt;{{ day.avgScore }}%&lt;/span
+                        &gt;
+                        &lt;div
+                          class&#x3D;&quot;w-16 h-1 bg-surface-ground rounded-full overflow-hidden&quot;
+                        &gt;
+                          &lt;div
+                            class&#x3D;&quot;h-full rounded-full&quot;
+                            [style.width]&#x3D;&quot;day.avgScore + &#x27;%&#x27;&quot;
+                            [ngClass]&#x3D;&quot;{
+                              &#x27;bg-green-500&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                              &#x27;bg-amber-400&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                              &#x27;bg-red-500&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                            }&quot;
+                          &gt;&lt;/div&gt;
+                        &lt;/div&gt;
+                      &lt;/div&gt;
+                    &lt;/td&gt;
+
+                    &lt;!-- Score vs meta --&gt;
+                    &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                      &lt;span
+                        class&#x3D;&quot;text-[10px] px-2 py-0.5 rounded-full font-bold&quot;
+                        [ngClass]&#x3D;&quot;{
+                          &#x27;bg-green-100 text-green-800&#x27;:
+                            day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                          &#x27;bg-amber-100 text-amber-800&#x27;:
+                            day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                          &#x27;bg-red-100 text-red-800&#x27;:
+                            day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                        }&quot;
+                      &gt;
+                        {{ statusLabel(day.scoreStatus) }}
+                      &lt;/span&gt;
+                    &lt;/td&gt;
+
+                    &lt;td
+                      class&#x3D;&quot;text-right pr-6 font-black&quot;
+                      [ngClass]&#x3D;&quot;{
+                        &#x27;text-green-600&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                        &#x27;text-amber-500&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                        &#x27;text-red-500&#x27;: day.scoreStatus &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                      }&quot;
+                    &gt;
+                      {{ day.totalVenta | number: &#x27;1.0-0&#x27; }}
+                    &lt;/td&gt;
+                  &lt;/tr&gt;
+                &lt;/ng-template&gt;
+
+                &lt;!-- Row expansion con visitas individuales --&gt;
+                &lt;ng-template pTemplate&#x3D;&quot;rowexpansion&quot; let-day&gt;
+                  &lt;tr&gt;
+                    &lt;td
+                      colspan&#x3D;&quot;7&quot;
+                      class&#x3D;&quot;bg-surface-ground p-4 border-b border-surface-border&quot;
+                    &gt;
+                      &lt;div
+                        class&#x3D;&quot;bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden&quot;
+                      &gt;
+                        &lt;p-table
+                          [value]&#x3D;&quot;day.visits&quot;
+                          styleClass&#x3D;&quot;p-datatable-sm p-datatable-striped&quot;
+                        &gt;
+                          &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+                            &lt;tr
+                              class&#x3D;&quot;text-[10px] uppercase text-content-muted bg-surface-ground&quot;
+                            &gt;
+                              &lt;th class&#x3D;&quot;pl-4 py-2 w-24&quot;&gt;Folio&lt;/th&gt;
+                              &lt;th&gt;Ejecutivo&lt;/th&gt;
+                              &lt;th class&#x3D;&quot;w-32&quot;&gt;Zona&lt;/th&gt;
+                              &lt;th class&#x3D;&quot;text-center w-24&quot;&gt;Score&lt;/th&gt;
+                              &lt;th class&#x3D;&quot;text-center w-24&quot;&gt;Estado&lt;/th&gt;
+                              &lt;th class&#x3D;&quot;text-center w-24&quot;&gt;Acción&lt;/th&gt;
+                            &lt;/tr&gt;
+                          &lt;/ng-template&gt;
+                          &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-visit&gt;
+                            &lt;tr
+                              class&#x3D;&quot;text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer&quot;
+                              (click)&#x3D;&quot;viewDetail(visit)&quot;
+                            &gt;
+                              &lt;td
+                                class&#x3D;&quot;pl-4 font-black text-content-main py-3&quot;
+                              &gt;
+                                #{{ visit.folio }}
+                              &lt;/td&gt;
+                              &lt;td class&#x3D;&quot;font-medium text-content-main&quot;&gt;
+                                {{ visit.captured_by_username }}
+                              &lt;/td&gt;
+                              &lt;td&gt;
+                                &lt;span
+                                  class&#x3D;&quot;bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted&quot;
+                                &gt;
+                                  {{ visit.zona_captura }}
+                                &lt;/span&gt;
+                              &lt;/td&gt;
+                              &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                                &lt;span
+                                  class&#x3D;&quot;font-black&quot;
+                                  [ngClass]&#x3D;&quot;{
+                                    &#x27;text-green-600&#x27;:
+                                      visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                                    &#x27;text-amber-500&#x27;:
+                                      visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                                    &#x27;text-red-500&#x27;:
+                                      visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                                  }&quot;
+                                  &gt;{{ visit.stats?.puntuacionTotal }}%&lt;/span
+                                &gt;
+                              &lt;/td&gt;
+                              &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                                &lt;span
+                                  class&#x3D;&quot;text-[9px] px-2 py-0.5 rounded-full font-bold&quot;
+                                  [ngClass]&#x3D;&quot;{
+                                    &#x27;bg-green-100 text-green-800&#x27;:
+                                      visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                                    &#x27;bg-amber-100 text-amber-800&#x27;:
+                                      visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                                    &#x27;bg-red-100 text-red-800&#x27;:
+                                      visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                                  }&quot;
+                                  &gt;{{
+                                    statusLabel(visitScoreStatus(visit))
+                                  }}&lt;/span
+                                &gt;
+                              &lt;/td&gt;
+                              &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                                &lt;p-button
+                                  icon&#x3D;&quot;pi pi-eye&quot;
+                                  [text]&#x3D;&quot;true&quot;
+                                  [rounded]&#x3D;&quot;true&quot;
+                                  severity&#x3D;&quot;info&quot;
+                                  size&#x3D;&quot;small&quot;
+                                  (click)&#x3D;&quot;
+                                    viewDetail(visit);
+                                    $event.stopPropagation()
+                                  &quot;
+                                /&gt;
+                              &lt;/td&gt;
+                            &lt;/tr&gt;
+                          &lt;/ng-template&gt;
+                        &lt;/p-table&gt;
+                      &lt;/div&gt;
+                    &lt;/td&gt;
+                  &lt;/tr&gt;
+                &lt;/ng-template&gt;
+              &lt;/p-table&gt;
+            &lt;/div&gt;
+          &lt;/p-tabpanel&gt;
+
+          &lt;!-- ──────────────────── TAB 3: VISITAS INDIVIDUALES ──────── --&gt;
+          &lt;p-tabpanel [value]&#x3D;&quot;3&quot;&gt;
+            &lt;div class&#x3D;&quot;pt-4 space-y-4&quot;&gt;
+              &lt;!-- Barra de acciones --&gt;
+              &lt;div
+                *ngIf&#x3D;&quot;selectedVisitsCount() &gt; 0&quot;
+                class&#x3D;&quot;flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider&quot;
+              &gt;
+                &lt;span class&#x3D;&quot;text-xs text-content-muted flex-1&quot;&gt;
+                  {{ selectedVisitsCount() }} visita(s) seleccionada(s)
+                &lt;/span&gt;
+                &lt;p-button
+                  label&#x3D;&quot;Comparar&quot;
+                  icon&#x3D;&quot;pi pi-sliders-h&quot;
+                  severity&#x3D;&quot;secondary&quot;
+                  size&#x3D;&quot;small&quot;
+                  (onClick)&#x3D;&quot;showComparison &#x3D; true&quot;
+                /&gt;
+                &lt;p-button
+                  label&#x3D;&quot;PDF conjunto&quot;
+                  icon&#x3D;&quot;pi pi-file-pdf&quot;
+                  styleClass&#x3D;&quot;p-button-brand&quot;
+                  size&#x3D;&quot;small&quot;
+                  (onClick)&#x3D;&quot;exportSelectedVisitsPdf()&quot;
+                /&gt;
+              &lt;/div&gt;
+
+              &lt;!-- Grid de tarjetas de visita --&gt;
+              &lt;div
+                class&#x3D;&quot;grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4&quot;
+              &gt;
+                &lt;div
+                  *ngFor&#x3D;&quot;let visit of allVisits()&quot;
+                  class&#x3D;&quot;card-premium cursor-pointer hover:border-content-muted/30 transition-all&quot;
+                  [class.ring-2]&#x3D;&quot;visit._selected&quot;
+                  [class.ring-blue-400]&#x3D;&quot;visit._selected&quot;
+                &gt;
+                  &lt;div class&#x3D;&quot;flex items-start gap-3 mb-4&quot;&gt;
+                    &lt;input
+                      type&#x3D;&quot;checkbox&quot;
+                      [(ngModel)]&#x3D;&quot;visit._selected&quot;
+                      (click)&#x3D;&quot;$event.stopPropagation()&quot;
+                      style&#x3D;&quot;accent-color:#185FA5;margin-top:3px&quot;
+                    /&gt;
+                    &lt;div class&#x3D;&quot;flex-1 min-w-0&quot;&gt;
+                      &lt;div class&#x3D;&quot;text-[10px] text-content-faint mb-0.5&quot;&gt;
+                        #{{ visit.folio }} ·
+                        {{ visit.fecha | date: &#x27;dd MMM&#x27; : &#x27;UTC&#x27; }}
+                      &lt;/div&gt;
+                      &lt;div
+                        class&#x3D;&quot;font-bold text-sm text-content-main truncate&quot;
+                      &gt;
+                        {{ visit.captured_by_username }}
+                      &lt;/div&gt;
+                      &lt;div class&#x3D;&quot;flex gap-1.5 mt-1 flex-wrap&quot;&gt;
+                        &lt;span
+                          class&#x3D;&quot;text-[9px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold&quot;
+                        &gt;
+                          {{ visit.zona_captura }}
+                        &lt;/span&gt;
+                        &lt;span
+                          *ngIf&#x3D;&quot;visit.latitud&quot;
+                          class&#x3D;&quot;text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold&quot;
+                        &gt;
+                          GPS
+                        &lt;/span&gt;
+                      &lt;/div&gt;
+                    &lt;/div&gt;
+                    &lt;!-- Score ring con semáforo --&gt;
+                    &lt;div
+                      class&#x3D;&quot;w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2&quot;
+                      [ngClass]&#x3D;&quot;{
+                        &#x27;border-green-400 text-green-700&#x27;:
+                          visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                        &#x27;border-amber-400 text-amber-700&#x27;:
+                          visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                        &#x27;border-red-400 text-red-700&#x27;:
+                          visitScoreStatus(visit) &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                      }&quot;
+                    &gt;
+                      {{ visit.stats?.puntuacionTotal }}%
+                    &lt;/div&gt;
+                  &lt;/div&gt;
+
+                  &lt;div class&#x3D;&quot;flex gap-2&quot;&gt;
+                    &lt;p-button
+                      label&#x3D;&quot;Ver detalle&quot;
+                      icon&#x3D;&quot;pi pi-eye&quot;
+                      severity&#x3D;&quot;secondary&quot;
+                      size&#x3D;&quot;small&quot;
+                      styleClass&#x3D;&quot;flex-1 justify-center&quot;
+                      (onClick)&#x3D;&quot;viewDetail(visit)&quot;
+                    /&gt;
+                    &lt;p-button
+                      icon&#x3D;&quot;pi pi-file-pdf&quot;
+                      [text]&#x3D;&quot;true&quot;
+                      size&#x3D;&quot;small&quot;
+                      (onClick)&#x3D;&quot;
+                        exportSingleVisitPdf(visit); $event.stopPropagation()
+                      &quot;
+                    /&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+
+              &lt;!-- Tabla comparativa cuando hay 2+ seleccionadas --&gt;
+              &lt;div
+                *ngIf&#x3D;&quot;selectedVisitsCount() &gt;&#x3D; 2&quot;
+                class&#x3D;&quot;card-premium mt-4&quot;
+              &gt;
+                &lt;h3 class&#x3D;&quot;text-sm font-bold mb-4 text-content-main&quot;&gt;
+                  Vista comparativa
+                &lt;/h3&gt;
+                &lt;div class&#x3D;&quot;overflow-x-auto&quot;&gt;
+                  &lt;table class&#x3D;&quot;w-full border-collapse text-sm&quot;&gt;
+                    &lt;thead&gt;
+                      &lt;tr
+                        class&#x3D;&quot;text-[10px] uppercase text-content-muted border-b border-divider&quot;
+                      &gt;
+                        &lt;th class&#x3D;&quot;py-2 text-left&quot;&gt;Métrica&lt;/th&gt;
+                        &lt;th
+                          *ngFor&#x3D;&quot;let v of selectedVisits()&quot;
+                          class&#x3D;&quot;py-2 text-center&quot;
+                        &gt;
+                          &lt;span class&#x3D;&quot;font-bold text-content-main&quot;
+                            &gt;#{{ v.folio }}&lt;/span
+                          &gt;&lt;br /&gt;
+                          &lt;span class&#x3D;&quot;text-[9px] font-normal&quot;&gt;{{
+                            v.captured_by_username
+                          }}&lt;/span&gt;
+                        &lt;/th&gt;
+                      &lt;/tr&gt;
+                    &lt;/thead&gt;
+                    &lt;tbody&gt;
+                      &lt;tr class&#x3D;&quot;border-b border-divider/50&quot;&gt;
+                        &lt;td class&#x3D;&quot;py-2 text-content-muted&quot;&gt;Score final&lt;/td&gt;
+                        &lt;td
+                          *ngFor&#x3D;&quot;let v of selectedVisits()&quot;
+                          class&#x3D;&quot;py-2 text-center font-bold&quot;
+                          [ngClass]&#x3D;&quot;{
+                            &#x27;text-green-600&#x27;: visitScoreStatus(v) &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                            &#x27;text-amber-500&#x27;: visitScoreStatus(v) &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                            &#x27;text-red-500&#x27;: visitScoreStatus(v) &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                          }&quot;
+                        &gt;
+                          {{ v.stats?.puntuacionTotal }}%
+                        &lt;/td&gt;
+                      &lt;/tr&gt;
+                      &lt;tr class&#x3D;&quot;border-b border-divider/50&quot;&gt;
+                        &lt;td class&#x3D;&quot;py-2 text-content-muted&quot;&gt;Exhibiciones&lt;/td&gt;
+                        &lt;td
+                          *ngFor&#x3D;&quot;let v of selectedVisits()&quot;
+                          class&#x3D;&quot;py-2 text-center&quot;
+                        &gt;
+                          {{ v.exhibiciones?.length ?? 0 }}
+                        &lt;/td&gt;
+                      &lt;/tr&gt;
+                      &lt;tr class&#x3D;&quot;border-b border-divider/50&quot;&gt;
+                        &lt;td class&#x3D;&quot;py-2 text-content-muted&quot;&gt;Zona&lt;/td&gt;
+                        &lt;td
+                          *ngFor&#x3D;&quot;let v of selectedVisits()&quot;
+                          class&#x3D;&quot;py-2 text-center text-content-muted text-xs uppercase&quot;
+                        &gt;
+                          {{ v.zona_captura }}
+                        &lt;/td&gt;
+                      &lt;/tr&gt;
+                      &lt;tr class&#x3D;&quot;border-b border-divider/50&quot;&gt;
+                        &lt;td class&#x3D;&quot;py-2 text-content-muted&quot;&gt;GPS&lt;/td&gt;
+                        &lt;td
+                          *ngFor&#x3D;&quot;let v of selectedVisits()&quot;
+                          class&#x3D;&quot;py-2 text-center&quot;
+                        &gt;
+                          &lt;span
+                            [ngClass]&#x3D;&quot;
+                              v.latitud ? &#x27;text-green-600&#x27; : &#x27;text-red-500&#x27;
+                            &quot;
+                            class&#x3D;&quot;font-bold text-xs&quot;
+                          &gt;
+                            {{ v.latitud ? &#x27;Sí&#x27; : &#x27;No&#x27; }}
+                          &lt;/span&gt;
+                        &lt;/td&gt;
+                      &lt;/tr&gt;
+                      &lt;tr&gt;
+                        &lt;td class&#x3D;&quot;py-2 text-content-muted&quot;&gt;Venta total&lt;/td&gt;
+                        &lt;td
+                          *ngFor&#x3D;&quot;let v of selectedVisits()&quot;
+                          class&#x3D;&quot;py-2 text-center font-bold&quot;
+                        &gt;
+                          {{ v.stats?.ventaTotal ?? 0 | number: &#x27;1.0-0&#x27; }}
+                        &lt;/td&gt;
+                      &lt;/tr&gt;
+                    &lt;/tbody&gt;
+                  &lt;/table&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/p-tabpanel&gt;
+        &lt;/p-tabpanels&gt;
+      &lt;/p-tabs&gt;
+    &lt;/div&gt;
+
+    &lt;!-- ═══════════════════════════════════════════════════════════════
+     DIALOG: CONSTRUCTOR DE PDF
+═══════════════════════════════════════════════════════════════════ --&gt;
+    &lt;p-dialog
+      header&#x3D;&quot;Construir reporte PDF&quot;
+      [(visible)]&#x3D;&quot;showPdfBuilder&quot;
+      [modal]&#x3D;&quot;true&quot;
+      appendTo&#x3D;&quot;body&quot;
+      [style]&#x3D;&quot;{ width: &#x27;90vw&#x27;, maxWidth: &#x27;500px&#x27; }&quot;
+      styleClass&#x3D;&quot;surface-card rounded-2xl&quot;
+      [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card&#x27;&quot;
+    &gt;
+      &lt;div class&#x3D;&quot;space-y-4 pt-2&quot;&gt;
+        &lt;p class&#x3D;&quot;text-sm text-content-muted&quot;&gt;
+          Selecciona las secciones a incluir. El PDF se genera con los filtros
+          activos.
+        &lt;/p&gt;
+
+        &lt;div class&#x3D;&quot;space-y-2&quot;&gt;
+          &lt;div
+            *ngFor&#x3D;&quot;let s of pdfSections&quot;
+            class&#x3D;&quot;flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout&quot;
+          &gt;
+            &lt;span class&#x3D;&quot;text-sm font-medium&quot;&gt;{{ s.label }}&lt;/span&gt;
+            &lt;input
+              type&#x3D;&quot;checkbox&quot;
+              [(ngModel)]&#x3D;&quot;s.checked&quot;
+              style&#x3D;&quot;accent-color:#185FA5;width:16px;height:16px&quot;
+            /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;div class&#x3D;&quot;flex flex-col gap-1 mt-2&quot;&gt;
+          &lt;label class&#x3D;&quot;text-[10px] font-bold text-content-faint uppercase&quot;
+            &gt;Título del reporte&lt;/label
+          &gt;
+          &lt;input
+            type&#x3D;&quot;text&quot;
+            [(ngModel)]&#x3D;&quot;pdfTitle&quot;
+            class&#x3D;&quot;border border-divider rounded-lg p-2 text-sm bg-surface-card text-content-main&quot;
+          /&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      &lt;ng-template pTemplate&#x3D;&quot;footer&quot;&gt;
+        &lt;div class&#x3D;&quot;flex justify-end gap-3&quot;&gt;
+          &lt;p-button
+            label&#x3D;&quot;Cancelar&quot;
+            severity&#x3D;&quot;secondary&quot;
+            (click)&#x3D;&quot;showPdfBuilder &#x3D; false&quot;
+          /&gt;
+          &lt;p-button
+            label&#x3D;&quot;Generar PDF&quot;
+            icon&#x3D;&quot;pi pi-file-pdf&quot;
+            styleClass&#x3D;&quot;p-button-brand&quot;
+            (click)&#x3D;&quot;exportBuiltPdf()&quot;
+          /&gt;
+        &lt;/div&gt;
+      &lt;/ng-template&gt;
+    &lt;/p-dialog&gt;
+
+    &lt;!-- ═══════════════════════════════════════════════════════════════
+     DIALOG: DETALLE DE VISITA
+═══════════════════════════════════════════════════════════════════ --&gt;
+    &lt;p-dialog
+      header&#x3D;&quot;Detalle visita&quot;
+      [(visible)]&#x3D;&quot;showDetail&quot;
+      [modal]&#x3D;&quot;true&quot;
+      appendTo&#x3D;&quot;body&quot;
+      [style]&#x3D;&quot;{ width: &#x27;90vw&#x27;, maxWidth: &#x27;600px&#x27; }&quot;
+      styleClass&#x3D;&quot;surface-card rounded-2xl&quot;
+      [contentStyleClass]&#x3D;&quot;&#x27;bg-surface-card text-content-main&#x27;&quot;
+    &gt;
+      &lt;div *ngIf&#x3D;&quot;selectedRow&quot; class&#x3D;&quot;space-y-4 pt-2&quot;&gt;
+        &lt;!-- Cabecera folio + export --&gt;
+        &lt;div
+          class&#x3D;&quot;flex flex-col sm:flex-row justify-between items-start sm:items-center
+                bg-surface-ground p-4 rounded-2xl border border-surface-border gap-3&quot;
+        &gt;
+          &lt;div&gt;
+            &lt;div
+              class&#x3D;&quot;text-[10px] font-black text-content-faint uppercase tracking-widest&quot;
+            &gt;
+              Visita Folio
+            &lt;/div&gt;
+            &lt;div class&#x3D;&quot;text-xl font-black text-content-main&quot;&gt;
+              #{{ selectedRow.folio }}
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;!-- Score con semáforo --&gt;
+          &lt;div class&#x3D;&quot;flex items-center gap-3&quot;&gt;
+            &lt;div
+              class&#x3D;&quot;text-center px-4 py-2 rounded-xl border-2&quot;
+              [ngClass]&#x3D;&quot;{
+                &#x27;border-green-400 bg-green-50&#x27;:
+                  visitScoreStatus(selectedRow) &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                &#x27;border-amber-400 bg-amber-50&#x27;:
+                  visitScoreStatus(selectedRow) &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                &#x27;border-red-400 bg-red-50&#x27;:
+                  visitScoreStatus(selectedRow) &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+              }&quot;
+            &gt;
+              &lt;div class&#x3D;&quot;text-[9px] uppercase font-black opacity-60&quot;&gt;
+                Score
+              &lt;/div&gt;
+              &lt;div
+                class&#x3D;&quot;text-2xl font-black&quot;
+                [ngClass]&#x3D;&quot;{
+                  &#x27;text-green-700&#x27;: visitScoreStatus(selectedRow) &#x3D;&#x3D;&#x3D; &#x27;ok&#x27;,
+                  &#x27;text-amber-700&#x27;: visitScoreStatus(selectedRow) &#x3D;&#x3D;&#x3D; &#x27;warn&#x27;,
+                  &#x27;text-red-700&#x27;: visitScoreStatus(selectedRow) &#x3D;&#x3D;&#x3D; &#x27;bad&#x27;,
+                }&quot;
+              &gt;
+                {{ selectedRow.stats?.puntuacionTotal }}%
+              &lt;/div&gt;
+              &lt;div class&#x3D;&quot;text-[9px] font-bold uppercase opacity-60&quot;&gt;
+                {{ statusLabel(visitScoreStatus(selectedRow)) }}
+              &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;p-button
+              label&#x3D;&quot;Exportar PDF&quot;
+              icon&#x3D;&quot;pi pi-file-pdf&quot;
+              severity&#x3D;&quot;success&quot;
+              size&#x3D;&quot;small&quot;
+              (onClick)&#x3D;&quot;exportSingleVisitPdf(selectedRow)&quot;
+            /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;!-- Datos --&gt;
+        &lt;div class&#x3D;&quot;grid grid-cols-2 gap-4 text-sm&quot;&gt;
+          &lt;div class&#x3D;&quot;space-y-2&quot;&gt;
+            &lt;p&gt;
+              &lt;span class&#x3D;&quot;text-content-muted&quot;&gt;Ejecutivo: &lt;/span
+              &gt;&lt;span class&#x3D;&quot;font-bold&quot;&gt;{{
+                selectedRow.captured_by_username
+              }}&lt;/span&gt;
+            &lt;/p&gt;
+            &lt;p&gt;
+              &lt;span class&#x3D;&quot;text-content-muted&quot;&gt;Zona: &lt;/span
+              &gt;&lt;span class&#x3D;&quot;font-bold&quot;&gt;{{ selectedRow.zona_captura }}&lt;/span&gt;
+            &lt;/p&gt;
+            &lt;p&gt;
+              &lt;span class&#x3D;&quot;text-content-muted&quot;&gt;Fecha: &lt;/span
+              &gt;&lt;span class&#x3D;&quot;font-bold&quot;&gt;{{
+                selectedRow.fecha | date: &#x27;mediumDate&#x27;
+              }}&lt;/span&gt;
+            &lt;/p&gt;
+            &lt;p&gt;
+              &lt;span class&#x3D;&quot;text-content-muted&quot;&gt;Hora inicio: &lt;/span
+              &gt;&lt;span class&#x3D;&quot;font-bold&quot;&gt;{{
+                selectedRow.hora_inicio | date: &#x27;shortTime&#x27;
+              }}&lt;/span&gt;
+            &lt;/p&gt;
+            &lt;p&gt;
+              &lt;span class&#x3D;&quot;text-content-muted&quot;&gt;Hora fin: &lt;/span
+              &gt;&lt;span class&#x3D;&quot;font-bold&quot;&gt;{{
+                selectedRow.hora_fin | date: &#x27;shortTime&#x27;
+              }}&lt;/span&gt;
+            &lt;/p&gt;
+            &lt;p&gt;
+              &lt;span class&#x3D;&quot;text-content-muted&quot;&gt;Exhibiciones: &lt;/span
+              &gt;&lt;span class&#x3D;&quot;font-bold&quot;&gt;{{
+                selectedRow.exhibiciones?.length ?? 0
+              }}&lt;/span&gt;
+            &lt;/p&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;!-- GPS --&gt;
+        &lt;div
+          class&#x3D;&quot;flex items-center justify-between p-4 border border-surface-border bg-surface-ground rounded-2xl&quot;
+        &gt;
+          &lt;div class&#x3D;&quot;flex items-center gap-3&quot;&gt;
+            &lt;div
+              class&#x3D;&quot;w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center&quot;
+            &gt;
+              &lt;i class&#x3D;&quot;pi pi-map-marker text-content-main&quot;&gt;&lt;/i&gt;
+            &lt;/div&gt;
+            &lt;div&gt;
+              &lt;div class&#x3D;&quot;text-[10px] font-bold uppercase&quot;&gt;
+                Ubicación geo-referenciada
+              &lt;/div&gt;
+              &lt;div
+                class&#x3D;&quot;text-xs font-mono text-content-dim&quot;
+                *ngIf&#x3D;&quot;selectedRow.latitud&quot;
+              &gt;
+                {{ selectedRow.latitud | number: &#x27;1.6-6&#x27; }},
+                {{ selectedRow.longitud | number: &#x27;1.6-6&#x27; }}
+              &lt;/div&gt;
+              &lt;div
+                class&#x3D;&quot;text-xs text-content-faint font-bold&quot;
+                *ngIf&#x3D;&quot;!selectedRow.latitud&quot;
+              &gt;
+                No se capturó GPS
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;p-button
+            *ngIf&#x3D;&quot;selectedRow.latitud&quot;
+            label&#x3D;&quot;Ver mapa&quot;
+            icon&#x3D;&quot;pi pi-external-link&quot;
+            [text]&#x3D;&quot;true&quot;
+            size&#x3D;&quot;small&quot;
+            (onClick)&#x3D;&quot;openMap(selectedRow.latitud, selectedRow.longitud)&quot;
+          /&gt;
+        &lt;/div&gt;
+
+        &lt;!-- Exhibiciones --&gt;
+        &lt;div class&#x3D;&quot;border border-surface-border rounded-2xl overflow-hidden&quot;&gt;
+          &lt;p-table
+            [value]&#x3D;&quot;selectedRow.exhibiciones || []&quot;
+            styleClass&#x3D;&quot;p-datatable-sm&quot;
+          &gt;
+            &lt;ng-template pTemplate&#x3D;&quot;header&quot;&gt;
+              &lt;tr
+                class&#x3D;&quot;text-[10px] bg-surface-ground uppercase text-content-muted&quot;
+              &gt;
+                &lt;th&gt;Concepto&lt;/th&gt;
+                &lt;th&gt;Ubicación&lt;/th&gt;
+                &lt;th class&#x3D;&quot;text-center&quot;&gt;Imagen&lt;/th&gt;
+                &lt;th class&#x3D;&quot;text-right pr-3&quot;&gt;Puntuación&lt;/th&gt;
+              &lt;/tr&gt;
+            &lt;/ng-template&gt;
+            &lt;ng-template pTemplate&#x3D;&quot;body&quot; let-ex&gt;
+              &lt;tr class&#x3D;&quot;text-xs&quot;&gt;
+                &lt;td&gt;{{ ex.conceptoId || &#x27;N/A&#x27; }}&lt;/td&gt;
+                &lt;td&gt;{{ ex.ubicacionId || &#x27;N/A&#x27; }}&lt;/td&gt;
+                &lt;td class&#x3D;&quot;text-center&quot;&gt;
+                  &lt;p-image
+                    *ngIf&#x3D;&quot;ex.fotoUrl&quot;
+                    [src]&#x3D;&quot;getImageUrl(ex.fotoUrl)&quot;
+                    alt&#x3D;&quot;Exhibición&quot;
+                    width&#x3D;&quot;50&quot;
+                    [preview]&#x3D;&quot;true&quot;
+                    class&#x3D;&quot;rounded shadow-sm cursor-zoom-in&quot;
+                  /&gt;
+                  &lt;span
+                    *ngIf&#x3D;&quot;!ex.fotoUrl&quot;
+                    class&#x3D;&quot;text-[9px] text-content-faint&quot;
+                    &gt;Sin foto&lt;/span
+                  &gt;
+                &lt;/td&gt;
+                &lt;td class&#x3D;&quot;text-right pr-3 font-bold&quot;&gt;
+                  {{ ex.puntuacionCalculada || 0 }}
+                &lt;/td&gt;
+              &lt;/tr&gt;
+            &lt;/ng-template&gt;
+          &lt;/p-table&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/p-dialog&gt;
+
+    &lt;p-toast /&gt;
+  &lt;/div&gt;
+</code></pre></td>
+            </tr>
+
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#allVisits" >allVisits</a>
+                            </li>
+                            <li>
+                                <a href="#chartData" >chartData</a>
+                            </li>
+                            <li>
+                                <a href="#chartOptions" >chartOptions</a>
+                            </li>
+                            <li>
+                                <a href="#expandedRows" >expandedRows</a>
+                            </li>
+                            <li>
+                                    <span class="modifier">Readonly</span>
+                                <a href="#filtersState" >filtersState</a>
+                            </li>
+                            <li>
+                                <a href="#groupedRows" >groupedRows</a>
+                            </li>
+                            <li>
+                                <a href="#horizontalChartOptions" >horizontalChartOptions</a>
+                            </li>
+                            <li>
+                                <a href="#kpiCards" >kpiCards</a>
+                            </li>
+                            <li>
+                                <a href="#loading" >loading</a>
+                            </li>
+                            <li>
+                                    <span class="modifier">Readonly</span>
+                                <a href="#metasConfig" >metasConfig</a>
+                            </li>
+                            <li>
+                                <a href="#pdfSections" >pdfSections</a>
+                            </li>
+                            <li>
+                                <a href="#pdfTitle" >pdfTitle</a>
+                            </li>
+                            <li>
+                                <a href="#reportsData" >reportsData</a>
+                            </li>
+                            <li>
+                                <a href="#scoreDistData" >scoreDistData</a>
+                            </li>
+                            <li>
+                                <a href="#scoreDistOptions" >scoreDistOptions</a>
+                            </li>
+                            <li>
+                                <a href="#searchText" >searchText</a>
+                            </li>
+                            <li>
+                                <a href="#selectedDayCount" >selectedDayCount</a>
+                            </li>
+                            <li>
+                                <a href="#selectedRow" >selectedRow</a>
+                            </li>
+                            <li>
+                                <a href="#selectedVisits" >selectedVisits</a>
+                            </li>
+                            <li>
+                                <a href="#selectedVisitsCount" >selectedVisitsCount</a>
+                            </li>
+                            <li>
+                                <a href="#sellerChartData" >sellerChartData</a>
+                            </li>
+                            <li>
+                                <a href="#showComparison" >showComparison</a>
+                            </li>
+                            <li>
+                                <a href="#showDetail" >showDetail</a>
+                            </li>
+                            <li>
+                                <a href="#showPdfBuilder" >showPdfBuilder</a>
+                            </li>
+                            <li>
+                                <a href="#zoneChartData" >zoneChartData</a>
+                            </li>
+                            <li>
+                                <a href="#zoneChartOptions" >zoneChartOptions</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#buildCharts" >buildCharts</a>
+                            </li>
+                            <li>
+                                <a href="#captureChartAndExport" >captureChartAndExport</a>
+                            </li>
+                            <li>
+                                <a href="#exportBuiltPdf" >exportBuiltPdf</a>
+                            </li>
+                            <li>
+                                <a href="#exportCsv" >exportCsv</a>
+                            </li>
+                            <li>
+                                <a href="#exportSelectedCsv" >exportSelectedCsv</a>
+                            </li>
+                            <li>
+                                <a href="#exportSelectedPdf" >exportSelectedPdf</a>
+                            </li>
+                            <li>
+                                <a href="#exportSelectedVisitsPdf" >exportSelectedVisitsPdf</a>
+                            </li>
+                            <li>
+                                <a href="#exportSingleVisitPdf" >exportSingleVisitPdf</a>
+                            </li>
+                            <li>
+                                <a href="#getImageUrl" >getImageUrl</a>
+                            </li>
+                            <li>
+                                <a href="#initChartOptions" >initChartOptions</a>
+                            </li>
+                            <li>
+                                <a href="#loadData" >loadData</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#openMap" >openMap</a>
+                            </li>
+                            <li>
+                                <a href="#resetAll" >resetAll</a>
+                            </li>
+                            <li>
+                                <a href="#statusLabel" >statusLabel</a>
+                            </li>
+                            <li>
+                                <a href="#toggleExpand" >toggleExpand</a>
+                            </li>
+                            <li>
+                                <a href="#toggleSelectAll" >toggleSelectAll</a>
+                            </li>
+                            <li>
+                                <a href="#viewDetail" >viewDetail</a>
+                            </li>
+                            <li>
+                                <a href="#visitScoreStatus" >visitScoreStatus</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="buildCharts"></a>
+                    <span class="name">
+                        <span ><b>buildCharts</b></span>
+                        <a href="#buildCharts"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>buildCharts(data: <a href="../interfaces/ReportsData.html" target="_self">ReportsData</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>data</td>
+                                            <td>
+                                                            <code><a href="../interfaces/ReportsData.html" target="_self" >ReportsData</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="captureChartAndExport"></a>
+                    <span class="name">
+                        <span ><b>captureChartAndExport</b></span>
+                        <a href="#captureChartAndExport"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>captureChartAndExport(_type: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>_type</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="exportBuiltPdf"></a>
+                    <span class="name">
+                        <span ><b>exportBuiltPdf</b></span>
+                        <a href="#exportBuiltPdf"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>exportBuiltPdf()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="exportCsv"></a>
+                    <span class="name">
+                        <span ><b>exportCsv</b></span>
+                        <a href="#exportCsv"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>exportCsv()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="exportSelectedCsv"></a>
+                    <span class="name">
+                        <span ><b>exportSelectedCsv</b></span>
+                        <a href="#exportSelectedCsv"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>exportSelectedCsv()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="exportSelectedPdf"></a>
+                    <span class="name">
+                        <span ><b>exportSelectedPdf</b></span>
+                        <a href="#exportSelectedPdf"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>exportSelectedPdf()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="exportSelectedVisitsPdf"></a>
+                    <span class="name">
+                        <span ><b>exportSelectedVisitsPdf</b></span>
+                        <a href="#exportSelectedVisitsPdf"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>exportSelectedVisitsPdf()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="exportSingleVisitPdf"></a>
+                    <span class="name">
+                        <span ><b>exportSingleVisitPdf</b></span>
+                        <a href="#exportSingleVisitPdf"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>exportSingleVisitPdf(row: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>row</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getImageUrl"></a>
+                    <span class="name">
+                        <span ><b>getImageUrl</b></span>
+                        <a href="#getImageUrl"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getImageUrl(url: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>url</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="initChartOptions"></a>
+                    <span class="name">
+                        <span ><b>initChartOptions</b></span>
+                        <a href="#initChartOptions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>initChartOptions()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadData"></a>
+                    <span class="name">
+                        <span ><b>loadData</b></span>
+                        <a href="#loadData"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadData()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="openMap"></a>
+                    <span class="name">
+                        <span ><b>openMap</b></span>
+                        <a href="#openMap"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>openMap(lat: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank">number</a>, lng: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank">number</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>lat</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                        <tr>
+                                                <td>lng</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="resetAll"></a>
+                    <span class="name">
+                        <span ><b>resetAll</b></span>
+                        <a href="#resetAll"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>resetAll()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="statusLabel"></a>
+                    <span class="name">
+                        <span ><b>statusLabel</b></span>
+                        <a href="#statusLabel"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>statusLabel(s: <a href="../miscellaneous/typealiases.html#KpiStatus" target="_self">KpiStatus</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>s</td>
+                                            <td>
+                                                            <code><a href="../miscellaneous/typealiases.html#KpiStatus" target="_self" >KpiStatus</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="toggleExpand"></a>
+                    <span class="name">
+                        <span ><b>toggleExpand</b></span>
+                        <a href="#toggleExpand"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>toggleExpand(day: <a href="../interfaces/DayGroup.html" target="_self">DayGroup</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>day</td>
+                                            <td>
+                                                            <code><a href="../interfaces/DayGroup.html" target="_self" >DayGroup</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="toggleSelectAll"></a>
+                    <span class="name">
+                        <span ><b>toggleSelectAll</b></span>
+                        <a href="#toggleSelectAll"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>toggleSelectAll(event: <a href="https://angular.io/api/router/Event" target="_blank">Event</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>event</td>
+                                            <td>
+                                                            <code><a href="https://angular.io/api/router/Event" target="_blank" >Event</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="viewDetail"></a>
+                    <span class="name">
+                        <span ><b>viewDetail</b></span>
+                        <a href="#viewDetail"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>viewDetail(row: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>row</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="visitScoreStatus"></a>
+                    <span class="name">
+                        <span ><b>visitScoreStatus</b></span>
+                        <a href="#visitScoreStatus"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>visitScoreStatus(visit: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>visit</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="../miscellaneous/typealiases.html#KpiStatus" target="_self" >KpiStatus</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="allVisits"></a>
+                    <span class="name">
+                        <span ><b>allVisits</b></span>
+                        <a href="#allVisits"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>computed(() &#x3D;&gt;
+    this.groupedRows().flatMap((d) &#x3D;&gt;
+      d.visits.map((v: any) &#x3D;&gt; ({ ...v, _selected: false })),
+    ),
+  )</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="chartData"></a>
+                    <span class="name">
+                        <span ><b>chartData</b></span>
+                        <a href="#chartData"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="chartOptions"></a>
+                    <span class="name">
+                        <span ><b>chartOptions</b></span>
+                        <a href="#chartOptions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="expandedRows"></a>
+                    <span class="name">
+                        <span ><b>expandedRows</b></span>
+                        <a href="#expandedRows"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>literal type</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>{}</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="filtersState"></a>
+                    <span class="name">
+                            <span class="modifier">Readonly</span>
+                        <span ><b>filtersState</b></span>
+                        <a href="#filtersState"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>inject(FiltersStateService)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="groupedRows"></a>
+                    <span class="name">
+                        <span ><b>groupedRows</b></span>
+                        <a href="#groupedRows"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>computed&lt;DayGroup[]&gt;(() &#x3D;&gt; {
+    const data &#x3D; this.reportsData();
+    if (!data?.rows) return [];
+
+    const groups: Record&lt;string, DayGroup&gt; &#x3D; {};
+    data.rows.forEach((row: any) &#x3D;&gt; {
+      const dStr &#x3D;
+        typeof row.fecha &#x3D;&#x3D;&#x3D; &#x27;string&#x27;
+          ? row.fecha.split(&#x27;T&#x27;)[0]
+          : row.fecha instanceof Date
+            ? row.fecha.toISOString().split(&#x27;T&#x27;)[0]
+            : row.fecha;
+
+      if (!groups[dStr]) {
+        groups[dStr] &#x3D; {
+          id: dStr,
+          fecha: dStr,
+          totalVisitas: 0,
+          avgScore: 0,
+          totalVenta: 0,
+          scoreStatus: &#x27;ok&#x27;,
+          visitasStatus: &#x27;ok&#x27;,
+          visits: [],
+          selected: false,
+        };
+      }
+      groups[dStr].visits.push(row);
+      groups[dStr].totalVisitas +&#x3D; 1;
+      groups[dStr].totalVenta +&#x3D; row.stats?.ventaTotal ?? 0;
+    });
+
+    return Object.values(groups)
+      .map((day: any) &#x3D;&gt; {
+        const totalScore &#x3D; day.visits.reduce(
+          (s: number, v: any) &#x3D;&gt; s + (v.stats?.puntuacionTotal ?? 0),
+          0,
+        );
+        day.avgScore &#x3D; day.visits.length
+          ? +(totalScore / day.visits.length).toFixed(1)
+          : 0;
+        day.scoreStatus &#x3D; this.metasConfig.statusFor(&#x27;score&#x27;, day.avgScore);
+        day.visitasStatus &#x3D; this.metasConfig.statusFor(
+          &#x27;visitas&#x27;,
+          day.totalVisitas,
+        );
+        return day;
+      })
+      .sort((a, b) &#x3D;&gt; b.fecha.localeCompare(a.fecha));
+  })</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="horizontalChartOptions"></a>
+                    <span class="name">
+                        <span ><b>horizontalChartOptions</b></span>
+                        <a href="#horizontalChartOptions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="kpiCards"></a>
+                    <span class="name">
+                        <span ><b>kpiCards</b></span>
+                        <a href="#kpiCards"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>computed(() &#x3D;&gt; {
+    const data &#x3D; this.reportsData();
+    if (!data) return [];
+    const m &#x3D; (data.metrics ?? {}) as ReportsData[&#x27;metrics&#x27;];
+    const defs &#x3D; [
+      {
+        id: &#x27;visitas&#x27;,
+        label: &#x27;Visitas&#x27;,
+        raw: m.totalVisitas ?? 0,
+        fmt: (v: number) &#x3D;&gt; v.toLocaleString(),
+        unit: &#x27;&#x27;,
+      },
+      {
+        id: &#x27;score&#x27;,
+        label: &#x27;Avg score&#x27;,
+        raw: m.avgScore ?? 0,
+        fmt: (v: number) &#x3D;&gt; v + &#x27;%&#x27;,
+        unit: &#x27;%&#x27;,
+      },
+      {
+        id: &#x27;venta&#x27;,
+        label: &#x27;Impacto venta&#x27;,
+        raw: m.totalVentas ?? 0,
+        fmt: (v: number) &#x3D;&gt; &#x27;$&#x27; + v.toLocaleString(),
+        unit: &#x27;&#x27;,
+      },
+      {
+        id: &#x27;exhibiciones&#x27;,
+        label: &#x27;Exhibiciones&#x27;,
+        raw: (m as any).totalExhibiciones ?? 0,
+        fmt: (v: number) &#x3D;&gt; v.toLocaleString(),
+        unit: &#x27;&#x27;,
+      },
+      {
+        id: &#x27;gps&#x27;,
+        label: &#x27;GPS cobertura&#x27;,
+        raw: (m as any).gpsPct ?? 0,
+        fmt: (v: number) &#x3D;&gt; v + &#x27;%&#x27;,
+        unit: &#x27;%&#x27;,
+      },
+    ];
+    return defs.map((d) &#x3D;&gt; {
+      const range &#x3D; this.metasConfig.getRange(d.id);
+      const status &#x3D; this.metasConfig.statusFor(d.id, d.raw);
+      const pct &#x3D; this.metasConfig.progressPct(d.id, d.raw);
+      const prev &#x3D; Number((m as any)[&#x27;prev_&#x27; + d.id] ?? d.raw);
+      const diff &#x3D; prev ? Math.round(((d.raw - prev) / prev) * 100) : 0;
+      return {
+        label: d.label,
+        value: d.fmt(d.raw),
+        status,
+        pct,
+        delta:
+          diff &#x3D;&#x3D;&#x3D; 0
+            ? &#x27;Sin variación&#x27;
+            : (diff &gt; 0 ? &#x60;+${diff}%&#x60; : &#x60;${diff}%&#x60;) + &#x27; vs anterior&#x27;,
+        deltaDir: diff &gt; 0 ? &#x27;up&#x27; : diff &lt; 0 ? &#x27;down&#x27; : &#x27;flat&#x27;,
+        meta: range ? &#x60;${range.opt}${d.unit}&#x60; : &#x27;—&#x27;,
+      };
+    });
+  })</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loading"></a>
+                    <span class="name">
+                        <span ><b>loading</b></span>
+                        <a href="#loading"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="metasConfig"></a>
+                    <span class="name">
+                            <span class="modifier">Readonly</span>
+                        <span ><b>metasConfig</b></span>
+                        <a href="#metasConfig"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>inject(MetasConfigService)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="pdfSections"></a>
+                    <span class="name">
+                        <span ><b>pdfSections</b></span>
+                        <a href="#pdfSections"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>PdfSection[]</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>[
+    { id: &#x27;metrics&#x27;, label: &#x27;Resumen de métricas&#x27;, checked: true },
+    { id: &#x27;trend&#x27;, label: &#x27;Gráfica de tendencia&#x27;, checked: true },
+    { id: &#x27;furniture&#x27;, label: &#x27;Cumplimiento mobiliario&#x27;, checked: true },
+    { id: &#x27;table&#x27;, label: &#x27;Tabla de registros&#x27;, checked: true },
+    { id: &#x27;ranking&#x27;, label: &#x27;Ranking por vendedor&#x27;, checked: false },
+  ]</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="pdfTitle"></a>
+                    <span class="name">
+                        <span ><b>pdfTitle</b></span>
+                        <a href="#pdfTitle"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;Reporte de mercadeo&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="reportsData"></a>
+                    <span class="name">
+                        <span ><b>reportsData</b></span>
+                        <a href="#reportsData"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;ReportsData | null&gt;(null)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="scoreDistData"></a>
+                    <span class="name">
+                        <span ><b>scoreDistData</b></span>
+                        <a href="#scoreDistData"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="scoreDistOptions"></a>
+                    <span class="name">
+                        <span ><b>scoreDistOptions</b></span>
+                        <a href="#scoreDistOptions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="searchText"></a>
+                    <span class="name">
+                        <span ><b>searchText</b></span>
+                        <a href="#searchText"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>&#x27;&#x27;</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedDayCount"></a>
+                    <span class="name">
+                        <span ><b>selectedDayCount</b></span>
+                        <a href="#selectedDayCount"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>computed(
+    () &#x3D;&gt; this.groupedRows().filter((d) &#x3D;&gt; d.selected).length,
+  )</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedRow"></a>
+                    <span class="name">
+                        <span ><b>selectedRow</b></span>
+                        <a href="#selectedRow"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>null</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedVisits"></a>
+                    <span class="name">
+                        <span ><b>selectedVisits</b></span>
+                        <a href="#selectedVisits"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>computed(() &#x3D;&gt; this.allVisits().filter((v) &#x3D;&gt; v._selected))</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedVisitsCount"></a>
+                    <span class="name">
+                        <span ><b>selectedVisitsCount</b></span>
+                        <a href="#selectedVisitsCount"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>computed(() &#x3D;&gt; this.selectedVisits().length)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="sellerChartData"></a>
+                    <span class="name">
+                        <span ><b>sellerChartData</b></span>
+                        <a href="#sellerChartData"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showComparison"></a>
+                    <span class="name">
+                        <span ><b>showComparison</b></span>
+                        <a href="#showComparison"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showDetail"></a>
+                    <span class="name">
+                        <span ><b>showDetail</b></span>
+                        <a href="#showDetail"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showPdfBuilder"></a>
+                    <span class="name">
+                        <span ><b>showPdfBuilder</b></span>
+                        <a href="#showPdfBuilder"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="zoneChartData"></a>
+                    <span class="name">
+                        <span ><b>zoneChartData</b></span>
+                        <a href="#zoneChartData"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="zoneChartOptions"></a>
+                    <span class="name">
+                        <span ><b>zoneChartOptions</b></span>
+                        <a href="#zoneChartOptions"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+
+    <div class="tab-pane fade " id="styleData">
+            <pre class="line-numbers"><code class="language-scss">
+      :host ::ng-deep .p-datatable-sm .p-datatable-tbody &gt; tr &gt; td {
+        padding: 0.5rem;
+      }
+      :host ::ng-deep .p-tablist-tablist {
+        border-bottom: 2px solid var(--surface-border);
+      }
+    
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div>  <div class="p-6 space-y-6">    <!-- ── Header ──────────────────────────────────────────────────── -->    <div      class="flex flex-col md:flex-row md:items-center justify-between gap-4"    >      <div>        <h1 class="text-3xl font-bold tracking-tight text-content-main">          Mercadeo Inteligente        </h1>        <p class="text-content-muted text-sm">          Reportes avanzados · {{ filtersState.rangeLabel() }}        </p>      </div>      <div class="flex gap-2 flex-wrap">        <p-button          icon="pi pi-refresh"          severity="secondary"          [text]="true"          [rounded]="true"          (onClick)="resetAll()"          [disabled]="loading()"          pTooltip="Resetear filtros"        />        <p-button          label="CSV"          icon="pi pi-file-excel"          severity="secondary"          (onClick)="exportCsv()"          [disabled]="loading()"        />        <p-button          label="PDF"          icon="pi pi-file-pdf"          styleClass="p-button-brand"          (onClick)="showPdfBuilder = true"          [disabled]="loading()"        />      </div>    </div>    <!-- ── Filtros globales ─────────────────────────────────────────── -->    <app-global-filters #globalFilters (filtersChanged)="loadData()" />    <!-- ── Tabs ─────────────────────────────────────────────────────── -->    <div class="modern-tabs-wrapper">      <p-tabs [value]="0">        <p-tablist>          <p-tab [value]="0">Métricas</p-tab>          <p-tab [value]="1">Gráficas</p-tab>          <p-tab [value]="2">Registros</p-tab>          <p-tab [value]="3">Visitas individuales</p-tab>        </p-tablist>        <p-tabpanels>          <!-- ──────────────────── TAB 0: MÉTRICAS ──────────────────── -->          <p-tabpanel [value]="0">            <div class="pt-4 space-y-6" *ngIf="reportsData() as data">              <!-- 5 KPI cards con semáforo -->              <div                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"              >                <div                  *ngFor="let k of kpiCards()"                  class="card-premium flex flex-col gap-2 border-l-4"                  [ngClass]="{                    \'border-l-green-500\': k.status === \'ok\',                    \'border-l-amber-400\': k.status === \'warn\',                    \'border-l-red-500\': k.status === \'bad\',                  }"                >                  <div class="flex items-center justify-between">                    <span                      class="text-[10px] font-bold text-content-faint uppercase"                      >{{ k.label }}</span                    >                    <span                      class="text-[9px] px-1.5 py-0.5 rounded-full font-bold"                      [ngClass]="{                        \'bg-green-100 text-green-700\': k.status === \'ok\',                        \'bg-amber-100 text-amber-700\': k.status === \'warn\',                        \'bg-red-100 text-red-700\': k.status === \'bad\',                      }"                      >{{ statusLabel(k.status) }}</span                    >                  </div>                  <div class="text-2xl font-bold text-content-main">                    {{ k.value }}                  </div>                  <div                    class="text-[10px]"                    [ngClass]="{                      \'text-green-600\': k.deltaDir === \'up\',                      \'text-red-500\': k.deltaDir === \'down\',                      \'text-content-faint\': k.deltaDir === \'flat\',                    }"                  >                    {{ k.delta }}                  </div>                  <div                    class="h-1 rounded-full bg-surface-layout overflow-hidden"                  >                    <div                      class="h-full rounded-full"                      [style.width.%]="k.pct"                      [ngClass]="{                        \'bg-green-500\': k.status === \'ok\',                        \'bg-amber-400\': k.status === \'warn\',                        \'bg-red-500\': k.status === \'bad\',                      }"                    ></div>                  </div>                  <div class="text-[9px] text-content-faint">                    Meta: {{ k.meta }}                  </div>                </div>              </div>              <!-- Gráfica de tendencia principal -->              <div class="card-premium">                <div class="flex items-center justify-between mb-4">                  <h3 class="text-sm font-bold text-content-main">                    Tendencia del período                  </h3>                  <div class="flex gap-3 text-[11px] text-content-muted">                    <span class="flex items-center gap-1">                      <span class="w-3 h-0.5 bg-blue-500 inline-block"></span                      >Visitas                    </span>                    <span class="flex items-center gap-1">                      <span                        class="w-3 h-0.5 bg-amber-400 inline-block"                        style="border-top:2px dashed #EF9F27"                      ></span                      >Score                    </span>                    <span class="flex items-center gap-1">                      <span                        class="w-3 h-0.5 bg-red-400 inline-block"                        style="border-top:2px dashed #E24B4A"                      ></span                      >Meta                    </span>                  </div>                </div>                <div class="h-[300px]" #chartContainer>                  <p-chart                    #mainChart                    type="line"                    [data]="chartData"                    [options]="chartOptions"                    height="100%"                    *ngIf="chartData"                  />                </div>              </div>            </div>          </p-tabpanel>          <!-- ──────────────────── TAB 1: GRÁFICAS ─────────────────── -->          <p-tabpanel [value]="1">            <div class="pt-4 space-y-6">              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">                <!-- Score por zona -->                <div class="card-premium">                  <div class="flex items-center justify-between mb-4">                    <h3 class="text-sm font-bold">Score por zona</h3>                    <button                      (click)="captureChartAndExport(\'zona\')"                      class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout"                    >                      + PDF                    </button>                  </div>                  <div class="h-[220px]">                    <p-chart                      type="bar"                      [data]="zoneChartData"                      [options]="zoneChartOptions"                      height="100%"                      *ngIf="zoneChartData"                    />                  </div>                </div>                <!-- Top vendedores -->                <div class="card-premium">                  <div class="flex items-center justify-between mb-4">                    <h3 class="text-sm font-bold">Top vendedores</h3>                    <button                      (click)="captureChartAndExport(\'seller\')"                      class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout"                    >                      + PDF                    </button>                  </div>                  <div class="h-[220px]">                    <p-chart                      type="bar"                      [data]="sellerChartData"                      [options]="horizontalChartOptions"                      height="100%"                      *ngIf="sellerChartData"                    />                  </div>                </div>                <!-- Distribución de scores -->                <div class="card-premium">                  <div class="flex items-center justify-between mb-4">                    <h3 class="text-sm font-bold">Distribución de scores</h3>                  </div>                  <div class="h-[220px]">                    <p-chart                      type="bar"                      [data]="scoreDistData"                      [options]="scoreDistOptions"                      height="100%"                      *ngIf="scoreDistData"                    />                  </div>                </div>                <!-- Visitas por día de la semana -->                <div class="card-premium">                  <div class="flex items-center justify-between mb-4">                    <h3 class="text-sm font-bold">Visitas por día</h3>                  </div>                  <div class="h-[220px]">                    <p-chart                      type="line"                      [data]="chartData"                      [options]="chartOptions"                      height="100%"                      *ngIf="chartData"                    />                  </div>                </div>              </div>            </div>          </p-tabpanel>          <!-- ──────────────────── TAB 2: REGISTROS ────────────────── -->          <p-tabpanel [value]="2">            <div class="pt-4 space-y-4">              <!-- Barra de acciones sobre selección -->              <div                *ngIf="selectedDayCount() > 0"                class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider"              >                <span class="text-xs text-content-muted flex-1">                  {{ selectedDayCount() }} jornada(s) seleccionada(s)                </span>                <p-button                  label="CSV selección"                  icon="pi pi-file-excel"                  severity="secondary"                  size="small"                  (onClick)="exportSelectedCsv()"                />                <p-button                  label="PDF selección"                  icon="pi pi-file-pdf"                  severity="secondary"                  size="small"                  (onClick)="exportSelectedPdf()"                />              </div>              <!-- Busqueda -->              <div class="flex items-center justify-between">                <p class="text-xs text-content-muted italic">                  Desglose de visitas por fecha.                </p>                <p-iconfield>                  <p-inputicon class="pi pi-search" />                  <input                    pInputText                    type="text"                    [(ngModel)]="searchText"                    placeholder="Buscar día o folio..."                    (input)="dt.filterGlobal(searchText, \'contains\')"                  />                </p-iconfield>              </div>              <p-table                #dt                [value]="groupedRows()"                [paginator]="true"                [rows]="10"                dataKey="id"                [expandedRowKeys]="expandedRows"                styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider"              >                <ng-template pTemplate="header">                  <tr                    class="text-[10px] uppercase text-content-faint bg-surface-ground border-b border-divider"                  >                    <th style="width:3rem">                      <input                        type="checkbox"                        (change)="toggleSelectAll($event)"                        style="accent-color:#185FA5"                      />                    </th>                    <th style="width:3rem"></th>                    <th class="py-3 px-4">Jornada / Fecha</th>                    <th class="text-center">Visitas</th>                    <th class="text-center">Avg Score</th>                    <th class="text-center">Score vs meta</th>                    <th class="text-right pr-6">Total venta</th>                  </tr>                </ng-template>                <ng-template pTemplate="body" let-day let-expanded="expanded">                  <tr                    class="hover:bg-surface-hover cursor-pointer transition-colors"                    (click)="toggleExpand(day)"                  >                    <!-- Checkbox de selección -->                    <td (click)="$event.stopPropagation()">                      <input                        type="checkbox"                        [(ngModel)]="day.selected"                        style="accent-color:#185FA5"                      />                    </td>                    <td>                      <button                        type="button"                        pButton                        [pRowToggler]="day"                        class="p-button-text p-button-rounded p-button-plain w-8 h-8"                        [icon]="                          expanded                            ? \'pi pi-chevron-down\'                            : \'pi pi-chevron-right\'                        "                      ></button>                    </td>                    <td class="py-4 px-4 font-bold text-content-main">                      {{ day.fecha | date: \'fullDate\' : \'UTC\' }}                    </td>                    <td class="text-center">                      <span                        class="px-2.5 py-0.5 rounded-full text-[10px] font-bold"                        [ngClass]="{                          \'bg-green-100 text-green-800\':                            day.visitasStatus === \'ok\',                          \'bg-amber-100 text-amber-800\':                            day.visitasStatus === \'warn\',                          \'bg-red-100 text-red-800\':                            day.visitasStatus === \'bad\',                        }"                      >                        {{ day.totalVisitas }}                      </span>                    </td>                    <td class="text-center">                      <div class="flex flex-col items-center gap-1">                        <span                          class="font-black"                          [ngClass]="{                            \'text-green-600\': day.scoreStatus === \'ok\',                            \'text-amber-500\': day.scoreStatus === \'warn\',                            \'text-red-500\': day.scoreStatus === \'bad\',                          }"                          >{{ day.avgScore }}%</span                        >                        <div                          class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden"                        >                          <div                            class="h-full rounded-full"                            [style.width]="day.avgScore + \'%\'"                            [ngClass]="{                              \'bg-green-500\': day.scoreStatus === \'ok\',                              \'bg-amber-400\': day.scoreStatus === \'warn\',                              \'bg-red-500\': day.scoreStatus === \'bad\',                            }"                          ></div>                        </div>                      </div>                    </td>                    <!-- Score vs meta -->                    <td class="text-center">                      <span                        class="text-[10px] px-2 py-0.5 rounded-full font-bold"                        [ngClass]="{                          \'bg-green-100 text-green-800\':                            day.scoreStatus === \'ok\',                          \'bg-amber-100 text-amber-800\':                            day.scoreStatus === \'warn\',                          \'bg-red-100 text-red-800\':                            day.scoreStatus === \'bad\',                        }"                      >                        {{ statusLabel(day.scoreStatus) }}                      </span>                    </td>                    <td                      class="text-right pr-6 font-black"                      [ngClass]="{                        \'text-green-600\': day.scoreStatus === \'ok\',                        \'text-amber-500\': day.scoreStatus === \'warn\',                        \'text-red-500\': day.scoreStatus === \'bad\',                      }"                    >                      {{ day.totalVenta | number: \'1.0-0\' }}                    </td>                  </tr>                </ng-template>                <!-- Row expansion con visitas individuales -->                <ng-template pTemplate="rowexpansion" let-day>                  <tr>                    <td                      colspan="7"                      class="bg-surface-ground p-4 border-b border-surface-border"                    >                      <div                        class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden"                      >                        <p-table                          [value]="day.visits"                          styleClass="p-datatable-sm p-datatable-striped"                        >                          <ng-template pTemplate="header">                            <tr                              class="text-[10px] uppercase text-content-muted bg-surface-ground"                            >                              <th class="pl-4 py-2 w-24">Folio</th>                              <th>Ejecutivo</th>                              <th class="w-32">Zona</th>                              <th class="text-center w-24">Score</th>                              <th class="text-center w-24">Estado</th>                              <th class="text-center w-24">Acción</th>                            </tr>                          </ng-template>                          <ng-template pTemplate="body" let-visit>                            <tr                              class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer"                              (click)="viewDetail(visit)"                            >                              <td                                class="pl-4 font-black text-content-main py-3"                              >                                #{{ visit.folio }}                              </td>                              <td class="font-medium text-content-main">                                {{ visit.captured_by_username }}                              </td>                              <td>                                <span                                  class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted"                                >                                  {{ visit.zona_captura }}                                </span>                              </td>                              <td class="text-center">                                <span                                  class="font-black"                                  [ngClass]="{                                    \'text-green-600\':                                      visitScoreStatus(visit) === \'ok\',                                    \'text-amber-500\':                                      visitScoreStatus(visit) === \'warn\',                                    \'text-red-500\':                                      visitScoreStatus(visit) === \'bad\',                                  }"                                  >{{ visit.stats?.puntuacionTotal }}%</span                                >                              </td>                              <td class="text-center">                                <span                                  class="text-[9px] px-2 py-0.5 rounded-full font-bold"                                  [ngClass]="{                                    \'bg-green-100 text-green-800\':                                      visitScoreStatus(visit) === \'ok\',                                    \'bg-amber-100 text-amber-800\':                                      visitScoreStatus(visit) === \'warn\',                                    \'bg-red-100 text-red-800\':                                      visitScoreStatus(visit) === \'bad\',                                  }"                                  >{{                                    statusLabel(visitScoreStatus(visit))                                  }}</span                                >                              </td>                              <td class="text-center">                                <p-button                                  icon="pi pi-eye"                                  [text]="true"                                  [rounded]="true"                                  severity="info"                                  size="small"                                  (click)="                                    viewDetail(visit);                                    $event.stopPropagation()                                  "                                />                              </td>                            </tr>                          </ng-template>                        </p-table>                      </div>                    </td>                  </tr>                </ng-template>              </p-table>            </div>          </p-tabpanel>          <!-- ──────────────────── TAB 3: VISITAS INDIVIDUALES ──────── -->          <p-tabpanel [value]="3">            <div class="pt-4 space-y-4">              <!-- Barra de acciones -->              <div                *ngIf="selectedVisitsCount() > 0"                class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider"              >                <span class="text-xs text-content-muted flex-1">                  {{ selectedVisitsCount() }} visita(s) seleccionada(s)                </span>                <p-button                  label="Comparar"                  icon="pi pi-sliders-h"                  severity="secondary"                  size="small"                  (onClick)="showComparison = true"                />                <p-button                  label="PDF conjunto"                  icon="pi pi-file-pdf"                  styleClass="p-button-brand"                  size="small"                  (onClick)="exportSelectedVisitsPdf()"                />              </div>              <!-- Grid de tarjetas de visita -->              <div                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"              >                <div                  *ngFor="let visit of allVisits()"                  class="card-premium cursor-pointer hover:border-content-muted/30 transition-all"                  [class.ring-2]="visit._selected"                  [class.ring-blue-400]="visit._selected"                >                  <div class="flex items-start gap-3 mb-4">                    <input                      type="checkbox"                      [(ngModel)]="visit._selected"                      (click)="$event.stopPropagation()"                      style="accent-color:#185FA5;margin-top:3px"                    />                    <div class="flex-1 min-w-0">                      <div class="text-[10px] text-content-faint mb-0.5">                        #{{ visit.folio }} ·                        {{ visit.fecha | date: \'dd MMM\' : \'UTC\' }}                      </div>                      <div                        class="font-bold text-sm text-content-main truncate"                      >                        {{ visit.captured_by_username }}                      </div>                      <div class="flex gap-1.5 mt-1 flex-wrap">                        <span                          class="text-[9px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold"                        >                          {{ visit.zona_captura }}                        </span>                        <span                          *ngIf="visit.latitud"                          class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold"                        >                          GPS                        </span>                      </div>                    </div>                    <!-- Score ring con semáforo -->                    <div                      class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"                      [ngClass]="{                        \'border-green-400 text-green-700\':                          visitScoreStatus(visit) === \'ok\',                        \'border-amber-400 text-amber-700\':                          visitScoreStatus(visit) === \'warn\',                        \'border-red-400 text-red-700\':                          visitScoreStatus(visit) === \'bad\',                      }"                    >                      {{ visit.stats?.puntuacionTotal }}%                    </div>                  </div>                  <div class="flex gap-2">                    <p-button                      label="Ver detalle"                      icon="pi pi-eye"                      severity="secondary"                      size="small"                      styleClass="flex-1 justify-center"                      (onClick)="viewDetail(visit)"                    />                    <p-button                      icon="pi pi-file-pdf"                      [text]="true"                      size="small"                      (onClick)="                        exportSingleVisitPdf(visit); $event.stopPropagation()                      "                    />                  </div>                </div>              </div>              <!-- Tabla comparativa cuando hay 2+ seleccionadas -->              <div                *ngIf="selectedVisitsCount() >= 2"                class="card-premium mt-4"              >                <h3 class="text-sm font-bold mb-4 text-content-main">                  Vista comparativa                </h3>                <div class="overflow-x-auto">                  <table class="w-full border-collapse text-sm">                    <thead>                      <tr                        class="text-[10px] uppercase text-content-muted border-b border-divider"                      >                        <th class="py-2 text-left">Métrica</th>                        <th                          *ngFor="let v of selectedVisits()"                          class="py-2 text-center"                        >                          <span class="font-bold text-content-main"                            >#{{ v.folio }}</span                          ><br />                          <span class="text-[9px] font-normal">{{                            v.captured_by_username                          }}</span>                        </th>                      </tr>                    </thead>                    <tbody>                      <tr class="border-b border-divider/50">                        <td class="py-2 text-content-muted">Score final</td>                        <td                          *ngFor="let v of selectedVisits()"                          class="py-2 text-center font-bold"                          [ngClass]="{                            \'text-green-600\': visitScoreStatus(v) === \'ok\',                            \'text-amber-500\': visitScoreStatus(v) === \'warn\',                            \'text-red-500\': visitScoreStatus(v) === \'bad\',                          }"                        >                          {{ v.stats?.puntuacionTotal }}%                        </td>                      </tr>                      <tr class="border-b border-divider/50">                        <td class="py-2 text-content-muted">Exhibiciones</td>                        <td                          *ngFor="let v of selectedVisits()"                          class="py-2 text-center"                        >                          {{ v.exhibiciones?.length ?? 0 }}                        </td>                      </tr>                      <tr class="border-b border-divider/50">                        <td class="py-2 text-content-muted">Zona</td>                        <td                          *ngFor="let v of selectedVisits()"                          class="py-2 text-center text-content-muted text-xs uppercase"                        >                          {{ v.zona_captura }}                        </td>                      </tr>                      <tr class="border-b border-divider/50">                        <td class="py-2 text-content-muted">GPS</td>                        <td                          *ngFor="let v of selectedVisits()"                          class="py-2 text-center"                        >                          <span                            [ngClass]="                              v.latitud ? \'text-green-600\' : \'text-red-500\'                            "                            class="font-bold text-xs"                          >                            {{ v.latitud ? \'Sí\' : \'No\' }}                          </span>                        </td>                      </tr>                      <tr>                        <td class="py-2 text-content-muted">Venta total</td>                        <td                          *ngFor="let v of selectedVisits()"                          class="py-2 text-center font-bold"                        >                          {{ v.stats?.ventaTotal ?? 0 | number: \'1.0-0\' }}                        </td>                      </tr>                    </tbody>                  </table>                </div>              </div>            </div>          </p-tabpanel>        </p-tabpanels>      </p-tabs>    </div>    <!-- ═══════════════════════════════════════════════════════════════     DIALOG: CONSTRUCTOR DE PDF═══════════════════════════════════════════════════════════════════ -->    <p-dialog      header="Construir reporte PDF"      [(visible)]="showPdfBuilder"      [modal]="true"      appendTo="body"      [style]="{ width: \'90vw\', maxWidth: \'500px\' }"      styleClass="surface-card rounded-2xl"      [contentStyleClass]="\'bg-surface-card\'"    >      <div class="space-y-4 pt-2">        <p class="text-sm text-content-muted">          Selecciona las secciones a incluir. El PDF se genera con los filtros          activos.        </p>        <div class="space-y-2">          <div            *ngFor="let s of pdfSections"            class="flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout"          >            <span class="text-sm font-medium">{{ s.label }}</span>            <input              type="checkbox"              [(ngModel)]="s.checked"              style="accent-color:#185FA5;width:16px;height:16px"            />          </div>        </div>        <div class="flex flex-col gap-1 mt-2">          <label class="text-[10px] font-bold text-content-faint uppercase"            >Título del reporte</label          >          <input            type="text"            [(ngModel)]="pdfTitle"            class="border border-divider rounded-lg p-2 text-sm bg-surface-card text-content-main"          />        </div>      </div>      <ng-template pTemplate="footer">        <div class="flex justify-end gap-3">          <p-button            label="Cancelar"            severity="secondary"            (click)="showPdfBuilder = false"          />          <p-button            label="Generar PDF"            icon="pi pi-file-pdf"            styleClass="p-button-brand"            (click)="exportBuiltPdf()"          />        </div>      </ng-template>    </p-dialog>    <!-- ═══════════════════════════════════════════════════════════════     DIALOG: DETALLE DE VISITA═══════════════════════════════════════════════════════════════════ -->    <p-dialog      header="Detalle visita"      [(visible)]="showDetail"      [modal]="true"      appendTo="body"      [style]="{ width: \'90vw\', maxWidth: \'600px\' }"      styleClass="surface-card rounded-2xl"      [contentStyleClass]="\'bg-surface-card text-content-main\'"    >      <div *ngIf="selectedRow" class="space-y-4 pt-2">        <!-- Cabecera folio + export -->        <div          class="flex flex-col sm:flex-row justify-between items-start sm:items-center                bg-surface-ground p-4 rounded-2xl border border-surface-border gap-3"        >          <div>            <div              class="text-[10px] font-black text-content-faint uppercase tracking-widest"            >              Visita Folio            </div>            <div class="text-xl font-black text-content-main">              #{{ selectedRow.folio }}            </div>          </div>          <!-- Score con semáforo -->          <div class="flex items-center gap-3">            <div              class="text-center px-4 py-2 rounded-xl border-2"              [ngClass]="{                \'border-green-400 bg-green-50\':                  visitScoreStatus(selectedRow) === \'ok\',                \'border-amber-400 bg-amber-50\':                  visitScoreStatus(selectedRow) === \'warn\',                \'border-red-400 bg-red-50\':                  visitScoreStatus(selectedRow) === \'bad\',              }"            >              <div class="text-[9px] uppercase font-black opacity-60">                Score              </div>              <div                class="text-2xl font-black"                [ngClass]="{                  \'text-green-700\': visitScoreStatus(selectedRow) === \'ok\',                  \'text-amber-700\': visitScoreStatus(selectedRow) === \'warn\',                  \'text-red-700\': visitScoreStatus(selectedRow) === \'bad\',                }"              >                {{ selectedRow.stats?.puntuacionTotal }}%              </div>              <div class="text-[9px] font-bold uppercase opacity-60">                {{ statusLabel(visitScoreStatus(selectedRow)) }}              </div>            </div>            <p-button              label="Exportar PDF"              icon="pi pi-file-pdf"              severity="success"              size="small"              (onClick)="exportSingleVisitPdf(selectedRow)"            />          </div>        </div>        <!-- Datos -->        <div class="grid grid-cols-2 gap-4 text-sm">          <div class="space-y-2">            <p>              <span class="text-content-muted">Ejecutivo: </span              ><span class="font-bold">{{                selectedRow.captured_by_username              }}</span>            </p>            <p>              <span class="text-content-muted">Zona: </span              ><span class="font-bold">{{ selectedRow.zona_captura }}</span>            </p>            <p>              <span class="text-content-muted">Fecha: </span              ><span class="font-bold">{{                selectedRow.fecha | date: \'mediumDate\'              }}</span>            </p>            <p>              <span class="text-content-muted">Hora inicio: </span              ><span class="font-bold">{{                selectedRow.hora_inicio | date: \'shortTime\'              }}</span>            </p>            <p>              <span class="text-content-muted">Hora fin: </span              ><span class="font-bold">{{                selectedRow.hora_fin | date: \'shortTime\'              }}</span>            </p>            <p>              <span class="text-content-muted">Exhibiciones: </span              ><span class="font-bold">{{                selectedRow.exhibiciones?.length ?? 0              }}</span>            </p>          </div>        </div>        <!-- GPS -->        <div          class="flex items-center justify-between p-4 border border-surface-border bg-surface-ground rounded-2xl"        >          <div class="flex items-center gap-3">            <div              class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center"            >              <i class="pi pi-map-marker text-content-main"></i>            </div>            <div>              <div class="text-[10px] font-bold uppercase">                Ubicación geo-referenciada              </div>              <div                class="text-xs font-mono text-content-dim"                *ngIf="selectedRow.latitud"              >                {{ selectedRow.latitud | number: \'1.6-6\' }},                {{ selectedRow.longitud | number: \'1.6-6\' }}              </div>              <div                class="text-xs text-content-faint font-bold"                *ngIf="!selectedRow.latitud"              >                No se capturó GPS              </div>            </div>          </div>          <p-button            *ngIf="selectedRow.latitud"            label="Ver mapa"            icon="pi pi-external-link"            [text]="true"            size="small"            (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"          />        </div>        <!-- Exhibiciones -->        <div class="border border-surface-border rounded-2xl overflow-hidden">          <p-table            [value]="selectedRow.exhibiciones || []"            styleClass="p-datatable-sm"          >            <ng-template pTemplate="header">              <tr                class="text-[10px] bg-surface-ground uppercase text-content-muted"              >                <th>Concepto</th>                <th>Ubicación</th>                <th class="text-center">Imagen</th>                <th class="text-right pr-3">Puntuación</th>              </tr>            </ng-template>            <ng-template pTemplate="body" let-ex>              <tr class="text-xs">                <td>{{ ex.conceptoId || \'N/A\' }}</td>                <td>{{ ex.ubicacionId || \'N/A\' }}</td>                <td class="text-center">                  <p-image                    *ngIf="ex.fotoUrl"                    [src]="getImageUrl(ex.fotoUrl)"                    alt="Exhibición"                    width="50"                    [preview]="true"                    class="rounded shadow-sm cursor-zoom-in"                  />                  <span                    *ngIf="!ex.fotoUrl"                    class="text-[9px] text-content-faint"                    >Sin foto</span                  >                </td>                <td class="text-right pr-3 font-bold">                  {{ ex.puntuacionCalculada || 0 }}                </td>              </tr>            </ng-template>          </p-table>        </div>      </div>    </p-dialog>    <p-toast />  </div></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'ReportsComponent-1'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'ReportsComponent-1.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>

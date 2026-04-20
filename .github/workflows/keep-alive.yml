@@ -1,0 +1,17 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    # Ejecutar cada 14 minutos para mantener la app activa
+    - cron: '*/14 * * * *'
+  workflow_dispatch: # Permite ejecutar manualmente desde GitHub
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render App
+        run: |
+          # Reemplaza esta URL con la URL de tu app en Render
+          curl -f https://trade-marketing-1.onrender.com/health || exit 1
+          echo "Ping exitoso - App sigue activa"

@@ -1,0 +1,1062 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  DailyAssignmentsComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#templateData" class="nav-link"
+                role="tab" id="templateData-tab" data-bs-toggle="tab" data-link="template">Template</a>
+        </li>
+        <li class="nav-item">
+            <a href="#styleData" class="nav-link"
+                role="tab" id="styleData-tab" data-bs-toggle="tab" data-link="style">Styles</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/modules/dashboard/daily-assignments/daily-assignments.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">providers</td>
+                <td class="col-md-9">
+                            <code>MessageService</code>
+                </td>
+            </tr>
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-daily-assignments</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">standalone</td>
+                <td class="col-md-9"><code>true</code></td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">imports</td>
+                <td class="col-md-9">
+                                <code><a href="https://angular.io/api/common/CommonModule" target="_blank" >CommonModule</a></code>
+                                <code><a href="https://angular.io/api/forms/FormsModule" target="_blank" >FormsModule</a></code>
+                            <code>TableModule</code>
+                            <code>ButtonModule</code>
+                            <code>SelectModule</code>
+                            <code>TagModule</code>
+                            <code>InputTextModule</code>
+                            <code>ToastModule</code>
+                </td>
+            </tr>
+
+            <tr>
+                <td class="col-md-3">styleUrls</td>
+                <td class="col-md-9"><code>./daily-assignments.component.css</code></td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">templateUrl</td>
+                <td class="col-md-9"><code>./daily-assignments.component.html</code></td>
+            </tr>
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#days" >days</a>
+                            </li>
+                            <li>
+                                <a href="#loading" >loading</a>
+                            </li>
+                            <li>
+                                <a href="#routes" >routes</a>
+                            </li>
+                            <li>
+                                <a href="#selectedMember" >selectedMember</a>
+                            </li>
+                            <li>
+                                <a href="#team" >team</a>
+                            </li>
+                            <li>
+                                <a href="#weeklyAssignments" >weeklyAssignments</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#getTodayNumber" >getTodayNumber</a>
+                            </li>
+                            <li>
+                                <a href="#loadTeamAndRoutes" >loadTeamAndRoutes</a>
+                            </li>
+                            <li>
+                                <a href="#loadWeeklyAssignments" >loadWeeklyAssignments</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#saveAssignment" >saveAssignment</a>
+                            </li>
+                            <li>
+                                <a href="#selectMember" >selectMember</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getTodayNumber"></a>
+                    <span class="name">
+                        <span ><b>getTodayNumber</b></span>
+                        <a href="#getTodayNumber"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getTodayNumber()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadTeamAndRoutes"></a>
+                    <span class="name">
+                        <span ><b>loadTeamAndRoutes</b></span>
+                        <a href="#loadTeamAndRoutes"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadTeamAndRoutes()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loadWeeklyAssignments"></a>
+                    <span class="name">
+                        <span ><b>loadWeeklyAssignments</b></span>
+                        <a href="#loadWeeklyAssignments"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>loadWeeklyAssignments()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="saveAssignment"></a>
+                    <span class="name">
+                        <span ><b>saveAssignment</b></span>
+                        <a href="#saveAssignment"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>saveAssignment(dayId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank">number</a>, routeId: <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank">string</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>dayId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                        <tr>
+                                                <td>routeId</td>
+                                            <td>
+                                                            <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectMember"></a>
+                    <span class="name">
+                        <span ><b>selectMember</b></span>
+                        <a href="#selectMember"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>selectMember(member: <a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank">any</a>)</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                            <div class="io-description">
+                                <b>Parameters :</b>
+                                
+                                <table class="params">
+                                    <thead>
+                                        <tr>
+                                            <td>Name</td>
+                                                <td>Type</td>
+                                            <td>Optional</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                                <td>member</td>
+                                            <td>
+                                                            <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >any</a></code>
+                                            </td>
+
+                                            <td>
+                                                    No
+                                            </td>
+
+
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                            <div class="io-description">
+                                
+                            </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="days"></a>
+                    <span class="name">
+                        <span ><b>days</b></span>
+                        <a href="#days"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>[]</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>[
+    { id: 1, label: &#x27;Lunes&#x27; },
+    { id: 2, label: &#x27;Martes&#x27; },
+    { id: 3, label: &#x27;Miércoles&#x27; },
+    { id: 4, label: &#x27;Jueves&#x27; },
+    { id: 5, label: &#x27;Viernes&#x27; },
+    { id: 6, label: &#x27;Sábado&#x27; },
+    { id: 7, label: &#x27;Domingo&#x27; }
+  ]</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="loading"></a>
+                    <span class="name">
+                        <span ><b>loading</b></span>
+                        <a href="#loading"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;boolean&gt;(false)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="routes"></a>
+                    <span class="name">
+                        <span ><b>routes</b></span>
+                        <a href="#routes"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;any[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="selectedMember"></a>
+                    <span class="name">
+                        <span ><b>selectedMember</b></span>
+                        <a href="#selectedMember"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;any | null&gt;(null)</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="team"></a>
+                    <span class="name">
+                        <span ><b>team</b></span>
+                        <a href="#team"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;any[]&gt;([])</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="weeklyAssignments"></a>
+                    <span class="name">
+                        <span ><b>weeklyAssignments</b></span>
+                        <a href="#weeklyAssignments"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>signal&lt;Record&lt;number, string&gt;&gt;({})</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+    <div class="tab-pane fade " id="templateData">
+        <pre class="line-numbers"><code class="language-html">&lt;div class&#x3D;&quot;p-4 sm:p-6 h-full flex flex-col&quot;&gt;
+  &lt;div class&#x3D;&quot;flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-4&quot;&gt;
+    &lt;div&gt;
+      &lt;h2 class&#x3D;&quot;text-xl sm:text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-2&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-calendar-clock text-brand text-2xl sm:text-3xl&quot;&gt;&lt;/i&gt; Configuración de Semana Estándar
+      &lt;/h2&gt;
+      &lt;p class&#x3D;&quot;text-xs font-medium text-content-dim tracking-wide uppercase&quot;&gt;Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div class&#x3D;&quot;bg-surface-card border border-surface-border px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3&quot;&gt;
+        &lt;div class&#x3D;&quot;text-xs font-black text-brand uppercase tracking-widest border-r border-surface-border pr-3&quot;&gt;Equipos Activos&lt;/div&gt;
+        &lt;div class&#x3D;&quot;flex -space-x-2&quot;&gt;
+            @for (m of team().slice(0, 5); track m.id) {
+                &lt;div class&#x3D;&quot;w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-primary&quot;&gt;
+                    {{ m.username.substring(0,1) | uppercase }}
+                &lt;/div&gt;
+            }
+            @if (team().length &gt; 5) {
+                &lt;div class&#x3D;&quot;w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-content-faint&quot;&gt;
+                    +{{ team().length - 5 }}
+                &lt;/div&gt;
+            }
+        &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class&#x3D;&quot;flex flex-1 flex-col lg:flex-row gap-4 sm:gap-6 overflow-hidden min-h-0 lg:min-h-[500px]&quot;&gt;
+    &lt;!-- Left: Master / Members --&gt;
+    &lt;div class&#x3D;&quot;w-full lg:w-80 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden max-h-[200px] lg:max-h-none&quot;&gt;
+      &lt;div class&#x3D;&quot;p-4 border-b border-surface-border bg-surface-ground/30&quot;&gt;
+        &lt;div class&#x3D;&quot;relative w-full&quot;&gt;
+            &lt;i class&#x3D;&quot;pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs&quot;&gt;&lt;/i&gt;
+            &lt;input type&#x3D;&quot;text&quot; pInputText placeholder&#x3D;&quot;Buscar colaborador...&quot; 
+                   class&#x3D;&quot;w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-surface-border rounded-lg outline-none focus:border-brand transition-all&quot; /&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;flex-1 overflow-y-auto p-2 custom-scrollbar&quot;&gt;
+        @for (member of team(); track member.id) {
+          &lt;div (click)&#x3D;&quot;selectMember(member)&quot;
+               [class.active-member]&#x3D;&quot;selectedMember()?.id &#x3D;&#x3D;&#x3D; member.id&quot;
+               class&#x3D;&quot;member-card p-3 mb-2 rounded-xl cursor-pointer border border-transparent hover:bg-surface-hover transition-all flex items-center gap-3&quot;&gt;
+            &lt;div class&#x3D;&quot;w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black shadow-sm group-hover:scale-105 transition-transform&quot;&gt;
+              {{ member.username.substring(0,2) | uppercase }}
+            &lt;/div&gt;
+            &lt;div class&#x3D;&quot;flex-1 min-w-0&quot;&gt;
+              &lt;div class&#x3D;&quot;text-sm font-black text-content-main truncate&quot;&gt;{{ member.nombre || member.username }}&lt;/div&gt;
+              &lt;div class&#x3D;&quot;text-[9px] font-bold uppercase text-brand tracking-widest&quot;&gt;{{ member.zona }}&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;i class&#x3D;&quot;pi pi-chevron-right text-xs text-content-faint&quot;&gt;&lt;/i&gt;
+          &lt;/div&gt;
+        }
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Right: Detail / Weekly View --&gt;
+    &lt;div class&#x3D;&quot;flex-1 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden relative&quot;&gt;
+      @if (selectedMember()) {
+        &lt;div class&#x3D;&quot;p-4 border-b border-surface-border bg-gradient-to-r from-surface-ground/50 to-transparent flex justify-between items-center&quot;&gt;
+            &lt;div class&#x3D;&quot;text-center&quot;&gt;
+              &lt;div class&#x3D;&quot;text-sm font-black text-content-main uppercase tracking-[0.2em]&quot;&gt;Semana de Trabajo Repetutiva&lt;/div&gt;
+              &lt;div class&#x3D;&quot;flex items-center justify-center gap-2 mt-1&quot;&gt;
+                &lt;span class&#x3D;&quot;w-2 h-2 rounded-full bg-brand animate-pulse&quot;&gt;&lt;/span&gt;
+                &lt;span class&#x3D;&quot;text-[9px] font-black text-brand uppercase tracking-widest&quot;&gt;Configuración Maestra&lt;/span&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;!-- Selected Member Summary --&gt;
+        &lt;div class&#x3D;&quot;px-6 py-4 bg-brand/[0.03] border-b border-surface-border flex items-center gap-4&quot;&gt;
+            &lt;div class&#x3D;&quot;flex flex-col&quot;&gt;
+                &lt;span class&#x3D;&quot;text-xs font-black uppercase tracking-tighter text-content-faint&quot;&gt;Gestionando agenda de:&lt;/span&gt;
+                &lt;span class&#x3D;&quot;text-lg font-black text-content-main&quot;&gt;{{ selectedMember()?.nombre || selectedMember()?.username }}&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;div class&#x3D;&quot;h-8 w-[1px] bg-surface-border&quot;&gt;&lt;/div&gt;
+            &lt;div class&#x3D;&quot;flex flex-col&quot;&gt;
+                &lt;span class&#x3D;&quot;text-xs font-black uppercase tracking-tighter text-content-faint&quot;&gt;Zona de Trabajo:&lt;/span&gt;
+                &lt;span class&#x3D;&quot;text-sm font-bold text-brand uppercase tracking-widest&quot;&gt;{{ selectedMember()?.zona }}&lt;/span&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;div class&#x3D;&quot;flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar&quot;&gt;
+          &lt;div class&#x3D;&quot;grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4&quot;&gt;
+            @for (day of days; track day.id) {
+              &lt;div class&#x3D;&quot;day-card bg-surface-ground/20 border border-surface-border rounded-2xl p-4 flex flex-col gap-4 hover:border-brand/30 transition-all&quot;
+                   [class.today-card]&#x3D;&quot;getTodayNumber() &#x3D;&#x3D;&#x3D; day.id&quot;&gt;
+                &lt;div class&#x3D;&quot;flex justify-between items-start pb-3 border-b border-surface-border/50&quot;&gt;
+                  &lt;div class&#x3D;&quot;flex flex-col&quot;&gt;
+                    &lt;span class&#x3D;&quot;text-[11px] font-black uppercase tracking-[0.2em] text-brand&quot;&gt;Día de la Semana&lt;/span&gt;
+                    &lt;span class&#x3D;&quot;text-2xl font-black text-content-main&quot;&gt;{{ day.label }}&lt;/span&gt;
+                  &lt;/div&gt;
+                  @if (getTodayNumber() &#x3D;&#x3D;&#x3D; day.id) {
+                    &lt;div class&#x3D;&quot;bg-brand text-brand-contrast text-[8px] font-black px-2 py-0.5 rounded-full tracking-widest&quot;&gt;ESTE DÍA&lt;/div&gt;
+                  }
+                &lt;/div&gt;
+                
+                &lt;div class&#x3D;&quot;space-y-3&quot;&gt;
+                  &lt;div&gt;
+                    &lt;label class&#x3D;&quot;text-[9px] font-black text-content-faint uppercase tracking-widest mb-1 block&quot;&gt;Ruta del día&lt;/label&gt;
+                    &lt;p-select [options]&#x3D;&quot;routes()&quot; 
+                                [(ngModel)]&#x3D;&quot;weeklyAssignments()[day.id]&quot;
+                                (onChange)&#x3D;&quot;saveAssignment(day.id, $event.value)&quot;
+                                placeholder&#x3D;&quot;SIN RUTA&quot; class&#x3D;&quot;w-full&quot; styleClass&#x3D;&quot;w-full text-xs font-bold rounded-xl&quot;
+                                optionLabel&#x3D;&quot;label&quot; optionValue&#x3D;&quot;value&quot; [filter]&#x3D;&quot;true&quot;&gt;&lt;/p-select&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+
+                &lt;div class&#x3D;&quot;mt-auto pt-3 flex items-center justify-between&quot;&gt;
+                    @if (weeklyAssignments()[day.id]) {
+                        &lt;div class&#x3D;&quot;flex items-center gap-1.5&quot;&gt;
+                            &lt;div class&#x3D;&quot;w-2 h-2 rounded-full bg-brand-orange shadow-[0_0_8px_rgba(246,143,30,0.5)]&quot;&gt;&lt;/div&gt;
+                            &lt;span class&#x3D;&quot;text-[10px] font-black text-content-dim uppercase&quot;&gt;Configurada&lt;/span&gt;
+                        &lt;/div&gt;
+                    } @else {
+                        &lt;div class&#x3D;&quot;flex items-center gap-1.5&quot;&gt;
+                            &lt;div class&#x3D;&quot;w-2 h-2 rounded-full bg-warn shadow-[0_0_8px_rgba(234,179,8,0.5)]&quot;&gt;&lt;/div&gt;
+                            &lt;span class&#x3D;&quot;text-[10px] font-black text-content-dim uppercase italic&quot;&gt;Sin Asignar&lt;/span&gt;
+                        &lt;/div&gt;
+                    }
+                    &lt;p-button icon&#x3D;&quot;pi pi-ellipsis-h&quot; [text]&#x3D;&quot;true&quot; size&#x3D;&quot;small&quot; styleClass&#x3D;&quot;w-6 h-6 p-0 text-content-faint&quot;&gt;&lt;/p-button&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            }
+          &lt;/div&gt;
+        &lt;/div&gt;
+      } @else {
+        &lt;div class&#x3D;&quot;flex-1 flex flex-col items-center justify-center p-12 bg-[radial-gradient(circle_at_center,_var(--brand-10)_0%,_transparent_70%)]&quot;&gt;
+          &lt;div class&#x3D;&quot;w-24 h-24 rounded-3xl bg-brand/5 flex items-center justify-center mb-6 border border-brand/10&quot;&gt;
+            &lt;i class&#x3D;&quot;pi pi-users text-4xl text-brand/30&quot;&gt;&lt;/i&gt;
+          &lt;/div&gt;
+          &lt;h3 class&#x3D;&quot;font-black text-2xl text-content-main uppercase tracking-tighter mb-2&quot;&gt;Configuración Semanal&lt;/h3&gt;
+          &lt;p class&#x3D;&quot;text-xs text-center max-w-sm text-content-dim font-medium leading-relaxed&quot;&gt;Selecciona un colaborador del panel lateral para definir su ruta repetitiva por día de la semana.&lt;/p&gt;
+        &lt;/div&gt;
+      }
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;p-toast&gt;&lt;/p-toast&gt;
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="styleData">
+                <p class="comment">
+                    <code>./daily-assignments.component.css</code>
+                </p>
+                <pre class="line-numbers"><code class="language-scss">.member-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.member-card:hover {
+  transform: translateX(4px);
+  background: var(--surface-hover);
+}
+
+.active-member {
+  background: var(--brand-10) !important;
+  border-color: var(--brand-40) !important;
+  box-shadow: 0 4px 12px var(--brand-20);
+}
+
+.day-card {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-card {
+  background: var(--surface-card) !important;
+  border-color: var(--brand) !important;
+  box-shadow: 0 8px 24px var(--brand-10);
+  transform: scale(1.02);
+  z-index: 10;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--surface-border);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-40);
+}
+
+:host ::v-deep .p-select {
+  border-radius: 12px !important;
+  background: var(--surface-layout) !important;
+  border-color: var(--surface-border) !important;
+}
+
+:host ::v-deep .p-select:hover {
+  border-color: var(--brand-40) !important;
+}
+
+:host ::v-deep .p-select.p-focus {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 4px var(--brand-10) !important;
+}
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div><div class="p-4 sm:p-6 h-full flex flex-col">  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-4">    <div>      <h2 class="text-xl sm:text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-2">        <i class="pi pi-calendar-clock text-brand text-2xl sm:text-3xl"></i> Configuración de Semana Estándar      </h2>      <p class="text-xs font-medium text-content-dim tracking-wide uppercase">Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.</p>    </div>    <div class="bg-surface-card border border-surface-border px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">        <div class="text-xs font-black text-brand uppercase tracking-widest border-r border-surface-border pr-3">Equipos Activos</div>        <div class="flex -space-x-2">            @for (m of team().slice(0, 5); track m.id) {                <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-primary">                    {{ m.username.substring(0,1) | uppercase }}                </div>            }            @if (team().length > 5) {                <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-content-faint">                    +{{ team().length - 5 }}                </div>            }        </div>    </div>  </div>  <div class="flex flex-1 flex-col lg:flex-row gap-4 sm:gap-6 overflow-hidden min-h-0 lg:min-h-[500px]">    <!-- Left: Master / Members -->    <div class="w-full lg:w-80 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden max-h-[200px] lg:max-h-none">      <div class="p-4 border-b border-surface-border bg-surface-ground/30">        <div class="relative w-full">            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs"></i>            <input type="text" pInputText placeholder="Buscar colaborador..."                    class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-surface-border rounded-lg outline-none focus:border-brand transition-all" />        </div>      </div>      <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">        @for (member of team(); track member.id) {          <div (click)="selectMember(member)"               [class.active-member]="selectedMember()?.id === member.id"               class="member-card p-3 mb-2 rounded-xl cursor-pointer border border-transparent hover:bg-surface-hover transition-all flex items-center gap-3">            <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black shadow-sm group-hover:scale-105 transition-transform">              {{ member.username.substring(0,2) | uppercase }}            </div>            <div class="flex-1 min-w-0">              <div class="text-sm font-black text-content-main truncate">{{ member.nombre || member.username }}</div>              <div class="text-[9px] font-bold uppercase text-brand tracking-widest">{{ member.zona }}</div>            </div>            <i class="pi pi-chevron-right text-xs text-content-faint"></i>          </div>        }      </div>    </div>    <!-- Right: Detail / Weekly View -->    <div class="flex-1 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden relative">      @if (selectedMember()) {        <div class="p-4 border-b border-surface-border bg-gradient-to-r from-surface-ground/50 to-transparent flex justify-between items-center">            <div class="text-center">              <div class="text-sm font-black text-content-main uppercase tracking-[0.2em]">Semana de Trabajo Repetutiva</div>              <div class="flex items-center justify-center gap-2 mt-1">                <span class="w-2 h-2 rounded-full bg-brand animate-pulse"></span>                <span class="text-[9px] font-black text-brand uppercase tracking-widest">Configuración Maestra</span>              </div>            </div>        </div>        <!-- Selected Member Summary -->        <div class="px-6 py-4 bg-brand/[0.03] border-b border-surface-border flex items-center gap-4">            <div class="flex flex-col">                <span class="text-xs font-black uppercase tracking-tighter text-content-faint">Gestionando agenda de:</span>                <span class="text-lg font-black text-content-main">{{ selectedMember()?.nombre || selectedMember()?.username }}</span>            </div>            <div class="h-8 w-[1px] bg-surface-border"></div>            <div class="flex flex-col">                <span class="text-xs font-black uppercase tracking-tighter text-content-faint">Zona de Trabajo:</span>                <span class="text-sm font-bold text-brand uppercase tracking-widest">{{ selectedMember()?.zona }}</span>            </div>        </div>        <div class="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">            @for (day of days; track day.id) {              <div class="day-card bg-surface-ground/20 border border-surface-border rounded-2xl p-4 flex flex-col gap-4 hover:border-brand/30 transition-all"                   [class.today-card]="getTodayNumber() === day.id">                <div class="flex justify-between items-start pb-3 border-b border-surface-border/50">                  <div class="flex flex-col">                    <span class="text-[11px] font-black uppercase tracking-[0.2em] text-brand">Día de la Semana</span>                    <span class="text-2xl font-black text-content-main">{{ day.label }}</span>                  </div>                  @if (getTodayNumber() === day.id) {                    <div class="bg-brand text-brand-contrast text-[8px] font-black px-2 py-0.5 rounded-full tracking-widest">ESTE DÍA</div>                  }                </div>                                <div class="space-y-3">                  <div>                    <label class="text-[9px] font-black text-content-faint uppercase tracking-widest mb-1 block">Ruta del día</label>                    <p-select [options]="routes()"                                 [(ngModel)]="weeklyAssignments()[day.id]"                                (onChange)="saveAssignment(day.id, $event.value)"                                placeholder="SIN RUTA" class="w-full" styleClass="w-full text-xs font-bold rounded-xl"                                optionLabel="label" optionValue="value" [filter]="true"></p-select>                  </div>                </div>                <div class="mt-auto pt-3 flex items-center justify-between">                    @if (weeklyAssignments()[day.id]) {                        <div class="flex items-center gap-1.5">                            <div class="w-2 h-2 rounded-full bg-brand-orange shadow-[0_0_8px_rgba(246,143,30,0.5)]"></div>                            <span class="text-[10px] font-black text-content-dim uppercase">Configurada</span>                        </div>                    } @else {                        <div class="flex items-center gap-1.5">                            <div class="w-2 h-2 rounded-full bg-warn shadow-[0_0_8px_rgba(234,179,8,0.5)]"></div>                            <span class="text-[10px] font-black text-content-dim uppercase italic">Sin Asignar</span>                        </div>                    }                    <p-button icon="pi pi-ellipsis-h" [text]="true" size="small" styleClass="w-6 h-6 p-0 text-content-faint"></p-button>                </div>              </div>            }          </div>        </div>      } @else {        <div class="flex-1 flex flex-col items-center justify-center p-12 bg-[radial-gradient(circle_at_center,_var(--brand-10)_0%,_transparent_70%)]">          <div class="w-24 h-24 rounded-3xl bg-brand/5 flex items-center justify-center mb-6 border border-brand/10">            <i class="pi pi-users text-4xl text-brand/30"></i>          </div>          <h3 class="font-black text-2xl text-content-main uppercase tracking-tighter mb-2">Configuración Semanal</h3>          <p class="text-xs text-center max-w-sm text-content-dim font-medium leading-relaxed">Selecciona un colaborador del panel lateral para definir su ruta repetitiva por día de la semana.</p>        </div>      }    </div>  </div></div><p-toast></p-toast></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'DailyAssignmentsComponent'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'DailyAssignmentsComponent.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>

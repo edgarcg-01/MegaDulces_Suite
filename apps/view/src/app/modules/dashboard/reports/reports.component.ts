@@ -46,6 +46,9 @@ import {
 import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
 import { Permission } from '../../../core/constants/permissions';
 
+/**
+ * Interfaz para agrupar visitas por día
+ */
 interface DayGroup {
   id: string;
   fecha: string;
@@ -58,6 +61,9 @@ interface DayGroup {
   selected: boolean;
 }
 
+/**
+ * Interfaz para secciones del PDF
+ */
 interface PdfSection {
   id: string;
   label: string;
@@ -102,6 +108,10 @@ interface PdfSection {
     `,
   ],
 })
+/**
+ * Componente principal de reportes y análisis de métricas
+ * Muestra KPIs, gráficas y tablas de visitas individuales
+ */
 export class ReportsComponent implements OnInit {
   private reportsService = inject(ReportsService);
   private auth = inject(AuthService);
@@ -111,29 +121,48 @@ export class ReportsComponent implements OnInit {
   readonly metasConfig = inject(MetasConfigService);
   private dailyCaptureService = inject(DailyCaptureService);
 
+  /** Estado de carga */
   loading = signal(false);
+  /** Datos de reportes */
   reportsData = signal<ReportsData | null>(null);
+  /** Texto de búsqueda */
   searchText = '';
+  /** Filas expandidas en la tabla */
   expandedRows: { [key: string]: boolean } = {};
+  /** Fila seleccionada */
   selectedRow: any = null;
+  /** Muestra el diálogo de detalle */
   showDetail = false;
+  /** Muestra el constructor de PDF */
   showPdfBuilder = false;
+  /** Muestra el diálogo de comparación */
   showComparison = false;
+  /** Muestra el diálogo de reporte de rutas */
   showRouteReportDialog = false;
+  /** Muestra la vista previa de imagen */
   showImagePreview = false;
+  /** URL de imagen para vista previa */
   previewImageUrl = '';
+  /** Usuarios seleccionados para reporte de rutas */
   selectedRouteUsers: string[] = [];
+  /** Fecha del reporte de rutas */
   routeReportDate: string = '';
+  /** Usuarios disponibles */
   availableUsers = signal<any[]>([]);
 
-  // Verificar si el usuario es supervisor (para selección de usuarios en reporte de rutas)
+  /**
+   * Verifica si el usuario es supervisor
+   * @returns true si el usuario es superadmin o supervisor_m
+   */
   isSupervisor = computed(() => {
     const user = this.auth.user();
     if (!user) return false;
     return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
   });
 
+  /** Título del PDF */
   pdfTitle = 'Reporte de mercadeo';
+  /** Secciones disponibles para el PDF */
   pdfSections: PdfSection[] = [
     { id: 'metrics', label: 'Resumen de métricas', checked: true },
     { id: 'trend', label: 'Gráfica de tendencia', checked: true },
@@ -143,21 +172,35 @@ export class ReportsComponent implements OnInit {
   ];
 
   // Modal de metas (solo superadmin y supervisor_m)
+  /** Muestra el diálogo de configuración de metas */
   showMetasDialog = false;
+  /** Mobiliario editable */
   editableFurniture = [...this.metasConfig.furniture()].map((f) => ({ ...f }));
+  /** Rangos de KPI editables */
   editableKpi = [...this.metasConfig.kpiRanges()].map((k) => ({ ...k }));
 
-  // Verificar si el usuario puede editar metas
+  /**
+   * Verifica si el usuario puede editar metas
+   * @returns true si el usuario es superadmin o supervisor_m
+   */
   canEditMetas = computed(() => {
     const user = this.auth.user();
     if (!user) return false;
     return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
   });
 
+  /**
+   * Verifica si el usuario puede gestionar reportes
+   * @returns true si el usuario tiene permiso para gestionar reportes
+   */
   canManageReports = computed(() => {
     return this.auth.hasPermission(Permission.REPORTES_GESTIONAR);
   });
 
+  /**
+   * Muestra el diálogo de confirmación para eliminar un reporte
+   * @param report Reporte a eliminar
+   */
   confirmDelete(report: any) {
     this.confirmationService.confirm({
       message: `¿Estás seguro de que deseas eliminar permanentemente el reporte con folio <b>${report.folio}</b>? Esta acción no se puede deshacer.`,
@@ -173,6 +216,10 @@ export class ReportsComponent implements OnInit {
     });
   }
 
+  /**
+   * Elimina un reporte por su ID
+   * @param id ID del reporte a eliminar
+   */
   private deleteReport(id: string) {
     this.loading.set(true);
     this.reportsService.deleteReport(id).subscribe({
@@ -206,45 +253,78 @@ export class ReportsComponent implements OnInit {
     });
   }
 
+  /** Datos de la gráfica principal */
   chartData: any;
+  /** Opciones de la gráfica principal */
   chartOptions: any;
+  /** Datos de la gráfica de zonas */
   zoneChartData: any;
+  /** Opciones de la gráfica de zonas */
   zoneChartOptions: any;
+  /** Datos de la gráfica de vendedores */
   sellerChartData: any;
+  /** Opciones de la gráfica horizontal */
   horizontalChartOptions: any;
+  /** Datos de la distribución de scores */
   scoreDistData: any;
+  /** Opciones de la distribución de scores */
   scoreDistOptions: any;
   // Nueva gráfica apilada moderna tipo PrimeNG
+  /** Datos de la gráfica apilada */
   stackedChartData: any;
+  /** Opciones de la gráfica apilada */
   stackedChartOptions: any;
   // Gráficas adicionales de PrimeNG
-  doughnutChartData: any; // Distribución porcentual de visitas por score
+  /** Datos de la gráfica de doughnut */
+  doughnutChartData: any;
+  /** Opciones de la gráfica de doughnut */
   doughnutChartOptions: any;
-  radarChartData: any; // Comparación multivariable de KPIs por zona
+  /** Datos de la gráfica radar */
+  radarChartData: any;
+  /** Opciones de la gráfica radar */
   radarChartOptions: any;
-  polarAreaChartData: any; // Distribución de calidad de visitas
+  /** Datos de la gráfica polar area */
+  polarAreaChartData: any;
+  /** Opciones de la gráfica polar area */
   polarAreaChartOptions: any;
-  scatterChartData: any; // Correlación entre score y ventas
+  /** Datos de la gráfica scatter */
+  scatterChartData: any;
+  /** Opciones de la gráfica scatter */
   scatterChartOptions: any;
   // Gráfica de línea movida desde Home (Ejecución semanal vs meta)
+  /** Datos de la gráfica de línea */
   lineChartData: any;
+  /** Opciones de la gráfica de línea */
   lineChartOptions: any;
 
   // Propiedades para filtrado de productos
+  /** Marca seleccionada para filtrar productos */
   selectedBrand: string | null = null;
+  /** Marcas disponibles */
   availableBrands: any[] = [];
+  /** Estadísticas de productos sin filtrar */
   allProductStatsRaw: any[] = [];
 
   // Analysis de Productos
+  /** Datos de la gráfica de productos top */
   productTopChartData: any;
+  /** Productos más frecuentes */
   topProducts: any[] = [];
+  /** Productos menos frecuentes */
   bottomProducts: any[] = [];
+  /** Indica si se han procesado las estadísticas de productos */
   productStatsProcessed: boolean = false;
-  
+
   // Nuevas Métricas
+  /** Datos de la gráfica de salud de exhibidores */
   exhibidoresHealthChartData: any;
+  /** Productos con mayor faltante */
   topFaltantes: any[] = [];
 
+  /**
+   * Agrupa las filas de visitas por fecha
+   * @returns Lista de grupos de días con estadísticas
+   */
   groupedRows = computed<DayGroup[]>(() => {
     const data = this.reportsData();
     if (!data?.rows) return [];
@@ -388,11 +468,17 @@ export class ReportsComponent implements OnInit {
     });
   });
 
+  /**
+   * Inicializa el componente cargando las opciones de gráficas y datos
+   */
   ngOnInit() {
     this.initChartOptions();
     this.loadData();
   }
 
+  /**
+   * Carga los datos de reportes aplicando los filtros actuales
+   */
   loadData() {
     const f = this.filtersState.filters();
     if (!f.startDate) return;
@@ -416,10 +502,17 @@ export class ReportsComponent implements OnInit {
       });
   }
 
+  /**
+   * Reseta todos los filtros (llamado por GlobalFiltersComponent)
+   */
   resetAll() {
     // El GlobalFiltersComponent llama a reset() y emite filtersChanged
   }
 
+  /**
+   * Construye todas las gráficas con los datos de reportes
+   * @param data Datos de reportes
+   */
   buildCharts(data: ReportsData) {
     const visitasMeta = this.metasConfig.getRange('visitas')?.opt ?? 50;
     const scoreMeta = this.metasConfig.getRange('score')?.opt ?? 80;

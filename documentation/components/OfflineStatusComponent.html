@@ -1,0 +1,1345 @@
+<!doctype html>
+<html class="no-js" lang="">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="x-ua-compatible" content="ie=edge">
+        <title>trade-marketing-monorepo documentation</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <link rel="icon" type="image/x-icon" href="../images/favicon.ico">
+	   <link rel="stylesheet" href="../styles/style.css">
+        <link rel="stylesheet" href="../styles/dark.css">
+    </head>
+    <body>
+          <script>
+               // Blocking script to avoid flickering dark mode
+               // Dark mode toggle button
+               var useDark = window.matchMedia('(prefers-color-scheme: dark)');
+               var darkModeState = useDark.matches;
+               var $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               var $darkModeToggles = document.querySelectorAll('.dark-mode-switch');
+               var darkModeStateLocal = localStorage.getItem('compodoc_darkmode-state');
+
+               function checkToggle(check) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].checked = check;
+                    }
+               }
+
+               function toggleDarkMode(state) {
+                    if (window.localStorage) {
+                         localStorage.setItem('compodoc_darkmode-state', state);
+                    }
+
+                    checkToggle(state);
+
+                    const hasClass = document.body.classList.contains('dark');
+
+                    if (state) {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.add('dark');
+                         }
+                         if (!hasClass) {
+                              document.body.classList.add('dark');
+                         }
+                    } else {
+                         for (var i = 0; i < $darkModeToggles.length; i++) {
+                              $darkModeToggles[i].classList.remove('dark');
+                         }
+                         if (hasClass) {
+                              document.body.classList.remove('dark');
+                         }
+                    }
+               }
+
+               useDark.addEventListener('change', function (evt) {
+                    toggleDarkMode(evt.matches);
+               });
+               if (darkModeStateLocal) {
+                    darkModeState = darkModeStateLocal === 'true';
+               }
+               toggleDarkMode(darkModeState);
+          </script>
+          <script>
+              // --- Iframe navigation tracking for Template Playground ---
+              function sendCurrentUrlToParent() {
+                  if (window.parent && window.parent !== window) {
+                      window.parent.postMessage({
+                          type: 'compodoc-iframe-navigate',
+                          url: window.location.pathname + window.location.hash
+                      }, '*');
+                  }
+              }
+              window.addEventListener('hashchange', sendCurrentUrlToParent, false);
+              window.addEventListener('popstate', sendCurrentUrlToParent, false);
+              window.addEventListener('DOMContentLoaded', sendCurrentUrlToParent, false);
+          </script>
+
+        <div class="navbar navbar-default navbar-fixed-top d-md-none p-0">
+               <div class="d-flex">
+                    <a href="../" class="navbar-brand">trade-marketing-monorepo documentation</a>
+                    <button type="button" class="btn btn-default btn-menu ion-ios-menu" id="btn-menu"></button>
+               </div>
+        </div>
+
+        <div class="xs-menu menu" id="mobile-menu">
+                <div id="book-search-input" role="search"><input type="text" placeholder="Type to search"></div>            <compodoc-menu></compodoc-menu>
+        </div>
+
+        <div class="container-fluid main">
+           <div class="row main">
+               <div class="d-none d-md-block menu">
+                   <compodoc-menu mode="normal"></compodoc-menu>
+               </div>
+               <!-- START CONTENT -->
+               <div class="content component">
+                   <div class="content-data">
+
+
+
+
+
+
+
+
+<ol class="breadcrumb">
+  <li class="breadcrumb-item">Components</li>
+  <li class="breadcrumb-item"
+  >
+  OfflineStatusComponent</li>
+</ol>
+
+<ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a href="#info" class="nav-link active"
+                role="tab" id="info-tab" data-bs-toggle="tab" data-link="info">Info</a>
+        </li>
+        <li class="nav-item">
+            <a href="#templateData" class="nav-link"
+                role="tab" id="templateData-tab" data-bs-toggle="tab" data-link="template">Template</a>
+        </li>
+        <li class="nav-item">
+            <a href="#styleData" class="nav-link"
+                role="tab" id="styleData-tab" data-bs-toggle="tab" data-link="style">Styles</a>
+        </li>
+        <li class="nav-item">
+            <a href="#tree" class="nav-link"
+                role="tab" id="tree-tab" data-bs-toggle="tab" data-link="dom-tree">DOM Tree</a>
+        </li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade active in" id="info"><p class="comment">
+    <h3>File</h3>
+</p>
+<p class="comment">
+    <code>apps/view/src/app/shared/components/offline-status/offline-status.component.ts</code>
+</p>
+
+
+
+
+    <p class="comment">
+        <h3>Implements</h3>
+    </p>
+    <p class="comment">
+                    <code><a href="https://angular.io/api/core/OnInit" target="_blank" >OnInit</a></code>
+                    <code><a href="https://angular.io/api/core/OnDestroy" target="_blank" >OnDestroy</a></code>
+    </p>
+
+
+<section data-compodoc="block-metadata">
+    <h3>Metadata</h3>
+    <table class="table table-sm table-hover metadata">
+        <tbody>
+
+
+
+
+
+
+
+
+
+
+
+
+            <tr>
+                <td class="col-md-3">selector</td>
+                <td class="col-md-9"><code>app-offline-status</code></td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">styleUrls</td>
+                <td class="col-md-9"><code>./offline-status.component.scss</code></td>
+            </tr>
+
+
+
+            <tr>
+                <td class="col-md-3">templateUrl</td>
+                <td class="col-md-9"><code>./offline-status.component.html</code></td>
+            </tr>
+
+
+
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-index">
+    <h3 id="index">Index</h3>
+    <table class="table table-sm table-bordered index-table">
+        <tbody>
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Properties</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                <a href="#catalogosActualizados" >catalogosActualizados</a>
+                            </li>
+                            <li>
+                                <a href="#gpsDisponible" >gpsDisponible</a>
+                            </li>
+                            <li>
+                                <a href="#isOffline" >isOffline</a>
+                            </li>
+                            <li>
+                                <a href="#isOnline" >isOnline</a>
+                            </li>
+                            <li>
+                                <a href="#isSynchronizing" >isSynchronizing</a>
+                            </li>
+                            <li>
+                                <a href="#showDetails" >showDetails</a>
+                            </li>
+                            <li>
+                                <a href="#tiendasOffline" >tiendasOffline</a>
+                            </li>
+                            <li>
+                                <a href="#ultimaSincronizacion" >ultimaSincronizacion</a>
+                            </li>
+                            <li>
+                                <a href="#visitasPendientes" >visitasPendientes</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                        <h6><b>Methods</b></h6>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <ul class="index-list">
+                            <li>
+                                    <span class="modifier">Async</span>
+                                <a href="#forzarSincronizacion" >forzarSincronizacion</a>
+                            </li>
+                            <li>
+                                <a href="#getStatusColor" >getStatusColor</a>
+                            </li>
+                            <li>
+                                <a href="#getStatusIcon" >getStatusIcon</a>
+                            </li>
+                            <li>
+                                <a href="#getStatusText" >getStatusText</a>
+                            </li>
+                            <li>
+                                <a href="#getUltimaSincronizacionText" >getUltimaSincronizacionText</a>
+                            </li>
+                            <li>
+                                    <span class="modifier">Async</span>
+                                <a href="#limpiarDatosOffline" >limpiarDatosOffline</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnDestroy" >ngOnDestroy</a>
+                            </li>
+                            <li>
+                                <a href="#ngOnInit" >ngOnInit</a>
+                            </li>
+                            <li>
+                                <a href="#toggleDetails" >toggleDetails</a>
+                            </li>
+                        </ul>
+                    </td>
+                </tr>
+
+
+
+
+
+        </tbody>
+    </table>
+</section>
+
+    <section data-compodoc="block-constructor">
+    <h3 id="constructor">Constructor</h3>
+        <table class="table table-sm table-bordered">
+            <tbody>
+                <tr>
+                    <td class="col-md-4">
+<code>constructor(offlineService: <a href="../injectables/OfflineDailyCaptureService.html" target="_self">OfflineDailyCaptureService</a>, syncService: <a href="../injectables/OfflineSyncService.html" target="_self">OfflineSyncService</a>)</code>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td class="col-md-4">
+                            <div>
+                                    <b>Parameters :</b>
+                                    <table class="params">
+                                        <thead>
+                                            <tr>
+                                                <td>Name</td>
+                                                    <td>Type</td>
+                                                <td>Optional</td>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                                <tr>
+                                                        <td>offlineService</td>
+                                                  
+                                                        <td>
+                                                                        <code><a href="../injectables/OfflineDailyCaptureService.html" target="_self" >OfflineDailyCaptureService</a></code>
+                                                        </td>
+                                                  
+                                                    <td>
+                                                            No
+                                                    </td>
+                                                    
+                                                </tr>
+                                                <tr>
+                                                        <td>syncService</td>
+                                                  
+                                                        <td>
+                                                                        <code><a href="../injectables/OfflineSyncService.html" target="_self" >OfflineSyncService</a></code>
+                                                        </td>
+                                                  
+                                                    <td>
+                                                            No
+                                                    </td>
+                                                    
+                                                </tr>
+                                        </tbody>
+                                    </table>
+                            </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+</section>
+
+
+
+
+
+    <section data-compodoc="block-methods">
+    
+    <h3 id="methods">
+        Methods
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="forzarSincronizacion"></a>
+                    <span class="name">
+                            <span class="modifier">Async</span>
+                        <span ><b>forzarSincronizacion</b></span>
+                        <a href="#forzarSincronizacion"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+                        <span class="modifier-icon icon ion-ios-reset"></span>
+                    <code>forzarSincronizacion()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>    <code>Promise&lt;void&gt;</code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getStatusColor"></a>
+                    <span class="name">
+                        <span ><b>getStatusColor</b></span>
+                        <a href="#getStatusColor"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getStatusColor()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getStatusIcon"></a>
+                    <span class="name">
+                        <span ><b>getStatusIcon</b></span>
+                        <a href="#getStatusIcon"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getStatusIcon()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getStatusText"></a>
+                    <span class="name">
+                        <span ><b>getStatusText</b></span>
+                        <a href="#getStatusText"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getStatusText()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="getUltimaSincronizacionText"></a>
+                    <span class="name">
+                        <span ><b>getUltimaSincronizacionText</b></span>
+                        <a href="#getUltimaSincronizacionText"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>getUltimaSincronizacionText()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/string" target="_blank" >string</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="limpiarDatosOffline"></a>
+                    <span class="name">
+                            <span class="modifier">Async</span>
+                        <span ><b>limpiarDatosOffline</b></span>
+                        <a href="#limpiarDatosOffline"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+                        <span class="modifier-icon icon ion-ios-reset"></span>
+                    <code>limpiarDatosOffline()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>    <code>Promise&lt;void&gt;</code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnDestroy"></a>
+                    <span class="name">
+                        <span ><b>ngOnDestroy</b></span>
+                        <a href="#ngOnDestroy"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnDestroy()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ngOnInit"></a>
+                    <span class="name">
+                        <span ><b>ngOnInit</b></span>
+                        <a href="#ngOnInit"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>ngOnInit()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="toggleDetails"></a>
+                    <span class="name">
+                        <span ><b>toggleDetails</b></span>
+                        <a href="#toggleDetails"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td class="col-md-4">
+<code>toggleDetails()</code>
+                </td>
+            </tr>
+
+
+
+
+            <tr>
+                <td class="col-md-4">
+
+                        <div class="io-description">
+                            <b>Returns : </b>        <code><a href="https://www.typescriptlang.org/docs/handbook/basic-types.html" target="_blank" >void</a></code>
+
+                        </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+    <section data-compodoc="block-properties">
+    
+    <h3 id="inputs">
+        Properties
+    </h3>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="catalogosActualizados"></a>
+                    <span class="name">
+                        <span ><b>catalogosActualizados</b></span>
+                        <a href="#catalogosActualizados"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="gpsDisponible"></a>
+                    <span class="name">
+                        <span ><b>gpsDisponible</b></span>
+                        <a href="#gpsDisponible"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isOffline"></a>
+                    <span class="name">
+                        <span ><b>isOffline</b></span>
+                        <a href="#isOffline"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isOnline"></a>
+                    <span class="name">
+                        <span ><b>isOnline</b></span>
+                        <a href="#isOnline"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>true</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="isSynchronizing"></a>
+                    <span class="name">
+                        <span ><b>isSynchronizing</b></span>
+                        <a href="#isSynchronizing"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="showDetails"></a>
+                    <span class="name">
+                        <span ><b>showDetails</b></span>
+                        <a href="#showDetails"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>unknown</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>false</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="tiendasOffline"></a>
+                    <span class="name">
+                        <span ><b>tiendasOffline</b></span>
+                        <a href="#tiendasOffline"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>0</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="ultimaSincronizacion"></a>
+                    <span class="name">
+                        <span ><b>ultimaSincronizacion</b></span>
+                        <a href="#ultimaSincronizacion"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>    <code>string | null</code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>null</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr>
+                <td class="col-md-4">
+                    <a name="visitasPendientes"></a>
+                    <span class="name">
+                        <span ><b>visitasPendientes</b></span>
+                        <a href="#visitasPendientes"><span class="icon ion-ios-link"></span></a>
+                    </span>
+                </td>
+            </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Type : </i>        <code><a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/number" target="_blank" >number</a></code>
+
+                    </td>
+                </tr>
+                <tr>
+                    <td class="col-md-4">
+                        <i>Default value : </i><code>0</code>
+                    </td>
+                </tr>
+
+
+        </tbody>
+    </table>
+</section>
+
+</div>
+
+
+
+    <div class="tab-pane fade " id="templateData">
+        <pre class="line-numbers"><code class="language-html">&lt;div class&#x3D;&quot;offline-status-container&quot;&gt;
+  &lt;!-- Estado principal --&gt;
+  &lt;div class&#x3D;&quot;status-bar&quot; [class]&#x3D;&quot;getStatusColor()&quot; (click)&#x3D;&quot;toggleDetails()&quot;&gt;
+    &lt;i [class]&#x3D;&quot;getStatusIcon()&quot;&gt;&lt;/i&gt;
+    &lt;span class&#x3D;&quot;status-text&quot;&gt;{{ getStatusText() }}&lt;/span&gt;
+    &lt;span class&#x3D;&quot;pending-count&quot; *ngIf&#x3D;&quot;visitasPendientes &gt; 0&quot;&gt;
+      {{ visitasPendientes }}
+    &lt;/span&gt;
+    &lt;i class&#x3D;&quot;pi pi-chevron-down toggle-icon&quot; [class.rotate]&#x3D;&quot;showDetails&quot;&gt;&lt;/i&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Detalles expandidos --&gt;
+  &lt;div class&#x3D;&quot;status-details&quot; *ngIf&#x3D;&quot;showDetails&quot;&gt;
+    &lt;div class&#x3D;&quot;detail-section&quot;&gt;
+      &lt;h4&gt;Estado de Conexión&lt;/h4&gt;
+      &lt;div class&#x3D;&quot;detail-item&quot;&gt;
+        &lt;i class&#x3D;&quot;pi&quot; [class]&#x3D;&quot;isOnline ? &#x27;pi-check-circle text-green-500&#x27; : &#x27;pi-times-circle text-red-500&#x27;&quot;&gt;&lt;/i&gt;
+        &lt;span&gt;{{ isOnline ? &#x27;En línea&#x27; : &#x27;Sin conexión&#x27; }}&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;detail-item&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-clock text-blue-500&quot;&gt;&lt;/i&gt;
+        &lt;span&gt;Última sincronización: {{ getUltimaSincronizacionText() }}&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class&#x3D;&quot;detail-section&quot; *ngIf&#x3D;&quot;isOffline || visitasPendientes &gt; 0&quot;&gt;
+      &lt;h4&gt;Datos Offline&lt;/h4&gt;
+      &lt;div class&#x3D;&quot;detail-item&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-shopping-bag text-purple-500&quot;&gt;&lt;/i&gt;
+        &lt;span&gt;Tiendas disponibles: {{ tiendasOffline }}&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;detail-item&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-database text-blue-500&quot;&gt;&lt;/i&gt;
+        &lt;span&gt;Catálogos actualizados: {{ catalogosActualizados ? &#x27;Sí&#x27; : &#x27;No&#x27; }}&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;detail-item&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-map-marker text-green-500&quot;&gt;&lt;/i&gt;
+        &lt;span&gt;GPS disponible: {{ gpsDisponible ? &#x27;Sí&#x27; : &#x27;No&#x27; }}&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class&#x3D;&quot;detail-item&quot; *ngIf&#x3D;&quot;visitasPendientes &gt; 0&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-exclamation-triangle text-orange-500&quot;&gt;&lt;/i&gt;
+        &lt;span&gt;Visitas pendientes: {{ visitasPendientes }}&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class&#x3D;&quot;actions-section&quot;&gt;
+      &lt;button 
+        pButton 
+        type&#x3D;&quot;button&quot;
+        class&#x3D;&quot;p-button-sm p-button-outlined mr-2&quot;
+        [disabled]&#x3D;&quot;isSynchronizing || !isOnline&quot;
+        (click)&#x3D;&quot;forzarSincronizacion()&quot;&gt;
+        &lt;i class&#x3D;&quot;pi&quot; [class]&#x3D;&quot;isSynchronizing ? &#x27;pi-spin pi-spinner&#x27; : &#x27;pi-refresh&#x27;&quot;&gt;&lt;/i&gt;
+        &lt;span class&#x3D;&quot;ml-2&quot;&gt;{{ isSynchronizing ? &#x27;Sincronizando...&#x27; : &#x27;Forzar Sincronización&#x27; }}&lt;/span&gt;
+      &lt;/button&gt;
+      
+      &lt;button 
+        pButton 
+        type&#x3D;&quot;button&quot;
+        class&#x3D;&quot;p-button-sm p-button-outlined p-button-danger&quot;
+        (click)&#x3D;&quot;limpiarDatosOffline()&quot;&gt;
+        &lt;i class&#x3D;&quot;pi pi-trash&quot;&gt;&lt;/i&gt;
+        &lt;span class&#x3D;&quot;ml-2&quot;&gt;Limpiar Datos&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Información adicional --&gt;
+    &lt;div class&#x3D;&quot;info-section&quot;&gt;
+      &lt;div class&#x3D;&quot;p-message p-message-info&quot;&gt;
+        &lt;ng-container *ngIf&#x3D;&quot;isOffline&quot;&gt;
+          Estás trabajando sin conexión. Los datos se guardarán localmente y se sincronizarán automáticamente cuando vuelvas a estar en línea.
+        &lt;/ng-container&gt;
+        &lt;ng-container *ngIf&#x3D;&quot;!isOffline &amp;&amp; visitasPendientes &gt; 0&quot;&gt;
+          Tienes visitas pendientes de sincronización. Se sincronizarán automáticamente o puedes forzar la sincronización manualmente.
+        &lt;/ng-container&gt;
+        &lt;ng-container *ngIf&#x3D;&quot;!isOffline &amp;&amp; visitasPendientes &#x3D;&#x3D;&#x3D; 0&quot;&gt;
+          Todos tus datos están sincronizados correctamente.
+        &lt;/ng-container&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="styleData">
+                <p class="comment">
+                    <code>./offline-status.component.scss</code>
+                </p>
+                <pre class="line-numbers"><code class="language-scss">.offline-status-container {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  max-width: 350px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  transition: all 0.3s ease;
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border-bottom: 1px solid #f0f0f0;
+
+    &amp;:hover {
+      background-color: #f8f9fa;
+    }
+
+    i:first-child {
+      margin-right: 8px;
+      font-size: 16px;
+    }
+
+    .status-text {
+      flex: 1;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .pending-count {
+      background: #ff6b6b;
+      color: white;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+
+    .toggle-icon {
+      transition: transform 0.3s ease;
+      font-size: 12px;
+      opacity: 0.7;
+
+      &amp;.rotate {
+        transform: rotate(180deg);
+      }
+    }
+  }
+
+  .status-details {
+    padding: 16px;
+    background: #fafafa;
+
+    .detail-section {
+      margin-bottom: 16px;
+
+      &amp;:last-child {
+        margin-bottom: 0;
+      }
+
+      h4 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+        border-bottom: 1px solid #e0e0e0;
+        padding-bottom: 4px;
+      }
+
+      .detail-item {
+        display: flex;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 13px;
+
+        i {
+          margin-right: 8px;
+          width: 16px;
+          text-align: center;
+        }
+
+        span {
+          color: #666;
+        }
+      }
+    }
+
+    .actions-section {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
+
+      button {
+        flex: 1;
+        font-size: 12px;
+        padding: 6px 12px;
+
+        &amp;:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+      }
+    }
+
+    .info-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
+
+      p-message {
+        font-size: 12px;
+        line-height: 1.4;
+      }
+    }
+  }
+}
+
+// Estados de color
+.text-green-500 {
+  color: #10b981 !important;
+}
+
+.text-orange-500 {
+  color: #f97316 !important;
+}
+
+.text-blue-500 {
+  color: #3b82f6 !important;
+}
+
+.text-yellow-500 {
+  color: #eab308 !important;
+}
+
+.text-red-500 {
+  color: #ef4444 !important;
+}
+
+.text-purple-500 {
+  color: #a855f7 !important;
+}
+
+// Clases de utilidad
+.mr-2 {
+  margin-right: 8px;
+}
+
+.ml-2 {
+  margin-left: 8px;
+}
+
+// Estilos para mensajes de PrimeNG
+.p-message {
+  padding: 1rem;
+  border-radius: 6px;
+  margin: 0;
+
+  &amp;.p-message-info {
+    background: #e3f2fd;
+    border: 1px solid #bbdefb;
+    color: #0d47a1;
+  }
+}
+
+// Responsive design
+@media (max-width: 768px) {
+  .offline-status-container {
+    position: relative;
+    top: auto;
+    right: auto;
+    max-width: 100%;
+    margin: 10px;
+  }
+
+  .status-bar {
+    padding: 10px 12px;
+
+    .status-text {
+      font-size: 13px;
+    }
+  }
+
+  .status-details {
+    padding: 12px;
+
+    .actions-section {
+      flex-direction: column;
+
+      button {
+        width: 100%;
+      }
+    }
+  }
+}
+
+// Animaciones
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pi-spin {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+// Estados especiales
+.offline-mode {
+  .status-bar {
+    background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+    color: white;
+  }
+}
+
+.synchronizing {
+  .status-bar {
+    background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+    color: white;
+  }
+}
+
+.has-pending {
+  .status-bar {
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+    color: white;
+  }
+}
+
+.online-ok {
+  .status-bar {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+  }
+}
+</code></pre>
+    </div>
+
+    <div class="tab-pane fade " id="tree">
+        <div id="tree-container"></div>
+        <div class="tree-legend">
+            <div class="title">
+                <b>Legend</b>
+            </div>
+            <div>
+                <div class="color htmlelement"></div><span>Html element</span>
+            </div>
+            <div>
+                <div class="color component"></div><span>Component</span>
+            </div>
+            <div>
+                <div class="color directive"></div><span>Html element with directive</span>
+            </div>
+        </div>
+    </div>
+
+    
+</div>
+
+<script src="../js/libs/vis-network.min.js"></script>
+<script src="../js/libs/htmlparser.js"></script>
+<script src="../js/libs/deep-iterator.js"></script>
+<script>
+        var COMPONENT_TEMPLATE = '<div><div class="offline-status-container">  <!-- Estado principal -->  <div class="status-bar" [class]="getStatusColor()" (click)="toggleDetails()">    <i [class]="getStatusIcon()"></i>    <span class="status-text">{{ getStatusText() }}</span>    <span class="pending-count" *ngIf="visitasPendientes > 0">      {{ visitasPendientes }}    </span>    <i class="pi pi-chevron-down toggle-icon" [class.rotate]="showDetails"></i>  </div>  <!-- Detalles expandidos -->  <div class="status-details" *ngIf="showDetails">    <div class="detail-section">      <h4>Estado de Conexión</h4>      <div class="detail-item">        <i class="pi" [class]="isOnline ? \'pi-check-circle text-green-500\' : \'pi-times-circle text-red-500\'"></i>        <span>{{ isOnline ? \'En línea\' : \'Sin conexión\' }}</span>      </div>      <div class="detail-item">        <i class="pi pi-clock text-blue-500"></i>        <span>Última sincronización: {{ getUltimaSincronizacionText() }}</span>      </div>    </div>    <div class="detail-section" *ngIf="isOffline || visitasPendientes > 0">      <h4>Datos Offline</h4>      <div class="detail-item">        <i class="pi pi-shopping-bag text-purple-500"></i>        <span>Tiendas disponibles: {{ tiendasOffline }}</span>      </div>      <div class="detail-item">        <i class="pi pi-database text-blue-500"></i>        <span>Catálogos actualizados: {{ catalogosActualizados ? \'Sí\' : \'No\' }}</span>      </div>      <div class="detail-item">        <i class="pi pi-map-marker text-green-500"></i>        <span>GPS disponible: {{ gpsDisponible ? \'Sí\' : \'No\' }}</span>      </div>      <div class="detail-item" *ngIf="visitasPendientes > 0">        <i class="pi pi-exclamation-triangle text-orange-500"></i>        <span>Visitas pendientes: {{ visitasPendientes }}</span>      </div>    </div>    <div class="actions-section">      <button         pButton         type="button"        class="p-button-sm p-button-outlined mr-2"        [disabled]="isSynchronizing || !isOnline"        (click)="forzarSincronizacion()">        <i class="pi" [class]="isSynchronizing ? \'pi-spin pi-spinner\' : \'pi-refresh\'"></i>        <span class="ml-2">{{ isSynchronizing ? \'Sincronizando...\' : \'Forzar Sincronización\' }}</span>      </button>            <button         pButton         type="button"        class="p-button-sm p-button-outlined p-button-danger"        (click)="limpiarDatosOffline()">        <i class="pi pi-trash"></i>        <span class="ml-2">Limpiar Datos</span>      </button>    </div>    <!-- Información adicional -->    <div class="info-section">      <div class="p-message p-message-info">        <ng-container *ngIf="isOffline">          Estás trabajando sin conexión. Los datos se guardarán localmente y se sincronizarán automáticamente cuando vuelvas a estar en línea.        </ng-container>        <ng-container *ngIf="!isOffline && visitasPendientes > 0">          Tienes visitas pendientes de sincronización. Se sincronizarán automáticamente o puedes forzar la sincronización manualmente.        </ng-container>        <ng-container *ngIf="!isOffline && visitasPendientes === 0">          Todos tus datos están sincronizados correctamente.        </ng-container>      </div>    </div>  </div></div></div>'
+    var COMPONENTS = [{'name': 'AdminCatalogsComponent', 'selector': 'app-admin-catalogs'},{'name': 'AdminPlanogramaComponent', 'selector': 'app-admin-planograma'},{'name': 'AdminRolesPermissionsComponent', 'selector': 'app-admin-roles-permissions'},{'name': 'AdminScoringComponent', 'selector': 'app-admin-scoring'},{'name': 'AdminUsersComponent', 'selector': 'app-admin-users'},{'name': 'AppComponent', 'selector': 'app-root'},{'name': 'CapturesComponent', 'selector': 'app-daily-capture'},{'name': 'DailyAssignmentsComponent', 'selector': 'app-daily-assignments'},{'name': 'DashboardComponent', 'selector': 'app-dashboard'},{'name': 'ExhibitionsComponent', 'selector': 'app-exhibitions'},{'name': 'GlobalFiltersComponent', 'selector': 'app-global-filters'},{'name': 'HomeComponent', 'selector': 'app-dashboard'},{'name': 'LayoutComponent', 'selector': 'app-layout'},{'name': 'LoginComponent', 'selector': 'app-login'},{'name': 'OfflineStatusComponent', 'selector': 'app-offline-status'},{'name': 'ProjectsComponent', 'selector': 'app-projects'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'ReportsComponent', 'selector': 'app-reports'},{'name': 'StoresComponent', 'selector': 'app-stores'},{'name': 'VisitsComponent', 'selector': 'app-visits'}];
+    var DIRECTIVES = [{'name': 'HlmBadgeDirective', 'selector': '[hlmBadge]'},{'name': 'HlmButtonDirective', 'selector': '[hlmBtn]'},{'name': 'HlmInputDirective', 'selector': '[hlmInput]'},{'name': 'HlmLabelDirective', 'selector': 'label[hlmLabel]'}];
+    var ACTUAL_COMPONENT = {'name': 'OfflineStatusComponent'};
+</script>
+<script src="../js/tree.js"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   </div><div class="search-results">
+    <div class="has-results">
+        <h1 class="search-results-title"><span class='search-results-count'></span> results matching "<span class='search-query'></span>"</h1>
+        <ul class="search-results-list"></ul>
+    </div>
+    <div class="no-results">
+        <h1 class="search-results-title">No results matching "<span class='search-query'></span>"</h1>
+    </div>
+</div>
+</div>
+               <!-- END CONTENT -->
+           </div>
+       </div>
+
+          <label class="dark-mode-switch">
+               <input type="checkbox">
+               <span class="slider">
+                    <svg class="slider-icon" viewBox="0 0 24 24" fill="none" height="20" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" width="20" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+                    </svg>
+               </span>
+          </label>
+
+       <script>
+            var COMPODOC_CURRENT_PAGE_DEPTH = 1;
+            var COMPODOC_CURRENT_PAGE_CONTEXT = 'component';
+            var COMPODOC_CURRENT_PAGE_URL = 'OfflineStatusComponent.html';
+            var MAX_SEARCH_RESULTS = 15;
+       </script>
+
+       <script>
+               $darkModeToggleSwitchers = document.querySelectorAll('.dark-mode-switch input');
+               checkToggle(darkModeState);
+               if ($darkModeToggleSwitchers.length > 0) {
+                    for (var i = 0; i < $darkModeToggleSwitchers.length; i++) {
+                         $darkModeToggleSwitchers[i].addEventListener('change', function (event) {
+                              darkModeState = !darkModeState;
+                              toggleDarkMode(darkModeState);
+                         });
+                    }
+               }
+          </script>
+
+       <script src="../js/libs/custom-elements.min.js"></script>
+       <script src="../js/libs/lit-html.js"></script>
+
+       <script src="../js/menu-wc.js" defer></script>
+       <script nomodule src="../js/menu-wc_es5.js" defer></script>
+
+       <script src="../js/libs/bootstrap-native.js"></script>
+
+       <script src="../js/libs/es6-shim.min.js"></script>
+       <script src="../js/libs/EventDispatcher.js"></script>
+       <script src="../js/libs/promise.min.js"></script>
+
+       <script src="../js/compodoc.js"></script>
+
+       <script src="../js/tabs.js"></script>
+       <script src="../js/menu.js"></script>
+       <script src="../js/libs/clipboard.min.js"></script>
+       <script src="../js/libs/prism.js"></script>
+       <script src="../js/sourceCode.js"></script>
+          <script src="../js/search/search.js"></script>
+          <script src="../js/search/lunr.min.js"></script>
+          <script src="../js/search/search-lunr.js"></script>
+          <script src="../js/search/search_index.js"></script>
+       <script src="../js/lazy-load-graphs.js"></script>
+
+
+    </body>
+</html>
