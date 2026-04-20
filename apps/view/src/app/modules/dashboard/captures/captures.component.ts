@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit, OnDestroy, HostListener } from '@angular/core';
 import { Subscription, take } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -76,6 +76,17 @@ export class CapturesComponent implements OnInit, OnDestroy {
   // ── Initialization ───────────────────────────────────────────────────────
   ngOnInit() {
     this.svc.refreshAll();
+    // Bloquear scroll del body cuando el componente se inicializa
+    this.lockBodyScroll();
+  }
+
+  ngOnDestroy() {
+    // Cleanup subscription when component is destroyed
+    if (this.saveSubscription) {
+      this.saveSubscription.unsubscribe();
+    }
+    // Restaurar scroll del body cuando el componente se destruye
+    this.unlockBodyScroll();
   }
 
   // ── Constants & Catalogs ──────────────────────────────────────────────────
@@ -94,6 +105,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
   wizardStep = 1;
   searchQuery = signal<string>('');
   showSearchInput = false;
+  showMoreProducts = false;
 
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
     productosMarcados: [],
@@ -109,14 +121,19 @@ export class CapturesComponent implements OnInit, OnDestroy {
   filteredProducts = computed(() => {
     const query = this.searchQuery().toLowerCase();
     const allProducts = this.svc.groupedProducts();
-    
+
     if (!query) return [];
-    
+
+    // Normalizar query para ignorar acentos
+    const normalizedQuery = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
     const results: Array<{ pid: string; name: string; brand: string }> = [];
-    
+
     for (const brand of allProducts) {
       for (const prod of brand.items) {
-        if (prod.name.toLowerCase().includes(query) || brand.marca.toLowerCase().includes(query)) {
+        const normalizedName = prod.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const normalizedBrand = brand.marca.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        if (normalizedName.includes(normalizedQuery) || normalizedBrand.includes(normalizedQuery)) {
           results.push({
             pid: prod.pid,
             name: prod.name,
@@ -125,8 +142,33 @@ export class CapturesComponent implements OnInit, OnDestroy {
         }
       }
     }
-    
+
     return results.slice(0, 20); // Limit to 20 results
+  });
+
+  filteredBrands = computed(() => {
+    const query = this.searchQuery().toLowerCase();
+    const allBrands = this.svc.groupedProducts();
+
+    if (!query) return allBrands;
+
+    // Normalizar query para ignorar acentos
+    const normalizedQuery = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    return allBrands.map(brand => {
+      // Filtrar productos dentro de cada marca según la búsqueda (ignorando acentos)
+      const filteredItems = brand.items.filter(prod => {
+        const normalizedName = prod.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const normalizedBrand = brand.marca.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        return normalizedName.includes(normalizedQuery) ||
+               normalizedBrand.includes(normalizedQuery);
+      });
+
+      return {
+        marca: brand.marca,
+        items: filteredItems
+      };
+    }).filter(brand => brand.items.length > 0); // Solo mostrar marcas que tienen productos después del filtro
   });
 
   statCards = computed(() => {
@@ -301,13 +343,6 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnDestroy() {
-    // Cleanup subscription when component is destroyed
-    if (this.saveSubscription) {
-      this.saveSubscription.unsubscribe();
-    }
-  }
-
   onCancelarVisita() {
     this.confirmSvc.confirm({
       message:
@@ -414,12 +449,63 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }));
   }
 
-  toggleProducto(pid: string, checked: boolean) {
+  toggleProducto(pid: string, checked?: boolean) {
     this.currentExhibicion.update((curr) => {
       const pm = curr.productosMarcados || [];
-      const updated = checked ? [...pm, pid] : pm.filter((id) => id !== pid);
+      // Si no se proporciona checked, calcular el nuevo estado
+      const newChecked = checked !== undefined ? checked : !pm.includes(pid);
+      const updated = newChecked ? [...pm, pid] : pm.filter((id) => id !== pid);
       return { ...curr, productosMarcados: updated };
     });
+  }
+
+  trackByMarca(index: number, brand: any): string {
+    return brand.marca;
+  }
+
+  trackByPid(index: number, prod: any): string {
+    return prod.pid;
+  }
+
+  isProductSelected(pid: string): boolean {
+    const pm = this.currentExhibicion().productosMarcados || [];
+    return pm.includes(pid);
+  }
+
+  // ── Body Scroll Control ──────────────────────────────────────────────────────
+  private bodyScrollPosition = 0;
+
+  lockBodyScroll() {
+    this.bodyScrollPosition = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${this.bodyScrollPosition}px`;
+    document.body.style.width = '100%';
+  }
+
+  unlockBodyScroll() {
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('position');
+    document.body.style.removeProperty('top');
+    document.body.style.removeProperty('width');
+    window.scrollTo(0, this.bodyScrollPosition);
+  }
+
+  @HostListener('touchmove', ['$event'])
+  onTouchMove(event: TouchEvent) {
+    // Detectar si el gesto es más horizontal que vertical
+    const touchStartX = event.touches[0].clientX;
+    const touchStartY = event.touches[0].clientY;
+    const touchMoveX = event.touches[1]?.clientX || touchStartX;
+    const touchMoveY = event.touches[1]?.clientY || touchStartY;
+
+    const deltaX = Math.abs(touchMoveX - touchStartX);
+    const deltaY = Math.abs(touchMoveY - touchStartY);
+
+    // Si el movimiento es más horizontal que vertical, prevenir el comportamiento por defecto
+    if (deltaX > deltaY && deltaX > 30) {
+      event.preventDefault();
+    }
   }
 
   isBrandFullySelected(brand: any): boolean {
