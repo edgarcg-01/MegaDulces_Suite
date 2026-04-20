@@ -209,7 +209,8 @@ export class ReportsService {
     const dailyTrend: Record<string, any> = {};
     const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
     const exhibidoresHealth = { optimo: 0, regular: 0, critico: 0 };
-    
+    const sellerProductStats: Record<string, Record<string, number>> = {}; // Productos por usuario
+
     // Collect all unique PIDs from exhibiciones for later mapping
     const allPIDsInExhibiciones = new Set<string>();
 
@@ -243,7 +244,7 @@ export class ReportsService {
         const conceptoId = ex.conceptoId || 'otros';
         const conceptoName = conceptoMap[conceptoId] || conceptoId;
         const productosMarcados = ex.productosMarcados || [];
-        
+
         const val = ex.nivelEjecucion;
         const isOptimo = val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80);
         const isRegular = val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50);
@@ -251,20 +252,30 @@ export class ReportsService {
         if (isOptimo) exhibidoresHealth.optimo++;
         else if (isRegular) exhibidoresHealth.regular++;
         else exhibidoresHealth.critico++;
-        
+
         productosMarcados.forEach((pid: string) => {
           if (!productStats[pid]) {
             productStats[pid] = { total: 0, exhibidores: {} };
           }
           productStats[pid].total += 1;
-          
+
           if (!productStats[pid].exhibidores[conceptoName]) {
             productStats[pid].exhibidores[conceptoName] = 0;
           }
           productStats[pid].exhibidores[conceptoName] += 1;
-          
+
           // Collect PID for later mapping
           allPIDsInExhibiciones.add(pid);
+
+          // Agregar productos por usuario
+          const userId = row.user_id || row.captured_by;
+          if (!sellerProductStats[userId]) {
+            sellerProductStats[userId] = {};
+          }
+          if (!sellerProductStats[userId][pid]) {
+            sellerProductStats[userId][pid] = 0;
+          }
+          sellerProductStats[userId][pid] += 1;
         });
       });
     });
@@ -343,6 +354,7 @@ export class ReportsService {
       productStats,
       productMap, // We send the mapping to the frontend
       exhibidoresHealth,
+      sellerProductStats, // Productos por usuario
       rows: rows.map((r) => ({
         ...r,
         stats: typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats,

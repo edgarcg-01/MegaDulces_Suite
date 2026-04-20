@@ -39,6 +39,8 @@ export interface ReportsData {
   productStats?: Record<string, { total: number; exhibidores: Record<string, number> }>;
   productMap?: Record<string, { name: string; brandName: string }>;
   exhibidoresHealth?: { optimo: number; regular: number; critico: number };
+  /** Productos movidos por cada usuario { userId: { productId: count } } */
+  sellerProductStats?: Record<string, Record<string, number>>;
 }
 
 @Injectable({

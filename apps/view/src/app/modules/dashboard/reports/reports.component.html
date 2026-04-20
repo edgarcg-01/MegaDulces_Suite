@@ -481,7 +481,49 @@
                 </p-table>
               </div>
             </div>
-            
+
+            <!-- Productos por Usuario -->
+            <div class="card-premium mt-6" *ngIf="sellerProductsByUser().length > 0">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h3 class="text-sm font-bold text-content-main">Productos por Ejecutivo</h3>
+                  <p class="text-[10px] text-content-muted mt-0.5">Productos movidos por cada usuario en el período seleccionado</p>
+                </div>
+              </div>
+              <div class="space-y-4">
+                <div *ngFor="let user of sellerProductsByUser()" class="bg-surface-ground rounded-xl border border-surface-border overflow-hidden">
+                  <div class="flex items-center justify-between p-3 bg-surface-card border-b border-surface-border">
+                    <div class="flex items-center gap-3">
+                      <div class="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center text-brand-700 font-bold text-sm">
+                        {{ user.username.charAt(0).toUpperCase() }}
+                      </div>
+                      <div>
+                        <div class="font-bold text-sm text-content-main">{{ user.username }}</div>
+                        <div class="text-[10px] text-content-muted">{{ user.totalProducts }} productos totales</div>
+                      </div>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-700 border border-brand-200">
+                      {{ user.products.length }} productos únicos
+                    </span>
+                  </div>
+                  <div class="p-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      <div *ngFor="let product of user.products.slice(0, 12)" class="flex items-center justify-between p-2 bg-surface-card rounded-lg border border-surface-border">
+                        <div class="flex-1 min-w-0">
+                          <div class="text-xs font-medium text-content-main truncate">{{ product.name }}</div>
+                          <div class="text-[9px] text-content-muted">{{ product.brandName }}</div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-full bg-surface-hover text-content-faint text-[10px] font-bold">{{ product.count }}</span>
+                      </div>
+                    </div>
+                    <div *ngIf="user.products.length > 12" class="text-center mt-2">
+                      <span class="text-[10px] text-content-muted italic">... y {{ user.products.length - 12 }} productos más</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
           
           <div *ngIf="!productStatsProcessed" class="pt-16 pb-8 text-center bg-surface-ground rounded-2xl border border-divider mt-4">

@@ -62,6 +62,7 @@ interface DropOption {
           [showClear]="true"
           placeholder="Todas"
           (onChange)="onZoneChange()"
+          (onClear)="onZoneClear()"
           class="w-full" />
       </div>
 
@@ -75,6 +76,7 @@ interface DropOption {
           [showClear]="true"
           placeholder="Todos"
           (onChange)="onSupervisorChange()"
+          (onClear)="onSupervisorClear()"
           class="w-full" />
       </div>
 
@@ -235,8 +237,20 @@ export class GlobalFiltersComponent implements OnInit {
     this.emit();
   }
 
+  onZoneClear() {
+    this.selectedZone = null;
+    this.filtersState.setZone(null);
+    this.emit();
+  }
+
   onSupervisorChange() {
     this.filtersState.setSupervisor(this.selectedSupervisorId);
+    this.emit();
+  }
+
+  onSupervisorClear() {
+    this.selectedSupervisorId = null;
+    this.filtersState.setSupervisor(null);
     this.emit();
   }
 

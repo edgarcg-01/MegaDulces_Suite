@@ -149,6 +149,47 @@ export class ReportsComponent implements OnInit {
   routeReportDate: string = '';
   /** Usuarios disponibles */
   availableUsers = signal<any[]>([]);
+  /** Productos por usuario procesados para mostrar */
+  sellerProductsByUser = computed(() => {
+    const data = this.reportsData();
+    if (!data?.sellerProductStats || !data?.productMap) return [];
+
+    const userMap = new Map();
+    const rows = data.rows || [];
+
+    // Mapear userId a username
+    rows.forEach((row: any) => {
+      if (row.user_id && row.captured_by_username) {
+        userMap.set(row.user_id, row.captured_by_username);
+      }
+    });
+
+    // Procesar productos por usuario
+    const result: Array<{
+      userId: string;
+      username: string;
+      products: Array<{ name: string; brandName: string; count: number }>;
+      totalProducts: number;
+    }> = [];
+
+    Object.entries(data.sellerProductStats).forEach(([userId, products]) => {
+      const username = userMap.get(userId) || userId;
+      const productList = Object.entries(products).map(([pid, count]) => ({
+        name: data.productMap?.[pid]?.name || pid,
+        brandName: data.productMap?.[pid]?.brandName || 'Otras',
+        count: count as number,
+      })).sort((a, b) => b.count - a.count);
+
+      result.push({
+        userId,
+        username,
+        products: productList,
+        totalProducts: productList.reduce((sum, p) => sum + p.count, 0),
+      });
+    });
+
+    return result.sort((a, b) => b.totalProducts - a.totalProducts);
+  });
 
   /**
    * Verifica si el usuario es supervisor
@@ -506,7 +547,7 @@ export class ReportsComponent implements OnInit {
    * Reseta todos los filtros (llamado por GlobalFiltersComponent)
    */
   resetAll() {
-    // El GlobalFiltersComponent llama a reset() y emite filtersChanged
+    this.loadData();
   }
 
   /**
