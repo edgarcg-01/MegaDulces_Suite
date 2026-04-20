@@ -15,3 +15,4 @@ jobs:
           # Reemplaza esta URL con la URL de tu app en Render
           curl -f https://trade-marketing-1.onrender.com/health || exit 1
           echo "Ping exitoso - App sigue activa"
+          echo "Timestamp: $(date)"
