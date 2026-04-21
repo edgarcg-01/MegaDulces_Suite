@@ -24,22 +24,22 @@
   </div>
 
   <!-- Banner de Ruta Asignada -->
-  <div *ngIf="svc.currentAssignment()" class="mb-6 bg-brand/10 border border-brand/20 p-4 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-4 duration-500">
-    <div class="flex items-center gap-4">
-        <div class="w-12 h-12 rounded-xl bg-brand/20 flex items-center justify-center text-brand">
-            <i class="pi pi-map text-xl"></i>
+  <div *ngIf="svc.currentAssignment()" class="mb-6 bg-brand/10 border border-brand/20 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+    <div class="flex items-center gap-3">
+        <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand/20 flex items-center justify-center text-brand shrink-0">
+            <i class="pi pi-map text-lg sm:text-xl"></i>
         </div>
-        <div>
-            <div class="text-xs font-black uppercase tracking-[0.2em] text-brand">Ruta Asignada para Hoy</div>
-            <div class="text-lg font-black text-content-main uppercase">{{ svc.currentAssignment().route_name }}</div>
+        <div class="min-w-0">
+            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand truncate">Ruta Asignada para Hoy</div>
+            <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.currentAssignment().route_name }}</div>
         </div>
     </div>
-    <div class="bg-surface-card px-4 py-2 rounded-xl border border-surface-border shadow-sm flex items-center gap-3">
+    <div class="bg-surface-card px-3 py-2 rounded-xl border border-surface-border shadow-sm flex items-center gap-3 self-start sm:self-auto">
         <div class="flex flex-col items-end">
-            <span class="text-[9px] font-black text-content-faint uppercase tracking-tighter">Progreso de Jornada</span>
-            <span class="text-sm font-black text-content-main">Visita #{{ visitaNumero() }}</span>
+            <span class="text-[8px] sm:text-[9px] font-black text-content-faint uppercase tracking-tighter">Progreso de Jornada</span>
+            <span class="text-xs sm:text-sm font-black text-content-main">Visita #{{ visitaNumero() }}</span>
         </div>
-        <div class="w-2 h-8 bg-brand/20 rounded-full overflow-hidden">
+        <div class="w-2 h-6 sm:h-8 bg-brand/20 rounded-full overflow-hidden">
             <div class="w-full bg-brand transition-all duration-1000" [style.height]="(visitaNumero() * 10) + '%'"></div>
         </div>
     </div>
@@ -65,13 +65,13 @@
       </div>
     </div>
 
-    <!-- Exhibidores Auditados -->
-    <div class="bg-surface-card border border-surface-border rounded-2xl shadow-sm overflow-hidden mb-6">
+    <!-- Exhibidores Auditados - Desktop Table -->
+    <div class="hidden md:block bg-surface-card border border-surface-border rounded-2xl shadow-sm overflow-hidden mb-6">
       <div class="p-4 border-b border-surface-border bg-surface-ground flex justify-between items-center">
         <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
         <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
       </div>
-      
+
       <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
         <ng-template pTemplate="header">
           <tr class="text-xs text-content-muted uppercase">
@@ -121,6 +121,45 @@
           </tr>
         </ng-template>
       </p-table>
+    </div>
+
+    <!-- Exhibidores Auditados - Mobile Cards -->
+    <div class="md:hidden space-y-3 mb-6">
+      <div class="p-3 bg-surface-card border border-surface-border rounded-2xl">
+        <div class="flex justify-between items-center mb-3">
+          <h3 class="font-bold text-content-main text-sm"><i class="pi pi-box mr-2 text-brand"></i>Exhibidores en esta Vista</h3>
+          <span class="text-[10px] font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
+        </div>
+        <div *ngIf="svc.activeExhibiciones().length === 0" class="text-center py-8 text-content-dim">
+          <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
+          <p class="text-xs">No se han auditado exhibidores</p>
+        </div>
+        <div *ngFor="let ex of svc.activeExhibiciones()" class="bg-surface-ground border border-surface-border rounded-xl p-3 mb-3 last:mb-0">
+          <div class="flex justify-between items-start mb-2">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-lg bg-surface-card border border-divider flex items-center justify-center text-xs text-content-faint">
+                <i [class]="getConceptIcon(ex.conceptoId)"></i>
+              </div>
+              <div>
+                <div class="text-xs font-black text-content-main uppercase">{{ getConceptNombre(ex.conceptoId) }}</div>
+                <div class="text-[10px] text-content-dim flex items-center gap-1">
+                  <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                </div>
+              </div>
+            </div>
+            <p-button icon="pi pi-trash" severity="danger" [text]="true" size="small" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
+          </div>
+          <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
+            <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : ex.nivelEjecucion === 'basico' ? 'warn' : 'danger'"
+                   [value]="ex.nivelEjecucion | uppercase" [rounded]="true" styleClass="text-[10px]"></p-tag>
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-bold font-mono text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
+              <span class="text-xs font-mono text-content-dim">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</span>
+              <i *ngIf="ex.fotoBase64" class="pi pi-image text-brand text-xs"></i>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Finalizar / Cancelar -->
@@ -311,14 +350,14 @@
           <p class="text-xs text-content-dim">Selecciona la ubicación exacta donde se encuentra el exhibidor que estás auditando. Esto ayuda a evaluar el impacto según la posición en la tienda.</p>
         </div>
 
-        <h4 class="font-bold text-content-main mb-2">1. ¿Dónde se encuentra la exhibición?</h4>
-        <div class="grid grid-cols-2 gap-3" *ngIf="configPosiciones().length > 0">
+        <h4 class="font-bold text-content-main mb-2 text-sm sm:text-base">1. ¿Dónde se encuentra la exhibición?</h4>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3" *ngIf="configPosiciones().length > 0">
           <div *ngFor="let ubi of configPosiciones()"
                (click)="onUbicacionSelect(ubi.id)"
-               class="p-4 border rounded-2xl text-center cursor-pointer transition-all border-surface-border hover:border-brand-orange bg-surface-ground flex flex-col gap-2 items-center"
+               class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl text-center cursor-pointer transition-all border-surface-border hover:border-brand-orange bg-surface-ground flex flex-col gap-2 items-center"
                [ngClass]="{'ring-2 ring-brand-orange bg-brand-light/30 font-bold border-brand-orange text-brand-sunset': currentExhibicion().ubicacionId === ubi.id}">
-            <i class="pi pi-directions text-lg opacity-40"></i>
-            {{ ubi.nombre }}
+            <i class="pi pi-directions text-base sm:text-lg opacity-40"></i>
+            <span class="text-xs sm:text-sm">{{ ubi.nombre }}</span>
           </div>
         </div>
 
@@ -338,71 +377,71 @@
           <p class="text-xs text-content-dim">Identifica el tipo de mueble o formato del exhibidor. Cada formato tiene un peso diferente en la evaluación de calidad.</p>
         </div>
 
-        <h4 class="font-bold text-content-main mb-2">2. Formato del Mueble</h4>
-        <div class="grid grid-cols-2 gap-3">
+        <h4 class="font-bold text-content-main mb-2 text-sm sm:text-base">2. Formato del Mueble</h4>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
             <div *ngFor="let tip of configTipos()"
                  (click)="onConceptoSelect(tip.id)"
-                 class="p-4 border rounded-2xl cursor-pointer transition-all border-divider bg-surface-layout flex items-center gap-4 hover:border-brand/40 group"
+                 class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl cursor-pointer transition-all border-divider bg-surface-layout flex items-center gap-3 sm:gap-4 hover:border-brand/40 group"
                  [ngClass]="{'ring-2 ring-brand bg-brand/5 !border-brand text-brand': currentExhibicion().conceptoId === tip.id}">
-              <div class="w-10 h-10 rounded-2xl bg-surface-card border border-divider flex items-center justify-center text-lg text-content-faint group-hover:text-brand transition-colors">
+              <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-surface-card border border-divider flex items-center justify-center text-base sm:text-lg text-content-faint group-hover:text-brand transition-colors shrink-0">
                 <i [class]="tip.icono"></i>
               </div>
-              <span class="text-xs font-black uppercase tracking-widest">{{ tip.nombre }}</span>
+              <span class="text-[11px] sm:text-xs font-black uppercase tracking-wider sm:tracking-widest truncate">{{ tip.nombre }}</span>
             </div>
         </div>
       </div>
 
       <!-- Step 3: Pertenece a Mega Dulces -->
-      <div *ngIf="wizardStep === 3" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div *ngIf="wizardStep === 3" class="space-y-3 sm:space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <!-- Inline Info Banner -->
-        <div class="flex items-center gap-2 p-3 bg-brand/5 border border-brand/20 rounded-2xl mb-4">
-          <i class="pi pi-info-circle text-brand text-sm"></i>
-          <p class="text-xs text-content-dim">Indica si este exhibidor pertenece a Mega Dulces. Esta información es importante para distinguir entre exhibidores propios y de la competencia.</p>
+        <div class="flex items-start gap-2 p-2 sm:p-3 bg-brand/5 border border-brand/20 rounded-xl sm:rounded-2xl mb-3 sm:mb-4">
+          <i class="pi pi-info-circle text-brand text-sm shrink-0 mt-0.5"></i>
+          <p class="text-[11px] sm:text-xs text-content-dim leading-tight">Indica si este exhibidor pertenece a Mega Dulces.</p>
         </div>
 
-        <h4 class="font-bold text-content-main mb-2">3. ¿Pertenece a Mega Dulces?</h4>
+        <h4 class="font-bold text-content-main mb-2 text-sm sm:text-base">3. ¿Pertenece a Mega Dulces?</h4>
         <div class="flex flex-col gap-2">
            <div (click)="onPerteneceMegaDulcesSelect(true)"
-                class="p-4 border rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
+                class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
                  [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().perteneceMegaDulces === true}">
-             <span class="uppercase tracking-wider text-sm">Sí, pertenece a Mega Dulces</span>
-             <i class="pi" [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+             <span class="uppercase tracking-wider text-xs sm:text-sm">Sí, pertenece a Mega Dulces</span>
+             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
            </div>
            <div (click)="onPerteneceMegaDulcesSelect(false)"
-                class="p-4 border rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
+                class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
                  [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().perteneceMegaDulces === false}">
-             <span class="uppercase tracking-wider text-sm">No, es de la competencia</span>
-             <i class="pi" [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+             <span class="uppercase tracking-wider text-xs sm:text-sm">No, es de la competencia</span>
+             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
            </div>
         </div>
       </div>
 
       <!-- Step 4: Nivel -->
-      <div *ngIf="wizardStep === 4" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div *ngIf="wizardStep === 4" class="space-y-3 sm:space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <!-- Inline Info Banner -->
-        <div class="flex items-center gap-2 p-3 bg-brand/5 border border-brand/20 rounded-2xl mb-4">
-          <i class="pi pi-info-circle text-brand text-sm"></i>
-          <p class="text-xs text-content-dim">Evalúa qué tan lleno y ordenado está el exhibidor. <strong>Bajo:</strong> espacios vacíos o a medio llenar. <strong>Alto:</strong> lleno solo con los dulces correctos.</p>
+        <div class="flex items-start gap-2 p-2 sm:p-3 bg-brand/5 border border-brand/20 rounded-xl sm:rounded-2xl mb-3 sm:mb-4">
+          <i class="pi pi-info-circle text-brand text-sm shrink-0 mt-0.5"></i>
+          <p class="text-[11px] sm:text-xs text-content-dim leading-tight"><strong>Bajo:</strong> espacios vacíos. <strong>Alto:</strong> lleno con dulces correctos.</p>
         </div>
 
-        <h4 class="font-bold text-content-main mb-2">4. Calidad de la Ejecución</h4>
+        <h4 class="font-bold text-content-main mb-2 text-sm sm:text-base">4. Calidad de la Ejecución</h4>
         <div class="flex flex-col gap-2">
            <div *ngFor="let niv of configNiveles()"
                 (click)="onNivelSelect(niv)"
-                class="p-4 border rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
+                class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
                  [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().nivelEjecucion === niv}">
-             <span class="uppercase tracking-wider text-sm">{{ niv }}</span>
-             <i class="pi" [ngClass]="currentExhibicion().nivelEjecucion === niv ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+             <span class="uppercase tracking-wider text-xs sm:text-sm">{{ niv }}</span>
+             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().nivelEjecucion === niv ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
            </div>
         </div>
       </div>
 
       <!-- Step 5: Productos -->
-      <div *ngIf="wizardStep === 5" class="flex flex-col h-full overscroll-behavior:contain" id="step-5-container">
+      <div *ngIf="wizardStep === 5" class="flex flex-col h-full overscroll-behavior:contain -mx-2 px-2" id="step-5-container">
         <!-- Inline Info Banner -->
-        <div class="flex items-center gap-2 p-3 bg-brand/5 border border-brand/20 rounded-2xl mb-4">
-          <i class="pi pi-info-circle text-brand text-sm"></i>
-          <p class="text-xs text-content-dim">Selecciona los productos presentes en el exhibidor. Organizados por marca.</p>
+        <div class="flex items-start gap-2 p-2 sm:p-3 bg-brand/5 border border-brand/20 rounded-xl sm:rounded-2xl mb-3 sm:mb-4">
+          <i class="pi pi-info-circle text-brand text-sm shrink-0 mt-0.5"></i>
+          <p class="text-[11px] sm:text-xs text-content-dim leading-tight">Selecciona los productos presentes en el exhibidor. Organizados por marca.</p>
         </div>
 
         <!-- Search Bar (Always Visible) -->
@@ -429,14 +468,15 @@
 
         <!-- Selected Products Display (Max 3 + Collapse) -->
         <div *ngIf="currentExhibicion() as exhibicion"
-             class="mb-4">
-          <div class="flex flex-wrap gap-2 p-3 bg-surface-ground rounded-2xl border border-surface-border">
+             class="mb-3 sm:mb-4">
+          <div class="flex flex-wrap gap-1.5 sm:gap-2 p-2 sm:p-3 bg-surface-ground rounded-xl sm:rounded-2xl border border-surface-border">
             <p-chip
               *ngFor="let pid of (exhibicion.productosMarcados?.slice(0, 3) || []); trackBy: trackByPid"
               [label]="getProductName(pid)"
               (onRemove)="removeProducto(pid)"
               removable="true"
-              class="bg-brand-light border-brand/30 text-brand-sunset touch-manipulation">
+              styleClass="text-xs"
+              class="bg-brand-light border-brand/30 text-brand-sunset touch-manipulation max-w-full">
             </p-chip>
             <button *ngIf="exhibicion.productosMarcados && exhibicion.productosMarcados.length > 3"
                     (click)="showMoreProducts = !showMoreProducts"
@@ -444,40 +484,41 @@
               +{{exhibicion.productosMarcados.length - 3}} más {{showMoreProducts ? '‹' : '›'}}
             </button>
             <div *ngIf="showMoreProducts && exhibicion.productosMarcados"
-                 class="flex flex-wrap gap-2 mt-2">
+                 class="flex flex-wrap gap-1.5 sm:gap-2 mt-2 w-full">
               <p-chip
                 *ngFor="let pid of (exhibicion.productosMarcados.slice(3)); trackBy: trackByPid"
                 [label]="getProductName(pid)"
                 (onRemove)="removeProducto(pid)"
                 removable="true"
-                class="bg-brand-light border-brand/30 text-brand-sunset touch-manipulation">
+                styleClass="text-xs"
+                class="bg-brand-light border-brand/30 text-brand-sunset touch-manipulation max-w-full">
               </p-chip>
             </div>
           </div>
         </div>
 
         <!-- Products by Brand with Checkboxes -->
-        <div class="flex-1 overflow-y-auto touch-action: pan-y space-y-4">
+        <div class="flex-1 overflow-y-auto touch-action: pan-y space-y-3 sm:space-y-4 pb-16">
           <div *ngFor="let brand of filteredBrands(); trackBy: trackByMarca"
-               class="border border-surface-border rounded-2xl overflow-hidden bg-surface-card">
+               class="border border-surface-border rounded-xl sm:rounded-2xl overflow-hidden bg-surface-card">
             <!-- Brand Header -->
-            <div class="px-4 py-3 bg-surface-ground border-b border-surface-border flex justify-between items-center">
-              <div class="flex items-center gap-3">
+            <div class="px-3 sm:px-4 py-2 sm:py-3 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+              <div class="flex items-center gap-2 sm:gap-3">
                 <p-checkbox
                   [ngModel]="isBrandFullySelected(brand)"
                   (onChange)="toggleBrandSelection(brand, $event.checked)"
                   binary="true"
                   [indeterminate]="isBrandPartiallySelected(brand)">
                 </p-checkbox>
-                <span class="font-bold text-content-main uppercase tracking-wider text-sm">{{brand.marca}}</span>
+                <span class="font-bold text-content-main uppercase tracking-wider text-xs sm:text-sm truncate">{{brand.marca}}</span>
               </div>
-              <span class="text-xs text-content-muted">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
+              <span class="text-[10px] sm:text-xs text-content-muted">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
             </div>
 
             <!-- Products Grid -->
-            <div class="p-3 grid grid-cols-1 gap-2 touch-action: pan-y">
+            <div class="p-2 sm:p-3 grid grid-cols-1 gap-1 sm:gap-2 touch-action: pan-y">
               <div *ngFor="let prod of brand.items; trackBy: trackByPid"
-                   class="flex items-center gap-3 p-2 rounded-2xl hover:bg-surface-ground transition-colors cursor-pointer touch-manipulation"
+                   class="flex items-center gap-2 sm:gap-3 p-2 rounded-xl sm:rounded-2xl hover:bg-surface-ground transition-colors cursor-pointer touch-manipulation"
                    (click)="toggleProducto(prod.pid)">
                 <p-checkbox
                   [ngModel]="isProductSelected(prod.pid)"
@@ -485,7 +526,7 @@
                   binary="true"
                   (click)="$event.stopPropagation()">
                 </p-checkbox>
-                <span class="text-sm text-content-main flex-1">{{prod.name}}</span>
+                <span class="text-xs sm:text-sm text-content-main flex-1 leading-tight">{{prod.name}}</span>
               </div>
             </div>
           </div>
@@ -503,38 +544,38 @@
 
         <!-- Sticky Footer -->
         <div *ngIf="currentExhibicion() as exhibicion"
-             class="sticky bottom-0 bg-surface-card border-t border-surface-border p-4 flex justify-between items-center shadow-lg z-10">
+             class="sticky -bottom-4 -mx-2 px-2 bg-surface-card border-t border-surface-border p-3 sm:p-4 flex justify-between items-center shadow-lg z-10">
           <div class="flex items-center gap-2">
-            <span class="text-sm text-content-dim">Seleccionados:</span>
-            <span class="text-lg font-bold text-brand-orange">{{exhibicion.productosMarcados?.length || 0}}</span>
+            <span class="text-xs sm:text-sm text-content-dim">Seleccionados:</span>
+            <span class="text-base sm:text-lg font-bold text-brand-orange">{{exhibicion.productosMarcados?.length || 0}}</span>
           </div>
-          <p-button label="Continuar →" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()"></p-button>
+          <p-button label="Continuar" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()" size="small" styleClass="text-xs sm:text-sm"></p-button>
         </div>
       </div>
 
       <!-- Step 6: Evidencia -->
-      <div *ngIf="wizardStep === 6" class="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div *ngIf="wizardStep === 6" class="space-y-3 sm:space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <!-- Inline Info Banner -->
-        <div class="flex items-center gap-2 p-3 bg-brand/5 border border-brand/20 rounded-2xl mb-4">
-          <i class="pi pi-info-circle text-brand text-sm"></i>
-          <p class="text-xs text-content-dim">Toma una fotografía del exhibidor como evidencia de la auditoría. Esta foto es obligatoria y sirve como comprobante de la ejecución.</p>
+        <div class="flex items-start gap-2 p-2 sm:p-3 bg-brand/5 border border-brand/20 rounded-xl sm:rounded-2xl mb-3 sm:mb-4">
+          <i class="pi pi-info-circle text-brand text-sm shrink-0 mt-0.5"></i>
+          <p class="text-[11px] sm:text-xs text-content-dim leading-tight">Foto obligatoria como evidencia de la ejecución.</p>
         </div>
 
-        <h4 class="font-bold text-content-main mb-2">6. Evidencia Fotográfica</h4>
+        <h4 class="font-bold text-content-main mb-2 text-sm sm:text-base">6. Evidencia Fotográfica</h4>
 
-        <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-2xl p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
+        <div *ngIf="!currentExhibicion().fotoBase64" class="border-2 border-dashed border-surface-border rounded-xl sm:rounded-2xl p-6 sm:p-10 text-center bg-surface-ground/50 hover:bg-surface-ground transition-all cursor-pointer relative shadow-inner">
            <input type="file" accept="image/*" capture="environment" (change)="onFileSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
-           <div class="w-16 h-16 bg-brand-orange text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-orange/30">
-              <i class="pi pi-camera text-2xl"></i>
+           <div class="w-12 h-12 sm:w-16 sm:h-16 bg-brand-orange text-white rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-lg shadow-brand-orange/30">
+              <i class="pi pi-camera text-xl sm:text-2xl"></i>
            </div>
-           <div class="text-sm font-bold text-content-main">Tomar Fotografía</div>
-           <p class="text-xs text-content-dim mt-2 italic">Requerido para auditoría técnica</p>
+           <div class="text-xs sm:text-sm font-bold text-content-main">Tomar Fotografía</div>
+           <p class="text-[10px] sm:text-xs text-content-dim mt-1 sm:mt-2 italic">Requerido para auditoría técnica</p>
         </div>
 
-        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-2xl border-4 border-surface-border shadow-xl overflow-hidden bg-black max-w-[280px] mx-auto">
-           <img [src]="currentExhibicion().fotoBase64" class="w-full h-64 object-cover">
-           <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center p-4">
-              <p-button icon="pi pi-trash" label="Cambiar Foto" severity="danger" size="small" (onClick)="removeFoto()"></p-button>
+        <div *ngIf="currentExhibicion().fotoBase64" class="relative rounded-xl sm:rounded-2xl border-2 sm:border-4 border-surface-border shadow-xl overflow-hidden bg-black max-w-[260px] sm:max-w-[280px] mx-auto">
+           <img [src]="currentExhibicion().fotoBase64" class="w-full h-48 sm:h-64 object-cover">
+           <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center p-3 sm:p-4">
+              <p-button icon="pi pi-trash" label="Cambiar" severity="danger" size="small" (onClick)="removeFoto()"></p-button>
            </div>
         </div>
       </div>
