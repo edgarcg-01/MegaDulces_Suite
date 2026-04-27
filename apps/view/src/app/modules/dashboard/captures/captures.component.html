@@ -654,7 +654,7 @@
 
 <!-- CAPTURE WIZARD DIALOG -->
 
-<p-dialog [(visible)]="showWizard" [modal]="true" appendTo="body" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+<p-dialog [(visible)]="showWizard" [modal]="true" appendTo="body" header="Auditoría de Exhibidor" [style]="{width: '90vw', maxWidth: '600px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'" (onHide)="onWizardHide()">
 
   <ng-container *ngIf="showWizard">
 
@@ -976,15 +976,17 @@
 
         <!-- Products by Brand with Checkboxes -->
 
-        <div class="flex-1 overflow-y-auto touch-action: pan-y space-y-3 sm:space-y-4 pb-16">
+        <div class="flex-1 overflow-y-auto touch-action: pan-y space-y-2 sm:space-y-3 pb-16">
 
           <div *ngFor="let brand of filteredBrands(); trackBy: trackByMarca"
 
                class="border border-surface-border rounded-xl sm:rounded-2xl overflow-hidden bg-surface-card">
 
-            <!-- Brand Header -->
+            <!-- Brand Header (Click to expand/collapse) -->
 
-            <div class="px-3 sm:px-4 py-2 sm:py-3 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+            <div class="px-3 sm:px-4 py-2 sm:py-3 bg-surface-ground border-b border-surface-border flex justify-between items-center cursor-pointer hover:bg-surface-hover/50 transition-colors"
+
+                 (click)="toggleBrandExpansion(brand.marca)">
 
               <div class="flex items-center gap-2 sm:gap-3">
 
@@ -996,7 +998,9 @@
 
                   binary="true"
 
-                  [indeterminate]="isBrandPartiallySelected(brand)">
+                  [indeterminate]="isBrandPartiallySelected(brand)"
+
+                  (click)="$event.stopPropagation()">
 
                 </p-checkbox>
 
@@ -1004,15 +1008,27 @@
 
               </div>
 
-              <span class="text-[10px] sm:text-xs text-content-muted">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
+              <div class="flex items-center gap-2">
+
+                <span class="text-[10px] sm:text-xs text-content-muted">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
+
+                <i class="pi text-content-muted transition-transform duration-200"
+
+                   [class.pi-chevron-down]="isBrandExpanded(brand.marca)"
+
+                   [class.pi-chevron-right]="!isBrandExpanded(brand.marca)"></i>
+
+              </div>
 
             </div>
 
 
 
-            <!-- Products Grid -->
+            <!-- Products Grid (Collapsible) -->
 
-            <div class="p-2 sm:p-3 grid grid-cols-1 gap-1 sm:gap-2 touch-action: pan-y">
+            <div *ngIf="isBrandExpanded(brand.marca)"
+
+                 class="p-2 sm:p-3 grid grid-cols-1 gap-1 sm:gap-2 touch-action: pan-y animate-in fade-in slide-in-from-top-2 duration-200">
 
               <div *ngFor="let prod of brand.items; trackBy: trackByPid"
 

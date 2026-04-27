@@ -85,20 +85,15 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   ngOnInit() {
     this.svc.refreshAll();
-    // Bloquear scroll del body cuando el componente se inicializa
-    this.lockBodyScroll();
   }
 
   /**
-   * Limpia las suscripciones y restaura el scroll del body al destruir el componente
+   * Limpia las suscripciones cuando se destruye el componente
    */
   ngOnDestroy() {
-    // Cleanup subscription when component is destroyed
     if (this.saveSubscription) {
       this.saveSubscription.unsubscribe();
     }
-    // Restaurar scroll del body cuando el componente se destruye
-    this.unlockBodyScroll();
   }
 
   // ── Constants & Catalogs ──────────────────────────────────────────────────
@@ -130,6 +125,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
   showSearchInput = false;
   /** Indica si se muestran más productos en el chip */
   showMoreProducts = false;
+  /** Marcas expandidas en el paso de productos */
+  expandedBrands = signal<Set<string>>(new Set());
 
   /** Exhibición actual siendo editada en el wizard */
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
@@ -436,6 +433,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
     this.wizardStep = 1;
     this.showWizard = true;
+    this.expandedBrands.set(new Set()); // Reset expanded brands
+    this.lockBodyScroll(); // Bloquear scroll del body cuando se abre el wizard
   }
 
   /**
@@ -477,6 +476,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
     if (this.wizardStep < 6) {
       this.wizardStep++;
+      // Al entrar al paso 5, expandir marcas que tienen productos seleccionados
+      if (this.wizardStep === 5) {
+        setTimeout(() => this.expandBrandsWithSelectedProducts(), 0);
+      }
     }
   }
 
@@ -541,6 +544,51 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   trackByMarca(index: number, brand: any): string {
     return brand.marca;
+  }
+
+  /**
+   * Verifica si una marca está expandida
+   * @param marca Nombre de la marca
+   * @returns true si la marca está expandida
+   */
+  isBrandExpanded(marca: string): boolean {
+    return this.expandedBrands().has(marca);
+  }
+
+  /**
+   * Expande o colapsa una marca
+   * @param marca Nombre de la marca
+   */
+  toggleBrandExpansion(marca: string) {
+    this.expandedBrands.update((set) => {
+      const newSet = new Set(set);
+      if (newSet.has(marca)) {
+        newSet.delete(marca);
+      } else {
+        newSet.add(marca);
+      }
+      return newSet;
+    });
+  }
+
+  /**
+   * Expande todas las marcas que tienen productos seleccionados
+   */
+  expandBrandsWithSelectedProducts() {
+    const selectedProducts = this.currentExhibicion().productosMarcados || [];
+    const brands = this.filteredBrands();
+    const brandsToExpand = new Set<string>();
+
+    brands.forEach((brand: { marca: string; items: { pid: string }[] }) => {
+      const hasSelected = brand.items.some((item: { pid: string }) =>
+        selectedProducts.includes(item.pid)
+      );
+      if (hasSelected) {
+        brandsToExpand.add(brand.marca);
+      }
+    });
+
+    this.expandedBrands.set(brandsToExpand);
   }
 
   trackByPid(index: number, prod: any): string {
@@ -698,6 +746,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       detail: 'Guardado en la visita actual.',
     });
     this.showWizard = false;
+    this.unlockBodyScroll(); // Restaurar scroll del body cuando se cierra el wizard
 
     // Scroll to the bottom of the list
     setTimeout(() => {
@@ -855,7 +904,15 @@ export class CapturesComponent implements OnInit, OnDestroy {
       this.startWizard();
     } else {
       this.showWizard = false;
+      this.unlockBodyScroll(); // Restaurar scroll del body cuando se cierra el wizard
     }
+  }
+
+  /**
+   * Se llama cuando el wizard se cierra (por X, click fuera, o tecla Escape)
+   */
+  onWizardHide() {
+    this.unlockBodyScroll();
   }
 
   /**
