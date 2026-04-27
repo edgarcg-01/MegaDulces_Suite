@@ -52,5 +52,8 @@ coverage
 # Nx
 .nx
 
+# Angular cache
+.angular
+
 # Logs
 *.log
