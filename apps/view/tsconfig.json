@@ -25,6 +25,7 @@
     "baseUrl": ".",
     "paths": {
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
+      "@shared-auth/core": ["../../libs/shared-auth/core"],
       "@spartan-ng/helm/*": ["src/app/shared/components/ui/*"]
     }
   },
