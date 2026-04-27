@@ -1,37 +1,28 @@
 #!/bin/sh
-# Abort immediately if any command fails
+
 set -e
 
-# ─── Inject $PORT into nginx config ──────────────────────────────────────────
-# Render injects PORT at runtime. We stored ${PORT} as a placeholder in nginx.conf.
-export PORT="${PORT:-10000}"
-envsubst '${PORT}' < /etc/nginx/sites-available/default > /tmp/nginx-rendered.conf
-cp /tmp/nginx-rendered.conf /etc/nginx/sites-available/default
+# Ejecutar migraciones de base de datos
+echo "Running database migrations..."
+npx knex migrate:latest
 
-# Verify nginx config is valid before starting
-nginx -t
+# Ejecutar seeds (opcional, descomentar si es necesario)
+# echo "Running database seeds..."
+# npx knex seed:run
 
-# ─── Database migrations ──────────────────────────────────────────────────────
-echo "Running database migrations from: $(pwd)/database/migrations"
-if ! npx knex migrate:latest --knexfile database/knexfile.js; then
-  echo "DB Setup failed: Migration error"
-  exit 2
-fi
+# Iniciar la API NestJS en el puerto API_PORT (3333)
+echo "Starting NestJS API on port $API_PORT..."
+NODE_ENV=production node dist/main.js &
 
-# ─── Seeds ──────────────────────────────────────────────────────────────────
-# Seeds are disabled as requested to avoid duplicate key errors during startup.
-# To run seeds manually, use: npx knex seed:run --knexfile database/knexfile.js
-# echo "Running database seeds (idempotent mode)..."
-# npx knex seed:run --knexfile database/knexfile.js || echo "Warning: Some seeds may have failed, continuing..."
+# Esperar a que la API esté lista
+sleep 5
 
-# ─── Start backend ────────────────────────────────────────────────────────────
-echo "Starting Backend..."
-node dist/apps/api/main.js &
-BACKEND_PID=$!
+# Configurar Nginx para usar el puerto PORT (inyectado por Railway)
+echo "Configuring Nginx on port $PORT..."
+export PORT=${PORT:-10000}
+envsubst '$PORT' < /etc/nginx/sites-available/default > /tmp/nginx.conf
+mv /tmp/nginx.conf /etc/nginx/sites-available/default
 
-# ─── Start Nginx ──────────────────────────────────────────────────────────────
+# Iniciar Nginx
 echo "Starting Nginx on port $PORT..."
-nginx -g "daemon off;"
-
-# If Nginx stops, also stop the backend
-kill $BACKEND_PID
+nginx -g 'daemon off;'

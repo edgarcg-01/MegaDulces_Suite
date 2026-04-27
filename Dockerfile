@@ -39,11 +39,12 @@ WORKDIR /app
 
 # Variables de entorno para producción
 # API_PORT: puerto interno fijo del backend NestJS (siempre 3333)
-# PORT:     es inyectado por Render en tiempo de ejecución (ej. 10000 o 3000)
+# PORT:     es inyectado por Railway en tiempo de ejecución (ej. 10000)
 #           Nginx escucha en él. NO coincidir con API_PORT.
 ENV NODE_ENV=production \
     API_PORT=3333 \
-    API_PREFIX=api
+    API_PREFIX=api \
+    PORT=10000
 
 # Copiamos todo lo necesario desde los stages previos
 COPY --from=builder /app/database ./database
