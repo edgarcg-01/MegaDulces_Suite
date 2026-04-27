@@ -4,7 +4,7 @@ set -e
 
 # Ejecutar migraciones de base de datos
 echo "Running database migrations..."
-npx knex migrate:latest
+npx knex migrate:latest --knexfile database/knexfile.js
 
 # Ejecutar seeds (opcional, descomentar si es necesario)
 # echo "Running database seeds..."
