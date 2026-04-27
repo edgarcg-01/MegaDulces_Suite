@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { tap } from 'rxjs/operators';
 import { Observable } from 'rxjs';
-import { JwtPayload, LoginResponse } from '@shared-models';
+import { JwtPayload, LoginResponse } from '@shared-auth/core';
 import { Permission } from '../constants/permissions';
 
 @Injectable({
