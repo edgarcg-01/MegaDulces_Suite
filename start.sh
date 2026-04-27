@@ -2,14 +2,6 @@
 
 set -e
 
-# Ejecutar migraciones de base de datos
-echo "Running database migrations..."
-npx knex migrate:latest --knexfile database/knexfile.js
-
-# Ejecutar seeds (opcional, descomentar si es necesario)
-# echo "Running database seeds..."
-# npx knex seed:run
-
 # Iniciar la API NestJS en el puerto API_PORT (3333)
 echo "Starting NestJS API on port $API_PORT..."
 NODE_ENV=production node dist/main.js &
