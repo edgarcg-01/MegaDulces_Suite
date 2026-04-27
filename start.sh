@@ -4,7 +4,7 @@ set -e
 
 # Iniciar la API NestJS en el puerto API_PORT (3333)
 echo "Starting NestJS API on port $API_PORT..."
-NODE_ENV=production node dist/main.js &
+NODE_ENV=production node dist/apps/api/main.js &
 
 # Esperar a que la API esté lista
 sleep 5
