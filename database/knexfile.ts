@@ -6,7 +6,7 @@ export const connectionConfig: { [key: string]: Knex.Config } = {
     connection: {
       host: process.env.DB_HOST || 'localhost',
       port: Number(process.env.DB_PORT) || 5432,
-      database: process.env.DB_NAME || 'trade_marketing',
+      database: process.env.DB_NAME || 'megadulces_logistica',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD || 'postgres',
     },
@@ -14,10 +14,10 @@ export const connectionConfig: { [key: string]: Knex.Config } = {
   },
   production: {
     client: 'pg',
-    connection: {
+    connection: process.env.DATABASE_URL || {
       host: process.env.DB_HOST,
       port: Number(process.env.DB_PORT),
-      database: process.env.DB_NAME,
+      database: process.env.DB_NAME || 'megadulces_logistica',
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       ssl: { rejectUnauthorized: false },
