@@ -85,8 +85,6 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   ngOnInit() {
     this.svc.refreshAll();
-    // Bloquear scroll del body cuando el componente se inicializa
-    this.lockBodyScroll();
   }
 
   /**
@@ -97,8 +95,6 @@ export class CapturesComponent implements OnInit, OnDestroy {
     if (this.saveSubscription) {
       this.saveSubscription.unsubscribe();
     }
-    // Restaurar scroll del body cuando el componente se destruye
-    this.unlockBodyScroll();
   }
 
   // ── Constants & Catalogs ──────────────────────────────────────────────────
@@ -445,6 +441,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
     this.wizardStep = 1;
     this.showWizard = true;
+    this.expandedBrands = {};
+    this.lockBodyScroll();
   }
 
   /**
@@ -864,6 +862,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       this.startWizard();
     } else {
       this.showWizard = false;
+      this.unlockBodyScroll();
     }
   }
 
