@@ -1,0 +1,61 @@
+{
+  "name": "trade-marketing-api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/trade-marketing-api/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "target": "node",
+        "compiler": "tsc",
+        "outputPath": "dist/apps/trade-marketing-api",
+        "main": "apps/trade-marketing-api/src/main.ts",
+        "tsConfig": "apps/trade-marketing-api/tsconfig.app.json",
+        "webpackConfig": "apps/trade-marketing-api/webpack.config.js",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "database/migrations",
+            "output": "database/migrations"
+          },
+          {
+            "glob": "**/*",
+            "input": "database/seeds",
+            "output": "database/seeds"
+          }
+        ]
+      },
+      "configurations": {
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "trade-marketing-api:build"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/trade-marketing-api/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/apps/trade-marketing-api"],
+      "options": {
+        "jestConfig": "apps/trade-marketing-api/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  },
+  "tags": []
+}

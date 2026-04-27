@@ -1,0 +1,250 @@
+.offline-status-container {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  max-width: 350px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  transition: all 0.3s ease;
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border-bottom: 1px solid #f0f0f0;
+
+    &:hover {
+      background-color: #f8f9fa;
+    }
+
+    i:first-child {
+      margin-right: 8px;
+      font-size: 16px;
+    }
+
+    .status-text {
+      flex: 1;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .pending-count {
+      background: #ff6b6b;
+      color: white;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+
+    .toggle-icon {
+      transition: transform 0.3s ease;
+      font-size: 12px;
+      opacity: 0.7;
+
+      &.rotate {
+        transform: rotate(180deg);
+      }
+    }
+  }
+
+  .status-details {
+    padding: 16px;
+    background: #fafafa;
+
+    .detail-section {
+      margin-bottom: 16px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+
+      h4 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #333;
+        border-bottom: 1px solid #e0e0e0;
+        padding-bottom: 4px;
+      }
+
+      .detail-item {
+        display: flex;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 13px;
+
+        i {
+          margin-right: 8px;
+          width: 16px;
+          text-align: center;
+        }
+
+        span {
+          color: #666;
+        }
+      }
+    }
+
+    .actions-section {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
+
+      button {
+        flex: 1;
+        font-size: 12px;
+        padding: 6px 12px;
+
+        &:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+      }
+    }
+
+    .info-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
+
+      p-message {
+        font-size: 12px;
+        line-height: 1.4;
+      }
+    }
+  }
+}
+
+// Estados de color
+.text-green-500 {
+  color: #10b981 !important;
+}
+
+.text-orange-500 {
+  color: #f97316 !important;
+}
+
+.text-blue-500 {
+  color: #3b82f6 !important;
+}
+
+.text-yellow-500 {
+  color: #eab308 !important;
+}
+
+.text-red-500 {
+  color: #ef4444 !important;
+}
+
+.text-purple-500 {
+  color: #a855f7 !important;
+}
+
+// Clases de utilidad
+.mr-2 {
+  margin-right: 8px;
+}
+
+.ml-2 {
+  margin-left: 8px;
+}
+
+// Estilos para mensajes de PrimeNG
+.p-message {
+  padding: 1rem;
+  border-radius: 6px;
+  margin: 0;
+
+  &.p-message-info {
+    background: #e3f2fd;
+    border: 1px solid #bbdefb;
+    color: #0d47a1;
+  }
+}
+
+// Responsive design
+@media (max-width: 768px) {
+  .offline-status-container {
+    position: relative;
+    top: auto;
+    right: auto;
+    max-width: 100%;
+    margin: 10px;
+  }
+
+  .status-bar {
+    padding: 10px 12px;
+
+    .status-text {
+      font-size: 13px;
+    }
+  }
+
+  .status-details {
+    padding: 12px;
+
+    .actions-section {
+      flex-direction: column;
+
+      button {
+        width: 100%;
+      }
+    }
+  }
+}
+
+// Animaciones
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.pi-spin {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+// Estados especiales
+.offline-mode {
+  .status-bar {
+    background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+    color: white;
+  }
+}
+
+.synchronizing {
+  .status-bar {
+    background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+    color: white;
+  }
+}
+
+.has-pending {
+  .status-bar {
+    background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
+    color: white;
+  }
+}
+
+.online-ok {
+  .status-bar {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+  }
+}

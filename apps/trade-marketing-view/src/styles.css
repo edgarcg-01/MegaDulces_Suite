@@ -1,0 +1,1208 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import 'primeicons/primeicons.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 
+ * ROOT THEME VARIABLES: Applied globally
+ */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) var(--layout-bg);
+}
+
+html {
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+body {
+  --layout-bg: #f4f4f5;
+  --sidebar-bg: #ffffff;
+  --border-color: #e4e4e7;
+  
+  --text-main: #09090b;
+  --text-muted: #52525b;
+  --text-faint: #a1a1aa;
+  --text-disabled: rgba(9, 9, 11, 0.5);
+  
+  --hover-bg: #f4f4f5;
+  --active-bg: #09090b;
+  --active-text: #ffffff;
+
+  --card-bg: #ffffff;
+  --table-border: #f8fafc;
+  --table-hover: rgba(248, 250, 252, 0.5);
+
+  --shadow-light: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-hover: 0 10px 30px -10px rgba(0,0,0,0.1);
+  --skeleton-bg: #e2e8f0;
+
+  --surface-ground: #f8fafc;
+
+  /* BRAND PALETTE: Yellow-Orange Gradient */
+  --brand-primary: rgba(253, 231, 7, 1);
+  --brand-orange: #f68f1e;
+  --brand-sunset: #f05a28;
+  --brand-light: #fff8bc;
+  --accent-brand: var(--brand-primary);
+  --accent-brand-light: rgba(253, 231, 7, 0.15);
+  --accent-brand-orange: var(--brand-orange);
+  --accent-brand-sunset: var(--brand-sunset);
+
+  font-family: 'Inter', sans-serif;
+  background-color: var(--layout-bg);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark Mode / Monochrome Theme */
+body.theme-monochrome {
+  --layout-bg: #000000;
+  --sidebar-bg: #111111;
+  --border-color: #333333;
+  
+  --text-main: #ffffff;
+  --text-muted: #a1a1aa;
+  --text-faint: #52525b;
+  --text-disabled: rgba(255, 255, 255, 0.5);
+  
+  --hover-bg: #222222;
+  --active-bg: #ffffff;
+  --active-text: #000000;
+
+  --card-bg: #111111;
+  --table-border: #222222;
+  --table-hover: rgba(255, 255, 255, 0.05);
+
+  --shadow-light: 0 1px 3px rgba(0,0,0,0.5);
+  --shadow-hover: 0 0 20px rgba(255,255,255,0.1);
+  --skeleton-bg: #333333;
+
+  --surface-ground: #111111;
+
+  /* BRAND PALETTE: Yellow-Orange Gradient */
+  --brand-primary: rgba(253, 231, 7, 1);
+  --brand-orange: #f68f1e;
+  --brand-sunset: #f05a28;
+  --brand-light: #fff8bc;
+  --accent-brand: var(--brand-primary);
+  --accent-brand-light: rgba(253, 231, 7, 0.2);
+  --accent-brand-orange: var(--brand-orange);
+  --accent-brand-sunset: var(--brand-sunset);
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+
+/* 
+ * UTILITIES: BRAND ACCENTS 
+ */
+.card-premium-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-premium-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: var(--accent-brand);
+  z-index: 10;
+}
+
+.text-brand {
+  color: var(--accent-brand) !important;
+}
+
+.bg-brand {
+  background-color: var(--accent-brand) !important;
+}
+
+.border-brand {
+  border-color: var(--accent-brand) !important;
+}
+
+/* Brand Gradient Utilities */
+.bg-gradient-brand {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-orange) 50%, var(--brand-sunset) 100%) !important;
+}
+
+.bg-gradient-brand-subtle {
+  background: linear-gradient(135deg, var(--brand-light) 0%, rgba(253, 231, 7, 0.3) 100%) !important;
+}
+
+.bg-gradient-brand-horizontal {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+}
+
+.text-brand-orange {
+  color: var(--brand-orange) !important;
+}
+
+.text-brand-sunset {
+  color: var(--brand-sunset) !important;
+}
+
+.text-brand-gradient {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-sunset) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.border-brand-orange {
+  border-color: var(--brand-orange) !important;
+}
+
+.border-brand-sunset {
+  border-color: var(--brand-sunset) !important;
+}
+
+/* Score/Status colors using brand palette instead of green/blue */
+.text-score-high {
+  color: var(--brand-orange) !important;
+}
+
+.text-score-medium {
+  color: var(--brand-sunset) !important;
+}
+
+.text-score-low {
+  color: #dc2626 !important;
+}
+
+.bg-score-high {
+  background-color: rgba(246, 143, 30, 0.15) !important;
+  color: var(--brand-orange) !important;
+}
+
+.bg-score-medium {
+  background-color: rgba(240, 90, 40, 0.15) !important;
+  color: var(--brand-sunset) !important;
+}
+
+/* Progress bars with brand colors */
+.progress-bar-brand {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+}
+
+.progress-bar-orange {
+  background: linear-gradient(90deg, var(--brand-orange) 0%, var(--brand-sunset) 100%) !important;
+}
+
+.p-button.p-button-brand {
+  background: var(--accent-brand) !important;
+  border-color: var(--accent-brand) !important;
+  color: #000 !important;
+  font-weight: 700 !important;
+}
+
+.p-button.p-button-brand:hover {
+  filter: brightness(1.1);
+}
+
+/* Enhanced interactions */
+.p-button {
+  transition: all 0.2s ease !important;
+}
+
+.p-button:active {
+  transform: scale(0.98) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--accent-brand) !important;
+  outline-offset: 2px !important;
+}
+
+/* Override PrimeNG fonts to use Inter */
+.p-component {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Force PrimeNG tables to use theme colors in dark mode */
+.theme-monochrome .p-datatable .p-datatable-thead > tr > th {
+  background: var(--surface-ground) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr:nth-child(even) {
+  background: var(--surface-ground) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr > td {
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-paginator {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page {
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+}
+
+/* Responsive table styles */
+.p-datatable-responsive {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.p-datatable-responsive .p-datatable-wrapper {
+  min-width: 100% !important;
+}
+
+/* Mobile table optimizations */
+@media (max-width: 768px) {
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    padding: 0.5rem 0.75rem !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    min-width: 120px !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    min-width: 100px !important;
+    position: sticky !important;
+    right: 0 !important;
+    background: inherit !important;
+    box-shadow: -4px 0 8px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .p-datatable.p-datatable-sm .p-datatable-thead > tr > th,
+  .p-datatable.p-datatable-sm .p-datatable-tbody > tr > td {
+    padding: 0.375rem 0.5rem !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Hide less important columns on very small screens */
+  .p-datatable .p-datatable-thead > tr > th:nth-child(n+6),
+  .p-datatable .p-datatable-tbody > tr > td:nth-child(n+6) {
+    display: none !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    display: table-cell !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    min-width: 100px !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Show only essential columns on very small screens */
+  .p-datatable .p-datatable-thead > tr > th:nth-child(n+4),
+  .p-datatable .p-datatable-tbody > tr > td:nth-child(n+4) {
+    display: none !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    display: table-cell !important;
+  }
+}
+
+/* Force PrimeNG tabs to use theme colors in dark mode */
+.theme-monochrome .p-tabview .p-tabview-nav {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li a {
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li a:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li.p-highlight a {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+  border-color: var(--active-bg) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-panels {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-panel {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* Override hardcoded bg-white in tab content */
+.theme-monochrome .p-tabpanel .bg-white {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-emerald-600 {
+  color: var(--accent-brand) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-blue-600 {
+  color: var(--accent-brand) !important;
+}
+
+/* Modern styling for PrimeNG p-tabs (both light and dark modes) */
+.p-tabs,
+.p-tabs.p-component,
+.p-tabs[data-pc-name="tabs"] {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.p-tablist,
+.p-tablist.p-component,
+.p-tablist[data-pc-name="tablist"] {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid var(--border-color, #e5e7eb) !important;
+  padding: 0 !important;
+  margin-bottom: 1.5rem !important;
+  box-shadow: none !important;
+}
+
+.p-tablist-content,
+.p-tablist-content[data-pc-name="tablistcontent"] {
+  background: transparent !important;
+}
+
+.p-tablist-tab-list,
+.p-tablist-tab-list[data-pc-name="tablisttablist"] {
+  display: flex !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+.p-tab,
+.p-tab.p-component,
+.p-tab.p-ripple,
+.p-tab[data-pc-name="tab"],
+.p-tab[data-pc-section="tab"] {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 1.5rem !important;
+  margin: 0 !important;
+  position: relative !important;
+  transition: all 0.2s ease !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  color: var(--text-muted, #6b7280) !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  outline: none !important;
+  text-decoration: none !important;
+  min-height: auto !important;
+  line-height: 1.5 !important;
+}
+
+.p-tab:hover,
+.p-tab.p-component:hover,
+.p-tab.p-ripple:hover,
+.p-tab[data-pc-name="tab"]:hover,
+.p-tab[data-pc-section="tab"]:hover {
+  background: transparent !important;
+  color: var(--text-main, #111827) !important;
+  box-shadow: none !important;
+}
+
+.p-tab.p-tab-active,
+.p-tab.p-component.p-tab-active,
+.p-tab.p-ripple.p-tab-active,
+.p-tab[data-pc-name="tab"][data-p-active="true"],
+.p-tab[data-pc-section="tab"][aria-selected="true"] {
+  background: transparent !important;
+  color: var(--accent-brand, #3b82f6) !important;
+  border-bottom: 3px solid var(--accent-brand, #3b82f6) !important;
+  margin-bottom: -2px !important;
+  box-shadow: none !important;
+}
+
+.p-tabpanels,
+.p-tabpanels.p-component,
+.p-tabpanels[data-pc-name="tabpanels"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.p-tabpanel,
+.p-tabpanel.p-component,
+.p-tabpanel[data-pc-name="tabpanel"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Force PrimeNG p-tabs (newer version) to use theme colors in dark mode */
+.theme-monochrome .p-tabs {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tablist {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tablist-content {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tablist-tab-list {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tab {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tab:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tab.p-tab-active {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+  border-color: var(--active-bg) !important;
+}
+
+.theme-monochrome .p-tabpanels {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabpanel {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* More specific overrides for hardcoded styles */
+.theme-monochrome .p-tabpanel div.bg-white {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-emerald-600 {
+  color: var(--accent-brand) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-blue-600 {
+  color: var(--accent-brand) !important;
+}
+
+/* ============================================================
+   OVERRIDES PARA CLASSES HARDCODEADAS EN MODO OSCURO
+   ============================================================ */
+
+/* Green colors - Ok status */
+.theme-monochrome .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.2) !important;
+}
+
+.theme-monochrome .bg-green-500 {
+  background-color: rgba(34, 197, 94, 0.8) !important;
+}
+
+.theme-monochrome .text-green-600,
+.theme-monochrome .text-green-700 {
+  color: #4ade80 !important;
+}
+
+.theme-monochrome .text-green-800 {
+  color: #86efac !important;
+}
+
+.theme-monochrome .border-green-400 {
+  border-color: #4ade80 !important;
+}
+
+/* Amber colors - Warn status */
+.theme-monochrome .bg-amber-100 {
+  background-color: rgba(251, 191, 36, 0.2) !important;
+}
+
+.theme-monochrome .bg-amber-400 {
+  background-color: rgba(251, 191, 36, 0.8) !important;
+}
+
+.theme-monochrome .text-amber-500,
+.theme-monochrome .text-amber-700 {
+  color: #fbbf24 !important;
+}
+
+.theme-monochrome .text-amber-800 {
+  color: #fcd34d !important;
+}
+
+.theme-monochrome .border-amber-400 {
+  border-color: #fbbf24 !important;
+}
+
+/* Red colors - Bad status */
+.theme-monochrome .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+.theme-monochrome .bg-red-500 {
+  background-color: rgba(239, 68, 68, 0.8) !important;
+}
+
+.theme-monochrome .text-red-500,
+.theme-monochrome .text-red-700 {
+  color: #f87171 !important;
+}
+
+.theme-monochrome .text-red-800 {
+  color: #fca5a5 !important;
+}
+
+.theme-monochrome .border-red-400 {
+  border-color: #f87171 !important;
+}
+
+/* Blue colors - GPS and other */
+.theme-monochrome .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+.theme-monochrome .text-blue-700 {
+  color: #60a5fa !important;
+}
+
+.theme-monochrome .border-blue-100 {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+/* Ring colors */
+.theme-monochrome .ring-blue-400 {
+  --tw-ring-color: rgba(96, 165, 250, 0.5) !important;
+}
+
+/* ============================================================
+   ANIMACIONES SUTILES
+   ============================================================ */
+
+/* Fade in con movimiento suave hacia arriba */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Pulse sutil para indicadores activos */
+@keyframes subtlePulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+.animate-subtle-pulse {
+  animation: subtlePulse 2s ease-in-out infinite;
+}
+
+/* Slide in desde la izquierda para sidebar */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+/* Efecto shimmer monocromático */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.03) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.theme-monochrome .animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+}
+
+/* Hover lift effect suave */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Focus ring con marca */
+.focus-brand:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-primary), 0 0 0 4px white;
+}
+
+/* ============================================================
+   12 MEJORAS MODERNAS, SUTILES Y MONOCRÓMATICAS
+   ============================================================ */
+
+/* 1. MICRO-SOMBRAS DE PROFUNDIDAD (Elevation) */
+.elevation-1 {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+}
+
+.elevation-2 {
+  box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+}
+
+.elevation-3 {
+  box-shadow: 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 2px 8px -1px rgba(0, 0, 0, 0.03);
+}
+
+.elevation-hover {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.elevation-hover:hover {
+  box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
+}
+
+/* 2. BORDES "GHOST" (Fantasma) */
+.border-ghost {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.border-ghost:hover {
+  border-color: rgba(0, 0, 0, 0.25);
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.theme-monochrome .border-ghost {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-monochrome .border-ghost:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* 3. GLASSMORPHISM MONOCRÓMATICO */
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.theme-monochrome .glass {
+  background: rgba(17, 17, 17, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 4. EFECTO SPOTLIGHT/HALO - Monocromático sutil */
+.spotlight {
+  position: relative;
+  overflow: hidden;
+}
+
+.spotlight::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.03) 0%, transparent 70%);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.4s ease;
+  pointer-events: none;
+}
+
+.spotlight:hover::before {
+  transform: translate(-50%, -50%) scale(2);
+}
+
+.theme-monochrome .spotlight::before {
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.04) 0%, transparent 70%);
+}
+
+/* 5. MORPHING DE BORDES */
+.morph-borders {
+  border-radius: 8px;
+  transition: border-radius 0.3s ease, background-color 0.25s ease;
+}
+
+.morph-borders:hover {
+  border-radius: 12px;
+}
+
+/* 6. MAGNETIC BUTTONS (Sutil) - CSS-only approximation */
+.magnetic {
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.magnetic:hover {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.magnetic:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* 7. TEXT REVEAL PROGRESIVO */
+@keyframes textReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.text-reveal > * {
+  animation: textReveal 0.5s ease forwards;
+  opacity: 0;
+}
+
+.text-reveal > *:nth-child(1) { animation-delay: 0ms; }
+.text-reveal > *:nth-child(2) { animation-delay: 50ms; }
+.text-reveal > *:nth-child(3) { animation-delay: 100ms; }
+.text-reveal > *:nth-child(4) { animation-delay: 150ms; }
+.text-reveal > *:nth-child(5) { animation-delay: 200ms; }
+
+/* 8. FOCUS RING ANIMADO */
+@keyframes focusRingDraw {
+  from {
+    box-shadow: 0 0 0 0 var(--brand-primary);
+  }
+  to {
+    box-shadow: 0 0 0 3px var(--brand-primary), 0 0 0 6px rgba(253, 231, 7, 0.2);
+  }
+}
+
+.focus-ring-animated:focus {
+  outline: none;
+  animation: focusRingDraw 0.3s ease forwards;
+}
+
+/* 9. PARALLAX SUTIL EN CARDS */
+.parallax-card {
+  transform-style: preserve-3d;
+  transition: transform 0.1s ease-out;
+}
+
+.parallax-card:hover {
+  transform: perspective(1000px) rotateX(1deg) rotateY(-1deg) translateZ(10px);
+}
+
+/* 10. NOISE/GRAIN TEXTURE */
+.noise-bg {
+  position: relative;
+}
+
+.noise-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.theme-monochrome .noise-bg::after {
+  opacity: 0.03;
+}
+
+/* 11. SCROLL PROGRESS INDICATOR - Monocromático */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  transition: width 0.1s linear;
+}
+
+.theme-monochrome .scroll-progress {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* 12. SMOOTH PAGE TRANSITIONS */
+.page-transition-enter {
+  animation: pageEnter 0.3s ease forwards;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition-exit {
+  animation: pageExit 0.2s ease forwards;
+}
+
+@keyframes pageExit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* ============================================================
+   SISTEMA TIPOGRÁFICO CONSISTENTE - Inter
+   ============================================================ */
+
+/* Escala tipográfica estandarizada */
+.text-display {
+  font-size: 2.25rem;    /* 36px */
+  line-height: 2.5rem;   /* 40px */
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.text-headline {
+  font-size: 1.5rem;     /* 24px */
+  line-height: 2rem;     /* 32px */
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.text-title {
+  font-size: 1.25rem;    /* 20px */
+  line-height: 1.75rem;  /* 28px */
+  font-weight: 600;
+}
+
+.text-body-large {
+  font-size: 1rem;       /* 16px */
+  line-height: 1.5rem;   /* 24px */
+  font-weight: 400;
+}
+
+.text-body {
+  font-size: 0.875rem;   /* 14px */
+  line-height: 1.25rem;  /* 20px */
+  font-weight: 400;
+}
+
+.text-label {
+  font-size: 0.75rem;    /* 12px */
+  line-height: 1rem;     /* 16px */
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Tablas - consistencia */
+.table-header {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.table-cell {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+
+.table-cell-strong {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .text-display {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+
+  .text-headline {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+
+  .text-title {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
+}
+
+/* ============================================================
+   CLASES PARA REPORTS - CONTENT COLORS
+   ============================================================ */
+
+.text-content-main {
+  color: var(--text-main);
+}
+
+.text-content-muted {
+  color: var(--text-muted);
+}
+
+.text-content-faint {
+  color: var(--text-faint);
+}
+
+/* Surface colors */
+.bg-surface-layout {
+  background-color: var(--layout-bg);
+}
+
+.bg-surface-ground {
+  background-color: var(--surface-ground);
+}
+
+.bg-surface-card {
+  background-color: var(--card-bg);
+}
+
+.bg-surface-hover {
+  background-color: var(--hover-bg);
+}
+
+/* Border colors */
+.border-divider {
+  border-color: var(--border-color);
+}
+
+/* ============================================================
+   CARD PREMIUM - Para reports y dashboard
+   ============================================================ */
+
+.card-premium {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: var(--shadow-light);
+  transition: all 0.2s ease;
+}
+
+.card-premium:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.theme-monochrome .card-premium {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+}
+
+/* Card con acento superior */
+.card-premium-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-premium-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%);
+  z-index: 10;
+}
+
+/* ============================================================
+   MODERN TABS WRAPPER
+   ============================================================ */
+
+.modern-tabs-wrapper {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.theme-monochrome .modern-tabs-wrapper {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+}
+
+/* ============================================================
+   TABLAS MODERNAS
+   ============================================================ */
+
+.p-datatable-modern {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.p-datatable-modern .p-datatable-thead > tr > th {
+  background: var(--surface-ground);
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.p-datatable-modern .p-datatable-tbody > tr {
+  background: var(--card-bg);
+  transition: background-color 0.15s ease;
+}
+
+.p-datatable-modern .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg);
+}
+
+.p-datatable-modern .p-datatable-tbody > tr > td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+/* PrimeNG Button Brand */
+.p-button-brand {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+  border: none !important;
+  color: #000 !important;
+  font-weight: 600 !important;
+}
+
+.p-button-brand:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}

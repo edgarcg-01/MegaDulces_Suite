@@ -1,0 +1,60 @@
+.member-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.member-card:hover {
+  transform: translateX(4px);
+  background: var(--surface-hover);
+}
+
+.active-member {
+  background: var(--brand-10) !important;
+  border-color: var(--brand-40) !important;
+  box-shadow: 0 4px 12px var(--brand-20);
+}
+
+.day-card {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-card {
+  background: var(--surface-card) !important;
+  border-color: var(--brand) !important;
+  box-shadow: 0 8px 24px var(--brand-10);
+  transform: scale(1.02);
+  z-index: 10;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--surface-border);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-40);
+}
+
+:host ::v-deep .p-select {
+  border-radius: 12px !important;
+  background: var(--surface-layout) !important;
+  border-color: var(--surface-border) !important;
+}
+
+:host ::v-deep .p-select:hover {
+  border-color: var(--brand-40) !important;
+}
+
+:host ::v-deep .p-select.p-focus {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 4px var(--brand-10) !important;
+}

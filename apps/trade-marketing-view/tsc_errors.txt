@@ -1,0 +1,7 @@
+﻿src/app/modules/dashboard/reports/reports.component.ts(1,10): error TS2305: Module '"@angular/common"' has no exported member 'Component'.
+src/app/modules/dashboard/reports/reports.component.ts(1,21): error TS2305: Module '"@angular/common"' has no exported member 'inject'.
+src/app/modules/dashboard/reports/reports.component.ts(1,29): error TS2305: Module '"@angular/common"' has no exported member 'signal'.
+src/app/modules/dashboard/reports/reports.component.ts(1,37): error TS2459: Module '"@angular/common"' declares 'OnInit' locally, but it is not exported.
+src/app/modules/dashboard/reports/reports.component.ts(136,14): error TS7006: Parameter 'data' implicitly has an 'any' type.
+src/app/modules/dashboard/reports/reports.component.ts(180,54): error TS7006: Parameter 'blob' implicitly has an 'any' type.
+src/app/modules/dashboard/reports/reports.component.ts(221,27): error TS7006: Parameter 'r' implicitly has an 'any' type.

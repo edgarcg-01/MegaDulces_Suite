@@ -1,0 +1,84 @@
+{
+  "name": "trade-marketing-view",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/trade-marketing-view/src",
+  "prefix": "app",
+  "targets": {
+    "build": {
+      "executor": "@nx/angular:browser-esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/trade-marketing-view",
+        "index": "apps/trade-marketing-view/src/index.html",
+        "main": "apps/trade-marketing-view/src/main.ts",
+        "polyfills": [
+          "apps/trade-marketing-view/src/polyfills.ts"
+        ],
+        "tsConfig": "apps/trade-marketing-view/tsconfig.app.json",
+        "assets": [
+          "apps/trade-marketing-view/src/favicon.ico",
+          "apps/trade-marketing-view/src/assets"
+        ],
+        "styles": ["apps/trade-marketing-view/src/styles.css"],
+        "scripts": []
+      },
+      "configurations": {
+  "production": {
+    "aot": true,
+    "buildOptimizer": true,
+    "optimization": true,
+    "budgets": [
+      {
+        "type": "initial",
+        "maximumWarning": "2mb",
+        "maximumError": "5mb"
+      },
+      {
+        "type": "anyComponentStyle",
+        "maximumWarning": "4kb",
+        "maximumError": "10kb"
+      }
+    ],
+    "outputHashing": "all"
+  },
+        "development": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "serve": {
+      "executor": "@nx/angular:dev-server",
+      "options": {
+        "port": 4204
+      },
+      "configurations": {
+        "production": {
+          "buildTarget": "trade-marketing-view:build:production"
+        },
+        "development": {
+          "buildTarget": "trade-marketing-view:build:development",
+          "proxyConfig": "apps/trade-marketing-view/proxy.conf.json"
+        }
+      },
+      "defaultConfiguration": "development"
+    },
+    "extract-i18n": {
+      "executor": "@nx/angular:extract-i18n",
+      "options": {
+        "buildTarget": "trade-marketing-view:build"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/apps/trade-marketing-view"],
+      "options": {
+        "jestConfig": "apps/trade-marketing-view/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}

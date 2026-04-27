@@ -1,0 +1,119 @@
+<div class="min-h-screen w-full bg-surface-layout text-content-main font-sans transition-colors duration-300" [class.theme-monochrome]="themeService.isMonochrome()">
+
+  <!-- Background Typography Layer -->
+  <div class="absolute inset-0 overflow-hidden pointer-events-none opacity-10 select-none hidden sm:block">
+    <h2 class="text-[20vw] sm:text-[25vw] font-black tracking-tighter leading-none whitespace-nowrap absolute -top-12 -left-12 text-content-main transition-colors duration-300">
+      MEGA
+    </h2>
+    <h2 class="text-[20vw] sm:text-[25vw] font-black tracking-tighter leading-none whitespace-nowrap absolute -bottom-12 -right-12 text-content-main transition-colors duration-300">
+      DULCES
+    </h2>
+  </div>
+
+  <!-- Theme Toggle -->
+  <div class="fixed top-4 sm:top-6 right-4 sm:right-6 z-20">
+    <button
+      (click)="toggleTheme()"
+      class="flex items-center gap-2 text-content-muted hover:text-content-main transition-colors group p-2">
+      <span class="text-xs uppercase tracking-widest hidden sm:inline">
+        {{ themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N' }}
+      </span>
+      <span class="text-lg">{{ themeService.isMonochrome() ? '☀️' : '🌙' }}</span>
+    </button>
+  </div>
+
+  <!-- Main Content -->
+  <div class="relative z-10 w-full h-full flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-12">
+
+    <!-- Brand Section -->
+    <div class="w-full max-w-md text-center mb-8 sm:mb-12">
+      <div class="w-36 h-36 sm:w-80 sm:h-80 mx-auto mb-6 sm:mb-8 flex items-center justify-center animate-fade-in">
+        <img
+      src="/assets/logos/mega-dulces-logo.webp"
+      alt="Mega Dulces Logo"
+      class="w-full h-full object-contain">
+      </div>
+      <p class="text-xs sm:text-sm tracking-wider uppercase text-content-muted">
+        Portal de Acceso
+      </p>
+    </div>
+
+    <!-- Login Form -->
+    <div class="w-full max-w-sm sm:max-w-md">
+      <div class="bg-surface-card border border-divider/50 p-6 sm:p-8 rounded-2xl shadow-sm">
+
+        <!-- Error Message -->
+        <div *ngIf="errorMessage" class="bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">
+          <div class="flex items-center gap-2">
+            <span>⚠️</span>
+            <span>{{ errorMessage }}</span>
+          </div>
+        </div>
+
+        <form [formGroup]="loginForm" (ngSubmit)="onSubmit()" class="space-y-6">
+
+          <!-- Username Input -->
+          <div class="relative group">
+            <label for="username" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-content-main transition-colors">
+              Usuario
+            </label>
+            <input
+              id="username"
+              type="text"
+              formControlName="username"
+              placeholder="Nombre de usuario"
+              class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
+              [ngClass]="{'border-red-400 focus:border-red-400': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
+            <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
+               class="text-xs text-red-500 mt-1 font-medium">
+              El usuario es requerido
+            </p>
+          </div>
+
+          <!-- Password Input -->
+          <div class="relative group">
+            <label for="password" class="text-xs uppercase tracking-wider text-content-muted block mb-2 group-focus-within:text-content-main transition-colors">
+              Contraseña
+            </label>
+            <input
+              id="password"
+              type="password"
+              formControlName="password"
+              placeholder="Mínimo 6 caracteres"
+              class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
+              [ngClass]="{'border-red-400 focus:border-red-400': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
+            <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"
+               class="text-xs text-red-500 mt-1 font-medium">
+              Mínimo 6 caracteres
+            </p>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="pt-2">
+            <button
+              type="submit"
+              [disabled]="isLoading"
+              class="w-full bg-content-main hover:bg-content-muted disabled:opacity-40 disabled:cursor-not-allowed text-surface-card font-semibold py-3.5 px-4 text-sm sm:text-base rounded-full transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]">
+              {{ isLoading ? 'Verificando...' : 'Iniciar Sesión' }}
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+
+      <!-- Footer Links -->
+      <div class="mt-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs uppercase tracking-wider text-content-muted">
+        <button class="hover:text-accent-brand transition-colors">
+          Recuperar Acceso
+        </button>
+        <button class="hover:text-accent-brand transition-colors flex items-center gap-1">
+          <span class="text-xs">❓</span>
+          Soporte
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
