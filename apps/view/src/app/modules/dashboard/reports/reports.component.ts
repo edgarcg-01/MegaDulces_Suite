@@ -2754,4 +2754,206 @@ export class ReportsComponent implements OnInit {
   objectKeys(obj: any): string[] {
     return Object.keys(obj);
   }
+
+  /**
+   * Exporta PDF simplificado y directo - similar a megadulces-logistica
+   * Genera el reporte inmediatamente sin diálogo de configuración
+   */
+  exportarPDF() {
+    const doc = new jsPDF();
+    let currentY = 0;
+
+    // Validar que hay datos
+    const data = this.reportsData();
+    if (!data) {
+      this.messageService.add({
+        severity: 'warn',
+        summary: 'Sin datos',
+        detail: 'No hay datos disponibles para generar el PDF.',
+      });
+      return;
+    }
+
+    try {
+      // ========== HEADER ==========
+      doc.setFontSize(18);
+      doc.text('Reporte de Mercadeo', 14, 20);
+
+      // Subtítulo con rango de fechas
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      const f = this.filtersState.filters();
+      const fechaDesdeStr = f.startDate ? new Date(f.startDate).toLocaleDateString('es-MX') : '-';
+      const fechaHastaStr = f.endDate ? new Date(f.endDate).toLocaleDateString('es-MX') : '-';
+      doc.text(`Periodo: ${fechaDesdeStr} - ${fechaHastaStr}`, 14, 28);
+
+      // ========== KPIs ==========
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text('Resumen General', 14, 40);
+
+      const kpisData = [
+        ['Visitas Totales', (data.metrics?.totalVisitas || 0).toLocaleString('es-MX')],
+        ['Score Promedio', `${(data.metrics?.avgScore || 0).toFixed(1)}%`],
+        ['Impacto Venta', `$${(data.metrics?.totalVentas || 0).toLocaleString('es-MX')}`],
+        ['Margen %', `${(data.metrics?.avgScore || 0).toFixed(1)}%`]
+      ];
+
+      autoTable(doc, {
+        startY: 45,
+        head: [['KPI', 'Valor']],
+        body: kpisData,
+        theme: 'grid',
+        headStyles: { fillColor: [66, 66, 66] },
+        styles: { fontSize: 9 },
+        didDrawPage: (data) => {
+          currentY = data.cursor?.y || 45;
+        }
+      });
+
+      // ========== TABLA DE VISITAS POR DÍA ==========
+      doc.setFontSize(12);
+      doc.text('Visitas por Día', 14, currentY + 15);
+
+      const dayRows = this.groupedRows().slice(0, 10).map(day => [
+        new Date(day.fecha).toLocaleDateString('es-MX'),
+        day.totalVisitas.toString(),
+        `${day.avgScore.toFixed(1)}%`,
+        day.totalVenta > 0 ? `$${day.totalVenta.toLocaleString('es-MX')}` : '-'
+      ]);
+
+      autoTable(doc, {
+        startY: currentY + 20,
+        head: [['Fecha', 'Visitas', 'Score', 'Venta']],
+        body: dayRows,
+        theme: 'grid',
+        headStyles: { fillColor: [66, 66, 66] },
+        styles: { fontSize: 8 },
+        didDrawPage: (data) => {
+          currentY = data.cursor?.y || currentY + 20;
+        }
+      });
+
+      // ========== RANKING POR VENDEDOR ==========
+      if (data.sellerStats && data.sellerStats.length > 0) {
+        if (currentY > 200) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.text('Ranking por Vendedor', 14, currentY + 15);
+
+        const sellerRows = data.sellerStats.slice(0, 7).map((s: any, index: number) => [
+          (index + 1).toString(),
+          s.username || 'N/A',
+          s.totalVisitas?.toString() || '0',
+          `${(s.avgScore || 0).toFixed(1)}%`
+        ]);
+
+        autoTable(doc, {
+          startY: currentY + 20,
+          head: [['#', 'Vendedor', 'Visitas', 'Score']],
+          body: sellerRows,
+          theme: 'grid',
+          headStyles: { fillColor: [66, 66, 66] },
+          styles: { fontSize: 8 },
+          didDrawPage: (data) => {
+            currentY = data.cursor?.y || currentY + 20;
+          }
+        });
+      }
+
+      // ========== PRODUCTOS TOP ==========
+      if (this.topProducts && this.topProducts.length > 0) {
+        if (currentY > 180) {
+          doc.addPage();
+          currentY = 20;
+        }
+
+        doc.setFontSize(12);
+        doc.text('Productos Más Frecuentes', 14, currentY + 15);
+
+        const productRows = this.topProducts.slice(0, 10).map(p => [
+          p.name.length > 30 ? p.name.substring(0, 30) + '...' : p.name,
+          p.brandName || 'Otras',
+          p.total?.toString() || '0'
+        ]);
+
+        autoTable(doc, {
+          startY: currentY + 20,
+          head: [['Producto', 'Marca', 'Frecuencia']],
+          body: productRows,
+          theme: 'grid',
+          headStyles: { fillColor: [66, 66, 66] },
+          styles: { fontSize: 8 },
+          didDrawPage: (data) => {
+            currentY = data.cursor?.y || currentY + 20;
+          }
+        });
+      }
+
+      // ========== REGISTROS DETALLADOS (nueva página) ==========
+      if (data.rows && data.rows.length > 0) {
+        doc.addPage();
+        doc.setFontSize(12);
+        doc.text('Registros Detallados', 14, 20);
+
+        const detailRows = data.rows.slice(0, 20).map((r: any) => [
+          r.folio?.substring(0, 8) || 'N/A',
+          new Date(r.fecha).toLocaleDateString('es-MX'),
+          r.captured_by_username?.substring(0, 15) || 'N/A',
+          r.zona_captura?.substring(0, 12) || 'N/A',
+          `${(r.stats?.puntuacionTotal || 0).toFixed(0)}%`,
+          r.stats?.ventaTotal > 0 ? `$${r.stats.ventaTotal.toLocaleString()}` : '-'
+        ]);
+
+        autoTable(doc, {
+          startY: 25,
+          head: [['Folio', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Venta']],
+          body: detailRows,
+          theme: 'grid',
+          headStyles: { fillColor: [66, 66, 66] },
+          styles: { fontSize: 7 },
+          columnStyles: {
+            0: { cellWidth: 20 },
+            1: { cellWidth: 22, halign: 'center' },
+            4: { cellWidth: 15, halign: 'center' },
+            5: { cellWidth: 25, halign: 'right' }
+          }
+        });
+      }
+
+      // ========== FOOTER ==========
+      const totalPages = (doc as any).getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(128);
+        doc.text(
+          `Mega Dulces · Trade Marketing · Página ${i} de ${totalPages}`,
+          doc.internal.pageSize.width / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' }
+        );
+      }
+
+      // Guardar PDF
+      doc.save(`reporte-mercadeo-${new Date().toISOString().split('T')[0]}.pdf`);
+
+      this.messageService.add({
+        severity: 'success',
+        summary: 'PDF Generado',
+        detail: 'El reporte se ha descargado correctamente.',
+      });
+
+    } catch (error) {
+      console.error('Error generando PDF:', error);
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo generar el PDF. Por favor intenta nuevamente.',
+      });
+    }
+  }
 }

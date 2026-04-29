@@ -9,7 +9,7 @@
       <p-button icon="pi pi-refresh" severity="secondary" [text]="true" [rounded]="true" (onClick)="resetAll()" [disabled]="loading()" pTooltip="Resetear filtros"></p-button>
       <p-button label="CSV" icon="pi pi-file-excel" severity="secondary" (onClick)="exportCsv()" [disabled]="loading()" styleClass="text-xs sm:text-sm whitespace-nowrap"></p-button>
       <p-button *ngIf="canEditMetas()" label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="openMetasDialog()" [disabled]="loading()"></p-button>
-      <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="showPdfBuilder = true" [disabled]="loading()"></p-button>
+      <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="exportarPDF()" [disabled]="loading()"></p-button>
       <p-button label="Rutas" icon="pi pi-route" severity="secondary" styleClass="text-xs sm:text-sm whitespace-nowrap" (onClick)="openRouteReportDialog()" [disabled]="loading()"></p-button>
     </div>
   </div>
