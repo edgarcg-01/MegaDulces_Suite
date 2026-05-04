@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -13,6 +14,7 @@ import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-daily-assignments',
@@ -37,6 +39,7 @@ export class DailyAssignmentsComponent implements OnInit {
   private authService = inject(AuthService);
   private http = inject(HttpClient);
   private messageService = inject(MessageService);
+  private router = inject(Router);
 
   // State
   loading = signal<boolean>(false);
@@ -59,6 +62,17 @@ export class DailyAssignmentsComponent implements OnInit {
   weeklyAssignments = signal<Record<number, string>>({});
 
   ngOnInit(): void {
+    // Verificar permisos antes de cargar datos
+    if (!this.authService.hasPermission(Permission.USUARIOS_ASIGNAR_RUTA)) {
+      const user = this.authService.user();
+      if (user?.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+      } else {
+        this.router.navigate(['/dashboard']);
+      }
+      return;
+    }
+    
     this.loadTeamAndRoutes();
   }
 

@@ -32,7 +32,7 @@ exports.up = async function(knex) {
     
     // Verificar si la marca ya existe (usando mayúsculas en la BD)
     const existingBrand = await knex('brands')
-      .whereRaw('UPPER(name) = ?', [nombreMarca])
+      .whereRaw('UPPER(nombre) = ?', [nombreMarca])
       .first();
     
     let brandId;
@@ -45,8 +45,7 @@ exports.up = async function(knex) {
       // Crear la marca
       const [newBrand] = await knex('brands')
         .insert({
-          name: nombreMarca,
-          created_at: new Date()
+          nombre: nombreMarca
         })
         .returning('id');
       
@@ -61,16 +60,15 @@ exports.up = async function(knex) {
       
       // Verificar si el producto ya existe (usando mayúsculas en la BD)
       const existingProduct = await knex('products')
-        .whereRaw('UPPER(name) = ?', [nombreProductoNormalizado])
+        .whereRaw('UPPER(nombre) = ?', [nombreProductoNormalizado])
         .first();
       
       if (!existingProduct) {
         // Insertar nuevo producto
         await knex('products').insert({
           id: knex.raw('gen_random_uuid()'),
-          name: nombreProductoNormalizado,
-          brand_id: brandId,
-          created_at: new Date()
+          nombre: nombreProductoNormalizado,
+          brand_id: brandId
         });
         
         stats.productosInsertados++;
@@ -79,8 +77,7 @@ exports.up = async function(knex) {
         await knex('products')
           .where('id', existingProduct.id)
           .update({
-            brand_id: brandId,
-            updated_at: new Date()
+            brand_id: brandId
           });
         
         stats.productosMovidos++;

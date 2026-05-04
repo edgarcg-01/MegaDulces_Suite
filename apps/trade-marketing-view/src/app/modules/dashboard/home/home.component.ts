@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed, ViewEncapsulation } from '@angular/core';
+import { Component, OnInit, inject, signal, computed, effect, ViewEncapsulation } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
@@ -52,9 +52,27 @@ export class HomeComponent implements OnInit {
 
   loading = signal(true);
 
-  // Signals para almacenar la data del backend
-  summary = signal<any>(null);
+  // Signals para almacenar la data del backend - separados por periodo
+  summaryMonthly = signal<any>(null);  // Datos mensuales para KPI cards
+  summaryDaily = signal<any>(null);   // Datos diarios para cumplimiento diario
   reportsData = signal<any>(null);
+
+  // Helper: obtener rango de fechas mensual
+  private getMonthlyDateRange() {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(1); // Primer día del mes
+    return {
+      startDate: start.toLocaleDateString('en-CA'),
+      endDate: end.toLocaleDateString('en-CA')
+    };
+  }
+
+  // Helper: obtener rango de fechas diario (hoy)
+  private getDailyDateRange() {
+    const today = new Date().toLocaleDateString('en-CA');
+    return { startDate: today, endDate: today };
+  }
 
   // Modal de metas
   showMetasDialog = false;
@@ -75,9 +93,9 @@ export class HomeComponent implements OnInit {
     { label: 'Gestionar Tiendas', icon: 'pi pi-building', route: '/dashboard/stores' },
   ];
 
-  // 1. Computed: Tarjetas KPI (Mapea la lógica de tu mapKPICards original)
+  // 1. Computed: Tarjetas KPI - usando datos MENSUALES
   kpiCards = computed(() => {
-    const metrics = this.summary() || {};
+    const metrics = this.summaryMonthly() || {};
     const cierresHoy = metrics.cierres_hoy || 0;
 
     // Usar el sistema de metas para obtener la meta diaria configurada
@@ -142,9 +160,9 @@ export class HomeComponent implements OnInit {
     ];
   });
 
-  // 2. Computed: Desglose de Mobiliario (Mapea metrics.desglose_muebles)
+  // 2. Computed: Desglose de Mobiliario - usando datos DIARIOS
   furnitureRows = computed(() => {
-    const metrics = this.summary() || {};
+    const metrics = this.summaryDaily() || {};
     const d = metrics.desglose_muebles || {};
 
     return this.metasConfig.furniture().map(f => {
@@ -170,22 +188,54 @@ export class HomeComponent implements OnInit {
     return data.rows.slice(0, 5);
   });
 
+  constructor() {
+    // Effect: reacciona automáticamente a cambios en los filtros
+    effect(() => {
+      // Al leer filters() aquí, Angular lo rastrea automáticamente
+      this.filtersState.filters();
+      this.loadDashboardData();
+    }, { allowSignalWrites: true });
+  }
+
   ngOnInit() {
     this.initChartConfig();
-    this.loadDashboardData();
+    // loadDashboardData() ya no se llama aquí, el effect lo dispara en primera ejecución
   }
 
   loadDashboardData() {
     this.loading.set(true);
-    const filters = this.filtersState.filters();
 
-    // forkJoin nos permite esperar a que ambas peticiones (Summary y Reports) terminen
+    // Rangos de fechas fijos
+    const monthlyRange = this.getMonthlyDateRange();
+    const dailyRange = this.getDailyDateRange();
+
+    // forkJoin para cargar datos mensuales y diarios en paralelo
     forkJoin({
-      summaryRes: this.reportsService.getSummary(),
-      reportsRes: this.reportsService.getReportsData(filters)
+      summaryMonthly: this.reportsService.getSummary({
+        startDate: monthlyRange.startDate,
+        endDate: monthlyRange.endDate,
+        zone: null,
+        supervisorId: null,
+        sellerIds: []
+      }),
+      summaryDaily: this.reportsService.getSummary({
+        startDate: dailyRange.startDate,
+        endDate: dailyRange.endDate,
+        zone: null,
+        supervisorId: null,
+        sellerIds: []
+      }),
+      reportsRes: this.reportsService.getReportsData({
+        startDate: monthlyRange.startDate,
+        endDate: monthlyRange.endDate,
+        zone: null,
+        supervisorId: null,
+        sellerIds: []
+      })
     }).subscribe({
-      next: ({ summaryRes, reportsRes }) => {
-        this.summary.set(summaryRes.metricas_globales);
+      next: ({ summaryMonthly, summaryDaily, reportsRes }) => {
+        this.summaryMonthly.set(summaryMonthly.metricas_globales);
+        this.summaryDaily.set(summaryDaily.metricas_globales);
         this.reportsData.set(reportsRes);
         this.updateChart(reportsRes);
         this.loading.set(false);

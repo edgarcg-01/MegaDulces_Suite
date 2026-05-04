@@ -27,7 +27,7 @@ interface DropOption {
     MultiSelectModule,
   ],
   template: `
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-3 p-4 bg-surface-card rounded-xl border border-divider mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 p-4 bg-surface-card rounded-xl border border-divider mb-6">
       <!-- Período -->
       <div class="flex flex-col gap-1">
         <label class="filter-label">Período</label>
@@ -92,6 +92,20 @@ interface DropOption {
           display="chip"
           placeholder="Todos"
           (onChange)="onSellerChange()"
+          class="w-full" />
+      </div>
+
+      <!-- Marcas -->
+      <div class="flex flex-col gap-1">
+        <label class="filter-label">Marca</label>
+        <p-select
+          [options]="brands"
+          [(ngModel)]="selectedBrand"
+          optionLabel="label" optionValue="value"
+          [showClear]="true"
+          placeholder="Todas"
+          (onChange)="onBrandChange()"
+          (onClear)="onBrandClear()"
           class="w-full" />
       </div>
 
@@ -213,8 +227,8 @@ export class GlobalFiltersComponent implements OnInit {
       this.brands = [
         { label: 'Todas las marcas', value: null },
         ...groupedProducts.map((brand: any) => ({
-          label: brand.name || brand.brand || brand.id,
-          value: brand.name || brand.brand || brand.id
+          label: brand.marca || brand.name || brand.brand || brand.id,
+          value: brand.marca || brand.name || brand.brand || brand.id
         }))
       ];
     }
@@ -264,6 +278,12 @@ export class GlobalFiltersComponent implements OnInit {
     this.emit();
   }
 
+  onBrandClear() {
+    this.selectedBrand = null;
+    this.filtersState.setBrand(null);
+    this.emit();
+  }
+
   /** Carga externa de opciones (el padre llama a estos setters) */
   setZones(list: DropOption[]) {
     this.zones = [{ label: 'Todas las zonas', value: null }, ...list];
@@ -282,6 +302,7 @@ export class GlobalFiltersComponent implements OnInit {
     this.selectedZone = f.zone;
     this.selectedSupervisorId = f.supervisorId;
     this.selectedSellerIds = f.sellerIds;
+    this.selectedBrand = f.brand;
     this.emit();
   }
 

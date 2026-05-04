@@ -64,7 +64,17 @@ export class AdminPlanogramaComponent implements OnInit {
     this.loading.set(true);
     this.planogramaService.getBrands().subscribe({
       next: (data) => {
-        this.brands.set(data);
+        // Ordenar marcas alfabéticamente por nombre
+        const sortedBrands = data.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+        
+        // Ordenar productos alfabéticamente dentro de cada marca
+        sortedBrands.forEach(brand => {
+          if (brand.productos && Array.isArray(brand.productos)) {
+            brand.productos.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+          }
+        });
+        
+        this.brands.set(sortedBrands);
         this.loading.set(false);
       },
       error: (err) => {

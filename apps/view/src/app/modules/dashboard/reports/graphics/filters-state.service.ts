@@ -11,19 +11,29 @@ export interface FiltersState {
   brand: string | null;
 }
 
+// Helper fuera de la clase para evitar problemas de inicialización
+function getDateOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString('en-CA');
+}
+
 @Injectable({ providedIn: 'root' })
 export class FiltersStateService {
-  // Estado reactivo global de filtros — compartido entre Dashboard y Reportes
-  private _filters = signal<FiltersState>({
+  // Estado inicial extraído como constante estática para evitar duplicación
+  private static readonly INITIAL_STATE: FiltersState = {
     period: 'semanal',
-    startDate: this._getDateOffset(-7),
-    endDate: this._getDateOffset(0),
+    startDate: getDateOffset(-7),
+    endDate: getDateOffset(0),
     zone: null,
     supervisorId: null,
     sellerIds: [],
     furniture: null,
     brand: null,
-  });
+  };
+
+  // Estado reactivo global de filtros — compartido entre Dashboard y Reportes
+  private _filters = signal<FiltersState>({ ...FiltersStateService.INITIAL_STATE });
 
   readonly filters = this._filters.asReadonly();
 
@@ -41,7 +51,7 @@ export class FiltersStateService {
   });
 
   setPeriod(period: string) {
-    const end = this._getDateOffset(0);
+    const end = getDateOffset(0);
     const offsets: Record<string, number> = {
       hoy: 0,
       semanal: -7,
@@ -55,7 +65,7 @@ export class FiltersStateService {
     this._filters.update(f => ({
       ...f,
       period,
-      startDate: this._getDateOffset(offsets[period] ?? -7),
+      startDate: getDateOffset(offsets[period] ?? -7),
       endDate: end,
     }));
   }
@@ -70,7 +80,8 @@ export class FiltersStateService {
   }
 
   setZone(zone: string | null) {
-    this._filters.update(f => ({ ...f, zone, supervisorId: null, sellerIds: [] }));
+    // Reset en cascada: al cambiar zona, limpiar supervisor, vendedores Y mueble
+    this._filters.update(f => ({ ...f, zone, supervisorId: null, sellerIds: [], furniture: null }));
   }
 
   setSupervisor(supervisorId: string | null) {
@@ -90,21 +101,7 @@ export class FiltersStateService {
   }
 
   reset() {
-    this._filters.set({
-      period: 'semanal',
-      startDate: this._getDateOffset(-7),
-      endDate: this._getDateOffset(0),
-      zone: null,
-      supervisorId: null,
-      sellerIds: [],
-      furniture: null,
-      brand: null,
-    });
-  }
-
-  private _getDateOffset(days: number): string {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toLocaleDateString('en-CA');
+    // Usar INITIAL_STATE para evitar duplicación y mantener consistencia
+    this._filters.set({ ...FiltersStateService.INITIAL_STATE });
   }
 }

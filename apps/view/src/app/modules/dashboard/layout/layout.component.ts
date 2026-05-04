@@ -114,6 +114,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
   openSidebar():  void { this.sidebarOpen.set(true);  }
   closeSidebar(): void { this.sidebarOpen.set(false); }
 
+  // ── Role Check ────────────────────────────────────────────────────
+  isColaborador = computed(() => {
+    const u = this.user();
+    return u?.role_name === 'colaborador';
+  });
+
   // ── Nav items (reactivos al user signal) ──────────────────────────
   private rawNavItems = [
     { label: 'Dashboard',        icon: 'pi pi-th-large',      route: '/dashboard',                       permission: Permission.REPORTES_VER_PROPIO  },

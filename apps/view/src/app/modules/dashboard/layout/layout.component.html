@@ -3,15 +3,16 @@
   class="flex min-h-screen min-h-[100dvh] bg-surface-layout overflow-hidden transition-colors duration-300"
   [class.theme-monochrome]="themeService.isMonochrome()"
 >
-  <!-- Mobile Overlay -->
+  <!-- Mobile Overlay (solo si no es colaborador) -->
   <div
-    *ngIf="sidebarOpen() && isMobile()"
+    *ngIf="sidebarOpen() && isMobile() && !isColaborador()"
     class="fixed inset-0 bg-black/50 z-40 lg:hidden"
     (click)="closeSidebar()"
   ></div>
 
-  <!-- Sidebar -->
+  <!-- Sidebar (oculto para colaboradores) -->
   <aside
+    *ngIf="!isColaborador()"
     class="fixed lg:static inset-y-0 left-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider shrink-0 shadow-xl lg:shadow-none h-screen overflow-hidden"
     [ngClass]="{
       'w-64': sidebarOpen(),
@@ -193,9 +194,10 @@
     <header
       class="h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-4 lg:px-6 shrink-0 transition-colors duration-300"
     >
-      <!-- Left: Mobile Menu -->
+      <!-- Left: Mobile Menu (solo si no es colaborador) -->
       <div class="flex items-center gap-3">
         <button
+          *ngIf="!isColaborador()"
           (click)="openSidebar()"
           class="lg:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted"
         >
@@ -220,6 +222,16 @@
             *ngIf="hasPendingUpdate()"
             class="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse"
           ></span>
+        </button>
+
+        <!-- Logout Button (Solo para colaboradores) -->
+        <button
+          *ngIf="isColaborador()"
+          (click)="logout()"
+          class="p-2 rounded-lg hover:bg-red-500/10 transition-colors text-red-500"
+          title="Cerrar sesión"
+        >
+          <i class="pi pi-sign-out text-lg"></i>
         </button>
 
         <!-- Loading Indicator -->

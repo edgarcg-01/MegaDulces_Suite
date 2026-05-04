@@ -65,18 +65,17 @@ export class AppComponent implements OnInit, OnDestroy {
           console.log('[AppComponent] Checking for service worker updates...');
           await registration.update();
           
-          // Send message to service worker to skip waiting if new version found
+          // Auto-update service worker without user notification
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing;
             if (newWorker) {
               newWorker.addEventListener('statechange', () => {
                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('[AppComponent] New service worker available, prompting user');
-                  if (confirm('Una nueva versión está disponible. ¿Recargar la aplicación?')) {
-                    // Send message to skip waiting
-                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                    window.location.reload();
-                  }
+                  console.log('[AppComponent] New service worker available, updating in background');
+                  // Skip waiting silently - updates will apply on next navigation or reload
+                  newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  // Store in localStorage that update is pending
+                  localStorage.setItem('sw-update-pending', 'true');
                 }
               });
             }

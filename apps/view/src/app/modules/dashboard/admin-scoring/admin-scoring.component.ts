@@ -1,5 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -9,6 +10,8 @@ import { DialogModule } from 'primeng/dialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { AdminScoringService } from './admin-scoring.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-admin-scoring',
@@ -31,6 +34,8 @@ export class AdminScoringComponent implements OnInit {
   private scoringService = inject(AdminScoringService);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
+  private authService = inject(AuthService);
+  private router = inject(Router);
 
   config = signal<any>(null);
   loading = signal<boolean>(false);
@@ -42,6 +47,17 @@ export class AdminScoringComponent implements OnInit {
   activeSection = '';
 
   ngOnInit() {
+    // Verificar permisos antes de cargar datos
+    if (!this.authService.hasPermission(Permission.CATALOGO_GESTIONAR)) {
+      const user = this.authService.user();
+      if (user?.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+      } else {
+        this.router.navigate(['/dashboard']);
+      }
+      return;
+    }
+    
     this.loadConfig();
   }
 

@@ -13,6 +13,8 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { AdminCatalogsService } from './admin-catalogs.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-admin-catalogs',
@@ -40,6 +42,7 @@ export class AdminCatalogsComponent implements OnInit {
   private confirmationService = inject(ConfirmationService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
+  private authService = inject(AuthService);
 
   selectedType = signal<string>('conceptos');
   title = signal<string>('Catálogos');
@@ -72,7 +75,23 @@ export class AdminCatalogsComponent implements OnInit {
     });
   }
 
-  ngOnInit() {}
+  ngOnInit(): void {
+    // Verificar permisos antes de cargar datos
+    if (!this.authService.hasPermission(Permission.CATALOGO_GESTIONAR)) {
+      const user = this.authService.user();
+      if (user?.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+      } else {
+        this.router.navigate(['/dashboard']);
+      }
+      return;
+    }
+    
+    const type = this.route.snapshot.params['type'] || 'conceptos';
+    this.selectedType.set(type);
+    this.updateTitle(type);
+    this.loadCatalog(type);
+  }
 
   updateTitle(type: string) {
     const titles: any = {

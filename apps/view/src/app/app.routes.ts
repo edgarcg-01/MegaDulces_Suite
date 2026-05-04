@@ -16,6 +16,8 @@ import { AdminScoringComponent } from './modules/dashboard/admin-scoring/admin-s
 import { AdminRolesPermissionsComponent } from './modules/dashboard/admin-roles/admin-roles-permissions.component';
 import { DailyAssignmentsComponent } from './modules/dashboard/daily-assignments/daily-assignments.component';
 import { authGuard } from './core/guards/auth.guard';
+import { permissionGuard, colaboradorGuard } from './core/guards/permission.guard';
+import { Permission } from './core/constants/permissions';
 
 export const routes: Routes = [
   {
@@ -29,7 +31,7 @@ export const routes: Routes = [
   },
   {
     path: 'dashboard',
-    canActivate: [authGuard],
+    canActivate: [authGuard, colaboradorGuard],
     component: LayoutComponent,
     children: [
       { path: '', component: HomeComponent },
@@ -39,10 +41,26 @@ export const routes: Routes = [
       { path: 'stores', component: StoresComponent },
       { path: 'visits', component: VisitsComponent },
       { path: 'exhibitions', component: ExhibitionsComponent },
-      { path: 'admin/users', component: AdminUsersComponent },
-      { path: 'admin/catalogs/:type', component: AdminCatalogsComponent },
-      { path: 'admin/roles/:role_name/permissions', component: AdminRolesPermissionsComponent },
-      { path: 'admin/planograma', component: AdminPlanogramaComponent },
+      { 
+        path: 'admin/users', 
+        component: AdminUsersComponent,
+        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+      },
+      { 
+        path: 'admin/catalogs/:type', 
+        component: AdminCatalogsComponent,
+        canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
+      },
+      { 
+        path: 'admin/roles/:role_name/permissions', 
+        component: AdminRolesPermissionsComponent,
+        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
+      },
+      { 
+        path: 'admin/planograma', 
+        component: AdminPlanogramaComponent,
+        canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)]
+      },
       { path: 'daily-assignments', component: DailyAssignmentsComponent },
     ]
   },

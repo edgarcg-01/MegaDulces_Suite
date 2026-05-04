@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import {
   FormBuilder,
   FormGroup,
@@ -18,6 +19,8 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { UsersService, User } from './users.service';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-admin-users',
@@ -45,6 +48,8 @@ export class AdminUsersComponent implements OnInit {
   private fb = inject(FormBuilder);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
+  private authService = inject(AuthService);
+  private router = inject(Router);
 
   users = signal<User[]>([]);
   loading = signal<boolean>(true);
@@ -82,6 +87,18 @@ export class AdminUsersComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // Verificar permisos antes de cargar datos
+    if (!this.authService.hasPermission(Permission.USUARIOS_GESTIONAR)) {
+      // Redirigir según el rol
+      const user = this.authService.user();
+      if (user?.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+      } else {
+        this.router.navigate(['/dashboard']);
+      }
+      return;
+    }
+    
     this.loadRoles();
     this.loadUsers();
     this.loadSupervisors();

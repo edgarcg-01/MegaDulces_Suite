@@ -146,10 +146,25 @@ export class ReportsService {
 
   /**
    * Obtiene un resumen de estadísticas
+   * @param filters Filtros opcionales para la consulta
    * @returns Observable con el resumen de estadísticas
    */
-  getSummary(): Observable<any> {
-    return this.http.get<any>(`${this.apiUrl}/summary`);
+  getSummary(filters?: any): Observable<any> {
+    let params = new HttpParams();
+    if (filters) {
+      if (filters.startDate) params = params.set('startDate', filters.startDate);
+      if (filters.endDate) params = params.set('endDate', filters.endDate);
+      if (filters.zone) params = params.set('zone', filters.zone);
+      if (filters.supervisorId) params = params.set('supervisorId', filters.supervisorId);
+      
+      // Enviar sellerIds si existen
+      if (filters.sellerIds && filters.sellerIds.length > 0) {
+        filters.sellerIds.forEach((id: string) => {
+          params = params.append('userIds[]', id);
+        });
+      }
+    }
+    return this.http.get<any>(`${this.apiUrl}/summary`, { params });
   }
 
   /**

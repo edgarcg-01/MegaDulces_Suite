@@ -1,5 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -11,6 +12,8 @@ import { TagModule } from 'primeng/tag';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { AdminPlanogramaService } from './admin-planograma.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-admin-planograma',
@@ -35,6 +38,8 @@ export class AdminPlanogramaComponent implements OnInit {
   private planogramaService = inject(AdminPlanogramaService);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
+  private authService = inject(AuthService);
+  private router = inject(Router);
 
   brands = signal<any[]>([]);
   loading = signal<boolean>(false);
@@ -56,7 +61,18 @@ export class AdminPlanogramaComponent implements OnInit {
   newProductName = '';
   editProductName = '';
 
-  ngOnInit() {
+  ngOnInit(): void {
+    // Verificar permisos antes de cargar datos
+    if (!this.authService.hasPermission(Permission.PLANOGRAMAS_GESTIONAR)) {
+      const user = this.authService.user();
+      if (user?.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+      } else {
+        this.router.navigate(['/dashboard']);
+      }
+      return;
+    }
+    
     this.loadBrands();
   }
 
@@ -64,7 +80,17 @@ export class AdminPlanogramaComponent implements OnInit {
     this.loading.set(true);
     this.planogramaService.getBrands().subscribe({
       next: (data) => {
-        this.brands.set(data);
+        // Ordenar marcas alfabéticamente por nombre
+        const sortedBrands = data.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+        
+        // Ordenar productos alfabéticamente dentro de cada marca
+        sortedBrands.forEach(brand => {
+          if (brand.productos && Array.isArray(brand.productos)) {
+            brand.productos.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+          }
+        });
+        
+        this.brands.set(sortedBrands);
         this.loading.set(false);
       },
       error: (err) => {

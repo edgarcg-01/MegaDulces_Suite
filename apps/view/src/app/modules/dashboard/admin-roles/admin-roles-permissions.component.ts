@@ -1,10 +1,11 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { Permission } from '../../../core/constants/permissions';
 import { MessageService } from 'primeng/api';
+import { AuthService } from '../../../core/services/auth.service';
 import { TableModule } from 'primeng/table';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ButtonModule } from 'primeng/button';
@@ -119,6 +120,8 @@ export class AdminRolesPermissionsComponent implements OnInit {
   private catalogsService = inject(AdminCatalogsService);
   private messageService = inject(MessageService);
   private route = inject(ActivatedRoute);
+  private authService = inject(AuthService);
+  private router = inject(Router);
 
   roleName = signal<string>('');
   permissionRows = signal<PermissionRow[]>([]);
@@ -145,6 +148,17 @@ export class AdminRolesPermissionsComponent implements OnInit {
   };
 
   ngOnInit() {
+    // Verificar permisos antes de cargar datos
+    if (!this.authService.hasPermission(Permission.ROLES_CONFIGURAR)) {
+      const user = this.authService.user();
+      if (user?.role_name === 'colaborador') {
+        this.router.navigate(['/dashboard/captures']);
+      } else {
+        this.router.navigate(['/dashboard']);
+      }
+      return;
+    }
+    
     this.route.params.subscribe((p) => {
       const name = p['role_name'];
       if (name) {

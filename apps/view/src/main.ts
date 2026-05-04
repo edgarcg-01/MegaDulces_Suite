@@ -9,16 +9,16 @@ if ('serviceWorker' in navigator) {
       .then((registration) => {
         console.log('[PWA] SW registered: ', registration);
         
-        // Check for updates
+        // Check for updates - silent auto-update
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           if (newWorker) {
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // New version available
-                if (confirm('Una nueva versión está disponible. ¿Recargar la aplicación?')) {
-                  window.location.reload();
-                }
+                // New version available - update silently without user notification
+                console.log('[PWA] New version available, updating in background');
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                localStorage.setItem('sw-update-pending', 'true');
               }
             });
           }

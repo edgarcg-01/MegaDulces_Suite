@@ -5,7 +5,7 @@
       <h1 class="title-premium">Dashboard Estratégico</h1>
       <div class="flex items-center gap-3 mt-2">
         <span class="px-2 py-0.5 rounded-full bg-accent-brand-light text-[10px] font-black text-brand tracking-widest uppercase">Live Metrics</span>
-        <p class="text-xs text-content-muted font-medium">Visión de campo · {{ filtersState.rangeLabel() }}</p>
+        <p class="text-xs text-content-muted font-medium">Visión de campo · Mensual <span class="text-[8px]">* datos mensuales</span></p>
       </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
@@ -18,7 +18,6 @@
     </div>
   </header>
 
-  <app-global-filters (filtersChanged)="loadDashboardData()"></app-global-filters>
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 w-full">
     <ng-container *ngIf="loading()">
@@ -110,7 +109,7 @@
 
       <div class="card-premium">
         <div class="flex items-center justify-between mb-6 pb-3 border-b border-divider">
-          <h3 class="stat-label">Cumplimiento por mobiliario</h3>
+          <h3 class="stat-label">Cumplimiento diario <span class="text-[8px] text-content-faint">* datos del día</span></h3>
           <span class="text-[10px] text-content-faint uppercase tracking-widest">Vs metas configuradas</span>
         </div>
         <div class="overflow-x-auto">
@@ -179,13 +178,13 @@
           <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
             <p class="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-1">Mejor ejecutivo</p>
             <h4 class="text-xl font-extrabold tracking-tighter text-white">
-              {{ summary()?.mejor_ejecutivo || 'N/A' }}
+              {{ summaryMonthly()?.mejor_ejecutivo || 'N/A' }}
             </h4>
           </div>
           <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
             <p class="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-1">Evidencias verificadas</p>
             <div class="flex items-end gap-2">
-              <span class="text-4xl font-extrabold tracking-tighter">{{ summary()?.total_fotos ?? 0 }}</span>
+              <span class="text-4xl font-extrabold tracking-tighter">{{ summaryMonthly()?.total_fotos ?? 0 }}</span>
               <span class="text-xs text-zinc-500 mb-1">fotos</span>
             </div>
           </div>

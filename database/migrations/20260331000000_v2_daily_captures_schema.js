@@ -17,7 +17,7 @@ exports.up = async function(knex) {
     table.timestamp("hora_inicio").notNullable();
     table.timestamp("hora_fin").notNullable();
     table.jsonb("exhibiciones").notNullable().defaultTo('[]'); // Array contiene obj con fotoUrL
-    table.jsonb("stats").notNullable().defaultTo('{}');
+    table.jsonb("stats").nullable().defaultTo('{}');
     table.timestamp("created_at").defaultTo(knex.fn.now());
 
     // Indizar para la búsqueda en "Reportes de Día" (próxima sección)

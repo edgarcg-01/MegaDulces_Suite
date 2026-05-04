@@ -426,9 +426,9 @@
                   <p class="text-[10px] text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
                 </div>
                 <div class="flex gap-2 w-full sm:w-auto">
-                  <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
+                  <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
                   <p-button icon="pi pi-file-pdf" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand" pTooltip="Generar reporte PDF por marca"></p-button>
-                  <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="showAllProductsDialog = true" pTooltip="Ver todos los productos"></p-button>
+                  <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="openAllProductsDialog()" pTooltip="Ver todos los productos"></p-button>
                 </div>
               </div>
               <div class="h-[280px]">
@@ -815,7 +815,32 @@
   <!-- Diálogo de Todos los Productos -->
   <p-dialog header="Todos los Productos" [(visible)]="showAllProductsDialog" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
     <div class="pt-2">
-      <p-table [value]="allProductsTable()" [rows]="20" [paginator]="true" [rowsPerPageOptions]="[10, 20, 50, 100]" styleClass="p-datatable-sm">
+      <!-- Buscador de productos -->
+      <div class="mb-4">
+        <div class="flex gap-2 items-center">
+          <span class="p-input-icon-left flex-1">
+            <i class="pi pi-search"></i>
+            <input 
+              pInputText 
+              type="text" 
+              placeholder="Buscar por nombre de producto o marca..." 
+              [(ngModel)]="productSearchTerm"
+              (input)="filterProducts()"
+              class="w-full"
+            />
+          </span>
+          <p-button 
+            icon="pi pi-filter-slash" 
+            severity="secondary" 
+            [text]="true" 
+            pTooltip="Limpiar búsqueda"
+            (click)="clearProductSearch()"
+            [disabled]="!productSearchTerm"
+          ></p-button>
+        </div>
+      </div>
+      
+      <p-table [value]="filteredProductsTable()" [rows]="20" [paginator]="true" [rowsPerPageOptions]="[10, 20, 50, 100]" styleClass="p-datatable-sm">
         <ng-template pTemplate="header">
           <tr class="text-[10px] uppercase text-content-muted bg-surface-ground">
             <th class="py-2 px-3 text-left">Producto</th>

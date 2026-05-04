@@ -193,6 +193,11 @@ export class ReportsComponent implements OnInit {
 
   /** Muestra el diálogo de todos los productos */
   showAllProductsDialog = false;
+  /** Término de búsqueda para productos */
+  productSearchTerm = '';
+  /** Productos filtrados para mostrar en tabla */
+  filteredProductsTable = signal<any[]>([]);
+  
   /** Todos los productos procesados para mostrar en tabla */
   allProductsTable = computed(() => {
     const data = this.reportsData();
@@ -218,6 +223,37 @@ export class ReportsComponent implements OnInit {
 
     return result.sort((a, b) => b.total - a.total);
   });
+
+  /** Filtrar productos según el término de búsqueda */
+  filterProducts() {
+    const allProducts = this.allProductsTable();
+    const searchTerm = this.productSearchTerm.toLowerCase().trim();
+    
+    if (!searchTerm) {
+      this.filteredProductsTable.set(allProducts);
+      return;
+    }
+    
+    const filtered = allProducts.filter(product => 
+      product.name.toLowerCase().includes(searchTerm) ||
+      product.brandName.toLowerCase().includes(searchTerm)
+    );
+    
+    this.filteredProductsTable.set(filtered);
+  }
+
+  /** Limpiar búsqueda de productos */
+  clearProductSearch() {
+    this.productSearchTerm = '';
+    this.filterProducts();
+  }
+
+  /** Abrir diálogo de todos los productos */
+  openAllProductsDialog() {
+    this.productSearchTerm = '';
+    this.filterProducts();
+    this.showAllProductsDialog = true;
+  }
 
   /**
    * Verifica si el usuario es supervisor

@@ -745,15 +745,19 @@ export class DailyCaptureService {
           })),
         );
 
-        // Mapear planograma: Marcas -> Productos
+        // Mapear planograma: Marcas -> Productos con ordenamiento alfabético
+        const sortedPlanograma = res.planograma.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+        
         this._groupedProducts.set(
-          res.planograma.map((b) => ({
+          sortedPlanograma.map((b: any) => ({
             marca: b.nombre,
-            items: (b.productos || []).map((p: any) => ({
-              pid: p.id,
-              name: p.nombre,
-              puntuacion: p.puntuacion,
-            })),
+            items: (b.productos || [])
+              .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
+              .map((p: any) => ({
+                pid: p.id,
+                name: p.nombre,
+                puntuacion: p.puntuacion,
+              })),
           })),
         );
       },
