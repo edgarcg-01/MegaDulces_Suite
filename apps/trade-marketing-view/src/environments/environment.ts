@@ -1,13 +1,12 @@
 // Detectar ambiente automáticamente
 // - Local (localhost:4204): usa proxy Nx (/api -> localhost:3334)
-// - Browser Preview (127.0.0.1:xxxx): usa URL de Railway directamente
-// - Producción (Railway): se configura manualmente en el build
+// - Producción (Railway): usa ruta relativa /api (Nginx hace proxy)
 
 const isLocalDev = window.location.hostname === 'localhost' && window.location.port === '4204';
-const RAILWAY_API_URL = 'https://glorious-potato-5g4jxjw6vxj2vvrx-3334.app.github.dev/api'; // Cambiar por tu URL de Railway
+const isProduction = window.location.hostname.includes('railway.app') || window.location.hostname.includes('up.railway.app');
 
 export const environment = {
-  production: false,
-  apiUrl: isLocalDev ? '/api' : RAILWAY_API_URL,
-  envName: isLocalDev ? 'local' : 'preview'
+  production: isProduction,
+  apiUrl: isLocalDev ? '/api' : '/api', // En Railway Nginx hace proxy a la API
+  envName: isLocalDev ? 'local' : (isProduction ? 'production' : 'preview')
 };
