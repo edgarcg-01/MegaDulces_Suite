@@ -19,10 +19,14 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
+  // Configuración CORS permisiva para desarrollo y producción
   app.enableCors({
-    origin: true,
+    origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type, Accept, Authorization, X-Requested-With',
     credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   app.use(json({ limit: '50mb' }));
