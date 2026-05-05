@@ -2154,7 +2154,7 @@ export class ReportsComponent implements OnInit {
         autoTable(doc, {
           startY: yDetail,
           head: [
-            ['Folio', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta'],
+            ['Folio', 'Hora', 'Fecha', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta'],
           ],
           body: data.rows.map((r: any) => {
             const status = this.metasConfig.statusFor(
@@ -2166,6 +2166,7 @@ export class ReportsComponent implements OnInit {
             if (status === 'bad') statusText = 'BAJO';
             return [
               r.folio?.substring(0, 8) || 'N/A',
+              new Date(r.hora_inicio).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
               new Date(r.fecha).toLocaleDateString('es-ES', {
                 day: '2-digit',
                 month: 'short',
@@ -2588,7 +2589,7 @@ export class ReportsComponent implements OnInit {
               ex.nivelEjecucion || 'N/A',
               ex.rangoCompra || ex.rango_compra || ex.rango || '-',
               productos,
-              '$' + (ex.ventaAdicional || 0 || 0).toLocaleString('es-MX'),
+              '$' + (row.stats?.ventaAdicional ?? row.stats?.ventaTotal ?? 0).toLocaleString('es-MX'),
               (ex.puntuacionCalculada || 0).toString(),
             ];
           } catch (e) {

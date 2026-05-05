@@ -497,7 +497,7 @@ interface PdfSection {
                   <ng-template pTemplate="rowexpansion" let-day>
                     <tr>
                       <td
-                        colspan="7"
+                        colspan="8"
                         class="bg-surface-ground p-4 border-b border-surface-border"
                       >
                         <div
@@ -512,6 +512,7 @@ interface PdfSection {
                                 class="text-[10px] uppercase text-content-muted bg-surface-ground"
                               >
                                 <th class="pl-4 py-2 w-24">Folio</th>
+                                <th>Hora</th>
                                 <th>Ejecutivo</th>
                                 <th class="w-32">Zona</th>
                                 <th class="text-center w-24">Score</th>
@@ -524,10 +525,13 @@ interface PdfSection {
                                 class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer"
                                 (click)="viewDetail(visit)"
                               >
-                                <td
+                                  <td
                                   class="pl-4 font-black text-content-main py-3"
                                 >
                                   #{{ visit.folio }}
+                                </td>
+                                <td class="text-center font-mono text-xs text-content-muted">
+                                  {{ visit.hora_inicio | date:'HH:mm':'UTC' }}
                                 </td>
                                 <td class="font-medium text-content-main">
                                   {{ visit.captured_by_username }}
@@ -1576,9 +1580,10 @@ export class ReportsComponent implements OnInit {
       doc.text('Registros detallados', 14, 14);
       autoTable(doc, {
         startY: 20,
-        head: [['Folio', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta']],
+        head: [['Folio', 'Hora', 'Ejecutivo', 'Zona', 'Score', 'Estado', 'Venta']],
         body: data.rows.map((r: any) => [
           r.folio,
+          new Date(r.hora_inicio).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
           r.captured_by_username,
           r.zona_captura,
           (r.stats?.puntuacionTotal ?? 0) + '%',

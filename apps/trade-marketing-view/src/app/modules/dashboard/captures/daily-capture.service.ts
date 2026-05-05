@@ -538,6 +538,7 @@ export class DailyCaptureService {
       exhibiciones: this._activeExhibiciones(),
       stats: {
         ...s,
+        ventaTotal: this._visitaVentaAdicional(),
         ventaAdicional: this._visitaVentaAdicional(),
         rangoCompra: this._visitaRangoCompra()
       },

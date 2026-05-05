@@ -225,17 +225,18 @@
 
               <ng-template pTemplate="rowexpansion" let-day>
                 <tr>
-                  <td colspan="7" class="bg-surface-ground p-4 border-b border-surface-border">
+                  <td colspan="8" class="bg-surface-ground p-4 border-b border-surface-border">
                     <div class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden">
                       <p-table [value]="day.visits" styleClass="p-datatable-sm p-datatable-striped">
                         <ng-template pTemplate="header">
                           <tr class="text-[10px] uppercase text-content-muted bg-surface-ground">
-                            <th class="pl-4 py-2 w-24">Folio</th><th>Ejecutivo</th><th class="w-32">Zona</th><th class="text-center w-24">Score</th><th class="text-center w-24">Estado</th><th class="text-center w-24">Acción</th>
+                            <th class="pl-4 py-2 w-24">Folio</th><th>Hora</th><th>Ejecutivo</th><th class="w-32">Zona</th><th class="text-center w-24">Score</th><th class="text-center w-24">Estado</th><th class="text-center w-24">Acción</th>
                           </tr>
                         </ng-template>
                         <ng-template pTemplate="body" let-visit>
-                          <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer" (click)="viewDetail(visit)">
+                           <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer" (click)="viewDetail(visit)">
                             <td class="pl-4 font-black text-content-main py-3">#{{ visit.folio }}</td>
+                            <td class="text-center font-mono text-xs text-content-muted">{{ visit.hora_inicio | date:'HH:mm':'UTC' }}</td>
                             <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
                             <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
                             <td class="text-center">
@@ -675,7 +676,7 @@
                   </div>
                   <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-sm text-content-faint">Sin productos</span>
                 </td>
-                <td class="text-right pr-5 py-4 font-bold">${{ ex.ventaAdicional || 0 }}</td>
+                <td class="text-right pr-5 py-4 font-bold">${{ selectedRow.stats?.ventaAdicional ?? selectedRow.stats?.ventaTotal ?? 0 }}</td>
                 <td class="text-right pr-5 py-4 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
               </tr>
             </ng-template>
