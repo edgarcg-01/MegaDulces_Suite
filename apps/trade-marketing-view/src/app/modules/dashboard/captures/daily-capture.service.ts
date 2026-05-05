@@ -143,10 +143,10 @@ export class DailyCaptureService {
     const s = this.stats();
     const maxPerExhibicion = this.maxScore();
     const numExhibiciones = s.totalExhibiciones;
-    
+
     // El máximo de la visita es el máximo por exhibición × número de exhibiciones
     const maxVisita = maxPerExhibicion * numExhibiciones;
-    
+
     if (maxVisita === 0) return 0;
     return Math.round((s.puntuacionTotal / maxVisita) * 100);
   });
@@ -186,13 +186,13 @@ export class DailyCaptureService {
       console.log(`[iniciarVisita] 📡 Intento ${i + 1}/${MAX_RETRIES} de capturar GPS...`);
       try {
         await this.capturarUbicacion();
-        
+
         // Verificar que se capturaron coordenadas válidas
         const lat = this._latitud();
         const lng = this._longitud();
-        
+
         console.log(`[iniciarVisita] 📍 Coordenadas después de intento ${i + 1}:`, { latitud: lat, longitud: lng });
-        
+
         if (lat && lng && lat !== 0 && lng !== 0) {
           console.log('[iniciarVisita] ✅ GPS capturado exitosamente (intento', i + 1, '):', lat, lng);
           gpsCapturado = true;
@@ -211,7 +211,7 @@ export class DailyCaptureService {
 
     if (!gpsCapturado) {
       console.error('[iniciarVisita] ❌ No se pudo capturar GPS después de', MAX_RETRIES, 'intentos');
-      
+
       // Intentar usar última posición conocida del localStorage
       const ultimaPosicion = this.obtenerUltimaPosicionConocida();
       if (ultimaPosicion) {
@@ -220,7 +220,7 @@ export class DailyCaptureService {
         this._longitud.set(ultimaPosicion.lng);
         return true;
       }
-      
+
       // Como último recurso, usar coordenadas simuladas cuando está offline
       const isOffline = !navigator.onLine;
       if (isOffline) {
@@ -230,7 +230,7 @@ export class DailyCaptureService {
         this._longitud.set(SIMULATED_COORDS.lng);
         return true;
       }
-      
+
       // No permitir iniciar visita sin GPS cuando está online
       this._horaInicio.set(null);
       this._activeExhibiciones.set([]);
@@ -272,7 +272,7 @@ export class DailyCaptureService {
         const posicion = JSON.parse(data);
         const edad = Date.now() - new Date(posicion.timestamp).getTime();
         const MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
-        
+
         if (edad < MAX_AGE) {
           console.log('[GPS] 📦 Última posición recuperada (edad:', Math.round(edad / 1000 / 60), 'minutos):', posicion);
           return { lat: posicion.lat, lng: posicion.lng };
@@ -530,22 +530,15 @@ export class DailyCaptureService {
       console.log('[saveCapturaTotal] ✅ GPS disponible y válido:', { latitud, longitud });
     }
 
-    // Distribuir la venta adicional general entre las exhibiciones
-    const ventaAdicionalGeneral = this._visitaVentaAdicional();
-    const exhibicionesConVenta = this._activeExhibiciones().map(ex => ({
-      ...ex,
-      ventaAdicional: ex.ventaAdicional || ventaAdicionalGeneral // Si no tiene venta individual, usar la general
-    }));
-
     const payload = {
       folio: customFolio,
       fechaCaptura: localDateStr,
       horaInicio: this._horaInicio()!,
       horaFin: d.toISOString(),
-      exhibiciones: exhibicionesConVenta,
+      exhibiciones: this._activeExhibiciones(),
       stats: {
         ...s,
-        ventaAdicional: ventaAdicionalGeneral,
+        ventaAdicional: this._visitaVentaAdicional(),
         rangoCompra: this._visitaRangoCompra()
       },
       latitud: latitud || 0,
@@ -604,7 +597,7 @@ export class DailyCaptureService {
           // Recuperar coordenadas de localStorage si están null
           let latitud = payload.latitud || this._latitud() || null;
           let longitud = payload.longitud || this._longitud() || null;
-          
+
           if (!latitud || !longitud || latitud === 0 || longitud === 0) {
             const ultimaPosicion = this.obtenerUltimaPosicionConocida();
             if (ultimaPosicion) {
@@ -636,7 +629,7 @@ export class DailyCaptureService {
           )).pipe(
             tap((result) => {
               console.log('[saveCapturaTotal] ✅ Visita guardada offline:', result);
-              
+
               // Crear una respuesta simulada para mantener consistencia
               const offlineRes: VisitaSnapshot = {
                 folio: `${customFolio}-OFFLINE`,
@@ -707,7 +700,7 @@ export class DailyCaptureService {
     const user = this.auth.user();
     if (!user) return;
 
-    const day = new Date().getDay(); 
+    const day = new Date().getDay();
     const dayOfWeek = day === 0 ? 7 : day; // 1=Mon, 7=Sun
 
     this.http.get<any[]>(`${this.apiUrl}/daily-assignments?user_id=${user.sub}&day_of_week=${dayOfWeek}`)
@@ -754,7 +747,7 @@ export class DailyCaptureService {
 
         // Mapear planograma: Marcas -> Productos con ordenamiento alfabético
         const sortedPlanograma = res.planograma.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
-        
+
         this._groupedProducts.set(
           sortedPlanograma.map((b: any) => ({
             marca: b.nombre,
