@@ -2,6 +2,7 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -15,6 +16,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { AdminCatalogsService } from './admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
+import { environment } from '../../../../environments/environment';
 
 @Component({
   selector: 'app-admin-catalogs',
@@ -43,6 +45,7 @@ export class AdminCatalogsComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private authService = inject(AuthService);
+  private http = inject(HttpClient);
 
   selectedType = signal<string>('conceptos');
   title = signal<string>('Catálogos');
@@ -73,6 +76,72 @@ export class AdminCatalogsComponent implements OnInit {
       this.updateTitle(type);
       this.loadCatalog(type);
     });
+
+    // Make fix method available globally for debugging
+    (window as any).fixPruebaRoute = () => {
+      this.fixRouteWithNullParentId('prueba', 'cc7738f3-5a7b-441c-9258-9d53935f9d38');
+    };
+
+    // Fix Paty Chavarria's zona_id
+    (window as any).fixPatyZone = () => {
+      const LA_PIEDAD_VECINAL_ID = 'cc7738f3-5a7b-441c-9258-9d53935f9d38';
+      const patyUserId = 'Paty.chavarria';
+      
+      console.log('[AdminCatalogs] Fixing Paty Chavarria zona_id to:', LA_PIEDAD_VECINAL_ID);
+      
+      this.http.patch(`${environment.apiUrl}/users/${patyUserId}`, {
+        zona_id: LA_PIEDAD_VECINAL_ID,
+        zona: 'LA PIEDAD VECINAL'
+      }).subscribe({
+        next: (result) => {
+          console.log('[AdminCatalogs] Paty Chavarria zona_id fixed:', result);
+          this.messageService.add({ 
+            severity: 'success', 
+            summary: 'Corregido', 
+            detail: 'Zona de Paty Chavarria actualizada correctamente' 
+          });
+        },
+        error: (err) => {
+          console.error('[AdminCatalogs] Error fixing Paty zona_id:', err);
+          this.messageService.add({ 
+            severity: 'error', 
+            summary: 'Error', 
+            detail: 'No se pudo corregir la zona de Paty' 
+          });
+        }
+      });
+    };
+
+    // Debug zones and Paty assignment
+    (window as any).debugZonesAndPaty = () => {
+      console.log('=== DEBUGGING ZONES AND PATY CHAVARRIA ===');
+      
+      // Load all zones
+      this.catalogsService.getCatalog('zonas').subscribe((zones: any[]) => {
+        console.log('All zones:', zones);
+        
+        const laPiedadZones = zones.filter(z => 
+          (z.name && z.name.toLowerCase().includes('la piedad')) || 
+          (z.value && z.value.toLowerCase().includes('la piedad'))
+        );
+        console.log('LA PIEDAD zones:', laPiedadZones);
+        
+        // Load all users to find Paty
+        this.http.get<any[]>(`${environment.apiUrl}/users`).subscribe((users: any[]) => {
+          const patyUsers = users.filter(u => 
+            u.username?.toLowerCase().includes('paty') || 
+            u.nombre?.toLowerCase().includes('paty') ||
+            u.username?.toLowerCase().includes('chavarria') || 
+            u.nombre?.toLowerCase().includes('chavarria')
+          );
+          console.log('Paty users found:', patyUsers);
+          
+          patyUsers.forEach(paty => {
+            console.log(`Paty ${paty.nombre}: zone_id=${paty.zona_id}, zone_name=${paty.zona}`);
+          });
+        });
+      });
+    };
   }
 
   ngOnInit(): void {
@@ -113,8 +182,16 @@ export class AdminCatalogsComponent implements OnInit {
     this.catalogsService.getCatalog(type).subscribe({
       next: (data) => {
         this.items.set(data);
-        // Si es zonas, cargar las rutas para cada zona expandida
+        console.log(`[AdminCatalogs] Loaded ${type}:`, data);
+        
+        // Si es zonas, mostrar detalles de todas las zonas La Piedad
         if (type === 'zonas') {
+          const laPiedadZones = data.filter((z: any) => 
+            (z.name && z.name.toLowerCase().includes('la piedad')) || 
+            (z.value && z.value.toLowerCase().includes('la piedad'))
+          );
+          console.log('[AdminCatalogs] All LA PIEDAD zones found:', laPiedadZones);
+          
           this.loadRoutesForExpandedZones();
         }
         this.loading.set(false);
@@ -142,11 +219,37 @@ export class AdminCatalogsComponent implements OnInit {
   }
 
   loadRoutesForZone(zoneId: string) {
-    this.catalogsService.getRoutesByZone(zoneId).subscribe({
-      next: (routes) => {
-        this.zoneRoutes[zoneId] = routes;
+    console.log('[AdminCatalogs] Loading routes for zone:', zoneId);
+    console.log('[AdminCatalogs] Full API URL:', `${environment.apiUrl}/catalogs/rutas?parent=${zoneId}`);
+    
+    // Also load all routes to debug
+    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas`).subscribe({
+      next: (allRoutes) => {
+        console.log('[AdminCatalogs] ALL routes in database:', allRoutes);
+        console.log('[AdminCatalogs] Looking for zone ID:', zoneId);
+        console.log('[AdminCatalogs] Routes with parent_id details:');
+        allRoutes.forEach(route => {
+          console.log(`  - Route: ${route.value}, parent_id: ${route.parent_id}`);
+        });
+        console.log('[AdminCatalogs] Routes with parent_id matching zone:', allRoutes.filter(r => r.parent_id === zoneId));
       },
       error: (err) => {
+        console.error('[AdminCatalogs] Error loading all routes:', err);
+      }
+    });
+    
+    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas?parent=${zoneId}`).subscribe({
+      next: (routes) => {
+        console.log('[AdminCatalogs] Routes loaded for zone:', zoneId, 'Count:', routes.length);
+        console.log('[AdminCatalogs] Routes details:', routes);
+        this.zoneRoutes[zoneId] = routes;
+        
+        if (routes.length === 0) {
+          console.warn('[AdminCatalogs] No routes found for zone:', zoneId);
+        }
+      },
+      error: (err) => {
+        console.error('[AdminCatalogs] Error loading routes for zone:', zoneId, err);
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las rutas' });
       }
     });
@@ -163,6 +266,7 @@ export class AdminCatalogsComponent implements OnInit {
   // --- Diálogos para Rutas ---
 
   openAddRouteDialog(zone: any) {
+    console.log('[AdminCatalogs] Opening route dialog for zone:', zone);
     this.isRouteMode.set(true);
     this.currentZoneId.set(zone.id);
     this.isEditMode.set(false);
@@ -172,6 +276,7 @@ export class AdminCatalogsComponent implements OnInit {
     this.newItemScore = 0;
     this.newItemIcon = '';
     this.showRouteDialog = true;
+    console.log('[AdminCatalogs] Current zone ID set to:', zone.id);
   }
 
   openEditRouteDialog(route: any, zone: any) {
@@ -209,14 +314,50 @@ export class AdminCatalogsComponent implements OnInit {
         }
       });
     } else {
-      this.catalogsService.addItem('rutas', data).subscribe({
+      // Add parent_id for routes
+      const currentZoneId = this.currentZoneId();
+      console.log('[AdminCatalogs] Creating route with zone ID:', currentZoneId);
+      console.log('[AdminCatalogs] Route data:', data);
+      
+      if (!currentZoneId) {
+        console.error('[AdminCatalogs] No zone ID selected for route creation');
+        this.messageService.add({ 
+          severity: 'error', 
+          summary: 'Error', 
+          detail: 'No se ha seleccionado una zona para agregar la ruta' 
+        });
+        return;
+      }
+      
+      const routeData = {
+        ...data,
+        parent_id: currentZoneId
+      };
+      console.log('[AdminCatalogs] Final route data:', routeData);
+      
+      this.catalogsService.addItem('rutas', routeData).subscribe({
         next: () => {
           this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta agregada correctamente' });
           this.loadRoutesForZone(this.currentZoneId()!);
           this.showRouteDialog = false;
         },
         error: (err) => {
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo agregar la ruta' });
+          console.error('[AdminCatalogs] Error adding route:', err);
+          
+          // Handle duplicate route name error
+          if (err.error?.code === '23505' || err.status === 409) {
+            this.messageService.add({ 
+              severity: 'warn', 
+              summary: 'Ruta Duplicada', 
+              detail: `Ya existe una ruta con el nombre "${data.value}" en esta zona. Por favor, usa un nombre diferente.` 
+            });
+          } else {
+            this.messageService.add({ 
+              severity: 'error', 
+              summary: 'Error', 
+              detail: 'No se pudo agregar la ruta. Inténtalo nuevamente.' 
+            });
+          }
         }
       });
     }
@@ -251,6 +392,61 @@ export class AdminCatalogsComponent implements OnInit {
       },
       error: (err) => {
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar la ruta' });
+      }
+    });
+  }
+
+  // Fix routes with null parent_id
+  fixRouteWithNullParentId(routeName: string, zoneId: string) {
+    console.log(`[AdminCatalogs] Fixing route "${routeName}" with null parent_id to zone: ${zoneId}`);
+    
+    // First find the route with null parent_id
+    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas`).subscribe({
+      next: (allRoutes) => {
+        const routeToFix = allRoutes.find(r => r.value === routeName && r.parent_id === null);
+        
+        if (routeToFix) {
+          console.log(`[AdminCatalogs] Found route to fix:`, routeToFix);
+          
+          // Update the route with correct parent_id
+          const updateData = {
+            value: routeToFix.value,
+            orden: routeToFix.orden,
+            puntuacion: routeToFix.puntuacion || 0,
+            icono: routeToFix.icono || '',
+            parent_id: zoneId
+          };
+          
+          this.catalogsService.updateItem('rutas', routeToFix.id, updateData).subscribe({
+            next: () => {
+              console.log(`[AdminCatalogs] Route "${routeName}" fixed successfully`);
+              this.messageService.add({ 
+                severity: 'success', 
+                summary: 'Ruta Corregida', 
+                detail: `La ruta "${routeName}" ahora está asociada a la zona correctamente` 
+              });
+              this.loadRoutesForZone(zoneId);
+            },
+            error: (err) => {
+              console.error(`[AdminCatalogs] Error fixing route:`, err);
+              this.messageService.add({ 
+                severity: 'error', 
+                summary: 'Error', 
+                detail: 'No se pudo corregir la ruta' 
+              });
+            }
+          });
+        } else {
+          console.warn(`[AdminCatalogs] Route "${routeName}" with null parent_id not found`);
+          this.messageService.add({ 
+            severity: 'warn', 
+            summary: 'Ruta No Encontrada', 
+            detail: `No se encontró la ruta "${routeName}" con parent_id null` 
+          });
+        }
+      },
+      error: (err) => {
+        console.error('[AdminCatalogs] Error loading routes to fix:', err);
       }
     });
   }

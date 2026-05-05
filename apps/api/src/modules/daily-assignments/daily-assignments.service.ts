@@ -30,6 +30,7 @@ export class DailyAssignmentsService {
       .join('users as u', 'da.user_id', 'u.id')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .join('catalogs as c', 'da.route_id', 'c.id')
+      .where('c.catalog_id', 'rutas')
       .select(
         'da.*',
         'u.nombre as user_nombre',

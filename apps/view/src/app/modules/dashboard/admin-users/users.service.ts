@@ -8,6 +8,7 @@ export interface User {
   username: string;
   nombre?: string;
   zona?: string;
+  zona_id?: string;
   role_name: string;
   activo: boolean;
   supervisor_id?: string;

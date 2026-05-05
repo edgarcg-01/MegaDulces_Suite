@@ -10,6 +10,9 @@ export class UpdateUserDto {
   @ApiProperty({ description: 'Zona asignada (ej. Norte)', required: false })
   zona?: string;
 
+  @ApiProperty({ description: 'ID de zona asignada (UUID)', required: false })
+  zona_id?: string;
+
   @ApiProperty({ description: 'Rol del sistema', required: false })
   role_name?: string;
 

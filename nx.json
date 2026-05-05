@@ -21,12 +21,6 @@
         "targetName": "test"
       },
       "exclude": ["apps/logistica-api-e2e/**/*"]
-    },
-    {
-      "plugin": "@nx/playwright/plugin",
-      "options": {
-        "targetName": "e2e"
-      }
     }
   ],
   "defaultProject": "trade-marketing-api",
@@ -34,7 +28,7 @@
     "default": {
       "runner": "nx/tasks-runners/default",
       "options": {
-        "cacheableOperations": ["build", "test", "lint", "e2e"]
+        "cacheableOperations": ["build", "test", "lint"]
       }
     }
   },

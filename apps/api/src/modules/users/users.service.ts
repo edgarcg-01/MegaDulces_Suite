@@ -16,9 +16,13 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto) {
-    const { password, zona, role_name, ...rest } = createUserDto;
+    const { password, zona, zona_id: dtoZonaId, role_name, ...rest } = createUserDto;
     const password_hash = await bcrypt.hash(password, 10);
-    const zona_id = await this.resolveZonaId(zona);
+    
+    // Use zona_id from DTO if provided, otherwise resolve by name
+    const zona_id = dtoZonaId || await this.resolveZonaId(zona);
+    
+    console.log('[UsersService] Creating user with zona_id:', zona_id, 'zona:', zona);
 
     // Normalize role_name to lowercase to match role_permissions
     const normalizedRoleName = role_name ? role_name.toLowerCase() : role_name;
@@ -82,15 +86,20 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const { password, zona, role_name, ...rest } = updateUserDto;
+    const { password, zona, zona_id: dtoZonaId, role_name, ...rest } = updateUserDto;
     const updateData: Record<string, any> = { ...rest };
 
     if (password) {
       updateData.password_hash = await bcrypt.hash(password, 10);
     }
 
-    if (zona !== undefined) {
+    // Use zona_id from DTO if provided, otherwise resolve by name
+    if (dtoZonaId !== undefined) {
+      updateData.zona_id = dtoZonaId;
+      console.log('[UsersService] Updating user with zona_id from DTO:', dtoZonaId);
+    } else if (zona !== undefined) {
       updateData.zona_id = await this.resolveZonaId(zona);
+      console.log('[UsersService] Updating user with resolved zona_id:', updateData.zona_id);
     }
 
     // Normalize role_name to lowercase to match role_permissions

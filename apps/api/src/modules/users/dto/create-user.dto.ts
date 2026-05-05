@@ -13,6 +13,9 @@ export class CreateUserDto {
   @ApiProperty({ description: 'Zona asignada (ej. Norte)' })
   zona?: string;
 
+  @ApiProperty({ description: 'ID de zona asignada (UUID)' })
+  zona_id?: string;
+
   @ApiProperty({ description: 'Rol del sistema (superadmin, supervisor_v, colaborador)' })
   role_name!: string;
 

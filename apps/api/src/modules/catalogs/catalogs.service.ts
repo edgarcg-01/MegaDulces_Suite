@@ -12,6 +12,8 @@ export class CatalogsService {
   ) {}
 
   async getByType(type: string, parentId?: string) {
+    console.log('[CatalogsService] getByType called:', { type, parentId });
+    
     if (type === 'zonas' || type === 'zones') {
       return this.knex('zones')
         .orderBy('orden', 'asc')
@@ -21,10 +23,17 @@ export class CatalogsService {
     const query = this.knex('catalogs')
       .where({ catalog_id: type })
       .orderBy('orden', 'asc');
+    
     if (parentId) {
+      console.log('[CatalogsService] Filtering by parent_id:', parentId);
       query.where({ parent_id: parentId });
     }
-    return query;
+    
+    const result = await query;
+    console.log('[CatalogsService] Query result for type:', type, 'parentId:', parentId, 'Count:', result.length);
+    console.log('[CatalogsService] Result details:', result);
+    
+    return result;
   }
 
   async create(
@@ -34,32 +43,76 @@ export class CatalogsService {
       orden?: number;
       puntuacion?: number | string;
       icono?: string;
+      parent_id?: string;
     },
   ) {
+    console.log('[CatalogsService] Creating item:', { type, data });
+    
+    // Handle zones separately - they have their own table
+    if (type === 'zonas' || type === 'zones') {
+      console.log('[CatalogsService] Creating zone:', data);
+      const [item] = await this.knex('zones')
+        .insert({
+          name: data.value,
+          orden: data.orden ?? 0,
+        })
+        .returning(['id', 'name as value', 'orden']);
+      console.log('[CatalogsService] Zone created:', item);
+      return item;
+    }
+
     // Parse puntuacion as float to support decimals (0.7, 1.2, etc.)
     let puntuacion = data.puntuacion ?? 0;
     if (typeof puntuacion === 'string') {
       puntuacion = parseFloat(puntuacion);
     }
-    const [item] = await this.knex('catalogs')
-      .insert({
-        catalog_id: type,
-        value: data.value,
-        orden: data.orden ?? 0,
-        puntuacion: puntuacion,
-        icono: data.icono,
-      })
-      .returning('*');
     
-    // Recalcular score_maximo si es un catálogo de scoring
-    if (['ubicaciones', 'conceptos', 'niveles'].includes(type)) {
-      await this.recalcularScoreMaximoActivo();
+    const insertData = {
+      catalog_id: type,
+      value: data.value,
+      orden: data.orden ?? 0,
+      puntuacion: puntuacion,
+      icono: data.icono,
+      parent_id: data.parent_id, // Include parent_id for routes
+    };
+    
+    console.log('[CatalogsService] Inserting into catalogs:', insertData);
+    
+    try {
+      const [item] = await this.knex('catalogs')
+        .insert(insertData)
+        .returning('*');
+      console.log('[CatalogsService] Item created successfully:', item);
+      
+      // Recalcular score_maximo si es un catálogo de scoring
+      if (['ubicaciones', 'conceptos', 'niveles'].includes(type)) {
+        await this.recalcularScoreMaximoActivo();
+      }
+      
+      return item;
+    } catch (error) {
+      console.error('[CatalogsService] Error creating item:', error);
+      
+      // Handle duplicate key error specifically
+      if (error.code === '23505') {
+        throw new Error(`Ya existe un elemento con el valor "${data.value}" en este catálogo`);
+      }
+      
+      throw error;
     }
-    
-    return item;
   }
 
   async delete(type: string, id: string) {
+    // Handle zones separately - they have their own table
+    if (type === 'zonas' || type === 'zones') {
+      const deleted = await this.knex('zones')
+        .where({ id })
+        .del();
+      if (deleted === 0)
+        throw new NotFoundException('Zona no encontrada');
+      return { success: true };
+    }
+
     const deleted = await this.knex('catalogs')
       .where({ catalog_id: type, id })
       .del();
@@ -94,6 +147,23 @@ export class CatalogsService {
       icono: string;
     }>,
   ) {
+    // Handle zones separately - they have their own table
+    if (type === 'zonas' || type === 'zones') {
+      const updateData: any = {};
+      if (data.value !== undefined) updateData.name = data.value;
+      if (data.orden !== undefined) updateData.orden = data.orden;
+
+      const [item] = await this.knex('zones')
+        .where({ id })
+        .update(updateData)
+        .returning(['id', 'name as value', 'orden']);
+
+      if (!item)
+        throw new NotFoundException('Zona no encontrada para actualizar');
+      
+      return item;
+    }
+
     // Parse puntuacion as float to support decimals (0.7, 1.2, etc.)
     let puntuacion = data.puntuacion;
     if (puntuacion !== undefined && puntuacion !== null) {

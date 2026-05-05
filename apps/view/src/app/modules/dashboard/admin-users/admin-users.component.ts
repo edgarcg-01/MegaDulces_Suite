@@ -61,7 +61,7 @@ export class AdminUsersComponent implements OnInit {
 
   roles = signal<{ label: string; value: string }[]>([]);
   supervisors = signal<{ label: string; value: string }[]>([]);
-  zones = signal<{ label: string; value: string }[]>([]);
+  zones = signal<{ label: string; value: string; id: string }[]>([]);
 
   constructor() {
     this.userForm = this.fb.group({
@@ -69,6 +69,7 @@ export class AdminUsersComponent implements OnInit {
       password: [''],
       nombre: [''],
       zona: [''],
+      zona_id: [''],
       role_name: ['', Validators.required],
       supervisor_id: [null],
       activo: [true],
@@ -83,6 +84,19 @@ export class AdminUsersComponent implements OnInit {
         supervisorControl?.setValue(null);
       }
       supervisorControl?.updateValueAndValidity();
+    });
+
+    // Listen to zona changes to update zona_id automatically
+    this.userForm.get('zona')?.valueChanges.subscribe((zonaName) => {
+      if (zonaName) {
+        const selectedZone = this.zones().find(z => z.value === zonaName);
+        if (selectedZone) {
+          console.log('[AdminUsers] Zone selected:', selectedZone);
+          this.userForm.get('zona_id')?.setValue(selectedZone.id);
+        }
+      } else {
+        this.userForm.get('zona_id')?.setValue(null);
+      }
     });
   }
 
@@ -112,6 +126,7 @@ export class AdminUsersComponent implements OnInit {
         const mappedZones = data.map((z) => ({
           label: z.value,
           value: z.value,
+          id: z.id, // Include zone ID
         }));
         console.log('[loadZones] Zonas mapeadas:', mappedZones);
         this.zones.set(mappedZones);
@@ -183,10 +198,13 @@ export class AdminUsersComponent implements OnInit {
       password: '',
       nombre: user.nombre,
       zona: user.zona,
+      zona_id: user.zona_id,
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
       activo: user.activo,
     });
+    
+    console.log('[AdminUsers] Editing user with zona_id:', user.zona_id);
 
     this.displayDialog.set(true);
   }
@@ -199,6 +217,9 @@ export class AdminUsersComponent implements OnInit {
     if (formData.role_name) {
       formData.role_name = formData.role_name.toLowerCase();
     }
+    
+    console.log('[AdminUsers] Saving user with data:', formData);
+    console.log('[AdminUsers] zona_id being sent:', formData.zona_id);
 
     if (this.isEditing() && this.currentUserId()) {
       const { username, ...updateData } = formData;

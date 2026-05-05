@@ -9,14 +9,14 @@
     <div class="bg-surface-card border border-surface-border px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">
         <div class="text-xs font-black text-brand uppercase tracking-widest border-r border-surface-border pr-3">Equipos Activos</div>
         <div class="flex -space-x-2">
-            @for (m of team().slice(0, 5); track m.id) {
+            @for (m of filteredTeam().slice(0, 5); track m.id) {
                 <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-primary">
                     {{ m.username.substring(0,1) | uppercase }}
                 </div>
             }
-            @if (team().length > 5) {
+            @if (filteredTeam().length > 5) {
                 <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-content-faint">
-                    +{{ team().length - 5 }}
+                    +{{ filteredTeam().length - 5 }}
                 </div>
             }
         </div>
@@ -30,11 +30,12 @@
         <div class="relative w-full">
             <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs"></i>
             <input type="text" pInputText placeholder="Buscar colaborador..." 
+                   [(ngModel)]="searchQuery"
                    class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-surface-border rounded-lg outline-none focus:border-brand transition-all" />
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">
-        @for (member of team(); track member.id) {
+        @for (member of filteredTeam(); track member.id) {
           <div (click)="selectMember(member)"
                [class.active-member]="selectedMember()?.id === member.id"
                class="member-card p-3 mb-2 rounded-xl cursor-pointer border border-transparent hover:bg-surface-hover transition-all flex items-center gap-3">
@@ -42,7 +43,12 @@
               {{ member.username.substring(0,2) | uppercase }}
             </div>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-black text-content-main truncate">{{ member.nombre || member.username }}</div>
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-black text-content-main truncate">{{ member.nombre || member.username }}</div>
+                @if (member.isSupervisor) {
+                  <div class="bg-brand text-brand-contrast text-[7px] font-black px-1.5 py-0.5 rounded-full tracking-widest">SUPERVISOR</div>
+                }
+              </div>
               <div class="text-[9px] font-bold uppercase text-brand tracking-widest">{{ member.zona }}</div>
             </div>
             <i class="pi pi-chevron-right text-xs text-content-faint"></i>
@@ -107,7 +113,9 @@
                     @if (weeklyAssignments()[day.id]) {
                         <div class="flex items-center gap-1.5">
                             <div class="w-2 h-2 rounded-full bg-brand-orange shadow-[0_0_8px_rgba(246,143,30,0.5)]"></div>
-                            <span class="text-[10px] font-black text-content-dim uppercase">Configurada</span>
+                            <span class="text-[10px] font-black text-brand uppercase truncate max-w-[120px]" [title]="getRouteName(weeklyAssignments()[day.id])">
+                                {{ getRouteName(weeklyAssignments()[day.id]) }}
+                            </span>
                         </div>
                     } @else {
                         <div class="flex items-center gap-1.5">
