@@ -530,15 +530,22 @@ export class DailyCaptureService {
       console.log('[saveCapturaTotal] ✅ GPS disponible y válido:', { latitud, longitud });
     }
 
+    // Distribuir la venta adicional general entre las exhibiciones
+    const ventaAdicionalGeneral = this._visitaVentaAdicional();
+    const exhibicionesConVenta = this._activeExhibiciones().map(ex => ({
+      ...ex,
+      ventaAdicional: ex.ventaAdicional || ventaAdicionalGeneral // Si no tiene venta individual, usar la general
+    }));
+
     const payload = {
       folio: customFolio,
       fechaCaptura: localDateStr,
       horaInicio: this._horaInicio()!,
       horaFin: d.toISOString(),
-      exhibiciones: this._activeExhibiciones(),
+      exhibiciones: exhibicionesConVenta,
       stats: {
         ...s,
-        ventaAdicional: this._visitaVentaAdicional(),
+        ventaAdicional: ventaAdicionalGeneral,
         rangoCompra: this._visitaRangoCompra()
       },
       latitud: latitud || 0,
