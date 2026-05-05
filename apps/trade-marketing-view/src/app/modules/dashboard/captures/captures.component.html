@@ -580,7 +580,6 @@
         <label class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
         <p-inputNumber
            [(ngModel)]="impactoVentaAdicional"
-           (ngModelChange)="onImpactoVentaChange($event)"
            [min]="0"
            [max]="999999"
            [step]="100"

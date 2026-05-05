@@ -468,6 +468,7 @@ export class DailyCaptureService {
    * @param valor Monto de venta adicional
    */
   updateVisitaVentaAdicional(valor: number) {
+    console.log('[updateVisitaVentaAdicional] Actualizando a:', valor, typeof valor);
     this._visitaVentaAdicional.set(valor);
   }
 
@@ -493,8 +494,9 @@ export class DailyCaptureService {
    * Guarda la captura total de la visita en el backend o offline
    * @returns Observable con el resultado de la operación
    */
-  saveCapturaTotal(): Observable<any> {
+   saveCapturaTotal(): Observable<any> {
     console.log('[saveCapturaTotal] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
+    console.log('[saveCapturaTotal] 💰 _visitaVentaAdicional() ANTES de construir payload:', this._visitaVentaAdicional());
 
     const s = this.stats();
     const user = this.auth.user();

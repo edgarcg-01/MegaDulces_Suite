@@ -321,6 +321,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   onSaveCapturaTotal() {
+    console.log('[onSaveCapturaTotal] impactoVentaAdicional:', this.impactoVentaAdicional);
+    console.log('[onSaveCapturaTotal] impactoRangoCompra:', this.impactoRangoCompra);
+
     // Sincronizar explícitamente los valores del componente al servicio
     // Esto previene race conditions si el usuario hace clic en guardar antes de que el input pierda el foco
     this.svc.updateVisitaVentaAdicional(this.impactoVentaAdicional || 0);
