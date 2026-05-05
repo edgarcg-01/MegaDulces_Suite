@@ -468,7 +468,6 @@ export class DailyCaptureService {
    * @param valor Monto de venta adicional
    */
   updateVisitaVentaAdicional(valor: number) {
-    console.log('[updateVisitaVentaAdicional] Actualizando a:', valor, typeof valor);
     this._visitaVentaAdicional.set(valor);
   }
 
@@ -496,7 +495,6 @@ export class DailyCaptureService {
    */
    saveCapturaTotal(): Observable<any> {
     console.log('[saveCapturaTotal] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
-    console.log('[saveCapturaTotal] 💰 _visitaVentaAdicional() ANTES de construir payload:', this._visitaVentaAdicional());
 
     const s = this.stats();
     const user = this.auth.user();
@@ -683,7 +681,10 @@ export class DailyCaptureService {
     const today = new Date().toISOString().split('T')[0];
     this.http.get<any[]>(`${this.apiUrl}/daily-captures?fecha=${today}`).subscribe({
         next: (data: any[]) => {
-        const parsedData = data.map(item => ({
+        const parsedData = data.map(item => {
+          const rawStats = typeof item.stats === 'string' ? JSON.parse(item.stats) : (item.stats || {});
+          const normalizedStats = this.normalizeStats(rawStats);
+          return {
             folio: item.folio,
             userId: item.user_id,
             fechaCaptura: this.formatDate(item.fecha || item.fechaCaptura),
@@ -692,11 +693,26 @@ export class DailyCaptureService {
             capturedBy: item.captured_by_username || 'Sistema',
             zona: item.zona_captura,
             exhibiciones: typeof item.exhibiciones === 'string' ? JSON.parse(item.exhibiciones) : (item.exhibiciones || []),
-            stats: typeof item.stats === 'string' ? JSON.parse(item.stats) : (item.stats || {})          }));
+            stats: normalizedStats
+          };
+        });
           this._captures.set(parsedData);
         },
       error: (err) => console.error('Error fetching visits from server', err)
       });
+  }
+
+  /**
+   * Normaliza stats para que ventaTotal siempre tenga el valor correcto
+   * (fallback: si ventaTotal es 0 pero ventaAdicional existe, usa ventaAdicional)
+   */
+  private normalizeStats(stats: any): any {
+    const ventaAdicional = stats.ventaAdicional ?? 0;
+    const ventaTotalActual = stats.ventaTotal ?? 0;
+    return {
+      ...stats,
+      ventaTotal: ventaTotalActual > 0 ? ventaTotalActual : ventaAdicional,
+    };
   }
 
   loadTodayAssignment() {

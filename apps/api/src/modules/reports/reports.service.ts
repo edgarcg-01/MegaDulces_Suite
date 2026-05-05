@@ -36,7 +36,7 @@ export class ReportsService {
       .select(
         this.knex.raw("SUM((stats->>'totalExhibiciones')::int) as visitas"),
         this.knex.raw("AVG((stats->>'score_calidad_pct')::float) as avg_score"),
-        this.knex.raw("SUM((stats->>'ventaTotal')::float) as ventas"),
+        this.knex.raw("SUM(COALESCE(NULLIF((stats->>'ventaTotal')::float, 0), (stats->>'ventaAdicional')::float)) as ventas"),
         this.knex.raw(
           'AVG(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60) as avg_duration_min',
         ),
@@ -202,26 +202,38 @@ export class ReportsService {
     console.log('[ReportsService] productMap sample:', Object.keys(productMap).slice(0, 5));
     console.log('[ReportsService] productMap sample with names:', Object.entries(productMap).slice(0, 5).map(([k, v]) => ({ id: k, name: v.name })));
 
-    // Calculate aggregated metrics for the filtered set
+    // Parse and normalize stats for each row
+    const normalizedRows = rows.map((row) => {
+      const rawStats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+      const normalizedStats = {
+        ...rawStats,
+        ventaTotal: (rawStats.ventaTotal || 0) > 0 ? rawStats.ventaTotal : (rawStats.ventaAdicional || 0),
+      };
+      return {
+        ...row,
+        stats: normalizedStats,
+        exhibiciones: typeof row.exhibiciones === 'string' ? JSON.parse(row.exhibiciones) : row.exhibiciones || [],
+      };
+    });
+
+    // Calculate aggregated metrics for the filtered set using normalized stats
     let totalVisitas = 0;
     let totalScore = 0;
     let totalVentas = 0;
     const dailyTrend: Record<string, any> = {};
     const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
     const exhibidoresHealth = { optimo: 0, regular: 0, critico: 0 };
-    const sellerProductStats: Record<string, Record<string, number>> = {}; // Productos por usuario
+    const sellerProductStats: Record<string, Record<string, number>> = {};
 
     // Collect all unique PIDs from exhibiciones for later mapping
     const allPIDsInExhibiciones = new Set<string>();
 
-    rows.forEach((row) => {
-      const stats =
-        typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
-      const numVisitas = stats.totalExhibiciones || 1; // Falling back to 1 if not present
+    normalizedRows.forEach((row) => {
+      const stats = row.stats;
+      const numVisitas = stats.totalExhibiciones || 1;
       const score = stats.score_calidad_pct || 0;
       const ventas = stats.ventaTotal || 0;
-      const exhibiciones = 
-        typeof row.exhibiciones === 'string' ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
+      const exhibiciones = row.exhibiciones;
 
       totalVisitas += numVisitas;
       totalScore += score;
@@ -330,10 +342,10 @@ export class ReportsService {
 
     const metrics = {
       totalVisitas,
-      avgScore: rows.length > 0 ? (totalScore / rows.length).toFixed(2) : 0,
+      avgScore: normalizedRows.length > 0 ? (totalScore / normalizedRows.length).toFixed(2) : 0,
       totalVentas,
       avgVentaPorVisita: totalVisitas > 0 ? (totalVentas / totalVisitas).toFixed(2) : 0,
-      count: rows.length,
+      count: normalizedRows.length,
       totalExhibiciones,
       stockoutRate: avgProductsPerVisit,
       healthRate,
@@ -352,17 +364,10 @@ export class ReportsService {
       metrics,
       trendData,
       productStats,
-      productMap, // We send the mapping to the frontend
+      productMap,
       exhibidoresHealth,
-      sellerProductStats, // Productos por usuario
-      rows: rows.map((r) => ({
-        ...r,
-        stats: typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats,
-        exhibiciones:
-          typeof r.exhibiciones === 'string'
-            ? JSON.parse(r.exhibiciones)
-            : r.exhibiciones,
-      })),
+      sellerProductStats,
+      rows: normalizedRows,
     };
   }
 
@@ -417,11 +422,12 @@ export class ReportsService {
     for (const row of data) {
       const stats =
         typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+      const ventaTotal = (stats.ventaTotal || 0) > 0 ? stats.ventaTotal : (stats.ventaAdicional || 0);
       const fecha =
         row.fecha instanceof Date
           ? row.fecha.toISOString().split('T')[0]
           : row.fecha;
-      csvString += `${row.folio},${row.captured_by_username},${row.zona_captura},${fecha},${stats.totalExhibiciones || 0},${stats.puntuacionTotal || 0},${stats.ventaTotal || 0}\n`;
+      csvString += `${row.folio},${row.captured_by_username},${row.zona_captura},${fecha},${stats.totalExhibiciones || 0},${stats.puntuacionTotal || 0},${ventaTotal}\n`;
     }
 
     return csvString;

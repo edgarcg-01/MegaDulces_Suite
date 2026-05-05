@@ -91,12 +91,24 @@ export class DailyCapturesService {
       ? (dto.stats.puntuacionTotal / scoreMaximoVisita) * 100 
       : 0;
 
-    // Agregar score_calidad_pct a los stats
+    // Normalizar ventaTotal: si es 0 o menor que ventaAdicional, usar ventaAdicional
+    const ventaAdicional = dto.stats.ventaAdicional || 0;
+    const ventaTotalActual = dto.stats.ventaTotal || 0;
+    const ventaTotalFinal = ventaTotalActual > 0 ? ventaTotalActual : ventaAdicional;
+
+    // Agregar score_calidad_pct y ventaTotal normalizado a los stats
     const statsWithPct = {
       ...dto.stats,
+      ventaTotal: ventaTotalFinal,
       score_calidad_pct: Number(scoreCalidadPct.toFixed(2)),
       score_maximo: scoreMaximoVisita,
     };
+
+    console.log('[DailyCapturesService] 💾 Stats normalizados a insertar:', {
+      ventaTotalRecibido: ventaTotalActual,
+      ventaAdicional: ventaAdicional,
+      ventaTotalFinal,
+    });
 
     // Extraer fecha de hora_inicio o usar fecha actual
     const fecha = dto.horaInicio
