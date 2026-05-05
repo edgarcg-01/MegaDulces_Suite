@@ -119,8 +119,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Dashboard',        icon: 'pi pi-th-large',      route: '/dashboard',                       permission: Permission.REPORTES_VER_PROPIO  },
     { label: 'Captura Diaria',   icon: 'pi pi-pencil',        route: '/dashboard/captures',              permission: Permission.VISITAS_REGISTRAR    },
     { label: 'Reportes',         icon: 'pi pi-chart-bar',     route: '/dashboard/reports',               permission: Permission.REPORTES_VER_PROPIO  },
-    { label: 'Tiendas / PDV',    icon: 'pi pi-building',      route: '/dashboard/stores',                permission: Permission.CATALOGO_GESTIONAR   },
-    { label: 'Exhibiciones',     icon: 'pi pi-images',        route: '/dashboard/exhibitions',           permission: Permission.REPORTES_VER_PROPIO  },
     { label: 'Asignación Diaria',icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',     permission: Permission.USUARIOS_ASIGNAR_RUTA},
   ];
 
