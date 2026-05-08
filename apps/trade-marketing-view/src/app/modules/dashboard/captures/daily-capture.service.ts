@@ -480,16 +480,6 @@ export class DailyCaptureService {
   }
 
   /**
-   * Verifica si es después del horario de corte (6 PM)
-   * @returns true si es después de las 6 PM
-   */
-  isPastCutoff(): boolean {
-    const now = new Date();
-    const hour = now.getHours();
-    return hour >= 18; // 6 PM
-  }
-
-  /**
    * Guarda la captura total de la visita en el backend o offline
    * @returns Observable con el resultado de la operación
    */

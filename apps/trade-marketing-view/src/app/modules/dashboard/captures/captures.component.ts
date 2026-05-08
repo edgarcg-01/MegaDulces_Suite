@@ -261,19 +261,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   /**
    * Inicia una nueva visita capturando la ubicación GPS
-   * @throws Error si no se puede capturar la ubicación o si es después de las 6 PM
+   * @throws Error si no se puede capturar la ubicación
    */
   async onIniciarVisita() {
-    if (this.svc.isPastCutoff()) {
-      this.toast.add({
-        severity: 'error',
-        summary: 'Jornada Cerrada',
-        detail:
-          'Ya son las 6:00 PM. No se permiten más visitas por el día de hoy.',
-      });
-      return;
-    }
-
     this.toast.add({
       severity: 'info',
       summary: 'GPS',
