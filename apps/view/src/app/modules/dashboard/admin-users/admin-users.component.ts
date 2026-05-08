@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
@@ -6,6 +6,7 @@ import {
   FormGroup,
   Validators,
   ReactiveFormsModule,
+  FormsModule,
 } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -17,11 +18,12 @@ import { InputSwitchModule } from 'primeng/inputswitch';
 import { ToastModule } from 'primeng/toast';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { UsersService, User } from './users.service';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-admin-users',
@@ -38,6 +40,9 @@ import { Permission } from '../../../core/constants/permissions';
     InputSwitchModule,
     ToastModule,
     ConfirmDialogModule,
+    IconFieldModule,
+    InputIconModule,
+    FormsModule,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-users.component.html',
@@ -58,6 +63,21 @@ export class AdminUsersComponent implements OnInit {
   displayDialog = signal<boolean>(false);
   isEditing = signal<boolean>(false);
   currentUserId = signal<string | null>(null);
+  searchText = signal<string>('');
+
+  filteredUsers = computed(() => {
+    const query = this.searchText().toLowerCase().trim();
+    if (!query) return this.users();
+
+    return this.users().filter(user => {
+      return (
+        user.username.toLowerCase().includes(query) ||
+        (user.nombre?.toLowerCase().includes(query) || false) ||
+        (user.role_name?.toLowerCase().includes(query) || false) ||
+        (user.zona?.toLowerCase().includes(query) || false)
+      );
+    });
+  });
 
   userForm: FormGroup;
 
@@ -136,27 +156,27 @@ export class AdminUsersComponent implements OnInit {
 
   loadRoles(): void {
     this.catalogsService.getCatalog('roles').subscribe({
-      next: (data: any[]) => {
+      next: (data: { value: string }[]) => {
         const mappedRoles = data.map((item) => ({
           label: item.value.charAt(0).toUpperCase() + item.value.slice(1),
           value: item.value,
         }));
         this.roles.set(mappedRoles);
       },
-      error: (err) => console.error('Error al cargar roles', err),
+      error: () => console.error('Error al cargar roles'),
     });
   }
 
   loadSupervisors(): void {
     this.usersService.getSupervisors().subscribe({
-      next: (data: any[]) => {
+      next: (data: { id: string; nombre?: string; username: string }[]) => {
         const mappedSupers = data.map((s) => ({
           label: s.nombre || s.username,
           value: s.id
         }));
         this.supervisors.set(mappedSupers);
       },
-      error: (err) => console.error('Error al cargar supervisores', err),
+      error: () => console.error('Error al cargar supervisores'),
     });
   }
 
@@ -167,8 +187,7 @@ export class AdminUsersComponent implements OnInit {
         this.users.set(data);
         this.loading.set(false);
       },
-      error: (err) => {
-        console.error('Error al cargar usuarios', err);
+      error: () => {
         this.loading.set(false);
       },
     });
@@ -221,7 +240,7 @@ export class AdminUsersComponent implements OnInit {
     console.log('[AdminUsers] zona_id being sent:', formData.zona_id);
 
     if (this.isEditing() && this.currentUserId()) {
-      const { username, ...updateData } = formData;
+      const { ...updateData } = formData;
       if (!updateData.password || updateData.password.trim() === '') {
         delete updateData.password;
       }
@@ -235,8 +254,7 @@ export class AdminUsersComponent implements OnInit {
             detail: 'Usuario actualizado correctamente',
           });
         },
-        error: (err) => {
-          console.error('Error actualizando', err);
+        error: () => {
           this.messageService.add({
             severity: 'error',
             summary: 'Error',
@@ -255,8 +273,7 @@ export class AdminUsersComponent implements OnInit {
             detail: 'Usuario creado correctamente',
           });
         },
-        error: (err) => {
-          console.error('Error creando', err);
+        error: () => {
           this.messageService.add({
             severity: 'error',
             summary: 'Error',
@@ -301,7 +318,7 @@ export class AdminUsersComponent implements OnInit {
           detail: 'Usuario desactivado correctamente',
         });
       },
-      error: (err: any) => {
+      error: (err: { error?: { message?: string } }) => {
         const errorMsg = err?.error?.message || 'No se pudo eliminar el usuario.';
         this.messageService.add({
           severity: 'error',

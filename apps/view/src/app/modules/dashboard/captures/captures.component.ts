@@ -1025,8 +1025,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @param c Objeto con ID o PID
    * @returns ID o PID del objeto
    */
-  trackById(_: number, c: any): string {
-    return c.id || c.pid;
+  trackById(_: number, c: { id?: string; pid?: string }): string {
+    return c.id || c.pid || '';
   }
 
   /**

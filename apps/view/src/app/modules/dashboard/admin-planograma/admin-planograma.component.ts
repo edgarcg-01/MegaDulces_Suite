@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -11,10 +11,24 @@ import { ToastModule } from 'primeng/toast';
 import { TagModule } from 'primeng/tag';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { AdminPlanogramaService } from './admin-planograma.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
+
+interface Product {
+  id: string;
+  nombre: string;
+  brand_id: string;
+}
+
+interface Brand {
+  id: string;
+  nombre: string;
+  productos?: Product[];
+  _highlight?: boolean;
+}
 
 @Component({
   selector: 'app-admin-planograma',
@@ -29,7 +43,9 @@ import { Permission } from '../../../core/constants/permissions';
     DialogModule,
     ToastModule,
     TagModule,
-    ConfirmDialogModule
+    ConfirmDialogModule,
+    IconFieldModule,
+    InputIconModule
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-planograma.component.html',
@@ -43,9 +59,32 @@ export class AdminPlanogramaComponent implements OnInit {
   private perms = inject(PermissionsService);
   private router = inject(Router);
 
-  brands = signal<any[]>([]);
+  brands = signal<Brand[]>([]);
   loading = signal<boolean>(false);
+  searchText = signal<string>('');
   expandedRows: { [key: string]: boolean } = {};
+
+  filteredBrands = computed(() => {
+    const query = this.searchText().toLowerCase().trim();
+    if (!query) return this.brands();
+
+    return this.brands().map(brand => {
+      const matchBrand = brand.nombre.toLowerCase().includes(query);
+      const filteredProducts = (brand.productos || []).filter((p: Product) => 
+        p.nombre.toLowerCase().includes(query)
+      );
+
+      if (matchBrand || filteredProducts.length > 0) {
+        const result: Brand = {
+          ...brand,
+          productos: matchBrand ? brand.productos : filteredProducts,
+          _highlight: matchBrand
+        };
+        return result;
+      }
+      return null;
+    }).filter((b): b is Brand => b !== null);
+  });
 
   // Modals
   showAddBrandDialog = false;
@@ -54,8 +93,8 @@ export class AdminPlanogramaComponent implements OnInit {
   showEditProductDialog = false;
 
   // Forms
-  selectedBrand: any = null;
-  selectedProduct: any = null;
+  selectedBrand: Brand | null = null;
+  selectedProduct: Product | null = null;
   
   newBrandName = '';
   editBrandName = '';
@@ -79,21 +118,21 @@ export class AdminPlanogramaComponent implements OnInit {
   loadBrands() {
     this.loading.set(true);
     this.planogramaService.getBrands().subscribe({
-      next: (data) => {
+      next: (data: Brand[]) => {
         // Ordenar marcas alfabéticamente por nombre
-        const sortedBrands = data.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+        const sortedBrands = data.sort((a, b) => a.nombre.localeCompare(b.nombre));
         
         // Ordenar productos alfabéticamente dentro de cada marca
         sortedBrands.forEach(brand => {
           if (brand.productos && Array.isArray(brand.productos)) {
-            brand.productos.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+            brand.productos.sort((a, b) => a.nombre.localeCompare(b.nombre));
           }
         });
         
         this.brands.set(sortedBrands);
         this.loading.set(false);
       },
-      error: (err) => {
+      error: () => {
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las marcas' });
         this.loading.set(false);
       }
@@ -111,25 +150,25 @@ export class AdminPlanogramaComponent implements OnInit {
         this.showAddBrandDialog = false;
         this.newBrandName = '';
       },
-      error: (err) => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo crear la marca' })
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo crear la marca' })
     });
   }
 
-  openEditBrand(brand: any) {
+  openEditBrand(brand: Brand) {
     this.selectedBrand = brand;
     this.editBrandName = brand.nombre;
     this.showEditBrandDialog = true;
   }
 
   updateBrand() {
-    if (!this.editBrandName.trim()) return;
+    if (!this.editBrandName.trim() || !this.selectedBrand) return;
     this.planogramaService.updateBrand(this.selectedBrand.id, { nombre: this.editBrandName }).subscribe({
       next: () => {
         this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Marca actualizada' });
         this.loadBrands();
         this.showEditBrandDialog = false;
       },
-      error: (err) => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar la marca' })
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar la marca' })
     });
   }
 
@@ -146,51 +185,51 @@ export class AdminPlanogramaComponent implements OnInit {
             this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Marca eliminada correctamente' });
             this.loadBrands();
           },
-          error: (err) => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar la marca' })
+          error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar la marca' })
         });
       }
     });
   }
 
-  toggleRowExpansion(brand: any) {
+  toggleRowExpansion(brand: Brand) {
     this.expandedRows[brand.id] = !this.expandedRows[brand.id];
   }
 
   // --- Product Actions ---
 
-  openAddProduct(brandId: string) {
-    this.selectedBrand = { id: brandId };
+  openAddProduct(brand: Brand) {
+    this.selectedBrand = brand;
     this.newProductName = '';
     this.showAddProductDialog = true;
   }
 
   addProduct() {
-    if (!this.newProductName.trim()) return;
+    if (!this.newProductName.trim() || !this.selectedBrand) return;
     this.planogramaService.addProduct(this.selectedBrand.id, { nombre: this.newProductName }).subscribe({
       next: () => {
         this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Producto agregado' });
         this.loadBrands();
         this.showAddProductDialog = false;
       },
-      error: (err) => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo agregar el producto' })
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo agregar el producto' })
     });
   }
 
-  openEditProduct(product: any) {
+  openEditProduct(product: Product) {
     this.selectedProduct = product;
     this.editProductName = product.nombre;
     this.showEditProductDialog = true;
   }
 
   updateProduct() {
-    if (!this.editProductName.trim()) return;
+    if (!this.editProductName.trim() || !this.selectedProduct) return;
     this.planogramaService.updateProduct(this.selectedProduct.id, { nombre: this.editProductName }).subscribe({
       next: () => {
         this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Producto actualizado' });
         this.loadBrands();
         this.showEditProductDialog = false;
       },
-      error: (err) => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar el producto' })
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar el producto' })
     });
   }
 
@@ -207,7 +246,7 @@ export class AdminPlanogramaComponent implements OnInit {
             this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Producto eliminado' });
             this.loadBrands();
           },
-          error: (err) => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar el producto' })
+          error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar el producto' })
         });
       }
     });

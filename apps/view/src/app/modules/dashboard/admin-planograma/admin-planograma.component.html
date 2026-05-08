@@ -5,14 +5,18 @@
       <h2 class="text-2xl font-bold text-content-main">🏷️ Jerarquía de Planograma</h2>
       <p class="text-sm text-content-dim">Administra las marcas y sus productos por cada punto de venta.</p>
     </div>
-    <div class="flex gap-2">
+    <div class="flex items-center gap-4">
+      <p-iconfield>
+        <p-inputicon class="pi pi-search"></p-inputicon>
+        <input pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar marca o producto..." class="w-full sm:w-64" />
+      </p-iconfield>
       <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="showAddBrandDialog = true"></p-button>
     </div>
   </div>
 
   <!-- Tabla de Marcas con Expansión -->
   <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
-    <p-table [value]="brands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+    <p-table [value]="filteredBrands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
         <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
           <th style="width: 3rem"></th>
@@ -32,7 +36,7 @@
           </td>
           <td class="text-center">
             <div class="flex justify-center gap-1">
-              <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand.id)"></p-button>
+              <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand)"></p-button>
               <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>
               <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)"></p-button>
             </div>
@@ -84,14 +88,14 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-4 mt-4">
-    <div *ngFor="let brand of brands()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm">
+    <div *ngFor="let brand of filteredBrands()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm" [class.ring-2]="brand._highlight" [class.ring-brand]="brand._highlight">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-3">
           <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{brand.id}}</span>
           <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>
         </div>
         <div class="flex gap-1">
-          <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand.id)"></p-button>
+          <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand)"></p-button>
           <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>
           <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)"></p-button>
         </div>

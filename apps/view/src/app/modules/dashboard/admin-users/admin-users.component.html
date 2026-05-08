@@ -16,7 +16,11 @@
       <h2 class="text-headline text-content-main">Administración de Usuarios</h2>
       <p class="text-body text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
     </div>
-    <div class="flex gap-2">
+    <div class="flex items-center gap-4">
+      <p-iconfield>
+        <p-inputicon class="pi pi-search"></p-inputicon>
+        <input pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar por nombre, usuario, rol o zona..." class="w-full sm:w-80" />
+      </p-iconfield>
       <p-button label="Exportar" icon="pi pi-file-excel" severity="secondary" [outlined]="true"></p-button>
       <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()"></p-button>
     </div>
@@ -24,7 +28,7 @@
 
   <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
     <!-- Tabla de Usuarios -->
-    <p-table [value]="users()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+    <p-table [value]="filteredUsers()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
         <tr class="table-header text-content-muted bg-surface-ground border-b border-surface-border">
           <th pSortableColumn="nombre" class="pl-4">Vendedor / Empleado <p-sortIcon field="nombre"></p-sortIcon></th>
@@ -95,7 +99,7 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-4">
-    <div *ngFor="let user of users()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">
+    <div *ngFor="let user of filteredUsers()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">
       <!-- Decorator for Role -->
       <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground" [ngClass]="{'!bg-brand-sunset': user.role_name === 'superadmin'}"></div>
       

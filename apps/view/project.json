@@ -21,7 +21,8 @@
           "apps/view/src/assets"
         ],
         "styles": ["apps/view/src/styles.css"],
-        "scripts": []
+        "scripts": [],
+        "serviceWorker": true
       },
       "configurations": {
   "production": {
