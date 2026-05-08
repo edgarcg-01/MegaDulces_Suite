@@ -26,7 +26,7 @@
 
   <!-- Vista Especial para ZONAS con Rutas expandibles -->
   @if (selectedType() === 'zonas') {
-    <div class="space-y-4">
+    <div class="hidden lg:block space-y-4">
       @for (zone of items(); track zone.id) {
         <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden">
           <!-- Header de Zona -->
