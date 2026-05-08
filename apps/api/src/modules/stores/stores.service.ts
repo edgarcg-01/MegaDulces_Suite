@@ -6,6 +6,39 @@ import { KNEX_CONNECTION } from '../../shared/database/database.module';
 export class StoresService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
+  private haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(Δφ / 2) ** 2 +
+              Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  async findNearby(lat: number, lng: number, radiusMeters = 50) {
+    const stores = await this.knex('stores')
+      .where({ activo: true })
+      .whereNotNull('latitud')
+      .whereNotNull('longitud')
+      .where('latitud', '!=', 0)
+      .where('longitud', '!=', 0)
+      .select('*');
+
+    return stores
+      .map(store => ({
+        id: store.id,
+        nombre: store.nombre,
+        direccion: store.direccion,
+        latitud: store.latitud,
+        longitud: store.longitud,
+        distance: Math.round(this.haversine(lat, lng, Number(store.latitud), Number(store.longitud))),
+      }))
+      .filter(s => s.distance <= radiusMeters)
+      .sort((a, b) => a.distance - b.distance);
+  }
+
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
     const zone = await this.knex('zones')
@@ -15,27 +48,52 @@ export class StoresService {
     return zone ? zone.id : null;
   }
 
-  async findAll() {
-    return this.knex('stores as s')
+  async findAll(zona_id?: string, ruta_id?: string) {
+    const query = this.knex('stores as s')
       .leftJoin('zones as z', 's.zona_id', 'z.id')
+      .leftJoin('catalogs as c', 's.ruta_id', 'c.id')
       .where({ 's.activo': true })
-      .select('s.*', 'z.name as zona')
+      .select(
+        's.id', 's.nombre', 's.direccion', 's.latitud', 's.longitud',
+        's.activo', 's.zona_id', 's.ruta_id', 's.created_at',
+        'z.name as zona', 'c.value as ruta_nombre'
+      )
       .orderBy('s.nombre', 'asc');
+
+    if (zona_id) {
+      query.where('s.zona_id', zona_id);
+    }
+
+    if (ruta_id) {
+      query.where('s.ruta_id', ruta_id);
+    }
+
+    return query;
   }
 
   async create(data: {
     nombre: string;
     direccion?: string;
     zona?: string;
+    ruta_id?: string;
     latitud?: number;
     longitud?: number;
   }) {
-    const { zona, ...rest } = data;
+    const { zona, ruta_id, ...rest } = data;
     const zona_id = await this.resolveZonaId(zona);
     const [store] = await this.knex('stores')
       .insert({ ...rest, zona_id })
       .returning('*');
     return { ...store, zona };
+  }
+
+  async remove(id: string) {
+    const [store] = await this.knex('stores').where({ id }).del().returning('*');
+    if (!store)
+      throw new NotFoundException(
+        'Requerimiento fallido: Tienda o Punto de Venta no encontrado.',
+      );
+    return store;
   }
 
   async update(id: string, data: Record<string, any>) {
@@ -68,6 +126,11 @@ export class StoresService {
               .select('name')
               .first()
           )?.name;
-    return { ...store, zona: zoneName };
+
+    const routeName = store.ruta_id
+      ? (await this.knex('catalogs').where({ id: store.ruta_id }).select('value').first())?.value
+      : null;
+
+    return { ...store, zona: zoneName, ruta_nombre: routeName };
   }
 }

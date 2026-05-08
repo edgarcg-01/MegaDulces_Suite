@@ -12,7 +12,8 @@ import { CapturesService } from './captures.service';
 import { CreateCaptureDto } from './dto/create-capture.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
-import { Roles } from '../../shared/decorators/roles.decorator';
+import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { Permission } from '../../shared/constants/permissions';
 import { ReqUser } from '../../shared/decorators/req-user.decorator';
 import {
   ApiTags,
@@ -30,9 +31,9 @@ export class CapturesController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles('ejecutivo', 'superadmin')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
   @ApiOperation({
-    summary: 'Crear nueva captura (Requiere rol ejecutivo o superadmin)',
+    summary: 'Crear nueva captura (Requiere permiso VISITAS_REGISTRAR)',
   })
   create(@Body() createCaptureDto: CreateCaptureDto, @ReqUser() user: any) {
     return this.capturesService.create(
@@ -45,9 +46,9 @@ export class CapturesController {
 
   @Get()
   @UseGuards(RolesGuard)
-  @Roles('superadmin', 'reportes')
+  @RequirePermissions(Permission.VISITAS_VER)
   @ApiOperation({
-    summary: 'Consultar capturas (Requiere rol superadmin o reportes)',
+    summary: 'Consultar capturas (Requiere permiso VISITAS_VER)',
   })
   @ApiQuery({ name: 'zona', required: false })
   @ApiQuery({ name: 'ejecutivo', required: false })
@@ -75,9 +76,9 @@ export class CapturesController {
 
   @Delete(':id')
   @UseGuards(RolesGuard)
-  @Roles('superadmin')
+  @RequirePermissions(Permission.REPORTES_GESTIONAR)
   @ApiOperation({
-    summary: 'Eliminar una captura por ID (Requiere rol superadmin)',
+    summary: 'Eliminar una captura por ID (Requiere permiso REPORTES_GESTIONAR)',
   })
   remove(@Param('id') id: string) {
     return this.capturesService.remove(id);

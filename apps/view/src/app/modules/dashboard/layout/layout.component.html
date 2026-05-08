@@ -5,14 +5,14 @@
 >
   <!-- Mobile Overlay (solo si no es colaborador) -->
   <div
-    *ngIf="sidebarOpen() && isMobile() && !isColaborador()"
+    *ngIf="sidebarOpen() && isMobile() && !isRestricted()"
     class="fixed inset-0 bg-black/50 z-40 lg:hidden"
     (click)="closeSidebar()"
   ></div>
 
   <!-- Sidebar (oculto para colaboradores) -->
   <aside
-    *ngIf="!isColaborador()"
+    *ngIf="!isRestricted()"
     class="fixed lg:static inset-y-0 left-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider shrink-0 shadow-xl lg:shadow-none h-screen overflow-hidden"
     [ngClass]="{
       'w-64': sidebarOpen(),
@@ -197,7 +197,7 @@
       <!-- Left: Mobile Menu (solo si no es colaborador) -->
       <div class="flex items-center gap-3">
         <button
-          *ngIf="!isColaborador()"
+          *ngIf="!isRestricted()"
           (click)="openSidebar()"
           class="lg:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted"
         >
@@ -226,7 +226,7 @@
 
         <!-- Logout Button (Solo para colaboradores) -->
         <button
-          *ngIf="isColaborador()"
+          *ngIf="isRestricted()"
           (click)="logout()"
           class="p-2 rounded-lg hover:bg-red-500/10 transition-colors text-red-500"
           title="Cerrar sesión"

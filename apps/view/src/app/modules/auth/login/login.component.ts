@@ -2,6 +2,7 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { Router } from '@angular/router';
 
@@ -15,6 +16,7 @@ import { Router } from '@angular/router';
 export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
   private router = inject(Router);
   public themeService = inject(ThemeService);
 
@@ -52,14 +54,11 @@ export class LoginComponent implements OnInit {
     this.authService.login(credentials).subscribe({
       next: () => {
         this.isLoading = false;
-        const user = this.authService.user();
 
-        if (user && user.role_name === 'colaborador') {
-          // Colaboradores van directamente a la captura diaria
-          this.router.navigate(['/dashboard/captures']);
-        } else {
-          // Administradores y otros roles van al dashboard principal
+        if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
           this.router.navigate(['/dashboard']);
+        } else {
+          this.router.navigate(['/dashboard/captures']);
         }
       },
       error: (err) => {

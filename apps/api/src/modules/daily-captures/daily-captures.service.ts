@@ -128,6 +128,7 @@ export class DailyCapturesService {
         stats: JSON.stringify(statsWithPct),
         latitud: latitud || 0,
         longitud: longitud || 0,
+        store_id: dto.store_id || null,
       })
       .returning('*');
 

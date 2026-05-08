@@ -14,6 +14,7 @@ import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -37,6 +38,7 @@ export class DailyAssignmentsComponent implements OnInit {
   private usersService = inject(UsersService);
   private adminCatalogsService = inject(AdminCatalogsService);
   private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
   private http = inject(HttpClient);
   private messageService = inject(MessageService);
   private router = inject(Router);
@@ -75,13 +77,11 @@ export class DailyAssignmentsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    // Verificar permisos antes de cargar datos
-    if (!this.authService.hasPermission(Permission.USUARIOS_ASIGNAR_RUTA)) {
-      const user = this.authService.user();
-      if (user?.role_name === 'colaborador') {
-        this.router.navigate(['/dashboard/captures']);
-      } else {
+    if (!this.perms.can('read', 'users_assign_route')) {
+      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
         this.router.navigate(['/dashboard']);
+      } else {
+        this.router.navigate(['/dashboard/captures']);
       }
       return;
     }
@@ -153,6 +153,33 @@ export class DailyAssignmentsComponent implements OnInit {
       
       // Find the user's zone
       console.log('[DailyAssignments] Available zones with details:', zonas.map(z => ({ id: z.id, name: z.name, value: z.value })));
+
+      if (!userValue.zona) {
+        console.warn('[DailyAssignments] User has no zone assigned, loading all routes');
+        this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas`).subscribe((allRoutes: any[]) => {
+          console.log('[DailyAssignments] All routes loaded:', allRoutes.length);
+          if (allRoutes.length > 0) {
+            this.routes.set(allRoutes.map(r => ({ label: r.value, value: r.id })));
+          } else {
+            this.routes.set([]);
+            this.messageService.add({
+              severity: 'warn',
+              summary: 'Sin Rutas',
+              detail: 'No hay rutas configuradas en el sistema'
+            });
+          }
+        }, (error) => {
+          console.error('[DailyAssignments] Error loading all routes:', error);
+          this.routes.set([]);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar las rutas'
+          });
+        });
+        return;
+      }
+
       const myZone = zonas.find(z => {
         const match = z.value === userValue.zona || z.name === userValue.zona;
         console.log('[DailyAssignments] Checking zone:', { name: z.name, value: z.value, userZone: userValue.zona, match });

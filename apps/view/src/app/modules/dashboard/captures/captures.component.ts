@@ -1,13 +1,16 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit, OnDestroy, HostListener } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Subscription, take } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { environment } from '../../../../environments/environment';
 
 // PrimeNG
 import { ButtonModule } from 'primeng/button';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
+import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -46,6 +49,7 @@ import {
     ConfirmDialogModule,
     DialogModule,
     InputNumberModule,
+    InputTextModule,
     SelectModule,
     TableModule,
     TagModule,
@@ -74,6 +78,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly authService = inject(AuthService);
   readonly toast = inject(MessageService);
   readonly confirmSvc = inject(ConfirmationService);
+  private http = inject(HttpClient);
+  private apiUrl = environment.apiUrl;
+
+  /** Estado de detección de tienda */
+  detectionStatus = signal<'idle' | 'detecting' | 'found' | 'not-found'>('idle');
+  newStoreName = signal<string>('');
+  creatingStore = signal(false);
 
   // ── Auth ──────────────────────────────────────────────────────────
   /** Usuario autenticado actual */
@@ -277,6 +288,14 @@ export class CapturesComponent implements OnInit, OnDestroy {
           summary: 'Visita Iniciada',
           detail: 'Ubicación capturada correctamente.',
         });
+        // Verificar si se detectó una tienda automáticamente
+        if (this.svc.detectedStore()) {
+          this.detectionStatus.set('found');
+        } else if (this.svc.nearbyStores().length > 1) {
+          this.detectionStatus.set('found');
+        } else {
+          this.detectionStatus.set('not-found');
+        }
       }
     } catch (error: any) {
       console.error('[captures.component] Error al iniciar visita:', error);
@@ -286,6 +305,52 @@ export class CapturesComponent implements OnInit, OnDestroy {
         detail: error.message || 'No se pudo capturar la ubicación. Verifique que el GPS esté activado.',
         life: 5000
       });
+    }
+  }
+
+  async onReDetectarTienda() {
+    this.detectionStatus.set('detecting');
+    this.newStoreName.set('');
+    await this.svc.detectarTiendaCercana();
+    if (this.svc.detectedStore()) {
+      this.detectionStatus.set('found');
+    } else {
+      this.detectionStatus.set('not-found');
+    }
+  }
+
+  onSelectStore(store: any) {
+    this.svc.selectStore(store);
+    this.detectionStatus.set('found');
+  }
+
+  async onCreateStore() {
+    const name = this.newStoreName().trim();
+    if (!name) return;
+
+    this.creatingStore.set(true);
+    try {
+      const store = await this.http.post<any>(`${this.apiUrl}/stores`, {
+        nombre: name,
+        latitud: this.svc.latitud(),
+        longitud: this.svc.longitud(),
+      }).toPromise();
+
+      this.svc.selectStore({ id: store.id, nombre: store.nombre, distance: 0 });
+      this.detectionStatus.set('found');
+      this.toast.add({
+        severity: 'success',
+        summary: 'Tienda Registrada',
+        detail: `Nueva tienda "${name}" creada y vinculada a la visita.`,
+      });
+    } catch (err: any) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se pudo crear la tienda. Intente nuevamente.',
+      });
+    } finally {
+      this.creatingStore.set(false);
     }
   }
 

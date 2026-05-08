@@ -1,0 +1,21 @@
+:host {
+  display: block;
+}
+
+.p-input-icon-left {
+  position: relative;
+  display: inline-block;
+}
+
+.p-input-icon-left i {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--p-content-dim);
+  font-size: 0.875rem;
+}
+
+.p-input-icon-left input {
+  padding-left: 2.25rem;
+}

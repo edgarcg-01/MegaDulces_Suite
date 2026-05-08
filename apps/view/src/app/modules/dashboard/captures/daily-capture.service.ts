@@ -60,6 +60,14 @@ export class DailyCaptureService {
   private _longitud = signal<number | null>(null);
   readonly longitud = this._longitud.asReadonly();
 
+  /** Tienda detectada por GPS */
+  private _detectedStore = signal<{ id: string; nombre: string; distance: number } | null>(null);
+  readonly detectedStore = this._detectedStore.asReadonly();
+
+  /** Tiendas cercanas encontradas */
+  private _nearbyStores = signal<{ id: string; nombre: string; distance: number }[]>([]);
+  readonly nearbyStores = this._nearbyStores.asReadonly();
+
   /** Exhibidores registrados en la visita activa */
   private _activeExhibiciones = signal<RegistroExhibicion[]>([]);
   readonly activeExhibiciones = this._activeExhibiciones.asReadonly();
@@ -238,7 +246,43 @@ export class DailyCaptureService {
     }
 
     console.log('[iniciarVisita] ✅ Visita iniciada con GPS:', { latitud: this._latitud(), longitud: this._longitud() });
+
+    // Detectar tienda cercana por GPS
+    await this.detectarTiendaCercana();
+
     return true;
+  }
+
+  async detectarTiendaCercana(radius = 50) {
+    const lat = this._latitud();
+    const lng = this._longitud();
+    if (!lat || !lng) return;
+
+    try {
+      const stores = await this.http.get<any[]>(
+        `${this.apiUrl}/stores/nearby?lat=${lat}&lng=${lng}&radius=${radius}`
+      ).toPromise();
+
+      this._nearbyStores.set(stores || []);
+      if (stores && stores.length > 0) {
+        this._detectedStore.set(stores[0]);
+      } else {
+        this._detectedStore.set(null);
+      }
+    } catch (err) {
+      console.warn('[detectarTiendaCercana] Error al buscar tiendas:', err);
+      this._nearbyStores.set([]);
+      this._detectedStore.set(null);
+    }
+  }
+
+  selectStore(store: { id: string; nombre: string; distance: number } | null) {
+    this._detectedStore.set(store);
+  }
+
+  clearStoreDetection() {
+    this._detectedStore.set(null);
+    this._nearbyStores.set([]);
   }
 
   // --- Helpers para última posición conocida ---
@@ -461,6 +505,8 @@ export class DailyCaptureService {
     this._latitud.set(null);
     this._longitud.set(null);
     this._activeExhibiciones.set([]);
+    this._detectedStore.set(null);
+    this._nearbyStores.set([]);
   }
 
   /**
@@ -520,7 +566,9 @@ export class DailyCaptureService {
       console.log('[saveCapturaTotal] ✅ GPS disponible y válido:', { latitud, longitud });
     }
 
-    const payload = {
+    const store = this._detectedStore();
+
+    const payload: any = {
       folio: customFolio,
       fechaCaptura: localDateStr,
       horaInicio: this._horaInicio()!,
@@ -533,6 +581,7 @@ export class DailyCaptureService {
       },
       latitud: latitud || 0,
       longitud: longitud || 0,
+      store_id: store?.id || null,
     };
 
     console.log('[saveCapturaTotal] 📡 POST a /daily-captures con payload:', JSON.stringify(payload, null, 2));

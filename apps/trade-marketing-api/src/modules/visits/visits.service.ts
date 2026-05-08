@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { getDataScope } from '../../shared/ability/data-scope';
 
 @Injectable()
 export class VisitsService {
@@ -81,13 +82,14 @@ export class VisitsService {
   async findAll(user: any) {
     const query = this.knex('visits').orderBy('checkin_at', 'desc').limit(500);
 
-    if (user.role_name === 'colaborador') {
-      query.where('user_id', user.sub);
-    } else if (user.role_name === 'supervisor_v') {
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      query.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
       const subquery = this.knex('users')
         .select('id')
-        .where('supervisor_id', user.sub)
-        .orWhere('id', user.sub);
+        .where('supervisor_id', scope.userId)
+        .orWhere('id', scope.userId);
       query.whereIn('user_id', subquery);
     }
 

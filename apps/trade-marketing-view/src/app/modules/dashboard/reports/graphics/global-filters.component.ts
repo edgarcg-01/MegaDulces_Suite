@@ -8,7 +8,7 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { FiltersStateService } from './filters-state.service';
 import { ReportsService } from '../reports.service';
 import { AuthService } from '../../../../core/services/auth.service';
-import { Permission } from '../../../../core/constants/permissions';
+import { PermissionsService } from '../../../../core/services/permissions.service';
 import { DailyCaptureService } from '../../captures/daily-capture.service';
 
 interface DropOption {
@@ -129,6 +129,7 @@ export class GlobalFiltersComponent implements OnInit {
   private filtersState = inject(FiltersStateService);
   private reportsService = inject(ReportsService);
   private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
   private dailyCaptureService = inject(DailyCaptureService);
 
   // ── Opciones de dropdowns (cargadas desde API) ──
@@ -186,8 +187,7 @@ export class GlobalFiltersComponent implements OnInit {
   }
 
   private loadSupervisors() {
-    // Solo cargar supervisores si el usuario tiene el permiso USUARIOS_VER
-    if (!this.authService.hasPermission(Permission.USUARIOS_VER)) {
+    if (!this.perms.can('read', 'users')) {
       return;
     }
 

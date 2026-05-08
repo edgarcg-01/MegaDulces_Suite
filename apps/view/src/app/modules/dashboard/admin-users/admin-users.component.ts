@@ -20,6 +20,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { UsersService, User } from './users.service';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -49,6 +50,7 @@ export class AdminUsersComponent implements OnInit {
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
   private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
   private router = inject(Router);
 
   users = signal<User[]>([]);
@@ -101,14 +103,11 @@ export class AdminUsersComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    // Verificar permisos antes de cargar datos
-    if (!this.authService.hasPermission(Permission.USUARIOS_GESTIONAR)) {
-      // Redirigir según el rol
-      const user = this.authService.user();
-      if (user?.role_name === 'colaborador') {
-        this.router.navigate(['/dashboard/captures']);
-      } else {
+    if (!this.perms.can('read', 'users')) {
+      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
         this.router.navigate(['/dashboard']);
+      } else {
+        this.router.navigate(['/dashboard/captures']);
       }
       return;
     }

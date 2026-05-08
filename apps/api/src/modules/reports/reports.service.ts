@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { getDataScope } from '../../shared/ability/data-scope';
 
 @Injectable()
 export class ReportsService {
@@ -10,12 +11,11 @@ export class ReportsService {
     let dcQuery = this.knex('daily_captures');
     let sQuery = this.knex('stores');
 
-    if (user.role_name === 'colaborador') {
-      dcQuery = dcQuery.where('user_id', user.sub);
-      // For stores, we might want to filter by the user's assigned stores if that existed,
-      // but for now let's just filter the captures.
-    } else if (user.role_name === 'supervisor_v') {
-      const teamIds = await this.getTeamIds(user.sub);
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      dcQuery = dcQuery.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
       dcQuery = dcQuery.whereIn('user_id', teamIds);
     }
 
@@ -136,10 +136,11 @@ export class ReportsService {
 
     const query = this.knex('daily_captures').select('*');
 
-    if (user.role_name === 'colaborador') {
-      query.where('user_id', user.sub);
-    } else if (user.role_name === 'supervisor_v') {
-      const teamIds = await this.getTeamIds(user.sub);
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      query.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
       query.whereIn('user_id', teamIds);
     }
 
@@ -384,10 +385,11 @@ export class ReportsService {
   ) {
     const query = this.knex('daily_captures').select('*');
 
-    if (user.role_name === 'colaborador') {
-      query.where('user_id', user.sub);
-    } else if (user.role_name === 'supervisor_v') {
-      const teamIds = await this.getTeamIds(user.sub);
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      query.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
       query.whereIn('user_id', teamIds);
     }
 
@@ -454,5 +456,284 @@ export class ReportsService {
       .where('supervisor_id', supervisorId)
       .orWhere('id', supervisorId);
     return team.map((u) => u.id);
+  }
+
+  async getStoresData(
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      storeId?: string;
+      zone?: string;
+    },
+    user: any,
+  ) {
+    console.log('[ReportsService] getStoresData called with filters:', filters);
+
+    // Base query: daily_captures with store_id
+    let query = this.knex('daily_captures as dc')
+      .join('stores as s', 's.id', 'dc.store_id')
+      .leftJoin('zones as z', 'z.id', 's.zona_id')
+      .whereNotNull('dc.store_id');
+
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      query.where('dc.user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
+      query.whereIn('dc.user_id', teamIds);
+    }
+
+    if (filters.startDate) query.whereRaw("DATE(dc.hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) query.whereRaw("DATE(dc.hora_inicio) <= ?", [filters.endDate]);
+
+    if (filters.zone) {
+      query.where('s.zona_id', filters.zone);
+    }
+
+    // Get conceptos catalog for mapping
+    const conceptos = await this.knex('catalogs')
+      .where({ catalog_id: 'conceptos' })
+      .select('id', 'value');
+    const conceptoMap: Record<string, string> = {};
+    conceptos.forEach((c) => { conceptoMap[c.id] = c.value; });
+
+    // Get products for names
+    const products = await this.knex('products').select('id', 'nombre', 'brand_id');
+    const brands = await this.knex('brands').select('id', 'nombre');
+    const brandMap: Record<string, string> = {};
+    brands.forEach(b => brandMap[b.id] = b.nombre);
+    const productMap: Record<string, { name: string; brandName: string }> = {};
+    products.forEach(p => {
+      productMap[p.id] = { name: p.nombre, brandName: brandMap[p.brand_id] || 'Otras' };
+    });
+
+    if (filters.storeId) {
+      // ---- DETAIL VIEW for a single store ----
+      query.where('dc.store_id', filters.storeId);
+      const rows = await query.orderBy('dc.hora_inicio', 'desc');
+
+      const store = await this.knex('stores as s')
+        .leftJoin('zones as z', 'z.id', 's.zona_id')
+        .where('s.id', filters.storeId)
+        .select('s.id', 's.nombre', 's.direccion', 'z.name as zona', 's.zona_id')
+        .first();
+
+      let totalScore = 0;
+      let totalVentas = 0;
+      const healthCount = { optimo: 0, regular: 0, critico: 0 };
+      const productStats: Record<string, { total: number }> = {};
+      const scoreEvolucion: Record<string, { sum: number; count: number }> = {};
+      const ultimasVisitas: any[] = [];
+
+      rows.forEach((row) => {
+        const stats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+        const score = stats.score_calidad_pct || 0;
+        const ventas = stats.ventaTotal || (stats.ventaAdicional || 0);
+        totalScore += score;
+        totalVentas += ventas;
+
+        const exhibiciones = typeof row.exhibiciones === 'string'
+          ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
+
+        exhibiciones.forEach((ex: any) => {
+          const val = ex.nivelEjecucion;
+          if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80)) healthCount.optimo++;
+          else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50)) healthCount.regular++;
+          else healthCount.critico++;
+
+          (ex.productosMarcados || []).forEach((pid: string) => {
+            if (!productStats[pid]) productStats[pid] = { total: 0 };
+            productStats[pid].total++;
+          });
+        });
+
+        const dateKey = row.hora_inicio instanceof Date
+          ? row.hora_inicio.toISOString().split('T')[0]
+          : String(row.hora_inicio).split('T')[0];
+        if (!scoreEvolucion[dateKey]) scoreEvolucion[dateKey] = { sum: 0, count: 0 };
+        scoreEvolucion[dateKey].sum += score;
+        scoreEvolucion[dateKey].count++;
+      });
+
+      // Last visits (distinct by date)
+      const visitDates = new Set<string>();
+      rows.forEach((row) => {
+        const dateKey = row.hora_inicio instanceof Date
+          ? row.hora_inicio.toISOString().split('T')[0]
+          : String(row.hora_inicio).split('T')[0];
+        if (!visitDates.has(dateKey)) {
+          visitDates.add(dateKey);
+          const stats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+          ultimasVisitas.push({
+            fecha: dateKey,
+            usuario: row.captured_by_username,
+            score: stats.score_calidad_pct || 0,
+          });
+        }
+      });
+
+      // Product rankings
+      const rankedProducts = Object.entries(productStats)
+        .map(([pid, st]) => ({
+          id: pid,
+          nombre: productMap[pid]?.name || 'Producto',
+          marca: productMap[pid]?.brandName || '',
+          presencia: st.total,
+        }))
+        .sort((a, b) => b.presencia - a.presencia);
+
+      const totalExhibidores = healthCount.optimo + healthCount.regular + healthCount.critico;
+      const ultimaFecha = rows.length > 0
+        ? (rows[0].hora_inicio instanceof Date ? rows[0].hora_inicio.toISOString().split('T')[0] : String(rows[0].hora_inicio).split('T')[0])
+        : null;
+      const diasSinVisita = ultimaFecha
+        ? Math.floor((Date.now() - new Date(ultimaFecha).getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+
+      return {
+        store: {
+          id: store?.id,
+          nombre: store?.nombre,
+          zona: store?.zona,
+          score: rows.length > 0 ? (totalScore / rows.length).toFixed(2) : 0,
+          totalVisitas: rows.length,
+          ventaTotal: totalVentas,
+          ultimaVisita: ultimaFecha,
+          diasSinVisita,
+          healthRate: totalExhibidores > 0 ? {
+            optimo: +((healthCount.optimo / totalExhibidores) * 100).toFixed(1),
+            regular: +((healthCount.regular / totalExhibidores) * 100).toFixed(1),
+            critico: +((healthCount.critico / totalExhibidores) * 100).toFixed(1),
+          } : { optimo: 0, regular: 0, critico: 0 },
+          productos: {
+            top: rankedProducts.slice(0, 5),
+            bottom: rankedProducts.slice(-5).reverse(),
+          },
+          evolucionScore: Object.entries(scoreEvolucion)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([fecha, data]) => ({
+              fecha,
+              score: +(data.sum / data.count).toFixed(2),
+            })),
+          ultimasVisitas: ultimasVisitas.slice(0, 10),
+        },
+      };
+    }
+
+    // ---- GLOBAL VIEW: all stores aggregated ----
+    const rows = await query
+      .select(
+        'dc.store_id',
+        's.nombre as store_nombre',
+        's.zona_id',
+        'z.name as zona_nombre',
+        'dc.stats',
+        'dc.exhibiciones',
+        'dc.hora_inicio',
+        'dc.captured_by_username',
+      )
+      .orderBy('dc.hora_inicio', 'desc');
+
+    // Aggregate per store
+    const storeMap = new Map<string, any>();
+    for (const row of rows) {
+      const sid = row.store_id;
+      if (!storeMap.has(sid)) {
+        storeMap.set(sid, {
+          id: sid,
+          nombre: row.store_nombre,
+          zona: row.zona_nombre,
+          scoreSum: 0,
+          scoreCount: 0,
+          ventaTotal: 0,
+          visitas: 0,
+          ultimaVisita: null,
+          healthCount: { optimo: 0, regular: 0, critico: 0 },
+          productCount: 0,
+        });
+      }
+      const s = storeMap.get(sid);
+      const stats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+      const score = stats.score_calidad_pct || 0;
+      s.scoreSum += score;
+      s.scoreCount++;
+      s.ventaTotal += stats.ventaTotal || (stats.ventaAdicional || 0);
+      s.visitas++;
+
+      const fecha = row.hora_inicio instanceof Date
+        ? row.hora_inicio.toISOString().split('T')[0]
+        : String(row.hora_inicio).split('T')[0];
+      if (!s.ultimaVisita || fecha > s.ultimaVisita) s.ultimaVisita = fecha;
+
+      const exhibiciones = typeof row.exhibiciones === 'string'
+        ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
+      exhibiciones.forEach((ex: any) => {
+        const val = ex.nivelEjecucion;
+        if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80)) s.healthCount.optimo++;
+        else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50)) s.healthCount.regular++;
+        else s.healthCount.critico++;
+        s.productCount += (ex.productosMarcados || []).length;
+      });
+    }
+
+    const storesList: any[] = [];
+    const oportunidades: any[] = [];
+    let scoreSumGlobal = 0;
+    let stockoutSumGlobal = 0;
+    let tiendasSinVisita7d = 0;
+
+    for (const s of storeMap.values()) {
+      const score = s.scoreCount > 0 ? +(s.scoreSum / s.scoreCount).toFixed(2) : 0;
+      const totalExh = s.healthCount.optimo + s.healthCount.regular + s.healthCount.critico;
+      const healthRate = totalExh > 0 ? {
+        optimo: +((s.healthCount.optimo / totalExh) * 100).toFixed(1),
+        regular: +((s.healthCount.regular / totalExh) * 100).toFixed(1),
+        critico: +((s.healthCount.critico / totalExh) * 100).toFixed(1),
+      } : { optimo: 0, regular: 0, critico: 0 };
+
+      const diasSinVisita = s.ultimaVisita
+        ? Math.floor((Date.now() - new Date(s.ultimaVisita).getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+
+      const stockoutPct = s.visitas > 0
+        ? +((1 - s.productCount / (s.visitas * 10)) * 100).toFixed(1) // approximate: expected ~10 products per visit
+        : 0;
+
+      const storeData = {
+        id: s.id,
+        nombre: s.nombre,
+        zona: s.zona,
+        score,
+        totalVisitas: s.visitas,
+        ventaTotal: s.ventaTotal,
+        ultimaVisita: s.ultimaVisita,
+        diasSinVisita,
+        stockoutRate: Math.min(100, Math.max(0, stockoutPct)),
+        healthRate,
+      };
+      storesList.push(storeData);
+
+      scoreSumGlobal += score;
+      stockoutSumGlobal += stockoutPct;
+      if (diasSinVisita !== null && diasSinVisita > 7) tiendasSinVisita7d++;
+
+      // Detect opportunity stores
+      if (score < 60 || stockoutPct > 30 || (diasSinVisita !== null && diasSinVisita > 7)) {
+        oportunidades.push(storeData);
+      }
+    }
+
+    const storeCount = storesList.length;
+
+    return {
+      stores: storesList,
+      oportunidades,
+      kpiGlobales: {
+        scorePromedio: storeCount > 0 ? +(scoreSumGlobal / storeCount).toFixed(2) : 0,
+        stockoutPromedio: storeCount > 0 ? +(stockoutSumGlobal / storeCount).toFixed(1) : 0,
+        tiendasSinVisita7d,
+        totalTiendas: storeCount,
+      },
+    };
   }
 }

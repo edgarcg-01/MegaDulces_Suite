@@ -62,17 +62,23 @@ export class AdminCatalogsComponent implements OnInit {
   expandedZones: { [key: string]: boolean } = {};
   zoneRoutes: { [key: string]: any[] } = {};
 
-  constructor() {
-    // Listen to route param changes to switch catalog type
+  constructor() {}
+
+  ngOnInit() {
+    const type = this.route.snapshot.params['type'] || 'conceptos';
+    this.selectedType.set(type);
+    this.updateTitle(type);
+    this.loadCatalog(type);
+
     this.route.params.subscribe((p) => {
-      const type = p['type'] || 'conceptos';
-      this.selectedType.set(type);
-      this.updateTitle(type);
-      this.loadCatalog(type);
+      const newType = p['type'] || 'conceptos';
+      if (newType !== this.selectedType()) {
+        this.selectedType.set(newType);
+        this.updateTitle(newType);
+        this.loadCatalog(newType);
+      }
     });
   }
-
-  ngOnInit() {}
 
   updateTitle(type: string) {
     const titles: any = {

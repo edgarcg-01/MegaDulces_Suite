@@ -6,6 +6,7 @@ import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { Permission } from '../../../core/constants/permissions';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { TableModule } from 'primeng/table';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ButtonModule } from 'primeng/button';
@@ -138,23 +139,28 @@ export class AdminRolesPermissionsComponent implements OnInit {
     [Permission.REPORTES_VER_EQUIPO]: { label: 'Ver Reportes de Equipo', description: 'Acceso a indicadores de subordinados directos.', category: 'Reportes' },
     [Permission.REPORTES_VER_GLOBAL]: { label: 'Ver Reporte Global', description: 'Acceso total a la data de la compañía.', category: 'Reportes' },
     [Permission.REPORTES_EXPORTAR]: { label: 'Exportar Data (Excel/CSV)', description: 'Permite descargar crudos de información.', category: 'Reportes' },
+    [Permission.REPORTES_GESTIONAR]: { label: 'Gestionar Reportes', description: 'Permite eliminar reportes almacenados en el sistema.', category: 'Reportes' },
     
     [Permission.VISITAS_REGISTRAR]: { label: 'Registrar Visitas', description: 'Habilita el formulario de check-in/visto bueno.', category: 'Operación' },
+    [Permission.VISITAS_VER]: { label: 'Ver Visitas', description: 'Acceso al listado y detalle de visitas registradas.', category: 'Operación' },
     [Permission.VISITAS_AUDITAR]: { label: 'Auditar Visitas', description: 'Permite validar y cerrar visitas de otros.', category: 'Operación' },
     
     [Permission.CATALOGO_GESTIONAR]: { label: 'Gestionar Catálogos', description: 'Control de conceptos, zonas y ubicaciones.', category: 'Configuración' },
     [Permission.PLANOGRAMAS_GESTIONAR]: { label: 'Gestionar Planogramas', description: 'Creación de marcas y jerarquías de productos.', category: 'Configuración' },
+    [Permission.TIENDAS_VER]: { label: 'Ver Tiendas', description: 'Acceso al módulo de tiendas y sus detalles.', category: 'Configuración' },
     [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: Edita este panel de permisos.', category: 'Configuración' },
+    [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
+    [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },
   };
 
+  private perms = inject(PermissionsService);
+
   ngOnInit() {
-    // Verificar permisos antes de cargar datos
-    if (!this.authService.hasPermission(Permission.ROLES_CONFIGURAR)) {
-      const user = this.authService.user();
-      if (user?.role_name === 'colaborador') {
-        this.router.navigate(['/dashboard/captures']);
-      } else {
+    if (!this.perms.can('manage', 'roles_config')) {
+      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
         this.router.navigate(['/dashboard']);
+      } else {
+        this.router.navigate(['/dashboard/captures']);
       }
       return;
     }

@@ -12,7 +12,6 @@ import { ExhibitionsComponent } from './modules/dashboard/exhibitions/exhibition
 import { AdminUsersComponent } from './modules/dashboard/admin-users/admin-users.component';
 import { AdminCatalogsComponent } from './modules/dashboard/admin-catalogs/admin-catalogs.component';
 import { AdminPlanogramaComponent } from './modules/dashboard/admin-planograma/admin-planograma.component';
-import { AdminScoringComponent } from './modules/dashboard/admin-scoring/admin-scoring.component';
 import { AdminRolesPermissionsComponent } from './modules/dashboard/admin-roles/admin-roles-permissions.component';
 import { DailyAssignmentsComponent } from './modules/dashboard/daily-assignments/daily-assignments.component';
 import { authGuard } from './core/guards/auth.guard';
@@ -38,13 +37,18 @@ export const routes: Routes = [
       { path: 'dashboard', component: DashboardComponent },
       { path: 'captures', component: CapturesComponent },
       { path: 'reports', component: ReportsComponent },
-      { path: 'stores', component: StoresComponent },
+      { path: 'stores', component: StoresComponent, canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', component: VisitsComponent },
       { path: 'exhibitions', component: ExhibitionsComponent },
       { 
         path: 'admin/users', 
         component: AdminUsersComponent,
         canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+      },
+      { 
+        path: 'admin/catalogs/roles', 
+        component: AdminCatalogsComponent,
+        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
       },
       { 
         path: 'admin/catalogs/:type', 
@@ -61,7 +65,11 @@ export const routes: Routes = [
         component: AdminPlanogramaComponent,
         canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)]
       },
-      { path: 'daily-assignments', component: DailyAssignmentsComponent },
+      { 
+        path: 'daily-assignments', 
+        component: DailyAssignmentsComponent,
+        canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
+      },
     ]
   },
   {

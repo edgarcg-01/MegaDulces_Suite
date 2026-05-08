@@ -4,6 +4,7 @@ import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
+import { buildAbility } from '../../shared/ability/ability.factory';
 
 interface JwtPayload {
   sub: string;
@@ -11,6 +12,7 @@ interface JwtPayload {
   zona: string;
   role_name: string;
   permissions: Record<string, boolean>;
+  rules?: any[];
 }
 
 @Injectable()
@@ -45,12 +47,15 @@ export class AuthService {
 
     const permissions = rolePermissions ? rolePermissions.permissions : {};
 
+    const ability = buildAbility(permissions);
+
     const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
       zona: user.zona,
       role_name: user.role_name,
       permissions: permissions,
+      rules: ability.rules,
     };
 
     return {
@@ -62,6 +67,7 @@ export class AuthService {
         zona: user.zona,
         role_name: user.role_name,
         permissions: permissions,
+        rules: ability.rules,
       },
     };
   }

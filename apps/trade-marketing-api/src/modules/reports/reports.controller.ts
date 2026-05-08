@@ -52,6 +52,24 @@ export class ReportsController {
     );
   }
 
+  @Get('stores')
+  @RequirePermissions(Permission.REPORTES_VER_PROPIO)
+  @ApiOperation({
+    summary: 'Obtiene métricas por tienda para el tab de Tiendas',
+  })
+  getStoresData(
+    @ReqUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('storeId') storeId?: string,
+    @Query('zone') zone?: string,
+  ) {
+    return this.reportsService.getStoresData(
+      { startDate, endDate, storeId, zone },
+      user,
+    );
+  }
+
   @Get('export')
   @RequirePermissions(Permission.REPORTES_EXPORTAR)
   @ApiOperation({

@@ -2,6 +2,7 @@ import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { ButtonModule } from 'primeng/button';
 
 @Component({
@@ -14,13 +15,12 @@ import { ButtonModule } from 'primeng/button';
 export class ProjectsComponent implements OnInit {
   private router = inject(Router);
   private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
 
   user = this.authService.user;
 
   ngOnInit(): void {
-    // Redirigir colaboradores automáticamente a capturas
-    const currentUser = this.authService.user();
-    if (currentUser?.role_name === 'colaborador') {
+    if (!this.perms.can('read', 'reports_team') && !this.perms.can('read', 'reports_global')) {
       this.router.navigate(['/dashboard/captures']);
     }
   }
@@ -37,12 +37,9 @@ export class ProjectsComponent implements OnInit {
   ];
 
   navigateTo(route: string): void {
-    if (route === '/dashboard') {
-      const user = this.authService.user();
-      if (user && user.role_name === 'colaborador') {
-        this.router.navigate(['/dashboard/captures']);
-        return;
-      }
+    if (route === '/dashboard' && !this.perms.can('read', 'reports_team') && !this.perms.can('read', 'reports_global')) {
+      this.router.navigate(['/dashboard/captures']);
+      return;
     }
     this.router.navigate([route]);
   }

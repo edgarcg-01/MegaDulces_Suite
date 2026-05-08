@@ -15,6 +15,7 @@ import {
 import { CommonModule, DOCUMENT } from '@angular/common';
 import { RouterModule, Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { DataUpdateService } from '../../../core/services/data-update.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -28,6 +29,7 @@ import { Permission } from '../../../core/constants/permissions';
 })
 export class LayoutComponent implements OnInit, OnDestroy {
   private authService = inject(AuthService);
+  private perms       = inject(PermissionsService);
   private router      = inject(Router);
   themeService        = inject(ThemeService);
   private renderer    = inject(Renderer2);
@@ -114,10 +116,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
   openSidebar():  void { this.sidebarOpen.set(true);  }
   closeSidebar(): void { this.sidebarOpen.set(false); }
 
-  // ── Role Check ────────────────────────────────────────────────────
-  isColaborador = computed(() => {
-    const u = this.user();
-    return u?.role_name === 'colaborador';
+  // ── Role Check (basado en abilities) ──────────────────────────────
+  isRestricted = computed(() => {
+    return !this.perms.can('read', 'reports_team');
   });
 
   // ── Nav items (reactivos al user signal) ──────────────────────────
@@ -126,6 +127,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Captura Diaria',   icon: 'pi pi-pencil',        route: '/dashboard/captures',              permission: Permission.VISITAS_REGISTRAR    },
     { label: 'Reportes',         icon: 'pi pi-chart-bar',     route: '/dashboard/reports',               permission: Permission.REPORTES_VER_PROPIO  },
     { label: 'Asignación Diaria',icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',     permission: Permission.USUARIOS_ASIGNAR_RUTA},
+    { label: 'Tiendas',         icon: 'pi pi-building',      route: '/dashboard/stores',                 permission: Permission.TIENDAS_VER  },
   ];
 
   private rawAdminItems = [
@@ -138,16 +140,28 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Roles',       icon: 'pi pi-shield',  route: '/dashboard/admin/catalogs/roles',       permission: Permission.ROLES_CONFIGURAR    },
   ];
 
+  private permToSubject: Record<string, string> = {
+    [Permission.REPORTES_VER_PROPIO]: 'reports_own',
+    [Permission.VISITAS_REGISTRAR]: 'visits',
+    [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
+    [Permission.USUARIOS_GESTIONAR]: 'users',
+    [Permission.CATALOGO_GESTIONAR]: 'catalogs',
+    [Permission.TIENDAS_VER]: 'stores',
+    [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
+    [Permission.ROLES_CONFIGURAR]: 'roles_config',
+    [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
+  };
+
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];
-    return this.rawNavItems.filter(item => this.authService.hasPermission(item.permission));
+    return this.rawNavItems.filter(item => this.perms.can('read', this.permToSubject[item.permission] as any));
   });
 
   adminItems = computed(() => {
     const user = this.user();
     if (!user) return [];
-    return this.rawAdminItems.filter(item => this.authService.hasPermission(item.permission));
+    return this.rawAdminItems.filter(item => this.perms.can('read', this.permToSubject[item.permission] as any));
   });
 
   // ── Routing ───────────────────────────────────────────────────────

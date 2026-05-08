@@ -15,6 +15,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { AdminCatalogsService } from './admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { environment } from '../../../../environments/environment';
 
@@ -45,6 +46,7 @@ export class AdminCatalogsComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private authService = inject(AuthService);
+  private perms = inject(PermissionsService);
   private http = inject(HttpClient);
 
   selectedType = signal<string>('conceptos');
@@ -71,7 +73,16 @@ export class AdminCatalogsComponent implements OnInit {
   constructor() {
     // Listen to route param changes to switch catalog type
     this.route.params.subscribe((p) => {
-      const type = p['type'] || 'conceptos';
+      let type = p['type'];
+      
+      // Si el parámetro no viene (como en /admin/catalogs/roles), 
+      // verificamos si la URL termina en /roles
+      if (!type && this.router.url.endsWith('/roles')) {
+        type = 'roles';
+      } else if (!type) {
+        type = 'conceptos';
+      }
+
       this.selectedType.set(type);
       this.updateTitle(type);
       this.loadCatalog(type);
@@ -145,18 +156,26 @@ export class AdminCatalogsComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    // Verificar permisos antes de cargar datos
-    if (!this.authService.hasPermission(Permission.CATALOGO_GESTIONAR)) {
-      const user = this.authService.user();
-      if (user?.role_name === 'colaborador') {
-        this.router.navigate(['/dashboard/captures']);
-      } else {
+    let type = this.route.snapshot.params['type'];
+    
+    // Soporte para ruta estática /admin/catalogs/roles
+    if (!type && this.router.url.endsWith('/roles')) {
+      type = 'roles';
+    } else if (!type) {
+      type = 'conceptos';
+    }
+
+    const subject = type === 'roles' ? 'roles_config' as const : 'catalogs' as const;
+    
+    if (!this.perms.can('read', subject)) {
+      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
         this.router.navigate(['/dashboard']);
+      } else {
+        this.router.navigate(['/dashboard/captures']);
       }
       return;
     }
     
-    const type = this.route.snapshot.params['type'] || 'conceptos';
     this.selectedType.set(type);
     this.updateTitle(type);
     this.loadCatalog(type);

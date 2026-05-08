@@ -24,4 +24,7 @@ export class CreateDailyCaptureDto {
 
   @ApiProperty({ description: 'Longitud de la captura diaria', required: false })
   longitud?: number;
+
+  @ApiProperty({ description: 'ID de la tienda asociada (FK stores)', required: false })
+  store_id?: string;
 }

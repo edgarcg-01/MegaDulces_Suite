@@ -24,6 +24,7 @@
         <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
         <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Visitas</p-tab>
         <p-tab [value]="4" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
+        <p-tab [value]="5" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
       </p-tablist>
 
       <p-tabpanels>
@@ -532,6 +533,12 @@
             <i class="pi pi-box mb-4 text-4xl text-content-faint"></i>
             <h3 class="text-lg font-bold text-content-main">No hay datos de productos</h3>
             <p class="text-content-muted text-sm max-w-md mx-auto mt-2">No se encontraron productos registrados en las visitas para el rango de fechas y zona seleccionados.</p>
+          </div>
+        </p-tabpanel>
+
+        <p-tabpanel [value]="5">
+          <div class="pt-4">
+            <app-stores-tab></app-stores-tab>
           </div>
         </p-tabpanel>
       </p-tabpanels>

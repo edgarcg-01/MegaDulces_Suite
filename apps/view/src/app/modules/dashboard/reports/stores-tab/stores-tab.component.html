@@ -1,0 +1,73 @@
+<div class="p-2">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-sm font-bold text-content-main uppercase tracking-wide">Resumen por Tienda</h3>
+    <span *ngIf="loading()" class="text-xs text-content-muted"><i class="pi pi-spin pi-spinner mr-1"></i>Cargando...</span>
+  </div>
+
+  <!-- KPI Summary -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" *ngIf="data()?.kpiGlobales as kg">
+    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">{{ kg.totalTiendas }} tiendas</div>
+      <div class="text-lg font-black text-content-main mt-1">{{ kg.scorePromedio }}</div>
+      <div class="text-[9px] text-content-muted">Score Promedio</div>
+    </div>
+    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Stockout</div>
+      <div class="text-lg font-black text-red-500 mt-1">{{ kg.stockoutPromedio }}%</div>
+      <div class="text-[9px] text-content-muted">Promedio general</div>
+    </div>
+    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Sin visita 7d+</div>
+      <div class="text-lg font-black text-amber-500 mt-1">{{ kg.tiendasSinVisita7d }}</div>
+      <div class="text-[9px] text-content-muted">Tiendas en riesgo</div>
+    </div>
+    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Oportunidades</div>
+      <div class="text-lg font-black text-brand-orange mt-1">{{ data()?.oportunidades?.length || 0 }}</div>
+      <div class="text-[9px] text-content-muted">Requieren atención</div>
+    </div>
+  </div>
+
+  <!-- Search & Table -->
+  <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden">
+    <div class="p-3 border-b border-surface-border">
+      <div class="flex items-center gap-2">
+        <i class="pi pi-search text-content-faint text-xs"></i>
+        <input pInputText type="text" [(ngModel)]="searchQuery" placeholder="Buscar tienda o zona..."
+               class="w-full text-sm bg-transparent border-0 outline-none p-0" />
+      </div>
+    </div>
+    <p-table [value]="filteredStores()" [rows]="10" [paginator]="true"
+             sortField="score" [sortOrder]="-1" styleClass="p-datatable-sm">
+      <ng-template pTemplate="header">
+        <tr class="text-[9px] uppercase text-content-faint bg-surface-ground">
+          <th pSortableColumn="nombre" class="text-left">Tienda <p-sortIcon field="nombre" /></th>
+          <th pSortableColumn="zona" class="text-left">Zona <p-sortIcon field="zona" /></th>
+          <th pSortableColumn="score" class="text-center">Score <p-sortIcon field="score" /></th>
+          <th class="text-center">Visitas</th>
+          <th class="text-center">Stockout</th>
+          <th class="text-center">Última Visita</th>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="body" let-store>
+        <tr class="hover:bg-surface-hover text-xs">
+          <td class="font-medium text-content-main">{{ store.nombre }}</td>
+          <td><p-tag [value]="store.zona" severity="info" [rounded]="true" styleClass="text-[9px]" /></td>
+          <td class="text-center font-black" [ngClass]="{'text-green-600': store.score >= 80, 'text-amber-500': store.score >= 50 && store.score < 80, 'text-red-500': store.score < 50}">{{ store.score }}</td>
+          <td class="text-center text-content-muted">{{ store.totalVisitas }}</td>
+          <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-green-600': store.stockoutRate <= 10, 'text-amber-500': store.stockoutRate > 10 && store.stockoutRate <= 30, 'text-red-500': store.stockoutRate > 30}">{{ store.stockoutRate }}%</span></td>
+          <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="emptydata">
+        <tr>
+          <td colspan="6" class="text-center py-8 text-content-muted text-sm">
+            <i class="pi pi-inbox text-2xl block mb-2"></i>
+            No hay datos de tiendas para el período seleccionado.
+          </td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </div>
+</div>

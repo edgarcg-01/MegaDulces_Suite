@@ -31,6 +31,7 @@ import autoTable from 'jspdf-autotable';
 
 import { ReportsService, ReportsData } from './reports.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { FiltersStateService } from '../reports/graphics/filters-state.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
 import {
@@ -44,6 +45,7 @@ import {
   KpiStatus,
 } from '../reports/graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
+import { StoresTabComponent } from './stores-tab/stores-tab.component';
 import { Permission } from '../../../core/constants/permissions';
 
 /**
@@ -93,6 +95,7 @@ interface PdfSection {
     MultiSelectModule,
     DropdownModule,
     GlobalFiltersComponent,
+    StoresTabComponent,
     ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
@@ -115,6 +118,7 @@ interface PdfSection {
 export class ReportsComponent implements OnInit {
   private reportsService = inject(ReportsService);
   private auth = inject(AuthService);
+  private perms = inject(PermissionsService);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
   readonly filtersState = inject(FiltersStateService);
@@ -260,15 +264,7 @@ export class ReportsComponent implements OnInit {
     this.showAllProductsDialog = true;
   }
 
-  /**
-   * Verifica si el usuario es supervisor
-   * @returns true si el usuario es superadmin o supervisor_m
-   */
-  isSupervisor = computed(() => {
-    const user = this.auth.user();
-    if (!user) return false;
-    return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
-  });
+  isSupervisor = this.perms.can$('read', 'reports_team');
 
   /** Título del PDF */
   pdfTitle = 'Reporte de mercadeo';
@@ -289,23 +285,9 @@ export class ReportsComponent implements OnInit {
   /** Rangos de KPI editables */
   editableKpi = [...this.metasConfig.kpiRanges()].map((k) => ({ ...k }));
 
-  /**
-   * Verifica si el usuario puede editar metas
-   * @returns true si el usuario es superadmin o supervisor_m
-   */
-  canEditMetas = computed(() => {
-    const user = this.auth.user();
-    if (!user) return false;
-    return user.role_name === 'superadmin' || user.role_name === 'supervisor_m';
-  });
+  canEditMetas = this.perms.can$('manage', 'kpi_goals');
 
-  /**
-   * Verifica si el usuario puede gestionar reportes
-   * @returns true si el usuario tiene permiso para gestionar reportes
-   */
-  canManageReports = computed(() => {
-    return this.auth.hasPermission(Permission.REPORTES_GESTIONAR);
-  });
+  canManageReports = this.perms.can$('delete', 'reports_manage');
 
   /**
    * Muestra el diálogo de confirmación para eliminar un reporte

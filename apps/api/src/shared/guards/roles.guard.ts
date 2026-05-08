@@ -6,6 +6,29 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import { createMongoAbility } from '@casl/ability';
+import type { AppAbility, AppSubject } from '../ability/ability.types';
+import { Permission } from '../constants/permissions';
+
+const subjectMap: Record<string, AppSubject> = {
+  [Permission.USUARIOS_VER]: 'users',
+  [Permission.USUARIOS_GESTIONAR]: 'users',
+  [Permission.USUARIOS_PASSWORDS]: 'users_passwords',
+  [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
+  [Permission.REPORTES_VER_PROPIO]: 'reports_own',
+  [Permission.REPORTES_VER_EQUIPO]: 'reports_team',
+  [Permission.REPORTES_VER_GLOBAL]: 'reports_global',
+  [Permission.REPORTES_EXPORTAR]: 'reports_export',
+  [Permission.REPORTES_GESTIONAR]: 'reports_manage',
+  [Permission.VISITAS_REGISTRAR]: 'visits',
+  [Permission.VISITAS_VER]: 'visits',
+  [Permission.VISITAS_AUDITAR]: 'visits_audit',
+  [Permission.CATALOGO_GESTIONAR]: 'catalogs',
+  [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
+  [Permission.ROLES_CONFIGURAR]: 'roles_config',
+  [Permission.SCORING_CONFIG_VER]: 'scoring_config',
+  [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
+};
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -19,26 +42,25 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Usuario no autenticado.');
     }
 
-    const userRole = user.role_name;
+    const ability = createMongoAbility<AppAbility>(user.rules || []);
 
-    if (userRole === 'superadmin') {
-      console.log(' Acceso concedido por Llave Maestra (superadmin)');
+    if (ability.can('manage', 'all')) {
       return true;
     }
 
-    // 3. Revisar permisos dinámicos (JSONB)
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
 
     if (requiredPermissions && requiredPermissions.length > 0) {
-      // Check if the user has any of the required permissions
-      const hasPermission = requiredPermissions.every(
-        (p) => user.permissions && user.permissions[p] === true,
-      );
+      const allGranted = requiredPermissions.every((perm) => {
+        const subject = subjectMap[perm];
+        if (!subject) return false;
+        return ability.can('read', subject) || ability.can('manage', subject);
+      });
 
-      if (!hasPermission) {
+      if (!allGranted) {
         console.error(
           ` Bloqueo 403. Usuario: ${user.username}. Faltan permisos:`,
           requiredPermissions,
@@ -50,7 +72,6 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    // 4. Si no hay requisitos de permisos, permitir acceso
     return true;
   }
 }
