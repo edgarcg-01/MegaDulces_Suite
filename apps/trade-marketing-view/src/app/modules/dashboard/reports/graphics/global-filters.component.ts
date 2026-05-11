@@ -1,4 +1,4 @@
-import { Component, inject, OnInit, OnDestroy, output } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -27,88 +27,96 @@ interface DropOption {
     MultiSelectModule,
   ],
   template: `
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 p-4 bg-surface-card rounded-xl border border-divider mb-6">
-      <!-- Período -->
-      <div class="flex flex-col gap-1">
-        <label class="filter-label">Período</label>
-        <p-select
-          [options]="periods"
-          [(ngModel)]="selectedPeriod"
-          optionLabel="label" optionValue="value"
-          (onChange)="onPeriodChange()"
-          class="w-full" />
+    <div class="bg-surface-card rounded-xl border border-divider mb-6">
+      <!-- Main row: filters críticos -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
+        <div class="flex flex-col gap-1">
+          <label class="filter-label">Período</label>
+          <p-select
+            [options]="periods"
+            [(ngModel)]="selectedPeriod"
+            optionLabel="label" optionValue="value"
+            (onChange)="onPeriodChange()"
+            class="w-full" />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="filter-label">Fechas</label>
+          <p-datepicker
+            [(ngModel)]="dateRange"
+            selectionMode="range"
+            [showIcon]="true"
+            [readonlyInput]="true"
+            [showButtonBar]="true"
+            (onSelect)="onDateChange()"
+            class="w-full" />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="filter-label">Zona</label>
+          <p-select
+            [options]="zones"
+            [(ngModel)]="selectedZone"
+            optionLabel="label" optionValue="value"
+            [showClear]="true"
+            placeholder="Todas"
+            (onChange)="onZoneChange()"
+            (onClear)="onZoneClear()"
+            class="w-full" />
+        </div>
       </div>
 
-      <!-- Fechas (solo visible si custom) -->
-      <div class="flex flex-col gap-1">
-        <label class="filter-label">Fechas</label>
-        <p-datepicker
-          [(ngModel)]="dateRange"
-          selectionMode="range"
-          [showIcon]="true"
-          [readonlyInput]="true"
-          [showButtonBar]="true"
-          (onSelect)="onDateChange()"
-          class="w-full" />
+      <!-- Toggle filtros avanzados -->
+      <div class="px-4 pb-3">
+        <button type="button" (click)="showAdvanced.set(!showAdvanced())"
+          class="text-xs font-bold text-content-muted hover:text-content-main transition-colors flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0">
+          <i class="pi" [ngClass]="showAdvanced() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+          Filtros avanzados
+        </button>
       </div>
 
-      <!-- Zona -->
-      <div class="flex flex-col gap-1">
-        <label class="filter-label">Zona</label>
-        <p-select
-          [options]="zones"
-          [(ngModel)]="selectedZone"
-          optionLabel="label" optionValue="value"
-          [showClear]="true"
-          placeholder="Todas"
-          (onChange)="onZoneChange()"
-          (onClear)="onZoneClear()"
-          class="w-full" />
-      </div>
+      <!-- Panel avanzado colapsable -->
+      <div *ngIf="showAdvanced()" class="border-t border-divider grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
+        <div class="flex flex-col gap-1">
+          <label class="filter-label">Encargado</label>
+          <p-select
+            [options]="supervisors"
+            [(ngModel)]="selectedSupervisorId"
+            optionLabel="label" optionValue="value"
+            [showClear]="true"
+            placeholder="Todos"
+            (onChange)="onSupervisorChange()"
+            (onClear)="onSupervisorClear()"
+            class="w-full" />
+        </div>
 
-      <!-- Encargado -->
-      <div class="flex flex-col gap-1">
-        <label class="filter-label">Encargado</label>
-        <p-select
-          [options]="supervisors"
-          [(ngModel)]="selectedSupervisorId"
-          optionLabel="label" optionValue="value"
-          [showClear]="true"
-          placeholder="Todos"
-          (onChange)="onSupervisorChange()"
-          (onClear)="onSupervisorClear()"
-          class="w-full" />
-      </div>
+        <div class="flex flex-col gap-1">
+          <label class="filter-label">Vendedor</label>
+          <p-multiSelect
+            [options]="sellers"
+            [(ngModel)]="selectedSellerIds"
+            optionLabel="label" optionValue="value"
+            [filter]="true"
+            filterBy="label"
+            display="chip"
+            placeholder="Todos"
+            (onChange)="onSellerChange()"
+            class="w-full" />
+        </div>
 
-      <!-- Vendedores -->
-      <div class="flex flex-col gap-1">
-        <label class="filter-label">Vendedor</label>
-        <p-multiSelect
-          [options]="sellers"
-          [(ngModel)]="selectedSellerIds"
-          optionLabel="label" optionValue="value"
-          [filter]="true"
-          filterBy="label"
-          display="chip"
-          placeholder="Todos"
-          (onChange)="onSellerChange()"
-          class="w-full" />
+        <div class="flex flex-col gap-1">
+          <label class="filter-label">Marca</label>
+          <p-select
+            [options]="brands"
+            [(ngModel)]="selectedBrand"
+            optionLabel="label" optionValue="value"
+            [showClear]="true"
+            placeholder="Todas"
+            (onChange)="onBrandChange()"
+            (onClear)="onBrandClear()"
+            class="w-full" />
+        </div>
       </div>
-
-      <!-- Marcas -->
-      <div class="flex flex-col gap-1">
-        <label class="filter-label">Marca</label>
-        <p-select
-          [options]="brands"
-          [(ngModel)]="selectedBrand"
-          optionLabel="label" optionValue="value"
-          [showClear]="true"
-          placeholder="Todas"
-          (onChange)="onBrandChange()"
-          (onClear)="onBrandClear()"
-          class="w-full" />
-      </div>
-
     </div>
   `,
   styles: [`
@@ -123,7 +131,6 @@ interface DropOption {
   ],
 })
 export class GlobalFiltersComponent implements OnInit {
-  // Emite cuando cualquier filtro cambia para que el padre recargue datos
   readonly filtersChanged = output<void>();
 
   private filtersState = inject(FiltersStateService);
@@ -132,7 +139,8 @@ export class GlobalFiltersComponent implements OnInit {
   private perms = inject(PermissionsService);
   private dailyCaptureService = inject(DailyCaptureService);
 
-  // ── Opciones de dropdowns (cargadas desde API) ──
+  showAdvanced = signal(false);
+
   zones: DropOption[] = [{ label: 'Todas las zonas', value: null }];
   supervisors: DropOption[] = [{ label: 'Todos', value: null }];
   sellers: DropOption[] = [];
@@ -146,7 +154,6 @@ export class GlobalFiltersComponent implements OnInit {
     { label: 'Personalizado', value: 'custom' },
   ];
 
-  // Bind locales (se sincronizan con el servicio)
   selectedPeriod = 'semanal';
   dateRange: Date[] = [];
   selectedZone: string | null = null;
@@ -162,7 +169,6 @@ export class GlobalFiltersComponent implements OnInit {
     this.selectedSellerIds = f.sellerIds;
     this.selectedBrand = f.brand;
 
-    // Cargar filtros desde la API
     this.loadZones();
     this.loadSupervisors();
     this.loadSellers();

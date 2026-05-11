@@ -78,26 +78,6 @@ export class DailyCapturesService {
     console.log('  - stats a insertar:', dto.stats);
     console.log('  - coordenadas a guardar:', { latitud, longitud });
 
-    // Consultar score_maximo dinámico desde scoring_config_versions
-    const activeVersion = await this.knex('scoring_config_versions')
-      .whereNull('fecha_fin')
-      .orderBy('fecha_inicio', 'desc')
-      .first();
-    
-    const maxPerExhibicion = (activeVersion && activeVersion.score_maximo) ? Number(activeVersion.score_maximo) : 200;
-    const totalExhibiciones = processedExhibiciones.length;
-    const scoreMaximoVisita = maxPerExhibicion * totalExhibiciones;
-    const scoreCalidadPct = scoreMaximoVisita > 0 
-      ? (dto.stats.puntuacionTotal / scoreMaximoVisita) * 100 
-      : 0;
-
-    // Agregar score_calidad_pct a los stats
-    const statsWithPct = {
-      ...dto.stats,
-      score_calidad_pct: Number(scoreCalidadPct.toFixed(2)),
-      score_maximo: scoreMaximoVisita,
-    };
-
     // Extraer fecha de hora_inicio o usar fecha actual
     const fecha = dto.horaInicio
       ? new Date(dto.horaInicio).toISOString().split('T')[0]
@@ -113,7 +93,7 @@ export class DailyCapturesService {
         hora_inicio: dto.horaInicio,
         hora_fin: dto.horaFin,
         exhibiciones: JSON.stringify(processedExhibiciones),
-        stats: JSON.stringify(statsWithPct),
+        stats: JSON.stringify(dto.stats),
         latitud: latitud || 0,
         longitud: longitud || 0,
       })

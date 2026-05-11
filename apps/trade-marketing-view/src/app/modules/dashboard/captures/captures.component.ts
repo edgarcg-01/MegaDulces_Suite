@@ -927,6 +927,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @param isoString Fecha en formato ISO
    * @returns Hora formateada o guion si es nulo
    */
+  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
   formatDate(isoString: string): string {
     if (!isoString) return '—';
     try {

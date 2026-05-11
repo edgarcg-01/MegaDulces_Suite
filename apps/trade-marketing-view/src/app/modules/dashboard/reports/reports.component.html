@@ -1,4 +1,4 @@
-<div class="p-6 pl-8 space-y-6 min-h-screen">
+<main class="p-6 pl-8 space-y-6 min-h-screen">
 
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
     <div>
@@ -19,12 +19,12 @@
   <div class="modern-tabs-wrapper">
     <p-tabs [value]="0">
       <p-tablist class="flex-wrap sm:flex-nowrap overflow-x-auto">
-        <p-tab [value]="0" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Métricas</p-tab>
-        <p-tab [value]="1" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Gráficas</p-tab>
-        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
-        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Visitas</p-tab>
-        <p-tab [value]="4" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
-        <p-tab [value]="5" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
+        <p-tab [value]="0" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Resumen</p-tab>
+
+        <p-tab [value]="1" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
+        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Visitas</p-tab>
+        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
+        <p-tab [value]="4" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
       </p-tablist>
 
       <p-tabpanels>
@@ -39,8 +39,8 @@
                   'border-l-red-500':   k.status === 'bad'
                 }">
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] font-bold text-content-faint uppercase">{{ k.label }}</span>
-                  <span class="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                  <span class="text-xs font-bold text-content-faint uppercase">{{ k.label }}</span>
+                  <span class="text-[11px] px-1.5 py-0.5 rounded-full font-bold"
                     [ngClass]="{
                       'bg-green-100 text-green-700': k.status === 'ok',
                       'bg-amber-100 text-amber-700': k.status === 'warn',
@@ -48,7 +48,7 @@
                     }">{{ statusLabel(k.status) }}</span>
                 </div>
                 <div class="text-2xl font-bold text-content-main">{{ k.value }}</div>
-                <div class="text-[10px]"
+                <div class="text-xs"
                   [ngClass]="{
                     'text-green-600': k.deltaDir === 'up',
                     'text-red-500':   k.deltaDir === 'down',
@@ -58,7 +58,7 @@
                   <div class="h-full rounded-full" [style.width.%]="k.pct"
                     [ngClass]="{ 'bg-green-500': k.status === 'ok', 'bg-amber-400': k.status === 'warn', 'bg-red-500': k.status === 'bad' }"></div>
                 </div>
-                <div class="text-[9px] text-content-faint">Meta: {{ k.meta }}</div>
+                <div class="text-[11px] text-content-faint">Meta: {{ k.meta }}</div>
               </div>
             </div>
 
@@ -75,9 +75,8 @@
               </div>
             </div>
           </div>
-        </p-tabpanel>
-
-        <p-tabpanel [value]="1">
+          <div class="mt-10 pt-6 border-t border-divider"></div>
+          <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4 space-y-6">
             <!-- Grid de gráficas PrimeNG -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -87,14 +86,14 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Calidad de Visitas</h3>
-                    <p class="text-[10px] text-content-muted mt-0.5">Distribución por rango de score</p>
+                    <p class="text-xs text-content-muted mt-0.5">Distribución por rango de score</p>
                   </div>
                   <button (click)="captureChartAndExport('doughnut')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
                 </div>
                 <div class="h-[260px]">
                   <p-chart type="doughnut" [data]="doughnutChartData" [options]="doughnutChartOptions" height="100%" *ngIf="doughnutChartData" #doughnutChart></p-chart>
                 </div>
-                <p class="text-[10px] text-content-muted mt-2 text-center">Muestra el % de visitas en cada rango de calidad</p>
+                <p class="text-xs text-content-muted mt-2 text-center">Muestra el % de visitas en cada rango de calidad</p>
               </div>
 
               <!-- 2. RADAR - Comparación multivariable -->
@@ -102,14 +101,14 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Performance por Zona</h3>
-                    <p class="text-[10px] text-content-muted mt-0.5">Comparación multidimensional</p>
+                    <p class="text-xs text-content-muted mt-0.5">Comparación multidimensional</p>
                   </div>
                   <button (click)="captureChartAndExport('radar')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
                 </div>
                 <div class="h-[260px]">
                   <p-chart type="radar" [data]="radarChartData" [options]="radarChartOptions" height="100%" *ngIf="radarChartData" #radarChart></p-chart>
                 </div>
-                <p class="text-[10px] text-content-muted mt-2 text-center">Compara zonas en: Score, Visitas, GPS, Exhibiciones y Ventas</p>
+                <p class="text-xs text-content-muted mt-2 text-center">Compara zonas en: Score, Visitas, GPS, Exhibiciones y Ventas</p>
               </div>
 
               <!-- 3. POLAR AREA - Distribución angular -->
@@ -117,14 +116,14 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Distribución Angular</h3>
-                    <p class="text-[10px] text-content-muted mt-0.5">Intensidad por calidad de visita</p>
+                    <p class="text-xs text-content-muted mt-0.5">Intensidad por calidad de visita</p>
                   </div>
                   <button (click)="captureChartAndExport('polar')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
                 </div>
                 <div class="h-[260px]">
                   <p-chart type="polarArea" [data]="polarAreaChartData" [options]="polarAreaChartOptions" height="100%" *ngIf="polarAreaChartData" #polarChart></p-chart>
                 </div>
-                <p class="text-[10px] text-content-muted mt-2 text-center">El área representa la cantidad de visitas por calidad</p>
+                <p class="text-xs text-content-muted mt-2 text-center">El área representa la cantidad de visitas por calidad</p>
               </div>
 
               <!-- 4. SCATTER - Correlación -->
@@ -132,14 +131,14 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Correlación Score-Ventas</h3>
-                    <p class="text-[10px] text-content-muted mt-0.5">Relación calidad vs impacto económico</p>
+                    <p class="text-xs text-content-muted mt-0.5">Relación calidad vs impacto económico</p>
                   </div>
                   <button (click)="captureChartAndExport('scatter')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
                 </div>
                 <div class="h-[260px]">
                   <p-chart type="scatter" [data]="scatterChartData" [options]="scatterChartOptions" height="100%" *ngIf="scatterChartData"></p-chart>
                 </div>
-                <p class="text-[10px] text-content-muted mt-2 text-center">Cada punto = 1 visita. Muestra si más score = más ventas</p>
+                <p class="text-xs text-content-muted mt-2 text-center">Cada punto = 1 visita. Muestra si más score = más ventas</p>
               </div>
 
             </div>
@@ -161,9 +160,11 @@
             </div>
 
           </div>
+          </ng-container>
         </p-tabpanel>
 
-        <p-tabpanel [value]="2">
+        <p-tabpanel [value]="1">
+          <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4 space-y-4">
 
             <div *ngIf="selectedDayCount() > 0" class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider">
@@ -174,16 +175,17 @@
 
             <div class="flex items-center justify-between">
               <p class="text-xs text-content-muted italic">Desglose de visitas por fecha.</p>
+              <label for="searchInput" class="sr-only">Buscar visitas</label>
               <p-iconfield>
                 <p-inputicon class="pi pi-search"></p-inputicon>
-                <input pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar día o folio..." (input)="dt.filterGlobal(searchText, 'contains')" />
+                <input pInputText type="text" id="searchInput" [(ngModel)]="searchText" placeholder="Buscar día o folio..." (input)="dt.filterGlobal(searchText, 'contains')" />
               </p-iconfield>
             </div>
 
             <p-table #dt [value]="groupedRows()" [paginator]="true" [rows]="10" dataKey="id" [expandedRowKeys]="expandedRows" styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider">
               <ng-template pTemplate="header">
-                <tr class="text-[10px] uppercase text-content-faint bg-surface-ground border-b border-divider">
-                  <th style="width:3rem"><input type="checkbox" (change)="toggleSelectAll($event)" style="accent-color:#185FA5" /></th>
+                <tr class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider">
+                  <th style="width:3rem"><input type="checkbox" (change)="toggleSelectAll($event)" class="focus-visible:ring-2 focus-visible:ring-blue-300" style="accent-color:#185FA5" /></th>
                   <th style="width:3rem"></th>
                   <th class="py-3 px-4">Jornada / Fecha</th>
                   <th class="text-center">Visitas</th>
@@ -194,26 +196,26 @@
               </ng-template>
 
               <ng-template pTemplate="body" let-day let-expanded="expanded">
-                <tr class="hover:bg-surface-hover cursor-pointer transition-colors" (click)="toggleExpand(day)">
-                  <td (click)="$event.stopPropagation()"><input type="checkbox" [(ngModel)]="day.selected" style="accent-color:#185FA5" /></td>
+                <tr class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none" (click)="toggleExpand(day)">
+                  <td (click)="$event.stopPropagation()"><input type="checkbox" [(ngModel)]="day.selected" class="focus-visible:ring-2 focus-visible:ring-blue-300" style="accent-color:#185FA5" /></td>
                   <td><button type="button" pButton [pRowToggler]="day" class="p-button-text p-button-rounded p-button-plain w-8 h-8" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button></td>
                   <td class="py-4 px-4 font-bold text-content-main">{{ day.fecha | date:'fullDate':'UTC' }}</td>
                   <td class="text-center">
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                    <span class="px-2.5 py-0.5 rounded-full text-xs font-bold"
                       [ngClass]="{ 'bg-green-100 text-green-800': day.visitasStatus === 'ok', 'bg-amber-100 text-amber-800': day.visitasStatus === 'warn', 'bg-red-100 text-red-800': day.visitasStatus === 'bad' }">
                       {{ day.totalVisitas }}
                     </span>
                   </td>
                   <td class="text-center">
                     <div class="flex flex-col items-center gap-1">
-                      <span class="font-black" [ngClass]="{ 'text-green-600': day.scoreStatus === 'ok', 'text-amber-500': day.scoreStatus === 'warn', 'text-red-500': day.scoreStatus === 'bad' }">{{ day.avgScore }}%</span>
+                      <span class="font-black" [ngClass]="{ 'text-green-600': day.scoreStatus === 'ok', 'text-amber-500': day.scoreStatus === 'warn', 'text-red-500': day.scoreStatus === 'bad' }">{{ day.avgScore }} pts</span>
                       <div class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden">
-                        <div class="h-full rounded-full" [style.width]="day.avgScore + '%'" [ngClass]="{ 'bg-green-500': day.scoreStatus === 'ok', 'bg-amber-400': day.scoreStatus === 'warn', 'bg-red-500': day.scoreStatus === 'bad' }"></div>
+                        <div class="h-full rounded-full" [style.width.%]="day.avgScore > 100 ? 100 : day.avgScore" [ngClass]="{ 'bg-green-500': day.scoreStatus === 'ok', 'bg-amber-400': day.scoreStatus === 'warn', 'bg-red-500': day.scoreStatus === 'bad' }"></div>
                       </div>
                     </div>
                   </td>
                   <td class="text-center">
-                    <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                    <span class="text-xs px-2 py-0.5 rounded-full font-bold"
                       [ngClass]="{ 'bg-green-100 text-green-800': day.scoreStatus === 'ok', 'bg-amber-100 text-amber-800': day.scoreStatus === 'warn', 'bg-red-100 text-red-800': day.scoreStatus === 'bad' }">
                       {{ statusLabel(day.scoreStatus) }}
                     </span>
@@ -230,21 +232,21 @@
                     <div class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden">
                       <p-table [value]="day.visits" styleClass="p-datatable-sm p-datatable-striped">
                         <ng-template pTemplate="header">
-                          <tr class="text-[10px] uppercase text-content-muted bg-surface-ground">
+                          <tr class="text-xs uppercase text-content-muted bg-surface-ground">
                             <th class="pl-4 py-2 w-24">Folio</th><th>Hora</th><th>Ejecutivo</th><th class="w-32">Zona</th><th class="text-center w-24">Score</th><th class="text-center w-24">Estado</th><th class="text-center w-24">Acción</th>
                           </tr>
                         </ng-template>
                         <ng-template pTemplate="body" let-visit>
-                           <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer" (click)="viewDetail(visit)">
+                           <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none" (click)="viewDetail(visit)">
                             <td class="pl-4 font-black text-content-main py-3">#{{ visit.folio }}</td>
                             <td class="text-center font-mono text-xs text-content-muted">{{ visit.hora_inicio | date:'HH:mm':'UTC' }}</td>
                             <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
-                            <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
+                            <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
                             <td class="text-center">
-                              <span class="font-black" [ngClass]="{ 'text-green-600': visitScoreStatus(visit) === 'ok', 'text-amber-500': visitScoreStatus(visit) === 'warn', 'text-red-500': visitScoreStatus(visit) === 'bad' }">{{ visit.stats?.score_calidad_pct }}%</span>
+                              <span class="font-black" [ngClass]="{ 'text-green-600': visitScoreStatus(visit) === 'ok', 'text-amber-500': visitScoreStatus(visit) === 'warn', 'text-red-500': visitScoreStatus(visit) === 'bad' }">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
                             </td>
                             <td class="text-center">
-                              <span class="text-[9px] px-2 py-0.5 rounded-full font-bold"
+                              <span class="text-[11px] px-2 py-0.5 rounded-full font-bold"
                                 [ngClass]="{ 'bg-green-100 text-green-800': visitScoreStatus(visit) === 'ok', 'bg-amber-100 text-amber-800': visitScoreStatus(visit) === 'warn', 'bg-red-100 text-red-800': visitScoreStatus(visit) === 'bad' }">{{ statusLabel(visitScoreStatus(visit)) }}</span>
                             </td>
                             <td class="text-center">
@@ -260,9 +262,11 @@
               </ng-template>
             </p-table>
           </div>
+          </ng-container>
         </p-tabpanel>
 
-        <p-tabpanel [value]="3">
+        <p-tabpanel [value]="2">
+          <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4 space-y-4">
             <div *ngIf="selectedVisitsCount() > 0" class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider">
               <span class="text-xs text-content-muted flex-1">{{ selectedVisitsCount() }} visita(s) seleccionada(s)</span>
@@ -271,20 +275,20 @@
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div *ngFor="let visit of allVisits()" class="card-premium cursor-pointer hover:border-content-muted/30 transition-all" [class.ring-2]="visit._selected" [class.ring-blue-400]="visit._selected">
+              <div *ngFor="let visit of allVisits()" class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none" [class.ring-2]="visit._selected" [class.ring-blue-400]="visit._selected">
                 <div class="flex items-start gap-3 mb-4">
-                  <input type="checkbox" [(ngModel)]="visit._selected" (click)="$event.stopPropagation()" style="accent-color:#185FA5;margin-top:3px" />
+                  <input type="checkbox" [(ngModel)]="visit._selected" (click)="$event.stopPropagation()" class="focus-visible:ring-2 focus-visible:ring-blue-300" style="accent-color:#185FA5;margin-top:3px" />
                   <div class="flex-1 min-w-0">
-                    <div class="text-[10px] text-content-faint mb-0.5">#{{ visit.folio }} · {{ visit.fecha | date:'dd MMM':'UTC' }}</div>
+                    <div class="text-xs text-content-faint mb-0.5">#{{ visit.folio }} · {{ visit.fecha | date:'dd MMM':'UTC' }}</div>
                     <div class="font-bold text-sm text-content-main truncate">{{ visit.captured_by_username }}</div>
                     <div class="flex gap-1.5 mt-1 flex-wrap">
-                      <span class="text-[9px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold">{{ visit.zona_captura }}</span>
-                      <span *ngIf="visit.latitud" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold">GPS</span>
+                      <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold">{{ visit.zona_captura }}</span>
+                      <span *ngIf="visit.latitud" class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold">GPS</span>
                     </div>
                   </div>
-                  <div class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
+                  <div class="w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                     [ngClass]="{ 'border-green-400 text-green-700': visitScoreStatus(visit) === 'ok', 'border-amber-400 text-amber-700': visitScoreStatus(visit) === 'warn', 'border-red-400 text-red-700': visitScoreStatus(visit) === 'bad' }">
-                    {{ visit.stats?.score_calidad_pct }}%
+                    {{ fmtScore(visit.stats?.puntuacionTotal) }}
                   </div>
                 </div>
                 <div class="flex gap-2">
@@ -300,11 +304,11 @@
               <div class="overflow-x-auto">
                 <table class="w-full border-collapse text-sm">
                   <thead>
-                    <tr class="text-[10px] uppercase text-content-muted border-b border-divider">
+                    <tr class="text-xs uppercase text-content-muted border-b border-divider">
                       <th class="py-2 text-left">Métrica</th>
                       <th *ngFor="let v of selectedVisits()" class="py-2 text-center">
                         <span class="font-bold text-content-main">#{{ v.folio }}</span><br>
-                        <span class="text-[9px] font-normal">{{ v.captured_by_username }}</span>
+                        <span class="text-[11px] font-normal">{{ v.captured_by_username }}</span>
                       </th>
                     </tr>
                   </thead>
@@ -312,7 +316,7 @@
                     <tr class="border-b border-divider/50">
                       <td class="py-2 text-content-muted">Score final</td>
                       <td *ngFor="let v of selectedVisits()" class="py-2 text-center font-bold"
-                        [ngClass]="{ 'text-green-600': visitScoreStatus(v) === 'ok', 'text-amber-500': visitScoreStatus(v) === 'warn', 'text-red-500': visitScoreStatus(v) === 'bad' }">{{ v.stats?.puntuacionTotal }}%</td>
+                        [ngClass]="{ 'text-green-600': visitScoreStatus(v) === 'ok', 'text-amber-500': visitScoreStatus(v) === 'warn', 'text-red-500': visitScoreStatus(v) === 'bad' }">{{ fmtScore(v.stats?.puntuacionTotal) }}</td>
                     </tr>
                     <tr class="border-b border-divider/50">
                       <td class="py-2 text-content-muted">Exhibiciones</td>
@@ -338,9 +342,11 @@
             </div>
 
           </div>
+          </ng-container>
         </p-tabpanel>
 
-        <p-tabpanel [value]="4">
+        <p-tabpanel [value]="3">
+          <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4 space-y-6" *ngIf="productStatsProcessed">
             
             <!-- KPIs de Ejecución: Salud y Agotamiento -->
@@ -350,12 +356,12 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Salud General de Exhibidores</h3>
-                    <p class="text-[10px] text-content-muted mt-0.5">Estado de ejecución e imagen en PDV</p>
+                    <p class="text-xs text-content-muted mt-0.5">Estado de ejecución e imagen en PDV</p>
                   </div>
                   <div class="flex gap-2">
-                    <span class="flex items-center gap-1 text-[9px] font-bold text-green-600"><span class="w-2 h-2 rounded-full bg-green-500"></span> Óptimo</span>
-                    <span class="flex items-center gap-1 text-[9px] font-bold text-amber-600"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Regular</span>
-                    <span class="flex items-center gap-1 text-[9px] font-bold text-red-600"><span class="w-2 h-2 rounded-full bg-red-500"></span> Crítico</span>
+                    <span class="flex items-center gap-1 text-[11px] font-bold text-green-600"><span class="w-2 h-2 rounded-full bg-green-500"></span> Óptimo</span>
+                    <span class="flex items-center gap-1 text-[11px] font-bold text-amber-600"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Regular</span>
+                    <span class="flex items-center gap-1 text-[11px] font-bold text-red-600"><span class="w-2 h-2 rounded-full bg-red-500"></span> Crítico</span>
                   </div>
                 </div>
                 <div class="h-[240px] flex items-center justify-center">
@@ -382,14 +388,14 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes (Stockout Rate)</h3>
-                    <p class="text-[10px] text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
+                    <p class="text-xs text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
                   </div>
                   <i class="pi pi-exclamation-circle text-red-500"></i>
                 </div>
                 <div class="overflow-hidden rounded-xl border border-divider">
                   <p-table [value]="topFaltantes" styleClass="p-datatable-sm">
                     <ng-template pTemplate="header">
-                      <tr class="text-[9px] uppercase text-content-faint bg-surface-ground">
+                      <tr class="text-[11px] uppercase text-content-faint bg-surface-ground">
                         <th class="py-2 px-3">Producto</th>
                         <th class="py-2 px-3 text-right">Stockout Rate</th>
                       </tr>
@@ -402,7 +408,7 @@
                             <div class="w-12 h-1.5 rounded-full bg-surface-layout overflow-hidden hidden sm:block">
                               <div class="h-full bg-red-500 rounded-full" [style.width.%]="p.stockoutRate"></div>
                             </div>
-                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold" 
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold" 
                               [ngClass]="{
                                 'bg-red-100 text-red-700': +p.stockoutRate > 20,
                                 'bg-amber-100 text-amber-700': +p.stockoutRate > 10 && +p.stockoutRate <= 20,
@@ -416,7 +422,7 @@
                     </ng-template>
                   </p-table>
                 </div>
-                <p class="text-[9px] text-content-muted mt-3 italic">* Basado en la ausencia de aparición del SKU en el total de visitas filtradas.</p>
+                <p class="text-[11px] text-content-muted mt-3 italic">* Basado en la ausencia de aparición del SKU en el total de visitas filtradas.</p>
               </div>
             </div>
 
@@ -425,7 +431,7 @@
               <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <div>
                   <h3 class="text-sm font-bold text-content-main">Presencia de Productos por Marca</h3>
-                  <p class="text-[10px] text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
+                  <p class="text-xs text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
                 </div>
                 <div class="flex gap-2 w-full sm:w-auto">
                   <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
@@ -446,7 +452,7 @@
                 </h3>
                 <p-table [value]="topProducts" [rows]="10" styleClass="p-datatable-sm">
                   <ng-template pTemplate="header">
-                    <tr class="text-[10px] bg-surface-ground uppercase text-content-muted border-b border-divider">
+                    <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
                       <th class="py-2 px-3 text-left">Producto</th>
                       <th class="py-2 px-3 text-center">Frecuencia</th>
                     </tr>
@@ -468,7 +474,7 @@
                 </h3>
                 <p-table [value]="bottomProducts" [rows]="10" styleClass="p-datatable-sm">
                   <ng-template pTemplate="header">
-                    <tr class="text-[10px] bg-surface-ground uppercase text-content-muted border-b border-divider">
+                    <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
                       <th class="py-2 px-3 text-left">Producto</th>
                       <th class="py-2 px-3 text-center">Frecuencia</th>
                     </tr>
@@ -490,7 +496,7 @@
               <div class="flex items-center justify-between mb-4">
                 <div>
                   <h3 class="text-sm font-bold text-content-main">Productos por Ejecutivo</h3>
-                  <p class="text-[10px] text-content-muted mt-0.5">Productos movidos por cada usuario en el período seleccionado</p>
+                  <p class="text-xs text-content-muted mt-0.5">Productos movidos por cada usuario en el período seleccionado</p>
                 </div>
               </div>
               <div class="space-y-4">
@@ -502,10 +508,10 @@
                       </div>
                       <div>
                         <div class="font-bold text-sm text-content-main">{{ user.username }}</div>
-                        <div class="text-[10px] text-content-muted">{{ user.totalProducts }} productos totales</div>
+                        <div class="text-xs text-content-muted">{{ user.totalProducts }} productos totales</div>
                       </div>
                     </div>
-                    <span class="px-3 py-1 rounded-full text-[10px] font-bold bg-brand-100 text-brand-700 border border-brand-200">
+                    <span class="px-3 py-1 rounded-full text-xs font-bold bg-brand-100 text-brand-700 border border-brand-200">
                       {{ user.products.length }} productos únicos
                     </span>
                   </div>
@@ -514,13 +520,13 @@
                       <div *ngFor="let product of user.products.slice(0, 12)" class="flex items-center justify-between p-2 bg-surface-card rounded-lg border border-surface-border">
                         <div class="flex-1 min-w-0">
                           <div class="text-xs font-medium text-content-main truncate">{{ product.name }}</div>
-                          <div class="text-[9px] text-content-muted">{{ product.brandName }}</div>
+                          <div class="text-[11px] text-content-muted">{{ product.brandName }}</div>
                         </div>
-                        <span class="px-2 py-0.5 rounded-full bg-surface-hover text-content-faint text-[10px] font-bold">{{ product.count }}</span>
+                        <span class="px-2 py-0.5 rounded-full bg-surface-hover text-content-faint text-xs font-bold">{{ product.count }}</span>
                       </div>
                     </div>
                     <div *ngIf="user.products.length > 12" class="text-center mt-2">
-                      <span class="text-[10px] text-content-muted italic">... y {{ user.products.length - 12 }} productos más</span>
+                      <span class="text-xs text-content-muted italic">... y {{ user.products.length - 12 }} productos más</span>
                     </div>
                   </div>
                 </div>
@@ -534,16 +540,30 @@
             <h3 class="text-lg font-bold text-content-main">No hay datos de productos</h3>
             <p class="text-content-muted text-sm max-w-md mx-auto mt-2">No se encontraron productos registrados en las visitas para el rango de fechas y zona seleccionados.</p>
           </div>
+          </ng-container>
         </p-tabpanel>
 
-        <p-tabpanel [value]="5">
+        <p-tabpanel [value]="4">
+          <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4">
             <app-stores-tab></app-stores-tab>
           </div>
+          </ng-container>
         </p-tabpanel>
       </p-tabpanels>
     </p-tabs>
   </div>
+
+  <ng-template #tabSkeleton>
+    <div class="pt-4 space-y-4">
+      <div class="card-premium animate-pulse">
+        <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
+        <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
+        <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
+        <p-skeleton height="2rem"></p-skeleton>
+      </div>
+    </div>
+  </ng-template>
 
   <p-dialog header="Construir reporte PDF" [(visible)]="showPdfBuilder" [modal]="true" appendTo="body" [style]="{ width: '90vw', maxWidth: '500px' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card'">
     <div class="space-y-4 pt-2">
@@ -551,7 +571,7 @@
       <div class="space-y-2">
         <div *ngFor="let s of pdfSections" class="flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout">
           <span class="text-sm font-medium">{{ s.label }}</span>
-          <input type="checkbox" [(ngModel)]="s.checked" style="accent-color:#185FA5;width:16px;height:16px" />
+          <input type="checkbox" [(ngModel)]="s.checked" class="focus-visible:ring-2 focus-visible:ring-blue-300" style="accent-color:#185FA5;width:16px;height:16px" />
         </div>
       </div>
       <div class="flex flex-col gap-1 mt-2">
@@ -577,32 +597,32 @@
           <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
         </div>
         <div class="grid grid-cols-2 gap-3 text-sm">
-          <div class="space-y-1">
-            <p class="text-[10px] text-content-muted uppercase">Folio</p>
-            <p class="font-bold text-content-main">#{{ selectedRow.folio }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-[10px] text-content-muted uppercase">Ejecutivo</p>
-            <p class="font-bold text-content-main">{{ selectedRow.captured_by_username }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-[10px] text-content-muted uppercase">Zona</p>
-            <p class="font-bold text-content-main">{{ selectedRow.zona_captura }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-[10px] text-content-muted uppercase">Fecha</p>
-            <p class="font-bold text-content-main">{{ selectedRow.fecha | date:'mediumDate' }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-[10px] text-content-muted uppercase">Hora inicio</p>
-            <p class="font-bold text-content-main">{{ selectedRow.hora_inicio | date:'shortTime' }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-[10px] text-content-muted uppercase">Hora fin</p>
-            <p class="font-bold text-content-main">{{ selectedRow.hora_fin | date:'shortTime' }}</p>
-          </div>
-          <div class="space-y-1 col-span-2">
-            <p class="text-[10px] text-content-muted uppercase">Exhibiciones registradas</p>
+            <div class="space-y-1">
+              <p class="text-[10px] text-content-muted uppercase">Folio</p>
+              <p class="font-bold text-content-main">#{{ selectedRow.folio }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-[10px] text-content-muted uppercase">Ejecutivo</p>
+              <p class="font-bold text-content-main">{{ selectedRow.captured_by_username }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-[10px] text-content-muted uppercase">Zona</p>
+              <p class="font-bold text-content-main">{{ selectedRow.zona_captura }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-[10px] text-content-muted uppercase">Fecha</p>
+              <p class="font-bold text-content-main">{{ selectedRow.fecha | date:'mediumDate' }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-[10px] text-content-muted uppercase">Hora inicio</p>
+              <p class="font-bold text-content-main">{{ selectedRow.hora_inicio | date:'shortTime' }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-[10px] text-content-muted uppercase">Hora fin</p>
+              <p class="font-bold text-content-main">{{ selectedRow.hora_fin | date:'shortTime' }}</p>
+            </div>
+            <div class="space-y-1 col-span-2">
+              <p class="text-[10px] text-content-muted uppercase">Exhibiciones registradas</p>
             <p class="font-bold text-content-main">{{ selectedRow.exhibiciones?.length ?? 0 }}</p>
           </div>
         </div>
@@ -619,7 +639,7 @@
             <div class="text-center px-4 py-2 rounded-xl border-2"
               [ngClass]="{ 'border-green-400 bg-green-50': visitScoreStatus(selectedRow) === 'ok', 'border-amber-400 bg-amber-50': visitScoreStatus(selectedRow) === 'warn', 'border-red-400 bg-red-50': visitScoreStatus(selectedRow) === 'bad' }">
               <div class="text-[9px] uppercase font-black opacity-60">Score</div>
-              <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ selectedRow.stats?.score_calidad_pct }}%</div>
+              <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
               <div class="text-[9px] font-bold uppercase opacity-60">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
             </div>
             <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
@@ -640,8 +660,8 @@
             </div>
             <div>
               <div class="text-[10px] font-bold uppercase text-content-muted">Coordenadas GPS</div>
-              <div class="text-xs font-mono text-content-dim" *ngIf="selectedRow.latitud">{{ selectedRow.latitud | number:'1.6-6' }}, {{ selectedRow.longitud | number:'1.6-6' }}</div>
-              <div class="text-xs text-content-faint font-bold" *ngIf="!selectedRow.latitud">No se capturó GPS</div>
+              <div class="text-[10px] font-mono text-content-dim" *ngIf="selectedRow.latitud">{{ selectedRow.latitud | number:'1.6-6' }}, {{ selectedRow.longitud | number:'1.6-6' }}</div>
+              <div class="text-[10px] text-content-faint font-bold" *ngIf="!selectedRow.latitud">No se capturó GPS</div>
             </div>
           </div>
           <p-button *ngIf="selectedRow.latitud" label="Ver mapa" icon="pi pi-external-link" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
@@ -697,7 +717,7 @@
   <p-dialog [(visible)]="showImagePreview" [modal]="true" [closable]="false" appendTo="body" [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-black p-0 overflow-hidden'">
     <div class="relative w-full h-full flex flex-col">
       <!-- Botón de cerrar en la esquina superior derecha -->
-      <button (click)="closeImagePreview()" class="absolute top-4 right-4 z-10 w-12 h-12 bg-[#185FA5] text-white rounded-full flex items-center justify-center shadow-lg hover:bg-[#0d4a8a] hover:scale-110 transition-all border-2 border-white">
+      <button (click)="closeImagePreview()" class="absolute top-4 right-4 z-10 w-12 h-12 bg-[#185FA5] text-white rounded-full flex items-center justify-center shadow-lg hover:bg-[#0d4a8a] hover:scale-110 transition-all border-2 border-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none">
         <i class="pi pi-times text-xl"></i>
       </button>
       
@@ -881,4 +901,4 @@
       </div>
     </ng-template>
   </p-dialog>
-</div>
+</main>

@@ -26,6 +26,7 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { DropdownModule } from 'primeng/dropdown';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { SkeletonModule } from 'primeng/skeleton';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -97,6 +98,7 @@ interface PdfSection {
     GlobalFiltersComponent,
     StoresTabComponent,
     ConfirmDialogModule,
+    SkeletonModule,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './reports.component.html',
@@ -450,11 +452,11 @@ export class ReportsComponent implements OnInit {
     return Object.values(groups)
       .map((day: any) => {
         const totalScore = day.visits.reduce(
-          (s: number, v: any) => s + (v.stats?.score_calidad_pct ?? 0),
+          (s: number, v: any) => s + (v.stats?.puntuacionTotal ?? 0),
           0,
         );
         day.avgScore = day.visits.length
-          ? +(totalScore / day.visits.length).toFixed(1)
+          ? Math.round(totalScore / day.visits.length)
           : 0;
         day.scoreStatus = this.metasConfig.statusFor('score', day.avgScore);
         day.visitasStatus = this.metasConfig.statusFor(
@@ -493,8 +495,8 @@ export class ReportsComponent implements OnInit {
         id: 'score',
         label: 'Avg score',
         raw: m.avgScore ?? 0,
-        fmt: (v: number) => v + '%',
-        unit: '%',
+        fmt: (v: number) => Math.round(+v || 0) + ' pts',
+        unit: 'pts',
       },
       {
         id: 'venta',
@@ -678,19 +680,19 @@ export class ReportsComponent implements OnInit {
 
     const rows = data.rows ?? [];
     const dist = [
-      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) < 50).length,
+      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) < 50).length,
       rows.filter((r: any) => {
-        const v = r.stats?.score_calidad_pct ?? 0;
+        const v = r.stats?.puntuacionTotal ?? 0;
         return v >= 50 && v < 70;
       }).length,
       rows.filter((r: any) => {
-        const v = r.stats?.score_calidad_pct ?? 0;
+        const v = r.stats?.puntuacionTotal ?? 0;
         return v >= 70 && v < 85;
       }).length,
-      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) >= 85).length,
+      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
     ];
     this.scoreDistData = {
-      labels: ['0–49%', '50–69%', '70–84%', '85–100%'],
+      labels: ['0–49', '50–69', '70–84', '85+'],
       datasets: [
         {
           label: 'Visitas',
@@ -743,23 +745,23 @@ export class ReportsComponent implements OnInit {
     // 1. DOUGHNUT CHART - Distribución porcentual de visitas por rango de score
     // Muestra el % del total de visitas que caen en cada rango de calidad
     const scoreRanges = [
-      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) < 50).length,
+      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) < 50).length,
       rows.filter((r: any) => {
-        const v = r.stats?.score_calidad_pct ?? 0;
+        const v = r.stats?.puntuacionTotal ?? 0;
         return v >= 50 && v < 70;
       }).length,
       rows.filter((r: any) => {
-        const v = r.stats?.score_calidad_pct ?? 0;
+        const v = r.stats?.puntuacionTotal ?? 0;
         return v >= 70 && v < 85;
       }).length,
-      rows.filter((r: any) => (r.stats?.score_calidad_pct ?? 0) >= 85).length,
+      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
     ];
     this.doughnutChartData = {
       labels: [
-        'Bajo (0-49%)',
-        'Regular (50-69%)',
-        'Bueno (70-84%)',
-        'Excelente (85-100%)',
+        'Bajo (0-49)',
+        'Regular (50-69)',
+        'Bueno (70-84)',
+        'Excelente (85+)',
       ],
       datasets: [
         {
@@ -800,7 +802,7 @@ export class ReportsComponent implements OnInit {
           });
         }
         const z = zoneMap.get(zone);
-        z.avgScore += r.stats?.score_calidad_pct ?? 0;
+        z.avgScore += r.stats?.puntuacionTotal ?? 0;
         z.totalVisitas += 1;
         z.gpsPct += r.stats?.gpsPct ?? 0;
         z.totalExhibiciones += r.exhibiciones?.length ?? 0;
@@ -871,7 +873,7 @@ export class ReportsComponent implements OnInit {
     // 4. SCATTER CHART - Correlación entre Score y Ventas
     // Cada punto representa una visita, mostrando relación calidad vs impacto económico
     const scatterData = rows.slice(0, 50).map((r: any) => ({
-      x: r.stats?.score_calidad_pct ?? 0,
+      x: r.stats?.puntuacionTotal ?? 0,
       y: r.stats?.ventaTotal ?? 0,
     }));
     this.scatterChartData = {
@@ -1367,7 +1369,7 @@ export class ReportsComponent implements OnInit {
           position: 'bottom' as const,
           title: {
             display: true,
-            text: 'Score (%)',
+            text: 'Score (pts)',
             font: { size: 12, weight: '500' },
             color: '#52525b',
           },
@@ -1430,10 +1432,11 @@ export class ReportsComponent implements OnInit {
   statusLabel(s: KpiStatus): string {
     return s === 'ok' ? 'Óptimo' : s === 'warn' ? 'En rango' : 'Bajo';
   }
+  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
   visitScoreStatus(visit: any): KpiStatus {
     return this.metasConfig.statusFor(
       'score',
-      visit.stats?.score_calidad_pct ?? 0,
+      visit.stats?.puntuacionTotal ?? 0,
     );
   }
   toggleExpand(day: DayGroup) {
@@ -1728,7 +1731,7 @@ export class ReportsComponent implements OnInit {
       v.folio,
       v.captured_by_username,
       v.zona_captura,
-      v.stats?.score_calidad_pct,
+      v.stats?.puntuacionTotal,
       v.stats?.ventaTotal,
     ]);
     const csv = [headers, ...rows].map((r) => r.join(',')).join('\n');
@@ -1755,7 +1758,7 @@ export class ReportsComponent implements OnInit {
       body: selected.map((d) => [
         new Date(d.fecha).toLocaleDateString(),
         d.totalVisitas,
-        d.avgScore + '%',
+        d.avgScore + ' pts',
         this.statusLabel(d.scoreStatus),
         '$' + d.totalVenta.toLocaleString(),
       ]),
@@ -1948,7 +1951,7 @@ export class ReportsComponent implements OnInit {
               (index + 1).toString(),
               s.username,
               s.totalVisitas.toString(),
-              `${s.avgScore}%`,
+              `${s.avgScore} pts`,
               stars,
             ];
           }),
@@ -2005,7 +2008,7 @@ export class ReportsComponent implements OnInit {
               fecha: label,
               score:
                 typeof this.lineChartData.datasets[0].data[index] === 'number'
-                  ? this.lineChartData.datasets[0].data[index].toFixed(1)
+                  ? Math.round(this.lineChartData.datasets[0].data[index]).toString()
                   : '0',
             }),
           );
@@ -2013,7 +2016,7 @@ export class ReportsComponent implements OnInit {
           autoTable(doc, {
             startY: y,
             head: [['Fecha', 'Score']],
-            body: trendData.map((d: any) => [d.fecha, d.score + '%']),
+            body: trendData.map((d: any) => [d.fecha, d.score + ' pts']),
             theme: 'grid',
             headStyles: {
               fillColor: bgLight,
@@ -2096,14 +2099,14 @@ export class ReportsComponent implements OnInit {
 
           const zoneData = this.radarChartData.datasets.map((ds: any) => ({
             zona: ds.label,
-            score: ds.data[0]?.toFixed(1) || '0',
+            score: ds.data[0] != null ? Math.round(ds.data[0]).toString() : '0',
             visitas: ds.data[1]?.toFixed(0) || '0',
           }));
 
           autoTable(doc, {
             startY: y,
             head: [['Zona', 'Score', 'Visitas']],
-            body: zoneData.map((d: any) => [d.zona, d.score + '%', d.visitas]),
+            body: zoneData.map((d: any) => [d.zona, d.score + ' pts', d.visitas]),
             theme: 'grid',
             headStyles: {
               fillColor: bgLight,
@@ -2160,7 +2163,7 @@ export class ReportsComponent implements OnInit {
               }),
               r.captured_by_username?.substring(0, 20) || 'N/A',
               r.zona_captura?.substring(0, 15) || 'N/A',
-              `${r.stats?.puntuacionTotal ?? 0}%`,
+              `${Math.round(r.stats?.puntuacionTotal ?? 0)} pts`,
               statusText,
               `$${(r.stats?.ventaTotal ?? 0).toLocaleString()}`,
             ];
@@ -2554,7 +2557,7 @@ export class ReportsComponent implements OnInit {
       y += 5;
 
       // Score badge
-      const score = row.stats?.score_calidad_pct ?? 0;
+      const score = row.stats?.puntuacionTotal ?? 0;
       const status = this.statusLabel(
         this.metasConfig.statusFor('score', score),
       );
@@ -2629,7 +2632,7 @@ export class ReportsComponent implements OnInit {
       autoTable(doc, {
         startY: y,
         body: [
-          ['Score Total', `${row.stats?.score_calidad_pct ?? 0}%`],
+          ['Score Total', `${Math.round(row.stats?.puntuacionTotal ?? 0)} pts`],
           [
             'Venta Total',
             `$${((row.stats?.ventaTotal ?? 0) || 0).toLocaleString('es-MX')}`,
@@ -2640,7 +2643,7 @@ export class ReportsComponent implements OnInit {
             this.statusLabel(
               this.metasConfig.statusFor(
                 'score',
-                row.stats?.score_calidad_pct ?? 0,
+                row.stats?.puntuacionTotal ?? 0,
               ),
             ),
           ],
@@ -2724,7 +2727,7 @@ export class ReportsComponent implements OnInit {
         body: [
           ['Zona', row.zona_captura],
           ['Fecha', new Date(row.fecha).toLocaleDateString()],
-          ['Score', (row.stats?.puntuacionTotal ?? 0) + '%'],
+          ['Score', Math.round(row.stats?.puntuacionTotal ?? 0) + ' pts'],
           [
             'Estado',
             this.statusLabel(
@@ -2818,9 +2821,9 @@ export class ReportsComponent implements OnInit {
 
       const kpisData = [
         ['Visitas Totales', (data.metrics?.totalVisitas || 0).toLocaleString('es-MX')],
-        ['Score Promedio', `${(data.metrics?.avgScore || 0).toFixed(1)}%`],
+        ['Score Promedio', `${Math.round(data.metrics?.avgScore || 0)} pts`],
         ['Impacto Venta', `$${(data.metrics?.totalVentas || 0).toLocaleString('es-MX')}`],
-        ['Margen %', `${(data.metrics?.avgScore || 0).toFixed(1)}%`]
+        ['Score Promedio', `${Math.round(data.metrics?.avgScore || 0)} pts`]
       ];
 
       autoTable(doc, {
@@ -2842,7 +2845,7 @@ export class ReportsComponent implements OnInit {
       const dayRows = this.groupedRows().slice(0, 10).map(day => [
         new Date(day.fecha).toLocaleDateString('es-MX'),
         day.totalVisitas.toString(),
-        `${day.avgScore.toFixed(1)}%`,
+        `${Math.round(day.avgScore)} pts`,
         day.totalVenta > 0 ? `$${day.totalVenta.toLocaleString('es-MX')}` : '-'
       ]);
 
@@ -2872,7 +2875,7 @@ export class ReportsComponent implements OnInit {
           (index + 1).toString(),
           s.username || 'N/A',
           s.totalVisitas?.toString() || '0',
-          `${(s.avgScore || 0).toFixed(1)}%`
+          `${Math.round(s.avgScore || 0)} pts`
         ]);
 
         autoTable(doc, {
@@ -2928,7 +2931,7 @@ export class ReportsComponent implements OnInit {
           new Date(r.fecha).toLocaleDateString('es-MX'),
           r.captured_by_username?.substring(0, 15) || 'N/A',
           r.zona_captura?.substring(0, 12) || 'N/A',
-          `${(r.stats?.puntuacionTotal || 0).toFixed(0)}%`,
+          `${Math.round(r.stats?.puntuacionTotal || 0)} pts`,
           r.stats?.ventaTotal > 0 ? `$${r.stats.ventaTotal.toLocaleString()}` : '-'
         ]);
 

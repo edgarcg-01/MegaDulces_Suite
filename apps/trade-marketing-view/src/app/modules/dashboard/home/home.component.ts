@@ -103,20 +103,27 @@ export class HomeComponent implements OnInit {
     const metaDiaria = metaDiariaRange?.opt || 5;
     const pending = Math.max(0, metaDiaria - cierresHoy);
 
-    // Integramos el semáforo para el Score usando el MetasConfigService
     const scoreVal = parseFloat(metrics.puntuacion_promedio) || 0;
     const scoreStatus = this.metasConfig.statusFor('score', scoreVal);
     const scoreRange = this.metasConfig.getRange('score');
 
+    const avgDurationVal = parseFloat(metrics.avg_duration_min) || 0;
+    const avgDurationStatus = this.metasConfig.statusFor('avgDuration', avgDurationVal);
+    const avgDurationRange = this.metasConfig.getRange('avgDuration');
+
+    const evidenciaVal = metrics.total_fotos || 0;
+    const evidenciaStatus = this.metasConfig.statusFor('evidenciaVisual', evidenciaVal);
+    const evidenciaRange = this.metasConfig.getRange('evidenciaVisual');
+
     return [
       {
         label: 'Score Global',
-        value: `${metrics.puntuacion_promedio || 0}%`,
+        value: `${Math.round(scoreVal || 0)} pts`,
         icon: 'pi pi-chart-line',
         colorClass: 'text-blue-500',
         trend: '+2.4%',
         status: scoreStatus,
-        meta: scoreRange ? `${scoreRange.opt}%` : '—',
+        meta: scoreRange ? `${scoreRange.opt} pts` : '—',
         delta: 'Sin variación',
         deltaDir: 'flat',
         pct: this.metasConfig.progressPct('score', scoreVal)
@@ -127,11 +134,11 @@ export class HomeComponent implements OnInit {
         icon: 'pi pi-clock',
         colorClass: 'text-amber-500',
         trend: 'Actual',
-        status: 'ok',
-        meta: '—',
+        status: avgDurationStatus,
+        meta: avgDurationRange ? `≥ ${avgDurationRange.opt} min` : '—',
         delta: 'Sin variación',
         deltaDir: 'flat',
-        pct: 0
+        pct: this.metasConfig.progressPct('avgDuration', avgDurationVal)
       },
       {
         label: 'Evidencia Visual',
@@ -139,11 +146,11 @@ export class HomeComponent implements OnInit {
         icon: 'pi pi-camera',
         colorClass: 'text-purple-500',
         trend: 'Sincronizado',
-        status: 'ok',
-        meta: '—',
+        status: evidenciaStatus,
+        meta: evidenciaRange ? `≥ ${evidenciaRange.opt} fotos` : '—',
         delta: 'Sin variación',
         deltaDir: 'flat',
-        pct: 0
+        pct: this.metasConfig.progressPct('evidenciaVisual', evidenciaVal)
       },
       {
         label: 'Meta Diaria',
@@ -205,37 +212,36 @@ export class HomeComponent implements OnInit {
   loadDashboardData() {
     this.loading.set(true);
 
-    // Rangos de fechas fijos
+    const f = this.filtersState.filters();
     const monthlyRange = this.getMonthlyDateRange();
     const dailyRange = this.getDailyDateRange();
 
-    // forkJoin para cargar datos mensuales y diarios en paralelo
     forkJoin({
       summaryMonthly: this.reportsService.getSummary({
         startDate: monthlyRange.startDate,
         endDate: monthlyRange.endDate,
-        zone: null,
-        supervisorId: null,
-        sellerIds: []
+        zone: f.zone,
+        supervisorId: f.supervisorId,
+        sellerIds: f.sellerIds
       }),
-      summaryDaily: this.reportsService.getSummary({
+      summaryDaily: this.reportsService.getDailyCompliance({
         startDate: dailyRange.startDate,
         endDate: dailyRange.endDate,
-        zone: null,
-        supervisorId: null,
-        sellerIds: []
+        zone: f.zone,
+        supervisorId: f.supervisorId,
+        sellerIds: f.sellerIds
       }),
       reportsRes: this.reportsService.getReportsData({
         startDate: monthlyRange.startDate,
         endDate: monthlyRange.endDate,
-        zone: null,
-        supervisorId: null,
-        sellerIds: []
+        zone: f.zone,
+        supervisorId: f.supervisorId,
+        sellerIds: f.sellerIds
       })
     }).subscribe({
       next: ({ summaryMonthly, summaryDaily, reportsRes }) => {
         this.summaryMonthly.set(summaryMonthly.metricas_globales);
-        this.summaryDaily.set(summaryDaily.metricas_globales);
+        this.summaryDaily.set(summaryDaily.metricas_diarias);
         this.reportsData.set(reportsRes);
         this.updateChart(reportsRes);
         this.loading.set(false);
@@ -403,6 +409,7 @@ export class HomeComponent implements OnInit {
     };
   }
 
+  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
   statusLabel(s: KpiStatus | string): string {
     return s === 'ok' ? 'Óptimo' : s === 'warn' ? 'Precaución' : s === 'bad' ? 'Bajo' : 'Info';
   }

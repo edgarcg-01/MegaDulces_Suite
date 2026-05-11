@@ -11,7 +11,6 @@ export interface ScoringV2CalculateDto {
 
 export interface ScoringV2VisitDto {
   exhibiciones: ScoringV2CalculateDto[];
-  exhibiciones_esperadas: number;
   config_version_id: string;
 }
 
@@ -163,51 +162,17 @@ export class ScoringV2Service {
 
   /**
    * Calcula los scores de una visita completa
-   * Fórmula objetivo:
-   * - score_obtenido = Σ score_exhibicion
-   * - score_maximo_visita = max_por_exhibicion × n_exhibiciones
-   * - score_calidad = (score_obtenido / score_maximo_visita) × 100
-   * - score_cobertura = (exhibiciones_reales / exhibiciones_esperadas) × 100 (tope 100%)
-   * - score_final = score_calidad × score_cobertura
+   * Retorna puntos totales acumulados
    */
   async calculateVisitScore(dto: ScoringV2VisitDto) {
-    // Calcular score de cada exhibición
     const exhibicionesScores = await Promise.all(
       dto.exhibiciones.map(ex => this.calculateExhibicionScore(ex))
     );
 
     const scoreObtenido = exhibicionesScores.reduce((sum, ex) => sum + ex.score, 0);
-    const nExhibiciones = dto.exhibiciones.length;
-
-    // Calcular score máximo por exhibición
-    const maxPorExhibicion = await this.getMaxScorePerExhibicion(dto.config_version_id);
-    
-    // Calcular score máximo de la visita
-    const scoreMaximoVisita = maxPorExhibicion * nExhibiciones;
-
-    // Calcular score de calidad
-    const scoreCalidad = scoreMaximoVisita > 0 
-      ? (scoreObtenido / scoreMaximoVisita) * 100 
-      : 0;
-
-    // Calcular score de cobertura con tope de 100%
-    let scoreCobertura = dto.exhibiciones_esperadas > 0
-      ? (nExhibiciones / dto.exhibiciones_esperadas) * 100
-      : 100; // Si exhibiciones_esperadas = 0, asumir 100%
-
-    if (scoreCobertura > 100) {
-      scoreCobertura = 100; // Tope de 100%
-    }
-
-    // Calcular score final
-    const scoreFinal = scoreCalidad * scoreCobertura;
 
     return {
       score_obtenido: Number(scoreObtenido.toFixed(2)),
-      score_maximo: Number(scoreMaximoVisita.toFixed(2)),
-      score_calidad_pct: Number(scoreCalidad.toFixed(2)),
-      score_cobertura_pct: Number(scoreCobertura.toFixed(2)),
-      score_final_pct: Number(scoreFinal.toFixed(2)),
       exhibiciones_scores: exhibicionesScores
     };
   }

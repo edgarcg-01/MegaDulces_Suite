@@ -10,9 +10,6 @@
   <link rel="icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
   <link rel="shortcut icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
 
-  <!-- PWA - Web App Manifest -->
-  <link rel="manifest" href="assets/manifest.webmanifest">
-
   <!-- Theme Color para navegadores móviles (azul trade marketing) -->
   <meta name="theme-color" content="#1976d2">
   <meta name="msapplication-TileColor" content="#1976d2">
@@ -57,9 +54,11 @@
 
   <!-- Preload critical resources -->
   <link rel="preload" href="assets/icons/icon-192x192.png" as="image">
-  <link rel="preload" href="assets/sw-offline.js" as="script">
 
-  <!-- Security headers (X-Frame-Options debe ir en headers HTTP, no en meta) -->
+  <!-- Web Manifest -->
+  <link rel="manifest" href="assets/manifest.webmanifest">
+  
+  <!-- Security headers -->
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="X-XSS-Protection" content="1; mode=block">
 

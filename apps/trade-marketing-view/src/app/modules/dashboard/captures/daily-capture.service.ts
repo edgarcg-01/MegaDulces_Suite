@@ -113,7 +113,7 @@ export class DailyCaptureService {
     return {
       totalExhibiciones: exhibiciones.length,
       totalProductosMarcados,
-      puntuacionTotal,
+      puntuacionTotal: Math.round(puntuacionTotal),
       ventaTotal,
     };
   });
@@ -429,7 +429,7 @@ export class DailyCaptureService {
     }
 
     // 4. Calcular puntuación total
-    const puntuacionCalculada = (puntosPosicion + puntosConcepto + puntosProductos) * multiplicador;
+    const puntuacionCalculada = Math.round((puntosPosicion + puntosConcepto + puntosProductos) * multiplicador);
 
     console.log('[addExhibicion] Final calculation:');
     console.log('  - puntosProductos:', puntosProductos);

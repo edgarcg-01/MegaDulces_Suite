@@ -21,6 +21,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DialogModule } from 'primeng/dialog';
 import { ImageModule } from 'primeng/image';
 import { CheckboxModule } from 'primeng/checkbox';
+import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -70,11 +71,12 @@ interface PdfSection {
     DialogModule,
     ImageModule,
     CheckboxModule,
+    SkeletonModule,
     GlobalFiltersComponent,
   ],
   providers: [MessageService],
   template: `
-    <div class="p-6 space-y-6">
+    <main class="p-6 space-y-6">
       <!-- ── Header ──────────────────────────────────────────────────── -->
       <div
         class="flex flex-col md:flex-row md:items-center justify-between gap-4"
@@ -121,10 +123,9 @@ interface PdfSection {
       <div class="modern-tabs-wrapper">
         <p-tabs [value]="0">
           <p-tablist>
-            <p-tab [value]="0">Métricas</p-tab>
-            <p-tab [value]="1">Gráficas</p-tab>
-            <p-tab [value]="2">Registros</p-tab>
-            <p-tab [value]="3">Visitas individuales</p-tab>
+            <p-tab [value]="0">Resumen</p-tab>
+            <p-tab [value]="1">Registros</p-tab>
+            <p-tab [value]="2">Visitas individuales</p-tab>
           </p-tablist>
 
           <p-tabpanels>
@@ -146,11 +147,10 @@ interface PdfSection {
                   >
                     <div class="flex items-center justify-between">
                       <span
-                        class="text-[10px] font-bold text-content-faint uppercase"
-                        >{{ k.label }}</span
-                      >
+                      class="text-xs font-bold text-content-faint uppercase"
+                        >{{ k.label }}</span>
                       <span
-                        class="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                        class="text-[11px] px-1.5 py-0.5 rounded-full font-bold"
                         [ngClass]="{
                           'bg-green-100 text-green-700': k.status === 'ok',
                           'bg-amber-100 text-amber-700': k.status === 'warn',
@@ -163,7 +163,7 @@ interface PdfSection {
                       {{ k.value }}
                     </div>
                     <div
-                      class="text-[10px]"
+                      class="text-xs"
                       [ngClass]="{
                         'text-green-600': k.deltaDir === 'up',
                         'text-red-500': k.deltaDir === 'down',
@@ -185,7 +185,7 @@ interface PdfSection {
                         }"
                       ></div>
                     </div>
-                    <div class="text-[9px] text-content-faint">
+                    <div class="text-[11px] text-content-faint">
                       Meta: {{ k.meta }}
                     </div>
                   </div>
@@ -230,10 +230,7 @@ interface PdfSection {
                   </div>
                 </div>
               </div>
-            </p-tabpanel>
-
-            <!-- ──────────────────── TAB 1: GRÁFICAS ─────────────────── -->
-            <p-tabpanel [value]="1">
+              <div class="mt-10 pt-6 border-t border-divider"></div>
               <div class="pt-4 space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <!-- Score por zona -->
@@ -315,8 +312,8 @@ interface PdfSection {
               </div>
             </p-tabpanel>
 
-            <!-- ──────────────────── TAB 2: REGISTROS ────────────────── -->
-            <p-tabpanel [value]="2">
+            <!-- ──────────────────── TAB 1: REGISTROS ────────────────── -->
+            <p-tabpanel [value]="1">
               <div class="pt-4 space-y-4">
                 <!-- Barra de acciones sobre selección -->
                 <div
@@ -347,9 +344,11 @@ interface PdfSection {
                   <p class="text-xs text-content-muted italic">
                     Desglose de visitas por fecha.
                   </p>
+                  <label for="searchInput" class="sr-only">Buscar visitas</label>
                   <p-iconfield>
                     <p-inputicon class="pi pi-search" />
                     <input
+                      id="searchInput"
                       pInputText
                       type="text"
                       [(ngModel)]="searchText"
@@ -370,13 +369,14 @@ interface PdfSection {
                 >
                   <ng-template pTemplate="header">
                     <tr
-                      class="text-[10px] uppercase text-content-faint bg-surface-ground border-b border-divider"
+                      class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider"
                     >
                       <th style="width:3rem">
                         <input
                           type="checkbox"
                           (change)="toggleSelectAll($event)"
                           style="accent-color:#185FA5"
+                          class="focus-visible:ring-2 focus-visible:ring-blue-300"
                         />
                       </th>
                       <th style="width:3rem"></th>
@@ -390,7 +390,8 @@ interface PdfSection {
 
                   <ng-template pTemplate="body" let-day let-expanded="expanded">
                     <tr
-                      class="hover:bg-surface-hover cursor-pointer transition-colors"
+                      class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+                      tabindex="0"
                       (click)="toggleExpand(day)"
                     >
                       <!-- Checkbox de selección -->
@@ -399,6 +400,7 @@ interface PdfSection {
                           type="checkbox"
                           [(ngModel)]="day.selected"
                           style="accent-color:#185FA5"
+                          class="focus-visible:ring-2 focus-visible:ring-blue-300"
                         />
                       </td>
 
@@ -422,7 +424,7 @@ interface PdfSection {
 
                       <td class="text-center">
                         <span
-                          class="px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                          class="px-2.5 py-0.5 rounded-full text-xs font-bold"
                           [ngClass]="{
                             'bg-green-100 text-green-800':
                               day.visitasStatus === 'ok',
@@ -445,14 +447,14 @@ interface PdfSection {
                               'text-amber-500': day.scoreStatus === 'warn',
                               'text-red-500': day.scoreStatus === 'bad',
                             }"
-                            >{{ day.avgScore }}%</span
+                            >{{ day.avgScore }} pts</span
                           >
                           <div
                             class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden"
                           >
                             <div
                               class="h-full rounded-full"
-                              [style.width]="day.avgScore + '%'"
+                              [style.width.%]="day.avgScore > 100 ? 100 : day.avgScore"
                               [ngClass]="{
                                 'bg-green-500': day.scoreStatus === 'ok',
                                 'bg-amber-400': day.scoreStatus === 'warn',
@@ -466,7 +468,7 @@ interface PdfSection {
                       <!-- Score vs meta -->
                       <td class="text-center">
                         <span
-                          class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                          class="text-xs px-2 py-0.5 rounded-full font-bold"
                           [ngClass]="{
                             'bg-green-100 text-green-800':
                               day.scoreStatus === 'ok',
@@ -509,7 +511,7 @@ interface PdfSection {
                           >
                             <ng-template pTemplate="header">
                               <tr
-                                class="text-[10px] uppercase text-content-muted bg-surface-ground"
+                                class="text-xs uppercase text-content-muted bg-surface-ground"
                               >
                                 <th class="pl-4 py-2 w-24">Folio</th>
                                 <th>Hora</th>
@@ -522,7 +524,8 @@ interface PdfSection {
                             </ng-template>
                             <ng-template pTemplate="body" let-visit>
                               <tr
-                                class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer"
+                                class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+                                tabindex="0"
                                 (click)="viewDetail(visit)"
                               >
                                   <td
@@ -538,7 +541,7 @@ interface PdfSection {
                                 </td>
                                 <td>
                                   <span
-                                    class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[9px] uppercase font-bold text-content-muted"
+                                    class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted"
                                   >
                                     {{ visit.zona_captura }}
                                   </span>
@@ -554,15 +557,15 @@ interface PdfSection {
                                       'text-red-500':
                                         visitScoreStatus(visit) === 'bad',
                                     }"
-                                    >{{ visit.stats?.puntuacionTotal }}%</span
+                                    >{{ fmtScore(visit.stats?.puntuacionTotal) }}</span
                                   >
                                 </td>
                                 <td class="text-center">
-                                  <span
-                                    class="text-[9px] px-2 py-0.5 rounded-full font-bold"
-                                    [ngClass]="{
-                                      'bg-green-100 text-green-800':
-                                        visitScoreStatus(visit) === 'ok',
+                                    <span
+                                      class="text-[11px] px-2 py-0.5 rounded-full font-bold"
+                                      [ngClass]="{
+                                        'bg-green-100 text-green-800':
+                                          visitScoreStatus(visit) === 'ok',
                                       'bg-amber-100 text-amber-800':
                                         visitScoreStatus(visit) === 'warn',
                                       'bg-red-100 text-red-800':
@@ -597,8 +600,8 @@ interface PdfSection {
               </div>
             </p-tabpanel>
 
-            <!-- ──────────────────── TAB 3: VISITAS INDIVIDUALES ──────── -->
-            <p-tabpanel [value]="3">
+            <!-- ──────────────────── TAB 2: VISITAS INDIVIDUALES ──────── -->
+            <p-tabpanel [value]="2">
               <div class="pt-4 space-y-4">
                 <!-- Barra de acciones -->
                 <div
@@ -630,7 +633,8 @@ interface PdfSection {
                 >
                   <div
                     *ngFor="let visit of allVisits()"
-                    class="card-premium cursor-pointer hover:border-content-muted/30 transition-all"
+                    class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+                    tabindex="0"
                     [class.ring-2]="visit._selected"
                     [class.ring-blue-400]="visit._selected"
                   >
@@ -642,7 +646,7 @@ interface PdfSection {
                         style="accent-color:#185FA5;margin-top:3px"
                       />
                       <div class="flex-1 min-w-0">
-                        <div class="text-[10px] text-content-faint mb-0.5">
+                        <div class="text-xs text-content-faint mb-0.5">
                           #{{ visit.folio }} ·
                           {{ visit.fecha | date: 'dd MMM' : 'UTC' }}
                         </div>
@@ -652,22 +656,22 @@ interface PdfSection {
                           {{ visit.captured_by_username }}
                         </div>
                         <div class="flex gap-1.5 mt-1 flex-wrap">
-                          <span
-                            class="text-[9px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold"
-                          >
-                            {{ visit.zona_captura }}
+                            <span
+                              class="text-[11px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold"
+                            >
+                              {{ visit.zona_captura }}
                           </span>
-                          <span
-                            *ngIf="visit.latitud"
-                            class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold"
-                          >
-                            GPS
+                            <span
+                              *ngIf="visit.latitud"
+                              class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold"
+                            >
+                              GPS
                           </span>
                         </div>
                       </div>
                       <!-- Score ring con semáforo -->
                       <div
-                        class="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
+                        class="w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                         [ngClass]="{
                           'border-green-400 text-green-700':
                             visitScoreStatus(visit) === 'ok',
@@ -677,26 +681,26 @@ interface PdfSection {
                             visitScoreStatus(visit) === 'bad',
                         }"
                       >
-                        {{ visit.stats?.puntuacionTotal }}%
-                      </div>
-                    </div>
+                         {{ fmtScore(visit.stats?.puntuacionTotal) }}
+                       </div>
+                     </div>
 
-                    <div class="flex gap-2">
-                      <p-button
-                        label="Ver detalle"
-                        icon="pi pi-eye"
-                        severity="secondary"
-                        size="small"
-                        styleClass="flex-1 justify-center"
-                        (onClick)="viewDetail(visit)"
-                      />
-                      <p-button
-                        icon="pi pi-file-pdf"
-                        [text]="true"
-                        size="small"
-                        (onClick)="
-                          exportSingleVisitPdf(visit); $event.stopPropagation()
-                        "
+                     <div class="flex gap-2">
+                       <p-button
+                         label="Ver detalle"
+                         icon="pi pi-eye"
+                         severity="secondary"
+                         size="small"
+                         styleClass="flex-1 justify-center"
+                         (onClick)="viewDetail(visit)"
+                       />
+                       <p-button
+                         icon="pi pi-file-pdf"
+                         [text]="true"
+                         size="small"
+                         (onClick)="
+                           exportSingleVisitPdf(visit); $event.stopPropagation()
+                         "
                       />
                     </div>
                   </div>
@@ -714,7 +718,7 @@ interface PdfSection {
                     <table class="w-full border-collapse text-sm">
                       <thead>
                         <tr
-                          class="text-[10px] uppercase text-content-muted border-b border-divider"
+                          class="text-xs uppercase text-content-muted border-b border-divider"
                         >
                           <th class="py-2 text-left">Métrica</th>
                           <th
@@ -724,7 +728,7 @@ interface PdfSection {
                             <span class="font-bold text-content-main"
                               >#{{ v.folio }}</span
                             ><br />
-                            <span class="text-[9px] font-normal">{{
+                            <span class="text-[11px] font-normal">{{
                               v.captured_by_username
                             }}</span>
                           </th>
@@ -742,11 +746,11 @@ interface PdfSection {
                               'text-red-500': visitScoreStatus(v) === 'bad',
                             }"
                           >
-                            {{ v.stats?.puntuacionTotal }}%
-                          </td>
-                        </tr>
-                        <tr class="border-b border-divider/50">
-                          <td class="py-2 text-content-muted">Exhibiciones</td>
+                             {{ fmtScore(v.stats?.puntuacionTotal) }}
+                           </td>
+                         </tr>
+                         <tr class="border-b border-divider/50">
+                           <td class="py-2 text-content-muted">Exhibiciones</td>
                           <td
                             *ngFor="let v of selectedVisits()"
                             class="py-2 text-center"
@@ -911,17 +915,17 @@ interface PdfSection {
                     'text-red-700': visitScoreStatus(selectedRow) === 'bad',
                   }"
                 >
-                  {{ selectedRow.stats?.puntuacionTotal }}%
-                </div>
-                <div class="text-[9px] font-bold uppercase opacity-60">
-                  {{ statusLabel(visitScoreStatus(selectedRow)) }}
-                </div>
-              </div>
-              <p-button
-                label="Exportar PDF"
-                icon="pi pi-file-pdf"
-                severity="success"
-                size="small"
+                   {{ fmtScore(selectedRow.stats?.puntuacionTotal) }}
+                 </div>
+                 <div class="text-[9px] font-bold uppercase opacity-60">
+                   {{ statusLabel(visitScoreStatus(selectedRow)) }}
+                 </div>
+               </div>
+               <p-button
+                 label="Exportar PDF"
+                 icon="pi pi-file-pdf"
+                 severity="success"
+                 size="small"
                 (onClick)="exportSingleVisitPdf(selectedRow)"
               />
             </div>
@@ -1052,7 +1056,7 @@ interface PdfSection {
       </p-dialog>
 
       <p-toast />
-    </div>
+    </main>
   `,
   styles: [
     `
@@ -1140,7 +1144,7 @@ export class ReportsComponent implements OnInit {
           0,
         );
         day.avgScore = day.visits.length
-          ? +(totalScore / day.visits.length).toFixed(1)
+          ? Math.round(totalScore / day.visits.length)
           : 0;
         day.scoreStatus = this.metasConfig.statusFor('score', day.avgScore);
         day.visitasStatus = this.metasConfig.statusFor(
@@ -1182,8 +1186,8 @@ export class ReportsComponent implements OnInit {
         id: 'score',
         label: 'Avg score',
         raw: m.avgScore ?? 0,
-        fmt: (v: number) => v + '%',
-        unit: '%',
+        fmt: (v: number) => Math.round(v) + ' pts',
+        unit: 'pts',
       },
       {
         id: 'venta',
@@ -1280,7 +1284,7 @@ export class ReportsComponent implements OnInit {
           yAxisID: 'y',
         },
         {
-          label: 'Score %',
+          label: 'Score (pts)',
           data: trend.map((d: any) => d.avgScore),
           borderColor: '#EF9F27',
           borderDash: [4, 3],
@@ -1349,7 +1353,7 @@ export class ReportsComponent implements OnInit {
       rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
     ];
     this.scoreDistData = {
-      labels: ['0–49%', '50–69%', '70–84%', '85–100%'],
+      labels: ['0–49', '50–69', '70–84', '85+'],
       datasets: [
         {
           label: 'Visitas',
@@ -1372,12 +1376,10 @@ export class ReportsComponent implements OnInit {
         x: { grid: { display: false }, ticks: { font: { size: 11 } } },
         y: { beginAtZero: false, ticks: { font: { size: 11 } } },
         y2: {
-          beginAtZero: false,
-          min: 0,
-          max: 100,
+          beginAtZero: true,
           position: 'right',
           grid: { display: false },
-          ticks: { callback: (v: number) => v + '%', font: { size: 11 } },
+          ticks: { font: { size: 11 } },
         },
       },
     };
@@ -1404,6 +1406,7 @@ export class ReportsComponent implements OnInit {
     return s === 'ok' ? 'Óptimo' : s === 'warn' ? 'En rango' : 'Bajo';
   }
 
+  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
   visitScoreStatus(visit: any): KpiStatus {
     return this.metasConfig.statusFor(
       'score',
@@ -1505,7 +1508,7 @@ export class ReportsComponent implements OnInit {
       body: selected.map((d) => [
         new Date(d.fecha).toLocaleDateString(),
         d.totalVisitas,
-        d.avgScore + '%',
+        d.avgScore + ' pts',
         this.statusLabel(d.scoreStatus),
         '$' + d.totalVenta.toLocaleString(),
       ]),
@@ -1586,7 +1589,7 @@ export class ReportsComponent implements OnInit {
           new Date(r.hora_inicio).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
           r.captured_by_username,
           r.zona_captura,
-          (r.stats?.puntuacionTotal ?? 0) + '%',
+          Math.round(r.stats?.puntuacionTotal ?? 0) + ' pts',
           this.statusLabel(
             this.metasConfig.statusFor('score', r.stats?.puntuacionTotal ?? 0),
           ),
@@ -1609,7 +1612,7 @@ export class ReportsComponent implements OnInit {
         body: (data as any).sellerStats.map((s: any) => [
           s.username,
           s.totalVisitas,
-          s.avgScore + '%',
+          s.avgScore + ' pts',
         ]),
       });
     }
@@ -1633,7 +1636,7 @@ export class ReportsComponent implements OnInit {
         ['Fecha', new Date(row.fecha).toLocaleDateString()],
         ['Hora inicio', new Date(row.hora_inicio).toLocaleTimeString()],
         ['Hora fin', new Date(row.hora_fin).toLocaleTimeString()],
-        ['Score', (row.stats?.puntuacionTotal ?? 0) + '%'],
+        ['Score', Math.round(row.stats?.puntuacionTotal ?? 0) + ' pts'],
         ['Estado', status],
         ['Venta total', '$' + (row.stats?.ventaTotal ?? 0).toLocaleString()],
         ['Exhibiciones', row.exhibiciones?.length ?? 0],
@@ -1675,7 +1678,7 @@ export class ReportsComponent implements OnInit {
         body: [
           ['Zona', row.zona_captura],
           ['Fecha', new Date(row.fecha).toLocaleDateString()],
-          ['Score', (row.stats?.puntuacionTotal ?? 0) + '%'],
+          ['Score', Math.round(row.stats?.puntuacionTotal ?? 0) + ' pts'],
           [
             'Estado',
             this.statusLabel(

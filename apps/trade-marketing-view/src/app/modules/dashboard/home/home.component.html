@@ -218,7 +218,7 @@
                     'text-amber-500': metasConfig.statusFor('score', cap.stats?.puntuacionTotal ?? 0) === 'warn',
                     'text-red-500':   metasConfig.statusFor('score', cap.stats?.puntuacionTotal ?? 0) === 'bad'
                   }">
-                  {{ cap.stats?.puntuacionTotal }}%
+                  {{ fmtScore(cap.stats?.puntuacionTotal) }}
                 </span>
               </div>
             </div>

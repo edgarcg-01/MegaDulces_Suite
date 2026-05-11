@@ -20,8 +20,34 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Genera un payload con el KPI global de toda la plataforma',
   })
-  getSummary(@ReqUser() user: any) {
-    return this.reportsService.getSummary(user);
+  getSummary(
+    @ReqUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('zone') zone?: string,
+    @Query('supervisorId') supervisorId?: string,
+    @Query('userIds') userIds?: string[],
+  ) {
+    return this.reportsService.getSummary({ startDate, endDate, zone, supervisorId, userIds }, user);
+  }
+
+  @Get('daily-compliance')
+  @RequirePermissions(Permission.REPORTES_VER_PROPIO)
+  @ApiOperation({
+    summary: 'Obtiene métricas de cumplimiento diario filtradas por fecha',
+  })
+  getDailyCompliance(
+    @ReqUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('zone') zone?: string,
+    @Query('supervisorId') supervisorId?: string,
+    @Query('userIds') userIds?: string[],
+  ) {
+    return this.reportsService.getDailyCompliance(
+      { startDate, endDate, zone, supervisorId, userIds },
+      user,
+    );
   }
 
   @Get('data')

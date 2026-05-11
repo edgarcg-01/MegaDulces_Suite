@@ -221,9 +221,6 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   statCards = computed(() => {
     const s = this.svc.stats();
-    const maxScore = this.svc.maxScore();
-    const scorePct = this.svc.scorePercentage();
-    const isDark = this.themeService.isMonochrome();
 
     return [
       {
@@ -235,11 +232,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
       },
       {
         label: 'Ejecución Auditada',
-        value: `${scorePct}%`,
-        description: `Score de calidad`,
+        value: `${Math.round(s.puntuacionTotal)} pts`,
+        description: `Puntos absolutos obtenidos`,
         icon: 'pi pi-star-fill',
-        valueColor: scorePct >= 50 ? '#10b981' : 'var(--text-main)',
-        progress: scorePct,
+        valueColor: s.puntuacionTotal > 0 ? '#10b981' : 'var(--text-main)',
       },
       {
         label: 'Venta Adicional Total',
@@ -1034,6 +1030,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @param isoString Fecha en formato ISO
    * @returns Hora formateada o guion si es nulo
    */
+  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
   formatDate(isoString: string): string {
     if (!isoString) return '—';
     try {

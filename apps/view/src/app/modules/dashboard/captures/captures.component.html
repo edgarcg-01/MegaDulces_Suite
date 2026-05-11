@@ -173,11 +173,7 @@
 
           <!-- Progress Bar for Score -->
 
-          <div *ngIf="stat.progress !== undefined" class="mt-2 w-full bg-surface-ground rounded-full h-2 overflow-hidden">
-
-            <div class="h-full bg-brand transition-all duration-300" [style.width]="stat.progress + '%'"></div>
-
-          </div>
+          <!-- Progress Bar for Score (Hidden for absolute points) -->
 
         </div>
 
@@ -485,7 +481,7 @@
 
             <td class="text-right font-bold text-brand-orange font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
 
-            <td class="text-center font-bold text-content-main">{{visita.stats?.score_calidad_pct}}%</td>
+            <td class="text-center font-bold text-content-main">{{ fmtScore(visita.stats?.puntuacionTotal) }}</td>
 
             <td>
 
@@ -619,7 +615,7 @@
 
             <span class="text-xs text-content-muted">Score:</span>
 
-            <span class="text-sm font-bold text-content-main">{{visita.stats.puntuacionTotal}} pts</span>
+            <span class="text-sm font-bold text-content-main">{{ fmtScore(visita.stats.puntuacionTotal) }}</span>
 
           </div>
 
@@ -1399,7 +1395,7 @@
 
              <div class="text-[8px] uppercase text-content-dim font-bold">Score</div>
 
-             <div class="text-sm font-black text-brand-orange">{{lastResult.stats.puntuacionTotal}}</div>
+             <div class="text-sm font-black text-brand-orange">{{ fmtScore(lastResult.stats.puntuacionTotal) }}</div>
 
           </div>
 

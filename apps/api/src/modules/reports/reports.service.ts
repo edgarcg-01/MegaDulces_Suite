@@ -7,7 +7,16 @@ import { getDataScope } from '../../shared/ability/data-scope';
 export class ReportsService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
-  async getSummary(user: any) {
+  async getSummary(
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      zone?: string;
+      supervisorId?: string;
+      userIds?: string[];
+    } = {},
+    user: any,
+  ) {
     let dcQuery = this.knex('daily_captures');
     let sQuery = this.knex('stores');
 
@@ -17,6 +26,23 @@ export class ReportsService {
     } else if (scope.type === 'team') {
       const teamIds = await this.getTeamIds(scope.userId);
       dcQuery = dcQuery.whereIn('user_id', teamIds);
+    }
+
+    if (filters.startDate) dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+
+    if (filters.zone) {
+      const zone = await this.knex('zones').where({ id: filters.zone }).first();
+      if (zone && zone.name) {
+        dcQuery.where('zona_captura', String(zone.name));
+      }
+    }
+
+    if (filters.supervisorId) {
+      const teamIds = await this.getTeamIds(filters.supervisorId);
+      dcQuery.whereIn('user_id', teamIds);
+    } else if (filters.userIds && filters.userIds.length > 0) {
+      dcQuery.whereIn('user_id', filters.userIds);
     }
 
     // Filtrar por fecha actual para cierres de hoy
@@ -35,7 +61,7 @@ export class ReportsService {
       .clone()
       .select(
         this.knex.raw("SUM((stats->>'totalExhibiciones')::int) as visitas"),
-        this.knex.raw("AVG((stats->>'score_calidad_pct')::float) as avg_score"),
+        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
         this.knex.raw("SUM(COALESCE(NULLIF((stats->>'ventaTotal')::float, 0), (stats->>'ventaAdicional')::float)) as ventas"),
         this.knex.raw(
           'AVG(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60) as avg_duration_min',
@@ -47,7 +73,7 @@ export class ReportsService {
       .clone()
       .select('captured_by_username')
       .select(
-        this.knex.raw("AVG((stats->>'score_calidad_pct')::float) as avg_score"),
+        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
       )
       .groupBy('captured_by_username')
       .orderBy('avg_score', 'desc')
@@ -109,11 +135,100 @@ export class ReportsService {
         cierres_hoy: Number(totalDailyToday?.count || 0),
         meta_diaria: metaDiaria,
         visitas_totales: Number(stats?.visitas || 0),
-        puntuacion_promedio: Number(stats?.avg_score || 0).toFixed(2),
+        puntuacion_promedio: Math.round(Number(stats?.avg_score || 0)),
         ventas_totales: Number(stats?.ventas || 0),
         avg_duration_min: Number(stats?.avg_duration_min || 0).toFixed(1),
         total_fotos: totalPhotos,
         mejor_ejecutivo: topPerformer?.captured_by_username || 'N/A',
+        desglose_muebles: furnitureCounts,
+      },
+      generado_el: new Date().toISOString(),
+    };
+  }
+
+  async getDailyCompliance(
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      zone?: string;
+      supervisorId?: string;
+      userIds?: string[];
+    },
+    user: any,
+  ) {
+    let dcQuery = this.knex('daily_captures');
+    let sQuery = this.knex('stores');
+
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      dcQuery = dcQuery.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
+      dcQuery = dcQuery.whereIn('user_id', teamIds);
+    }
+
+    if (filters.startDate) dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+
+    if (filters.zone) {
+      const zone = await this.knex('zones').where({ id: filters.zone }).first();
+      if (zone && zone.name) {
+        dcQuery.where('zona_captura', String(zone.name));
+      }
+    }
+
+    if (filters.supervisorId) {
+      const teamIds = await this.getTeamIds(filters.supervisorId);
+      dcQuery.whereIn('user_id', teamIds);
+    } else if (filters.userIds && filters.userIds.length > 0) {
+      dcQuery.whereIn('user_id', filters.userIds);
+    }
+
+    const [totalDaily] = await dcQuery.clone().count('id as count');
+    const [totalTiendas] = await sQuery.count('id as count');
+
+    const [stats] = await dcQuery.clone().select(
+      this.knex.raw("SUM((stats->>'totalExhibiciones')::int) as visitas"),
+      this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
+      this.knex.raw("SUM(COALESCE(NULLIF((stats->>'ventaTotal')::float, 0), (stats->>'ventaAdicional')::float)) as ventas"),
+      this.knex.raw('AVG(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60) as avg_duration_min'),
+    );
+
+    const conceptos = await this.knex('catalogs')
+      .where({ catalog_id: 'conceptos' })
+      .select('id', 'value');
+    const conceptoMap = {};
+    conceptos.forEach((c) => { conceptoMap[c.id] = c.value.toLowerCase(); });
+
+    const rows = await dcQuery.clone().select('exhibiciones');
+    let totalPhotos = 0;
+    const furnitureCounts: Record<string, number> = {
+      vitrina: 0, exhibidor: 0, vitroleros: 0, paleteros: 0, tiras: 0, otros: 0,
+    };
+
+    rows.forEach((r) => {
+      const exArray = typeof r.exhibiciones === 'string' ? JSON.parse(r.exhibiciones) : r.exhibiciones || [];
+      exArray.forEach((ex: any) => {
+        const conceptName = conceptoMap[ex.conceptoId] || '';
+        if (conceptName.includes('vitrina')) furnitureCounts['vitrina']++;
+        else if (conceptName.includes('exhibidor')) furnitureCounts['exhibidor']++;
+        else if (conceptName.includes('vitrolero')) furnitureCounts['vitroleros']++;
+        else if (conceptName.includes('paletero')) furnitureCounts['paleteros']++;
+        else if (conceptName.includes('tira')) furnitureCounts['tiras']++;
+        else furnitureCounts['otros']++;
+        if (ex.fotoUrl || ex.foto_url) totalPhotos++;
+      });
+    });
+
+    return {
+      metricas_diarias: {
+        cierres_diarios: Number(totalDaily?.count || 0),
+        total_tiendas: Number(totalTiendas?.count || 0),
+        visitas_totales: Number(stats?.visitas || 0),
+        puntuacion_promedio: Math.round(Number(stats?.avg_score || 0)),
+        ventas_totales: Number(stats?.ventas || 0),
+        avg_duration_min: Number(stats?.avg_duration_min || 0).toFixed(1),
+        total_fotos: totalPhotos,
         desglose_muebles: furnitureCounts,
       },
       generado_el: new Date().toISOString(),
@@ -232,7 +347,7 @@ export class ReportsService {
     normalizedRows.forEach((row) => {
       const stats = row.stats;
       const numVisitas = stats.totalExhibiciones || 1;
-      const score = stats.score_calidad_pct || 0;
+      const score = stats.puntuacionTotal || 0;
       const ventas = stats.ventaTotal || 0;
       const exhibiciones = row.exhibiciones;
 
@@ -343,7 +458,7 @@ export class ReportsService {
 
     const metrics = {
       totalVisitas,
-      avgScore: normalizedRows.length > 0 ? (totalScore / normalizedRows.length).toFixed(2) : 0,
+      avgScore: normalizedRows.length > 0 ? Math.round(totalScore / normalizedRows.length) : 0,
       totalVentas,
       avgVentaPorVisita: totalVisitas > 0 ? (totalVentas / totalVisitas).toFixed(2) : 0,
       count: normalizedRows.length,
@@ -358,7 +473,7 @@ export class ReportsService {
       .map((date) => ({
         date,
         visits: dailyTrend[date].visits,
-        avgScore: (dailyTrend[date].score / dailyTrend[date].count).toFixed(2),
+        avgScore: Math.round(dailyTrend[date].score / dailyTrend[date].count),
       }));
 
     return {
@@ -527,7 +642,7 @@ export class ReportsService {
 
       rows.forEach((row) => {
         const stats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
-        const score = stats.score_calidad_pct || 0;
+        const score = stats.puntuacionTotal || 0;
         const ventas = stats.ventaTotal || (stats.ventaAdicional || 0);
         totalScore += score;
         totalVentas += ventas;
@@ -567,7 +682,7 @@ export class ReportsService {
           ultimasVisitas.push({
             fecha: dateKey,
             usuario: row.captured_by_username,
-            score: stats.score_calidad_pct || 0,
+            score: stats.puntuacionTotal || 0,
           });
         }
       });
@@ -595,7 +710,7 @@ export class ReportsService {
           id: store?.id,
           nombre: store?.nombre,
           zona: store?.zona,
-          score: rows.length > 0 ? (totalScore / rows.length).toFixed(2) : 0,
+          score: rows.length > 0 ? Math.round(totalScore / rows.length) : 0,
           totalVisitas: rows.length,
           ventaTotal: totalVentas,
           ultimaVisita: ultimaFecha,
@@ -654,7 +769,7 @@ export class ReportsService {
       }
       const s = storeMap.get(sid);
       const stats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
-      const score = stats.score_calidad_pct || 0;
+      const score = stats.puntuacionTotal || 0;
       s.scoreSum += score;
       s.scoreCount++;
       s.ventaTotal += stats.ventaTotal || (stats.ventaAdicional || 0);
@@ -683,7 +798,7 @@ export class ReportsService {
     let tiendasSinVisita7d = 0;
 
     for (const s of storeMap.values()) {
-      const score = s.scoreCount > 0 ? +(s.scoreSum / s.scoreCount).toFixed(2) : 0;
+      const score = s.scoreCount > 0 ? Math.round(s.scoreSum / s.scoreCount) : 0;
       const totalExh = s.healthCount.optimo + s.healthCount.regular + s.healthCount.critico;
       const healthRate = totalExh > 0 ? {
         optimo: +((s.healthCount.optimo / totalExh) * 100).toFixed(1),
@@ -729,7 +844,7 @@ export class ReportsService {
       stores: storesList,
       oportunidades,
       kpiGlobales: {
-        scorePromedio: storeCount > 0 ? +(scoreSumGlobal / storeCount).toFixed(2) : 0,
+        scorePromedio: storeCount > 0 ? Math.round(scoreSumGlobal / storeCount) : 0,
         stockoutPromedio: storeCount > 0 ? +(stockoutSumGlobal / storeCount).toFixed(1) : 0,
         tiendasSinVisita7d,
         totalTiendas: storeCount,

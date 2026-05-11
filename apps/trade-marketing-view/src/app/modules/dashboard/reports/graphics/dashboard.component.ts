@@ -404,21 +404,21 @@ interface KpiCard {
                         'text-green-600':
                           metasConfig.statusFor(
                             'score',
-                            cap.stats?.score_calidad_pct ?? 0
+                            cap.stats?.puntuacionTotal ?? 0
                           ) === 'ok',
                         'text-amber-500':
                           metasConfig.statusFor(
                             'score',
-                            cap.stats?.score_calidad_pct ?? 0
+                            cap.stats?.puntuacionTotal ?? 0
                           ) === 'warn',
                         'text-red-500':
                           metasConfig.statusFor(
                             'score',
-                            cap.stats?.score_calidad_pct ?? 0
+                            cap.stats?.puntuacionTotal ?? 0
                           ) === 'bad',
                       }"
                     >
-                      {{ cap.stats?.score_calidad_pct ?? 0 }}%
+                      {{ fmtScore(cap.stats?.puntuacionTotal) }}
                     </span>
                   </div>
                 </div>
@@ -677,8 +677,8 @@ export class DashboardComponent implements OnInit {
         id: 'score',
         label: 'Avg score',
         raw: m.avgScore ?? 0,
-        fmt: (v: number) => v + '%',
-        unit: '%',
+        fmt: (v: number) => Math.round(v) + ' pts',
+        unit: 'pts',
         icon: 'pi pi-star',
       },
       {
@@ -781,7 +781,7 @@ export class DashboardComponent implements OnInit {
           yAxisID: 'y',
         },
         {
-          label: 'Score %',
+          label: 'Score (pts)',
           data: trend.map((d: any) => d.avgScore),
           borderColor: '#EF9F27',
           backgroundColor: 'rgba(239,159,39,.04)',
@@ -817,12 +817,10 @@ export class DashboardComponent implements OnInit {
           ticks: { font: { size: 11 } },
         },
         y2: {
-          beginAtZero: false,
-          min: 0,
-          max: 100,
+          beginAtZero: true,
           position: 'right',
           grid: { display: false },
-          ticks: { callback: (v: number) => v + '%', font: { size: 11 } },
+          ticks: { font: { size: 11 } },
         },
       },
     };
@@ -831,6 +829,10 @@ export class DashboardComponent implements OnInit {
   // ── Semáforo helper para template ─────────────────────────────
   statusLabel(s: KpiStatus): string {
     return s === 'ok' ? 'Óptimo' : s === 'warn' ? 'En rango' : 'Bajo';
+  }
+
+  fmtScore(v: any): string {
+    return v != null ? Math.round(v) + ' pts' : '';
   }
 
   // ── Dialog de metas ───────────────────────────────────────────

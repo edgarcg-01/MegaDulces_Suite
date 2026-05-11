@@ -121,43 +121,14 @@ export class DailyCaptureService {
     return {
       totalExhibiciones: exhibiciones.length,
       totalProductosMarcados,
-      puntuacionTotal,
+      puntuacionTotal: Math.round(puntuacionTotal),
       ventaTotal,
     };
   });
 
-  // --- Computed Max Score from Catalogs ---
-  /**
-   * Calcula el puntaje máximo posible según los catálogos
-   * @returns Puntaje máximo calculado
-   */
-  readonly maxScore = computed(() => {
-    const ubicaciones = this._ubicaciones();
-    const conceptos = this._conceptos();
-    const niveles = this._niveles();
-
-    const maxUbicacion = Math.max(...ubicaciones.map(u => Number(u.puntuacion) || 0));
-    const maxConcepto = Math.max(...conceptos.map(c => Number(c.puntuacion) || 0));
-    const maxNivel = Math.max(...niveles.map(n => Number(n.puntuacion) || 0));
-
-    return maxUbicacion * maxConcepto * maxNivel;
-  });
-
-  /**
-   * Calcula el porcentaje de ejecución actual
-   * @returns Porcentaje de ejecución (0-100)
-   */
-  readonly scorePercentage = computed(() => {
-    const s = this.stats();
-    const maxPerExhibicion = this.maxScore();
-    const numExhibiciones = s.totalExhibiciones;
-    
-    // El máximo de la visita es el máximo por exhibición × número de exhibiciones
-    const maxVisita = maxPerExhibicion * numExhibiciones;
-    
-    if (maxVisita === 0) return 0;
-    return Math.round((s.puntuacionTotal / maxVisita) * 100);
-  });
+  // El porcentaje de ejecución individual por visita ha sido removido
+  // ya que la nueva arquitectura de Primeros Principios evalúa puntos absolutos
+  // contra la meta global del colaborador, no contra la visita iterativa.
 
   constructor() {
     // Reactively load data when user state becomes available
@@ -460,23 +431,15 @@ export class DailyCaptureService {
     console.log('  - puntosConcepto:', puntosConcepto);
     console.log('  - multiplicador:', multiplicador);
 
-    // 3. Sumar puntos de productos marcados
-    let puntosProductos = 0;
+    // 3. Sumar puntos de productos marcados (legacy aux, no contribuye al score principal)
     if (registro.productosMarcados && registro.productosMarcados.length > 0) {
-      this._groupedProducts().forEach((brand) => {
-        brand.items.forEach((prod) => {
-          if (registro.productosMarcados.includes(prod.pid)) {
-            puntosProductos += Number(prod.puntuacion) || 0;
-          }
-        });
-      });
+      // (Reservado para analíticas secundarias futuras, no afecta el score principal)
     }
 
-    // 4. Calcular puntuación total
-    const puntuacionCalculada = (puntosPosicion + puntosConcepto + puntosProductos) * multiplicador;
+    // 4. Calcular puntuación total (Fórmula: Concepto * Ubicacion * Nivel)
+    const puntuacionCalculada = Math.round(puntosConcepto * puntosPosicion * multiplicador);
 
     console.log('[addExhibicion] Final calculation:');
-    console.log('  - puntosProductos:', puntosProductos);
     console.log('  - puntuacionCalculada:', puntuacionCalculada);
 
     const exhibicion: RegistroExhibicion = {

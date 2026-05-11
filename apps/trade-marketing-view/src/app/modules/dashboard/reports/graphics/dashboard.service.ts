@@ -45,7 +45,7 @@ export class DashboardService {
   getDashboardData(filters: any): Observable<DashboardData> {
     // Usar forkJoin para combinar summary (tiene métricas completas) y data (tiene trend y rows)
     return forkJoin({
-      summary: this.reportsService.getSummary(),
+      summary: this.reportsService.getSummary(filters),
       data: filters.startDate ? this.reportsService.getReportsData(filters) : of(null)
     }).pipe(
       map(({ summary, data }) => {

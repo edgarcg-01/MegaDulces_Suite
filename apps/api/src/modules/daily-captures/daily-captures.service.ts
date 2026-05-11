@@ -3,12 +3,14 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
 import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
+import { ScoringV2Service } from '../scoring/scoring-v2.service';
 
 @Injectable()
 export class DailyCapturesService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly scoringV2Service: ScoringV2Service,
   ) {}
 
   async create(
@@ -78,30 +80,43 @@ export class DailyCapturesService {
     console.log('  - stats a insertar:', dto.stats);
     console.log('  - coordenadas a guardar:', { latitud, longitud });
 
-    // Consultar score_maximo dinámico desde scoring_config_versions
-    const activeVersion = await this.knex('scoring_config_versions')
-      .whereNull('fecha_fin')
-      .orderBy('fecha_inicio', 'desc')
-      .first();
+    // Consultar score_maximo dinámico desde scoring_config_versions (para meta local opcional)
+    const activeVersion = await this.scoringV2Service.getActiveVersion();
+    const configVersionId = activeVersion?.id;
     
-    const maxPerExhibicion = (activeVersion && activeVersion.score_maximo) ? Number(activeVersion.score_maximo) : 200;
-    const totalExhibiciones = processedExhibiciones.length;
-    const scoreMaximoVisita = maxPerExhibicion * totalExhibiciones;
-    const scoreCalidadPct = scoreMaximoVisita > 0 
-      ? (dto.stats.puntuacionTotal / scoreMaximoVisita) * 100 
-      : 0;
+    // Recalcular los puntos puros con el Backend Engine y no de la app móvil
+    let puntosBackendTotales = dto.stats.puntuacionTotal || 0;
+    
+    if (configVersionId && processedExhibiciones.length > 0) {
+       try {
+         const scoringDto = {
+           config_version_id: configVersionId,
+           exhibiciones: processedExhibiciones.map(ex => ({
+             posicion_id: ex.ubicacionId,
+             exhibicion_id: ex.conceptoId,
+             nivel_ejecucion_id: ex.nivelEjecucionId || ex.nivel_ejecucion_id, // Asegurar mapeo según Frontend
+           }))
+         };
+         
+         const backendScore = await this.scoringV2Service.calculateVisitScore(scoringDto as any);
+         puntosBackendTotales = backendScore.puntos_obtenidos;
+         console.log('[DailyCapturesService] 🧮 Puntos recalculados por Backend Engine:', puntosBackendTotales);
+       } catch (error) {
+         console.warn('[DailyCapturesService] ⚠️ Fallo al recalcular scores, se usará valor del frontend. Error:', error.message);
+       }
+    }
 
     // Normalizar ventaTotal: si es 0 o menor que ventaAdicional, usar ventaAdicional
     const ventaAdicional = dto.stats.ventaAdicional || 0;
     const ventaTotalActual = dto.stats.ventaTotal || 0;
     const ventaTotalFinal = ventaTotalActual > 0 ? ventaTotalActual : ventaAdicional;
 
-    // Agregar score_calidad_pct y ventaTotal normalizado a los stats
+    // Agregar puntosTotales recalibrados
     const statsWithPct = {
       ...dto.stats,
       ventaTotal: ventaTotalFinal,
-      score_calidad_pct: Number(scoreCalidadPct.toFixed(2)),
-      score_maximo: scoreMaximoVisita,
+      puntuacionTotal: puntosBackendTotales,
+      // Se eliminan campos legacy % obsoletos
     };
 
     console.log('[DailyCapturesService] 💾 Stats normalizados a insertar:', {

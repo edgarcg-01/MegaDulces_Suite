@@ -168,6 +168,28 @@ export class ReportsService {
   }
 
   /**
+   * Obtiene métricas de cumplimiento diario filtradas por fecha
+   * @param filters Filtros para la consulta
+   * @returns Observable con métricas diarias
+   */
+  getDailyCompliance(filters?: any): Observable<any> {
+    let params = new HttpParams();
+    if (filters) {
+      if (filters.startDate) params = params.set('startDate', filters.startDate);
+      if (filters.endDate) params = params.set('endDate', filters.endDate);
+      if (filters.zone) params = params.set('zone', filters.zone);
+      if (filters.supervisorId) params = params.set('supervisorId', filters.supervisorId);
+
+      if (filters.sellerIds && filters.sellerIds.length > 0) {
+        filters.sellerIds.forEach((id: string) => {
+          params = params.append('userIds[]', id);
+        });
+      }
+    }
+    return this.http.get<any>(`${this.apiUrl}/daily-compliance`, { params });
+  }
+
+  /**
    * Elimina un reporte por su ID
    * @param id ID del reporte a eliminar
    * @returns Observable con el resultado de la eliminación

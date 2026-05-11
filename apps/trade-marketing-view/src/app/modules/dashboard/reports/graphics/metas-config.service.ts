@@ -17,7 +17,7 @@ export interface FurnitureMeta {
 
 export type KpiStatus = 'ok' | 'warn' | 'bad';
 
-const STORAGE_KEY_KPI      = 'metas_kpi_v1';
+const STORAGE_KEY_KPI      = 'metas_kpi_v2';
 const STORAGE_KEY_FURNITURE = 'metas_furniture_v1';
 
 @Injectable({ providedIn: 'root' })
@@ -91,15 +91,10 @@ export class MetasConfigService {
       if (raw) return JSON.parse(raw);
     } catch {}
     return [
-      { id: 'visitas',       label: 'Visitas',        unit: '',  min: 200, opt: 250 },
-      { id: 'score',         label: 'Avg score',       unit: '%', min: 65,  opt: 80  },
-      { id: 'venta',         label: 'Impacto venta',   unit: '',  min: 150000, opt: 200000 },
-      { id: 'exhibiciones',  label: 'Exhibiciones',    unit: '',  min: 800, opt: 1000 },
-      { id: 'avgVenta',      label: 'Venta promedio',  unit: '',  min: 1000, opt: 1500 },
-      { id: 'metaDiaria',    label: 'Meta diaria',     unit: '',  min: 3,   opt: 5    },
-      { id: 'stockoutRate',  label: 'Stockout Rate',   unit: '%', min: 10,  opt: 5    },
-      { id: 'healthRate',    label: 'Health Rate',     unit: '%', min: 60,  opt: 80   },
-      { id: 'uniqueProducts',label: 'Productos Únicos',unit: '',  min: 15,  opt: 20   },
+      { id: 'score',           label: 'Score Global',       unit: 'pts',   min: 65,  opt: 80  },
+      { id: 'avgDuration',     label: 'Tiempo Prom/Visita', unit: 'min',  min: 5,   opt: 15  },
+      { id: 'evidenciaVisual', label: 'Evidencia Visual',   unit: 'fotos', min: 10,  opt: 30  },
+      { id: 'metaDiaria',      label: 'Meta diaria',        unit: '',     min: 3,   opt: 5   },
     ];
   }
   private _loadFurniture(): FurnitureMeta[] {

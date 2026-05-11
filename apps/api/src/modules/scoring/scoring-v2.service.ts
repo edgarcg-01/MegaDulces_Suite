@@ -11,7 +11,6 @@ export interface ScoringV2CalculateDto {
 
 export interface ScoringV2VisitDto {
   exhibiciones: ScoringV2CalculateDto[];
-  exhibiciones_esperadas: number;
   config_version_id: string;
 }
 
@@ -90,56 +89,42 @@ export class ScoringV2Service {
   }
 
   /**
-   * Calcula el score de una exhibición individual
-   * Fórmula: peso_posicion × factor_exhibicion × nivel_ejecucion
+   * CAPA 1: Calcula el score de una exhibición individual de forma síncrona
+   * Puntos = puntuacion_base * factor_posicion * factor_nivel * factor_evidencia
    */
-  async calculateExhibicionScore(dto: ScoringV2CalculateDto) {
-    const pesos = await this.getPesosByVersion(dto.config_version_id);
-    
-    // Obtener valores de los catálogos
-    const posicion = await this.knex('catalogs')
-      .where({ id: dto.posicion_id })
-      .first();
-    
-    const exhibicion = await this.knex('catalogs')
-      .where({ id: dto.exhibicion_id })
-      .first();
-    
-    const nivel = await this.knex('catalogs')
-      .where({ id: dto.nivel_ejecucion_id })
-      .first();
+  private calcularScoreExhibicionSync(
+    dto: ScoringV2CalculateDto,
+    pesos: Record<string, Record<string, number>>,
+    catalogMap: Map<string, string>
+  ) {
+    const nombrePosicion = catalogMap.get(dto.posicion_id);
+    const nombreExhibicion = catalogMap.get(dto.exhibicion_id);
+    const nombreNivel = catalogMap.get(dto.nivel_ejecucion_id);
 
-    if (!posicion || !exhibicion || !nivel) {
-      throw new BadRequestException('Uno o más elementos del catálogo no existen');
+    if (!nombrePosicion || !nombreExhibicion || !nombreNivel) {
+      throw new BadRequestException(`Uno o más elementos del catálogo no existen: pos=${dto.posicion_id}, exh=${dto.exhibicion_id}, niv=${dto.nivel_ejecucion_id}`);
     }
 
-    // Validar combinación válida
-    const combinacionValida = await this.knex('combinaciones_validas')
-      .where({
-        config_version_id: dto.config_version_id,
-        posicion_id: dto.posicion_id,
-        exhibicion_id: dto.exhibicion_id,
-        activo: true
-      })
-      .first();
+    // Obtener parámetros desde la configuración versionada
+    const pesoPosicionRaw = pesos.posicion[nombrePosicion];
+    const factorPosicion = pesoPosicionRaw ? Number(pesoPosicionRaw) : 0;
 
-    if (!combinacionValida) {
-      // Si no hay combinación explícita, permitir por defecto (puede cambiarse)
-      console.warn(`Combinación no validada: ${posicion.value} × ${exhibicion.value}`);
+    const nivelRaw = pesos.ejecucion[nombreNivel];
+    const factorNivel = nivelRaw ? Math.min(Number(nivelRaw), 1) : 1;
+    if (nivelRaw > 1) {
+      console.warn(`[ScoringV2] Factor nivel "${nombreNivel}" > 1: ${nivelRaw}. Revisar scoring_pesos.`);
     }
 
-    // Calcular score
-    const pesoPosicion = Number(posicion.puntuacion) || 0;
-    const factorExhibicion = Number(exhibicion.puntuacion) || 0;
-    const multiplicadorNivel = Number(nivel.puntuacion) || 1;
+    const puntuacionBase = pesos.exhibicion[nombreExhibicion] ? Number(pesos.exhibicion[nombreExhibicion]) : 0;
 
-    const score = pesoPosicion * factorExhibicion * multiplicadorNivel;
+    // Calcular puntos: "concepto" * "ubicacion" * "nivel_de_ejecucion"
+    const puntos = puntuacionBase * factorPosicion * factorNivel;
 
     return {
-      score: Number(score.toFixed(2)),
-      pesoPosicion,
-      factorExhibicion,
-      multiplicadorNivel
+      puntos: Number(puntos.toFixed(2)),
+      puntuacionBase,
+      factorPosicion,
+      factorNivel
     };
   }
 
@@ -162,53 +147,61 @@ export class ScoringV2Service {
   }
 
   /**
-   * Calcula los scores de una visita completa
-   * Fórmula objetivo:
-   * - score_obtenido = Σ score_exhibicion
-   * - score_maximo_visita = max_por_exhibicion × n_exhibiciones
-   * - score_calidad = (score_obtenido / score_maximo_visita) × 100
-   * - score_cobertura = (exhibiciones_reales / exhibiciones_esperadas) × 100 (tope 100%)
-   * - score_final = score_calidad × score_cobertura
+   * CAPA 2: Calcula los PUNTOS totales acumulados de una visita.
+   * La visita ya no devuelve porcentaje. Solo devuelve la suma de capas 1.
    */
   async calculateVisitScore(dto: ScoringV2VisitDto) {
-    // Calcular score de cada exhibición
-    const exhibicionesScores = await Promise.all(
-      dto.exhibiciones.map(ex => this.calculateExhibicionScore(ex))
+    // 1. Una sola carga de pesos para toda la visita
+    const pesos = await this.getPesosByVersion(dto.config_version_id);
+
+    // 2. Batch N+1 de IDs de catálogo
+    const allCatalogIds = [
+      ...dto.exhibiciones.map(e => e.posicion_id),
+      ...dto.exhibiciones.map(e => e.exhibicion_id),
+      ...dto.exhibiciones.map(e => e.nivel_ejecucion_id),
+    ];
+
+    const catalogRows = await this.knex('catalogs')
+      .whereIn('id', [...new Set(allCatalogIds)])
+      .select('id', 'value');
+
+    const catalogMap = new Map(catalogRows.map(r => [r.id, r.value]));
+
+    // 3. Evaluar exhibiciones pasivas a memoria local
+    const exhibicionesScores = dto.exhibiciones.map(ex => 
+      this.calcularScoreExhibicionSync(ex, pesos as any, catalogMap)
     );
 
-    const scoreObtenido = exhibicionesScores.reduce((sum, ex) => sum + ex.score, 0);
-    const nExhibiciones = dto.exhibiciones.length;
-
-    // Calcular score máximo por exhibición
-    const maxPorExhibicion = await this.getMaxScorePerExhibicion(dto.config_version_id);
-    
-    // Calcular score máximo de la visita
-    const scoreMaximoVisita = maxPorExhibicion * nExhibiciones;
-
-    // Calcular score de calidad
-    const scoreCalidad = scoreMaximoVisita > 0 
-      ? (scoreObtenido / scoreMaximoVisita) * 100 
-      : 0;
-
-    // Calcular score de cobertura con tope de 100%
-    let scoreCobertura = dto.exhibiciones_esperadas > 0
-      ? (nExhibiciones / dto.exhibiciones_esperadas) * 100
-      : 100; // Si exhibiciones_esperadas = 0, asumir 100%
-
-    if (scoreCobertura > 100) {
-      scoreCobertura = 100; // Tope de 100%
-    }
-
-    // Calcular score final
-    const scoreFinal = scoreCalidad * scoreCobertura;
+    const puntosTotales = exhibicionesScores.reduce((sum, ex) => sum + ex.puntos, 0);
 
     return {
-      score_obtenido: Number(scoreObtenido.toFixed(2)),
-      score_maximo: Number(scoreMaximoVisita.toFixed(2)),
-      score_calidad_pct: Number(scoreCalidad.toFixed(2)),
-      score_cobertura_pct: Number(scoreCobertura.toFixed(2)),
-      score_final_pct: Number(scoreFinal.toFixed(2)),
+      puntos_obtenidos: Number(puntosTotales.toFixed(2)),
       exhibiciones_scores: exhibicionesScores
+    };
+  }
+
+  /**
+   * CAPA 3: Score del Colaborador
+   * Suma de todos sus puntos históricos vs su meta personal
+   */
+  async calculateColaboradorScore(userId: string) {
+    const user = await this.knex('users').where({ id: userId }).first();
+    const metaPuntos = user?.meta_puntos || 5000;
+
+    const captures = await this.knex('daily_captures').where({ user_id: userId });
+    let totalPuntos = 0;
+    
+    for (const cap of captures) {
+       const stats = typeof cap.stats === 'string' ? JSON.parse(cap.stats) : cap.stats;
+       if (stats && typeof stats.puntuacionTotal === 'number') {
+          totalPuntos += stats.puntuacionTotal;
+       }
+    }
+
+    return {
+      user_id: userId,
+      meta_puntos: metaPuntos,
+      puntos_acumulados: totalPuntos
     };
   }
 
