@@ -50,6 +50,25 @@ export class ReportsController {
     );
   }
 
+  @Get('daily-scores/per-user')
+  @RequirePermissions(Permission.VER_SEGUIMIENTO)
+  @ApiOperation({
+    summary: 'Obtiene puntuaciones diarias por usuario para el módulo de Seguimiento',
+  })
+  getDailyScoresPerUser(
+    @ReqUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('zone') zone?: string,
+    @Query('supervisorId') supervisorId?: string,
+    @Query('userIds') userIds?: string[],
+  ) {
+    return this.reportsService.getDailyScoresPerUser(
+      { startDate, endDate, zone, supervisorId, userIds },
+      user,
+    );
+  }
+
   @Get('data')
   @RequirePermissions(Permission.REPORTES_VER_PROPIO)
   @ApiOperation({

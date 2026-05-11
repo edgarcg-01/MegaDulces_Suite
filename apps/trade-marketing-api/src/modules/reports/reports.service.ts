@@ -837,6 +837,71 @@ export class ReportsService {
     return { success: true, message: 'Reporte eliminado correctamente' };
   }
 
+  async getDailyScoresPerUser(
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      zone?: string;
+      supervisorId?: string;
+      userIds?: string[];
+    },
+    user: any,
+  ) {
+    let query = this.knex('daily_captures')
+      .select(
+        'user_id',
+        'captured_by_username',
+        this.knex.raw("DATE(hora_inicio) as fecha"),
+        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as puntuacion"),
+      );
+
+    const scope = getDataScope(user);
+    if (scope.type === 'own') {
+      query = query.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
+      query = query.whereIn('user_id', teamIds);
+    }
+
+    if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) query.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+
+    if (filters.zone) {
+      const zone = await this.knex('zones').where({ id: filters.zone }).first();
+      if (zone && zone.name) {
+        query.where('zona_captura', String(zone.name));
+      }
+    }
+
+    if (filters.supervisorId) {
+      const teamIds = await this.getTeamIds(filters.supervisorId);
+      query.whereIn('user_id', teamIds);
+    } else if (filters.userIds && filters.userIds.length > 0) {
+      query.whereIn('user_id', filters.userIds);
+    }
+
+    query.groupBy('user_id', 'captured_by_username', this.knex.raw("DATE(hora_inicio)"));
+    query.orderBy('captured_by_username', 'asc');
+    query.orderByRaw("DATE(hora_inicio) asc");
+
+    const rows = await query;
+
+    const metaDiaria = 5;
+    const userMap = new Map<string, { nombre: string; scores: { fecha: string; puntuacion: number }[]; metaDiaria: number }>();
+
+    for (const row of rows) {
+      if (!userMap.has(row.user_id)) {
+        userMap.set(row.user_id, { nombre: row.captured_by_username, scores: [], metaDiaria });
+      }
+      userMap.get(row.user_id)!.scores.push({
+        fecha: row.fecha instanceof Date ? row.fecha.toISOString().split('T')[0] : String(row.fecha),
+        puntuacion: Math.round(Number(row.puntuacion) || 0),
+      });
+    }
+
+    return { users: Array.from(userMap.values()) };
+  }
+
   private async getTeamIds(supervisorId: string): Promise<string[]> {
     const team = await this.knex('users')
       .select('id')

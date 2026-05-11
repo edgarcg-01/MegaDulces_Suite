@@ -21,6 +21,7 @@ const permissionToSubject: Record<string, AppSubject> = {
   [Permission.ROLES_CONFIGURAR]: 'roles_config',
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',
   [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
+  [Permission.VER_SEGUIMIENTO]: 'seguimiento',
 };
 
 const permissionToAction: Record<string, Action | Action[]> = {
@@ -42,6 +43,7 @@ const permissionToAction: Record<string, Action | Action[]> = {
   [Permission.ROLES_CONFIGURAR]: 'manage',
   [Permission.SCORING_CONFIG_VER]: 'read',
   [Permission.SCORING_CONFIG_GESTIONAR]: ['read', 'create', 'update', 'delete'],
+  [Permission.VER_SEGUIMIENTO]: 'read',
 };
 
 export function buildAbility(permissions: Record<string, boolean>): AppAbility {

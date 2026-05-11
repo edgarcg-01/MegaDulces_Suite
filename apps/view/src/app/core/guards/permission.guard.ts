@@ -23,6 +23,7 @@ const subjectMap: Record<string, string> = {
   [Permission.ROLES_CONFIGURAR]: 'roles_config',
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',
   [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
+  [Permission.VER_SEGUIMIENTO]: 'seguimiento',
 };
 
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {
@@ -72,6 +73,13 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
   if (!canAccessFullDashboard && !hasFallback) {
     const currentRoute = state.url;
     if (currentRoute.startsWith('/dashboard/captures')) {
+      return true;
+    }
+    if (currentRoute.startsWith('/dashboard/seguimiento') && perms.can('read', 'seguimiento')) {
+      return true;
+    }
+    const legacyPerms = authService.user()?.permissions;
+    if (currentRoute.startsWith('/dashboard/seguimiento') && legacyPerms?.[Permission.VER_SEGUIMIENTO] === true) {
       return true;
     }
     router.navigate(['/dashboard/captures']);

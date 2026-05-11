@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Delete, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Put, Body, Param, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { CatalogsService } from './catalogs.service';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { createMongoAbility } from '@casl/ability';
+import type { AppAbility } from '../../shared/ability/ability.types';
 
 @ApiTags('catalogs')
 @ApiBearerAuth()
@@ -12,6 +14,21 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery } from '@nestj
 @Controller('catalogs')
 export class CatalogsController {
   constructor(private readonly catalogsService: CatalogsService) {}
+
+  private checkCatalogManageAccess(req: any, type: string) {
+    const ability = createMongoAbility<AppAbility>(req.user.rules || []);
+    if (ability.can('manage', 'all')) return;
+
+    if (['conceptos', 'ubicaciones', 'niveles'].includes(type)) {
+      if (!ability.can('manage', 'scoring_config')) {
+        throw new ForbiddenException('No tienes permisos suficientes para gestionar parámetros del scoring.');
+      }
+    } else {
+      if (!ability.can('manage', 'catalogs')) {
+        throw new ForbiddenException('No tienes permisos para gestionar catálogos maestros.');
+      }
+    }
+  }
 
   @Get('permissions/:role_name')
   @RequirePermissions(Permission.ROLES_CONFIGURAR)
@@ -50,34 +67,36 @@ export class CatalogsController {
   }
 
   @Post(':type')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
   @ApiOperation({
     summary: 'Añadir un ítem dinámico nuevo al tipo de catálogo definido',
   })
   create(
     @Param('type') type: string,
     @Body() body: { value: string; orden?: number },
+    @Req() req: any,
   ) {
+    this.checkCatalogManageAccess(req, type);
     return this.catalogsService.create(type, body);
   }
 
   @Delete(':type/:id')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
   @ApiOperation({
     summary: 'Eliminar el nodo de un catálogo usando su ID primario UUID',
   })
-  deleteItem(@Param('type') type: string, @Param('id') id: string) {
+  deleteItem(@Param('type') type: string, @Param('id') id: string, @Req() req: any) {
+    this.checkCatalogManageAccess(req, type);
     return this.catalogsService.delete(type, id);
   }
 
   @Put(':type/:id')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
   @ApiOperation({ summary: 'Actualizar la información de un ítem de catálogo' })
   updateItem(
     @Param('type') type: string,
     @Param('id') id: string,
     @Body() body: any,
+    @Req() req: any,
   ) {
+    this.checkCatalogManageAccess(req, type);
     return this.catalogsService.update(type, id, body);
   }
 }

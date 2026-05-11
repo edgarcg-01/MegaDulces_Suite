@@ -123,10 +123,10 @@ interface PdfSection {
       <div class="modern-tabs-wrapper">
         <p-tabs [value]="0">
           <p-tablist>
-            <p-tab [value]="0">Métricas</p-tab>
-            <p-tab [value]="1">Gráficas</p-tab>
-            <p-tab [value]="2">Registros</p-tab>
-            <p-tab [value]="3">Visitas individuales</p-tab>
+            <p-tab [value]="0">Resumen</p-tab>
+            
+            <p-tab [value]="1">Registros</p-tab>
+            <p-tab [value]="2">Visitas individuales</p-tab>
           </p-tablist>
 
           <p-tabpanels>
@@ -232,10 +232,10 @@ class="text-xs font-bold text-content-faint uppercase"
                   </div>
                 </div>
               </div>
-            </p-tabpanel>
 
-            <!-- ──────────────────── TAB 1: GRÁFICAS ─────────────────── -->
-            <p-tabpanel [value]="1">
+              <!-- Separador -->
+              <div class="mt-10 pt-6 border-t border-divider"></div>
+
               <ng-container *ngIf="!loading(); else tabSkeleton1">
                 <div class="pt-4 space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -328,8 +328,8 @@ class="text-xs font-bold text-content-faint uppercase"
             </ng-template>
             </p-tabpanel>
 
-            <!-- ──────────────────── TAB 2: REGISTROS ────────────────── -->
-            <p-tabpanel [value]="2">
+            <!-- ──────────────────── TAB 1: REGISTROS ────────────────── -->
+            <p-tabpanel [value]="1">
               <ng-container *ngIf="!loading(); else tabSkeleton2">
                 <div class="pt-4 space-y-4">
                 <!-- Barra de acciones sobre selección -->
@@ -621,8 +621,8 @@ class="text-xs font-bold text-content-faint uppercase"
             </ng-template>
             </p-tabpanel>
 
-            <!-- ──────────────────── TAB 3: VISITAS INDIVIDUALES ──────── -->
-            <p-tabpanel [value]="3">
+            <!-- ──────────────────── TAB 2: VISITAS INDIVIDUALES ──────── -->
+            <p-tabpanel [value]="2">
               <ng-container *ngIf="!loading(); else tabSkeleton3">
                 <div class="pt-4 space-y-4">
                 <!-- Barra de acciones -->
@@ -693,7 +693,7 @@ class="text-xs font-bold text-content-faint uppercase"
                       </div>
                       <!-- Score ring con semáforo -->
                       <div
-                        class="w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
+                        class="w-16 h-16 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                         [ngClass]="{
                           'border-green-400 text-green-700':
                             visitScoreStatus(visit) === 'ok',

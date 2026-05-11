@@ -6,6 +6,7 @@ import { HomeComponent } from './modules/dashboard/home/home.component';
 import { CapturesComponent } from './modules/dashboard/captures/captures.component';
 import { ReportsComponent } from './modules/dashboard/reports/reports.component';
 import { DashboardComponent } from './modules/dashboard/reports/graphics/dashboard.component';
+import { SeguimientoComponent } from './modules/dashboard/seguimiento/seguimiento.component';
 import { StoresComponent } from './modules/dashboard/stores/stores.component';
 import { VisitsComponent } from './modules/dashboard/visits/visits.component';
 import { ExhibitionsComponent } from './modules/dashboard/exhibitions/exhibitions.component';
@@ -16,6 +17,8 @@ import { AdminScoringComponent } from './modules/dashboard/admin-scoring/admin-s
 import { AdminRolesPermissionsComponent } from './modules/dashboard/admin-roles/admin-roles-permissions.component';
 import { DailyAssignmentsComponent } from './modules/dashboard/daily-assignments/daily-assignments.component';
 import { authGuard } from './core/guards/auth.guard';
+import { permissionGuard, colaboradorGuard } from './core/guards/permission.guard';
+import { Permission } from './core/constants/permissions';
 
 export const routes: Routes = [
   {
@@ -29,21 +32,22 @@ export const routes: Routes = [
   },
   {
     path: 'dashboard',
-    canActivate: [authGuard],
+    canActivate: [authGuard, colaboradorGuard],
     component: LayoutComponent,
     children: [
       { path: '', component: HomeComponent },
       { path: 'dashboard', component: DashboardComponent },
       { path: 'captures', component: CapturesComponent },
       { path: 'reports', component: ReportsComponent },
-      { path: 'stores', component: StoresComponent },
+      { path: 'seguimiento', component: SeguimientoComponent, canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
+      { path: 'stores', component: StoresComponent, canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', component: VisitsComponent },
       { path: 'exhibitions', component: ExhibitionsComponent },
-      { path: 'admin/users', component: AdminUsersComponent },
-      { path: 'admin/catalogs/:type', component: AdminCatalogsComponent },
-      { path: 'admin/roles/:role_name/permissions', component: AdminRolesPermissionsComponent },
-      { path: 'admin/planograma', component: AdminPlanogramaComponent },
-      { path: 'daily-assignments', component: DailyAssignmentsComponent },
+      { path: 'admin/users', component: AdminUsersComponent, canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)] },
+      { path: 'admin/catalogs/:type', component: AdminCatalogsComponent, canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)] },
+      { path: 'admin/roles/:role_name/permissions', component: AdminRolesPermissionsComponent, canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)] },
+      { path: 'admin/planograma', component: AdminPlanogramaComponent, canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)] },
+      { path: 'daily-assignments', component: DailyAssignmentsComponent, canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)] },
     ]
   },
   {

@@ -20,6 +20,7 @@ export type AppSubject =
   | 'reports_export'
   | 'reports_manage'
   | 'kpi_goals'
-  | 'team_management';
+  | 'team_management'
+  | 'seguimiento';
 
 export type AppAbility = MongoAbility<[Action, AppSubject]>;

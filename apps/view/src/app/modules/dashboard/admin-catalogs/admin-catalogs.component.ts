@@ -15,7 +15,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { AdminCatalogsService } from './admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
-import { PermissionsService } from '../../../core/services/permissions.service';
+import { PermissionsService, AppSubject } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { environment } from '../../../../environments/environment';
 
@@ -165,7 +165,10 @@ export class AdminCatalogsComponent implements OnInit {
       type = 'conceptos';
     }
 
-    const subject = type === 'roles' ? 'roles_config' as const : 'catalogs' as const;
+    let subject: AppSubject = 'catalogs';
+    if (type === 'roles') subject = 'roles_config';
+    else if (['conceptos', 'ubicaciones', 'niveles'].includes(type)) subject = 'scoring_config';
+
     
     if (!this.perms.can('read', subject)) {
       if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {

@@ -141,8 +141,6 @@ export class ReportsComponent implements OnInit {
   showDetail = false;
   /** Muestra el constructor de PDF */
   showPdfBuilder = false;
-  /** Muestra el diálogo de comparación */
-  showComparison = false;
   /** Muestra el diálogo de reporte de rutas */
   showRouteReportDialog = false;
   /** Muestra la vista previa de imagen */
@@ -468,16 +466,9 @@ export class ReportsComponent implements OnInit {
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
   });
 
-  allVisits = computed(() =>
-    this.groupedRows().flatMap((d) =>
-      d.visits.map((v: any) => ({ ...v, _selected: false })),
-    ),
-  );
   selectedDayCount = computed(
     () => this.groupedRows().filter((d) => d.selected).length,
   );
-  selectedVisits = computed(() => this.allVisits().filter((v) => v._selected));
-  selectedVisitsCount = computed(() => this.selectedVisits().length);
 
   kpiCards = computed(() => {
     const data = this.reportsData();
@@ -2712,37 +2703,6 @@ export class ReportsComponent implements OnInit {
           'No se pudo generar el PDF de la visita. Por favor intenta nuevamente.',
       });
     }
-  }
-
-  exportSelectedVisitsPdf() {
-    const selected = this.selectedVisits();
-    if (!selected.length) return;
-    const doc = new jsPDF();
-    selected.forEach((row: any, i: number) => {
-      if (i > 0) doc.addPage();
-      doc.setFontSize(13);
-      doc.text(`Visita #${row.folio} — ${row.captured_by_username}`, 14, 18);
-      autoTable(doc, {
-        startY: 24,
-        body: [
-          ['Zona', row.zona_captura],
-          ['Fecha', new Date(row.fecha).toLocaleDateString()],
-          ['Score', Math.round(row.stats?.puntuacionTotal ?? 0) + ' pts'],
-          [
-            'Estado',
-            this.statusLabel(
-              this.metasConfig.statusFor(
-                'score',
-                row.stats?.puntuacionTotal ?? 0,
-              ),
-            ),
-          ],
-          ['Venta total', '$' + (row.stats?.ventaTotal ?? 0).toLocaleString()],
-          ['Exhibiciones', row.exhibiciones?.length ?? 0],
-        ],
-      });
-    });
-    doc.save('visitas_conjunto.pdf');
   }
 
   // --- Lógica del Diálogo de Metas ---

@@ -671,7 +671,7 @@ interface PdfSection {
                       </div>
                       <!-- Score ring con semáforo -->
                       <div
-                        class="w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
+                        class="w-16 h-16 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                         [ngClass]="{
                           'border-green-400 text-green-700':
                             visitScoreStatus(visit) === 'ok',

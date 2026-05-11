@@ -6,6 +6,7 @@ import { HomeComponent } from './modules/dashboard/home/home.component';
 import { CapturesComponent } from './modules/dashboard/captures/captures.component';
 import { ReportsComponent } from './modules/dashboard/reports/reports.component';
 import { DashboardComponent } from './modules/dashboard/reports/graphics/dashboard.component';
+import { SeguimientoComponent } from './modules/dashboard/seguimiento/seguimiento.component';
 import { StoresComponent } from './modules/dashboard/stores/stores.component';
 import { VisitsComponent } from './modules/dashboard/visits/visits.component';
 import { ExhibitionsComponent } from './modules/dashboard/exhibitions/exhibitions.component';
@@ -37,6 +38,7 @@ export const routes: Routes = [
       { path: 'dashboard', component: DashboardComponent },
       { path: 'captures', component: CapturesComponent },
       { path: 'reports', component: ReportsComponent },
+      { path: 'seguimiento', component: SeguimientoComponent, canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'stores', component: StoresComponent, canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', component: VisitsComponent },
       { path: 'exhibitions', component: ExhibitionsComponent },

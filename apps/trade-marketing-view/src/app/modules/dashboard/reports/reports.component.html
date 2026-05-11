@@ -22,9 +22,8 @@
         <p-tab [value]="0" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Resumen</p-tab>
 
         <p-tab [value]="1" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
-        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Visitas</p-tab>
-        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
-        <p-tab [value]="4" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
+        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
+        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
       </p-tablist>
 
       <p-tabpanels>
@@ -267,86 +266,6 @@
 
         <p-tabpanel [value]="2">
           <ng-container *ngIf="!loading(); else tabSkeleton">
-          <div class="pt-4 space-y-4">
-            <div *ngIf="selectedVisitsCount() > 0" class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider">
-              <span class="text-xs text-content-muted flex-1">{{ selectedVisitsCount() }} visita(s) seleccionada(s)</span>
-              <p-button label="Comparar" icon="pi pi-sliders-h" severity="secondary" size="small" (onClick)="showComparison = true"></p-button>
-              <p-button label="PDF conjunto" icon="pi pi-file-pdf" styleClass="p-button-brand" size="small" (onClick)="exportSelectedVisitsPdf()"></p-button>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div *ngFor="let visit of allVisits()" class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none" [class.ring-2]="visit._selected" [class.ring-blue-400]="visit._selected">
-                <div class="flex items-start gap-3 mb-4">
-                  <input type="checkbox" [(ngModel)]="visit._selected" (click)="$event.stopPropagation()" class="focus-visible:ring-2 focus-visible:ring-blue-300" style="accent-color:#185FA5;margin-top:3px" />
-                  <div class="flex-1 min-w-0">
-                    <div class="text-xs text-content-faint mb-0.5">#{{ visit.folio }} · {{ visit.fecha | date:'dd MMM':'UTC' }}</div>
-                    <div class="font-bold text-sm text-content-main truncate">{{ visit.captured_by_username }}</div>
-                    <div class="flex gap-1.5 mt-1 flex-wrap">
-                      <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold">{{ visit.zona_captura }}</span>
-                      <span *ngIf="visit.latitud" class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold">GPS</span>
-                    </div>
-                  </div>
-                  <div class="w-14 h-14 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
-                    [ngClass]="{ 'border-green-400 text-green-700': visitScoreStatus(visit) === 'ok', 'border-amber-400 text-amber-700': visitScoreStatus(visit) === 'warn', 'border-red-400 text-red-700': visitScoreStatus(visit) === 'bad' }">
-                    {{ fmtScore(visit.stats?.puntuacionTotal) }}
-                  </div>
-                </div>
-                <div class="flex gap-2">
-                  <p-button label="Ver detalle" icon="pi pi-eye" severity="secondary" size="small" styleClass="flex-1 justify-center" (onClick)="viewDetail(visit)"></p-button>
-                  <p-button icon="pi pi-file-pdf" [text]="true" size="small" (onClick)="exportSingleVisitPdf(visit); $event.stopPropagation()"></p-button>
-                  <p-button *ngIf="canManageReports()" icon="pi pi-trash" [text]="true" severity="danger" size="small" (click)="confirmDelete(visit); $event.stopPropagation()"></p-button>
-                </div>
-              </div>
-            </div>
-
-            <div *ngIf="selectedVisitsCount() >= 2" class="card-premium mt-4">
-              <h3 class="text-sm font-bold mb-4 text-content-main">Vista comparativa</h3>
-              <div class="overflow-x-auto">
-                <table class="w-full border-collapse text-sm">
-                  <thead>
-                    <tr class="text-xs uppercase text-content-muted border-b border-divider">
-                      <th class="py-2 text-left">Métrica</th>
-                      <th *ngFor="let v of selectedVisits()" class="py-2 text-center">
-                        <span class="font-bold text-content-main">#{{ v.folio }}</span><br>
-                        <span class="text-[11px] font-normal">{{ v.captured_by_username }}</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr class="border-b border-divider/50">
-                      <td class="py-2 text-content-muted">Score final</td>
-                      <td *ngFor="let v of selectedVisits()" class="py-2 text-center font-bold"
-                        [ngClass]="{ 'text-green-600': visitScoreStatus(v) === 'ok', 'text-amber-500': visitScoreStatus(v) === 'warn', 'text-red-500': visitScoreStatus(v) === 'bad' }">{{ fmtScore(v.stats?.puntuacionTotal) }}</td>
-                    </tr>
-                    <tr class="border-b border-divider/50">
-                      <td class="py-2 text-content-muted">Exhibiciones</td>
-                      <td *ngFor="let v of selectedVisits()" class="py-2 text-center">{{ v.exhibiciones?.length ?? 0 }}</td>
-                    </tr>
-                    <tr class="border-b border-divider/50">
-                      <td class="py-2 text-content-muted">Zona</td>
-                      <td *ngFor="let v of selectedVisits()" class="py-2 text-center text-content-muted text-xs uppercase">{{ v.zona_captura }}</td>
-                    </tr>
-                    <tr class="border-b border-divider/50">
-                      <td class="py-2 text-content-muted">GPS</td>
-                      <td *ngFor="let v of selectedVisits()" class="py-2 text-center">
-                        <span [ngClass]="v.latitud ? 'text-green-600' : 'text-red-500'" class="font-bold text-xs">{{ v.latitud ? 'Sí' : 'No' }}</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td class="py-2 text-content-muted">Venta total</td>
-                      <td *ngFor="let v of selectedVisits()" class="py-2 text-center font-bold">{{ (v.stats?.ventaTotal ?? 0) | number:'1.0-0' }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          </div>
-          </ng-container>
-        </p-tabpanel>
-
-        <p-tabpanel [value]="3">
-          <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4 space-y-6" *ngIf="productStatsProcessed">
             
             <!-- KPIs de Ejecución: Salud y Agotamiento -->
@@ -543,7 +462,7 @@
           </ng-container>
         </p-tabpanel>
 
-        <p-tabpanel [value]="4">
+        <p-tabpanel [value]="3">
           <ng-container *ngIf="!loading(); else tabSkeleton">
           <div class="pt-4">
             <app-stores-tab></app-stores-tab>

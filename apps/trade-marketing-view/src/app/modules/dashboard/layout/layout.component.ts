@@ -131,12 +131,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
     [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
     [Permission.ROLES_CONFIGURAR]: 'roles_config',
     [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
+    [Permission.VER_SEGUIMIENTO]: 'seguimiento',
   };
 
   private rawNavItems = [
     { label: 'Dashboard',        icon: 'pi pi-th-large',      route: '/dashboard',                       permission: Permission.REPORTES_VER_PROPIO  },
     { label: 'Captura Diaria',   icon: 'pi pi-pencil',        route: '/dashboard/captures',              permission: Permission.VISITAS_REGISTRAR    },
     { label: 'Reportes',         icon: 'pi pi-chart-bar',     route: '/dashboard/reports',               permission: Permission.REPORTES_VER_PROPIO  },
+    { label: 'Seguimiento',      icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',           permission: Permission.VER_SEGUIMIENTO      },
     { label: 'Asignación Diaria',icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',     permission: Permission.USUARIOS_ASIGNAR_RUTA},
     { label: 'Tiendas',         icon: 'pi pi-building',      route: '/dashboard/stores',                 permission: Permission.TIENDAS_VER  },
   ];

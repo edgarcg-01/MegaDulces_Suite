@@ -28,6 +28,7 @@ const subjectMap: Record<string, AppSubject> = {
   [Permission.ROLES_CONFIGURAR]: 'roles_config',
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',
   [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
+  [Permission.VER_SEGUIMIENTO]: 'seguimiento',
 };
 
 @Injectable()
