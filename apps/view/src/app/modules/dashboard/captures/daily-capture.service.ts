@@ -1,6 +1,6 @@
 import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, tap, forkJoin, catchError, of, throwError, from, map } from 'rxjs';
+import { Observable, tap, forkJoin, catchError, of, throwError, from, map, firstValueFrom } from 'rxjs';
 import {
   VisitaSnapshot,
   RegistroExhibicion,
@@ -10,6 +10,7 @@ import {
 } from './daily-capture.models';
 import { AuthService } from '../../../core/services/auth.service';
 import { OfflineDailyCaptureService } from '../../../core/services/offline-daily-capture.service';
+import { OfflineDatabaseService } from '../../../core/services/offline-database.service';
 import { environment } from '../../../../environments/environment';
 
 @Injectable({ providedIn: 'root' })
@@ -22,6 +23,7 @@ export class DailyCaptureService {
   private auth = inject(AuthService);
   private http = inject(HttpClient);
   private offlineService = inject(OfflineDailyCaptureService);
+  private offlineDb = inject(OfflineDatabaseService);
   private apiUrl = environment.apiUrl;
 
   // --- Master Data (Fetched from API) ---
@@ -165,13 +167,13 @@ export class DailyCaptureService {
       console.log(`[iniciarVisita] 📡 Intento ${i + 1}/${MAX_RETRIES} de capturar GPS...`);
       try {
         await this.capturarUbicacion();
-        
+
         // Verificar que se capturaron coordenadas válidas
         const lat = this._latitud();
         const lng = this._longitud();
-        
+
         console.log(`[iniciarVisita] 📍 Coordenadas después de intento ${i + 1}:`, { latitud: lat, longitud: lng });
-        
+
         if (lat && lng && lat !== 0 && lng !== 0) {
           console.log('[iniciarVisita] ✅ GPS capturado exitosamente (intento', i + 1, '):', lat, lng);
           gpsCapturado = true;
@@ -190,7 +192,7 @@ export class DailyCaptureService {
 
     if (!gpsCapturado) {
       console.error('[iniciarVisita] ❌ No se pudo capturar GPS después de', MAX_RETRIES, 'intentos');
-      
+
       // Intentar usar última posición conocida del localStorage
       const ultimaPosicion = this.obtenerUltimaPosicionConocida();
       if (ultimaPosicion) {
@@ -199,7 +201,7 @@ export class DailyCaptureService {
         this._longitud.set(ultimaPosicion.lng);
         return true;
       }
-      
+
       // Como último recurso, usar coordenadas simuladas cuando está offline
       const isOffline = !navigator.onLine;
       if (isOffline) {
@@ -209,7 +211,7 @@ export class DailyCaptureService {
         this._longitud.set(SIMULATED_COORDS.lng);
         return true;
       }
-      
+
       // No permitir iniciar visita sin GPS cuando está online
       this._horaInicio.set(null);
       this._activeExhibiciones.set([]);
@@ -287,7 +289,7 @@ export class DailyCaptureService {
         const posicion = JSON.parse(data);
         const edad = Date.now() - new Date(posicion.timestamp).getTime();
         const MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
-        
+
         if (edad < MAX_AGE) {
           console.log('[GPS] 📦 Última posición recuperada (edad:', Math.round(edad / 1000 / 60), 'minutos):', posicion);
           return { lat: posicion.lat, lng: posicion.lng };
@@ -599,7 +601,7 @@ export class DailyCaptureService {
           // Recuperar coordenadas de localStorage si están null
           let latitud = payload.latitud || this._latitud() || null;
           let longitud = payload.longitud || this._longitud() || null;
-          
+
           if (!latitud || !longitud || latitud === 0 || longitud === 0) {
             const ultimaPosicion = this.obtenerUltimaPosicionConocida();
             if (ultimaPosicion) {
@@ -631,7 +633,7 @@ export class DailyCaptureService {
           )).pipe(
             tap((result) => {
               console.log('[saveCapturaTotal] ✅ Visita guardada offline:', result);
-              
+
               // Crear una respuesta simulada para mantener consistencia
               const offlineRes: VisitaSnapshot = {
                 folio: `${customFolio}-OFFLINE`,
@@ -702,7 +704,7 @@ export class DailyCaptureService {
     const user = this.auth.user();
     if (!user) return;
 
-    const day = new Date().getDay(); 
+    const day = new Date().getDay();
     const dayOfWeek = day === 0 ? 7 : day; // 1=Mon, 7=Sun
 
     this.http.get<any[]>(`${this.apiUrl}/daily-assignments?user_id=${user.sub}&day_of_week=${dayOfWeek}`)
@@ -723,13 +725,11 @@ export class DailyCaptureService {
       conceptos: this.http.get<any[]>(`${this.apiUrl}/catalogs/conceptos`),
       ubicaciones: this.http.get<any[]>(`${this.apiUrl}/catalogs/ubicaciones`),
       niveles: this.http.get<any[]>(`${this.apiUrl}/catalogs/niveles`),
-      planograma: this.http.get<any[]>(`${this.apiUrl}/planograms/brands`),
       scoring: this.http.get<any>(`${this.apiUrl}/scoring/config`),
     }).subscribe({
       next: (res) => {
         this._scoringConfig.set(res.scoring);
         this._niveles.set(res.niveles);
-        // Mapear el catálogo de la BD (catalog_id, value) a la interfaz del UI (id, nombre)
         this._conceptos.set(
           res.conceptos.map((c) => ({
             id: c.id,
@@ -746,26 +746,62 @@ export class DailyCaptureService {
             puntuacion: u.puntuacion,
           })),
         );
-
-        // Mapear planograma: Marcas -> Productos con ordenamiento alfabético
-        const sortedPlanograma = res.planograma.sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
-        
-        this._groupedProducts.set(
-          sortedPlanograma.map((b: any) => ({
-            marca: b.nombre,
-            items: (b.productos || [])
-              .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
-              .map((p: any) => ({
-                pid: p.id,
-                name: p.nombre,
-                puntuacion: p.puntuacion,
-              })),
-          })),
-        );
       },
       error: (err) =>
         console.error('Error loading master data from backend', err),
     });
+
+    this.loadPlanogramData();
+  }
+
+  private _mapPlanogramData(data: any[]): BrandGroup[] {
+    const sorted = [...data].sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+    return sorted.map((b: any) => ({
+      marca: b.nombre,
+      items: (b.productos || [])
+        .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
+        .map((p: any) => ({
+          pid: p.id,
+          name: p.nombre,
+          puntuacion: p.puntuacion,
+        })),
+    }));
+  }
+
+  private async loadPlanogramData() {
+    try {
+      const cached = await this.offlineDb.getCatalogo('planograma');
+      const serverVersion = await firstValueFrom(
+        this.http.get<{ version: string }>(`${this.apiUrl}/planograms/brands/version`)
+      );
+
+      const serverTime = serverVersion?.version ? new Date(serverVersion.version).getTime() : -1; // -1 para forzar descarga si version es null
+      const cachedTime = cached?.version ? new Date(cached.version).getTime() : 0;
+
+      console.log('[loadPlanogramData] Server version:', serverVersion?.version, 'Server time:', serverTime);
+      console.log('[loadPlanogramData] Cached version:', cached?.version, 'Cached time:', cachedTime);
+
+      if (cached && cachedTime >= serverTime && serverTime !== -1) {
+        console.log('[loadPlanogramData] Using cached data');
+        this._groupedProducts.set(this._mapPlanogramData(cached.datos));
+        return;
+      }
+
+      console.log('[loadPlanogramData] Downloading fresh data');
+      const data = await firstValueFrom(
+        this.http.get<any[]>(`${this.apiUrl}/planograms/brands`)
+      );
+      this._groupedProducts.set(this._mapPlanogramData(data));
+      await this.offlineDb.guardarCatalogo('planograma', data, serverVersion?.version || new Date().toISOString());
+    } catch (err) {
+      console.error('[loadPlanogramData] Error al cargar planograma:', err);
+      // Si hay error, intentar usar cache como fallback
+      const cached = await this.offlineDb.getCatalogo('planograma');
+      if (cached) {
+        console.warn('[loadPlanogramData] Using cached data as fallback due to error');
+        this._groupedProducts.set(this._mapPlanogramData(cached.datos));
+      }
+    }
   }
 
   // Manual trigger if needed by components

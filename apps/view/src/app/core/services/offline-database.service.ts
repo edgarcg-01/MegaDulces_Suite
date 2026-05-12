@@ -173,8 +173,9 @@ export class OfflineDatabaseService extends Dexie {
 
   // --- Catálogos ---
   async guardarCatalogo(tipo: string, datos: any, version: string): Promise<void> {
+    // Use tipo as the document ID so put() always replaces the same entry
     const catalogo: CatalogoOffline = {
-      id: crypto.randomUUID(),
+      id: tipo,
       tipo: tipo as any,
       datos,
       version,

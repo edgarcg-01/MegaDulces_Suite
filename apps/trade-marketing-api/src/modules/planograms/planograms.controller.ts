@@ -30,6 +30,12 @@ export class PlanogramsController {
     return this.planogramsService.getAll();
   }
 
+  @Get('version')
+  @ApiOperation({ summary: 'Obtiene la versión (última actualización) del planograma para cache' })
+  async getVersion() {
+    return this.planogramsService.getVersion();
+  }
+
   @Post()
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Crea una nueva marca' })

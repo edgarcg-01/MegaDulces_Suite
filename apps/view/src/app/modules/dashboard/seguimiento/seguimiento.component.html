@@ -59,19 +59,19 @@
 
   <div class="flex items-center gap-4 text-xs text-content-faint">
     <span class="flex items-center gap-1">
-      <span class="w-3 h-3 rounded bg-green-500"></span>
-      Optimo (&ge;{{ scoreOpt }})
+      <span class="w-3 h-3 rounded" style="background:#b4b4b4"></span>
+      Bajo
     </span>
     <span class="flex items-center gap-1">
-      <span class="w-3 h-3 rounded bg-amber-400"></span>
-      Regular ({{ scoreMin }}&ndash;{{ scoreOpt - 1 }})
+      <span class="w-3 h-3 rounded" style="background:#6b6b6b"></span>
+      Medio
     </span>
     <span class="flex items-center gap-1">
-      <span class="w-3 h-3 rounded bg-red-500"></span>
-      Critico (&lt;{{ scoreMin }})
+      <span class="w-3 h-3 rounded" style="background:#1e1e1e"></span>
+      Alto (&ge;{{ scoreOpt }})
     </span>
     <span class="flex items-center gap-1 ml-2">
-      <span class="w-6 h-0.5 bg-amber-500 border-dashed" style="border-top:2px dashed #f59e0b"></span>
+      <span class="w-6 h-0.5" style="border-top:2px dashed #9ca3af"></span>
       Meta ({{ scoreOpt }} pts)
     </span>
   </div>
@@ -239,10 +239,12 @@
 <p-dialog
   [(visible)]="showDetail"
   [modal]="true"
-  [style]="{ width: '94vw', maxWidth: '860px', height: '88vh' }"
+  [style]="{ width: '94vw', maxWidth: '860px', height: '85vh' }"
   [draggable]="false"
   [resizable]="false"
   [blockScroll]="true"
+  [closable]="false"
+  [appendTo]="'body'"
   styleClass="seguimiento-detail-dialog"
   [showHeader]="false"
 >
@@ -265,7 +267,10 @@
               <span class="flex items-center gap-1"><i class="pi pi-user text-[10px]"></i> {{ selectedRow.captured_by_username }}</span>
               <span class="flex items-center gap-1"><i class="pi pi-calendar text-[10px]"></i> {{ selectedRow.fecha | date:'dd MMM yyyy':'UTC' }}</span>
               @if (selectedRow.hora_inicio) {
-                <span class="flex items-center gap-1"><i class="pi pi-clock text-[10px]"></i> {{ selectedRow.hora_inicio | date:'HH:mm' }}</span>
+                <span class="flex items-center gap-1"><i class="pi pi-play text-[10px]"></i> Inicio {{ selectedRow.hora_inicio | date:'HH:mm' }}</span>
+              }
+              @if (selectedRow.hora_fin) {
+                <span class="flex items-center gap-1"><i class="pi pi-stop text-[10px]"></i> Fin {{ selectedRow.hora_fin | date:'HH:mm' }}</span>
               }
             </div>
           </div>
@@ -288,26 +293,34 @@
         </div>
 
         <!-- Inline Stats Bar -->
-        <div class="flex items-center gap-5 mt-4 pt-3 border-t border-gray-100">
-          <div class="flex items-center gap-1.5">
-            <i class="pi pi-dollar text-[11px] text-gray-400"></i>
-            <span class="text-[13px] font-semibold text-gray-700">&dollar;{{ (selectedRow.stats?.ventaTotal || 0) | number:'1.0-0' }}</span>
-            <span class="text-[11px] text-gray-400">venta</span>
-          </div>
-          <div class="w-px h-3.5 bg-gray-200"></div>
-          <div class="flex items-center gap-1.5">
-            <i class="pi pi-th-large text-[11px] text-gray-400"></i>
-            <span class="text-[13px] font-semibold text-gray-700">{{ selectedRow.exhibiciones?.length || 0 }}</span>
-            <span class="text-[11px] text-gray-400">muebles</span>
-          </div>
-          <div class="w-px h-3.5 bg-gray-200"></div>
-          <div class="flex items-center gap-1.5">
-            <i class="pi pi-camera text-[11px] text-gray-400"></i>
-            <span class="text-[13px] font-semibold text-gray-700">{{ countPhotos(selectedRow.exhibiciones) }}</span>
-            <span class="text-[11px] text-gray-400">fotos</span>
-          </div>
-          <div class="w-px h-3.5 bg-gray-200"></div>
-          @if (selectedRow.latitud && selectedRow.longitud) {
+          <div class="flex items-center gap-5 mt-4 pt-3 border-t border-gray-100">
+            <div class="flex items-center gap-1.5">
+              <i class="pi pi-dollar text-[11px] text-gray-400"></i>
+              <span class="text-[13px] font-semibold text-gray-700">&dollar;{{ (selectedRow.stats?.ventaTotal || 0) | number:'1.0-0' }}</span>
+              <span class="text-[11px] text-gray-400">venta</span>
+            </div>
+            <div class="w-px h-3.5 bg-gray-200"></div>
+            <div class="flex items-center gap-1.5">
+              <i class="pi pi-th-large text-[11px] text-gray-400"></i>
+              <span class="text-[13px] font-semibold text-gray-700">{{ selectedRow.exhibiciones?.length || 0 }}</span>
+              <span class="text-[11px] text-gray-400">muebles</span>
+            </div>
+            <div class="w-px h-3.5 bg-gray-200"></div>
+            <div class="flex items-center gap-1.5">
+              <i class="pi pi-camera text-[11px] text-gray-400"></i>
+              <span class="text-[13px] font-semibold text-gray-700">{{ countPhotos(selectedRow.exhibiciones) }}</span>
+              <span class="text-[11px] text-gray-400">fotos</span>
+            </div>
+            <div class="w-px h-3.5 bg-gray-200"></div>
+            @if (selectedRow.stats?.rangoCompra) {
+              <div class="flex items-center gap-1.5">
+                <i class="pi pi-chart-bar text-[11px] text-gray-400"></i>
+                <span class="text-[13px] font-semibold text-gray-700">{{ selectedRow.stats.rangoCompra }}</span>
+                <span class="text-[11px] text-gray-400">rango</span>
+              </div>
+              <div class="w-px h-3.5 bg-gray-200"></div>
+            }
+            @if (selectedRow.latitud && selectedRow.longitud) {
             <a [href]="'https://www.google.com/maps?q=' + selectedRow.latitud + ',' + selectedRow.longitud"
                target="_blank"
                class="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-600 hover:text-emerald-700 transition-colors">
@@ -330,7 +343,13 @@
 
           <div class="divide-y divide-gray-100">
             @for (ex of selectedRow.exhibiciones; track $index) {
-              <div class="py-4 first:pt-0 last:pb-0">
+              <div class="py-5 first:pt-0 last:pb-0 border-b border-gray-100 last:border-b-0">
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Exhibición #{{ $index + 1 }}</span>
+                  @if (ex.horaRegistro) {
+                    <span class="text-[10px] text-gray-400">· {{ ex.horaRegistro | date:'HH:mm' }}</span>
+                  }
+                </div>
                 <div class="flex gap-4">
 
                   <!-- Photo -->
@@ -351,12 +370,17 @@
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <div class="flex items-center gap-2">
-                          <h4 class="text-[14px] font-bold text-gray-900 truncate">{{ ex.rango || 'Sin rango' }}</h4>
+                          <h4 class="text-[15px] font-bold text-gray-900 truncate">{{ getConceptoName()(ex.conceptoId) || ex.rango || 'Sin concepto' }}</h4>
                           <span class="text-[10px] font-medium text-gray-400 uppercase shrink-0">{{ ex.formato || 'Mueble' }}</span>
+                          @if (ex.perteneceMegaDulces === true) {
+                            <span class="text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded shrink-0">Mega Dulces</span>
+                          } @else if (ex.perteneceMegaDulces === false) {
+                            <span class="text-[10px] font-semibold bg-orange-50 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded shrink-0">Competencia</span>
+                          }
                         </div>
-                        <div class="flex flex-wrap items-center gap-1 mt-1.5">
+                        <div class="flex flex-wrap items-center gap-1.5 mt-2">
                           @for (p of getProductNames()(ex); track $index) {
-                            <span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium leading-none">{{ p }}</span>
+                            <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-[12px] font-medium leading-snug">{{ p }}</span>
                           } @empty {
                             <span class="text-[11px] text-gray-400 italic">Sin productos</span>
                           }
@@ -398,6 +422,7 @@
   [(visible)]="showImagePreview"
   [modal]="true"
   [closable]="false"
+  [appendTo]="'body'"
   [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }"
 >
   <div class="relative w-full h-full flex flex-col">
@@ -415,6 +440,7 @@
   [style]="{ width: '90vw', maxWidth: '680px' }"
   [draggable]="false"
   [resizable]="false"
+  [appendTo]="'body'"
   styleClass="surface-card rounded-2xl"
   [contentStyleClass]="'bg-surface-card'"
 >

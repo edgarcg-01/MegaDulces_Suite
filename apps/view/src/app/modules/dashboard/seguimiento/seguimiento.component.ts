@@ -19,6 +19,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
 import { SeguimientoService, DailyScoresResponse } from './seguimiento.service';
+import { DailyCaptureService } from '../captures/daily-capture.service';
 import { Subject, switchMap, startWith, tap, forkJoin, of, catchError } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Chart } from 'chart.js';
@@ -53,6 +54,37 @@ Chart.register(annotationPlugin);
   templateUrl: './seguimiento.component.html',
   styles: [`
     :host ::ng-deep .p-chart { height: 100% !important; }
+
+    /* ── Detail Dialog: force center + flex layout ── */
+    :host ::ng-deep .seguimiento-detail-dialog.p-dialog-mask {
+      display: flex !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    :host ::ng-deep .seguimiento-detail-dialog .p-dialog {
+      display: flex !important;
+      flex-direction: column !important;
+      margin: 0 !important;
+      top: 0 !important;
+      left: 0 !important;
+      transform: none !important;
+      position: relative !important;
+      max-height: 85vh !important;
+    }
+    :host ::ng-deep .seguimiento-detail-dialog .p-dialog-content {
+      padding: 0 !important;
+      overflow: hidden !important;
+      flex: 1 1 auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+      min-height: 0 !important;
+    }
+    :host ::ng-deep .seguimiento-detail-dialog .p-dialog-content > * {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
@@ -63,6 +95,7 @@ export class SeguimientoComponent implements OnInit {
   private metasConfig = inject(MetasConfigService);
   private messageService = inject(MessageService);
   private destroyRef = inject(DestroyRef);
+  private dailyCaptureService = inject(DailyCaptureService);
   readonly filtersState = inject(FiltersStateService);
 
   // Signals
@@ -116,6 +149,14 @@ export class SeguimientoComponent implements OnInit {
   );
   
   selectedVisitsCount = computed(() => this.selectedVisitIds().size);
+
+  getConceptoName = computed(() => {
+    const conceptos = this.dailyCaptureService.conceptos();
+    return (conceptoId: string) => {
+      const c = conceptos.find(c => c.id === conceptoId);
+      return c ? c.nombre : conceptoId;
+    };
+  });
 
   ngOnInit(): void {
     this.setupDataLoading();
@@ -258,8 +299,9 @@ export class SeguimientoComponent implements OnInit {
     }
 
     const barColors = users.map((u) => {
-      const s = this.visitScoreStatus({ stats: { puntuacionTotal: u.score } });
-      return s === 'ok' ? '#22c55e' : s === 'warn' ? '#f59e0b' : '#ef4444';
+      const ratio = Math.min(u.score / this.scoreOpt, 1);
+      const value = Math.round(26 + (200 - 26) * (1 - ratio));
+      return `rgb(${value}, ${value}, ${value})`;
     });
 
     this.chartData = {
@@ -267,8 +309,9 @@ export class SeguimientoComponent implements OnInit {
       datasets: [{
         data: users.map((u) => u.score),
         backgroundColor: barColors,
-        borderRadius: 4,
-        barThickness: 22,
+        borderRadius: 2,
+        barPercentage: 0.7,
+        categoryPercentage: 0.9,
       }],
     };
 
@@ -289,15 +332,15 @@ export class SeguimientoComponent implements OnInit {
               type: 'line',
               xMin: this.scoreOpt,
               xMax: this.scoreOpt,
-              borderColor: '#f59e0b',
+              borderColor: '#9ca3af',
               borderWidth: 2,
               borderDash: [6, 3],
               label: {
                 display: true,
                 content: 'Meta ' + this.scoreOpt + ' pts',
                 position: 'end',
-                backgroundColor: 'rgba(245,158,11,0.15)',
-                color: '#92400e',
+                backgroundColor: 'rgba(156,163,175,0.15)',
+                color: '#4b5563',
                 font: { weight: 'bold', size: 11 },
               },
             },
@@ -307,15 +350,16 @@ export class SeguimientoComponent implements OnInit {
       scales: {
         x: {
           beginAtZero: true,
-          title: { display: true, text: 'Puntos acumulados', color: '#6b7280' },
-          grid: { color: 'rgba(0,0,0,0.05)' },
+          title: { display: true, text: 'Puntos acumulados', color: '#9ca3af' },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+          ticks: { color: '#6b7280' },
         },
         y: {
           title: { display: false },
           grid: { display: false },
+          ticks: { color: '#374151', font: { weight: 'bold', size: 12 } },
         },
       },
-      // Manual plugin to draw scores inside bars since datalabels is not installed
       plugins_custom: [{
         id: 'scoreLabels',
         afterDraw: (chart: any) => {
@@ -331,7 +375,6 @@ export class SeguimientoComponent implements OnInit {
               ctx.textBaseline = 'middle';
               const text = `${value} pts`;
               const xPos = bar.x - 10;
-              // Only draw if there's enough space in the bar
               if (xPos > bar.base + 30) {
                 ctx.fillText(text, xPos, bar.y);
               }
@@ -342,10 +385,6 @@ export class SeguimientoComponent implements OnInit {
       }]
     };
 
-    // Primeng charts don't always pick up custom plugins in the options object directly
-    // but we can pass it if we register it globally or via setOptions. 
-    // In primeng [options] it usually works if defined in plugins key but with a specific format.
-    // However, to be safe and follow user instructions for 'afterDraw' plugin inline:
     (this.chartOptions.plugins as any).scoreLabels = {
       afterDraw: (this.chartOptions as any).plugins_custom[0].afterDraw
     };

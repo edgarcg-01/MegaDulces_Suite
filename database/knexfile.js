@@ -1,46 +1,33 @@
-const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
-
-module.exports = {
-  development: {
-    client: 'postgresql',
-    connection: {
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || 5432,
-      database: process.env.DB_NAME || 'trade_marketing',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'postgres',
+"use strict";
+const config = {
+    development: {
+        client: 'pg',
+        connection: process.env.DATABASE_URL
+            ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+            : {
+                host: process.env.DB_HOST || 'localhost',
+                port: Number(process.env.DB_PORT) || 5432,
+                database: process.env.DB_NAME || 'megadulces_logistica',
+                user: process.env.DB_USER || 'postgres',
+                password: process.env.DB_PASSWORD || 'postgres',
+            },
+        pool: { min: 2, max: 10 },
     },
-    pool: { min: 2, max: 10 },
-    migrations: {
-      tableName: 'knex_migrations',
-      directory: path.join(__dirname, 'migrations'),  
-      loadExtensions: ['.js'],
+    production: {
+        client: 'pg',
+        connection: process.env.DATABASE_URL
+            ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+            : {
+                host: process.env.DB_HOST,
+                port: Number(process.env.DB_PORT),
+                database: process.env.DB_NAME || 'megadulces_logistica',
+                user: process.env.DB_USER,
+                password: process.env.DB_PASSWORD,
+                ssl: { rejectUnauthorized: false },
+            },
+        pool: { min: 2, max: 10 },
     },
-    seeds: {
-      directory: path.join(__dirname, 'seeds'),
-    },
-  },
-  production: {
-    client: 'postgresql',
-    connection: process.env.DATABASE_URL
-      ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
-      : {
-          host: process.env.DB_HOST,
-          port: Number(process.env.DB_PORT),
-          database: process.env.DB_NAME,
-          user: process.env.DB_USER,
-          password: process.env.DB_PASSWORD,
-          ssl: { rejectUnauthorized: false },
-        },
-    pool: { min: 2, max: 10 },
-    migrations: {
-      tableName: 'knex_migrations',
-      directory: path.join(__dirname, 'migrations'),
-      extension: 'js',
-    },
-    seeds: {
-      directory: path.join(__dirname, 'seeds'),
-    },
-  },
 };
+
+module.exports = config;
+module.exports.connectionConfig = config;

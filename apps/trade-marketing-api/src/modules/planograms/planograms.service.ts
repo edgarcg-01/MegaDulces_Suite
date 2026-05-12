@@ -23,8 +23,20 @@ export class PlanogramsService {
     return result;
   }
 
+  async getVersion() {
+    const [brandsResult, productsResult] = await Promise.all([
+      this.knex('brands').max('updated_at as max_updated').first(),
+      this.knex('products').max('updated_at as max_updated').first(),
+    ]);
+    const dates = [brandsResult?.max_updated, productsResult?.max_updated].filter(Boolean);
+    const maxDate = dates.length > 0
+      ? new Date(Math.max(...dates.map(d => new Date(d).getTime()))).toISOString()
+      : null;
+    return { version: maxDate };
+  }
+
   async createBrand(data: any) {
-    const [brand] = await this.knex('brands').insert(data).returning('*');
+    const [brand] = await this.knex('brands').insert({ ...data, updated_at: this.knex.fn.now() }).returning('*');
     return brand;
   }
 
@@ -39,16 +51,17 @@ export class PlanogramsService {
     console.log('[PlanogramsService] addProduct - insertData:', JSON.stringify(insertData, null, 2));
 
     const [product] = await this.knex('products')
-      .insert(insertData)
+      .insert({ ...insertData, updated_at: this.knex.fn.now() })
       .returning('*');
     
     console.log('[PlanogramsService] addProduct - inserted product:', JSON.stringify(product, null, 2));
     
-    // Asegurar que el producto tiene todos los campos necesarios
     if (!product.nombre && data.nombre) {
       product.nombre = data.nombre;
       console.log('[PlanogramsService] addProduct - added nombre from data:', data.nombre);
     }
+
+    await this.knex('brands').where({ id: brandId }).update({ updated_at: this.knex.fn.now() });
     
     return product;
   }
@@ -62,7 +75,7 @@ export class PlanogramsService {
   async updateBrand(id: string, data: any) {
     const [brand] = await this.knex('brands')
       .where({ id })
-      .update(data)
+      .update({ ...data, updated_at: this.knex.fn.now() })
       .returning('*');
     return brand;
   }
@@ -70,17 +83,20 @@ export class PlanogramsService {
   async updateProduct(id: string, data: any) {
     const [product] = await this.knex('products')
       .where({ id })
-      .update(data)
+      .update({ ...data, updated_at: this.knex.fn.now() })
       .returning('*');
     return product;
   }
 
   async deleteProduct(id: string) {
+    await this.knex('products').where({ id }).update({ updated_at: this.knex.fn.now() });
     const deleted = await this.knex('products').where({ id }).del();
     return { deleted };
   }
 
   async deleteBrand(id: string) {
+    await this.knex('products').where({ brand_id: id }).update({ updated_at: this.knex.fn.now() });
+    await this.knex('brands').where({ id }).update({ updated_at: this.knex.fn.now() });
     await this.knex('brands').where({ id }).del();
     return { success: true };
   }

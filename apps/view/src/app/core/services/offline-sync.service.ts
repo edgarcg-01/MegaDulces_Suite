@@ -176,12 +176,16 @@ export class OfflineSyncService {
       ]);
 
       const version = new Date().toISOString();
+
+      // Preserve the existing planograma version if set by the caching layer
+      const existingPlanograma = await this.db.getCatalogo('planograma');
+      const planogramaVersion = existingPlanograma?.version || version;
       
       await Promise.all([
         this.db.guardarCatalogo('conceptos', conceptos, version),
         this.db.guardarCatalogo('ubicaciones', ubicaciones, version),
         this.db.guardarCatalogo('niveles', niveles, version),
-        this.db.guardarCatalogo('planograma', planograma, version),
+        this.db.guardarCatalogo('planograma', planograma, planogramaVersion),
         this.db.guardarCatalogo('scoring', scoring, version)
       ]);
 
