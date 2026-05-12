@@ -16,7 +16,7 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto) {
-    const { password, zona, zona_id: dtoZonaId, role_name, ...rest } = createUserDto;
+    const { password, zona, zona_id: dtoZonaId, role_name, username, ...rest } = createUserDto;
     const password_hash = await bcrypt.hash(password, 10);
     
     // Use zona_id from DTO if provided, otherwise resolve by name
@@ -24,11 +24,14 @@ export class UsersService {
     
     console.log('[UsersService] Creating user with zona_id:', zona_id, 'zona:', zona);
 
+    // Normalize username to lowercase for consistency
+    const normalizedUsername = username ? username.toLowerCase().trim() : username;
+
     // Normalize role_name to lowercase to match role_permissions
     const normalizedRoleName = role_name ? role_name.toLowerCase() : role_name;
 
     const [user] = await this.knex('users')
-      .insert({ ...rest, zona_id, password_hash, role_name: normalizedRoleName })
+      .insert({ ...rest, zona_id, password_hash, role_name: normalizedRoleName, username: normalizedUsername })
       .returning([
         'id',
         'username',
@@ -100,11 +103,16 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const { password, zona, zona_id: dtoZonaId, role_name, ...rest } = updateUserDto;
+    const { password, zona, zona_id: dtoZonaId, role_name, username, ...rest } = updateUserDto;
     const updateData: Record<string, any> = { ...rest };
 
     if (password) {
       updateData.password_hash = await bcrypt.hash(password, 10);
+    }
+
+    // Normalize username to lowercase if provided
+    if (username) {
+      updateData.username = username.toLowerCase().trim();
     }
 
     // Use zona_id from DTO if provided, otherwise resolve by name

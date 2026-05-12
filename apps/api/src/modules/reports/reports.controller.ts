@@ -1,5 +1,6 @@
-import { Controller, Get, UseGuards, Res, Query, Delete, Param } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards, Res, Query, Delete, Param, Body } from '@nestjs/common';
 import { ReportsService } from './reports.service';
+import { PdfService } from './pdf.service';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
@@ -13,7 +14,10 @@ import type { Response } from 'express';
 @UseGuards(RequireAuthGuard, RolesGuard)
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly reportsService: ReportsService) {}
+  constructor(
+    private readonly reportsService: ReportsService,
+    private readonly pdfService: PdfService,
+  ) {}
 
   @Get('summary')
   @RequirePermissions(Permission.REPORTES_VER_PROPIO)
@@ -173,5 +177,30 @@ export class ReportsController {
   })
   deleteReport(@Param('id') id: string, @ReqUser() user: any) {
     return this.reportsService.deleteReport(id, user);
+  }
+
+  @Post('export-pdf')
+  @RequirePermissions(Permission.REPORTES_EXPORTAR)
+  @ApiOperation({
+    summary: 'Genera un PDF del reporte usando Puppeteer',
+  })
+  async exportPdf(@Body() datos: any, @Res() res: Response) {
+    try {
+      const buffer = await this.pdfService.generarReporte(datos);
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename=reporte-mercadeo.pdf',
+        'Content-Length': buffer.length,
+      });
+
+      res.end(buffer);
+    } catch (error) {
+      console.error('[ReportsController] Error generando PDF:', error);
+      res.status(500).json({
+        error: 'Error generando PDF',
+        message: error.message,
+      });
+    }
   }
 }

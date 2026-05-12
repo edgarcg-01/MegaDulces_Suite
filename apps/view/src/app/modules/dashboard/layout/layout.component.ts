@@ -41,6 +41,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
 
+
+  
   // ── UI state ─────────────────────────────────────────────────────
   sidebarCollapsed = signal(false);
   sidebarOpen      = signal(false);
