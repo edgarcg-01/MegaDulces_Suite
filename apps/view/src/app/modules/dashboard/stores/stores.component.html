@@ -113,19 +113,10 @@
               }
             </td>
             <td>
-              <p-tag [value]="store.zona" severity="info" [rounded]="true" />
+              <p-tag [value]="store.zona || 'Sin zona'" severity="info" [rounded]="true" />
             </td>
             <td>
-              <p-select
-                [options]="getRoutesForStore(store)"
-                [(ngModel)]="store.ruta_id"
-                (ngModelChange)="updateStoreRoute(store, $event)"
-                placeholder="Sin ruta"
-                [showClear]="true"
-                appendTo="body"
-                class="w-full"
-                styleClass="p-select-sm"
-              />
+              <p-tag [value]="store.ruta_nombre || 'Sin ruta'" severity="secondary" [rounded]="true" />
             </td>
             <td class="text-center">
               <p-tag
@@ -135,16 +126,28 @@
               />
             </td>
             <td class="text-center">
-              <p-button
-                icon="pi pi-trash"
-                severity="danger"
-                [rounded]="true"
-                [text]="true"
-                size="small"
-                (click)="confirmDelete(store)"
-                pTooltip="Eliminar tienda"
-                tooltipPosition="top"
-              />
+              <div class="flex justify-center gap-1">
+                <p-button
+                  icon="pi pi-pencil"
+                  severity="info"
+                  [rounded]="true"
+                  [text]="true"
+                  size="small"
+                  (click)="openEditDialog(store)"
+                  pTooltip="Editar zona y ruta"
+                  tooltipPosition="top"
+                />
+                <p-button
+                  icon="pi pi-trash"
+                  severity="danger"
+                  [rounded]="true"
+                  [text]="true"
+                  size="small"
+                  (click)="confirmDelete(store)"
+                  pTooltip="Eliminar tienda"
+                  tooltipPosition="top"
+                />
+              </div>
             </td>
           </tr>
         </ng-template>
@@ -159,3 +162,53 @@
     </div>
   }
 </div>
+
+<p-dialog
+  header="Editar Zona y Ruta"
+  [(visible)]="editStoreDialog"
+  [modal]="true"
+  [style]="{width: '450px'}"
+  appendTo="body"
+>
+  <ng-template pTemplate="content">
+    <div class="flex flex-col gap-5 p-2">
+      @if (editingStore(); as store) {
+        <div class="mb-2">
+          <p class="font-bold text-content-main text-lg">{{ store.nombre }}</p>
+          <p class="text-sm text-content-muted">{{ store.direccion || 'Sin dirección' }}</p>
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-xs font-medium text-content-muted">Zona</label>
+          <p-select
+            [options]="zones()"
+            [(ngModel)]="editZonaId"
+            (ngModelChange)="onEditZoneChange()"
+            placeholder="Seleccionar zona"
+            [showClear]="true"
+            appendTo="body"
+            class="w-full"
+            optionLabel="label"
+            optionValue="value"
+          />
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-xs font-medium text-content-muted">Ruta</label>
+          <p-select
+            [options]="availableRoutes()"
+            [(ngModel)]="editRutaId"
+            placeholder="Seleccionar ruta"
+            [showClear]="true"
+            appendTo="body"
+            class="w-full"
+            optionLabel="label"
+            optionValue="value"
+          />
+        </div>
+      }
+    </div>
+  </ng-template>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (click)="editStoreDialog.set(false)" />
+    <p-button label="Guardar" severity="success" (click)="confirmSave()" />
+  </ng-template>
+</p-dialog>

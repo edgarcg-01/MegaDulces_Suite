@@ -142,6 +142,16 @@ export class DailyCapturesService {
     return dailyCapture;
   }
 
+  async remove(id: string) {
+    const visit = await this.knex('daily_captures').where({ id }).first()
+      || await this.knex('daily_captures').where({ folio: id }).first();
+    if (!visit) {
+      throw new NotFoundException(`Visita con identificador ${id} no encontrada`);
+    }
+    await this.knex('daily_captures').where({ id: visit.id }).del();
+    return { message: `Visita ${visit.folio} eliminada` };
+  }
+
   async cleanup() {
     const count = await this.knex('daily_captures').delete();
     return { message: `Eliminados ${count} registros de visitas` };

@@ -13,6 +13,8 @@ export interface User {
   activo: boolean;
   supervisor_id?: string;
   created_at?: string;
+  has_route_today?: boolean;
+  route_name_today?: string;
 }
 
 @Injectable({

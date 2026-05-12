@@ -45,8 +45,20 @@ export class UsersService {
   }
 
   async findAll(zona?: string, activo?: string) {
-    const query = this.knex('users as u')
+    const jsDay = new Date().getDay();
+    const dow = jsDay === 0 ? 7 : jsDay;
+
+    const knex = this.knex;
+    const query = knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .leftJoin('daily_assignments as da', function () {
+        this.on('da.user_id', '=', 'u.id');
+        this.on('da.day_of_week', '=', knex.raw('?', [dow]));
+      })
+      .leftJoin('catalogs as cr', function () {
+        this.on('cr.id', '=', 'da.route_id');
+        this.on('cr.catalog_id', '=', knex.raw("'rutas'"));
+      })
       .select(
         'u.id',
         'u.username',
@@ -55,7 +67,9 @@ export class UsersService {
         'u.role_name',
         'u.activo',
         'u.supervisor_id',
-        'u.created_at'
+        'u.created_at',
+        this.knex.raw('CASE WHEN da.id IS NOT NULL THEN true ELSE false END as has_route_today'),
+        'cr.value as route_name_today'
       );
 
     if (zona) query.where('z.name', zona);

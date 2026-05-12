@@ -104,6 +104,20 @@ export class ReportsController {
     );
   }
 
+  @Get('routes')
+  @RequirePermissions(Permission.REPORTES_VER_PROPIO)
+  @ApiOperation({ summary: 'Obtiene métricas agregadas por ruta' })
+  getRoutesData(
+    @ReqUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('zone') zone?: string,
+    @Query('supervisorId') supervisorId?: string,
+    @Query('userIds') userIds?: string[],
+  ) {
+    return this.reportsService.getRoutesData({ startDate, endDate, zone, supervisorId, userIds }, user);
+  }
+
   @Get('stores')
   @RequirePermissions(Permission.REPORTES_VER_PROPIO)
   @ApiOperation({

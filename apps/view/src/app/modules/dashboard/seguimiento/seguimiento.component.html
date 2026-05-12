@@ -286,6 +286,11 @@
                 {{ visitScoreStatus(selectedRow) === 'ok' ? 'Excelente' : visitScoreStatus(selectedRow) === 'warn' ? 'Regular' : 'Crítico' }}
               </div>
             </div>
+            @if (isSuperAdmin()) {
+              <button (click)="deleteVisit(selectedRow)" title="Eliminar visita" class="w-8 h-8 rounded-lg border border-red-200 hover:bg-red-50 flex items-center justify-center text-red-400 hover:text-red-600 transition-colors -mt-1">
+                <i class="pi pi-trash text-sm"></i>
+              </button>
+            }
             <button (click)="closeDetail()" class="w-8 h-8 rounded-lg border border-gray-200 hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors -mt-1">
               <i class="pi pi-times text-sm"></i>
             </button>
@@ -520,3 +525,4 @@
     </div>
   </ng-template>
 </p-dialog>
+

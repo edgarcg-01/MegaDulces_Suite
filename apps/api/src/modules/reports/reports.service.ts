@@ -700,6 +700,152 @@ export class ReportsService {
     return team.map((u) => u.id);
   }
 
+  async getRoutesData(
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      zone?: string;
+      supervisorId?: string;
+      userIds?: string[];
+    },
+    user: any,
+  ) {
+    const scope = getDataScope(user);
+
+    // ── Previous period for trend ──
+    let prevStart: string | undefined;
+    let prevEnd: string | undefined;
+    if (filters.startDate && filters.endDate) {
+      const dur = new Date(filters.endDate).getTime() - new Date(filters.startDate).getTime();
+      const prevEndDate = new Date(new Date(filters.startDate).getTime() - 1);
+      const prevStartDate = new Date(prevEndDate.getTime() - dur);
+      prevStart = prevStartDate.toISOString().split('T')[0];
+      prevEnd = prevEndDate.toISOString().split('T')[0];
+    }
+
+    // Helper to build a route-aggregation query
+    const buildRouteQuery = (startDate?: string, endDate?: string) => {
+      let q = this.knex('daily_captures as dc')
+        .join('stores as s', 's.id', 'dc.store_id')
+        .join('catalogs as c', function () {
+          this.on('c.id', '=', 's.ruta_id').andOnVal('c.catalog_id', '=', 'rutas');
+        })
+        .leftJoin('zones as z', 'z.id', 's.zona_id')
+        .whereNotNull('dc.store_id')
+        .whereNotNull('s.ruta_id')
+        .select(
+          'c.id as route_id',
+          'c.value as route_name',
+          'z.name as zone_name',
+        )
+        .select(this.knex.raw('COUNT(DISTINCT dc.id) as visitas'))
+        .select(this.knex.raw("COALESCE(AVG((dc.stats->>'puntuacionTotal')::float), 0) as score"))
+        .select(this.knex.raw("COALESCE(SUM(COALESCE(NULLIF((dc.stats->>'ventaTotal')::float, 0), (dc.stats->>'ventaAdicional')::float)), 0) as venta"))
+        .groupBy('c.id', 'c.value', 'z.name')
+        .orderBy('score', 'desc');
+
+      if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
+      else if (scope.type === 'team' && scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined')
+        q = q.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', scope.userId));
+
+      if (startDate) q.whereRaw("DATE(dc.hora_inicio) >= ?", [startDate]);
+      if (endDate) q.whereRaw("DATE(dc.hora_inicio) <= ?", [endDate]);
+      if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined')
+        q.where('s.zona_id', filters.zone);
+      if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined')
+        q = q.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', filters.supervisorId));
+      else if (filters.userIds?.length)
+        q = q.whereIn('dc.user_id', filters.userIds);
+
+      return q;
+    };
+
+    const routes = await buildRouteQuery(filters.startDate, filters.endDate);
+    const prevRoutes = await buildRouteQuery(prevStart, prevEnd);
+
+    // Build trend map from previous period
+    const trendMap: Record<string, number> = {};
+    for (const r of prevRoutes) {
+      trendMap[r.route_id] = Number(r.score);
+    }
+
+    // ── Executive breakdown per route ──
+    const routeIds = routes.map((r: any) => r.route_id);
+    let execQuery = this.knex('daily_captures as dc')
+      .join('stores as s', 's.id', 'dc.store_id')
+      .whereNotNull('dc.store_id')
+      .whereNotNull('s.ruta_id')
+      .whereIn('s.ruta_id', routeIds)
+      .select('s.ruta_id', 'dc.user_id', 'dc.captured_by_username')
+      .select(this.knex.raw('COUNT(DISTINCT dc.id) as exec_visitas'))
+      .select(this.knex.raw("COALESCE(AVG((dc.stats->>'puntuacionTotal')::float), 0) as exec_score"))
+      .select(this.knex.raw("COALESCE(SUM(COALESCE(NULLIF((dc.stats->>'ventaTotal')::float, 0), (dc.stats->>'ventaAdicional')::float)), 0) as exec_venta"))
+      .groupBy('s.ruta_id', 'dc.user_id', 'dc.captured_by_username')
+      .orderBy('exec_score', 'desc');
+
+    if (scope.type === 'own') execQuery = execQuery.where('dc.user_id', scope.userId);
+    else if (scope.type === 'team' && scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined')
+      execQuery = execQuery.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', scope.userId));
+    if (filters.startDate) execQuery.whereRaw("DATE(dc.hora_inicio) >= ?", [filters.startDate]);
+    if (filters.endDate) execQuery.whereRaw("DATE(dc.hora_inicio) <= ?", [filters.endDate]);
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined')
+      execQuery = execQuery.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', filters.supervisorId));
+    else if (filters.userIds?.length)
+      execQuery = execQuery.whereIn('dc.user_id', filters.userIds);
+
+    const execs = await execQuery;
+
+    // Group execs by route_id
+    const execMap: Record<string, any[]> = {};
+    for (const e of execs) {
+      if (!execMap[e.ruta_id]) execMap[e.ruta_id] = [];
+      execMap[e.ruta_id].push({
+        id: e.user_id,
+        name: e.captured_by_username,
+        initials: (e.captured_by_username || '').split(' ').map((s: string) => s[0]).join('').slice(0, 2).toUpperCase(),
+        v: Number(e.exec_visitas),
+        s: Math.round(Number(e.exec_score)),
+        sale: Math.round(Number(e.exec_venta)),
+      });
+    }
+
+    // ── Assemble response ──
+    const result = routes.map((r: any) => {
+      const currentScore = Number(r.score);
+      const prevScore = trendMap[r.route_id] || 0;
+      const diff = currentScore - prevScore;
+      const trend = diff >= 0 ? `+${Math.round(diff)}` : `${Math.round(diff)}`;
+
+      return {
+        id: r.route_id,
+        name: r.route_name,
+        zona: r.zone_name || '',
+        visitas: Number(r.visitas),
+        score: Math.round(currentScore),
+        venta: Math.round(Number(r.venta)),
+        trend,
+        execs: execMap[r.route_id] || [],
+      };
+    });
+
+    // Compute global KPIs
+    const totalRoutes = result.length;
+    const routesWithVisits = result.filter(r => r.visitas > 0).length;
+    const avgScore = totalRoutes > 0 ? Math.round(result.reduce((s, r) => s + r.score, 0) / totalRoutes) : 0;
+    const routesInMeta = result.filter(r => r.score >= 80).length;
+
+    return {
+      routes: result,
+      kpis: {
+        totalRoutes,
+        routesWithVisits,
+        avgScore,
+        routesInMeta,
+        metaPct: totalRoutes > 0 ? Math.round((routesInMeta / totalRoutes) * 100) : 0,
+      },
+    };
+  }
+
   async getStoresData(
     filters: {
       startDate?: string;

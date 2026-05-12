@@ -22,8 +22,8 @@
         <p-tab [value]="0" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Resumen</p-tab>
         
         <p-tab [value]="1" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
-        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
-        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
+        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Rutas</p-tab>
+        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
       </p-tablist>
 
       <p-tabpanels>
@@ -262,6 +262,12 @@
             </p-table>
           </div>
           </ng-container>
+        </p-tabpanel>
+
+        <p-tabpanel [value]="2">
+          <div class="pt-4">
+            <app-routes-tab />
+          </div>
         </p-tabpanel>
 
         <!-- Visitas tab removed — moved to /seguimiento -->

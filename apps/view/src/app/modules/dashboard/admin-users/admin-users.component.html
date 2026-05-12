@@ -36,7 +36,7 @@
           <th pSortableColumn="role_name">Puesto / Rol <p-sortIcon field="role_name"></p-sortIcon></th>
           <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
           <th class="table-header">Jefe Directo</th>
-          <th class="text-center table-header">Estado</th>
+          <th class="text-center table-header">Ruta hoy</th>
           <th class="text-center w-28 table-header">Acciones</th>
         </tr>
       </ng-template>
@@ -67,7 +67,11 @@
             {{ user.role_name === 'colaborador' ? getSupervisorName(user.supervisor_id) : '-' }}
           </td>
           <td class="text-center">
-            <i class="pi" [ngClass]="user.activo ? 'pi-check-circle text-content-main' : 'pi-times-circle text-content-muted'"></i>
+            @if (user.has_route_today) {
+              <p-tag [value]="user.route_name_today" severity="success" [rounded]="true" />
+            } @else {
+              <p-tag value="Sin ruta" severity="danger" [rounded]="true" />
+            }
           </td>
           <td class="text-center">
             <div class="flex justify-center gap-1">
@@ -131,8 +135,11 @@
 
       <div class="mt-4 flex items-center justify-between bg-surface-ground/50 -mx-4 -mb-4 p-3 border-t border-divider/30">
         <div class="flex items-center gap-2">
-            <div class="w-1.5 h-1.5 rounded-full" [ngClass]="user.activo ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-400'"></div>
-            <span class="text-[10px] font-bold" [ngClass]="user.activo ? 'text-content-main' : 'text-content-muted'">{{ user.activo ? 'ACCESO ACTIVO' : 'SIN ACCESO' }}</span>
+          @if (user.has_route_today) {
+            <p-tag [value]="user.route_name_today" severity="success" [rounded]="true" />
+          } @else {
+            <p-tag value="Sin ruta hoy" severity="danger" [rounded]="true" />
+          }
         </div>
         <button (click)="deleteUser(user)" class="text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter">Eliminar</button>
       </div>

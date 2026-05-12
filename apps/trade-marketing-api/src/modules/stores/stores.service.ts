@@ -8,11 +8,12 @@ export class StoresService {
 
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
+    const cleaned = zonaName.trim();
     const zone = await this.knex('zones')
-      .where({ name: zonaName })
+      .whereRaw('LOWER(name) = ?', [cleaned.toLowerCase()])
       .select('id')
       .first();
-    return zone ? zone.id : null;
+    return zone?.id || null;
   }
 
   async findAll(zona_id?: string, ruta_id?: string) {
@@ -65,10 +66,12 @@ export class StoresService {
   }
 
   async update(id: string, data: Record<string, any>) {
-    const { zona, ...rest } = data;
+    const { zona, zona_id, ...rest } = data;
     const updateData: any = { ...rest };
 
-    if (zona !== undefined) {
+    if (zona_id !== undefined) {
+      updateData.zona_id = zona_id;
+    } else if (zona !== undefined) {
       updateData.zona_id = await this.resolveZonaId(zona);
     }
 

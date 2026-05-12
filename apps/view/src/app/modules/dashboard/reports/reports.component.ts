@@ -47,6 +47,7 @@ import {
 } from '../reports/graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
 import { StoresTabComponent } from './stores-tab/stores-tab.component';
+import { RoutesTabComponent } from './routes-tab/routes-tab.component';
 import { Permission } from '../../../core/constants/permissions';
 
 /**
@@ -97,6 +98,7 @@ interface PdfSection {
     DropdownModule,
     GlobalFiltersComponent,
     StoresTabComponent,
+    RoutesTabComponent,
     ConfirmDialogModule,
     SkeletonModule,
   ],

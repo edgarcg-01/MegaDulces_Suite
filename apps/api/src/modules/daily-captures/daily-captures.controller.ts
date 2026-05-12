@@ -83,4 +83,11 @@ export class DailyCapturesController {
   async cleanup() {
     return this.dailyCapturesService.cleanup();
   }
+
+  @Delete(':id')
+  @RequirePermissions(Permission.REPORTES_VER_GLOBAL)
+  @ApiOperation({ summary: 'Eliminar una visita por ID o folio (solo superadmin)' })
+  async remove(@Param('id') id: string) {
+    return this.dailyCapturesService.remove(id);
+  }
 }

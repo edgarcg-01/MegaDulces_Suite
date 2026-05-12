@@ -9,11 +9,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
@@ -24,9 +26,11 @@ import { Subject, switchMap, startWith, tap, forkJoin, of, catchError } from 'rx
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Chart } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
+import { environment } from '../../../../environments/environment';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { MetasConfigService, KpiRange } from '../../../modules/dashboard/reports/graphics/metas-config.service';
-import { MessageService } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { ReportsService, ReportsData } from '../../../modules/dashboard/reports/reports.service';
 import { FiltersStateService } from '../../../modules/dashboard/reports/graphics/filters-state.service';
 import { GlobalFiltersComponent } from '../../../modules/dashboard/reports/graphics/global-filters.component';
@@ -48,6 +52,7 @@ Chart.register(annotationPlugin);
     IconFieldModule, 
     InputIconModule, 
     TagModule, 
+    ConfirmDialogModule,
     GlobalFiltersComponent
   ],
   providers: [MessageService],
@@ -94,8 +99,11 @@ export class SeguimientoComponent implements OnInit {
   private perms = inject(PermissionsService);
   private metasConfig = inject(MetasConfigService);
   private messageService = inject(MessageService);
+  private confirmationService = inject(ConfirmationService);
   private destroyRef = inject(DestroyRef);
   private dailyCaptureService = inject(DailyCaptureService);
+  private http = inject(HttpClient);
+  private auth = inject(AuthService);
   readonly filtersState = inject(FiltersStateService);
 
   // Signals
@@ -440,5 +448,38 @@ export class SeguimientoComponent implements OnInit {
 
   cancelMetas(): void {
     this.showMetasDialog = false;
+  }
+
+  isSuperAdmin = computed(() => this.auth.user()?.role_name === 'superadmin');
+
+  deleteVisit(visit: any): void {
+    this.confirmationService.confirm({
+      message: `¿Estás seguro de eliminar la visita <b>#${visit.folio}</b> de ${visit.captured_by_username || '?'}? Esta acción no se puede deshacer.`,
+      header: 'Eliminar visita',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger p-button-text',
+      rejectButtonStyleClass: 'p-button-text p-button-secondary',
+      accept: async () => {
+        const id = visit.id || visit.folio;
+        try {
+          await this.http.delete(`${environment.apiUrl}/daily-captures/${id}`).toPromise();
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Visita eliminada',
+            detail: `Visita #${visit.folio} eliminada correctamente.`,
+          });
+          this.closeDetail();
+          this.refreshAll();
+        } catch (err: any) {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error al eliminar',
+            detail: err?.error?.message || err?.message || 'No se pudo eliminar la visita.',
+          });
+        }
+      },
+    });
   }
 }

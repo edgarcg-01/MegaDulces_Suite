@@ -9,6 +9,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
@@ -30,6 +31,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     ConfirmDialogModule,
     InputTextModule,
     TooltipModule,
+    DialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './stores.component.html',
@@ -51,6 +53,17 @@ export class StoresComponent implements OnInit {
   selectedZone = signal<any | null>(null);
   selectedRoute = signal<any | null>(null);
   searchQuery = signal('');
+
+  editStoreDialog = signal(false);
+  editingStore = signal<any | null>(null);
+  editZonaId = signal<string | null>(null);
+  editRutaId = signal<string | null>(null);
+
+  availableRoutes = computed(() => {
+    const zonaId = this.editZonaId();
+    if (!zonaId) return [];
+    return this.allRoutes().filter(r => r.parent_id === zonaId);
+  });
 
   hasGlobalScope = computed(() =>
     this.perms.can('read', 'reports_global') || this.perms.can('read', 'reports_team')
@@ -204,23 +217,67 @@ export class StoresComponent implements OnInit {
     });
   }
 
-  updateStoreRoute(store: any, newRutaId: string | null) {
-    const route = this.allRoutes().find(r => r.value === newRutaId);
-    const oldRutaId = store.ruta_id;
+  openEditDialog(store: any) {
+    this.editingStore.set(store);
+    this.editZonaId.set(store.zona_id || null);
+    this.editRutaId.set(store.ruta_id || null);
+    this.editStoreDialog.set(true);
+  }
 
+  onEditZoneChange() {
+    this.editRutaId.set(null);
+  }
+
+  confirmSave() {
+    const store = this.editingStore();
+    if (!store) return;
+
+    this.confirmationService.confirm({
+      message: `¿Guardar los cambios de zona y ruta para "${store.nombre}"?`,
+      header: 'Confirmar Cambios',
+      icon: 'pi pi-check-circle',
+      acceptLabel: 'Sí, guardar',
+      rejectLabel: 'Cancelar',
+      accept: () => this.saveStore(),
+    });
+  }
+
+  private saveStore() {
+    const store = this.editingStore();
+    if (!store) return;
+
+    const newZonaId = this.editZonaId();
+    const newRutaId = this.editRutaId();
+    const oldZona = store.zona;
+    const oldRuta = store.ruta_nombre;
+
+    const zoneMatch = this.zones().find(z => z.value === newZonaId);
+    const routeMatch = newRutaId ? this.allRoutes().find(r => r.value === newRutaId) : null;
+
+    store.zona_id = newZonaId;
+    store.zona = zoneMatch?.label || null;
     store.ruta_id = newRutaId;
-    store.ruta_nombre = route?.label || null;
+    store.ruta_nombre = routeMatch?.label || null;
 
-    this.http.put(`${environment.apiUrl}/stores/${store.id}`, { ruta_id: newRutaId }).subscribe({
+    this.http.put(`${environment.apiUrl}/stores/${store.id}`, {
+      zona_id: newZonaId,
+      ruta_id: newRutaId,
+    }).subscribe({
+      next: () => {
+        this.editStoreDialog.set(false);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Guardado',
+          detail: `Zona y ruta actualizadas para ${store.nombre}`,
+        });
+      },
       error: () => {
-        store.ruta_id = oldRutaId;
-        store.ruta_nombre = oldRutaId
-          ? this.allRoutes().find(r => r.value === oldRutaId)?.label || null
-          : null;
+        store.zona = oldZona;
+        store.ruta_nombre = oldRuta;
         this.messageService.add({
           severity: 'error',
           summary: 'Error',
-          detail: `No se pudo actualizar la ruta de ${store.nombre}`
+          detail: `No se pudieron guardar los cambios de ${store.nombre}`,
         });
       }
     });
