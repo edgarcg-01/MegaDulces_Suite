@@ -55,7 +55,7 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Obtiene puntuaciones diarias por usuario para el módulo de Seguimiento',
   })
-  getDailyScoresPerUser(
+  async getDailyScoresPerUser(
     @ReqUser() user: any,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
@@ -63,10 +63,17 @@ export class ReportsController {
     @Query('supervisorId') supervisorId?: string,
     @Query('userIds') userIds?: string[],
   ) {
-    return this.reportsService.getDailyScoresPerUser(
-      { startDate, endDate, zone, supervisorId, userIds },
-      user,
-    );
+    try {
+      console.log('[ReportsController] Calling getDailyScoresPerUser');
+      const result = await this.reportsService.getDailyScoresPerUser(
+        { startDate, endDate, zone, supervisorId, userIds },
+        user,
+      );
+      return result;
+    } catch (error) {
+      console.error('[ReportsController] Error in getDailyScoresPerUser:', error);
+      throw error;
+    }
   }
 
   @Get('data')

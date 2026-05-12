@@ -51,6 +51,7 @@ export interface ReportsData {
  */
 export class ReportsService {
   private http = inject(HttpClient);
+  public readonly baseUrl = environment.apiUrl;
   private apiUrl = `${environment.apiUrl}/reports`;
 
   /**
@@ -72,7 +73,7 @@ export class ReportsService {
 
     if (idsToSend.length > 0) {
       idsToSend.forEach((id: string) => {
-        params = params.append('userIds[]', id);
+        params = params.append('userIds', id);
       });
     }
 
@@ -93,7 +94,7 @@ export class ReportsService {
     if (filters.userId) params = params.set('userId', filters.userId);
     if (filters.userIds && filters.userIds.length > 0) {
       filters.userIds.forEach((id: string) => {
-        params = params.append('userIds[]', id);
+        params = params.append('userIds', id);
       });
     }
     if (filters.zone) params = params.set('zone', filters.zone);
@@ -160,7 +161,7 @@ export class ReportsService {
       // Enviar sellerIds si existen
       if (filters.sellerIds && filters.sellerIds.length > 0) {
         filters.sellerIds.forEach((id: string) => {
-          params = params.append('userIds[]', id);
+          params = params.append('userIds', id);
         });
       }
     }
@@ -182,7 +183,7 @@ export class ReportsService {
 
       if (filters.sellerIds && filters.sellerIds.length > 0) {
         filters.sellerIds.forEach((id: string) => {
-          params = params.append('userIds[]', id);
+          params = params.append('userIds', id);
         });
       }
     }

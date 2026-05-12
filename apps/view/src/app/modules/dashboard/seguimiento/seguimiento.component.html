@@ -1,0 +1,496 @@
+<main class="p-6 space-y-6">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main">
+        Seguimiento Diario
+      </h1>
+      <p class="text-content-muted text-sm">
+        Score por ejecutivo — {{ filtersState.rangeLabel() }}
+      </p>
+    </div>
+    <div class="flex items-center gap-3 flex-wrap">
+      <span class="text-xs text-content-faint">{{ lastUpdate }}</span>
+      <p-button
+        icon="pi pi-refresh"
+        label="Actualizar"
+        severity="secondary"
+        [outlined]="true"
+        (onClick)="refreshAll()"
+        [disabled]="loading() || loadingVisitas()"
+      />
+      @if (canEditMetas()) {
+        <p-button
+          label="Metas"
+          icon="pi pi-sliders-h"
+          styleClass="p-button-brand"
+          size="small"
+          (click)="openMetasDialog()"
+        />
+      }
+    </div>
+  </div>
+
+  @if (totalUsers() > 0) {
+    <div class="flex items-center gap-2 px-4 py-2.5 bg-surface-50 rounded-lg border border-surface-200">
+      <span class="text-sm font-semibold text-content-main">
+        {{ enMeta() }} de {{ totalUsers() }} ejecutivos en meta
+        <span class="text-content-muted font-normal text-xs ml-1">(&ge;{{ scoreOpt }} pts)</span>
+      </span>
+    </div>
+  }
+
+  <div class="card-premium">
+    <div [style.height.px]="chartHeight()">
+      @if (chartData) {
+        <p-chart
+          type="bar"
+          [data]="chartData"
+          [options]="chartOptions"
+          [plugins]="chartOptions.plugins_custom"
+          height="100%"
+        />
+      } @else if (!loading()) {
+        <div class="flex items-center justify-center h-full text-content-muted">
+          No hay datos para hoy
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="flex items-center gap-4 text-xs text-content-faint">
+    <span class="flex items-center gap-1">
+      <span class="w-3 h-3 rounded bg-green-500"></span>
+      Optimo (&ge;{{ scoreOpt }})
+    </span>
+    <span class="flex items-center gap-1">
+      <span class="w-3 h-3 rounded bg-amber-400"></span>
+      Regular ({{ scoreMin }}&ndash;{{ scoreOpt - 1 }})
+    </span>
+    <span class="flex items-center gap-1">
+      <span class="w-3 h-3 rounded bg-red-500"></span>
+      Critico (&lt;{{ scoreMin }})
+    </span>
+    <span class="flex items-center gap-1 ml-2">
+      <span class="w-6 h-0.5 bg-amber-500 border-dashed" style="border-top:2px dashed #f59e0b"></span>
+      Meta ({{ scoreOpt }} pts)
+    </span>
+  </div>
+
+  <div class="mt-10 pt-6 border-t border-divider">
+    <app-global-filters (filtersChanged)="onVisitsFilterChange()" />
+
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold text-content-main">Visitas</h2>
+      <div class="flex items-center gap-3">
+        <p-iconfield>
+          <p-inputicon class="pi pi-search" />
+          <input
+            pInputText
+            type="text"
+            [ngModel]="searchText()"
+            (ngModelChange)="searchText.set($event)"
+            placeholder="Buscar visita..."
+            class="p-inputtext-sm"
+          />
+        </p-iconfield>
+        <span class="text-xs text-content-muted">{{ allVisits().length }} visita(s)</span>
+      </div>
+    </div>
+
+    @if (selectedVisitsCount() > 0) {
+      <div class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider mb-4">
+        <span class="text-xs text-content-muted flex-1">{{ selectedVisitsCount() }} visita(s) seleccionada(s)</span>
+        <p-button label="Comparar" icon="pi pi-sliders-h" severity="secondary" size="small" (click)="showComparison = !showComparison" />
+      </div>
+    }
+
+    @if (loadingVisitas()) {
+      <div class="flex justify-center py-12">
+        <i class="pi pi-spin pi-spinner text-2xl text-content-faint"></i>
+      </div>
+    } @else {
+      @if (allVisits().length > 0) {
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          @for (visit of filteredVisits(); track visit.folio) {
+            <div
+              class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+              [class.ring-2]="isVisitSelected(visit.folio)"
+              [class.ring-blue-400]="isVisitSelected(visit.folio)"
+              (click)="viewDetail(visit)"
+              tabindex="0"
+              (keydown.enter)="viewDetail(visit)"
+            >
+              <div class="flex items-start gap-3 mb-4">
+                <input
+                  type="checkbox"
+                  [ngModel]="isVisitSelected(visit.folio)"
+                  (ngModelChange)="toggleVisitSelection(visit.folio, $event)"
+                  (click)="$event.stopPropagation()"
+                  style="accent-color:#185FA5;margin-top:3px"
+                  class="focus-visible:ring-2 focus-visible:ring-blue-300"
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs text-content-faint mb-0.5">#{{ visit.folio }} &middot; {{ visit.fecha | date:'dd MMM':'UTC' }} &middot; {{ visit.zona_captura | uppercase }}</div>
+                  <div class="font-bold text-sm text-content-main truncate">{{ visit.captured_by_username }}</div>
+                  <div class="flex gap-1.5 mt-1 flex-wrap">
+                    @if (visit.cliente_nombre) {
+                      <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100 font-bold uppercase">{{ visit.cliente_nombre }}</span>
+                    }
+                    @if (visit.latitud) {
+                      <span class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold">GPS</span>
+                    }
+                  </div>
+                </div>
+                <div class="flex flex-col items-center justify-center w-12 h-12 rounded-xl flex-shrink-0"
+                  [ngClass]="{
+                    'bg-green-100 text-green-800': visitScoreStatus(visit) === 'ok',
+                    'bg-amber-100 text-amber-800': visitScoreStatus(visit) === 'warn',
+                    'bg-red-100 text-red-800':     visitScoreStatus(visit) === 'bad'
+                  }">
+                  <span class="text-base font-semibold leading-none">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                  <span class="text-[9px] font-medium mt-0.5 opacity-70">pts</span>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between pt-3 mt-3 border-t border-divider">
+                <span class="text-xs text-content-muted">
+                  {{ visit.exhibiciones?.length ?? 0 }} exhib.
+                  <span *ngIf="visit.stats?.ventaTotal"> &middot; ${{ visit.stats.ventaTotal | number:'1.0-0' }}</span>
+                </span>
+                <p-button
+                  icon="pi pi-eye"
+                  label="Detalle"
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  (click)="viewDetail(visit); $event.stopPropagation()"
+                />
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="text-center py-12 text-content-muted">
+          No hay visitas para hoy
+        </div>
+      }
+    }
+
+    @if (showComparison && selectedVisitsCount() >= 2) {
+      <div class="card-premium mt-4">
+        <h3 class="text-sm font-bold mb-4 text-content-main">Vista comparativa</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-sm">
+            <thead>
+              <tr class="text-xs uppercase text-content-muted border-b border-divider">
+                <th class="py-2 text-left">M&eacute;trica</th>
+                @for (v of selectedVisits(); track v.folio) {
+                  <th class="py-2 text-center">
+                    <span class="font-bold text-content-main">#{{ v.folio }}</span><br />
+                    <span class="text-[11px] font-normal">{{ v.captured_by_username }}</span>
+                  </th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted">Score final</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center font-bold"
+                    [ngClass]="{ 'text-green-600': visitScoreStatus(v) === 'ok', 'text-amber-500': visitScoreStatus(v) === 'warn', 'text-red-500': visitScoreStatus(v) === 'bad' }">
+                    {{ fmtScore(v.stats?.puntuacionTotal) }}
+                  </td>
+                }
+              </tr>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted">Exhibiciones</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center">{{ v.exhibiciones?.length ?? 0 }}</td>
+                }
+              </tr>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted">Zona</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center text-content-muted text-xs uppercase">{{ v.zona_captura }}</td>
+                }
+              </tr>
+              <tr class="border-b border-divider/50">
+                <td class="py-2 text-content-muted">GPS</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center">
+                    <span [ngClass]="v.latitud ? 'text-green-600' : 'text-red-500'" class="font-bold text-xs">{{ v.latitud ? 'S&iacute;' : 'No' }}</span>
+                  </td>
+                }
+              </tr>
+              <tr>
+                <td class="py-2 text-content-muted">Venta total</td>
+                @for (v of selectedVisits(); track v.folio) {
+                  <td class="py-2 text-center font-bold">{{ (v.stats?.ventaTotal ?? 0) | number:'1.0-0' }}</td>
+                }
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  </div>
+</main>
+
+<p-dialog
+  [(visible)]="showDetail"
+  [modal]="true"
+  [style]="{ width: '94vw', maxWidth: '860px', height: '88vh' }"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  styleClass="seguimiento-detail-dialog"
+  [showHeader]="false"
+>
+  @if (selectedRow) {
+    <div class="flex flex-col h-full overflow-hidden bg-white rounded-xl">
+
+      <!-- ═══ HEADER ═══ -->
+      <div class="px-6 pt-5 pb-4 border-b border-gray-200 shrink-0">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">#{{ selectedRow.folio }}</span>
+              <span class="text-gray-300">·</span>
+              <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ selectedRow.zona_captura }}</span>
+            </div>
+            <h2 class="text-xl font-bold text-gray-900 truncate leading-snug">
+              {{ selectedRow.cliente_nombre || selectedRow.sucursal || 'Tienda sin nombre' }}
+            </h2>
+            <div class="flex items-center gap-3 mt-1.5 text-[12px] text-gray-500">
+              <span class="flex items-center gap-1"><i class="pi pi-user text-[10px]"></i> {{ selectedRow.captured_by_username }}</span>
+              <span class="flex items-center gap-1"><i class="pi pi-calendar text-[10px]"></i> {{ selectedRow.fecha | date:'dd MMM yyyy':'UTC' }}</span>
+              @if (selectedRow.hora_inicio) {
+                <span class="flex items-center gap-1"><i class="pi pi-clock text-[10px]"></i> {{ selectedRow.hora_inicio | date:'HH:mm' }}</span>
+              }
+            </div>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <div class="text-right">
+              <div class="text-3xl font-extrabold text-gray-900 leading-none">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
+              <div class="text-[10px] font-bold uppercase tracking-wide mt-0.5"
+                   [ngClass]="{
+                     'text-emerald-600': visitScoreStatus(selectedRow) === 'ok',
+                     'text-amber-500': visitScoreStatus(selectedRow) === 'warn',
+                     'text-red-500': visitScoreStatus(selectedRow) === 'bad'
+                   }">
+                {{ visitScoreStatus(selectedRow) === 'ok' ? 'Excelente' : visitScoreStatus(selectedRow) === 'warn' ? 'Regular' : 'Crítico' }}
+              </div>
+            </div>
+            <button (click)="closeDetail()" class="w-8 h-8 rounded-lg border border-gray-200 hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors -mt-1">
+              <i class="pi pi-times text-sm"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Inline Stats Bar -->
+        <div class="flex items-center gap-5 mt-4 pt-3 border-t border-gray-100">
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-dollar text-[11px] text-gray-400"></i>
+            <span class="text-[13px] font-semibold text-gray-700">&dollar;{{ (selectedRow.stats?.ventaTotal || 0) | number:'1.0-0' }}</span>
+            <span class="text-[11px] text-gray-400">venta</span>
+          </div>
+          <div class="w-px h-3.5 bg-gray-200"></div>
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-th-large text-[11px] text-gray-400"></i>
+            <span class="text-[13px] font-semibold text-gray-700">{{ selectedRow.exhibiciones?.length || 0 }}</span>
+            <span class="text-[11px] text-gray-400">muebles</span>
+          </div>
+          <div class="w-px h-3.5 bg-gray-200"></div>
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-camera text-[11px] text-gray-400"></i>
+            <span class="text-[13px] font-semibold text-gray-700">{{ countPhotos(selectedRow.exhibiciones) }}</span>
+            <span class="text-[11px] text-gray-400">fotos</span>
+          </div>
+          <div class="w-px h-3.5 bg-gray-200"></div>
+          @if (selectedRow.latitud && selectedRow.longitud) {
+            <a [href]="'https://www.google.com/maps?q=' + selectedRow.latitud + ',' + selectedRow.longitud"
+               target="_blank"
+               class="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-600 hover:text-emerald-700 transition-colors">
+              <i class="pi pi-map-marker text-[11px]"></i> GPS <i class="pi pi-external-link text-[9px] ml-0.5"></i>
+            </a>
+          } @else {
+            <span class="flex items-center gap-1.5 text-[13px] text-gray-400">
+              <i class="pi pi-map-marker text-[11px]"></i> Sin GPS
+            </span>
+          }
+        </div>
+      </div>
+
+      <!-- ═══ EXHIBITION LIST ═══ -->
+      <div class="flex-1 overflow-y-auto">
+        <div class="px-6 py-4">
+          <div class="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">
+            Exhibiciones ({{ selectedRow.exhibiciones?.length || 0 }})
+          </div>
+
+          <div class="divide-y divide-gray-100">
+            @for (ex of selectedRow.exhibiciones; track $index) {
+              <div class="py-4 first:pt-0 last:pb-0">
+                <div class="flex gap-4">
+
+                  <!-- Photo -->
+                  @if (ex.fotoUrl) {
+                    <div class="shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-gray-100 cursor-pointer group"
+                         (click)="openImagePreview(getImageUrl(ex.fotoUrl))">
+                      <img [src]="getImageUrl(ex.fotoUrl)"
+                           class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200" />
+                    </div>
+                  } @else {
+                    <div class="shrink-0 w-16 h-16 rounded-lg bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center">
+                      <i class="pi pi-image text-gray-300 text-lg"></i>
+                    </div>
+                  }
+
+                  <!-- Info -->
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                          <h4 class="text-[14px] font-bold text-gray-900 truncate">{{ ex.rango || 'Sin rango' }}</h4>
+                          <span class="text-[10px] font-medium text-gray-400 uppercase shrink-0">{{ ex.formato || 'Mueble' }}</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1 mt-1.5">
+                          @for (p of getProductNames()(ex); track $index) {
+                            <span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium leading-none">{{ p }}</span>
+                          } @empty {
+                            <span class="text-[11px] text-gray-400 italic">Sin productos</span>
+                          }
+                        </div>
+                      </div>
+                      <div class="text-right shrink-0">
+                        <div class="text-lg font-extrabold text-gray-900 leading-none">{{ ex.puntuacionCalculada || ex.puntos || 0 }}</div>
+                        <div class="text-[10px] font-semibold uppercase mt-0.5"
+                             [ngClass]="{
+                               'text-emerald-600': (ex.nivelEjecucion || ex.nivel) === 'optimo' || (ex.nivelEjecucion || ex.nivel) === 'excelente',
+                               'text-amber-500': (ex.nivelEjecucion || ex.nivel) === 'regular' || (ex.nivelEjecucion || ex.nivel) === 'medio',
+                               'text-red-500': (ex.nivelEjecucion || ex.nivel) === 'critico' || (ex.nivelEjecucion || ex.nivel) === 'bajo',
+                               'text-gray-400': !(ex.nivelEjecucion || ex.nivel)
+                             }">{{ ex.nivelEjecucion || ex.nivel || '—' }}</div>
+                      </div>
+                    </div>
+                    @if ((ex.ventaTotal ?? 0) > 0) {
+                      <div class="mt-2 text-[12px] text-gray-500">
+                        Venta: <span class="font-semibold text-gray-700">&dollar;{{ ex.ventaTotal | number:'1.0-0' }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </div>
+            } @empty {
+              <div class="py-12 text-center text-gray-400 text-sm">
+                <i class="pi pi-inbox text-2xl mb-2 block opacity-40"></i>
+                No hay exhibiciones registradas
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+</p-dialog>
+
+<p-dialog
+  [(visible)]="showImagePreview"
+  [modal]="true"
+  [closable]="false"
+  [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }"
+>
+  <div class="relative w-full h-full flex flex-col">
+    <button (click)="closeImagePreview()" class="absolute top-4 right-4 z-10 bg-white/80 rounded-full w-8 h-8 flex items-center justify-center hover:bg-white transition-colors">
+      <i class="pi pi-times text-xl"></i>
+    </button>
+    <img [src]="previewImageUrl" alt="Preview" class="w-full h-full object-contain max-h-[85vh]" (click)="closeImagePreview()" />
+  </div>
+</p-dialog>
+
+<p-dialog
+  header="Metas y rangos de cumplimiento"
+  [(visible)]="showMetasDialog"
+  [modal]="true"
+  [style]="{ width: '90vw', maxWidth: '680px' }"
+  [draggable]="false"
+  [resizable]="false"
+  styleClass="surface-card rounded-2xl"
+  [contentStyleClass]="'bg-surface-card'"
+>
+  <div class="space-y-6 pt-2">
+    <div class="flex gap-3 p-3 bg-surface-layout rounded-xl border border-divider text-xs text-content-muted">
+      <i class="pi pi-info-circle mt-0.5 text-content-faint"></i>
+      <span>Define dos umbrales por KPI. El dashboard y los reportes usar&aacute;n estos rangos para colorear el sem&aacute;foro autom&aacute;ticamente. Los cambios se guardan en el navegador.</span>
+    </div>
+    <div class="flex gap-4 flex-wrap text-[11px]">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded bg-red-200 inline-block"></span>
+        <span class="text-red-700">Por debajo del m&iacute;nimo</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded bg-amber-200 inline-block"></span>
+        <span class="text-amber-700">Entre m&iacute;nimo y &oacute;ptimo</span>
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded bg-green-200 inline-block"></span>
+        <span class="text-green-700">&Oacute;ptimo o superior</span>
+      </span>
+    </div>
+    <div>
+      <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">KPIs de ejecuci&oacute;n</h4>
+      <div class="space-y-4">
+        @for (r of editableKpi; track r.id) {
+          <div class="p-4 bg-surface-layout rounded-xl border border-divider">
+            <div class="flex items-center justify-between mb-3">
+              <span class="font-bold text-sm">{{ r.label }}</span>
+              <div class="flex gap-2 text-[10px]">
+                <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700">&lt; {{ r.min }}{{ r.unit }} = bajo</span>
+                <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700">&ge; {{ r.opt }}{{ r.unit }} = &oacute;ptimo</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-content-faint uppercase">Meta m&iacute;nima</label>
+                <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[10px] font-bold text-content-faint uppercase">Meta &oacute;ptima</label>
+                <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
+              </div>
+            </div>
+            <div class="mt-3 h-2 rounded-full overflow-hidden flex">
+              <div class="bg-red-300" [style.flex]="r.min"></div>
+              <div class="bg-amber-300" [style.flex]="r.opt - r.min"></div>
+              <div class="bg-green-300" [style.flex]="r.opt * 0.5"></div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+    @if (editableFurniture.length > 0) {
+      <div>
+        <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">Mobiliario</h4>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          @for (f of editableFurniture; track f.id) {
+            <div class="flex items-center justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3">
+              <div class="flex items-center gap-2">
+                <i [class]="f.icon" class="text-content-muted w-5 text-center"></i>
+                <span class="font-medium text-sm">{{ f.label }}</span>
+              </div>
+              <div class="w-28">
+                <p-inputNumber [(ngModel)]="f.target" [min]="0" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" class="w-full" />
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+  <ng-template pTemplate="footer">
+    <div class="flex justify-end gap-3">
+      <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()" />
+      <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()" />
+    </div>
+  </ng-template>
+</p-dialog>

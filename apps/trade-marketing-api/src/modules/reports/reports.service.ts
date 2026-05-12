@@ -621,11 +621,11 @@ export class ReportsService {
       totalScore += score;
       totalVentas += ventas;
 
-      const dateKey = (row.hora_inicio instanceof Date
-        ? row.hora_inicio.toISOString().split('T')[0]
+      const dateKey = row.fecha || (row.hora_inicio instanceof Date
+        ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
         : typeof row.hora_inicio === 'string'
           ? row.hora_inicio.split('T')[0]
-          : row.fecha) || row.fecha;
+          : '');
       if (!dailyTrend[dateKey]) {
         dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
       }
@@ -735,6 +735,7 @@ export class ReportsService {
     };
 
     const trendData = Object.keys(dailyTrend)
+      .filter(date => new Date(date + 'T12:00:00Z').getUTCDay() !== 0)
       .sort()
       .map((date) => ({
         date,

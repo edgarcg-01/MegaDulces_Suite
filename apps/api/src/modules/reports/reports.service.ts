@@ -24,24 +24,26 @@ export class ReportsService {
     if (scope.type === 'own') {
       dcQuery = dcQuery.where('user_id', scope.userId);
     } else if (scope.type === 'team') {
-      const teamIds = await this.getTeamIds(scope.userId);
-      dcQuery = dcQuery.whereIn('user_id', teamIds);
+      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
+        const teamIds = await this.getTeamIds(scope.userId);
+        dcQuery = dcQuery.whereIn('user_id', teamIds);
+      }
     }
 
     if (filters.startDate) dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
     if (filters.endDate) dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
 
-    if (filters.zone) {
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       const zone = await this.knex('zones').where({ id: filters.zone }).first();
       if (zone && zone.name) {
         dcQuery.where('zona_captura', String(zone.name));
       }
     }
 
-    if (filters.supervisorId) {
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
       const teamIds = await this.getTeamIds(filters.supervisorId);
       dcQuery.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0) {
+    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
       dcQuery.whereIn('user_id', filters.userIds);
     }
 
@@ -163,24 +165,26 @@ export class ReportsService {
     if (scope.type === 'own') {
       dcQuery = dcQuery.where('user_id', scope.userId);
     } else if (scope.type === 'team') {
-      const teamIds = await this.getTeamIds(scope.userId);
-      dcQuery = dcQuery.whereIn('user_id', teamIds);
+      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
+        const teamIds = await this.getTeamIds(scope.userId);
+        dcQuery = dcQuery.whereIn('user_id', teamIds);
+      }
     }
 
     if (filters.startDate) dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
     if (filters.endDate) dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
 
-    if (filters.zone) {
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       const zone = await this.knex('zones').where({ id: filters.zone }).first();
       if (zone && zone.name) {
         dcQuery.where('zona_captura', String(zone.name));
       }
     }
 
-    if (filters.supervisorId) {
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
       const teamIds = await this.getTeamIds(filters.supervisorId);
       dcQuery.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0) {
+    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
       dcQuery.whereIn('user_id', filters.userIds);
     }
 
@@ -249,14 +253,18 @@ export class ReportsService {
     console.log('[ReportsService] getFilteredData called with filters:', filters);
     console.log('[ReportsService] user role:', user.role_name, 'user sub:', user.sub);
 
-    const query = this.knex('daily_captures').select('*');
+    const query = this.knex('daily_captures as dc')
+      .leftJoin('stores as s', 's.id', 'dc.store_id')
+      .select('dc.*', 's.nombre as cliente_nombre', 's.direccion as cliente_direccion');
 
     const scope = getDataScope(user);
     if (scope.type === 'own') {
       query.where('user_id', scope.userId);
     } else if (scope.type === 'team') {
-      const teamIds = await this.getTeamIds(scope.userId);
-      query.whereIn('user_id', teamIds);
+      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
+        const teamIds = await this.getTeamIds(scope.userId);
+        query.whereIn('user_id', teamIds);
+      }
     }
 
     if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
@@ -264,14 +272,14 @@ export class ReportsService {
     if (filters.userId) query.where('user_id', filters.userId);
 
     // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
-    if (filters.supervisorId) {
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
       const teamIds = await this.getTeamIds(filters.supervisorId);
       query.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0) {
+    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
       query.whereIn('user_id', filters.userIds);
     }
 
-    if (filters.zone) {
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       const zone = await this.knex('zones').where({ id: filters.zone }).first();
       if (zone && zone.name) {
         // Usar el valor directamente como string primitivo
@@ -355,11 +363,11 @@ export class ReportsService {
       totalScore += score;
       totalVentas += ventas;
 
-      const dateKey = (row.hora_inicio instanceof Date
-        ? row.hora_inicio.toISOString().split('T')[0]
+      const dateKey = row.fecha || (row.hora_inicio instanceof Date
+        ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
         : typeof row.hora_inicio === 'string'
           ? row.hora_inicio.split('T')[0]
-          : row.fecha) || row.fecha;
+          : '');
       if (!dailyTrend[dateKey]) {
         dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
       }
@@ -469,6 +477,7 @@ export class ReportsService {
     };
 
     const trendData = Object.keys(dailyTrend)
+      .filter(date => new Date(date + 'T12:00:00Z').getUTCDay() !== 0)
       .sort()
       .map((date) => ({
         date,
@@ -504,8 +513,10 @@ export class ReportsService {
     if (scope.type === 'own') {
       query.where('user_id', scope.userId);
     } else if (scope.type === 'team') {
-      const teamIds = await this.getTeamIds(scope.userId);
-      query.whereIn('user_id', teamIds);
+      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
+        const teamIds = await this.getTeamIds(scope.userId);
+        query.whereIn('user_id', teamIds);
+      }
     }
 
     if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
@@ -513,14 +524,14 @@ export class ReportsService {
     if (filters.userId) query.where('user_id', filters.userId);
 
     // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
-    if (filters.supervisorId) {
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
       const teamIds = await this.getTeamIds(filters.supervisorId);
       query.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0) {
+    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
       query.whereIn('user_id', filters.userIds);
     }
 
-    if (filters.zone) {
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       const zone = await this.knex('zones').where({ id: filters.zone }).first();
       if (zone && zone.name) {
         // Usar el valor directamente como string primitivo
@@ -575,62 +586,113 @@ export class ReportsService {
     },
     user: any,
   ) {
-    let query = this.knex('daily_captures')
-      .select(
+    try {
+      console.log('[ReportsService] START getDailyScoresPerUser', { filters, userSub: user?.sub });
+      
+      const dcQuery = this.knex('daily_captures');
+      
+      // Select with explicit COALESCE to avoid nulls in calculations
+      dcQuery.select(
         'user_id',
         'captured_by_username',
         this.knex.raw("DATE(hora_inicio) as fecha"),
-        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as puntuacion"),
+        this.knex.raw("AVG(COALESCE((stats->>'puntuacionTotal')::float, 0)) as puntuacion"),
       );
 
-    const scope = getDataScope(user);
-    if (scope.type === 'own') {
-      query = query.where('user_id', scope.userId);
-    } else if (scope.type === 'team') {
-      const teamIds = await this.getTeamIds(scope.userId);
-      query = query.whereIn('user_id', teamIds);
-    }
-
-    if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) query.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
-
-    if (filters.zone) {
-      const zone = await this.knex('zones').where({ id: filters.zone }).first();
-      if (zone && zone.name) {
-        query.where('zona_captura', String(zone.name));
+      // Scope filtering
+      try {
+        const scope = getDataScope(user || { sub: '' });
+        if (scope.type === 'own') {
+          dcQuery.where('user_id', scope.userId || '');
+        } else if (scope.type === 'team') {
+          if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined' && scope.userId.length > 5) {
+            const teamIds = await this.getTeamIds(scope.userId);
+            if (teamIds.length > 0) dcQuery.whereIn('user_id', teamIds);
+          }
+        }
+      } catch (scopeErr) {
+        console.error('[ReportsService] Scope check failed:', scopeErr.message);
       }
-    }
 
-    if (filters.supervisorId) {
-      const teamIds = await this.getTeamIds(filters.supervisorId);
-      query.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0) {
-      query.whereIn('user_id', filters.userIds);
-    }
-
-    query.groupBy('user_id', 'captured_by_username', this.knex.raw("DATE(hora_inicio)"));
-    query.orderBy('captured_by_username', 'asc');
-    query.orderByRaw("DATE(hora_inicio) asc");
-
-    const rows = await query;
-
-    const metaDiaria = 5;
-    const userMap = new Map<string, { nombre: string; scores: { fecha: string; puntuacion: number }[]; metaDiaria: number }>();
-
-    for (const row of rows) {
-      if (!userMap.has(row.user_id)) {
-        userMap.set(row.user_id, { nombre: row.captured_by_username, scores: [], metaDiaria });
+      // Date filtering
+      if (filters.startDate && filters.startDate !== 'null' && filters.startDate !== 'undefined') {
+        dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
       }
-      userMap.get(row.user_id)!.scores.push({
-        fecha: row.fecha instanceof Date ? row.fecha.toISOString().split('T')[0] : String(row.fecha),
-        puntuacion: Math.round(Number(row.puntuacion) || 0),
-      });
-    }
+      if (filters.endDate && filters.endDate !== 'null' && filters.endDate !== 'undefined') {
+        dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+      }
 
-    return { users: Array.from(userMap.values()) };
+      // Metadata filtering (zone)
+      if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined' && filters.zone.length > 5) {
+        try {
+          const zone = await this.knex('zones').where({ id: filters.zone }).first();
+          if (zone && zone.name) {
+            dcQuery.where('zona_captura', String(zone.name));
+          }
+        } catch (zErr) {
+          console.error('[ReportsService] Zone query failed:', zErr.message);
+        }
+      }
+
+      // Supervisor / Team filtering
+      if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined' && filters.supervisorId.length > 5) {
+        try {
+          const teamIds = await this.getTeamIds(filters.supervisorId);
+          if (teamIds.length > 0) dcQuery.whereIn('user_id', teamIds);
+        } catch (tErr) {
+          console.error('[ReportsService] Team query failed:', tErr.message);
+        }
+      } else if (filters.userIds && filters.userIds.length > 0) {
+        const ids = Array.isArray(filters.userIds) ? filters.userIds : [filters.userIds];
+        const validIds = ids.filter(id => id && id !== 'null' && id !== 'undefined' && id.length > 5);
+        if (validIds.length > 0) dcQuery.whereIn('user_id', validIds);
+      }
+
+      dcQuery.groupBy('user_id', 'captured_by_username', this.knex.raw("DATE(hora_inicio)"));
+      dcQuery.orderBy('captured_by_username', 'asc');
+      dcQuery.orderByRaw("DATE(hora_inicio) asc");
+
+      console.log('[ReportsService] Executing SQL for Daily Scores');
+      const rows = await dcQuery;
+      console.log('[ReportsService] Rows fetched:', rows.length);
+
+      const metaDiaria = 5;
+      const userMap = new Map<string, { nombre: string; scores: { fecha: string; puntuacion: number }[]; metaDiaria: number }>();
+
+      for (const row of rows) {
+        if (!userMap.has(row.user_id)) {
+          userMap.set(row.user_id, { nombre: row.captured_by_username, scores: [], metaDiaria });
+        }
+        
+        let fechaStr = 'n/a';
+        if (row.fecha) {
+          fechaStr = row.fecha instanceof Date ? row.fecha.toISOString().split('T')[0] : String(row.fecha);
+          if (fechaStr.includes('T')) fechaStr = fechaStr.split('T')[0];
+        }
+
+        userMap.get(row.user_id)!.scores.push({
+          fecha: fechaStr,
+          puntuacion: Math.round(Number(row.puntuacion) || 0),
+        });
+      }
+
+      return { users: Array.from(userMap.values()) };
+    } catch (error) {
+      console.error('[ReportsService] Critical error in getDailyScoresPerUser:', error);
+      // Return empty to avoid 500 and allow frontend to show "No hay datos"
+      return { users: [] };
+    }
   }
 
   private async getTeamIds(supervisorId: string): Promise<string[]> {
+    if (!supervisorId || supervisorId === 'null' || supervisorId === 'undefined') {
+      return [];
+    }
+    
+    // UUID regex check to prevent Postgres error
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(supervisorId);
+    if (!isUuid) return [];
+
     const team = await this.knex('users')
       .select('id')
       .where('supervisor_id', supervisorId)
@@ -659,14 +721,16 @@ export class ReportsService {
     if (scope.type === 'own') {
       query.where('dc.user_id', scope.userId);
     } else if (scope.type === 'team') {
-      const teamIds = await this.getTeamIds(scope.userId);
-      query.whereIn('dc.user_id', teamIds);
+      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
+        const teamIds = await this.getTeamIds(scope.userId);
+        query.whereIn('dc.user_id', teamIds);
+      }
     }
 
     if (filters.startDate) query.whereRaw("DATE(dc.hora_inicio) >= ?", [filters.startDate]);
     if (filters.endDate) query.whereRaw("DATE(dc.hora_inicio) <= ?", [filters.endDate]);
 
-    if (filters.zone) {
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       query.where('s.zona_id', filters.zone);
     }
 

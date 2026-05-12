@@ -777,7 +777,7 @@ export class DashboardComponent implements OnInit {
           borderColor: '#185FA5',
           backgroundColor: 'rgba(24,95,165,.06)',
           tension: 0.4,
-          pointRadius: 4,
+          pointRadius: 0,
           yAxisID: 'y',
         },
         {
@@ -786,7 +786,7 @@ export class DashboardComponent implements OnInit {
           borderColor: '#EF9F27',
           backgroundColor: 'rgba(239,159,39,.04)',
           tension: 0.4,
-          pointRadius: 4,
+          pointRadius: 0,
           borderDash: [4, 3],
           yAxisID: 'y2',
         },
