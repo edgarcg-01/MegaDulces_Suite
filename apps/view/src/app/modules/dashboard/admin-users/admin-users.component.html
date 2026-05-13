@@ -180,9 +180,7 @@
           <span class="p-inputgroup-addon bg-surface-ground">
               <i class="pi pi-user text-content-dim"></i>
           </span>
-          <input pInputText id="username" formControlName="username" placeholder="jperez"
-                 [readOnly]="isEditing()"
-                 [ngClass]="{'opacity-60 cursor-not-allowed': isEditing()}" />
+          <input pInputText id="username" formControlName="username" placeholder="jperez" />
       </div>
       <small class="text-red-500" *ngIf="userForm.get('username')?.invalid && userForm.get('username')?.touched">
         El usuario es obligatorio.

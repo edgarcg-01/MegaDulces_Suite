@@ -34,7 +34,6 @@
     "@angular/platform-browser": "^18.2.0",
     "@angular/platform-browser-dynamic": "^18.2.0",
     "@angular/router": "^18.2.0",
-    "@angular/service-worker": "^18.2.14",
     "@capacitor/app": "^8.1.0",
     "@capacitor/camera": "^8.1.0",
     "@capacitor/core": "^8.3.0",

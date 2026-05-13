@@ -22,8 +22,7 @@
         ],
         "styles": ["apps/view/src/styles.css"],
         "scripts": [],
-        "serviceWorker": true,
-        "ngswConfigPath": "apps/view/src/ngsw-config.json"
+
       },
       "configurations": {
   "production": {
@@ -33,8 +32,8 @@
     "budgets": [
       {
         "type": "initial",
-        "maximumWarning": "2mb",
-        "maximumError": "5mb"
+        "maximumWarning": "900kb",
+        "maximumError": "1.2mb"
       },
       {
         "type": "anyComponentStyle",

@@ -1,7 +1,6 @@
 import { Component, inject, OnInit, OnDestroy } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { PwaInstallService } from './core/services/pwa-install.service';
-import { PwaUpdateService } from './core/services/pwa-update.service';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 
 @Component({
@@ -14,18 +13,12 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 export class AppComponent implements OnInit, OnDestroy {
   title = 'frontend';
   private pwaInstallService = inject(PwaInstallService);
-  private pwaUpdateService = inject(PwaUpdateService);
 
   ngOnInit() {
-    // Setup PWA installation prompt
     this.setupPwaInstall();
-    
-    // Start PWA update monitoring
-    this.pwaUpdateService.checkForUpdates();
   }
 
   ngOnDestroy() {
-    // Clean subscriptions if needed
   }
 
   private setupPwaInstall(): void {

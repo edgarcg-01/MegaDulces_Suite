@@ -2,19 +2,6 @@ import { Routes } from '@angular/router';
 import { LoginComponent } from './modules/auth/login/login.component';
 import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
-import { HomeComponent } from './modules/dashboard/home/home.component';
-import { CapturesComponent } from './modules/dashboard/captures/captures.component';
-import { ReportsComponent } from './modules/dashboard/reports/reports.component';
-import { DashboardComponent } from './modules/dashboard/reports/graphics/dashboard.component';
-import { SeguimientoComponent } from './modules/dashboard/seguimiento/seguimiento.component';
-import { StoresComponent } from './modules/dashboard/stores/stores.component';
-import { VisitsComponent } from './modules/dashboard/visits/visits.component';
-import { ExhibitionsComponent } from './modules/dashboard/exhibitions/exhibitions.component';
-import { AdminUsersComponent } from './modules/dashboard/admin-users/admin-users.component';
-import { AdminCatalogsComponent } from './modules/dashboard/admin-catalogs/admin-catalogs.component';
-import { AdminPlanogramaComponent } from './modules/dashboard/admin-planograma/admin-planograma.component';
-import { AdminRolesPermissionsComponent } from './modules/dashboard/admin-roles/admin-roles-permissions.component';
-import { DailyAssignmentsComponent } from './modules/dashboard/daily-assignments/daily-assignments.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, colaboradorGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
@@ -34,42 +21,42 @@ export const routes: Routes = [
     canActivate: [authGuard, colaboradorGuard],
     component: LayoutComponent,
     children: [
-      { path: '', component: HomeComponent },
-      { path: 'dashboard', component: DashboardComponent },
-      { path: 'captures', component: CapturesComponent },
-      { path: 'reports', component: ReportsComponent },
-      { path: 'seguimiento', component: SeguimientoComponent, canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
-      { path: 'stores', component: StoresComponent, canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
-      { path: 'visits', component: VisitsComponent },
-      { path: 'exhibitions', component: ExhibitionsComponent },
+      { path: '', loadComponent: () => import('./modules/dashboard/home/home.component').then(m => m.HomeComponent) },
+      { path: 'dashboard', loadComponent: () => import('./modules/dashboard/reports/graphics/dashboard.component').then(m => m.DashboardComponent) },
+      { path: 'captures', loadComponent: () => import('./modules/dashboard/captures/captures.component').then(m => m.CapturesComponent) },
+      { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
+      { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
+      { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
+      { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
+      { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
       { 
         path: 'admin/users', 
-        component: AdminUsersComponent,
+        loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
         canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
       },
       { 
         path: 'admin/catalogs/roles', 
-        component: AdminCatalogsComponent,
+        loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
       },
       { 
         path: 'admin/catalogs/:type', 
-        component: AdminCatalogsComponent,
+        loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
       },
       { 
         path: 'admin/roles/:role_name/permissions', 
-        component: AdminRolesPermissionsComponent,
+        loadComponent: () => import('./modules/dashboard/admin-roles/admin-roles-permissions.component').then(m => m.AdminRolesPermissionsComponent),
         canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
       },
       { 
         path: 'admin/planograma', 
-        component: AdminPlanogramaComponent,
+        loadComponent: () => import('./modules/dashboard/admin-planograma/admin-planograma.component').then(m => m.AdminPlanogramaComponent),
         canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)]
       },
       { 
         path: 'daily-assignments', 
-        component: DailyAssignmentsComponent,
+        loadComponent: () => import('./modules/dashboard/daily-assignments/daily-assignments.component').then(m => m.DailyAssignmentsComponent),
         canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
       },
     ]

@@ -206,7 +206,7 @@ export class AdminUsersComponent implements OnInit {
   openEditDialog(user: User): void {
     this.isEditing.set(true);
     this.currentUserId.set(user.id);
-    this.userForm.get('username')?.disable();
+    this.userForm.get('username')?.enable();
     this.userForm.get('password')?.clearValidators();
     this.userForm.get('password')?.setValidators([Validators.minLength(6)]);
     this.userForm.get('password')?.updateValueAndValidity();
