@@ -201,7 +201,7 @@ export class SeguimientoComponent implements OnInit {
               return of({ users: [] });
             })
           ),
-          visitas: this.reportsService.getReportsData(visitFilters).pipe(
+          visitas: this.reportsService.getReportsData(visitFilters, undefined, undefined, 'products').pipe(
             catchError(err => {
               console.error('[Seguimiento] Reports API failed:', err);
               return of({ rows: [], metrics: {} } as any);

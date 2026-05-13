@@ -541,7 +541,7 @@ export class SeguimientoComponent implements OnInit, OnDestroy {
     if (f.zone) filters.zone = f.zone;
     if (f.supervisorId) filters.supervisorId = f.supervisorId;
     if (f.sellerIds?.length) filters.sellerIds = f.sellerIds;
-    this.reportsService.getReportsData(filters).subscribe({
+    this.reportsService.getReportsData(filters, undefined, undefined, 'products').subscribe({
       next: (data) => {
         this.reportsData.set(data);
         this.loadingVisitas.set(false);
