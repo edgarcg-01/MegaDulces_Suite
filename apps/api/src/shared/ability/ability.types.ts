@@ -9,6 +9,7 @@ export type AppSubject =
   | 'users_assign_route'
   | 'catalogs'
   | 'stores'
+  | 'stores_create'
   | 'planograms'
   | 'roles_config'
   | 'scoring_config'

@@ -25,6 +25,7 @@ const subjectMap: Record<string, AppSubject> = {
   [Permission.VISITAS_AUDITAR]: 'visits_audit',
   [Permission.CATALOGO_GESTIONAR]: 'catalogs',
   [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
+  [Permission.TIENDAS_CREAR]: 'stores_create',
   [Permission.ROLES_CONFIGURAR]: 'roles_config',
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',
   [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',

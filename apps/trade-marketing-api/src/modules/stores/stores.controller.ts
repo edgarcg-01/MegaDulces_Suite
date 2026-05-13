@@ -25,7 +25,7 @@ export class StoresController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.TIENDAS_CREAR)
   @ApiOperation({ summary: 'Crear nueva tienda o punto de venta' })
   create(@Body() body: any, @Req() req: Request) {
     const userZona = (req as any).user?.zona;

@@ -19,6 +19,7 @@ const subjectMap: Record<string, string> = {
   [Permission.VISITAS_AUDITAR]: 'visits_audit',
   [Permission.CATALOGO_GESTIONAR]: 'catalogs',
   [Permission.TIENDAS_VER]: 'stores',
+  [Permission.TIENDAS_CREAR]: 'stores_create',
   [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
   [Permission.ROLES_CONFIGURAR]: 'roles_config',
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',

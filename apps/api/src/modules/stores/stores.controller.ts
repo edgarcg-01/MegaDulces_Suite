@@ -38,7 +38,7 @@ export class StoresController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.TIENDAS_CREAR)
   @ApiOperation({ summary: 'Crear nueva tienda o supermercado' })
   create(@Body() body: any) {
     return this.storesService.create(body);
