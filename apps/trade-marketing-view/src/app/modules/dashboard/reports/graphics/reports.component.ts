@@ -1249,7 +1249,7 @@ export class ReportsComponent implements OnInit {
         zone: f.zone,
         supervisorId: f.supervisorId,
         sellerIds: f.sellerIds,
-      })
+      }, undefined, undefined, 'products')
       .subscribe({
         next: (data: ReportsData) => {
           this.reportsData.set(data);
