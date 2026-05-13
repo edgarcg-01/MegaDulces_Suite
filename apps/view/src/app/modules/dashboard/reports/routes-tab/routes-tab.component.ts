@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -9,6 +9,8 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
+import { MessageService } from 'primeng/api';
+import { ToastModule } from 'primeng/toast';
 
 interface RouteExec {
   id: string;
@@ -33,13 +35,14 @@ interface RouteData {
 @Component({
   selector: 'app-routes-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, InputTextModule, ButtonModule, TableModule, TagModule, SkeletonModule],
+  imports: [CommonModule, FormsModule, InputTextModule, ButtonModule, TableModule, TagModule, SkeletonModule, ToastModule],
   templateUrl: './routes-tab.component.html',
   styleUrls: ['./routes-tab.component.css'],
 })
-export class RoutesTabComponent implements OnInit, OnDestroy {
+export class RoutesTabComponent {
   private http = inject(HttpClient);
   private filtersState = inject(FiltersStateService);
+  private msgService = inject(MessageService);
 
   loading = signal(false);
   data = signal<{ routes: RouteData[]; kpis: any } | null>(null);
@@ -76,11 +79,10 @@ export class RoutesTabComponent implements OnInit, OnDestroy {
   midCount = computed(() => (this.selectedRoute()?.execs || []).filter(e => e.s >= 60 && e.s < 80).length);
   lowCount = computed(() => (this.selectedRoute()?.execs || []).filter(e => e.s < 60).length);
 
-  ngOnInit() {
+  private _filtersEffect = effect(() => {
+    this.filtersState.filters();
     this.loadData();
-  }
-
-  ngOnDestroy() {}
+  }, { allowSignalWrites: true });
 
   loadData() {
     this.loading.set(true);
@@ -100,7 +102,11 @@ export class RoutesTabComponent implements OnInit, OnDestroy {
           this.selectedRouteId.set(res.routes[0].id);
         }
       },
-      error: () => { this.loading.set(false); },
+      error: (err) => {
+        this.loading.set(false);
+        console.error('Error loading routes:', err);
+        this.msgService.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las rutas.' });
+      },
     });
   }
 

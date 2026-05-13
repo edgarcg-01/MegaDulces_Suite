@@ -1,0 +1,182 @@
+<div class="p-2">
+  <div class="split-wrap">
+    <!-- Sidebar: Route list -->
+    <div class="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-title">Rutas del período</div>
+        <div class="s-wrap">
+          <i class="pi pi-search s-icon"></i>
+          <input class="s-input" pInputText type="text" placeholder="Buscar ruta..." [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" />
+        </div>
+        <div class="sort-row">
+          <button pButton [text]="true" [size]="'small'" [class.active]="sortKey() === 'score'" (click)="setSort('score')" label="Score"></button>
+          <button pButton [text]="true" [size]="'small'" [class.active]="sortKey() === 'visitas'" (click)="setSort('visitas')" label="Visitas"></button>
+          <button pButton [text]="true" [size]="'small'" [class.active]="sortKey() === 'venta'" (click)="setSort('venta')" label="Venta"></button>
+        </div>
+      </div>
+      <div class="route-list">
+        @if (loading()) {
+          @for (_ of [1,2,3,4,5]; track _) {
+            <div class="route-item" style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+              <p-skeleton width="70%" height="12px" />
+              <p-skeleton width="40%" height="6px" />
+              <p-skeleton width="50%" height="8px" />
+            </div>
+          }
+        } @else { @for (r of filteredRoutes(); track r.id) {
+          <div class="route-item" [class.selected]="selectedRouteId() === r.id" (click)="selectRoute(r.id)">
+            <div class="ri-top">
+              <span class="ri-name">{{ r.name }}</span>
+              <span class="ri-score" [style.color]="scoreColor(r.score)">{{ r.score }}</span>
+            </div>
+            <div class="ri-bar">
+              <div class="ri-fill" [style.width.%]="(r[sortKey()] / maxSortValue()) * 100" [style.background]="scoreColor(r.score)"></div>
+            </div>
+            <div class="ri-meta">
+              <span>{{ r.zona }}</span>
+              <span>{{ r.visitas }} visitas · {{ fmtCurrency(r.venta) }}</span>
+            </div>
+          </div>
+          } @empty {
+            <div class="empty-state" style="padding: 40px 16px;">
+              <i class="pi pi-map"></i>
+              <p>No hay rutas para el período</p>
+            </div>
+          } }
+      </div>
+    </div>
+
+    <!-- Main panel: Detail -->
+    <div class="main-panel">
+      @if (loading()) {
+        <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+          <p-skeleton width="40%" height="20px" />
+          <p-skeleton width="60%" height="12px" />
+          <div style="display:flex;gap:8px;margin:8px 0">
+            <p-skeleton width="70px" height="44px" borderRadius="8px" />
+            <p-skeleton width="70px" height="44px" borderRadius="8px" />
+            <p-skeleton width="70px" height="44px" borderRadius="8px" />
+          </div>
+          <div style="display:flex;gap:16px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+              @for (_ of [1,2,3]; track _) {
+                <div style="display:flex;gap:8px;align-items:center">
+                  <p-skeleton width="26px" height="26px" borderRadius="50%" />
+                  <p-skeleton width="80px" height="10px" />
+                  <p-skeleton width="100%" height="8px" />
+                </div>
+              }
+            </div>
+            <p-skeleton width="140px" height="140px" borderRadius="8px" />
+          </div>
+          <p-skeleton width="100%" height="120px" borderRadius="8px" />
+        </div>
+      } @else { @if (selectedRoute(); as r) {
+        <div class="main-head">
+          <div class="mh-left">
+            <h2>{{ r.name }}</h2>
+            <p>{{ r.zona }} · {{ r.execs.length }} ejecutivo{{ r.execs.length !== 1 ? 's' : '' }} asignado{{ r.execs.length !== 1 ? 's' : '' }}
+              @if (r.trend) {
+                <span [class.trend-up]="r.trend.startsWith('+')" [class.trend-dn]="!r.trend.startsWith('+')" style="margin-left:8px">
+                  {{ r.trend.startsWith('+') ? '↑' : '↓' }} {{ formatTrend(r.trend) }} pts vs período ant.
+                </span>
+              }
+            </p>
+          </div>
+          <div class="mh-right">
+            <div class="stat-pill">
+              <div class="sp-val">{{ r.visitas }}</div>
+              <div class="sp-lbl">Visitas</div>
+            </div>
+            <div class="stat-pill">
+              <div class="sp-val" [style.color]="scoreColor(r.score)">{{ r.score }}</div>
+              <div class="sp-lbl">Score</div>
+            </div>
+            <div class="stat-pill">
+              <div class="sp-val">{{ fmtCurrency(r.venta) }}</div>
+              <div class="sp-lbl">Venta</div>
+            </div>
+          </div>
+        </div>
+        <div class="main-body">
+          <div class="chart-section">
+            <div class="exec-bars">
+              <div class="eb-title">Score por ejecutivo</div>
+              @for (e of r.execs; track e.id) {
+                <div class="eb-row">
+                  <div class="eb-avatar">{{ e.initials }}</div>
+                  <div class="eb-name">{{ e.name }}</div>
+                  <div class="eb-track">
+                    <div class="eb-prog" [style.width.%]="e.s" [style.background]="scoreColor(e.s)"></div>
+                  </div>
+                  <span class="eb-num" [style.color]="scoreColor(e.s)">{{ e.s }}</span>
+                </div>
+              }
+            </div>
+            <div class="distribution">
+              <div class="dist-title">Rendimiento</div>
+              <div class="dist-donut">
+                <svg viewBox="0 0 100 100" width="100" height="100">
+                  <circle cx="50" cy="50" r="36" fill="none" class="donut-track" stroke-width="10" />
+                  <circle cx="50" cy="50" r="36" fill="none"
+                    [attr.stroke]="scoreColor(avgScore())" stroke-width="10" stroke-linecap="round"
+                    [attr.stroke-dasharray]="(avgScore() / 100) * 226 + ' 226'"
+                    transform="rotate(-90 50 50)" />
+                </svg>
+                <div class="dist-center">
+                  <div class="dist-big" [style.color]="scoreColor(avgScore())">{{ avgScore() }}</div>
+                  <div class="dist-small">prom.</div>
+                </div>
+              </div>
+              <div class="dist-legend">
+                <div class="dl-row"><p-tag severity="success" [value]="'Alto (' + highCount() + ')'" /></div>
+                <div class="dl-row"><p-tag severity="warn" [value]="'Medio (' + midCount() + ')'" /></div>
+                <div class="dl-row"><p-tag severity="danger" [value]="'Bajo (' + lowCount() + ')'" /></div>
+              </div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="exec-table-wrap">
+            @let routeAvg = avgScore();
+            <p-table [value]="r.execs" [tableStyle]="{'min-width': '500px'}">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th>Ejecutivo</th>
+                  <th pSortableColumn="v">Visitas <p-sortIcon field="v" /></th>
+                  <th pSortableColumn="s">Score <p-sortIcon field="s" /></th>
+                  <th pSortableColumn="sale">Venta <p-sortIcon field="sale" /></th>
+                  <th>vs prom.</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-e>
+                <tr>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div class="eb-avatar">{{ e.initials }}</div>
+                      <span>{{ e.name }}</span>
+                    </div>
+                  </td>
+                  <td style="text-align:right">{{ e.v }}</td>
+                  <td style="text-align:right"><p-tag [value]="e.s + ' pts'" [severity]="e.s >= 80 ? 'success' : e.s >= 60 ? 'warn' : 'danger'" /></td>
+                  <td style="text-align:right">{{ fmtCurrency(e.sale) }}</td>
+                  <td style="text-align:right">
+                    @if (e.s >= routeAvg) {
+                      <span class="trend-up">↑ {{ e.s - routeAvg }}</span>
+                    } @else {
+                      <span class="trend-dn">↓ {{ routeAvg - e.s }}</span>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </div>
+      } @else {
+        <div class="empty-state">
+          <i class="pi pi-map"></i>
+          <p>Selecciona una ruta para ver el detalle</p>
+        </div>
+      } }
+    </div>
+  </div>
+</div>

@@ -47,6 +47,10 @@ import {
 } from '../reports/graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
 import { StoresTabComponent } from './stores-tab/stores-tab.component';
+import { RoutesTabComponent } from './routes-tab/routes-tab.component';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../../environments/environment';
 
 /**
  * Interfaz para agrupar visitas por día
@@ -96,6 +100,7 @@ interface PdfSection {
     DropdownModule,
     GlobalFiltersComponent,
     StoresTabComponent,
+    RoutesTabComponent,
     ConfirmDialogModule,
     SkeletonModule,
   ],
@@ -125,6 +130,7 @@ export class ReportsComponent implements OnInit {
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
   private dailyCaptureService = inject(DailyCaptureService);
+  private http = inject(HttpClient);
 
   /** Estado de carga */
   loading = signal(false);
@@ -1464,69 +1470,51 @@ export class ReportsComponent implements OnInit {
     this.showRouteReportDialog = true;
   }
 
-  exportRouteReportPdf() {
+  async exportRouteReportPdf() {
     const user = this.auth.user();
     if (!user) return;
 
-    // Si es colaborador, usar su propio ID
-    // Si es supervisor y deja vacío, significa "todos sus usuarios"
     let userIds: string[];
     if (!this.isSupervisor()) {
       userIds = [user.sub];
     } else {
-      // Si es supervisor y no seleccionó usuarios, usar array vacío para indicar todos
       userIds =
         this.selectedRouteUsers.length === 0 ? [] : this.selectedRouteUsers;
     }
 
-    // Generar PDF de rutas diarias (array vacío significa todos los usuarios para supervisor)
-    this.generateRouteReportPdf(userIds, this.routeReportDate);
+    await this.generateRouteReportPdf(userIds, this.routeReportDate);
     this.showRouteReportDialog = false;
   }
 
-  generateRouteReportPdf(userIds: string[], date: string) {
+  async generateRouteReportPdf(userIds: string[], date: string) {
     try {
       const doc = new jsPDF();
       const margin = 15;
       const pageWidth = doc.internal.pageSize.width;
 
-      // Colores corporativos (paleta amarillo-naranja de la empresa)
-      const brandPrimary: [number, number, number] = [253, 231, 7];
       const brandOrange: [number, number, number] = [246, 143, 30];
       const brandSunset: [number, number, number] = [240, 90, 40];
       const brandLight: [number, number, number] = [255, 248, 188];
       const text: [number, number, number] = [30, 30, 30];
       const textMuted: [number, number, number] = [100, 100, 100];
       const white: [number, number, number] = [255, 255, 255];
-      const grayLight: [number, number, number] = [245, 245, 245];
 
-      // Header con gradiente amarillo-naranja
       doc.setFillColor(brandOrange[0], brandOrange[1], brandOrange[2]);
       doc.rect(margin, 10, pageWidth - margin * 2, 35, 'F');
-
-      // Logo circular (simulado)
       doc.setFillColor(brandLight[0], brandLight[1], brandLight[2]);
       doc.circle(margin + 15, 27.5, 10, 'F');
       doc.setTextColor(brandSunset[0], brandSunset[1], brandSunset[2]);
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.text('MD', margin + 15, 32, { align: 'center' });
-
-      // Título centrado
       doc.setTextColor(white[0], white[1], white[2]);
       doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
       doc.text('REPORTE DE RUTAS', pageWidth / 2, 25, { align: 'center' });
       doc.setFontSize(12);
       doc.setFont('helvetica', 'normal');
-      doc.text(
-        `Fecha: ${new Date(date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
-        pageWidth / 2,
-        35,
-        { align: 'center' },
-      );
+      doc.text(`Fecha: ${new Date(date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`, pageWidth / 2, 35, { align: 'center' });
 
-      // Información del reporte
       let y = 55;
       doc.setTextColor(text[0], text[1], text[2]);
       doc.setFontSize(11);
@@ -1538,76 +1526,94 @@ export class ReportsComponent implements OnInit {
         startY: y,
         body: [
           ['Fecha del reporte', new Date(date).toLocaleDateString('es-MX')],
-          [
-            'Usuarios',
-            userIds.length === 0
-              ? 'Todos los usuarios'
-              : userIds.length === 1 && userIds[0] === this.auth.user()?.sub
-                ? 'Mi reporte'
-                : `${userIds.length} usuarios seleccionados`,
-          ],
+          ['Usuarios', userIds.length === 0 ? 'Todos los usuarios' : userIds.length === 1 && userIds[0] === this.auth.user()?.sub ? 'Mi reporte' : `${userIds.length} usuarios seleccionados`],
           ['Generado por', this.auth.user()?.username || 'N/A'],
           ['Rol', this.auth.user()?.role_name || 'N/A'],
         ],
         theme: 'plain',
-        bodyStyles: {
-          fontSize: 9,
-          textColor: text,
-          cellPadding: 3,
-        },
-        columnStyles: {
-          0: { cellWidth: 40, fontStyle: 'bold', textColor: textMuted },
-          1: { cellWidth: 'auto' },
-        },
+        bodyStyles: { fontSize: 9, textColor: text, cellPadding: 3 },
+        columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', textColor: textMuted }, 1: { cellWidth: 'auto' } },
         margin: { left: margin, right: margin },
       });
 
       y = (doc as any).lastAutoTable.finalY + 15;
 
-      // Sección de rutas (placeholder por ahora)
+      let params = new HttpParams().set('startDate', date).set('endDate', date);
+      if (userIds.length > 0) {
+        userIds.forEach(id => { params = params.append('userIds', id); });
+      }
+
+      const res = await firstValueFrom(
+        this.http.get<{ routes: any[] }>(`${environment.apiUrl}/reports/routes`, { params })
+      );
+      const routes = res?.routes || [];
+
       doc.setTextColor(text[0], text[1], text[2]);
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
       doc.text('RUTAS DEL DÍA', margin, y);
-      y += 8;
+      y += 10;
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-      doc.text(
-        'Las rutas detalladas se mostrarán aquí con la información de visitas, GPS y tiempos.',
-        margin,
-        y,
-      );
+      if (routes.length === 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+        doc.text('No hay rutas registradas para la fecha seleccionada.', margin, y);
+      } else {
+        for (const route of routes) {
+          if (y > 240) { doc.addPage(); y = 20; }
 
-      // Footer
+          doc.setTextColor(text[0], text[1], text[2]);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.text(route.name || 'Ruta', margin, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
+          if (route.zona) doc.text(`Zona: ${route.zona}`, margin + 60, y);
+          y += 6;
+
+          autoTable(doc, {
+            startY: y,
+            body: [['Visitas', String(route.visitas ?? 0), 'Score', String(route.score ?? 0), 'Venta', `$${(route.venta || 0).toLocaleString('es-MX')}`]],
+            theme: 'grid',
+            bodyStyles: { fontSize: 8, textColor: text, cellPadding: 2, halign: 'center' },
+            columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold', halign: 'left' }, 1: { cellWidth: 22 }, 2: { cellWidth: 16, fontStyle: 'bold', halign: 'left' }, 3: { cellWidth: 22 }, 4: { cellWidth: 15, fontStyle: 'bold', halign: 'left' }, 5: { cellWidth: 'auto' } },
+            margin: { left: margin, right: margin },
+          });
+          y = (doc as any).lastAutoTable.finalY + 4;
+
+          if (route.execs?.length > 0) {
+            autoTable(doc, {
+              startY: y,
+              head: [['Ejecutivo', 'Visitas', 'Score', 'Venta']],
+              body: route.execs.map((e: any) => [e.name || '', String(e.v ?? 0), String(e.s ?? 0), `$${(e.sale || 0).toLocaleString('es-MX')}`]),
+              theme: 'striped',
+              headStyles: { fontSize: 7, fillColor: brandOrange, textColor: white },
+              bodyStyles: { fontSize: 7, cellPadding: 2 },
+              columnStyles: { 0: { cellWidth: 70 }, 1: { cellWidth: 25, halign: 'center' }, 2: { cellWidth: 20, halign: 'center' }, 3: { cellWidth: 'auto', halign: 'right' } },
+              margin: { left: margin, right: margin },
+            });
+            y = (doc as any).lastAutoTable.finalY + 8;
+          } else {
+            y += 4;
+          }
+        }
+      }
+
       const totalPages = (doc as any).getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         doc.setFontSize(7);
         doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-        doc.text(
-          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
-          pageWidth / 2,
-          doc.internal.pageSize.height - 10,
-          { align: 'center' },
-        );
+        doc.text(`Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
       }
 
       doc.save(`rutas_${date}.pdf`);
-      this.messageService.add({
-        severity: 'success',
-        summary: 'PDF generado',
-        detail: 'El reporte de rutas se ha generado correctamente.',
-      });
+      this.messageService.add({ severity: 'success', summary: 'PDF generado', detail: 'El reporte de rutas se ha generado correctamente.' });
     } catch (error) {
       console.error('Error generando PDF de rutas:', error);
-      this.messageService.add({
-        severity: 'error',
-        summary: 'Error',
-        detail:
-          'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.',
-      });
+      this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.' });
     }
   }
   openMap(lat: number, lng: number) {
