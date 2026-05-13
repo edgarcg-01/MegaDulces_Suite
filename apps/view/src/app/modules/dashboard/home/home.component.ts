@@ -3,13 +3,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { ChartModule } from 'primeng/chart';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { HomeChartsComponent } from './home-charts.component';
 import { forkJoin } from 'rxjs'; // Importante para lanzar múltiples peticiones
 
 // Servicios
@@ -30,13 +30,13 @@ import { GlobalFiltersComponent } from '../reports/graphics/global-filters.compo
     FormsModule,
     RouterModule,
     ButtonModule,
-    ChartModule,
     DialogModule,
     InputNumberModule,
     SkeletonModule,
     TooltipModule,
     ToastModule,
     GlobalFiltersComponent,
+    HomeChartsComponent,
   ],
   providers: [MessageService],
   templateUrl: './home.component.html',
@@ -50,7 +50,9 @@ export class HomeComponent implements OnInit {
   readonly metasConfig = inject(MetasConfigService);
   private messageService = inject(MessageService);
 
-  loading = signal(true);
+  summaryMonthlyLoading = signal(true);
+  summaryDailyLoading = signal(true);
+  reportsDataLoading = signal(true);
 
   // Signals para almacenar la data del backend - separados por periodo
   summaryMonthly = signal<any>(null);  // Datos mensuales para KPI cards
@@ -210,7 +212,9 @@ export class HomeComponent implements OnInit {
   }
 
   loadDashboardData() {
-    this.loading.set(true);
+    this.summaryMonthlyLoading.set(true);
+    this.summaryDailyLoading.set(true);
+    this.reportsDataLoading.set(true);
 
     const f = this.filtersState.filters();
     const monthlyRange = this.getMonthlyDateRange();
@@ -237,16 +241,22 @@ export class HomeComponent implements OnInit {
         zone: f.zone,
         supervisorId: f.supervisorId,
         sellerIds: f.sellerIds
-      })
+      }, 1, 5, 'metrics,trend')
     }).subscribe({
       next: ({ summaryMonthly, summaryDaily, reportsRes }) => {
         this.summaryMonthly.set(summaryMonthly.metricas_globales);
+        this.summaryMonthlyLoading.set(false);
         this.summaryDaily.set(summaryDaily.metricas_diarias);
+        this.summaryDailyLoading.set(false);
         this.reportsData.set(reportsRes);
+        this.reportsDataLoading.set(false);
         this.updateChart(reportsRes);
-        this.loading.set(false);
       },
-      error: () => this.loading.set(false)
+      error: () => {
+        this.summaryMonthlyLoading.set(false);
+        this.summaryDailyLoading.set(false);
+        this.reportsDataLoading.set(false);
+      }
     });
   }
 

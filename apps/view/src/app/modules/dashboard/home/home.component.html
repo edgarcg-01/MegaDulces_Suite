@@ -10,7 +10,7 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       <p-button icon="pi pi-refresh" [text]="true" severity="secondary" [rounded]="true"
-        (click)="loadDashboardData()" [loading]="loading()" pTooltip="Refrescar" />
+        (click)="loadDashboardData()" [loading]="summaryMonthlyLoading()" pTooltip="Refrescar" />
       <p-button label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand" size="small"
         (click)="showMetasDialog = true" />
       <p-button label="PDF" icon="pi pi-file-pdf" severity="secondary" size="small"
@@ -20,13 +20,13 @@
 
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 w-full">
-    <ng-container *ngIf="loading()">
+    <ng-container *ngIf="summaryMonthlyLoading()">
       <div *ngFor="let i of [1,2,3,4]" class="card-premium animate-pulse min-h-[180px] flex items-center justify-center">
         <p-skeleton width="80%" height="4rem"></p-skeleton>
       </div>
     </ng-container>
 
-    <ng-container *ngIf="!loading()">
+    <ng-container *ngIf="!summaryMonthlyLoading()">
       <div *ngFor="let k of kpiCards()"
            class="card-premium flex flex-col justify-between items-center text-center group elevation-hover border-l-4 min-h-[180px] p-5 w-full"
            [ngClass]="{
@@ -79,33 +79,21 @@
 
     <div class="lg:col-span-8 space-y-6">
 
-      <!-- Gráfica Stacked Bar estilo PrimeNG - 7 días fijos -->
-      <div class="card-premium">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h3 class="text-base font-bold text-content-main">Ejecución Semanal</h3>
-            <p class="text-xs text-content-muted mt-1">Visitas por día de la semana (acumulado)</p>
-          </div>
-          <div class="flex items-center gap-4">
-            <!-- Leyenda estilo PrimeNG -->
-            <div class="flex items-center gap-4 text-[11px] text-content-muted">
-              <span class="flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-[#185FA5]"></span>Alto Score
-              </span>
-              <span class="flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-[#5B9BD5]"></span>Medio
-              </span>
-              <span class="flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-[#BDD7EE]"></span>Bajo
-              </span>
+      @defer (on idle) {
+        @if (stackedChartData) {
+          <app-home-charts [stackedChartData]="stackedChartData" [stackedChartOptions]="stackedChartOptions" />
+        }
+      } @placeholder {
+        <div class="card-premium">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-base font-bold text-content-main">Ejecución Semanal</h3>
+              <p class="text-xs text-content-muted mt-1">Visitas por día de la semana (acumulado)</p>
             </div>
           </div>
+          <p-skeleton height="320px"></p-skeleton>
         </div>
-        <div class="h-[320px]">
-          <p-chart type="bar" [data]="stackedChartData" [options]="stackedChartOptions" height="100%" *ngIf="stackedChartData && !loading()"></p-chart>
-          <p-skeleton height="320px" *ngIf="loading()"></p-skeleton>
-        </div>
-      </div>
+      }
 
       <div class="card-premium">
         <div class="flex items-center justify-between mb-6 pb-3 border-b border-divider">

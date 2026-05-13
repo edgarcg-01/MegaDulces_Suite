@@ -59,12 +59,15 @@ export class ReportsService {
    * @param filters Filtros para la consulta (startDate, endDate, userId, supervisorId, sellerIds, userIds, zone)
    * @returns Observable con los datos de reportes
    */
-  getReportsData(filters: any): Observable<ReportsData> {
+  getReportsData(filters: any, page?: number, pageSize?: number, include?: string): Observable<ReportsData> {
     let params = new HttpParams();
     if (filters.startDate) params = params.set('startDate', filters.startDate);
     if (filters.endDate) params = params.set('endDate', filters.endDate);
     if (filters.userId) params = params.set('userId', filters.userId);
     if (filters.supervisorId) params = params.set('supervisorId', filters.supervisorId);
+    if (page != null) params = params.set('page', page.toString());
+    if (pageSize != null) params = params.set('pageSize', pageSize.toString());
+    if (include) params = params.set('include', include);
 
     // Prioridad: sellerIds > userIds > legacy userIds
     const idsToSend = filters.sellerIds?.length > 0

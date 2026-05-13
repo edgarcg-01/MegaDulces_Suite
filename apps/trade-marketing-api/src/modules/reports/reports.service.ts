@@ -661,10 +661,19 @@ export class ReportsService {
       userIds?: string[];
       zone?: string;
       supervisorId?: string;
+      page?: string;
+      pageSize?: string;
+      include?: string;
     },
     user: any,
   ) {
     console.log('[ReportsService] getFilteredData called with filters:', filters);
+
+    const page = filters.page ? parseInt(filters.page, 10) : 1;
+    const pageSize = filters.pageSize ? parseInt(filters.pageSize, 10) : 50;
+    const safePage = page > 0 ? page : 1;
+    const safePageSize = pageSize > 0 && pageSize <= 100 ? pageSize : 50;
+    const include = filters.include || '';
 
     const query = this.knex('daily_captures').select('*');
 
@@ -701,7 +710,9 @@ export class ReportsService {
     }
 
     console.log('[ReportsService] SQL Query:', query.toSQL());
-    const rows = await query.orderBy('hora_inicio', 'desc');
+    const [{ total }] = await query.clone().clearSelect().clearOrder().count('* as total');
+    console.log('[ReportsService] Total rows matching filters:', Number(total));
+    const rows = await query.clone().orderBy('hora_inicio', 'desc').limit(safePageSize).offset((safePage - 1) * safePageSize);
     console.log('[ReportsService] Number of rows returned:', rows.length);
     console.log('[ReportsService] zona_captura values:', rows.map(r => r.zona_captura));
 
@@ -714,38 +725,38 @@ export class ReportsService {
       conceptoMap[c.id] = c.value; // Guardamos el nombre original para display
     });
 
-    // Get all products and brands for mapping IDs to names
-    // Include products from the planogram to ensure all PIDs have names
-    const products = await this.knex('products').select('id', 'nombre', 'brand_id');
-    const brands = await this.knex('brands').select('id', 'nombre');
-    
-    const productMap: Record<string, { name: string; brandName: string }> = {};
-    const brandMap: Record<string, string> = {};
-    
-    brands.forEach(b => brandMap[b.id] = b.nombre);
-    products.forEach(p => {
-      productMap[p.id] = { 
-        name: p.nombre, 
-        brandName: brandMap[p.brand_id] || 'Otras' 
-      };
-    });
-    
-    // Log productMap for debugging
-    console.log('[ReportsService] productMap keys:', Object.keys(productMap));
-    console.log('[ReportsService] productMap sample:', Object.keys(productMap).slice(0, 5));
-    console.log('[ReportsService] productMap sample with names:', Object.entries(productMap).slice(0, 5).map(([k, v]) => ({ id: k, name: v.name })));
+    // Get all products and brands for mapping IDs to names (only if include has 'products')
+    const includeProducts = include.includes('products');
+    let productMap: Record<string, { name: string; brandName: string }> = {};
+    let brandMap: Record<string, string> = {};
+    if (includeProducts) {
+      const products = await this.knex('products').select('id', 'nombre', 'brand_id');
+      const brands = await this.knex('brands').select('id', 'nombre');
+      
+      brands.forEach(b => brandMap[b.id] = b.nombre);
+      products.forEach(p => {
+        productMap[p.id] = { 
+          name: p.nombre, 
+          brandName: brandMap[p.brand_id] || 'Otras' 
+        };
+      });
+      
+      console.log('[ReportsService] productMap keys:', Object.keys(productMap));
+      console.log('[ReportsService] productMap sample:', Object.keys(productMap).slice(0, 5));
+      console.log('[ReportsService] productMap sample with names:', Object.entries(productMap).slice(0, 5).map(([k, v]) => ({ id: k, name: v.name })));
+    }
 
     // Calculate aggregated metrics for the filtered set
     let totalVisitas = 0;
     let totalScore = 0;
     let totalVentas = 0;
+    let totalUniqueProducts = 0;
+    let totalExhibiciones = 0;
+    let avgProductsPerVisit = '0.00';
     const dailyTrend: Record<string, any> = {};
     const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
     const exhibidoresHealth = { optimo: 0, regular: 0, critico: 0 };
     const sellerProductStats: Record<string, Record<string, number>> = {}; // Productos por usuario
-
-    // Collect all unique PIDs from exhibiciones for later mapping
-    const allPIDsInExhibiciones = new Set<string>();
 
     rows.forEach((row) => {
       const stats =
@@ -772,7 +783,7 @@ export class ReportsService {
       dailyTrend[dateKey].score += score;
       dailyTrend[dateKey].count += 1;
 
-      // Product Analysis Aggregation
+      // Product Analysis Aggregation (only if include has 'products')
       exhibiciones.forEach((ex: any) => {
         const conceptoId = ex.conceptoId || 'otros';
         const conceptoName = conceptoMap[conceptoId] || conceptoId;
@@ -786,77 +797,72 @@ export class ReportsService {
         else if (isRegular) exhibidoresHealth.regular++;
         else exhibidoresHealth.critico++;
 
-        productosMarcados.forEach((pid: string) => {
-          if (!productStats[pid]) {
-            productStats[pid] = { total: 0, exhibidores: {} };
-          }
-          productStats[pid].total += 1;
+        if (includeProducts) {
+          productosMarcados.forEach((pid: string) => {
+            if (!productStats[pid]) {
+              productStats[pid] = { total: 0, exhibidores: {} };
+            }
+            productStats[pid].total += 1;
 
-          if (!productStats[pid].exhibidores[conceptoName]) {
-            productStats[pid].exhibidores[conceptoName] = 0;
-          }
-          productStats[pid].exhibidores[conceptoName] += 1;
+            if (!productStats[pid].exhibidores[conceptoName]) {
+              productStats[pid].exhibidores[conceptoName] = 0;
+            }
+            productStats[pid].exhibidores[conceptoName] += 1;
 
-          // Collect PID for later mapping
-          allPIDsInExhibiciones.add(pid);
-
-          // Agregar productos por usuario
-          const userId = row.user_id || row.captured_by;
-          if (!sellerProductStats[userId]) {
-            sellerProductStats[userId] = {};
-          }
-          if (!sellerProductStats[userId][pid]) {
-            sellerProductStats[userId][pid] = 0;
-          }
-          sellerProductStats[userId][pid] += 1;
-        });
+            // Agregar productos por usuario
+            const userId = row.user_id || row.captured_by;
+            if (!sellerProductStats[userId]) {
+              sellerProductStats[userId] = {};
+            }
+            if (!sellerProductStats[userId][pid]) {
+              sellerProductStats[userId][pid] = 0;
+            }
+            sellerProductStats[userId][pid] += 1;
+          });
+        }
       });
     });
 
     // Find PIDs that are in productStats but not in productMap (deleted products)
     // Remove them from productStats to avoid showing deleted products in reports
-    const allPIDsInStats = Object.keys(productStats);
-    const missingPIDs = allPIDsInStats.filter(pid => !productMap[pid]);
-    console.log('[ReportsService] PIDs in productStats not in productMap (deleted products):', missingPIDs);
-    console.log('[ReportsService] Total products in productMap:', Object.keys(productMap).length);
-    console.log('[ReportsService] Total PIDs in productStats before filtering:', allPIDsInStats.length);
-    
-    if (missingPIDs.length > 0) {
-      // Try to get product info from products table (in case we missed some)
-      const missingProducts = await this.knex('products')
-        .whereIn('id', missingPIDs)
-        .select('id', 'nombre', 'brand_id');
+    if (includeProducts) {
+      const allPIDsInStats = Object.keys(productStats);
+      const missingPIDs = allPIDsInStats.filter(pid => !productMap[pid]);
+      console.log('[ReportsService] PIDs in productStats not in productMap (deleted products):', missingPIDs);
+      console.log('[ReportsService] Total products in productMap:', Object.keys(productMap).length);
+      console.log('[ReportsService] Total PIDs in productStats before filtering:', allPIDsInStats.length);
       
-      console.log('[ReportsService] Found missing products in DB:', missingProducts.length);
-      
-      // Add the found products to productMap
-      missingProducts.forEach(p => {
-        productMap[p.id] = { 
-          name: p.nombre, 
-          brandName: brandMap[p.brand_id] || 'Otras' 
-        };
-        console.log('[ReportsService] Added to productMap:', p.id, '->', p.nombre);
-      });
-      
-      // Remove still missing PIDs from productStats (deleted products should not appear in reports)
-      const stillMissing = missingPIDs.filter(pid => !productMap[pid]);
-      stillMissing.forEach(pid => {
-        delete productStats[pid];
-        console.warn('[ReportsService] Removed deleted product from productStats:', pid);
-      });
-      
-      console.log('[ReportsService] Summary: Found', missingProducts.length, 'of', missingPIDs.length, 'missing products');
-      console.log('[ReportsService] Removed', stillMissing.length, 'deleted products from productStats');
-      console.log('[ReportsService] Total PIDs in productStats after filtering:', Object.keys(productStats).length);
+      if (missingPIDs.length > 0) {
+        const missingProducts = await this.knex('products')
+          .whereIn('id', missingPIDs)
+          .select('id', 'nombre', 'brand_id');
+        
+        console.log('[ReportsService] Found missing products in DB:', missingProducts.length);
+        
+        missingProducts.forEach(p => {
+          productMap[p.id] = { 
+            name: p.nombre, 
+            brandName: brandMap[p.brand_id] || 'Otras' 
+          };
+          console.log('[ReportsService] Added to productMap:', p.id, '->', p.nombre);
+        });
+        
+        const stillMissing = missingPIDs.filter(pid => !productMap[pid]);
+        stillMissing.forEach(pid => {
+          delete productStats[pid];
+          console.warn('[ReportsService] Removed deleted product from productStats:', pid);
+        });
+        
+        console.log('[ReportsService] Summary: Found', missingProducts.length, 'of', missingPIDs.length, 'missing products');
+        console.log('[ReportsService] Removed', stillMissing.length, 'deleted products from productStats');
+        console.log('[ReportsService] Total PIDs in productStats after filtering:', Object.keys(productStats).length);
+      }
+
+      totalUniqueProducts = Object.keys(productStats).length;
+      avgProductsPerVisit = totalVisitas > 0 ? (totalUniqueProducts / totalVisitas).toFixed(2) : '0.00';
+      totalExhibiciones = Object.values(productStats).reduce((sum, p) => sum + p.total, 0);
     }
 
-    // Calculate stockout rate: percentage of products not appearing in any exhibition
-    const totalUniqueProducts = Object.keys(productStats).length;
-    const avgProductsPerVisit = totalVisitas > 0 ? (totalUniqueProducts / totalVisitas).toFixed(2) : 0;
-    
-    // Calculate total exhibiciones
-    const totalExhibiciones = Object.values(productStats).reduce((sum, p) => sum + p.total, 0);
-    
     // Calculate exhibidores health percentage
     const totalExhibidores = exhibidoresHealth.optimo + exhibidoresHealth.regular + exhibidoresHealth.critico;
     const healthRate = totalExhibidores > 0 ? ((exhibidoresHealth.optimo / totalExhibidores) * 100).toFixed(2) : 0;
@@ -883,12 +889,11 @@ export class ReportsService {
       }));
 
     return {
+      total: Number(total),
       metrics,
       trendData,
-      productStats,
-      productMap, // We send the mapping to the frontend
+      ...(includeProducts ? { productStats, productMap, sellerProductStats } : {}),
       exhibidoresHealth,
-      sellerProductStats, // Productos por usuario
       rows: rows.map((r) => ({
         ...r,
         stats: typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats,

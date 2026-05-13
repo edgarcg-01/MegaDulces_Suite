@@ -82,17 +82,15 @@ export class ReportsController {
     @Query('userIds') userIds?: string[],
     @Query('zone') zone?: string,
     @Query('supervisorId') supervisorId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('include') include?: string,
   ) {
     console.log('[ReportsController] GET /reports/data', {
-      startDate,
-      endDate,
-      userId,
-      userIds,
-      zone,
-      supervisorId,
+      startDate, endDate, userId, userIds, zone, supervisorId, page, pageSize, include,
     });
     return this.reportsService.getFilteredData(
-      { startDate, endDate, userId, userIds, zone, supervisorId },
+      { startDate, endDate, userId, userIds, zone, supervisorId, page, pageSize, include },
       user,
     );
   }
