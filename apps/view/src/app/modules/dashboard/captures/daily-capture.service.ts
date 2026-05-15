@@ -626,7 +626,7 @@ export class DailyCaptureService {
 
           // Guardar offline con coordenadas recuperadas
           return from(this.offlineService.guardarCapturaOffline(
-            store?.id || null,
+            store?.id ?? 'default',
             user.sub,
             {
               horaInicio: payload.horaInicio,
