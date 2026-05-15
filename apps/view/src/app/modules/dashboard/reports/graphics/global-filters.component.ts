@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, OnDestroy, output } from '@angular/core';
+import { Component, inject, signal, OnInit, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -7,9 +7,7 @@ import { MultiSelectModule } from 'primeng/multiselect';
 
 import { FiltersStateService } from './filters-state.service';
 import { ReportsService } from '../reports.service';
-import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
-import { DailyCaptureService } from '../../captures/daily-capture.service';
 
 interface DropOption {
   label: string;
@@ -104,18 +102,6 @@ interface DropOption {
             class="w-full" />
         </div>
 
-        <div class="flex flex-col gap-1">
-          <label class="filter-label">Marca</label>
-          <p-select
-            [options]="brands"
-            [(ngModel)]="selectedBrand"
-            optionLabel="label" optionValue="value"
-            [showClear]="true"
-            placeholder="Todas"
-            (onChange)="onBrandChange()"
-            (onClear)="onBrandClear()"
-            class="w-full" />
-        </div>
       </div>
     </div>
   `,
@@ -135,17 +121,13 @@ export class GlobalFiltersComponent implements OnInit {
 
   private filtersState = inject(FiltersStateService);
   private reportsService = inject(ReportsService);
-  private authService = inject(AuthService);
   private perms = inject(PermissionsService);
-  private dailyCaptureService = inject(DailyCaptureService);
 
   showAdvanced = signal(false);
 
   zones: DropOption[] = [{ label: 'Todas las zonas', value: null }];
   supervisors: DropOption[] = [{ label: 'Todos', value: null }];
   sellers: DropOption[] = [];
-  brands: DropOption[] = [{ label: 'Todas las marcas', value: null }];
-
   periods: DropOption[] = [
     { label: 'Hoy', value: 'hoy' },
     { label: 'Semana', value: 'semanal' },
@@ -159,7 +141,6 @@ export class GlobalFiltersComponent implements OnInit {
   selectedZone: string | null = null;
   selectedSupervisorId: string | null = null;
   selectedSellerIds: string[] = [];
-  selectedBrand: string | null = null;
 
   ngOnInit() {
     const f = this.filtersState.filters();
@@ -167,12 +148,10 @@ export class GlobalFiltersComponent implements OnInit {
     this.selectedZone = f.zone;
     this.selectedSupervisorId = f.supervisorId;
     this.selectedSellerIds = f.sellerIds;
-    this.selectedBrand = f.brand;
 
     this.loadZones();
     this.loadSupervisors();
     this.loadSellers();
-    this.loadBrands();
   }
 
   private loadZones() {
@@ -227,19 +206,6 @@ export class GlobalFiltersComponent implements OnInit {
     });
   }
 
-  private loadBrands() {
-    const groupedProducts = this.dailyCaptureService.groupedProducts();
-    if (groupedProducts && groupedProducts.length > 0) {
-      this.brands = [
-        { label: 'Todas las marcas', value: null },
-        ...groupedProducts.map((brand: any) => ({
-          label: brand.marca || brand.name || brand.brand || brand.id,
-          value: brand.marca || brand.name || brand.brand || brand.id
-        }))
-      ];
-    }
-  }
-
   onPeriodChange() {
     this.filtersState.setPeriod(this.selectedPeriod);
     if (this.selectedPeriod !== 'custom') this.emit();
@@ -279,17 +245,6 @@ export class GlobalFiltersComponent implements OnInit {
     this.emit();
   }
 
-  onBrandChange() {
-    this.filtersState.setBrand(this.selectedBrand);
-    this.emit();
-  }
-
-  onBrandClear() {
-    this.selectedBrand = null;
-    this.filtersState.setBrand(null);
-    this.emit();
-  }
-
   /** Carga externa de opciones (el padre llama a estos setters) */
   setZones(list: DropOption[]) {
     this.zones = [{ label: 'Todas las zonas', value: null }, ...list];
@@ -308,7 +263,6 @@ export class GlobalFiltersComponent implements OnInit {
     this.selectedZone = f.zone;
     this.selectedSupervisorId = f.supervisorId;
     this.selectedSellerIds = f.sellerIds;
-    this.selectedBrand = f.brand;
     this.emit();
   }
 

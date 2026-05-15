@@ -46,6 +46,7 @@
           <th pSortableColumn="zona" class="text-left">Zona <p-sortIcon field="zona" /></th>
           <th pSortableColumn="score" class="text-center">Score <p-sortIcon field="score" /></th>
           <th class="text-center">Visitas</th>
+          <th class="text-center">Rango Compra</th>
           <th class="text-center">Stockout</th>
           <th class="text-center">Última Visita</th>
         </tr>
@@ -56,13 +57,14 @@
           <td><p-tag [value]="store.zona" severity="info" [rounded]="true" styleClass="text-[9px]" /></td>
           <td class="text-center font-black" [ngClass]="{'text-green-600': store.score >= 80, 'text-amber-500': store.score >= 50 && store.score < 80, 'text-red-500': store.score < 50}">{{ store.score }}</td>
           <td class="text-center text-content-muted">{{ store.totalVisitas }}</td>
+          <td class="text-center"><span class="text-[10px] font-bold text-brand-orange">{{ store.rangoCompraPromedio || '—' }}</span></td>
           <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-green-600': store.stockoutRate <= 10, 'text-amber-500': store.stockoutRate > 10 && store.stockoutRate <= 30, 'text-red-500': store.stockoutRate > 30}">{{ store.stockoutRate }}%</span></td>
           <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
         </tr>
       </ng-template>
       <ng-template pTemplate="emptydata">
         <tr>
-          <td colspan="6" class="text-center py-8 text-content-muted text-sm">
+          <td colspan="7" class="text-center py-8 text-content-muted text-sm">
             <i class="pi pi-inbox text-2xl block mb-2"></i>
             No hay datos de tiendas para el período seleccionado.
           </td>

@@ -533,16 +533,23 @@ export class DailyCaptureService {
 
     const store = this._detectedStore();
 
+    // Copiar rangoCompra de visita a cada exhibición
+    const rangoCompraVisita = this._visitaRangoCompra();
+    const exhibicionesConRango = this._activeExhibiciones().map(ex => ({
+      ...ex,
+      rangoCompra: rangoCompraVisita
+    }));
+
     const payload: any = {
       folio: customFolio,
       fechaCaptura: localDateStr,
       horaInicio: this._horaInicio()!,
       horaFin: d.toISOString(),
-      exhibiciones: this._activeExhibiciones(),
+      exhibiciones: exhibicionesConRango,
       stats: {
         ...s,
         ventaAdicional: this._visitaVentaAdicional(),
-        rangoCompra: this._visitaRangoCompra()
+        rangoCompra: rangoCompraVisita
       },
       latitud: latitud || 0,
       longitud: longitud || 0,
@@ -619,7 +626,7 @@ export class DailyCaptureService {
 
           // Guardar offline con coordenadas recuperadas
           return from(this.offlineService.guardarCapturaOffline(
-            'default', // tiendaId - ajustar según tu lógica
+            store?.id || null,
             user.sub,
             {
               horaInicio: payload.horaInicio,

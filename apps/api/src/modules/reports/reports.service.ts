@@ -1044,6 +1044,8 @@ export class ReportsService {
           ultimaVisita: null,
           healthCount: { optimo: 0, regular: 0, critico: 0 },
           productCount: 0,
+          rangoCompraSum: 0,
+          rangoCompraCount: 0,
         });
       }
       const s = storeMap.get(sid);
@@ -1054,20 +1056,40 @@ export class ReportsService {
       s.ventaTotal += stats.ventaTotal || (stats.ventaAdicional || 0);
       s.visitas++;
 
-      const fecha = row.hora_inicio instanceof Date
-        ? row.hora_inicio.toISOString().split('T')[0]
-        : String(row.hora_inicio).split('T')[0];
-      if (!s.ultimaVisita || fecha > s.ultimaVisita) s.ultimaVisita = fecha;
-
+      // Calculate rangoCompra average from exhibiciones
       const exhibiciones = typeof row.exhibiciones === 'string'
         ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
+      const rangoMap: Record<string, number> = {
+        '>500': 500,
+        '>1000': 1000,
+        '>1500': 1500,
+        '>2000': 2000,
+        '>2500': 2500,
+      };
       exhibiciones.forEach((ex: any) => {
+        const rangoCompra = ex.rangoCompra || '';
+        if (rangoCompra) {
+          const rangoValue = rangoMap[rangoCompra] || 0;
+          if (rangoValue === 0 && rangoCompra) {
+            console.warn(`[ReportsService] Unknown rangoCompra value: "${rangoCompra}" for store ${sid}. Known values: ${Object.keys(rangoMap).join(', ')}`);
+          }
+          s.rangoCompraSum += rangoValue;
+          s.rangoCompraCount++;
+        } else {
+          console.debug(`[ReportsService] Empty rangoCompra for exhibicion in store ${sid}`);
+        }
+        // Also calculate health metrics
         const val = ex.nivelEjecucion;
         if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80)) s.healthCount.optimo++;
         else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50)) s.healthCount.regular++;
         else s.healthCount.critico++;
         s.productCount += (ex.productosMarcados || []).length;
       });
+
+      const fecha = row.hora_inicio instanceof Date
+        ? row.hora_inicio.toISOString().split('T')[0]
+        : String(row.hora_inicio).split('T')[0];
+      if (!s.ultimaVisita || fecha > s.ultimaVisita) s.ultimaVisita = fecha;
     }
 
     const storesList: any[] = [];
@@ -1093,6 +1115,25 @@ export class ReportsService {
         ? +((1 - s.productCount / (s.visitas * 10)) * 100).toFixed(1) // approximate: expected ~10 products per visit
         : 0;
 
+      // Calculate rangoCompra average and convert back to range string
+      let rangoCompraPromedio = '';
+      if (s.rangoCompraCount > 0) {
+        const avgRango = s.rangoCompraSum / s.rangoCompraCount;
+        // Convert average back to nearest range
+        const ranges = [500, 1000, 1500, 2000, 2500];
+        // Use <= to correctly handle ties, then pick the higher value on equal distance
+        const nearestRange = ranges.reduce((prev, curr) => {
+          const distCurr = Math.abs(curr - avgRango);
+          const distPrev = Math.abs(prev - avgRango);
+          // If distances are equal, pick the higher range value (tie-breaking upward)
+          if (distCurr === distPrev) return curr > prev ? curr : prev;
+          // Otherwise pick the closer one
+          return distCurr < distPrev ? curr : prev;
+        });
+        rangoCompraPromedio = `>${nearestRange}`;
+        console.log(`[ReportsService] Store ${s.id}: rangoCompraCount=${s.rangoCompraCount}, sum=${s.rangoCompraSum}, avg=${avgRango.toFixed(2)}, rounded=${rangoCompraPromedio}`);
+      }
+
       const storeData = {
         id: s.id,
         nombre: s.nombre,
@@ -1104,6 +1145,7 @@ export class ReportsService {
         diasSinVisita,
         stockoutRate: Math.min(100, Math.max(0, stockoutPct)),
         healthRate,
+        rangoCompraPromedio,
       };
       storesList.push(storeData);
 

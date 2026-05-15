@@ -7,8 +7,6 @@ import {
   effect,
   Renderer2,
   HostListener,
-  ViewChild,
-  ElementRef,
   OnInit,
   OnDestroy,
 } from '@angular/core';
@@ -35,8 +33,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private renderer    = inject(Renderer2);
   private document    = inject(DOCUMENT);
   private dataUpdateService = inject(DataUpdateService);
-
-  @ViewChild('mainContainer') mainContainer!: ElementRef<HTMLElement>;
 
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
@@ -91,17 +87,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
     this.isMobile.set(window.innerWidth < 1024);
   }
 
-  onMainScroll(event: Event): void {
-    const el        = event.target as HTMLElement;
-    const scrollTop = el.scrollTop;
-    const docHeight = el.scrollHeight - el.clientHeight;
+  @HostListener('window:scroll')
+  onMainScroll(): void {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    const docHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
     const progress  = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
     this.scrollProgress.set(Math.min(100, Math.max(0, progress)));
     this.showScrollTop.set(scrollTop > 300);
   }
 
   scrollToTop(): void {
-    this.mainContainer?.nativeElement.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // ── Sidebar ───────────────────────────────────────────────────────

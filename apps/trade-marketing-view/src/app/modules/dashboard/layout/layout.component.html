@@ -1,6 +1,6 @@
 
 <div
-  class="flex min-h-screen min-h-[100dvh] bg-surface-layout overflow-hidden transition-colors duration-300"
+  class="flex min-h-screen bg-surface-layout transition-colors duration-300"
   [class.theme-monochrome]="themeService.isMonochrome()"
 >
   <!-- Mobile Overlay -->
@@ -12,10 +12,10 @@
 
   <!-- Sidebar -->
   <aside
-    class="fixed lg:static inset-y-0 left-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider shrink-0 shadow-xl lg:shadow-none h-screen overflow-hidden"
+    class="sticky top-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider shrink-0 shadow-xl lg:shadow-none h-screen overflow-hidden"
     [ngClass]="{
-      'w-64': sidebarOpen(),
-      'w-16': sidebarCollapsed() && !isMobile(),
+      'w-64': isMobile() ? sidebarOpen() : !sidebarCollapsed(),
+      'w-16': !isMobile() && sidebarCollapsed(),
       '-translate-x-full': !sidebarOpen() && isMobile(),
       'translate-x-0': sidebarOpen() && isMobile(),
     }"
@@ -59,7 +59,7 @@
       <!-- Main Nav -->
       <div class="px-3">
         <p
-          *ngIf="!sidebarCollapsed() || isMobile() || sidebarOpen() "
+          *ngIf="!sidebarCollapsed() || isMobile()"
           class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2"
         >
           Operaciones
@@ -76,7 +76,6 @@
               "
               [title]="item.label"
             >
-              <!-- Indicador activo sutil -->
               <span
                 *ngIf="isActive(item.route)"
                 class="absolute left-0 w-1 h-6 rounded-r bg-content-muted/50"
@@ -101,7 +100,7 @@
       <!-- Admin Nav -->
       <div class="px-3 mt-4">
         <p
-          *ngIf="!sidebarCollapsed() || isMobile() || sidebarOpen()"
+          *ngIf="!sidebarCollapsed() || isMobile()"
           class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2"
         >
           Administración
@@ -118,7 +117,6 @@
               "
               [title]="item.label"
             >
-              <!-- Indicador activo sutil -->
               <span
                 *ngIf="isActive(item.route)"
                 class="absolute left-0 w-1 h-6 rounded-r bg-content-muted/50"
@@ -154,7 +152,6 @@
         <span *ngIf="!sidebarCollapsed() || isMobile()" class="ml-1 truncate">Proyectos</span>
       </button>
 
-      <!-- Theme Toggle -->
       <button
         (click)="themeService.toggleMonochrome()"
         class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors"
@@ -188,7 +185,7 @@
   </aside>
 
   <!-- Main Content -->
-  <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
+  <div class="flex flex-col flex-1 min-w-0 min-h-screen">
     <!-- Top Bar -->
     <header
       class="h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-4 lg:px-6 shrink-0 transition-colors duration-300"
@@ -205,7 +202,6 @@
 
       <!-- Right: User Info -->
       <div class="flex items-center gap-3">
-        <!-- Refresh Button (Visible in PWA mode or when pending update) -->
         <button
           (click)="refreshData()"
           class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative"
@@ -222,7 +218,6 @@
           ></span>
         </button>
 
-        <!-- Logout Button (Solo para colaboradores) -->
         <button
           *ngIf="isRestricted()"
           (click)="logout()"
@@ -232,7 +227,6 @@
           <i class="pi pi-sign-out text-lg"></i>
         </button>
 
-        <!-- Loading Indicator -->
         <div
           *ngIf="loading()"
           class="flex items-center gap-2 text-xs text-content-muted mr-2"
@@ -241,7 +235,6 @@
           <span>Cargando...</span>
         </div>
 
-        <!-- User Info -->
         <div class="text-right">
           <p class="text-sm font-semibold text-content-main">
             {{ user()?.username }}
@@ -251,7 +244,6 @@
           </p>
         </div>
 
-        <!-- User Avatar -->
         <div
           class="h-8 w-8 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-bold uppercase transition-colors"
         >
@@ -271,12 +263,11 @@
     </nav>
 
     <!-- Page Content -->
-    <main class="flex-1 overflow-y-auto w-full h-full bg-surface-layout relative" #mainContainer>
+    <main class="flex-1 bg-surface-layout relative">
       <div class="animate-fade-in-up">
         <router-outlet></router-outlet>
       </div>
 
-      <!-- Scroll to Top Button - Monocromático sutil -->
       <button
         *ngIf="showScrollTop()"
         (click)="scrollToTop()"

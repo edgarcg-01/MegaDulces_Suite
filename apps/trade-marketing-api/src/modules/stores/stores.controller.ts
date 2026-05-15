@@ -14,6 +14,20 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
+  @Get('nearby')
+  @ApiOperation({ summary: 'Buscar tiendas cercanas por GPS' })
+  findNearby(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('radius') radius?: string,
+  ) {
+    return this.storesService.findNearby(
+      parseFloat(lat),
+      parseFloat(lng),
+      radius ? parseFloat(radius) : 50,
+    );
+  }
+
   @Get()
   @ApiOperation({
     summary:

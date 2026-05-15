@@ -6,6 +6,39 @@ import { KNEX_CONNECTION } from '../../shared/database/database.module';
 export class StoresService {
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
+  private haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(Δφ / 2) ** 2 +
+              Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  async findNearby(lat: number, lng: number, radiusMeters = 50) {
+    const stores = await this.knex('stores')
+      .where({ activo: true })
+      .whereNotNull('latitud')
+      .whereNotNull('longitud')
+      .where('latitud', '!=', 0)
+      .where('longitud', '!=', 0)
+      .select('*');
+
+    return stores
+      .map(store => ({
+        id: store.id,
+        nombre: store.nombre,
+        direccion: store.direccion,
+        latitud: store.latitud,
+        longitud: store.longitud,
+        distance: Math.round(this.haversine(lat, lng, Number(store.latitud), Number(store.longitud))),
+      }))
+      .filter(s => s.distance <= radiusMeters)
+      .sort((a, b) => a.distance - b.distance);
+  }
+
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
     const cleaned = zonaName.trim();
