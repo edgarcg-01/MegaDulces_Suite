@@ -2,10 +2,87 @@ import { Injectable, Inject } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { getDataScope } from '../../shared/ability/data-scope';
+import { EventsService } from '../websocket/events.service';
+import { ReportsCacheService } from './reports-cache.service';
 
 @Injectable()
 export class ReportsService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly eventsService: EventsService,
+    private readonly cache: ReportsCacheService,
+  ) {
+    this.eventsService.onCaptureChange = async () => {
+      const before = this.cache.getHitRate();
+      this.cache.invalidateAllReports();
+
+      if (!this.eventsService.isServerReady) return;
+
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        const startDate = startOfMonth.toLocaleDateString('en-CA');
+
+        const filters = { startDate, endDate: today };
+        const globalUser = { sub: 'system', permissions: {}, rules: [{ action: 'manage', subject: 'all' }] };
+
+        const [summary, dailyScores] = await Promise.all([
+          this.getSummary(filters, globalUser),
+          this.getDailyScoresPerUser(filters, globalUser),
+        ]);
+
+        const afterGlobal = this.cache.getHitRate();
+        const lines = [`[Cache] invalidated + global metrics emitted. Hit rate: ${before.rate} → ${afterGlobal.rate}`];
+
+        this.eventsService.emitMetricsUpdateToRoom('reports:global', {
+          type: 'metrics:updated',
+          scope: 'global',
+          summary,
+          dailyScores,
+        });
+
+        const connectedScopes = this.eventsService.getConnectedUserScopes();
+        const seen = new Map<string, boolean>();
+
+        for (const sc of connectedScopes) {
+          if (sc.type === 'all') continue;
+
+          const room = sc.type === 'team' ? `reports:team:${sc.userId}` : `reports:own:${sc.userId}`;
+          const key = `${sc.type}:${sc.userId}`;
+
+          if (seen.has(key)) continue;
+          seen.set(key, true);
+
+          try {
+            const user = sc.type === 'team'
+              ? { sub: sc.userId, permissions: {}, rules: [{ action: 'read', subject: 'reports_team' }] }
+              : { sub: sc.userId, permissions: {}, rules: [] };
+
+            const [s, ds] = await Promise.all([
+              this.getSummary(filters, user),
+              this.getDailyScoresPerUser(filters, user),
+            ]);
+
+            this.eventsService.emitMetricsUpdateToRoom(room, {
+              type: 'metrics:updated',
+              scope: sc.type,
+              summary: s,
+              dailyScores: ds,
+            });
+
+            lines.push(`  ${sc.type}/${sc.userId} → room ${room}`);
+          } catch (err) {
+            console.warn(`[ReportsService] Failed to compute ${sc.type} metrics for ${sc.userId}:`, err.message);
+          }
+        }
+
+        console.log(lines.join('\n'));
+      } catch (err) {
+        console.warn('[ReportsService] Failed to compute metrics update:', err.message);
+      }
+    };
+  }
 
   async getSummary(
     filters: {
@@ -17,10 +94,21 @@ export class ReportsService {
     } = {},
     user: any,
   ) {
+    const scope = getDataScope(user);
+    const cacheKey = this.cache.buildKey('summary', {
+      scopeType: scope.type,
+      scopeUserId: scope.type !== 'all' ? scope.userId : 'all',
+      ...filters,
+    });
+
+    const cached = this.cache.get<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     let dcQuery = this.knex('daily_captures');
     let sQuery = this.knex('stores');
 
-    const scope = getDataScope(user);
     if (scope.type === 'own') {
       dcQuery = dcQuery.where('user_id', scope.userId);
     } else if (scope.type === 'team') {
@@ -129,7 +217,7 @@ export class ReportsService {
       });
     });
 
-    return {
+        const result = {
       status: 'Calculado Exitosamente',
       metricas_globales: {
         total_tiendas: Number(totalTiendas?.count || 0),
@@ -146,6 +234,9 @@ export class ReportsService {
       },
       generado_el: new Date().toISOString(),
     };
+
+    this.cache.set(cacheKey, result);
+    return result;
   }
 
   async getDailyCompliance(
@@ -158,10 +249,21 @@ export class ReportsService {
     },
     user: any,
   ) {
+    const scope = getDataScope(user);
+    const cacheKey = this.cache.buildKey('daily_compliance', {
+      scopeType: scope.type,
+      scopeUserId: scope.type !== 'all' ? scope.userId : 'all',
+      ...filters,
+    });
+
+    const cached = this.cache.get<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     let dcQuery = this.knex('daily_captures');
     let sQuery = this.knex('stores');
 
-    const scope = getDataScope(user);
     if (scope.type === 'own') {
       dcQuery = dcQuery.where('user_id', scope.userId);
     } else if (scope.type === 'team') {
@@ -224,7 +326,7 @@ export class ReportsService {
       });
     });
 
-    return {
+    const result = {
       metricas_diarias: {
         cierres_diarios: Number(totalDaily?.count || 0),
         total_tiendas: Number(totalTiendas?.count || 0),
@@ -237,6 +339,9 @@ export class ReportsService {
       },
       generado_el: new Date().toISOString(),
     };
+
+    this.cache.set(cacheKey, result);
+    return result;
   }
 
   async getFilteredData(
@@ -257,9 +362,9 @@ export class ReportsService {
     console.log('[ReportsService] user role:', user.role_name, 'user sub:', user.sub);
 
     const page = filters.page ? parseInt(filters.page, 10) : 1;
-    const pageSize = filters.pageSize ? parseInt(filters.pageSize, 10) : 50;
+    const pageSize = filters.pageSize ? parseInt(filters.pageSize, 10) : 0;
     const safePage = page > 0 ? page : 1;
-    const safePageSize = pageSize > 0 && pageSize <= 100 ? pageSize : 50;
+    const safePageSize = pageSize > 0 ? pageSize : 0;
     const include = filters.include || '';
 
     const query = this.knex('daily_captures as dc')
@@ -303,7 +408,10 @@ export class ReportsService {
     console.log('[ReportsService] SQL Query:', query.toSQL());
     const [{ total }] = await query.clone().clearSelect().clearOrder().count('* as total');
     console.log('[ReportsService] Total rows matching filters:', Number(total));
-    const rows = await query.clone().orderBy('hora_inicio', 'desc').limit(safePageSize).offset((safePage - 1) * safePageSize);
+    const orderedQuery = query.clone().orderBy('hora_inicio', 'desc');
+    const rows = safePageSize > 0
+      ? await orderedQuery.limit(safePageSize).offset((safePage - 1) * safePageSize)
+      : await orderedQuery;
     console.log('[ReportsService] Number of rows returned:', rows.length);
     console.log('[ReportsService] zona_captura values:', rows.map(r => r.zona_captura));
 
@@ -577,6 +685,14 @@ export class ReportsService {
     console.log(`[ReportsService] Deleting report ${id} by user ${user.username}`);
     await this.knex('daily_captures').where({ id }).del();
 
+    this.cache.invalidateAllReports();
+
+    this.eventsService.emitCaptureDeleted({
+      type: 'capture:deleted',
+      captureId: id,
+      userId: report.user_id,
+    });
+
     return { success: true, message: 'Reporte eliminado correctamente' };
   }
 
@@ -592,7 +708,19 @@ export class ReportsService {
   ) {
     try {
       console.log('[ReportsService] START getDailyScoresPerUser', { filters, userSub: user?.sub });
-      
+
+      const scope = getDataScope(user || { sub: '' });
+      const cacheKey = this.cache.buildKey('daily_scores', {
+        scopeType: scope.type,
+        scopeUserId: scope.type !== 'all' ? scope.userId : 'all',
+        ...filters,
+      });
+
+      const cached = this.cache.get<any>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
       const dcQuery = this.knex('daily_captures');
       
       // Select with explicit COALESCE to avoid nulls in calculations
@@ -605,7 +733,6 @@ export class ReportsService {
 
       // Scope filtering
       try {
-        const scope = getDataScope(user || { sub: '' });
         if (scope.type === 'own') {
           dcQuery.where('user_id', scope.userId || '');
         } else if (scope.type === 'team') {
@@ -680,10 +807,11 @@ export class ReportsService {
         });
       }
 
-      return { users: Array.from(userMap.values()) };
+      const result = { users: Array.from(userMap.values()) };
+      this.cache.set(cacheKey, result);
+      return result;
     } catch (error) {
       console.error('[ReportsService] Critical error in getDailyScoresPerUser:', error);
-      // Return empty to avoid 500 and allow frontend to show "No hay datos"
       return { users: [] };
     }
   }

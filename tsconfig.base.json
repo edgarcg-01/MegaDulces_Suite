@@ -20,8 +20,6 @@
       "@megadulces/shared-auth": ["libs/shared-auth/index.ts"],
       "@megadulces/shared-auth/core": ["libs/shared-auth/core/index.ts"],
       "@megadulces/shared-auth/ui": ["libs/shared-auth/ui/index.ts"],
-      "@trade-marketing-api/*": ["apps/trade-marketing-api/src/*"],
-      "@trade-marketing-view/*": ["apps/trade-marketing-view/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

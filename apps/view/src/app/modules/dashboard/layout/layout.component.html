@@ -207,7 +207,7 @@
 
       <!-- Right: User Info -->
       <div class="flex items-center gap-3">
-        <!-- Refresh Button (Visible in PWA mode or when pending update) -->
+        <!-- Refresh Button (with WS connection status) -->
         <button
           (click)="refreshData()"
           class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative"
@@ -221,6 +221,13 @@
           <span
             *ngIf="hasPendingUpdate()"
             class="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse"
+          ></span>
+          <!-- WS connection indicator -->
+          <span
+            class="absolute bottom-0 right-0 h-2 w-2 rounded-full"
+            [class.bg-green-500]="wsConnected()"
+            [class.bg-red-400]="!wsConnected()"
+            [title]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexion en tiempo real'"
           ></span>
         </button>
 

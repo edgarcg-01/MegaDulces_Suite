@@ -76,7 +76,7 @@ export class OfflineDailyCaptureService {
    * Recibe los datos de la visita como parámetros para evitar dependencia circular
    */
   async guardarCapturaOffline(
-    tiendaId: string,
+    tiendaId: string | null,
     userId: string,
     datosVisita: {
       horaInicio: string;

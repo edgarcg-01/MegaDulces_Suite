@@ -77,13 +77,6 @@ export class DailyCapturesController {
     return this.dailyCapturesService.findOne(id);
   }
 
-  @Delete('cleanup')
-  @RequirePermissions(Permission.REPORTES_VER_GLOBAL)
-  @ApiOperation({ summary: 'Eliminar todos los registros de visitas (solo superadmin)' })
-  async cleanup() {
-    return this.dailyCapturesService.cleanup();
-  }
-
   @Delete(':id')
   @RequirePermissions(Permission.REPORTES_VER_GLOBAL)
   @ApiOperation({ summary: 'Eliminar una visita por ID o folio (solo superadmin)' })

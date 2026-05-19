@@ -6,9 +6,11 @@ import {
   computed,
   ViewChild,
   ElementRef,
+  DestroyRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -22,6 +24,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ImageModule } from 'primeng/image';
 import { CheckboxModule } from 'primeng/checkbox';
 import { SkeletonModule } from 'primeng/skeleton';
+import { PaginatorModule } from 'primeng/paginator';
 import { MessageService } from 'primeng/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -31,6 +34,7 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { FiltersStateService } from './filters-state.service';
 import { MetasConfigService, KpiStatus } from './metas-config.service';
 import { GlobalFiltersComponent } from './global-filters.component';
+import { WebSocketService } from '../../../../core/services/websocket.service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos internos
@@ -73,6 +77,7 @@ interface PdfSection {
     CheckboxModule,
     GlobalFiltersComponent,
     SkeletonModule,
+    PaginatorModule,
   ],
   providers: [MessageService],
   template: `
@@ -379,7 +384,8 @@ class="text-xs font-bold text-content-faint uppercase"
                   #dt
                   [value]="groupedRows()"
                   [paginator]="true"
-                  [rows]="10"
+                  [rows]="25"
+                  [rowsPerPageOptions]="[10, 25, 50, 100]"
                   dataKey="id"
                   [expandedRowKeys]="expandedRows"
                   styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider"
@@ -1108,6 +1114,8 @@ export class ReportsComponent implements OnInit {
   private messageService = inject(MessageService);
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
+  private ws = inject(WebSocketService);
+  private destroyRef = inject(DestroyRef);
 
   loading = signal(false);
   reportsData = signal<ReportsData | null>(null);
@@ -1268,6 +1276,13 @@ export class ReportsComponent implements OnInit {
   ngOnInit() {
     this.initChartOptions();
     this.loadData();
+
+    this.ws.debouncedCaptureEvent
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        console.log('[ReportsGraphics] WS event received, reloading');
+        this.loadData();
+      });
   }
 
   loadData() {

@@ -4,7 +4,6 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
 
-// Interfaz para tipar el JSON parseado y evitar el error 'never'
 interface ExhibicionDiaria {
   fotoPublicId?: string;
   [key: string]: any;
@@ -19,60 +18,50 @@ export class TasksService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  // Método faltante agregado para el controlador
   async manualCleanup() {
-    this.logger.log('Ejecución manual de limpieza iniciada.');
-    await this.cleanOldCaptures();
+    this.logger.log('Ejecución manual de limpieza de imágenes antiguas iniciada.');
+    await this.cleanOldPhotos();
   }
 
-  // Se ejecuta todos los días a las 2:00 AM
   @Cron('0 2 * * *')
-  async cleanOldCaptures() {
-    // Paréntesis de cierre restaurado aquí
+  async cleanOldPhotos() {
     this.logger.log(
-      'Iniciando limpieza de registros con una antigüedad mayor a 30 días...',
+      'Iniciando limpieza de Cloudinary imágenes huérfanas (>30 días)...',
     );
 
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - 30);
 
-    // 1. Limpiar Exhibitions Photos (y cascada)
+    // 1. Borrar fotos huérfanas de exhibition_photos (>30 días)
     const oldPhotos = await this.knex('exhibition_photos')
       .where('created_at', '<', cutoffDate)
       .select('id', 'photo_public_id');
 
+    const photoIds: string[] = [];
     for (const photo of oldPhotos) {
       if (photo.photo_public_id) {
         try {
           await this.cloudinaryService.deleteImage(photo.photo_public_id);
-          this.logger.log(
-            `Cloudinary public_id: ${photo.photo_public_id} borrado permanentemente.`,
-          );
+          this.logger.log(`Cloudinary public_id: ${photo.photo_public_id} borrado.`);
+          photoIds.push(photo.id);
         } catch (err) {
-          this.logger.error(
-            `Omitiendo error de borrado por Cloudinary publicId: ${photo.photo_public_id}`,
-          );
+          this.logger.error(`Error Cloudinary: ${photo.photo_public_id}`);
         }
       }
     }
 
-    // Al borrar la foto de BD, se quita la tupla, o si borramos de 'visits' vuela en cascada
-    if (oldPhotos.length > 0) {
-      const ids = oldPhotos.map((p) => p.id);
-      await this.knex('exhibition_photos').whereIn('id', ids).delete();
-      this.logger.log(
-        `Registros de fotos en exhibition_photos limpiados: ${ids.length}`,
-      );
+    if (photoIds.length > 0) {
+      await this.knex('exhibition_photos').whereIn('id', photoIds).delete();
+      this.logger.log(`exhibition_photos limpiados: ${photoIds.length}`);
     }
 
-    // 2. Limpiar Daily Captures (JSONB)
+    // 2. Borrar fotos Cloudinary de daily_captures antiguas, SIN borrar el registro
     const oldDailyCaptures = await this.knex('daily_captures')
       .where('created_at', '<', cutoffDate)
       .select('id', 'exhibiciones');
 
     for (const dc of oldDailyCaptures) {
       if (dc.exhibiciones) {
-        // Tipado explícito aplicado aquí
         let exhibiciones: ExhibicionDiaria[] = [];
         try {
           exhibiciones =
@@ -81,31 +70,28 @@ export class TasksService {
               : dc.exhibiciones;
         } catch (e) {}
 
+        let modified = false;
         for (const ex of exhibiciones) {
           if (ex.fotoPublicId) {
             try {
               await this.cloudinaryService.deleteImage(ex.fotoPublicId);
-              this.logger.log(
-                `Cloudinary public_id: ${ex.fotoPublicId} borrado.`,
-              );
+              this.logger.log(`Cloudinary: ${ex.fotoPublicId} borrado.`);
+              delete ex.fotoPublicId;
+              modified = true;
             } catch (err) {
-              this.logger.error(
-                `Error de Cloudinary al borrar daily capture img: ${ex.fotoPublicId}`,
-              );
+              this.logger.error(`Error Cloudinary: ${ex.fotoPublicId}`);
             }
           }
+        }
+
+        if (modified) {
+          await this.knex('daily_captures')
+            .where({ id: dc.id })
+            .update({ exhibiciones: JSON.stringify(exhibiciones) });
         }
       }
     }
 
-    if (oldDailyCaptures.length > 0) {
-      const ids = oldDailyCaptures.map((dc) => dc.id);
-      await this.knex('daily_captures').whereIn('id', ids).delete();
-      this.logger.log(
-        `Fueron purgadas ${ids.length} capturas diarias muy antiguas.`,
-      );
-    }
-
-    this.logger.log('Limpieza 30-días finalizada.');
+    this.logger.log('Limpieza de fotos Cloudinary >30 días finalizada (registros BD preservados).');
   }
 }

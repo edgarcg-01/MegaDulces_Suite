@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal, computed, effect, ViewEncapsulation } from '@angular/core';
+import { Component, OnInit, inject, signal, computed, effect, ViewEncapsulation, DestroyRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
@@ -10,7 +10,8 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { HomeChartsComponent } from './home-charts.component';
-import { forkJoin } from 'rxjs'; // Importante para lanzar múltiples peticiones
+import { forkJoin } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 // Servicios
 import { ReportsService } from '../reports/reports.service';
@@ -21,6 +22,7 @@ import {
   KpiStatus,
 } from '../reports/graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
+import { WebSocketService } from '../../../core/services/websocket.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -49,6 +51,8 @@ export class HomeComponent implements OnInit {
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
   private messageService = inject(MessageService);
+  private ws = inject(WebSocketService);
+  private destroyRef = inject(DestroyRef);
 
   summaryMonthlyLoading = signal(true);
   summaryDailyLoading = signal(true);
@@ -204,6 +208,35 @@ export class HomeComponent implements OnInit {
       this.filtersState.filters();
       this.loadDashboardData();
     }, { allowSignalWrites: true });
+
+    // Suscripción a WebSocket: recargar datos con debounce cuando lleguen eventos en tiempo real
+    this.ws.debouncedCaptureEvent
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        console.log('[HomeComponent] WS debounced event received, reloading dashboard data');
+        this.loadDashboardData();
+      });
+
+    // Suscripción a metrics:updated - usar payload directo si no hay filtros activos
+    this.ws.metricsUpdated
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((event) => {
+        const f = this.filtersState.filters();
+        const hasFilters = f.zone || f.supervisorId || (f.sellerIds && f.sellerIds.length > 0);
+
+        if (!hasFilters && event.summary?.metricas_globales) {
+          console.log('[HomeComponent] WS metrics:updated - applying payload directly (no filters)');
+          this.summaryMonthlyLoading.set(false);
+          this.summaryMonthly.set(event.summary.metricas_globales);
+          if (event.dailyScores?.users) {
+            this.summaryDailyLoading.set(false);
+            this.summaryDaily.set(event.dailyScores.users);
+          }
+        } else {
+          console.log('[HomeComponent] WS metrics:updated - filters active, triggering refetch');
+          this.loadDashboardData();
+        }
+      });
   }
 
   ngOnInit() {

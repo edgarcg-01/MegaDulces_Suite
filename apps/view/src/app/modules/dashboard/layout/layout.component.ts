@@ -1,23 +1,12 @@
 // layout.component.ts
-import {
-  Component,
-  inject,
-  signal,
-  computed,
-  effect,
-  Renderer2,
-  HostListener,
-  ViewChild,
-  ElementRef,
-  OnInit,
-  OnDestroy,
-} from '@angular/core';
+import { Component, inject, signal, computed, effect, Renderer2, HostListener, ViewChild, ElementRef, OnInit, OnDestroy, } from '@angular/core';
 import { CommonModule, DOCUMENT } from '@angular/common';
 import { RouterModule, Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { DataUpdateService } from '../../../core/services/data-update.service';
+import { WebSocketService } from '../../../core/services/websocket.service';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -35,6 +24,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private renderer    = inject(Renderer2);
   private document    = inject(DOCUMENT);
   private dataUpdateService = inject(DataUpdateService);
+  private wsService = inject(WebSocketService);
 
   @ViewChild('mainContainer') mainContainer!: ElementRef<HTMLElement>;
 
@@ -54,6 +44,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // ── Data Update ──────────────────────────────────────────────────
   hasPendingUpdate = this.dataUpdateService.hasPendingUpdate;
   isPwaInstalled = this.dataUpdateService.isPwaInstalled;
+  wsConnected = this.wsService.connected;
+  lastWsEvent = this.wsService.lastEvent;
 
   // ── Effects ──────────────────────────────────────────────────────
   constructor() {
@@ -67,24 +59,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // Iniciar polling para detectar actualizaciones cada 5 minutos
-    this.dataUpdateService.startPolling(5);
+    // Conectar WebSocket para actualizaciones en tiempo real
+    this.dataUpdateService.init();
     
-    console.log('[LayoutComponent] Inicializado con polling de actualizaciones');
+    console.log('[LayoutComponent] Inicializado con WebSocket para actualizaciones en tiempo real');
   }
 
   ngOnDestroy(): void {
-    // Detener polling al destruir el componente
-    this.dataUpdateService.stopPolling();
+    // Desconectar WebSocket al destruir
+    this.dataUpdateService.destroy();
   }
 
   // ── Data Update Methods ────────────────────────────────────────────
   refreshData(): void {
-    this.dataUpdateService.refreshData();
-  }
-
-  forceCheckUpdates(): void {
-    this.dataUpdateService.forceCheckUpdates();
+    this.dataUpdateService.dismissUpdate();
   }
 
   // ── Listeners ────────────────────────────────────────────────────

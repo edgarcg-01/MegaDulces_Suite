@@ -291,7 +291,7 @@ export class OfflineSyncService {
    * Guarda una visita offline (la usa el servicio de captura)
    */
   async guardarVisitaOffline(
-    tiendaId: string,
+    tiendaId: string | null,
     userId: string,
     datosVisita: any,
     ubicacion: Coordenada & { precision: number }
@@ -319,7 +319,7 @@ export class OfflineSyncService {
 
       // Guardar visita pendiente
       const visitaId = await this.db.guardarVisitaPendiente({
-        tiendaId,
+        tiendaId: tiendaId ?? '',
         userId,
         fecha: new Date().toISOString().split('T')[0],
         horaInicio: datosVisita.horaInicio,

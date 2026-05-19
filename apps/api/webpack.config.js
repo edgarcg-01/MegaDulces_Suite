@@ -14,6 +14,7 @@ module.exports = {
         'knex',
         'pg',
         'pg-native',
+        'socket.io',
       ];
 
       // Si el request coincide con el paquete o es un sub-path (ej. class-transformer/storage)

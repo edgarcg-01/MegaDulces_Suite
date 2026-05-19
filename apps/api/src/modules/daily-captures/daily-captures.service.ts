@@ -4,6 +4,7 @@ import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
 import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
+import { EventsService } from '../websocket/events.service';
 
 @Injectable()
 export class DailyCapturesService {
@@ -11,6 +12,7 @@ export class DailyCapturesService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly cloudinaryService: CloudinaryService,
     private readonly scoringV2Service: ScoringV2Service,
+    private readonly eventsService: EventsService,
   ) {}
 
   async create(
@@ -154,6 +156,16 @@ export class DailyCapturesService {
     console.log('  - fecha/hora:', { fecha: dailyCapture.fecha, hora_inicio: dailyCapture.hora_inicio });
     console.log('  - stats:', dailyCapture.stats);
 
+    this.eventsService.emitCaptureCreated({
+      type: 'capture:created',
+      captureId: dailyCapture.id,
+      userId: userId,
+      capturedByUsername: username,
+      zonaCaptura: zona || 'No Asignada',
+      fecha: fecha,
+      stats: dailyCapture.stats,
+    });
+
     return dailyCapture;
   }
 
@@ -198,10 +210,5 @@ export class DailyCapturesService {
     }
     await this.knex('daily_captures').where({ id: visit.id }).del();
     return { message: `Visita ${visit.folio} eliminada` };
-  }
-
-  async cleanup() {
-    const count = await this.knex('daily_captures').delete();
-    return { message: `Eliminados ${count} registros de visitas` };
   }
 }

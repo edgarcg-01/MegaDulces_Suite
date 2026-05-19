@@ -23,7 +23,7 @@
       "exclude": ["apps/logistica-api-e2e/**/*"]
     }
   ],
-  "defaultProject": "trade-marketing-api",
+  "defaultProject": "api",
   "tasksRunnerOptions": {
     "default": {
       "runner": "nx/tasks-runners/default",

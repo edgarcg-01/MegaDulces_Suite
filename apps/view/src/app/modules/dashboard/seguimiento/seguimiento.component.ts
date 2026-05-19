@@ -34,6 +34,14 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { ReportsService, ReportsData } from '../../../modules/dashboard/reports/reports.service';
 import { FiltersStateService } from '../../../modules/dashboard/reports/graphics/filters-state.service';
 import { GlobalFiltersComponent } from '../../../modules/dashboard/reports/graphics/global-filters.component';
+import { WebSocketService } from '../../../core/services/websocket.service';
+import { merge } from 'rxjs';
+
+interface WsDebouncedEvent {
+  events: any[];
+  count: number;
+  types: Set<string>;
+}
 
 Chart.register(annotationPlugin);
 
@@ -105,6 +113,7 @@ export class SeguimientoComponent implements OnInit {
   private http = inject(HttpClient);
   private auth = inject(AuthService);
   readonly filtersState = inject(FiltersStateService);
+  private ws = inject(WebSocketService);
 
   // Signals
   loading = signal(false);
@@ -171,8 +180,26 @@ export class SeguimientoComponent implements OnInit {
   }
 
   private setupDataLoading(): void {
-    // Merge manual triggers and polling
-    this.loadTrigger$.pipe(
+    const wsTriggers$ = this.ws.debouncedCaptureEvent;
+
+    // Suscripción a metrics:updated para actualizar chart sin HTTP cuando no hay filtros
+    this.ws.metricsUpdated
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((event) => {
+        const f = this.filtersState.filters();
+        const hasFilters = f.zone || f.supervisorId || (f.sellerIds && f.sellerIds.length > 0);
+
+        if (!hasFilters && event.dailyScores?.users) {
+          console.log('[Seguimiento] WS metrics:updated - applying chart directly (no filters)');
+          this.buildChart({ users: event.dailyScores.users });
+          this.loading.set(false);
+          this.lastUpdate.set('Ult. act. ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
+        } else {
+          this.loadTrigger$.next();
+        }
+      });
+
+    merge(this.loadTrigger$, wsTriggers$).pipe(
       startWith(null),
       takeUntilDestroyed(this.destroyRef),
       tap(() => {

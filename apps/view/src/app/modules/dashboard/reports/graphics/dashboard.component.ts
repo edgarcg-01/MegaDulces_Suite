@@ -5,10 +5,12 @@ import {
   signal,
   computed,
   ViewChild,
+  DestroyRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { DialogModule } from 'primeng/dialog';
@@ -28,6 +30,7 @@ import {
   KpiStatus,
 } from '../graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../graphics/global-filters.component';
+import { WebSocketService } from '../../../../core/services/websocket.service';
 
 interface KpiCard {
   id: string;
@@ -630,6 +633,8 @@ export class DashboardComponent implements OnInit {
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
   private messageService = inject(MessageService);
+  private ws = inject(WebSocketService);
+  private destroyRef = inject(DestroyRef);
 
   loading = signal(false);
   summary = signal<any>(null);
@@ -748,6 +753,62 @@ export class DashboardComponent implements OnInit {
   ngOnInit() {
     this.initChartOptions();
     this.loadDashboardData();
+
+    this.ws.debouncedCaptureEvent
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        console.log('[DashboardGraphics] WS event received, reloading');
+        this.loadDashboardData();
+      });
+
+    this.ws.metricsUpdated
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((event) => {
+        const f = this.filtersState.filters();
+        const hasFilters = f.zone || f.supervisorId || (f.sellerIds && f.sellerIds.length > 0);
+
+        if (!hasFilters && event.summary?.metricas_globales) {
+          const m = event.summary.metricas_globales;
+          const desglose = m.desglose_muebles || {};
+          const furniture: Record<string, number> = {
+            vitrina: desglose.vitrina || 0,
+            exhibidor: desglose.exhibidor || 0,
+            vitrolero: desglose.vitroleros || 0,
+            paletero: desglose.paleteros || 0,
+            tira: desglose.tiras || 0,
+            otros: desglose.otros || 0,
+          };
+
+          this.summary.set({
+            totalVisitas: m.visitas_totales || 0,
+            avgScore: parseFloat(m.puntuacion_promedio) || 0,
+            totalVentas: m.ventas_totales || 0,
+            count: m.cierres_diarios_registrados || 0,
+            totalExhibiciones: m.visitas_totales || 0,
+            gpsPct: 0,
+            totalTiendas: m.total_tiendas || 0,
+            cierresDiarios: m.cierres_diarios_registrados || 0,
+            avgDurationMin: parseFloat(m.avg_duration_min) || 0,
+            totalFotos: m.total_fotos || 0,
+            mejorEjecutivo: m.mejor_ejecutivo || 'N/A',
+          });
+
+          this.rawData.set({
+            metrics: this.summary(),
+            furniture,
+            rows: event.dailyScores?.users ?? [],
+            trendData: [],
+            zoneStats: [],
+            sellerStats: [],
+            recentCaptures: [],
+          });
+
+          this.buildChart(this.rawData());
+          this.loading.set(false);
+        } else {
+          this.loadDashboardData();
+        }
+      });
   }
 
   loadDashboardData() {

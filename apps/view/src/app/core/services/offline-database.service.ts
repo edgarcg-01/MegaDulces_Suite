@@ -90,7 +90,8 @@ export class OfflineDatabaseService extends Dexie {
     return await this.tiendas.toArray();
   }
 
-  async getTiendaById(id: string): Promise<TiendaOffline | undefined> {
+  async getTiendaById(id: string | null): Promise<TiendaOffline | undefined> {
+    if (!id) return undefined;
     return await this.tiendas.get(id);
   }
 

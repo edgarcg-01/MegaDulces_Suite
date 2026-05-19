@@ -22,6 +22,7 @@ import { CronModule } from './modules/cron/cron.module';
 import { VisitasSyncModule } from './modules/visitas/visitas-sync.module';
 import { DataModule } from './modules/data/data.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { WebSocketModule } from './modules/websocket/websocket.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CronModule,
     VisitasSyncModule,
     DataModule,
+    WebSocketModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [AppController],

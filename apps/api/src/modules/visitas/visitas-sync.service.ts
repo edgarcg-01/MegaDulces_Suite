@@ -1,6 +1,7 @@
 import { Injectable, Inject, BadRequestException, ConflictException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { EventsService } from '../websocket/events.service';
 
 export interface VisitaSyncDto {
   id: string; // UUID v4 para idempotencia
@@ -28,7 +29,10 @@ export interface GeoValidationBackend {
 
 @Injectable()
 export class VisitasSyncService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly eventsService: EventsService,
+  ) {}
 
   /**
    * Sincroniza una visita desde el cliente con idempotencia
@@ -122,6 +126,16 @@ export class VisitasSyncService {
       });
 
       console.log(`[VisitasSync] Visita sincronizada exitosamente: ${nuevaVisita.id} (${folio})`);
+
+      this.eventsService.emitCaptureSynced({
+        type: 'capture:synced',
+        captureId: nuevaVisita.id,
+        userId: visitaDto.user_id,
+        capturedByUsername: usuario?.username || '',
+        zonaCaptura: tienda?.nombre || '',
+        fecha: visitaDto.fecha,
+        stats: visitaDto.stats,
+      });
 
       return {
         id: nuevaVisita.id,
