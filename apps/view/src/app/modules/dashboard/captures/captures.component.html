@@ -911,11 +911,11 @@
 
                 class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
 
-                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().nivelEjecucion === niv.value}">
+                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().nivelEjecucion === niv.value.toLowerCase()}">
 
               <span class="tracking-wider text-xs sm:text-sm">{{ niv.value | titlecase }}</span>
 
-             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().nivelEjecucion === niv.value ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase() ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
 
            </div>
 

@@ -96,7 +96,12 @@
         <ng-template pTemplate="body" let-item>
           <tr class="text-sm border-b border-surface-border hover:bg-surface-hover">
             <td class="font-mono text-content-dim">{{ item.orden }}</td>
-            <td class="font-bold text-content-main">{{ item.value }}</td>
+            <td class="font-bold text-content-main">
+              {{ item.value }}
+              @if (selectedType() === 'roles' && item.is_system) {
+                <span class="ml-2 text-[10px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5" pTooltip="Rol del sistema, no se puede renombrar ni eliminar">Sistema</span>
+              }
+            </td>
             <td *ngIf="selectedType() === 'conceptos' || selectedType() === 'ubicaciones' || selectedType() === 'niveles'" class="text-brand-orange font-bold">
               {{ item.puntuacion }} pts
             </td>
@@ -110,8 +115,8 @@
                 @if (selectedType() === 'roles') {
                   <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
                 }
-                <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
-                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)"></p-button>
+                <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)" [disabled]="selectedType() === 'roles' && item.is_system" [pTooltip]="selectedType() === 'roles' && item.is_system ? 'Rol del sistema (protegido)' : 'Editar'"></p-button>
+                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)" [disabled]="selectedType() === 'roles' && item.is_system" [pTooltip]="selectedType() === 'roles' && item.is_system ? 'Rol del sistema (protegido)' : 'Eliminar'"></p-button>
               </div>
             </td>
           </tr>
@@ -185,14 +190,19 @@
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>
-            <h3 class="text-sm font-bold text-content-main">{{ item.value }}</h3>
+            <h3 class="text-sm font-bold text-content-main">
+              {{ item.value }}
+              @if (selectedType() === 'roles' && item.is_system) {
+                <span class="ml-1 text-[9px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5">Sistema</span>
+              }
+            </h3>
           </div>
           <div class="flex gap-1">
             @if (selectedType() === 'roles') {
               <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
             }
-            <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)"></p-button>
-            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)"></p-button>
+            <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)" [disabled]="selectedType() === 'roles' && item.is_system"></p-button>
+            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)" [disabled]="selectedType() === 'roles' && item.is_system"></p-button>
           </div>
         </div>
         <div class="space-y-2">

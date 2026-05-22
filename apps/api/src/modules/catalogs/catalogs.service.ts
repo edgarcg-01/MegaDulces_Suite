@@ -1,8 +1,25 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import { randomUUID } from 'crypto';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
+
+const SYSTEM_ROLES: readonly string[] = [
+  'superadmin',
+  'supervisor',
+  'supervisor_ventas',
+  'jefe_marketing',
+  'colaborador',
+  'chofer',
+];
+
+const isSystemRole = (name: string) => SYSTEM_ROLES.includes(name);
 
 @Injectable()
 export class CatalogsService {
@@ -13,11 +30,18 @@ export class CatalogsService {
 
   async getByType(type: string, parentId?: string) {
     console.log('[CatalogsService] getByType called:', { type, parentId });
-    
+
     if (type === 'zonas' || type === 'zones') {
       return this.knex('zones')
         .orderBy('orden', 'asc')
         .select('id', 'name as value', 'orden');
+    }
+
+    if (type === 'roles') {
+      const roles = await this.knex('role_permissions')
+        .orderBy('role_name', 'asc')
+        .select('id', 'role_name as value');
+      return roles.map((r) => ({ ...r, is_system: isSystemRole(r.value) }));
     }
 
     const query = this.knex('catalogs')
@@ -59,6 +83,28 @@ export class CatalogsService {
         .returning(['id', 'name as value', 'orden']);
       console.log('[CatalogsService] Zone created:', item);
       return item;
+    }
+
+    if (type === 'roles') {
+      const name = (data.value || '').trim();
+      if (!name) {
+        throw new BadRequestException('El nombre del rol no puede estar vacío');
+      }
+      try {
+        const [item] = await this.knex('role_permissions')
+          .insert({
+            id: randomUUID(),
+            role_name: name,
+            permissions: {},
+          })
+          .returning(['id', 'role_name as value']);
+        return { ...item, is_system: isSystemRole(item.value) };
+      } catch (error) {
+        if (error.code === '23505') {
+          throw new ConflictException(`Ya existe un rol con el nombre "${name}"`);
+        }
+        throw error;
+      }
     }
 
     // Parse puntuacion as float to support decimals (0.7, 1.2, etc.)
@@ -113,6 +159,42 @@ export class CatalogsService {
       return { success: true };
     }
 
+    if (type === 'roles') {
+      const existing = await this.knex('role_permissions')
+        .where({ id })
+        .first();
+      if (!existing) {
+        throw new NotFoundException('Rol no encontrado');
+      }
+
+      if (isSystemRole(existing.role_name)) {
+        throw new BadRequestException(
+          `El rol "${existing.role_name}" es un rol del sistema y no puede eliminarse. Está referenciado en guards del backend; eliminarlo rompería la autorización.`,
+        );
+      }
+
+      const usersWithRole = await this.knex('users')
+        .where({ role_name: existing.role_name })
+        .select('username');
+
+      if (usersWithRole.length > 0) {
+        const sample = usersWithRole
+          .slice(0, 5)
+          .map((u) => u.username)
+          .join(', ');
+        const extra =
+          usersWithRole.length > 5
+            ? ` y ${usersWithRole.length - 5} más`
+            : '';
+        throw new ConflictException(
+          `No se puede eliminar el rol "${existing.role_name}": hay ${usersWithRole.length} usuario(s) asignado(s) (${sample}${extra}). Reasígnalos a otro rol antes de eliminar.`,
+        );
+      }
+
+      await this.knex('role_permissions').where({ id }).del();
+      return { success: true };
+    }
+
     const deleted = await this.knex('catalogs')
       .where({ catalog_id: type, id })
       .del();
@@ -160,8 +242,70 @@ export class CatalogsService {
 
       if (!item)
         throw new NotFoundException('Zona no encontrada para actualizar');
-      
+
       return item;
+    }
+
+    if (type === 'roles') {
+      if (data.value === undefined) {
+        throw new BadRequestException('Falta el nuevo nombre del rol');
+      }
+      const newName = (data.value || '').trim();
+      if (!newName) {
+        throw new BadRequestException('El nombre del rol no puede estar vacío');
+      }
+
+      const existing = await this.knex('role_permissions')
+        .where({ id })
+        .first();
+      if (!existing) {
+        throw new NotFoundException('Rol no encontrado para actualizar');
+      }
+
+      if (isSystemRole(existing.role_name)) {
+        throw new BadRequestException(
+          `El rol "${existing.role_name}" es un rol del sistema y no puede renombrarse. Está referenciado en guards del backend; renombrarlo rompería la autorización.`,
+        );
+      }
+
+      if (existing.role_name === newName) {
+        return {
+          id: existing.id,
+          value: existing.role_name,
+          is_system: isSystemRole(existing.role_name),
+        };
+      }
+
+      const usersWithRole = await this.knex('users')
+        .where({ role_name: existing.role_name })
+        .select('username');
+
+      if (usersWithRole.length > 0) {
+        const sample = usersWithRole
+          .slice(0, 5)
+          .map((u) => u.username)
+          .join(', ');
+        const extra =
+          usersWithRole.length > 5
+            ? ` y ${usersWithRole.length - 5} más`
+            : '';
+        throw new ConflictException(
+          `No se puede renombrar el rol "${existing.role_name}": hay ${usersWithRole.length} usuario(s) asignado(s) (${sample}${extra}). Reasígnalos a otro rol antes de renombrar.`,
+        );
+      }
+
+      try {
+        const [item] = await this.knex('role_permissions')
+          .where({ id })
+          .update({ role_name: newName })
+          .returning(['id', 'role_name as value']);
+        return { ...item, is_system: isSystemRole(item.value) };
+      } catch (error) {
+        if (error.code === '23505') {
+          throw new ConflictException(`Ya existe un rol con el nombre "${newName}"`);
+        }
+        throw error;
+      }
     }
 
     // Parse puntuacion as float to support decimals (0.7, 1.2, etc.)
