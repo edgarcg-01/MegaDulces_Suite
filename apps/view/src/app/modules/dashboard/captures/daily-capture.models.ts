@@ -60,6 +60,8 @@ export interface RegistroExhibicion {
   perteneceMegaDulces?: boolean;
   /** Nivel de ejecución (mapeado a niveles_ejecucion) */
   nivelEjecucion: string;
+  /** ID del nivel de ejecución en el catálogo (UUID) */
+  nivelEjecucionId?: string;
   /** Lista de PIDs de productos marcados */
   productosMarcados: string[];
   /** Rango de compra */

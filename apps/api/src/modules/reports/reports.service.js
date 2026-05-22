@@ -458,11 +458,15 @@ var ReportsService = function () {
                                 totalVisitas += numVisitas;
                                 totalScore += score;
                                 totalVentas += ventas;
-                                var dateKey = row.fecha || (row.hora_inicio instanceof Date
-                                    ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
-                                    : typeof row.hora_inicio === 'string'
-                                        ? row.hora_inicio.split('T')[0]
-                                        : '');
+                                var dateKey = row.fecha
+                                    ? (row.fecha instanceof Date
+                                        ? row.fecha.toISOString().split('T')[0]
+                                        : String(row.fecha).split('T')[0])
+                                    : (row.hora_inicio instanceof Date
+                                        ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
+                                        : typeof row.hora_inicio === 'string'
+                                            ? row.hora_inicio.split('T')[0]
+                                            : '');
                                 if (!dailyTrend[dateKey]) {
                                     dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
                                 }
@@ -474,9 +478,9 @@ var ReportsService = function () {
                                     var conceptoId = ex.conceptoId || 'otros';
                                     var conceptoName = conceptoMap[conceptoId] || conceptoId;
                                     var productosMarcados = ex.productosMarcados || [];
-                                    var val = ex.nivelEjecucion;
-                                    var isOptimo = val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80);
-                                    var isRegular = val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50);
+                                    var val = String(ex.nivelEjecucion).toLowerCase();
+                                    var isOptimo = val === 'alto' || val === 'excelente' || val === 'optimo';
+                                    var isRegular = val === 'medio' || val === 'regular';
                                     if (isOptimo)
                                         exhibidoresHealth.optimo++;
                                     else if (isRegular)
@@ -553,7 +557,6 @@ var ReportsService = function () {
                                 uniqueProducts: totalUniqueProducts,
                             };
                             trendData = Object.keys(dailyTrend)
-                                .filter(function (date) { return new Date(date + 'T12:00:00Z').getUTCDay() !== 0; })
                                 .sort()
                                 .map(function (date) { return ({
                                 date: date,
@@ -882,10 +885,10 @@ var ReportsService = function () {
                                 var exhibiciones = typeof row.exhibiciones === 'string'
                                     ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
                                 exhibiciones.forEach(function (ex) {
-                                    var val = ex.nivelEjecucion;
-                                    if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80))
+                                    var val = String(ex.nivelEjecucion).toLowerCase();
+                                    if (val === 'alto' || val === 'excelente' || val === 'optimo')
                                         healthCount_1.optimo++;
-                                    else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50))
+                                    else if (val === 'medio' || val === 'regular')
                                         healthCount_1.regular++;
                                     else
                                         healthCount_1.critico++;
@@ -1009,10 +1012,10 @@ var ReportsService = function () {
                                 var exhibiciones = typeof row.exhibiciones === 'string'
                                     ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
                                 exhibiciones.forEach(function (ex) {
-                                    var val = ex.nivelEjecucion;
-                                    if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80))
+                                    var val = String(ex.nivelEjecucion).toLowerCase();
+                                    if (val === 'alto' || val === 'excelente' || val === 'optimo')
                                         s.healthCount.optimo++;
-                                    else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50))
+                                    else if (val === 'medio' || val === 'regular')
                                         s.healthCount.regular++;
                                     else
                                         s.healthCount.critico++;

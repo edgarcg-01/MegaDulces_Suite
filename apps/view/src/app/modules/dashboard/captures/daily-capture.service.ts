@@ -449,9 +449,48 @@ export class DailyCaptureService {
       id: crypto.randomUUID(),
       puntuacionCalculada,
       horaRegistro: new Date().toISOString(),
+      nivelEjecucionId: registro.nivelEjecucionId || niv?.id,
     };
 
     this._activeExhibiciones.update((current) => [...current, exhibicion]);
+  }
+
+  /**
+   * Calcula el score de una exhibición usando la misma fórmula que el backend.
+   * Fórmula: concepto.puntuacion × ubicacion.puntuacion × nivel.puntuacion
+   * Se usa en modo offline cuando el backend no está disponible.
+   */
+  calculateExhibicionScoreOffline(
+    conceptoId: string,
+    ubicacionId: string,
+    nivelEjecucionId: string | undefined
+  ): number {
+    const concepto = this._conceptos().find(c => c.id === conceptoId);
+    const ubicacion = this._ubicaciones().find(u => u.id === ubicacionId);
+    const nivel = this._niveles().find(n => n.id === nivelEjecucionId);
+
+    const puntosConcepto = Number(concepto?.puntuacion) || 0;
+    const puntosPosicion = Number(ubicacion?.puntuacion) || 0;
+    const factorNivel = Number(nivel?.puntuacion) || 1;
+
+    return Math.round(puntosConcepto * puntosPosicion * factorNivel);
+  }
+
+  /**
+   * Recalcula el puntuacionTotal de toda la visita usando la fórmula offline.
+   * Útil para modo offline o para re-validar antes de enviar al backend.
+   */
+  calculateVisitScoreOffline(): number {
+    const exhibiciones = this._activeExhibiciones();
+    let total = 0;
+    for (const ex of exhibiciones) {
+      total += this.calculateExhibicionScoreOffline(
+        ex.conceptoId,
+        ex.ubicacionId,
+        ex.nivelEjecucionId
+      );
+    }
+    return total;
   }
 
   /**
@@ -540,23 +579,44 @@ export class DailyCaptureService {
       rangoCompra: rangoCompraVisita
     }));
 
+    // Si estamos offline, usar el cálculo local del score (misma fórmula que el backend)
+    const isOffline = !navigator.onLine;
+    const puntuacionTotal = isOffline
+      ? this.calculateVisitScoreOffline()
+      : s.puntuacionTotal;
+
+    const statsForPayload = {
+      ...s,
+      puntuacionTotal,
+      ventaAdicional: this._visitaVentaAdicional(),
+      rangoCompra: rangoCompraVisita,
+    };
+
     const payload: any = {
       folio: customFolio,
       fechaCaptura: localDateStr,
       horaInicio: this._horaInicio()!,
       horaFin: d.toISOString(),
       exhibiciones: exhibicionesConRango,
-      stats: {
-        ...s,
-        ventaAdicional: this._visitaVentaAdicional(),
-        rangoCompra: rangoCompraVisita
-      },
+      stats: statsForPayload,
       latitud: latitud || 0,
       longitud: longitud || 0,
       store_id: store?.id || null,
+      _offline: isOffline,
     };
 
     console.log('[saveCapturaTotal] 📡 POST a /daily-captures con payload:', JSON.stringify(payload, null, 2));
+    console.log('[saveCapturaTotal] 🧮 Score calculation:', {
+      mode: isOffline ? 'OFFLINE (frontend)' : 'ONLINE (backend recalculate)',
+      puntuacionTotal,
+      exhibiciones: exhibicionesConRango.map(ex => ({
+        concepto: ex.conceptoId,
+        ubicacion: ex.ubicacionId,
+        nivel: ex.nivelEjecucion,
+        nivelId: ex.nivelEjecucionId,
+        score: this.calculateExhibicionScoreOffline(ex.conceptoId, ex.ubicacionId, ex.nivelEjecucionId),
+      })),
+    });
 
     return this.http.post<any>(`${this.apiUrl}/daily-captures`, payload).pipe(
       tap((res: any) => {

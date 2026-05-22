@@ -91,18 +91,65 @@ export class DailyCapturesService {
     
     if (configVersionId && processedExhibiciones.length > 0) {
        try {
-         const scoringDto = {
-           config_version_id: configVersionId,
-           exhibiciones: processedExhibiciones.map(ex => ({
-             posicion_id: ex.ubicacionId,
-             exhibicion_id: ex.conceptoId,
-             nivel_ejecucion_id: ex.nivelEjecucionId || ex.nivel_ejecucion_id, // Asegurar mapeo según Frontend
-           }))
-         };
+         // Resolver nivelEjecucionId desde el string si no viene como UUID
+         // (compatibilidad con datos antiguos y fallback)
+         const nivelCache = new Map<string, string>();
          
-         const backendScore = await this.scoringV2Service.calculateVisitScore(scoringDto as any);
-         puntosBackendTotales = backendScore.puntos_obtenidos;
-         console.log('[DailyCapturesService] 🧮 Puntos recalculados por Backend Engine:', puntosBackendTotales);
+         const exhibicionesParaScoring = await Promise.all(
+           processedExhibiciones.map(async (ex) => {
+             let nivelId = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
+             
+             if (!nivelId && ex.nivelEjecucion) {
+               // Buscar en caché primero
+               if (nivelCache.has(ex.nivelEjecucion)) {
+                 nivelId = nivelCache.get(ex.nivelEjecucion)!;
+               } else {
+                 // Buscar en el catálogo catalogs
+                  const nivelRow = await this.knex('catalogs')
+                    .where({ catalog_id: 'niveles' })
+                    .whereILike('value', ex.nivelEjecucion)
+                    .select('id')
+                    .first();
+                 
+                 if (nivelRow) {
+                   nivelId = nivelRow.id;
+                   nivelCache.set(ex.nivelEjecucion, nivelId);
+                   console.log(`[DailyCapturesService] Resuelto nivelEjecucionId para "${ex.nivelEjecucion}": ${nivelId}`);
+                 } else {
+                   console.warn(`[DailyCapturesService] ⚠️ Nivel "${ex.nivelEjecucion}" no encontrado en catálogo`);
+                 }
+               }
+             }
+             
+             return {
+               posicion_id: ex.ubicacionId,
+               exhibicion_id: ex.conceptoId,
+               nivel_ejecucion_id: nivelId,
+             };
+           })
+         );
+
+         // Filtrar exhibiciones que tienen todos los IDs resueltos
+         const validExhibiciones = exhibicionesParaScoring.filter(
+           ex => ex.posicion_id && ex.exhibicion_id && ex.nivel_ejecucion_id
+         );
+
+         if (validExhibiciones.length > 0) {
+           const scoringDto = {
+             config_version_id: configVersionId,
+             exhibiciones: validExhibiciones,
+           };
+           
+           const backendScore = await this.scoringV2Service.calculateVisitScore(scoringDto as any);
+           puntosBackendTotales = backendScore.puntos_obtenidos;
+           console.log('[DailyCapturesService] 🧮 Puntos recalculados por Backend Engine:', puntosBackendTotales);
+           
+           if (validExhibiciones.length < processedExhibiciones.length) {
+             console.warn(`[DailyCapturesService] ⚠️ ${processedExhibiciones.length - validExhibiciones.length} exhibiciones sin nivelEjecucionId válido, usando score frontend para esas`);
+           }
+         } else {
+           console.warn('[DailyCapturesService] ⚠️ Ninguna exhibición tiene nivelEjecucionId válido, usando score del frontend');
+         }
        } catch (error) {
          console.warn('[DailyCapturesService] ⚠️ Fallo al recalcular scores, se usará valor del frontend. Error:', error.message);
        }

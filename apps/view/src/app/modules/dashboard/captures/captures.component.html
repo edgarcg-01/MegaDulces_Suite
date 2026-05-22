@@ -1,4 +1,4 @@
-<div class="p-6">
+<div class="p-6 space-y-6">
 
   <!-- Encabezado y Toolbar - Responsive Stack -->
 
@@ -16,9 +16,9 @@
 
       <div>
 
-        <h2 class="text-xl md:text-2xl font-bold text-content-main leading-tight tracking-tighter flex items-center gap-2">
+        <h2 class="text-xl md:text-2xl font-bold text-content-main leading-tight tracking-tighter flex items-center gap-3">
 
-          <i class="pi pi-file-edit text-brand"></i> Registro de Visita
+          <i class="pi pi-file-edit text-content-main"></i> Registro de Visita
 
         </h2>
 
@@ -245,7 +245,7 @@
 
             <td>
 
-              <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : ex.nivelEjecucion === 'basico' ? 'warn' : 'danger'" [value]="ex.nivelEjecucion | uppercase" [rounded]="true"></p-tag>
+              <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" [rounded]="true"></p-tag>
 
             </td>
 
@@ -353,9 +353,9 @@
 
           <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
 
-            <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : ex.nivelEjecucion === 'basico' ? 'warn' : 'danger'"
+            <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'"
 
-                   [value]="ex.nivelEjecucion | uppercase" [rounded]="true" styleClass="text-[10px]"></p-tag>
+                   [value]="(ex.nivelEjecucion || '') | titlecase" [rounded]="true" styleClass="text-[10px]"></p-tag>
 
             <div class="flex items-center gap-3">
 
@@ -405,7 +405,7 @@
 
       <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">Para capturar ejecución comercial, primero inicia una visita. El sistema capturará tu ubicación GPS.</p>
 
-      <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()"></p-button>
+      <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()" styleClass="p-button-brand"></p-button>
 
     </div>
 
@@ -421,7 +421,7 @@
 
       <i class="pi pi-history text-brand-orange"></i>
 
-      <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
+       <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
 
     </div>
 
@@ -505,7 +505,7 @@
 
               <div class="mb-4">
 
-                <h4 class="text-xs font-black text-content-muted uppercase tracking-[0.2em]">Detalle de Exhibidores registrados</h4>
+                <h4 class="text-xs font-black text-content-muted uppercase tracking-[0.2em]">Detalle de Exhibidores Registrados</h4>
 
               </div>
 
@@ -535,7 +535,7 @@
 
                   <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
 
-                    <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[9px]"></p-tag>
+                    <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[9px]"></p-tag>
 
                     <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
 
@@ -659,7 +659,7 @@
 
                   <span class="text-[9px] font-bold text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
 
-                  <p-tag [severity]="ex.nivelEjecucion === 'excelente' ? 'success' : 'warn'" [value]="ex.nivelEjecucion" styleClass="text-[8px] px-1 py-0 px-2 mt-1"></p-tag>
+                  <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[8px] px-1 py-0 px-2 mt-1"></p-tag>
 
                 </div>
 
@@ -911,11 +911,11 @@
 
                 class="p-3 sm:p-4 border rounded-xl sm:rounded-2xl cursor-pointer flex items-center justify-between border-surface-border bg-surface-ground transition-all"
 
-                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().nivelEjecucion === niv}">
+                 [ngClass]="{'bg-brand-light/30 ring-2 ring-brand-orange font-bold border-brand-orange text-brand-sunset shadow-sm': currentExhibicion().nivelEjecucion === niv.value}">
 
-             <span class="uppercase tracking-wider text-xs sm:text-sm">{{ niv }}</span>
+              <span class="tracking-wider text-xs sm:text-sm">{{ niv.value | titlecase }}</span>
 
-             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().nivelEjecucion === niv ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
+             <i class="pi text-sm sm:text-base" [ngClass]="currentExhibicion().nivelEjecucion === niv.value ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted opacity-20'"></i>
 
            </div>
 

@@ -48,7 +48,6 @@ interface DayGroup {
   scoreStatus: KpiStatus;
   visitasStatus: KpiStatus;
   visits: any[];
-  selected: boolean;
 }
 
 interface PdfSection {
@@ -81,14 +80,14 @@ interface PdfSection {
   ],
   providers: [MessageService],
   template: `
-    <main class="p-6 space-y-6">
+    <main class="p-6 pt-8 space-y-6">
       <!-- ── Header ──────────────────────────────────────────────────── -->
       <div
-        class="flex flex-col md:flex-row md:items-center justify-between gap-4"
+        class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4"
       >
         <div>
-          <h1 class="text-3xl font-bold tracking-tight text-content-main">
-            Mercadeo Inteligente
+           <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+            <i class="pi pi-chart-bar text-content-main"></i> Mercadeo Inteligente
           </h1>
           <p class="text-content-muted text-sm">
             Reportes avanzados · {{ filtersState.rangeLabel() }}
@@ -101,7 +100,7 @@ interface PdfSection {
             [text]="true"
             [rounded]="true"
             (onClick)="resetAll()"
-            [disabled]="loading()"
+            [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
             pTooltip="Resetear filtros"
           />
           <p-button
@@ -109,20 +108,20 @@ interface PdfSection {
             icon="pi pi-file-excel"
             severity="secondary"
             (onClick)="exportCsv()"
-            [disabled]="loading()"
+            [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
           />
           <p-button
             label="PDF"
             icon="pi pi-file-pdf"
             styleClass="p-button-brand"
             (onClick)="showPdfBuilder = true"
-            [disabled]="loading()"
+            [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
           />
         </div>
       </div>
 
       <!-- ── Filtros globales ─────────────────────────────────────────── -->
-      <app-global-filters #globalFilters (filtersChanged)="loadData()" />
+      <app-global-filters #globalFilters (filtersChanged)="reloadAll()" />
 
       <!-- ── Tabs ─────────────────────────────────────────────────────── -->
       <div class="modern-tabs-wrapper">
@@ -241,7 +240,7 @@ class="text-xs font-bold text-content-faint uppercase"
               <!-- Separador -->
               <div class="mt-10 pt-6 border-t border-divider"></div>
 
-              <ng-container *ngIf="!loading(); else tabSkeleton1">
+              <ng-container *ngIf="!loadingCharts(); else tabSkeleton1">
                 <div class="pt-4 space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <!-- Score por zona -->
@@ -335,7 +334,7 @@ class="text-xs font-bold text-content-faint uppercase"
 
             <!-- ──────────────────── TAB 1: REGISTROS ────────────────── -->
             <p-tabpanel [value]="1">
-              <ng-container *ngIf="!loading(); else tabSkeleton2">
+              <ng-container *ngIf="!loadingTable(); else tabSkeleton2">
                 <div class="pt-4 space-y-4">
                 <!-- Barra de acciones sobre selección -->
                 <div
@@ -420,7 +419,8 @@ class="text-xs font-bold text-content-faint uppercase"
                       <td (click)="$event.stopPropagation()">
                         <input
                           type="checkbox"
-                          [(ngModel)]="day.selected"
+                          [checked]="selectedDayIds().has(day.id)"
+                          (change)="toggleDaySelection(day.id, $event)"
                           class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
                           style="accent-color:#185FA5"
                         />
@@ -629,7 +629,7 @@ class="text-xs font-bold text-content-faint uppercase"
 
             <!-- ──────────────────── TAB 2: VISITAS INDIVIDUALES ──────── -->
             <p-tabpanel [value]="2">
-              <ng-container *ngIf="!loading(); else tabSkeleton3">
+              <ng-container *ngIf="!loadingTable(); else tabSkeleton3">
                 <div class="pt-4 space-y-4">
                 <!-- Barra de acciones -->
                 <div
@@ -662,13 +662,14 @@ class="text-xs font-bold text-content-faint uppercase"
                   <div
                     *ngFor="let visit of allVisits()"
                     class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
-                    [class.ring-2]="visit._selected"
-                    [class.ring-blue-400]="visit._selected"
+                    [class.ring-2]="selectedVisitIds().has(visit.folio)"
+                    [class.ring-blue-400]="selectedVisitIds().has(visit.folio)"
                   >
                     <div class="flex items-start gap-3 mb-4">
                       <input
                         type="checkbox"
-                        [(ngModel)]="visit._selected"
+                        [checked]="selectedVisitIds().has(visit.folio)"
+                        (change)="toggleVisitSelection(visit.folio, $event)"
                         (click)="$event.stopPropagation()"
                         class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
                         style="accent-color:#185FA5;margin-top:3px"
@@ -1117,7 +1118,9 @@ export class ReportsComponent implements OnInit {
   private ws = inject(WebSocketService);
   private destroyRef = inject(DestroyRef);
 
-  loading = signal(false);
+  loadingMetrics = signal(false);
+  loadingCharts = signal(false);
+  loadingTable = signal(false);
   reportsData = signal<ReportsData | null>(null);
   searchText = '';
   expandedRows: { [key: string]: boolean } = {};
@@ -1125,6 +1128,8 @@ export class ReportsComponent implements OnInit {
   showDetail = false;
   showPdfBuilder = false;
   showComparison = false;
+  selectedDayIds = signal<Set<string>>(new Set());
+  selectedVisitIds = signal<Set<string>>(new Set());
 
   // PDF builder config
   pdfTitle = 'Reporte de mercadeo';
@@ -1170,7 +1175,6 @@ export class ReportsComponent implements OnInit {
           scoreStatus: 'ok',
           visitasStatus: 'ok',
           visits: [],
-          selected: false,
         };
       }
       groups[dStr].visits.push(row);
@@ -1199,16 +1203,14 @@ export class ReportsComponent implements OnInit {
 
   // Todas las visitas planas para la pestaña individual
   allVisits = computed(() =>
-    this.groupedRows().flatMap((d) =>
-      d.visits.map((v: any) => ({ ...v, _selected: false })),
-    ),
+    this.groupedRows().flatMap((d) => d.visits),
   );
 
-  selectedDayCount = computed(
-    () => this.groupedRows().filter((d) => d.selected).length,
+  selectedDayCount = computed(() => this.selectedDayIds().size);
+  selectedVisits = computed(() =>
+    this.allVisits().filter((v) => this.selectedVisitIds().has(v.folio)),
   );
-  selectedVisits = computed(() => this.allVisits().filter((v) => v._selected));
-  selectedVisitsCount = computed(() => this.selectedVisits().length);
+  selectedVisitsCount = computed(() => this.selectedVisitIds().size);
 
   // ── KPI cards ─────────────────────────────────────────────────
   kpiCards = computed(() => {
@@ -1275,20 +1277,21 @@ export class ReportsComponent implements OnInit {
 
   ngOnInit() {
     this.initChartOptions();
-    this.loadData();
+    this.reloadAll();
 
     this.ws.debouncedCaptureEvent
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
-        console.log('[ReportsGraphics] WS event received, reloading');
-        this.loadData();
+        console.log('[ReportsGraphics] WS event received, reloading metrics + table');
+        this.reloadMetricsAndTable();
       });
   }
 
-  loadData() {
+  private reloadMetricsAndTable() {
+    this.loadingMetrics.set(true);
+    this.loadingTable.set(true);
     const f = this.filtersState.filters();
     if (!f.startDate) return;
-    this.loading.set(true);
 
     this.reportsService
       .getReportsData({
@@ -1302,9 +1305,44 @@ export class ReportsComponent implements OnInit {
         next: (data: ReportsData) => {
           this.reportsData.set(data);
           this.buildCharts(data);
-          this.loading.set(false);
+          this.loadingMetrics.set(false);
+          this.loadingTable.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.loadingMetrics.set(false);
+          this.loadingTable.set(false);
+        },
+      });
+  }
+
+  reloadAll() {
+    this.loadingMetrics.set(true);
+    this.loadingCharts.set(true);
+    this.loadingTable.set(true);
+    const f = this.filtersState.filters();
+    if (!f.startDate) return;
+
+    this.reportsService
+      .getReportsData({
+        startDate: f.startDate,
+        endDate: f.endDate,
+        zone: f.zone,
+        supervisorId: f.supervisorId,
+        sellerIds: f.sellerIds,
+      }, undefined, undefined, 'products')
+      .subscribe({
+        next: (data: ReportsData) => {
+          this.reportsData.set(data);
+          this.buildCharts(data);
+          this.loadingMetrics.set(false);
+          this.loadingCharts.set(false);
+          this.loadingTable.set(false);
+        },
+        error: () => {
+          this.loadingMetrics.set(false);
+          this.loadingCharts.set(false);
+          this.loadingTable.set(false);
+        },
       });
   }
 
@@ -1470,7 +1508,27 @@ export class ReportsComponent implements OnInit {
 
   toggleSelectAll(event: Event) {
     const checked = (event.target as HTMLInputElement).checked;
-    this.groupedRows().forEach((d) => (d.selected = checked));
+    if (checked) {
+      this.selectedDayIds.set(new Set(this.groupedRows().map(d => d.id)));
+    } else {
+      this.selectedDayIds.set(new Set());
+    }
+  }
+
+  toggleDaySelection(dayId: string, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    const current = new Set(this.selectedDayIds());
+    if (checked) current.add(dayId);
+    else current.delete(dayId);
+    this.selectedDayIds.set(current);
+  }
+
+  toggleVisitSelection(folio: string, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    const current = new Set(this.selectedVisitIds());
+    if (checked) current.add(folio);
+    else current.delete(folio);
+    this.selectedVisitIds.set(current);
   }
 
   viewDetail(row: any) {
@@ -1521,7 +1579,7 @@ export class ReportsComponent implements OnInit {
 
   exportSelectedCsv() {
     const selected = this.groupedRows()
-      .filter((d) => d.selected)
+      .filter((d) => this.selectedDayIds().has(d.id))
       .flatMap((d) => d.visits);
     if (!selected.length) return;
     const headers = ['Folio', 'Ejecutivo', 'Zona', 'Score', 'Venta'];
@@ -1542,7 +1600,7 @@ export class ReportsComponent implements OnInit {
   }
 
   exportSelectedPdf() {
-    const selected = this.groupedRows().filter((d) => d.selected);
+    const selected = this.groupedRows().filter((d) => this.selectedDayIds().has(d.id));
     if (!selected.length) return;
     const doc = new jsPDF();
     const f = this.filtersState.filters();

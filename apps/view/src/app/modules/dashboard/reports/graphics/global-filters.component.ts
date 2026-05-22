@@ -25,20 +25,20 @@ interface DropOption {
     MultiSelectModule,
   ],
   template: `
-    <div class="bg-surface-card rounded-xl border border-divider mb-6">
+    <div class="bg-surface-card rounded-xl border border-divider">
       <!-- Main row: filters críticos -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
-        <div class="flex flex-col gap-1">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 pb-2">
+        <div class="flex flex-col gap-0.5">
           <label class="filter-label">Período</label>
           <p-select
             [options]="periods"
             [(ngModel)]="selectedPeriod"
             optionLabel="label" optionValue="value"
             (onChange)="onPeriodChange()"
-            class="w-full" />
+            styleClass="p-input-sm w-full" />
         </div>
 
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-0.5">
           <label class="filter-label">Fechas</label>
           <p-datepicker
             [(ngModel)]="dateRange"
@@ -47,10 +47,10 @@ interface DropOption {
             [readonlyInput]="true"
             [showButtonBar]="true"
             (onSelect)="onDateChange()"
-            class="w-full" />
+            styleClass="p-input-sm w-full" />
         </div>
 
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-0.5">
           <label class="filter-label">Zona</label>
           <p-select
             [options]="zones"
@@ -60,22 +60,22 @@ interface DropOption {
             placeholder="Todas"
             (onChange)="onZoneChange()"
             (onClear)="onZoneClear()"
-            class="w-full" />
+            styleClass="p-input-sm w-full" />
         </div>
       </div>
 
       <!-- Toggle filtros avanzados -->
-      <div class="px-4 pb-3">
+      <div class="px-3 pb-2">
         <button type="button" (click)="showAdvanced.set(!showAdvanced())"
-          class="text-xs font-bold text-content-muted hover:text-content-main transition-colors flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0">
-          <i class="pi" [ngClass]="showAdvanced() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+          class="text-[10px] font-bold text-content-muted hover:text-content-main transition-colors flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0">
+          <i class="pi text-[10px]" [ngClass]="showAdvanced() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
           Filtros avanzados
         </button>
       </div>
 
       <!-- Panel avanzado colapsable -->
-      <div *ngIf="showAdvanced()" class="border-t border-divider grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
-        <div class="flex flex-col gap-1">
+      <div *ngIf="showAdvanced()" class="border-t border-divider grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 pt-2">
+        <div class="flex flex-col gap-0.5">
           <label class="filter-label">Encargado</label>
           <p-select
             [options]="supervisors"
@@ -85,10 +85,10 @@ interface DropOption {
             placeholder="Todos"
             (onChange)="onSupervisorChange()"
             (onClear)="onSupervisorClear()"
-            class="w-full" />
+            styleClass="p-input-sm w-full" />
         </div>
 
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-0.5">
           <label class="filter-label">Vendedor</label>
           <p-multiSelect
             [options]="sellers"
@@ -99,7 +99,7 @@ interface DropOption {
             display="chip"
             placeholder="Todos"
             (onChange)="onSellerChange()"
-            class="w-full" />
+            styleClass="p-input-sm w-full" />
         </div>
 
       </div>
@@ -107,7 +107,7 @@ interface DropOption {
   `,
   styles: [`
     :host ::ng-deep .filter-label {
-        font-size: 10px;
+        font-size: 9px;
         font-weight: 700;
       text-transform: uppercase;
         letter-spacing: 0.05em;

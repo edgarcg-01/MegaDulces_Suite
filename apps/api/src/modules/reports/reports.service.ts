@@ -482,11 +482,15 @@ export class ReportsService {
       totalScore += score;
       totalVentas += ventas;
 
-      const dateKey = row.fecha || (row.hora_inicio instanceof Date
-        ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
-        : typeof row.hora_inicio === 'string'
-          ? row.hora_inicio.split('T')[0]
-          : '');
+      const dateKey = row.fecha
+        ? (row.fecha instanceof Date
+            ? row.fecha.toISOString().split('T')[0]
+            : String(row.fecha).split('T')[0])
+        : (row.hora_inicio instanceof Date
+            ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
+            : typeof row.hora_inicio === 'string'
+              ? row.hora_inicio.split('T')[0]
+              : '');
       if (!dailyTrend[dateKey]) {
         dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
       }
@@ -500,9 +504,9 @@ export class ReportsService {
         const conceptoName = conceptoMap[conceptoId] || conceptoId;
         const productosMarcados = ex.productosMarcados || [];
 
-        const val = ex.nivelEjecucion;
-        const isOptimo = val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80);
-        const isRegular = val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50);
+        const val = String(ex.nivelEjecucion).toLowerCase();
+        const isOptimo = val === 'alto' || val === 'excelente' || val === 'optimo';
+        const isRegular = val === 'medio' || val === 'regular';
 
         if (isOptimo) exhibidoresHealth.optimo++;
         else if (isRegular) exhibidoresHealth.regular++;
@@ -590,7 +594,6 @@ export class ReportsService {
     };
 
     const trendData = Object.keys(dailyTrend)
-      .filter(date => new Date(date + 'T12:00:00Z').getUTCDay() !== 0)
       .sort()
       .map((date) => ({
         date,
@@ -1058,9 +1061,9 @@ export class ReportsService {
           ? JSON.parse(row.exhibiciones) : row.exhibiciones || [];
 
         exhibiciones.forEach((ex: any) => {
-          const val = ex.nivelEjecucion;
-          if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80)) healthCount.optimo++;
-          else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50)) healthCount.regular++;
+          const val = String(ex.nivelEjecucion).toLowerCase();
+          if (val === 'alto' || val === 'excelente' || val === 'optimo') healthCount.optimo++;
+          else if (val === 'medio' || val === 'regular') healthCount.regular++;
           else healthCount.critico++;
 
           (ex.productosMarcados || []).forEach((pid: string) => {
@@ -1207,9 +1210,9 @@ export class ReportsService {
           console.debug(`[ReportsService] Empty rangoCompra for exhibicion in store ${sid}`);
         }
         // Also calculate health metrics
-        const val = ex.nivelEjecucion;
-        if (val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80)) s.healthCount.optimo++;
-        else if (val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50)) s.healthCount.regular++;
+        const val = String(ex.nivelEjecucion).toLowerCase();
+        if (val === 'alto' || val === 'excelente' || val === 'optimo') s.healthCount.optimo++;
+        else if (val === 'medio' || val === 'regular') s.healthCount.regular++;
         else s.healthCount.critico++;
         s.productCount += (ex.productosMarcados || []).length;
       });

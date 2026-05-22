@@ -676,25 +676,75 @@ export class ReportsComponent implements OnInit {
     };
 
     const rows = data.rows ?? [];
-    const dist = [
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) < 50).length,
-      rows.filter((r: any) => {
-        const v = r.stats?.puntuacionTotal ?? 0;
-        return v >= 50 && v < 70;
-      }).length,
-      rows.filter((r: any) => {
-        const v = r.stats?.puntuacionTotal ?? 0;
-        return v >= 70 && v < 85;
-      }).length,
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
-    ];
+
+    // Obtener niveles del catálogo real para clasificar visitas
+    const nivelesCatalogo = this.dailyCaptureService.niveles();
+    const nivelMap = new Map<string, { value: string; puntuacion: number; color: string }>();
+    
+    // Mapear niveles del catálogo con colores
+    const colorMap: Record<string, string> = {
+      'alto': '#97C459',
+      'medio': '#85B7EB',
+      'bajo': '#FAC775',
+      'crítico': '#F09595',
+    };
+    
+    nivelesCatalogo.forEach(n => {
+      nivelMap.set(n.id, {
+        value: n.value.toLowerCase(),
+        puntuacion: Number(n.puntuacion) || 1,
+        color: colorMap[n.value.toLowerCase()] || '#888888',
+      });
+    });
+
+    // Clasificar cada visita según el nivel de ejecución de sus exhibiciones
+    // Si una visita tiene múltiples exhibiciones, usamos el nivel más bajo (peor caso)
+    const nivelOrden = ['crítico', 'bajo', 'medio', 'alto'];
+    
+    const visitLevelCounts: Record<string, number> = {
+      'alto': 0, 'medio': 0, 'bajo': 0, 'crítico': 0,
+    };
+
+    rows.forEach((row: any) => {
+      const exhibiciones = row.exhibiciones || [];
+      if (exhibiciones.length === 0) {
+        visitLevelCounts['crítico']++;
+        return;
+      }
+
+      // Encontrar el nivel más bajo entre todas las exhibiciones de la visita
+      let worstLevel = 'alto';
+      for (const ex of exhibiciones) {
+        const nivelId = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
+        const nivelInfo = nivelMap.get(nivelId);
+        if (nivelInfo) {
+          const currentIdx = nivelOrden.indexOf(worstLevel);
+          const newIdx = nivelOrden.indexOf(nivelInfo.value.toLowerCase());
+          if (newIdx > currentIdx) {
+            worstLevel = nivelInfo.value.toLowerCase();
+          }
+        } else if (ex.nivelEjecucion) {
+          // Fallback: usar el string directamente (ya en minúsculas)
+          const normalizedVal = ex.nivelEjecucion.toLowerCase();
+          const currentIdx = nivelOrden.indexOf(worstLevel);
+          const newIdx = nivelOrden.indexOf(normalizedVal);
+          if (newIdx > currentIdx) {
+            worstLevel = normalizedVal;
+          }
+        }
+      }
+      visitLevelCounts[worstLevel] = (visitLevelCounts[worstLevel] || 0) + 1;
+    });
+
+    // Distribución de scores por nivel de ejecución real
+    const dist = nivelOrden.map(nivel => visitLevelCounts[nivel] || 0);
     this.scoreDistData = {
-      labels: ['0–49', '50–69', '70–84', '85+'],
+      labels: nivelOrden.map(n => n.charAt(0).toUpperCase() + n.slice(1)),
       datasets: [
         {
           label: 'Visitas',
           data: dist,
-          backgroundColor: ['#F09595', '#FAC775', '#85B7EB', '#97C459'],
+          backgroundColor: nivelOrden.map(n => colorMap[n] || '#888888'),
         },
       ],
     };
@@ -739,31 +789,17 @@ export class ReportsComponent implements OnInit {
       ],
     };
 
-    // 1. DOUGHNUT CHART - Distribución porcentual de visitas por rango de score
-    // Muestra el % del total de visitas que caen en cada rango de calidad
-    const scoreRanges = [
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) < 50).length,
-      rows.filter((r: any) => {
-        const v = r.stats?.puntuacionTotal ?? 0;
-        return v >= 50 && v < 70;
-      }).length,
-      rows.filter((r: any) => {
-        const v = r.stats?.puntuacionTotal ?? 0;
-        return v >= 70 && v < 85;
-      }).length,
-      rows.filter((r: any) => (r.stats?.puntuacionTotal ?? 0) >= 85).length,
-    ];
+    // 1. DOUGHNUT CHART - Distribución porcentual de visitas por nivel de ejecución real
+    const doughnutLabels = nivelOrden.map(n => n.charAt(0).toUpperCase() + n.slice(1));
+    const doughnutValues = nivelOrden.map(nivel => visitLevelCounts[nivel] || 0);
+    const doughnutColors = nivelOrden.map(n => colorMap[n] || '#888888');
+    
     this.doughnutChartData = {
-      labels: [
-        'Bajo (0-49)',
-        'Regular (50-69)',
-        'Bueno (70-84)',
-        'Excelente (85+)',
-      ],
+      labels: doughnutLabels,
       datasets: [
         {
-          data: scoreRanges,
-          backgroundColor: ['#F09595', '#FAC775', '#85B7EB', '#97C459'],
+          data: doughnutValues,
+          backgroundColor: doughnutColors,
           borderWidth: 0,
           hoverOffset: 4,
         },
@@ -843,24 +879,24 @@ export class ReportsComponent implements OnInit {
       })),
     };
 
-    // 3. POLAR AREA CHART - Distribución de calidad de visitas
-    // Similar a doughnut pero con área proporcional al valor
+    // 3. POLAR AREA CHART - Distribución de calidad de visitas por nivel real
+    const polarLabels = [...nivelOrden].reverse().map(n => n.charAt(0).toUpperCase() + n.slice(1));
+    const polarValues = [...nivelOrden].reverse().map(nivel => visitLevelCounts[nivel] || 0);
+    const polarColors = [...nivelOrden].reverse().map(n => {
+      const baseColor = colorMap[n] || '#888888';
+      // Convert hex to rgba
+      const r = parseInt(baseColor.slice(1, 3), 16);
+      const g = parseInt(baseColor.slice(3, 5), 16);
+      const b = parseInt(baseColor.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, 0.7)`;
+    });
+
     this.polarAreaChartData = {
-      labels: ['Excelente', 'Bueno', 'Regular', 'Bajo'],
+      labels: polarLabels,
       datasets: [
         {
-          data: [
-            scoreRanges[3],
-            scoreRanges[2],
-            scoreRanges[1],
-            scoreRanges[0],
-          ],
-          backgroundColor: [
-            'rgba(151, 196, 89, 0.7)', // Verde - Excelente
-            'rgba(133, 183, 235, 0.7)', // Azul - Bueno
-            'rgba(250, 199, 117, 0.7)', // Amarillo - Regular
-            'rgba(240, 149, 149, 0.7)', // Rojo - Bajo
-          ],
+          data: polarValues,
+          backgroundColor: polarColors,
           borderWidth: 1,
           borderColor: '#fff',
         },
@@ -1035,9 +1071,9 @@ export class ReportsComponent implements OnInit {
         const hasBrandProduct = ex.productosMarcados?.some((pid: string) => this.pidToBrandMap[pid] === this.selectedBrand);
         
         if (hasBrandProduct) {
-          const val = ex.nivelEjecucion;
-          const isOptimo = val === 'excelente' || val === 'optimo' || (typeof val === 'number' && val >= 80);
-          const isRegular = val === 'medio' || val === 'regular' || (typeof val === 'number' && val >= 50);
+          const val = String(ex.nivelEjecucion).toLowerCase();
+          const isOptimo = val === 'alto' || val === 'excelente' || val === 'optimo';
+          const isRegular = val === 'medio' || val === 'regular';
 
           if (isOptimo) health.optimo++;
           else if (isRegular) health.regular++;
@@ -2579,7 +2615,7 @@ export class ReportsComponent implements OnInit {
 
             return [
               this.getConceptoName(ex.conceptoId),
-              ex.nivelEjecucion || 'N/A',
+              (ex.nivelEjecucion || 'N/A').toLowerCase().replace(/\b\w/g, (l: string) => l.toUpperCase()),
               ex.rangoCompra || ex.rango_compra || ex.rango || '-',
               productos,
               '$' + (ex.ventaAdicional || 0 || 0).toLocaleString('es-MX'),

@@ -101,8 +101,14 @@ export class ScoringV2Service {
     const nombreExhibicion = catalogMap.get(dto.exhibicion_id);
     const nombreNivel = catalogMap.get(dto.nivel_ejecucion_id);
 
-    if (!nombrePosicion || !nombreExhibicion || !nombreNivel) {
-      throw new BadRequestException(`Uno o más elementos del catálogo no existen: pos=${dto.posicion_id}, exh=${dto.exhibicion_id}, niv=${dto.nivel_ejecucion_id}`);
+    if (!nombrePosicion) {
+      throw new BadRequestException(`Posición no encontrada en catálogo: id=${dto.posicion_id}`);
+    }
+    if (!nombreExhibicion) {
+      throw new BadRequestException(`Exhibición no encontrada en catálogo: id=${dto.exhibicion_id}`);
+    }
+    if (!nombreNivel) {
+      throw new BadRequestException(`Nivel de ejecución no encontrado en catálogo: id=${dto.nivel_ejecucion_id}`);
     }
 
     // Obtener parámetros desde la configuración versionada
@@ -154,18 +160,28 @@ export class ScoringV2Service {
     // 1. Una sola carga de pesos para toda la visita
     const pesos = await this.getPesosByVersion(dto.config_version_id);
 
-    // 2. Batch N+1 de IDs de catálogo
+    // 2. Batch N+1 de IDs de catálogo — filtrar undefined/null
     const allCatalogIds = [
       ...dto.exhibiciones.map(e => e.posicion_id),
       ...dto.exhibiciones.map(e => e.exhibicion_id),
       ...dto.exhibiciones.map(e => e.nivel_ejecucion_id),
-    ];
+    ].filter(Boolean); // Eliminar undefined/null
+
+    if (allCatalogIds.length === 0) {
+      throw new BadRequestException('No hay IDs de catálogo válidos para calcular el score');
+    }
 
     const catalogRows = await this.knex('catalogs')
       .whereIn('id', [...new Set(allCatalogIds)])
       .select('id', 'value');
 
     const catalogMap = new Map(catalogRows.map(r => [r.id, r.value]));
+
+    // Verificar que todos los IDs fueron resueltos
+    const missingIds = [...new Set(allCatalogIds)].filter(id => !catalogMap.has(id));
+    if (missingIds.length > 0) {
+      console.warn(`[ScoringV2] IDs de catálogo no encontrados: ${missingIds.join(', ')}`);
+    }
 
     // 3. Evaluar exhibiciones pasivas a memoria local
     const exhibicionesScores = dto.exhibiciones.map(ex => 

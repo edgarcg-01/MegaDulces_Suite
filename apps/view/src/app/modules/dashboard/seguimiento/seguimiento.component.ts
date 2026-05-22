@@ -22,7 +22,7 @@ import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
 import { SeguimientoService, DailyScoresResponse } from './seguimiento.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
-import { Subject, switchMap, startWith, tap, forkJoin, of, catchError } from 'rxjs';
+import { of, catchError } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Chart } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
@@ -35,7 +35,6 @@ import { ReportsService, ReportsData } from '../../../modules/dashboard/reports/
 import { FiltersStateService } from '../../../modules/dashboard/reports/graphics/filters-state.service';
 import { GlobalFiltersComponent } from '../../../modules/dashboard/reports/graphics/global-filters.component';
 import { WebSocketService } from '../../../core/services/websocket.service';
-import { merge } from 'rxjs';
 
 interface WsDebouncedEvent {
   events: any[];
@@ -116,8 +115,8 @@ export class SeguimientoComponent implements OnInit {
   private ws = inject(WebSocketService);
 
   // Signals
-  loading = signal(false);
-  loadingVisitas = signal(false);
+  loadingChart = signal(false);
+  loadingTabla = signal(false);
   reportsData = signal<ReportsData | null>(null);
   searchText = signal('');
   lastUpdate = signal('\u2014');
@@ -138,9 +137,6 @@ export class SeguimientoComponent implements OnInit {
   showMetasDialog = false;
   editableKpi: KpiRange[] = [];
   editableFurniture: { id: string; label: string; icon: string; target: number }[] = [];
-
-  // Triggers
-  private loadTrigger$ = new Subject<void>();
 
   // Computed
   canEditMetas = this.perms.can$('manage', 'kpi_goals');
@@ -180,94 +176,91 @@ export class SeguimientoComponent implements OnInit {
   }
 
   private setupDataLoading(): void {
-    const wsTriggers$ = this.ws.debouncedCaptureEvent;
-
-    // Suscripción a metrics:updated para actualizar chart sin HTTP cuando no hay filtros
+    // ── Chart: se actualiza con metricsUpdated ──
     this.ws.metricsUpdated
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((event) => {
-        const f = this.filtersState.filters();
-        const hasFilters = f.zone || f.supervisorId || (f.sellerIds && f.sellerIds.length > 0);
+        const hasFilters = this.hasActiveFilters();
 
         if (!hasFilters && event.dailyScores?.users) {
-          console.log('[Seguimiento] WS metrics:updated - applying chart directly (no filters)');
           this.buildChart({ users: event.dailyScores.users });
-          this.loading.set(false);
-          this.lastUpdate.set('Ult. act. ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
+          this.lastUpdate.set('Últ. act. ' + this.nowTime());
         } else {
-          this.loadTrigger$.next();
+          this.reloadChart();
         }
       });
 
-    merge(this.loadTrigger$, wsTriggers$).pipe(
-      startWith(null),
-      takeUntilDestroyed(this.destroyRef),
-      tap(() => {
-        this.loading.set(true);
-        this.loadingVisitas.set(true);
-      }),
-      switchMap(() => {
-        const f = this.filtersState.filters();
-        const params: any = { 
-          startDate: f.startDate, 
-          endDate: f.endDate
-        };
-        if (f.zone && f.zone !== 'null') params.zone = f.zone;
-        if (f.supervisorId && f.supervisorId !== 'null') params.supervisorId = f.supervisorId;
-        
-        const visitFilters: any = { ...params };
-        if (f.sellerIds?.length) visitFilters.sellerIds = f.sellerIds;
+    // ── Tabla: se actualiza con eventos de captura ──
+    this.ws.debouncedCaptureEvent
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.reloadTabla());
 
-        console.log('[Seguimiento] Loading data with clean params:', { params, visitFilters });
+    // Carga inicial: ambos
+    this.reloadAll();
+  }
 
-        // Use forkJoin with catchError on individual streams to prevent one failure from blocking both
-        return forkJoin({
-          scores: this.service.getDailyScores(params).pipe(
-            catchError(err => {
-              console.error('[Seguimiento] Scores API failed:', err);
-              return of({ users: [] });
-            })
-          ),
-          visitas: this.reportsService.getReportsData(visitFilters, undefined, undefined, 'products').pipe(
-            catchError(err => {
-              console.error('[Seguimiento] Reports API failed:', err);
-              return of({ rows: [], metrics: {} } as any);
-            })
-          )
-        }).pipe(
-          tap(({ scores, visitas }) => {
-            console.log('[Seguimiento] Data received:', { 
-              scoresCount: scores.users?.length ?? 0, 
-              visitasCount: visitas.rows?.length ?? 0
-            });
-            this.buildChart(scores);
-            this.reportsData.set(visitas);
-          })
-        );
+  private reloadChart(): void {
+    this.loadingChart.set(true);
+    const f = this.filtersState.filters();
+    const params: any = { startDate: f.startDate, endDate: f.endDate };
+    if (f.zone && f.zone !== 'null') params.zone = f.zone;
+    if (f.supervisorId && f.supervisorId !== 'null') params.supervisorId = f.supervisorId;
+
+    this.service.getDailyScores(params).pipe(
+      catchError(err => {
+        console.error('[Seguimiento] Scores API failed:', err);
+        return of({ users: [] });
       })
-    ).subscribe({
-      next: (res) => {
-        this.loading.set(false);
-        this.loadingVisitas.set(false);
-        this.lastUpdate.set('Últ. act. ' + new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
-      },
-      error: () => {
-        this.loading.set(false);
-        this.loadingVisitas.set(false);
-      }
+    ).subscribe(scores => {
+      this.buildChart(scores);
+      this.loadingChart.set(false);
+      this.lastUpdate.set('Últ. act. ' + this.nowTime());
     });
+  }
+
+  private reloadTabla(): void {
+    this.loadingTabla.set(true);
+    const f = this.filtersState.filters();
+    const visitFilters: any = { startDate: f.startDate, endDate: f.endDate };
+    if (f.zone && f.zone !== 'null') visitFilters.zone = f.zone;
+    if (f.supervisorId && f.supervisorId !== 'null') visitFilters.supervisorId = f.supervisorId;
+    if (f.sellerIds?.length) visitFilters.sellerIds = f.sellerIds;
+
+    this.reportsService.getReportsData(visitFilters, undefined, undefined, 'products').pipe(
+      catchError(err => {
+        console.error('[Seguimiento] Reports API failed:', err);
+        return of({ rows: [], metrics: {} } as any);
+      })
+    ).subscribe(visitas => {
+      this.reportsData.set(visitas);
+      this.loadingTabla.set(false);
+    });
+  }
+
+  private reloadAll(): void {
+    this.reloadChart();
+    this.reloadTabla();
+  }
+
+  private hasActiveFilters(): boolean {
+    const f = this.filtersState.filters();
+    return !!(f.zone || f.supervisorId || (f.sellerIds && f.sellerIds.length > 0));
+  }
+
+  private nowTime(): string {
+    return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   }
 
   refreshAll(): void {
     this.searchText.set('');
     this.showComparison = false;
-    this.loadTrigger$.next();
+    this.reloadAll();
   }
 
   onVisitsFilterChange(): void {
     this.searchText.set('');
     this.showComparison = false;
-    this.loadTrigger$.next();
+    this.reloadAll();
   }
 
   visitScoreStatus(visit: any): 'ok' | 'warn' | 'bad' {
@@ -465,7 +458,7 @@ export class SeguimientoComponent implements OnInit {
   saveMetas(): void {
     this.editableKpi.forEach((r) => this.metasConfig.updateKpiRange(r.id, r.min, r.opt));
     this.showMetasDialog = false;
-    this.loadTrigger$.next();
+    this.reloadAll();
     this.messageService.add({
       severity: 'success',
       summary: 'Metas guardadas',

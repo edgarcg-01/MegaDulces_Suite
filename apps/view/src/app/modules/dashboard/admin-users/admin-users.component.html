@@ -1,4 +1,4 @@
-<div class="p-6">
+<div class="p-6 space-y-6">
   <!-- Toast for notifications -->
   <p-toast position="top-right"></p-toast>
 
@@ -13,8 +13,8 @@
 
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h2 class="text-headline text-content-main">Administración de Usuarios</h2>
-      <p class="text-body text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-users text-content-main"></i> Administración de Usuarios</h1>
+      <p class="text-sm text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
     </div>
     <div class="flex items-center gap-4">
       <p-iconfield>
@@ -22,7 +22,7 @@
         <input pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar por nombre, usuario, rol o zona..." class="w-full sm:w-80" />
       </p-iconfield>
       <p-button label="Exportar" icon="pi pi-file-excel" severity="secondary" [outlined]="true"></p-button>
-      <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()"></p-button>
+      <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()" styleClass="p-button-brand"></p-button>
     </div>
   </div>
 
@@ -225,7 +225,7 @@
 
     <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-surface-border">
       <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="displayDialog.set(false)"></p-button>
-      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid"></p-button>
+      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid" styleClass="p-button-brand"></p-button>
     </div>
   </form>
 </p-dialog>

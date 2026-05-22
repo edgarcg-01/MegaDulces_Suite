@@ -38,13 +38,13 @@ interface PermissionRow {
       <p-toast></p-toast>
       <div class="flex justify-between items-center mb-6">
         <div>
-          <h2
-            class="text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-3"
+          <h1
+            class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"
           >
-            <i class="pi pi-shield text-brand"></i> Permisos de Rol:
+            <i class="pi pi-shield text-content-main"></i> Permisos de Rol:
             <span class="text-brand">{{ roleName() }}</span>
-          </h2>
-          <p class="text-xs font-medium text-content-dim tracking-wide">
+          </h1>
+          <p class="text-sm text-content-dim">
             Define las funciones y alcances dinámicos para este rol en el sistema.
           </p>
         </div>

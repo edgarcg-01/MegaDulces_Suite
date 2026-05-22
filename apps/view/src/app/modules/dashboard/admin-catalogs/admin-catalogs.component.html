@@ -1,4 +1,4 @@
-<div class="p-6">
+<div class="p-6 space-y-6">
   <!-- Toast for notifications -->
   <p-toast position="top-right"></p-toast>
 
@@ -14,10 +14,10 @@
   <!-- Encabezado -->
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h2 class="text-2xl font-black text-content-main tracking-tight uppercase flex items-center gap-3">
-        <i class="pi pi-cog text-brand"></i> {{ title() }}
-      </h2>
-      <p class="text-xs font-medium text-content-dim tracking-wide">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+        <i class="pi pi-cog text-content-main"></i> {{ title() }}
+      </h1>
+      <p class="text-sm text-content-dim">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>
     </div>
     <div class="flex gap-2">
       <p-button label="Nuevo Ítem" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
@@ -217,7 +217,7 @@
   <div class="flex flex-col gap-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted">Nombre / Valor</label>
-      <input pInputText [(ngModel)]="newItemValue" [placeholder]="selectedType() === 'roles' ? 'Ej: supervisor' : 'Ej: Zona Norte'" class="w-full bg-surface-ground border-surface-border text-content-main" />
+      <input pInputText [(ngModel)]="newItemValue" [placeholder]="selectedType() === 'roles' ? 'Ej: supervisor' : selectedType() === 'niveles' ? 'Ej: Alto' : selectedType() === 'conceptos' ? 'Ej: Exhibidor' : selectedType() === 'ubicaciones' ? 'Ej: Caja' : 'Ej: Zona Norte'" class="w-full bg-surface-ground border-surface-border text-content-main" />
     </div>
 
     <div class="grid grid-cols-2 gap-4">
@@ -231,8 +231,9 @@
           [(ngModel)]="newItemScore"
           [step]="0.1"
           mode="decimal"
-          [minFractionDigits]="0"
+          [minFractionDigits]="1"
           [maxFractionDigits]="2"
+          placeholder="Ej: 0.7"
           class="w-full">
         </p-inputNumber>
       </div>

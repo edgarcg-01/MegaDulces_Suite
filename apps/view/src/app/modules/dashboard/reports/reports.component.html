@@ -1,8 +1,8 @@
-<main class="reports-container p-6 pl-8 space-y-6 min-h-screen">
+<main class="reports-container p-6 pl-8 pt-8 space-y-6 min-h-screen">
 
-  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main">Mercadeo Inteligente</h1>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-chart-bar text-content-main"></i> Mercadeo Inteligente</h1>
       <p class="text-content-muted text-sm">Reportes avanzados · {{ filtersState.rangeLabel() }}</p>
     </div>
     <div class="flex gap-2 flex-wrap sm:flex-nowrap">
@@ -64,7 +64,7 @@
 
             <div class="card-premium">
               <div class="flex items-center justify-between mb-4">
-                <h3 class="text-sm font-bold text-content-main">Visitas de los últimos 7 días</h3>
+                <h3 class="text-sm font-bold text-content-main">Visitas de los Últimos 7 Días</h3>
                 <div class="flex gap-3 text-[11px] text-content-muted">
                   <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-500 rounded-sm inline-block"></span>Visitas diarias</span>
                   <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-red-400 inline-block" style="border-top:2px dashed #E24B4A"></span>Meta diaria</span>
@@ -87,14 +87,14 @@
                 <div class="flex items-center justify-between mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-content-main">Calidad de Visitas</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Distribución por rango de score</p>
+                    <p class="text-xs text-content-muted mt-0.5">Distribución por Nivel de Ejecución</p>
                   </div>
                   <button (click)="captureChartAndExport('doughnut')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
                 </div>
                 <div class="h-[260px]">
                   <p-chart type="doughnut" [data]="doughnutChartData" [options]="doughnutChartOptions" height="100%" *ngIf="doughnutChartData" #doughnutChart></p-chart>
                 </div>
-                <p class="text-xs text-content-muted mt-2 text-center">Muestra el % de visitas en cada rango de calidad</p>
+                <p class="text-xs text-content-muted mt-2 text-center">Muestra el % de visitas por nivel: Alto, Medio, Bajo, Crítico</p>
               </div>
 
               <!-- 2. RADAR - Comparación multivariable -->
@@ -511,7 +511,7 @@
       <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
         <div class="flex items-center gap-2 mb-3">
           <i class="pi pi-info-circle text-content-muted"></i>
-          <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
+           <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
         </div>
         <div class="grid grid-cols-2 gap-3 text-sm">
           <div class="space-y-1">
@@ -603,8 +603,8 @@
                 <td class="py-4 px-5"><span class="text-sm px-3 py-2 rounded bg-surface-100 border border-surface-300 font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span></td>
                 <td class="text-center py-4 px-5">
                   <span class="text-sm px-3 py-2 rounded-full font-bold"
-                    [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion === 'excelente', 'bg-amber-100 text-amber-800': ex.nivelEjecucion === 'medio', 'bg-red-100 text-red-800': ex.nivelEjecucion === 'bajo' }">
-                    {{ ex.nivelEjecucion || 'N/A' }}
+                    [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo', 'bg-amber-100 text-amber-800': ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular', 'bg-red-100 text-red-800': ex.nivelEjecucion?.toLowerCase() === 'bajo' || ex.nivelEjecucion?.toLowerCase() === 'crítico' }">
+                    {{ (ex.nivelEjecucion || 'N/A') | titlecase }}
                   </span>
                 </td>
                 <td class="text-center py-4 px-5">

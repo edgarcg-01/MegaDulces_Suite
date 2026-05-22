@@ -19,8 +19,8 @@
   --brand-light: #fff8bc;
 
   /* Active State */
-  --active-bg: var(--brand-light);
-  --active-text: var(--brand-sunset);
+  --active-bg: #09090b;
+  --active-text: #ffffff;
 }
 
 :host-context(.theme-monochrome) {

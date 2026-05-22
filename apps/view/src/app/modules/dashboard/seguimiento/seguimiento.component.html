@@ -1,8 +1,8 @@
 <main class="p-6 space-y-6">
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main">
-        Seguimiento Diario
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+        <i class="pi pi-eye text-content-main"></i> Seguimiento Diario
       </h1>
       <p class="text-content-muted text-sm">
         Score por ejecutivo — {{ filtersState.rangeLabel() }}
@@ -16,7 +16,7 @@
         severity="secondary"
         [outlined]="true"
         (onClick)="refreshAll()"
-        [disabled]="loading() || loadingVisitas()"
+        [disabled]="loadingChart() || loadingTabla()"
       />
       @if (canEditMetas()) {
         <p-button
@@ -49,7 +49,11 @@
           [plugins]="chartOptions.plugins_custom"
           height="100%"
         />
-      } @else if (!loading()) {
+      } @else if (loadingChart()) {
+        <div class="flex items-center justify-center h-full">
+          <i class="pi pi-spin pi-spinner text-2xl text-content-faint"></i>
+        </div>
+      } @else {
         <div class="flex items-center justify-center h-full text-content-muted">
           No hay datos para hoy
         </div>
@@ -104,7 +108,7 @@
       </div>
     }
 
-    @if (loadingVisitas()) {
+    @if (loadingTabla()) {
       <div class="flex justify-center py-12">
         <i class="pi pi-spin pi-spinner text-2xl text-content-faint"></i>
       </div>
@@ -395,11 +399,11 @@
                         <div class="text-lg font-extrabold text-gray-900 leading-none">{{ ex.puntuacionCalculada || ex.puntos || 0 }}</div>
                         <div class="text-[10px] font-semibold uppercase mt-0.5"
                              [ngClass]="{
-                               'text-emerald-600': (ex.nivelEjecucion || ex.nivel) === 'optimo' || (ex.nivelEjecucion || ex.nivel) === 'excelente',
-                               'text-amber-500': (ex.nivelEjecucion || ex.nivel) === 'regular' || (ex.nivelEjecucion || ex.nivel) === 'medio',
-                               'text-red-500': (ex.nivelEjecucion || ex.nivel) === 'critico' || (ex.nivelEjecucion || ex.nivel) === 'bajo',
+                               'text-emerald-600': (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'alto' || (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'optimo' || (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'excelente',
+                               'text-amber-500': (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'medio' || (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'regular',
+                               'text-red-500': (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'bajo' || (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'crítico' || (ex.nivelEjecucion || ex.nivel)?.toLowerCase() === 'critico',
                                'text-gray-400': !(ex.nivelEjecucion || ex.nivel)
-                             }">{{ ex.nivelEjecucion || ex.nivel || '—' }}</div>
+                             }">{{ (ex.nivelEjecucion || ex.nivel || '—') | titlecase }}</div>
                       </div>
                     </div>
                     @if ((ex.ventaTotal ?? 0) > 0) {

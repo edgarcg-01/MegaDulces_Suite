@@ -64,13 +64,13 @@ interface KpiCard {
   ],
   providers: [MessageService],
   template: `
-    <div class="dashboard-container w-full min-h-screen text-content-main">
+    <div class="dashboard-container w-full min-h-screen text-content-main pt-8">
       <!-- ── Header ─────────────────────────────────────────────────── -->
       <header
         class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10"
       >
         <div>
-          <h1 class="title-premium">Dashboard Estratégico</h1>
+          <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-th-large text-content-main"></i> Dashboard Estratégico</h1>
           <div class="flex items-center gap-3 mt-2">
             <span
               class="px-2 py-0.5 rounded-full bg-accent-brand-light text-[10px] font-black text-brand tracking-widest uppercase"

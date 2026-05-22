@@ -253,14 +253,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
   /** Configuración de tipos de exhibidores desde el catálogo */
   configTipos = computed(() => this.svc.conceptos());
   /**
-   * Configuración de niveles de ejecución desde el catálogo de scoring
-   * @returns Lista de niveles de ejecución disponibles
+   * Configuración de niveles de ejecución desde el catálogo real de la BD
+   * Devuelve objetos con { id, value, puntuacion } para usar en el wizard
    */
   configNiveles = computed(() => {
+    const niveles = this.svc.niveles();
+    if (niveles.length > 0) {
+      return niveles.map(n => ({
+        id: n.id,
+        value: n.value,
+        puntuacion: Number(n.puntuacion) || 1,
+      }));
+    }
+    // Fallback al scoring config legacy si el catálogo no ha cargado
     const cfg = this.svc.scoringConfig();
-    return Object.keys(
-      cfg?.niveles_ejecucion || { excelente: 1.2, estandar: 1.0, basico: 0.8 },
-    );
+    const legacyNiveles = cfg?.niveles_ejecucion || { Alto: 1, Medio: 0.7, Bajo: 0.4, Crítico: 0.2 };
+    return Object.entries(legacyNiveles).map(([value, puntuacion], idx) => ({
+      id: `legacy-${idx}`,
+      value,
+      puntuacion: Number(puntuacion),
+    }));
   });
 
   // ── Main View Actions ─────────────────────────────────────────────────────
@@ -558,14 +570,15 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   /**
    * Selecciona el nivel de ejecución en el wizard
-   * @param nivel Nivel de ejecución seleccionado
+   * @param level Objeto completo del nivel { id, value, puntuacion }
    */
-  onNivelSelect(nivel: string) {
-    this.currentExhibicion.update((curr) => ({
-      ...curr,
-      nivelEjecucion: nivel,
-    }));
-  }
+   onNivelSelect(level: { id: string; value: string; puntuacion: number }) {
+     this.currentExhibicion.update((curr) => ({
+       ...curr,
+       nivelEjecucion: level.value.toLowerCase(),
+       nivelEjecucionId: level.id,
+     }));
+   }
 
   /**
    * Selecciona si el exhibidor pertenece a Mega Dulces

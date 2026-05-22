@@ -1,8 +1,8 @@
-<div class="p-6">
+<div class="p-6 space-y-6">
   <!-- Encabezado -->
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h2 class="text-2xl font-bold text-content-main">🏷️ Jerarquía de Planograma</h2>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-sitemap text-content-main"></i> Jerarquía de Planograma</h1>
       <p class="text-sm text-content-dim">Administra las marcas y sus productos por cada punto de venta.</p>
     </div>
     <div class="flex items-center gap-4">
@@ -10,7 +10,7 @@
         <p-inputicon class="pi pi-search"></p-inputicon>
         <input pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar marca o producto..." class="w-full sm:w-64" />
       </p-iconfield>
-      <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="showAddBrandDialog = true"></p-button>
+      <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="showAddBrandDialog = true" styleClass="p-button-brand"></p-button>
     </div>
   </div>
 
