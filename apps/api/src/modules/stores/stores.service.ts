@@ -80,7 +80,7 @@ export class StoresService {
     latitud?: number;
     longitud?: number;
   }) {
-    const { zona, ruta_id, ...rest } = data;
+    const { zona, ...rest } = data;
     const zona_id = await this.resolveZonaId(zona);
     const [store] = await this.knex('stores')
       .insert({ ...rest, zona_id })
