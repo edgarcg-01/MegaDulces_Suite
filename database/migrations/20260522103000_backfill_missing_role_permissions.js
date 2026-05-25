@@ -29,11 +29,15 @@ exports.up = async function (knex) {
 
   for (const key of missingPerms) {
     const patch = JSON.stringify({ [key]: true });
+    // Usamos named bindings (`:name`) en lugar de `?` posicional porque el
+    // WHERE usa el operador `?` de JSONB ("¿existe la clave?") y knex con
+    // bindings posicionales cuenta TODOS los `?` como placeholders, tirando
+    // "Expected 2 bindings, saw 3". Named bindings ignoran `?`.
     const result = await knex.raw(
       `UPDATE role_permissions
-         SET permissions = permissions || ?::jsonb
-       WHERE NOT (permissions ? ?)`,
-      [patch, key],
+         SET permissions = permissions || :patch::jsonb
+       WHERE NOT (permissions ? :key)`,
+      { patch, key },
     );
     const updated = result.rowCount ?? 0;
     console.log(
