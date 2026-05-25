@@ -34,25 +34,21 @@ echo "[start] Starting NestJS API on port ${API_PORT}..."
 NODE_ENV=production node dist/apps/api/main.js &
 API_PID=$!
 
-# Poll /api/health en lugar de sleep fijo. Si en 60s no responde, abortamos
-# (el contenedor sale unhealthy y la plataforma reintenta).
-echo "[start] Waiting for API health (max 60s)..."
-i=0
-until wget -q --spider "http://127.0.0.1:${API_PORT}/${API_PREFIX}/health" 2>/dev/null; do
-  i=$((i + 1))
-  if [ "$i" -ge 60 ]; then
-    echo "[start] API failed to become healthy in 60s, aborting."
-    kill -TERM "$API_PID" 2>/dev/null || true
-    exit 1
-  fi
-  # Si el proceso de la API ya murió, no tiene sentido seguir esperando.
-  if ! kill -0 "$API_PID" 2>/dev/null; then
-    echo "[start] API process died during boot."
-    exit 1
-  fi
-  sleep 1
-done
-echo "[start] API is up."
+# Esperamos un tiempo prudencial para que NestJS bindeé el puerto. No usamos
+# poll a un endpoint /health (lo eliminamos del API) — el riesgo de levantar
+# nginx un poco antes que la API está acotado: los primeros requests verán
+# 502 brevemente hasta que la API termine de inicializar. Mejor que matar el
+# contenedor por un falso negativo del healthcheck.
+echo "[start] Waiting 10s for API to bind port ${API_PORT}..."
+sleep 10
+
+# Confirmamos al menos que el proceso de la API sigue vivo. Si murió durante
+# el sleep, no tiene sentido seguir.
+if ! kill -0 "$API_PID" 2>/dev/null; then
+  echo "[start] API process died during boot."
+  exit 1
+fi
+echo "[start] API process alive (PID ${API_PID})."
 
 echo "[start] Configuring Nginx on port ${PORT}..."
 envsubst '$PORT' < /etc/nginx/sites-available/default > /tmp/nginx.conf

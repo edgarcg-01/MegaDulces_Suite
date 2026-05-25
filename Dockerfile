@@ -122,10 +122,10 @@ RUN mkdir -p /usr/share/nginx/html && \
 
 EXPOSE 10000
 
-# Healthcheck contra el endpoint del API (que Nginx proxy-passes). Si el API
-# está caído pero nginx vivo, el contenedor se reporta como unhealthy.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD wget -qO- "http://127.0.0.1:${API_PORT}/${API_PREFIX}/health" || exit 1
+# Sin HEALTHCHECK explícito. Railway monitorea el container vía el proxy
+# edge (si nginx no responde, marca down). Tener un HEALTHCHECK custom
+# contra un endpoint específico solo añadía falsos negativos sin beneficio
+# real — el endpoint /api/health se eliminó por las mismas razones.
 
 # tini como PID 1 → señales se entregan al script y de ahí a node/nginx.
 ENTRYPOINT ["/usr/bin/tini", "--"]

@@ -1,7 +1,35 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+
+/**
+ * Handlers globales de errores no capturados. Sin estos, Node mata el
+ * proceso silenciosamente ante el menor `unhandledRejection` (default desde
+ * Node 15+), Railway lo marca como "Crashed" y nos quedamos sin pistas.
+ * Aquí los logueamos prominentemente y NO terminamos el proceso, para que
+ * podamos ver qué los provoca en la próxima ocurrencia.
+ *
+ * Nota: dejar correr tras `uncaughtException` puede dejar al proceso en
+ * estado inconsistente — si vemos que los crashes vuelven con un patrón
+ * claro de corrupción, conviene volver a matar el proceso aquí (con un
+ * `process.exit(1)`) y aceptar el restart.
+ */
+const fatalLogger = new Logger('FatalErrors');
+
+process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+  fatalLogger.error(
+    `Unhandled Promise Rejection — reason: ${
+      reason instanceof Error ? reason.stack : JSON.stringify(reason)
+    }`,
+  );
+  fatalLogger.error(`Promise: ${promise}`);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  fatalLogger.error(`Uncaught Exception: ${err.stack || err.message}`);
+});
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
