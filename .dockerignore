@@ -1,22 +1,27 @@
-# Dependencies
+# Dependencies (se reinstalan dentro del build con npm ci)
 node_modules
 npm-debug.log
 yarn-error.log
+pnpm-debug.log
 
-# Build outputs
+# Build outputs (se generan dentro del builder stage)
 dist
 build
 .next
 out
+tmp
 
-# Environment files
+# Environment files (los inyecta Railway/Render como secrets)
 .env
 .env.local
 .env.*.local
+.env.development
+.env.test
 
-# IDE
+# IDE / editor
 .vscode
 .idea
+.cursor
 *.swp
 *.swo
 *~
@@ -28,6 +33,7 @@ Thumbs.db
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Docker
 Dockerfile*
@@ -36,24 +42,40 @@ docker-compose*.yml
 
 # CI/CD
 .github
+.gitlab-ci.yml
 
-# Documentation
+# Documentation (no aporta al runtime)
 docs
 *.md
+LICENSE
 
-# Uploads
+# Uploads / tmp (storage local de dev, no debe entrar)
 uploads
-tmp
 
-# Test coverage
+# Tests / coverage
 coverage
 .nyc_output
+**/*.spec.ts
+**/*.test.ts
+jest.config.*
+karma.conf.*
 
-# Nx
+# Nx cache + workspace artifacts
 .nx
+.nx/cache
+.nx/workspace-data
 
 # Angular cache
 .angular
+.angular/cache
 
 # Logs
 *.log
+logs
+
+# Lighthouse / análisis local
+lh-*.report.*
+lighthouse-*.json
+
+# Claude / local agent state
+.claude

@@ -1,70 +1,126 @@
-# --- Stage 1: Build Stage ---
-FROM node:20 AS builder
+# syntax=docker/dockerfile:1.7
+# ─────────────────────────────────────────────────────────────────────────────
+# Trade Marketing — Dockerfile multi-stage
+#
+# Pipeline:
+#   1. deps      → instala TODAS las deps (con devDeps) para compilar
+#   2. builder   → reutiliza node_modules de `deps`, compila view + api
+#   3. prod-deps → instala SOLO deps de producción (slim, sin scripts)
+#   4. runner    → imagen final: nginx + node + dist + node_modules de prod
+#
+# BuildKit es requerido por los `--mount=type=cache` (Railway/Render lo activan
+# por defecto). Si compilas en un entorno sin BuildKit, los cache mounts se
+# ignoran sin error.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: Dependencias completas (capa cacheable) ────────────────────────
+FROM node:20-bookworm AS deps
 WORKDIR /app
 
-# Configuración base para Nx y NPM (sin el cargador aún)
+ENV NPM_CONFIG_LOGLEVEL=warn \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    CI=true
+
+# Solo los archivos que afectan a `npm ci`: el resto del código no debe
+# invalidar esta capa.
+COPY package*.json .npmrc ./
+
+# `npm ci` requiere lockfile (lo tenemos). `--prefer-offline` corta latencia
+# del registry cuando la cache de BuildKit ya tiene el tarball.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
+
+# ── Stage 2: Compilación de view + api ──────────────────────────────────────
+FROM node:20-bookworm AS builder
+WORKDIR /app
+
 ENV NX_DAEMON=false \
     CI=true \
-    NODE_OPTIONS="--max-old-space-size=4096"
+    NPM_CONFIG_LOGLEVEL=warn \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
 
-# Copiamos archivos de dependencias y configuraciones base
-COPY package*.json .npmrc tsconfig.base.json nx.json load-compiler.mjs ./
+# Reutilizamos node_modules ya resuelto en `deps` — evita reinstalar.
+COPY --from=deps /app/node_modules ./node_modules
 
-# Instalamos dependencias (esto corre sin el cargador para evitar ERR_MODULE_NOT_FOUND)
-RUN npm install
-
-# Copiamos el resto del código fuente
+# Resto del código fuente (filtrado por .dockerignore).
 COPY . .
 
-# Compilamos las aplicaciones usando el cargador global SOLO en este paso
-RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" npx nx build view --prod && \
-    NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" npx nx build api --prod
+# Angular v18 con esbuild requiere @angular/compiler cargado en el proceso de
+# Node (load-compiler.mjs). El `--max-old-space-size=4096` da margen al heap
+# del compilador en builds grandes.
+RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
+    npx nx build view --prod && \
+    NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
+    npx nx build api --prod
 
-# --- Stage 2: Production dependencies ---
-FROM node:20 AS prod-deps
+# ── Stage 3: Dependencias solo de producción ────────────────────────────────
+FROM node:20-bookworm AS prod-deps
 WORKDIR /app
-COPY package*.json .npmrc ./
-# Instalamos solo dependencias de producción
-RUN npm install --omit=dev
 
-# --- Stage 3: Final Image (Ultra Optimized) ---
+ENV NPM_CONFIG_LOGLEVEL=warn \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false \
+    CI=true
+
+COPY package*.json .npmrc ./
+
+# `--ignore-scripts` evita husky/postinstall en imagen final (no aplican en
+# runtime). `npm cache clean` recupera ~100 MB de la capa.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts --prefer-offline && \
+    npm cache clean --force
+
+# ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
 
-# Instalamos nginx y gettext-base (necesario para envsubst en start.sh)
-RUN apt-get update && apt-get install -y nginx gettext-base && \
+# tini    → PID 1 que reapeha zombies y propaga SIGTERM al script (graceful
+#           shutdown cuando Railway/Render reinician).
+# nginx   → sirve el SPA + reverse proxy a la API.
+# gettext → envsubst para inyectar $PORT en nginx.conf en runtime.
+# tzdata  → fija la TZ del contenedor a MX (alinea con `mx-date.ts` del API).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        nginx \
+        gettext-base \
+        tini \
+        tzdata && \
+    ln -sf /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
     rm -rf /var/lib/apt/lists/*
-
 
 WORKDIR /app
 
-# Variables de entorno para producción
-# API_PORT: puerto interno fijo del backend NestJS (siempre 3333)
-# PORT:     es inyectado por Railway en tiempo de ejecución (ej. 10000)
-#           Nginx escucha en él. NO coincidir con API_PORT.
+# PORT lo inyecta Railway (≈10000); API_PORT es interno fijo. NO deben coincidir.
 ENV NODE_ENV=production \
     API_PORT=3333 \
     API_PREFIX=api \
-    PORT=10000
+    PORT=10000 \
+    TZ=America/Mexico_City
 
-# Copiamos todo lo necesario desde los stages previos
-COPY --from=builder /app/database ./database
-COPY --from=builder /app/dist ./dist
+# Artefactos de los stages previos.
+COPY --from=builder  /app/database     ./database
+COPY --from=builder  /app/dist         ./dist
 COPY --from=prod-deps /app/node_modules ./node_modules
 
-# Copiamos configuración de Nginx y script de inicio
-# Nota: La ruta de Nginx en debian-slim suele ser /etc/nginx/sites-available/default o /etc/nginx/conf.d/default.conf
+# Config de nginx + script de arranque.
 COPY nginx.conf /etc/nginx/sites-available/default
-COPY start.sh ./start.sh
+COPY start.sh   ./start.sh
 RUN chmod +x ./start.sh
 
-# Aseguramos que el frontend se sirve desde la ruta configurada en nginx.conf
-# Angular v17+ compila usualmente a dist/apps/view/browser
+# El executor `@nx/angular:browser-esbuild` emite directamente en
+# `dist/apps/view/` (sin subcarpeta `browser/`). Si en el futuro se migra al
+# builder application-builder de Angular, este path cambiará a `.../browser/`.
 RUN mkdir -p /usr/share/nginx/html && \
-    cp -r dist/apps/view/browser/* /usr/share/nginx/html/ || \
-    cp -r dist/apps/view/* /usr/share/nginx/html/
+    cp -r dist/apps/view/. /usr/share/nginx/html/
 
-# Render usa PORT dinámico (normalmente 10000); exponemos ese como hint
 EXPOSE 10000
 
-# El comando de inicio coordina migraciones, seeds, api y nginx
+# Healthcheck contra el endpoint del API (que Nginx proxy-passes). Si el API
+# está caído pero nginx vivo, el contenedor se reporta como unhealthy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD wget -qO- "http://127.0.0.1:${API_PORT}/${API_PREFIX}/health" || exit 1
+
+# tini como PID 1 → señales se entregan al script y de ahí a node/nginx.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["sh", "./start.sh"]
