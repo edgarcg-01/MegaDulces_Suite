@@ -6,13 +6,21 @@ import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
 import { buildAbility } from '../../shared/ability/ability.factory';
 
+/**
+ * El JWT solo carga la identidad estable del usuario (id, username, role).
+ * Los permisos NO van en el JWT — se leen frescos de DB en cada request
+ * protegido (vía PermissionsCacheService). Esto permite que cambios en
+ * /admin/roles se propaguen sin requerir re-login.
+ *
+ * `permissions` y `rules` siguen viajando en el RESPONSE del login para
+ * que el frontend hidrate su UI inicial; pero el backend NO confía en
+ * ellos para autorización.
+ */
 interface JwtPayload {
   sub: string;
   username: string;
   zona: string;
   role_name: string;
-  permissions: Record<string, boolean>;
-  rules?: any[];
 }
 
 @Injectable()
@@ -54,8 +62,6 @@ export class AuthService {
       username: user.username,
       zona: user.zona,
       role_name: user.role_name,
-      permissions: permissions,
-      rules: ability.rules,
     };
 
     return {

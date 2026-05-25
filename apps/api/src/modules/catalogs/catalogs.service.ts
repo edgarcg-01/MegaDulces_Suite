@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
 import { Permission } from '../../shared/constants/permissions';
+import { PermissionsCacheService } from '../../shared/ability/permissions-cache.service';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 
@@ -65,6 +66,7 @@ export class CatalogsService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly scoringV2Service: ScoringV2Service,
+    private readonly permsCache: PermissionsCacheService,
   ) {}
 
   async getByType(type: string, parentId?: string, includeInactive = false) {
@@ -762,6 +764,10 @@ export class CatalogsService {
         updated_at: this.knex.fn.now(),
       })
       .returning('*');
+
+    // Invalida el cache para que el cambio se vea en el SIGUIENTE request
+    // de cualquier usuario con este rol — sin requerir logout/login.
+    this.permsCache.invalidate(roleName);
 
     this.logger.log(
       `Permissions updated for role "${roleName}" by ${requester?.sub ?? 'unknown'}`,

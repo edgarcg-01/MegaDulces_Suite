@@ -6,9 +6,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
-import { createMongoAbility } from '@casl/ability';
-import type { AppAbility, AppSubject } from '../ability/ability.types';
+import type { AppSubject } from '../ability/ability.types';
 import { Permission } from '../constants/permissions';
+import { PermissionsCacheService } from '../ability/permissions-cache.service';
+import { buildAbility } from '../ability/ability.factory';
 
 const subjectMap: Record<string, AppSubject> = {
   [Permission.USUARIOS_VER]: 'users',
@@ -34,7 +35,10 @@ const subjectMap: Record<string, AppSubject> = {
 
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    private permsCache: PermissionsCacheService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -44,7 +48,21 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Usuario no autenticado.');
     }
 
-    const ability = createMongoAbility<AppAbility>(user.rules || []);
+    // ── PERMISOS FRESCOS por request ────────────────────────────────────
+    // Antes leíamos `user.rules` del JWT (snapshot del momento del login),
+    // así que cambios en /admin/roles no se reflejaban hasta que el usuario
+    // re-logueaba. Ahora la fuente de verdad es siempre `role_permissions`
+    // en DB, cacheada en memoria con TTL 30s + invalidación en update.
+    const permissions = await this.permsCache.getPermissionsForRole(
+      user.role_name,
+    );
+    const ability = buildAbility(permissions);
+
+    // También adjuntamos al request para que controllers/services downstream
+    // puedan consultar `req.user.permissions` con datos frescos (algunos lo
+    // usan para anti-escalation y para el response /me).
+    request.user.permissions = permissions;
+    request.user.rules = ability.rules;
 
     if (ability.can('manage', 'all')) {
       return true;

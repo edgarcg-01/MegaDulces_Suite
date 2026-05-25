@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from './shared/database/database.module';
+import { AbilityModule } from './shared/ability/ability.module';
 import { UsersModule } from './modules/users/users.module';
 import { CapturesModule } from './modules/captures/captures.module';
 import { DailyCapturesModule } from './modules/daily-captures/daily-captures.module';
@@ -37,6 +38,7 @@ import { WebSocketModule } from './modules/websocket/websocket.module';
       exclude: ['/api/{*path}', '/reports/socket.io/{*path}'],
     }),
     DatabaseModule,
+    AbilityModule,
     AuthModule,
     UsersModule,
     CapturesModule,
