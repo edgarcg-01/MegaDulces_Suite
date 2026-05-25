@@ -4,6 +4,8 @@ import { fromEvent, merge, of, BehaviorSubject, interval } from 'rxjs';
 import { map, distinctUntilChanged, tap, filter } from 'rxjs/operators';
 import { OfflineDatabaseService, VisitaPendiente, TiendaOffline } from './offline-database.service';
 import { GeoValidationService, Coordenada } from './geo-validation.service';
+import { buildVisitFormData } from '../http/visit-form-data';
+import { todayMx } from '../utils/mx-date';
 import { environment } from '../../../environments/environment';
 
 export interface SyncStatus {
@@ -262,8 +264,11 @@ export class OfflineSyncService {
         precision: visita.precision
       };
 
-      // Enviar al backend usando el mismo endpoint que daily-captures
-      const response = await this.http.post<any>(`${this.apiUrl}/daily-captures`, payload).toPromise();
+      // Multipart en lugar de JSON+base64: el endpoint acepta ambos pero
+      // multipart ahorra ~25% de wire (relevante en sync con muchas visitas
+      // pendientes tras varias horas sin conexión).
+      const formData = buildVisitFormData(payload);
+      const response = await this.http.post<any>(`${this.apiUrl}/daily-captures`, formData).toPromise();
       console.log('[OfflineSync] Respuesta del backend:', response);
       
       // Marcar como sincronizada
@@ -317,11 +322,14 @@ export class OfflineSyncService {
         console.warn('[OfflineSync] Error en validación geográfica, continuando:', geoError);
       }
 
-      // Guardar visita pendiente
+      // Guardar visita pendiente.
+      // `fecha` debe ser el día calendario MX, no UTC — antes una visita
+      // capturada offline a las 19:00 MX se persistía con la fecha del día
+      // siguiente y al sincronizar terminaba mal agrupada en los reportes.
       const visitaId = await this.db.guardarVisitaPendiente({
         tiendaId: tiendaId ?? '',
         userId,
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: todayMx(),
         horaInicio: datosVisita.horaInicio,
         horaFin: datosVisita.horaFin,
         latitud: ubicacion.lat,

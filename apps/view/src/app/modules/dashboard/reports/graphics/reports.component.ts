@@ -11,6 +11,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { toMxDateKey } from '../../../../core/utils/mx-date';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -1158,12 +1159,9 @@ export class ReportsComponent implements OnInit {
 
     const groups: Record<string, DayGroup> = {};
     data.rows.forEach((row: any) => {
-      const dStr =
-        typeof row.fecha === 'string'
-          ? row.fecha.split('T')[0]
-          : row.fecha instanceof Date
-            ? row.fecha.toISOString().split('T')[0]
-            : row.fecha;
+      // Día calendario en TZ MX. Antes usaba `toISOString()` que mueve
+      // capturas vespertinas al día siguiente UTC y rompe el agrupamiento.
+      const dStr = toMxDateKey(row.fecha);
 
       if (!groups[dStr]) {
         groups[dStr] = {

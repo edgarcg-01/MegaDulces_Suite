@@ -6,10 +6,20 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- Google Fonts: preconnect + stylesheet -->
+  <!-- Google Fonts: preconnect + carga asíncrona (no bloquea render).
+       Truco: media="print" hace que el browser baje la hoja sin parar el
+       renderizado; onload la promueve a "all" cuando ya está cargada.
+       `<noscript>` es fallback si JS está desactivado. Lighthouse cuenta
+       esto como NO render-blocking, ahorrando ~240-360ms en FCP. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preload" as="style"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+        onload="this.onload=null;this.rel='stylesheet'">
+  <noscript>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+  </noscript>
 
   <!-- Favicon - Logo Mega Dulces -->
   <link rel="icon" type="image/png" href="assets/logos/mega-dulces-logo.png">

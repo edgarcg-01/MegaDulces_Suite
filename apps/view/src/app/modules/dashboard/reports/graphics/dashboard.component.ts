@@ -1,11 +1,12 @@
 import {
   Component,
+  DestroyRef,
+  OnDestroy,
   OnInit,
+  ViewChild,
+  computed,
   inject,
   signal,
-  computed,
-  ViewChild,
-  DestroyRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -111,7 +112,7 @@ interface KpiCard {
       <!-- ── Filtros globales ────────────────────────────────────────── -->
       <app-global-filters
         #globalFilters
-        (filtersChanged)="loadDashboardData()"
+        (filtersChanged)="scheduleLoad()"
       />
 
       <!-- ── KPI Cards ──────────────────────────────────────────────── -->
@@ -628,7 +629,7 @@ interface KpiCard {
     <p-toast />
   `,
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent implements OnInit, OnDestroy {
   private dashboardService = inject(DashboardService);
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
@@ -749,6 +750,26 @@ export class DashboardComponent implements OnInit {
   });
 
   recentCaptures = computed(() => this.rawData()?.recentCaptures ?? []);
+
+  // Debounce para cambios rápidos de filtros — evita N refetches al cambiar
+  // zona/supervisor/seller en sucesión rápida.
+  private _loadTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly LOAD_DEBOUNCE_MS = 300;
+
+  scheduleLoad(): void {
+    if (this._loadTimer) clearTimeout(this._loadTimer);
+    this._loadTimer = setTimeout(() => {
+      this._loadTimer = null;
+      this.loadDashboardData();
+    }, DashboardComponent.LOAD_DEBOUNCE_MS);
+  }
+
+  ngOnDestroy(): void {
+    if (this._loadTimer) {
+      clearTimeout(this._loadTimer);
+      this._loadTimer = null;
+    }
+  }
 
   ngOnInit() {
     this.initChartOptions();

@@ -1,65 +1,93 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Put,
-  Param,
+  Controller,
   Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
   Query,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { DailyAssignmentsService } from './daily-assignments.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
+import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { ReqUser } from '../../shared/decorators/req-user.decorator';
 import { Permission } from '../../shared/constants/permissions';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+
+interface AuthUser {
+  sub: string;
+  username?: string;
+  rules?: unknown[];
+}
 
 @ApiTags('daily-assignments')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('daily-assignments')
 export class DailyAssignmentsController {
   constructor(private readonly service: DailyAssignmentsService) {}
 
   @Post()
   @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
-  create(@Body() dto: CreateAssignmentDto) {
-    return this.service.create(dto);
+  create(@Body() dto: CreateAssignmentDto, @ReqUser() user: AuthUser) {
+    return this.service.create(dto, user);
   }
 
   @Get()
+  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
   @ApiQuery({ name: 'supervisor_id', required: false })
   @ApiQuery({ name: 'user_id', required: false })
   @ApiQuery({ name: 'day_of_week', required: false, type: Number })
   findAll(
+    @ReqUser() user: AuthUser,
     @Query('supervisor_id') supervisorId?: string,
     @Query('user_id') userId?: string,
     @Query('day_of_week') dayOfWeek?: string,
   ) {
-    return this.service.findAll({
-      supervisor_id: supervisorId,
-      user_id: userId,
-      day_of_week: dayOfWeek ? parseInt(dayOfWeek, 10) : undefined,
-    });
+    return this.service.findAll(
+      {
+        supervisor_id: supervisorId,
+        user_id: userId,
+        day_of_week: dayOfWeek ? parseInt(dayOfWeek, 10) : undefined,
+      },
+      user,
+    );
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  findOne(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.service.findOne(id, user);
   }
 
   @Put(':id')
   @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateAssignmentDto,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.service.update(id, dto, user);
   }
 
   @Delete(':id')
   @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.service.remove(id, user);
   }
 }

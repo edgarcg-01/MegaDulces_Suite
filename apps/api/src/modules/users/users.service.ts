@@ -1,9 +1,24 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
+import { getDataScope } from '../../shared/ability/data-scope';
+
+interface RequesterContext {
+  sub: string;
+  rules?: unknown[];
+}
+
+const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
 
 @Injectable()
 export class UsersService {
@@ -11,27 +26,119 @@ export class UsersService {
 
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
-    const zone = await this.knex('zones').where({ name: zonaName }).select('id').first();
+    const zone = await this.knex('zones')
+      .where({ name: zonaName })
+      .select('id')
+      .first();
     return zone ? zone.id : null;
   }
 
-  async create(createUserDto: CreateUserDto) {
-    const { password, zona, zona_id: dtoZonaId, role_name, username, ...rest } = createUserDto;
+  private normalizeUsername(username: string): string {
+    return username.toLowerCase().trim();
+  }
+
+  /**
+   * Anti-escalation: solo un superadmin puede otorgar roles elevados
+   * (superadmin/admin). Cualquier intento de elevar a alguien desde un rol
+   * no-superadmin es rechazado.
+   */
+  private async assertCanAssignRole(
+    targetRole: string,
+    requester: RequesterContext,
+  ): Promise<void> {
+    const normalized = targetRole.toLowerCase();
+    if (!ELEVATED_ROLES.has(normalized)) return;
+
+    const requesterRow = await this.knex('users')
+      .where({ id: requester.sub })
+      .select('role_name')
+      .first();
+    const requesterRole = (requesterRow?.role_name ?? '').toLowerCase();
+    if (requesterRole !== 'superadmin') {
+      throw new ForbiddenException(
+        `Solo un superadmin puede asignar el rol "${normalized}".`,
+      );
+    }
+  }
+
+  /**
+   * Bloquea el caso de dejar al sistema sin ningún superadmin activo.
+   * Se invoca antes de degradar de rol o desactivar.
+   */
+  private async assertNotLastSuperadmin(
+    userId: string,
+    nextActive: boolean,
+    nextRole: string | undefined,
+  ): Promise<void> {
+    const current = await this.knex('users')
+      .where({ id: userId })
+      .select('role_name', 'activo')
+      .first();
+    if (!current) return;
+
+    const wasSuperadmin =
+      (current.role_name ?? '').toLowerCase() === 'superadmin' &&
+      current.activo === true;
+    if (!wasSuperadmin) return;
+
+    const willStaySuperadmin =
+      nextActive !== false &&
+      (nextRole === undefined ||
+        nextRole.toLowerCase() === 'superadmin');
+    if (willStaySuperadmin) return;
+
+    // El cambio degradaría/desactivaría a un superadmin. Verificar que
+    // queda al menos otro superadmin activo.
+    const otherActive = await this.knex('users')
+      .where({ role_name: 'superadmin', activo: true })
+      .andWhereNot({ id: userId })
+      .count<{ count: string }>('id as count')
+      .first();
+    const otherCount = Number(otherActive?.count ?? 0);
+    if (otherCount === 0) {
+      throw new BadRequestException(
+        'No puedes desactivar o degradar al último superadmin activo del sistema.',
+      );
+    }
+  }
+
+  async create(createUserDto: CreateUserDto, requester: RequesterContext) {
+    const {
+      password,
+      zona,
+      zona_id: dtoZonaId,
+      role_name,
+      username,
+      ...rest
+    } = createUserDto;
+
+    await this.assertCanAssignRole(role_name, requester);
+
+    const normalizedUsername = this.normalizeUsername(username);
+
+    const existing = await this.knex('users')
+      .where({ username: normalizedUsername })
+      .select('id')
+      .first();
+    if (existing) {
+      throw new ConflictException(
+        `El nombre de usuario "${normalizedUsername}" ya está en uso.`,
+      );
+    }
+
     const password_hash = await bcrypt.hash(password, 10);
-    
-    // Use zona_id from DTO if provided, otherwise resolve by name
-    const zona_id = dtoZonaId || await this.resolveZonaId(zona);
-    
-    console.log('[UsersService] Creating user with zona_id:', zona_id, 'zona:', zona);
-
-    // Normalize username to lowercase for consistency
-    const normalizedUsername = username ? username.toLowerCase().trim() : username;
-
-    // Normalize role_name to lowercase to match role_permissions
-    const normalizedRoleName = role_name ? role_name.toLowerCase() : role_name;
+    const zona_id = dtoZonaId || (await this.resolveZonaId(zona));
+    const normalizedRoleName = role_name.toLowerCase();
 
     const [user] = await this.knex('users')
-      .insert({ ...rest, zona_id, password_hash, role_name: normalizedRoleName, username: normalizedUsername })
+      .insert({
+        ...rest,
+        zona_id,
+        password_hash,
+        role_name: normalizedRoleName,
+        username: normalizedUsername,
+        updated_by: requester.sub,
+      })
       .returning([
         'id',
         'username',
@@ -43,11 +150,14 @@ export class UsersService {
         'created_at',
       ]);
 
-    // Return with zona name for compatibility
-    return { ...user, zona: zona };
+    return { ...user, zona };
   }
 
-  async findAll(zona?: string, activo?: string) {
+  async findAll(
+    zona: string | undefined,
+    activo: string | undefined,
+    requester: RequesterContext,
+  ) {
     const jsDay = new Date().getDay();
     const dow = jsDay === 0 ? 7 : jsDay;
 
@@ -67,20 +177,40 @@ export class UsersService {
         'u.username',
         'u.nombre',
         'z.name as zona',
+        'u.zona_id',
         'u.role_name',
         'u.activo',
         'u.supervisor_id',
         'u.created_at',
-        this.knex.raw('CASE WHEN da.id IS NOT NULL THEN true ELSE false END as has_route_today'),
-        'cr.value as route_name_today'
+        knex.raw(
+          'CASE WHEN da.id IS NOT NULL THEN true ELSE false END as has_route_today',
+        ),
+        'cr.value as route_name_today',
       );
+
+    // Scope enforcement: solo reports_global ve todo el padrón; team-scope ve
+    // su equipo + sí mismo; own-scope solo a sí mismo.
+    const scope = getDataScope({
+      sub: requester.sub,
+      rules: requester.rules as never,
+    });
+    if (scope.type === 'team') {
+      query.where((qb) => {
+        qb.where('u.supervisor_id', requester.sub).orWhere(
+          'u.id',
+          requester.sub,
+        );
+      });
+    } else if (scope.type === 'own') {
+      query.where('u.id', requester.sub);
+    }
 
     if (zona) query.where('z.name', zona);
     if (activo) query.where('u.activo', activo === 'true');
     return query;
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, requester: RequesterContext) {
     const user = await this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .where('u.id', id)
@@ -89,45 +219,115 @@ export class UsersService {
         'u.username',
         'u.nombre',
         'z.name as zona',
+        'u.zona_id',
         'u.role_name',
         'u.activo',
         'u.supervisor_id',
-        'u.created_at'
+        'u.supervisor_id as parent_supervisor',
+        'u.created_at',
       )
       .first();
 
     if (!user) {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
+
+    const scope = getDataScope({
+      sub: requester.sub,
+      rules: requester.rules as never,
+    });
+    if (scope.type === 'team') {
+      const isSelf = user.id === requester.sub;
+      const isDirectReport = user.parent_supervisor === requester.sub;
+      if (!isSelf && !isDirectReport) {
+        throw new ForbiddenException(
+          'No puedes ver usuarios fuera de tu equipo.',
+        );
+      }
+    } else if (scope.type === 'own' && user.id !== requester.sub) {
+      throw new ForbiddenException('No puedes ver otros usuarios.');
+    }
+
     return user;
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    const { password, zona, zona_id: dtoZonaId, role_name, username, ...rest } = updateUserDto;
-    const updateData: Record<string, any> = { ...rest };
+  async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    requester: RequesterContext,
+  ) {
+    const {
+      password,
+      zona,
+      zona_id: dtoZonaId,
+      role_name,
+      username,
+      activo,
+      ...rest
+    } = updateUserDto;
+
+    const isSelf = id === requester.sub;
+
+    // Anti-self-elevation / self-lockout: nadie puede cambiarse su propio
+    // rol ni desactivarse a sí mismo. Estos cambios solo proceden vía un
+    // tercero con permisos suficientes.
+    if (isSelf && role_name !== undefined) {
+      throw new ForbiddenException(
+        'No puedes modificar tu propio rol.',
+      );
+    }
+    if (isSelf && activo === false) {
+      throw new ForbiddenException(
+        'No puedes desactivar tu propio usuario.',
+      );
+    }
+
+    if (role_name !== undefined) {
+      await this.assertCanAssignRole(role_name, requester);
+    }
+
+    // Defensa contra dejar al sistema sin superadmins activos.
+    if (role_name !== undefined || activo !== undefined) {
+      await this.assertNotLastSuperadmin(id, activo !== false, role_name);
+    }
+
+    const updateData: Record<string, unknown> = { ...rest };
 
     if (password) {
-      updateData.password_hash = await bcrypt.hash(password, 10);
+      updateData['password_hash'] = await bcrypt.hash(password, 10);
     }
 
-    // Normalize username to lowercase if provided
     if (username) {
-      updateData.username = username.toLowerCase().trim();
+      const normalized = this.normalizeUsername(username);
+      const conflict = await this.knex('users')
+        .where({ username: normalized })
+        .andWhereNot({ id })
+        .select('id')
+        .first();
+      if (conflict) {
+        throw new ConflictException(
+          `El nombre de usuario "${normalized}" ya está en uso.`,
+        );
+      }
+      updateData['username'] = normalized;
     }
 
-    // Use zona_id from DTO if provided, otherwise resolve by name
     if (dtoZonaId !== undefined) {
-      updateData.zona_id = dtoZonaId;
-      console.log('[UsersService] Updating user with zona_id from DTO:', dtoZonaId);
+      updateData['zona_id'] = dtoZonaId;
     } else if (zona !== undefined) {
-      updateData.zona_id = await this.resolveZonaId(zona);
-      console.log('[UsersService] Updating user with resolved zona_id:', updateData.zona_id);
+      updateData['zona_id'] = await this.resolveZonaId(zona);
     }
 
-    // Normalize role_name to lowercase to match role_permissions
-    if (role_name) {
-      updateData.role_name = role_name.toLowerCase();
+    if (role_name !== undefined) {
+      updateData['role_name'] = role_name.toLowerCase();
     }
+
+    if (activo !== undefined) {
+      updateData['activo'] = activo;
+    }
+
+    updateData['updated_at'] = this.knex.fn.now();
+    updateData['updated_by'] = requester.sub;
 
     const [user] = await this.knex('users')
       .where({ id })
@@ -147,64 +347,85 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    // Map back for compatibility
-    const zoneName = zona !== undefined ? zona : (await this.knex('zones').where({ id: user.zona_id }).select('name').first())?.name;
+    const zoneName =
+      zona !== undefined
+        ? zona
+        : (
+            await this.knex('zones')
+              .where({ id: user.zona_id })
+              .select('name')
+              .first()
+          )?.name;
     return { ...user, zona: zoneName };
   }
 
-  async remove(id: string) {
-     const count = await this.knex('users')
-      .where({ id })
-      .update({ activo: false });
+  async remove(id: string, requester: RequesterContext) {
+    if (requester.sub === id) {
+      throw new ForbiddenException(
+        'No puedes desactivar tu propio usuario.',
+      );
+    }
 
-     if (count === 0) {
+    await this.assertNotLastSuperadmin(id, false, undefined);
+
+    return this.knex.transaction(async (trx) => {
+      const count = await trx('users').where({ id }).update({
+        activo: false,
+        deleted_at: trx.fn.now(),
+        deleted_by: requester.sub,
+        updated_at: trx.fn.now(),
+        updated_by: requester.sub,
+      });
+      if (count === 0) {
         throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
-     }
-     return { message: 'El usuario ha sido desactivado (soft delete)' };
+      }
+
+      const orphans = await trx('users')
+        .where({ supervisor_id: id })
+        .update({ supervisor_id: null });
+
+      return {
+        message: 'El usuario ha sido desactivado (soft delete)',
+        orphans_cleared: orphans,
+      };
+    });
   }
 
   async getRoles() {
-    return await this.knex('role_permissions').select('role_name');
+    return this.knex('role_permissions')
+      .select('role_name')
+      .orderBy('role_name', 'asc');
   }
 
   async findSupervisors(zona?: string) {
-    console.log('[findSupervisors] Buscando supervisores, zona:', zona);
-
     const query = this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .where('u.role_name', 'like', '%supervisor%')
       .where({ 'u.activo': true })
       .select('u.id', 'u.nombre', 'u.username', 'z.name as zona');
 
-    if (zona) {
-      query.where('z.name', zona);
-    }
-
-    const result = await query;
-    console.log('[findSupervisors] Encontrados:', result.length);
-    return result;
+    if (zona) query.where('z.name', zona);
+    return query;
   }
 
   async findSellers(zona?: string, supervisorId?: string) {
-    console.log('[findSellers] Buscando vendedodores, zona:', zona, 'supervisorId:', supervisorId);
-
     const query = this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
       .whereNotIn('u.role_name', ['supervisor_v', 'admin', 'superadmin'])
       .where({ 'u.activo': true })
-      .select('u.id', 'u.nombre', 'u.username', 'z.name as zona', 'u.role_name', 'u.supervisor_id');
+      .select(
+        'u.id',
+        'u.nombre',
+        'u.username',
+        'z.name as zona',
+        'u.role_name',
+        'u.supervisor_id',
+      );
 
-    if (zona) {
-      query.where('z.name', zona);
-    }
+    if (zona) query.where('z.name', zona);
+    if (supervisorId) query.where({ 'u.supervisor_id': supervisorId });
 
-    if (supervisorId) {
-      query.where({ 'u.supervisor_id': supervisorId });
-    }
-
-    const result = await query;
-    console.log('[findSellers] Encontrados:', result.length);
-    return result;
+    return query;
   }
 
   async findBySupervisor(supervisorId: string) {
@@ -215,19 +436,8 @@ export class UsersService {
   }
 
   async getZones() {
-    try {
-      console.log('[getZones] Obteniendo zonas de la tabla zones...');
-
-      const rows = await this.knex('zones')
-        .orderBy('orden', 'asc')
-        .select('id', 'name as value', 'orden');
-
-      console.log('[getZones] Zonas encontradas:', rows);
-      return rows;
-    } catch (error) {
-      console.error('[getZones] Error:', error);
-      return [];
-    }
+    return this.knex('zones')
+      .orderBy('orden', 'asc')
+      .select('id', 'name as value', 'orden');
   }
-
 }

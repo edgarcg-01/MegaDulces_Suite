@@ -3,8 +3,8 @@
   <p-toast position="top-right"></p-toast>
 
   <!-- Confirm Dialog -->
-  <p-confirmDialog 
-    header="Confirmar" 
+  <p-confirmDialog
+    header="Confirmar"
     icon="pi pi-exclamation-triangle"
     [style]="{width: '450px'}"
     acceptButtonStyleClass="p-button-danger"
@@ -19,10 +19,17 @@
     <div class="flex items-center gap-4">
       <p-iconfield>
         <p-inputicon class="pi pi-search"></p-inputicon>
-        <input pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar por nombre, usuario, rol o zona..." class="w-full sm:w-80" />
+        <input
+          pInputText
+          type="text"
+          [ngModel]="searchText()"
+          (ngModelChange)="onSearchChange($event)"
+          placeholder="Buscar por nombre, usuario, rol o zona..."
+          class="w-full sm:w-80" />
       </p-iconfield>
-      <p-button label="Exportar" icon="pi pi-file-excel" severity="secondary" [outlined]="true"></p-button>
-      <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()" styleClass="p-button-brand"></p-button>
+      @if (canManageUsers()) {
+        <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()" styleClass="p-button-brand"></p-button>
+      }
     </div>
   </div>
 
@@ -36,6 +43,7 @@
           <th pSortableColumn="role_name">Puesto / Rol <p-sortIcon field="role_name"></p-sortIcon></th>
           <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
           <th class="table-header">Jefe Directo</th>
+          <th class="text-center table-header">Estado</th>
           <th class="text-center table-header">Ruta hoy</th>
           <th class="text-center w-28 table-header">Acciones</th>
         </tr>
@@ -67,6 +75,12 @@
             {{ user.role_name === 'colaborador' ? getSupervisorName(user.supervisor_id) : '-' }}
           </td>
           <td class="text-center">
+            <p-tag
+              [value]="user.activo ? 'Activo' : 'Inactivo'"
+              [severity]="user.activo ? 'success' : 'danger'"
+              [rounded]="true" />
+          </td>
+          <td class="text-center">
             @if (user.has_route_today) {
               <p-tag [value]="user.route_name_today" severity="success" [rounded]="true" />
             } @else {
@@ -75,25 +89,27 @@
           </td>
           <td class="text-center">
             <div class="flex justify-center gap-1">
-              <button
-                (click)="openEditDialog(user)"
-                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
-                title="Editar">
-                <i class="pi pi-pencil text-sm"></i>
-              </button>
-              <button
-                (click)="deleteUser(user)"
-                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-                title="Eliminar">
-                <i class="pi pi-trash text-sm"></i>
-              </button>
+              @if (canManageUsers()) {
+                <button
+                  (click)="openEditDialog(user)"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
+                  title="Editar">
+                  <i class="pi pi-pencil text-sm"></i>
+                </button>
+                <button
+                  (click)="deleteUser(user)"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+                  title="Eliminar">
+                  <i class="pi pi-trash text-sm"></i>
+                </button>
+              }
             </div>
           </td>
         </tr>
       </ng-template>
       <ng-template pTemplate="emptymessage">
         <tr>
-          <td colspan="7" class="text-center p-8 text-content-dim">
+          <td colspan="8" class="text-center p-8 text-content-dim">
              No hay usuarios configurados. Intenta recargar la página.
           </td>
         </tr>
@@ -103,23 +119,27 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-4">
-    <div *ngFor="let user of filteredUsers()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">
+    @for (user of filteredUsers(); track user.id) {
+    <div class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">
       <!-- Decorator for Role -->
-      <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground" [ngClass]="{'!bg-brand-sunset': user.role_name === 'superadmin'}"></div>
-      
+      <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground"
+           [class.!bg-brand-sunset]="user.role_name === 'superadmin'"></div>
+
       <div class="flex items-center justify-between mb-3">
         <div class="flex flex-col gap-1">
           <h3 class="font-bold text-content-main leading-tight">{{ user.nombre || 'SIN NOMBRE' }}</h3>
           <span class="text-[10px] font-mono text-content-faint bg-surface-ground w-fit px-1.5 py-0.5 rounded border border-divider uppercase">ID: {{ user.username }}</span>
         </div>
-        <div class="flex gap-1">
-          <button
-            (click)="openEditDialog(user)"
-            class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
-            title="Editar">
-            <i class="pi pi-pencil text-sm"></i>
-          </button>
-        </div>
+        @if (canManageUsers()) {
+          <div class="flex gap-1">
+            <button
+              (click)="openEditDialog(user)"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
+              title="Editar">
+              <i class="pi pi-pencil text-sm"></i>
+            </button>
+          </div>
+        }
       </div>
 
       <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-divider/50">
@@ -135,21 +155,29 @@
 
       <div class="mt-4 flex items-center justify-between bg-surface-ground/50 -mx-4 -mb-4 p-3 border-t border-divider/30">
         <div class="flex items-center gap-2">
+          <p-tag
+            [value]="user.activo ? 'Activo' : 'Inactivo'"
+            [severity]="user.activo ? 'success' : 'danger'"
+            [rounded]="true" />
           @if (user.has_route_today) {
             <p-tag [value]="user.route_name_today" severity="success" [rounded]="true" />
           } @else {
-            <p-tag value="Sin ruta hoy" severity="danger" [rounded]="true" />
+            <p-tag value="Sin ruta" severity="danger" [rounded]="true" />
           }
         </div>
-        <button (click)="deleteUser(user)" class="text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter">Eliminar</button>
+        @if (canManageUsers()) {
+          <button (click)="deleteUser(user)" class="text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter">Eliminar</button>
+        }
       </div>
     </div>
+    }
   </div>
 </div>
 
 <!-- Diálogo Creación/Edición -->
 <p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'"
-          [(visible)]="displayDialog"
+          [visible]="displayDialog()"
+          (visibleChange)="displayDialog.set($event)"
           [modal]="true"
           appendTo="body"
           [style]="{width: '500px', maxWidth: '90vw'}"
@@ -182,36 +210,44 @@
           </span>
           <input pInputText id="username" formControlName="username" placeholder="jperez" />
       </div>
-      <small class="text-red-500" *ngIf="userForm.get('username')?.invalid && userForm.get('username')?.touched">
-        El usuario es obligatorio.
-      </small>
+      @if (userForm.get('username')?.invalid && userForm.get('username')?.touched) {
+        <small class="text-red-500">
+          El usuario es obligatorio (3+ caracteres, sin espacios).
+        </small>
+      }
     </div>
 
     <!-- Rol -->
     <div class="flex flex-col gap-2">
       <label for="role_name" class="text-label text-content-muted">Nivel de Acceso</label>
-      <p-select id="role_name" [options]="roles()" formControlName="role_name" placeholder="Selecciona el rol"
+      <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name" placeholder="Selecciona el rol"
                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
     </div>
 
     <!-- Supervisor (Solo para Colaborador) -->
-    <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300" *ngIf="userForm.get('role_name')?.value === 'colaborador'">
-      <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
-      <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe"
-                  optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
-      <small class="text-red-500" *ngIf="userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched">
-        Debes asignar un supervisor para este colaborador.
-      </small>
-    </div>
+    @if (userForm.get('role_name')?.value === 'colaborador') {
+      <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+        <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
+        <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe"
+                    optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
+        @if (userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched) {
+          <small class="text-red-500">
+            Debes asignar un supervisor para este colaborador.
+          </small>
+        }
+      </div>
+    }
 
     <!-- Contraseña -->
     <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-surface-border rounded-lg">
       <label for="password" class="text-label text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
       <input pInputText id="password" type="password" formControlName="password"
              placeholder="{{ isEditing() ? 'Dejar en blanco para no cambiar' : 'Min. 6 caracteres' }}" />
-      <small class="text-red-500" *ngIf="userForm.get('password')?.hasError('minlength')">
-        Requiere al menos 6 caracteres.
-      </small>
+      @if (userForm.get('password')?.hasError('minlength')) {
+        <small class="text-red-500">
+          Requiere al menos 6 caracteres.
+        </small>
+      }
     </div>
 
     <!-- Activo -->
@@ -224,10 +260,8 @@
     </div>
 
     <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-surface-border">
-      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="displayDialog.set(false)"></p-button>
-      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid" styleClass="p-button-brand"></p-button>
+      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="closeDialog()" [disabled]="saving()"></p-button>
+      <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid || saving()" [loading]="saving()" styleClass="p-button-brand"></p-button>
     </div>
   </form>
 </p-dialog>
-
-<p-toast></p-toast>

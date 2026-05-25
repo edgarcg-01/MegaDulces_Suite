@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 
 interface CacheEntry<T> {
   data: T;
@@ -7,7 +7,8 @@ interface CacheEntry<T> {
 }
 
 @Injectable()
-export class ReportsCacheService {
+export class ReportsCacheService implements OnModuleDestroy {
+  private readonly logger = new Logger(ReportsCacheService.name);
   private cache = new Map<string, CacheEntry<any>>();
   private readonly DEFAULT_TTL_MS = 60_000;
   private readonly MAX_ENTRIES = 500;
@@ -15,10 +16,12 @@ export class ReportsCacheService {
 
   private hitCount = 0;
   private missCount = 0;
-  private cleanupTimer: NodeJS.Timeout;
+  private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     this.cleanupTimer = setInterval(() => this.evictExpired(), this.CLEANUP_INTERVAL_MS);
+    // .unref() permite que Node termine sin esperar a este timer en shutdown
+    this.cleanupTimer.unref?.();
   }
 
   get<T>(key: string): T | null {
@@ -55,7 +58,7 @@ export class ReportsCacheService {
     if (!pattern) {
       const size = this.cache.size;
       this.cache.clear();
-      console.log(`[Cache] Invalidated ALL entries (${size} cleared)`);
+      this.logger.log(`Invalidated ALL entries (${size} cleared)`);
       return;
     }
 
@@ -66,13 +69,48 @@ export class ReportsCacheService {
         deleted++;
       }
     }
-    console.log(`[Cache] Invalidated pattern "${pattern}": ${deleted} entries`);
+    this.logger.log(`Invalidated pattern "${pattern}": ${deleted} entries`);
   }
 
   invalidateAllReports(): void {
     this.invalidate('summary:');
     this.invalidate('daily_compliance:');
     this.invalidate('daily_scores:');
+  }
+
+  /**
+   * Invalida solo las entradas de caché que afectan a un usuario concreto:
+   * - Sus reportes propios (scopeUserId=<userId>)
+   * - Reportes globales (scope 'all' — siempre dependen de toda la data)
+   * - Reportes de equipo donde el userId aparece en supervisor o userIds
+   *
+   * Útil cuando llega un nuevo capture: no hace falta tirar la caché entera.
+   */
+  invalidateForUser(userId: string): void {
+    if (!userId) {
+      this.invalidateAllReports();
+      return;
+    }
+    let deleted = 0;
+    for (const key of this.cache.keys()) {
+      // Las keys tienen el formato `summary:scopeType=own&scopeUserId=<uuid>&...`
+      // Invalidar:
+      //   - las del propio user (scopeUserId=<userId> o supervisorId=<userId> o userIds que contengan <userId>)
+      //   - las globales (scopeType=all)
+      const isOwnUser = key.includes(`scopeUserId=${userId}`)
+        || key.includes(`supervisorId=${userId}`)
+        || key.includes(`userIds=${userId}`)
+        || key.includes(`,${userId},`)
+        || key.includes(`,${userId}&`);
+      const isGlobal = key.includes('scopeType=all');
+      if (isOwnUser || isGlobal) {
+        this.cache.delete(key);
+        deleted++;
+      }
+    }
+    if (deleted > 0) {
+      this.logger.debug(`Invalidated ${deleted} entries for user ${userId}`);
+    }
   }
 
   buildKey(method: string, params: Record<string, any>): string {
@@ -108,7 +146,7 @@ export class ReportsCacheService {
       }
     }
     if (deleted > 0) {
-      console.log(`[Cache] Evicted ${deleted} expired entries`);
+      this.logger.debug(`Evicted ${deleted} expired entries`);
     }
   }
 
@@ -129,6 +167,11 @@ export class ReportsCacheService {
   }
 
   onModuleDestroy(): void {
-    clearInterval(this.cleanupTimer);
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    this.cache.clear();
+    this.logger.log('ReportsCacheService destroyed; timer cleared and cache wiped.');
   }
 }

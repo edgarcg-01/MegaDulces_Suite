@@ -1,4 +1,15 @@
-import { Component, OnInit, inject, signal, computed, effect, ViewEncapsulation, DestroyRef } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  ViewEncapsulation,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
@@ -18,11 +29,13 @@ import { ReportsService } from '../reports/reports.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { FiltersStateService } from '../reports/graphics/filters-state.service';
 import {
-  MetasConfigService,
   KpiStatus,
+  MetasConfigService,
 } from '../reports/graphics/metas-config.service';
-import { GlobalFiltersComponent } from '../reports/graphics/global-filters.component';
+import { parseLocalDate } from '../../../core/utils/mx-date';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-dashboard',
@@ -37,15 +50,14 @@ import { WebSocketService } from '../../../core/services/websocket.service';
     SkeletonModule,
     TooltipModule,
     ToastModule,
-    GlobalFiltersComponent,
     HomeChartsComponent,
   ],
   providers: [MessageService],
   templateUrl: './home.component.html',
   encapsulation: ViewEncapsulation.None,
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HomeComponent implements OnInit {
-  // Inyecciones adaptadas a tu código anterior
   private reportsService = inject(ReportsService);
   public themeService = inject(ThemeService);
   readonly filtersState = inject(FiltersStateService);
@@ -53,58 +65,61 @@ export class HomeComponent implements OnInit {
   private messageService = inject(MessageService);
   private ws = inject(WebSocketService);
   private destroyRef = inject(DestroyRef);
+  private perms = inject(PermissionsService);
 
   summaryMonthlyLoading = signal(true);
   summaryDailyLoading = signal(true);
   reportsDataLoading = signal(true);
 
-  // Signals para almacenar la data del backend - separados por periodo
-  summaryMonthly = signal<any>(null);  // Datos mensuales para KPI cards
-  summaryDaily = signal<any>(null);   // Datos diarios para cumplimiento diario
+  // Timestamp de la última sincronización exitosa. Reemplaza el placeholder
+  // "Sync v2.5" / "Live Metrics" por información real.
+  lastUpdatedAt = signal<Date | null>(null);
+
+  summaryMonthly = signal<any>(null);
+  summaryDaily = signal<any>(null);
   reportsData = signal<any>(null);
 
-  // Helper: obtener rango de fechas mensual
-  private getMonthlyDateRange() {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(1); // Primer día del mes
-    return {
-      startDate: start.toLocaleDateString('en-CA'),
-      endDate: end.toLocaleDateString('en-CA')
-    };
-  }
-
-  // Helper: obtener rango de fechas diario (hoy)
-  private getDailyDateRange() {
-    const today = new Date().toLocaleDateString('en-CA');
-    return { startDate: today, endDate: today };
-  }
+  // Chart como signals para reaccionar con OnPush.
+  stackedChartData = signal<any>(null);
+  stackedChartOptions = signal<any>(null);
 
   // Modal de metas
-  showMetasDialog = false;
-  editableFurniture = [...this.metasConfig.furniture()].map(f => ({ ...f }));
-  editableKpi = [...this.metasConfig.kpiRanges()].map(k => ({ ...k }));
+  showMetasDialog = signal<boolean>(false);
+  editableFurniture: { id: string; label: string; icon: string; target: number }[] = [];
+  editableKpi: any[] = [];
 
-  // Variables para la gráfica
-  chartData: any;
-  chartOptions: any;
-  // Gráfica apilada estilo PrimeNG
-  stackedChartData: any;
-  stackedChartOptions: any;
-
-  // Tarjetas de navegación rápida
-  quickActions = [
-    { label: 'Nueva Captura', icon: 'pi pi-pencil', route: '/dashboard/captures' },
-    { label: 'Ver Reportes', icon: 'pi pi-chart-bar', route: '/dashboard/reports' },
-    { label: 'Gestionar Tiendas', icon: 'pi pi-building', route: '/dashboard/stores' },
+  // Quick actions con permiso requerido
+  private rawQuickActions: { label: string; icon: string; route: string; permission: Permission }[] = [
+    { label: 'Nueva Captura', icon: 'pi pi-pencil', route: '/dashboard/captures', permission: Permission.VISITAS_REGISTRAR },
+    { label: 'Ver Reportes', icon: 'pi pi-chart-bar', route: '/dashboard/reports', permission: Permission.REPORTES_VER_PROPIO },
+    { label: 'Gestionar Tiendas', icon: 'pi pi-building', route: '/dashboard/stores', permission: Permission.TIENDAS_VER },
   ];
 
-  // 1. Computed: Tarjetas KPI - usando datos MENSUALES
+  private permToSubject: Record<string, string> = {
+    [Permission.VISITAS_REGISTRAR]: 'visits',
+    [Permission.REPORTES_VER_PROPIO]: 'reports_own',
+    [Permission.TIENDAS_VER]: 'stores',
+  };
+
+  readonly quickActions = computed(() =>
+    this.rawQuickActions.filter((a) =>
+      this.perms.can('read', this.permToSubject[a.permission] as any),
+    ),
+  );
+
+  // Loading global (si cualquier sección sigue cargando)
+  readonly anyLoading = computed(
+    () =>
+      this.summaryMonthlyLoading() ||
+      this.summaryDailyLoading() ||
+      this.reportsDataLoading(),
+  );
+
+  // 1. Tarjetas KPI - usando datos MENSUALES
   kpiCards = computed(() => {
     const metrics = this.summaryMonthly() || {};
     const cierresHoy = metrics.cierres_hoy || 0;
 
-    // Usar el sistema de metas para obtener la meta diaria configurada
     const metaDiariaRange = this.metasConfig.getRange('metaDiaria');
     const metaDiaria = metaDiariaRange?.opt || 5;
     const pending = Math.max(0, metaDiaria - cierresHoy);
@@ -127,59 +142,48 @@ export class HomeComponent implements OnInit {
         value: `${Math.round(scoreVal || 0)} pts`,
         icon: 'pi pi-chart-line',
         colorClass: 'text-blue-500',
-        trend: '+2.4%',
         status: scoreStatus,
         meta: scoreRange ? `${scoreRange.opt} pts` : '—',
-        delta: 'Sin variación',
-        deltaDir: 'flat',
-        pct: this.metasConfig.progressPct('score', scoreVal)
+        pct: this.metasConfig.progressPct('score', scoreVal),
       },
       {
         label: 'Tiempo Prom/Visita',
         value: `${metrics.avg_duration_min || 0}m`,
         icon: 'pi pi-clock',
         colorClass: 'text-amber-500',
-        trend: 'Actual',
         status: avgDurationStatus,
         meta: avgDurationRange ? `≥ ${avgDurationRange.opt} min` : '—',
-        delta: 'Sin variación',
-        deltaDir: 'flat',
-        pct: this.metasConfig.progressPct('avgDuration', avgDurationVal)
+        pct: this.metasConfig.progressPct('avgDuration', avgDurationVal),
       },
       {
         label: 'Evidencia Visual',
         value: (metrics.total_fotos || 0).toString(),
         icon: 'pi pi-camera',
         colorClass: 'text-purple-500',
-        trend: 'Sincronizado',
         status: evidenciaStatus,
         meta: evidenciaRange ? `≥ ${evidenciaRange.opt} fotos` : '—',
-        delta: 'Sin variación',
-        deltaDir: 'flat',
-        pct: this.metasConfig.progressPct('evidenciaVisual', evidenciaVal)
+        pct: this.metasConfig.progressPct('evidenciaVisual', evidenciaVal),
       },
       {
         label: 'Meta Diaria',
         value: `${cierresHoy}/${metaDiaria}`,
         icon: 'pi pi-bullseye',
         colorClass: 'text-green-500',
-        trend: 'Hoy',
         status: pending > 0 ? 'warn' : 'ok',
         meta: `${metaDiaria} visitas`,
         delta: pending > 0 ? `${pending} restantes` : 'Completado',
         deltaDir: pending > 0 ? 'down' : 'up',
-        pct: metaDiaria > 0 ? Math.round((cierresHoy / metaDiaria) * 100) : 0
-      }
+        pct: metaDiaria > 0 ? Math.round((cierresHoy / metaDiaria) * 100) : 0,
+      },
     ];
   });
 
-  // 2. Computed: Desglose de Mobiliario - usando datos DIARIOS
+  // 2. Desglose de Mobiliario - usando datos DIARIOS
   furnitureRows = computed(() => {
     const metrics = this.summaryDaily() || {};
     const d = metrics.desglose_muebles || {};
 
-    return this.metasConfig.furniture().map(f => {
-      // Intentamos mapear el ID de la meta con la llave del JSON que manda tu backend
+    return this.metasConfig.furniture().map((f) => {
       let actual = 0;
       if (f.id === 'vitrina') actual = d.vitrina || 0;
       if (f.id === 'exhibidor') actual = d.exhibidor || 0;
@@ -194,57 +198,87 @@ export class HomeComponent implements OnInit {
     });
   });
 
-  // 3. Computed: Actividad Reciente
+  // 3. Actividad reciente — enriquece con status pre-calculado para no
+  // invocar `metasConfig.statusFor` desde el template en cada CD.
   recentCaptures = computed(() => {
     const data = this.reportsData();
     if (!data || !data.rows) return [];
-    return data.rows.slice(0, 5);
+    return data.rows.slice(0, 5).map((cap: any) => ({
+      ...cap,
+      _score: cap.stats?.puntuacionTotal ?? 0,
+      _scoreStatus: this.metasConfig.statusFor('score', cap.stats?.puntuacionTotal ?? 0),
+    }));
   });
 
   constructor() {
-    // Effect: reacciona automáticamente a cambios en los filtros
+    // Effect: reacciona a filtros debounceados; usa `untracked` para que
+    // los writes dentro de loadDashboardData no se rastreen como deps.
     effect(() => {
-      // Al leer filters() aquí, Angular lo rastrea automáticamente
-      this.filtersState.filters();
-      this.loadDashboardData();
-    }, { allowSignalWrites: true });
+      this.filtersState.filtersDebounced();
+      untracked(() => this.loadDashboardData());
+    });
 
-    // Suscripción a WebSocket: recargar datos con debounce cuando lleguen eventos en tiempo real
+    // Effect: regenerar opciones del chart al cambiar el tema. Leemos el
+    // signal reactivamente (para reaccionar al cambio) y escribimos dentro
+    // de `untracked` para que el write a `stackedChartOptions` no caiga en
+    // la regla NG0600 (no-writes-in-effect).
+    effect(() => {
+      const isDark = this.themeService.isMonochrome();
+      untracked(() =>
+        this.stackedChartOptions.set(this.buildChartOptions(isDark)),
+      );
+    });
+
+    // WebSocket: recargar dashboard al llegar capturas (con debounce interno).
     this.ws.debouncedCaptureEvent
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
-        console.log('[HomeComponent] WS debounced event received, reloading dashboard data');
-        this.loadDashboardData();
-      });
+      .subscribe(() => this.loadDashboardData());
 
-    // Suscripción a metrics:updated - usar payload directo si no hay filtros activos
+    // WebSocket: aplicar payload directo si no hay filtros activos.
     this.ws.metricsUpdated
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((event) => {
         const f = this.filtersState.filters();
-        const hasFilters = f.zone || f.supervisorId || (f.sellerIds && f.sellerIds.length > 0);
+        const hasFilters =
+          !!f.zone ||
+          !!f.supervisorId ||
+          (f.sellerIds && f.sellerIds.length > 0);
 
         if (!hasFilters && event.summary?.metricas_globales) {
-          console.log('[HomeComponent] WS metrics:updated - applying payload directly (no filters)');
-          this.summaryMonthlyLoading.set(false);
           this.summaryMonthly.set(event.summary.metricas_globales);
+          this.summaryMonthlyLoading.set(false);
           if (event.dailyScores?.users) {
-            this.summaryDailyLoading.set(false);
             this.summaryDaily.set(event.dailyScores.users);
+            this.summaryDailyLoading.set(false);
           }
         } else {
-          console.log('[HomeComponent] WS metrics:updated - filters active, triggering refetch');
           this.loadDashboardData();
         }
       });
   }
 
-  ngOnInit() {
-    this.initChartConfig();
-    // loadDashboardData() ya no se llama aquí, el effect lo dispara en primera ejecución
+  ngOnInit(): void {
+    // El effect del constructor dispara la primera carga; el otro genera
+    // las opciones del chart con el tema activo. No hace falta nada acá.
   }
 
-  loadDashboardData() {
+  // Helpers de rango de fechas (sin signals — son puros).
+  private getMonthlyDateRange(): { startDate: string; endDate: string } {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(1);
+    return {
+      startDate: start.toLocaleDateString('en-CA'),
+      endDate: end.toLocaleDateString('en-CA'),
+    };
+  }
+
+  private getDailyDateRange(): { startDate: string; endDate: string } {
+    const today = new Date().toLocaleDateString('en-CA');
+    return { startDate: today, endDate: today };
+  }
+
+  loadDashboardData(): void {
     this.summaryMonthlyLoading.set(true);
     this.summaryDailyLoading.set(true);
     this.reportsDataLoading.set(true);
@@ -259,78 +293,64 @@ export class HomeComponent implements OnInit {
         endDate: monthlyRange.endDate,
         zone: f.zone,
         supervisorId: f.supervisorId,
-        sellerIds: f.sellerIds
+        sellerIds: f.sellerIds,
       }),
       summaryDaily: this.reportsService.getDailyCompliance({
         startDate: dailyRange.startDate,
         endDate: dailyRange.endDate,
         zone: f.zone,
         supervisorId: f.supervisorId,
-        sellerIds: f.sellerIds
+        sellerIds: f.sellerIds,
       }),
-      reportsRes: this.reportsService.getReportsData({
-        startDate: monthlyRange.startDate,
-        endDate: monthlyRange.endDate,
-        zone: f.zone,
-        supervisorId: f.supervisorId,
-        sellerIds: f.sellerIds
-      }, 1, 5, 'metrics,trend')
-    }).subscribe({
-      next: ({ summaryMonthly, summaryDaily, reportsRes }) => {
-        this.summaryMonthly.set(summaryMonthly.metricas_globales);
-        this.summaryMonthlyLoading.set(false);
-        this.summaryDaily.set(summaryDaily.metricas_diarias);
-        this.summaryDailyLoading.set(false);
-        this.reportsData.set(reportsRes);
-        this.reportsDataLoading.set(false);
-        this.updateChart(reportsRes);
-      },
-      error: () => {
-        this.summaryMonthlyLoading.set(false);
-        this.summaryDailyLoading.set(false);
-        this.reportsDataLoading.set(false);
-      }
-    });
+      reportsRes: this.reportsService.getReportsData(
+        {
+          startDate: monthlyRange.startDate,
+          endDate: monthlyRange.endDate,
+          zone: f.zone,
+          supervisorId: f.supervisorId,
+          sellerIds: f.sellerIds,
+        },
+        1,
+        5,
+        'metrics,trend',
+      ),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ summaryMonthly, summaryDaily, reportsRes }) => {
+          this.summaryMonthly.set(summaryMonthly.metricas_globales);
+          this.summaryMonthlyLoading.set(false);
+          this.summaryDaily.set(summaryDaily.metricas_diarias);
+          this.summaryDailyLoading.set(false);
+          this.reportsData.set(reportsRes);
+          this.reportsDataLoading.set(false);
+          this.updateChart(reportsRes);
+          this.lastUpdatedAt.set(new Date());
+        },
+        error: () => {
+          this.summaryMonthlyLoading.set(false);
+          this.summaryDailyLoading.set(false);
+          this.reportsDataLoading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar los datos del dashboard.',
+          });
+        },
+      });
   }
 
-  // Se encarga de aplicar los estilos dependiendo de si el theme es oscuro o claro
-  initChartConfig() {
-    const isDark = this.themeService.isMonochrome();
-    this.chartOptions = {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 1000, easing: 'easeOutQuart' },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: isDark ? '#18181b' : '#ffffff',
-          titleColor: isDark ? '#ffffff' : '#09090b',
-          bodyColor: isDark ? '#a1a1aa' : '#64748b',
-          borderColor: isDark ? '#3f3f46' : '#e2e8f0',
-          borderWidth: 1, padding: 12, boxPadding: 6, usePointStyle: true,
-          callbacks: { label: (context: any) => ` Score: ${context.parsed.y}%` }
-        }
-      },
-      scales: {
-        x: {
-          grid: { display: false },
-          ticks: { color: isDark ? '#71717a' : '#94a3b8', font: { size: 10, weight: '600' } }
-        },
-        y: {
-          min: 0, max: 100,
-          grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', drawTicks: false },
-          ticks: { color: isDark ? '#71717a' : '#94a3b8', font: { size: 10, weight: '600' }, callback: (value: any) => `${value}%` }
-        }
-      }
-    };
-
-    // Opciones para gráfica apilada estilo PrimeNG
-    this.stackedChartOptions = {
+  /**
+   * Construye las opciones del chart según el tema actual. Llamado desde un
+   * effect que reacciona a `themeService.isMonochrome()`.
+   */
+  private buildChartOptions(isDark: boolean): any {
+    return {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 750, easing: 'easeOutQuart' },
       plugins: {
-        legend: { display: false }, // La leyenda está en el HTML
+        legend: { display: false },
         tooltip: {
           backgroundColor: isDark ? '#18181b' : '#ffffff',
           titleColor: isDark ? '#ffffff' : '#09090b',
@@ -341,144 +361,147 @@ export class HomeComponent implements OnInit {
           cornerRadius: 8,
           callbacks: {
             label: (context: any) => {
-              const label = context.dataset.label || '';
-              const value = context.parsed.y;
-              const total = context.chart.data.datasets.reduce((sum: number, ds: any) => {
-                return sum + (ds.data[context.dataIndex] || 0);
-              }, 0);
-              const pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-              return `${label}: ${value} visitas (${pct}%)`;
-            }
-          }
-        }
+              const visits = context.parsed.y;
+              const score = context.dataset.scores?.[context.dataIndex];
+              const lines = [`Visitas: ${visits}`];
+              if (score != null) lines.push(`Score promedio: ${Math.round(score)} pts`);
+              return lines;
+            },
+          },
+        },
       },
       scales: {
         x: {
-          stacked: true,
           grid: { display: false },
           ticks: {
             color: isDark ? '#71717a' : '#64748b',
-            font: { size: 11, weight: '500' }
-          }
+            font: { size: 11, weight: '500' },
+          },
         },
         y: {
-          stacked: true,
           beginAtZero: true,
           grid: {
             color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-            drawBorder: false
+            drawBorder: false,
           },
           ticks: {
             color: isDark ? '#71717a' : '#64748b',
             font: { size: 10 },
-            callback: (value: number) => value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value
-          }
-        }
+            callback: (value: number) =>
+              value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value,
+          },
+        },
       },
-      interaction: {
-        mode: 'index',
-        intersect: false
-      }
+      interaction: { mode: 'index', intersect: false },
     };
   }
 
-  updateChart(data: any) {
-    if (!data || !data.trendData) return;
+  /**
+   * Calcula totales por día de la semana a partir del `trendData` del
+   * backend y arma un bar chart simple. Antes se inventaba un desglose
+   * alto/medio/bajo con factores fijos (60/30/10) — eso engañaba al usuario.
+   * Ahora el chart muestra el dato real (total de visitas) y colorea cada
+   * barra según el score promedio del día.
+   */
+  private updateChart(data: any): void {
+    if (!data || !data.trendData) {
+      this.stackedChartData.set(null);
+      return;
+    }
 
-    // Gráfica de línea original (Score) - se mantenerá
-    this.chartData = {
-      labels: data.trendData.map((d: any) => d.date),
-      datasets: [{
-        label: 'Score',
-        data: data.trendData.map((d: any) => d.avgScore),
-        borderColor: '#f6d200',
-        backgroundColor: 'rgba(246, 210, 0, 0.1)',
-        fill: true,
-        tension: 0.4
-      }]
+    const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    const weekStats = weekDays.map(() => ({ visits: 0, scoreSum: 0, scoreCount: 0 }));
+
+    for (const d of data.trendData) {
+      // `parseLocalDate` evita el bug de UTC de `new Date('YYYY-MM-DD')`
+      // que en MX desplaza el día uno hacia atrás. Ver core/utils/mx-date.
+      const date = parseLocalDate(d.date);
+      if (!date) continue;
+
+      const dayIndex = date.getDay();
+      const adjustedIndex = dayIndex === 0 ? 6 : dayIndex - 1; // 0=Lun, 6=Dom
+
+      weekStats[adjustedIndex].visits += d.visits || 0;
+      if (typeof d.avgScore === 'number') {
+        weekStats[adjustedIndex].scoreSum += d.avgScore;
+        weekStats[adjustedIndex].scoreCount += 1;
+      }
+    }
+
+    // Score promedio real por día para colorear y mostrar en tooltip.
+    const avgScores = weekStats.map((s) =>
+      s.scoreCount > 0 ? s.scoreSum / s.scoreCount : null,
+    );
+
+    const isDark = this.themeService.isMonochrome();
+    const colorForScore = (score: number | null): string => {
+      if (score == null) return isDark ? '#3f3f46' : '#e2e8f0';
+      if (score >= 80) return '#185FA5'; // alto
+      if (score >= 50) return '#5B9BD5'; // medio
+      return '#BDD7EE'; // bajo
     };
 
-    // Gráfica de 7 días fijos de la semana - Desglose por calidad de visita
-    const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-    const weekDaysFull = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-    // Inicializar acumuladores para cada día de la semana
-    const weekStats = weekDays.map(() => ({ high: 0, medium: 0, low: 0, count: 0 }));
-
-    // Agrupar datos por día de la semana
-    data.trendData.forEach((d: any) => {
-      const date = new Date(d.date);
-      const dayIndex = date.getDay(); // 0=Dom, 1=Lun, ..., 6=Sab
-      // Convertir a índice donde 0=Lun, 6=Dom
-      const adjustedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
-
-      // Desglose por tipo de visita basado en score promedio
-      const highVisits = Math.round(d.visits * (d.avgScore / 100) * 0.6);
-      const mediumVisits = Math.round(d.visits * (d.avgScore / 100) * 0.3);
-      const lowVisits = d.visits - highVisits - mediumVisits;
-
-      weekStats[adjustedIndex].high += Math.max(0, highVisits);
-      weekStats[adjustedIndex].medium += Math.max(0, mediumVisits);
-      weekStats[adjustedIndex].low += Math.max(0, lowVisits);
-      weekStats[adjustedIndex].count += 1;
-    });
-
-    // Crear datasets para la gráfica apilada (una barra por cada día de la semana)
-    this.stackedChartData = {
+    this.stackedChartData.set({
       labels: weekDays,
       datasets: [
         {
-          label: 'Alto Score',
-          data: weekStats.map((s: any) => s.high),
-          backgroundColor: '#185FA5', // Azul oscuro
+          label: 'Visitas',
+          data: weekStats.map((s) => s.visits),
+          backgroundColor: avgScores.map(colorForScore),
+          scores: avgScores,
           borderRadius: 6,
           borderSkipped: false,
         },
-        {
-          label: 'Score Medio',
-          data: weekStats.map((s: any) => s.medium),
-          backgroundColor: '#5B9BD5', // Azul medio
-          borderRadius: 6,
-          borderSkipped: false,
-        },
-        {
-          label: 'Bajo Score',
-          data: weekStats.map((s: any) => s.low),
-          backgroundColor: '#BDD7EE', // Azul claro
-          borderRadius: 6,
-          borderSkipped: false,
-        }
-      ]
-    };
+      ],
+    });
   }
 
-  fmtScore(v: any): string { return v != null ? Math.round(v) + ' pts' : ''; }
+  fmtScore(v: any): string {
+    return v != null ? Math.round(v) + ' pts' : '';
+  }
+
   statusLabel(s: KpiStatus | string): string {
-    return s === 'ok' ? 'Óptimo' : s === 'warn' ? 'Precaución' : s === 'bad' ? 'Bajo' : 'Info';
+    return s === 'ok'
+      ? 'Óptimo'
+      : s === 'warn'
+        ? 'Precaución'
+        : s === 'bad'
+          ? 'Bajo'
+          : 'Info';
   }
 
   // --- Lógica del Diálogo de Metas ---
-  openMetasDialog() {
-    this.editableFurniture = this.metasConfig.furniture().map(f => ({ ...f }));
-    this.editableKpi = this.metasConfig.kpiRanges().map((k: any) => ({ ...k }));
-    this.showMetasDialog = true;
+  openMetasDialog(): void {
+    // Snapshot fresco cada vez que se abre — antes los valores quedaban
+    // stale tras el primer save (los field initializers solo corren una vez).
+    this.editableFurniture = this.metasConfig.furniture().map((f) => ({ ...f }));
+    this.editableKpi = this.metasConfig.kpiRanges().map((k) => ({ ...k }));
+    this.showMetasDialog.set(true);
   }
 
-  saveMetas() {
-    // Al guardar, actualizamos el servicio local que maneja el localStorage
-    this.editableFurniture.forEach(f => this.metasConfig.updateFurnitureTarget(f.id, f.target));
-    this.editableKpi.forEach(k => this.metasConfig.updateKpiRange(k.id, k.min, k.opt));
-    this.showMetasDialog = false;
-    // Recargar datos del dashboard para reflejar cambios en las metas
-    this.loadDashboardData();
+  saveMetas(): void {
+    this.editableFurniture.forEach((f) =>
+      this.metasConfig.updateFurnitureTarget(f.id, f.target),
+    );
+    this.editableKpi.forEach((k) =>
+      this.metasConfig.updateKpiRange(k.id, k.min, k.opt),
+    );
+    this.showMetasDialog.set(false);
+    // No recargamos del backend: las metas se aplican client-side
+    // (statusFor, progressPct) y `metasConfig` es signal — los computeds
+    // reaccionan solos.
+    this.messageService.add({
+      severity: 'success',
+      summary: 'Metas guardadas',
+      detail: 'Los rangos se aplicaron al dashboard.',
+    });
   }
 
-  cancelMetas() {
-    this.showMetasDialog = false;
+  cancelMetas(): void {
+    this.showMetasDialog.set(false);
   }
 
-  exportPdf() {
-    // Aquí puedes implementar la exportación a PDF si lo deseas, o simplemente hacer un window.print()
+  printPage(): void {
     window.print();
   }
 }

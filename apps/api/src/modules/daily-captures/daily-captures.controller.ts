@@ -1,13 +1,19 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Delete,
+  BadRequestException,
   Body,
+  Controller,
+  Delete,
+  Get,
   Param,
+  Post,
   Query,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { DailyCapturesService } from './daily-captures.service';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
@@ -20,6 +26,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
   ApiOperation,
+  ApiConsumes,
 } from '@nestjs/swagger';
 
 @ApiTags('daily-captures')
@@ -29,15 +36,79 @@ import {
 export class DailyCapturesController {
   constructor(private readonly dailyCapturesService: DailyCapturesService) {}
 
+  /**
+   * Registrar visita. Acepta DOS formatos en el body:
+   *
+   * 1. **multipart/form-data** (preferido, ~25% menos bytes en wire):
+   *    - field `payload` con el JSON del DTO (sin `fotoBase64` en exhibiciones)
+   *    - cada foto como file part `photo_<i>` donde `i` matchea
+   *      `exhibiciones[i]._photoField` del payload.
+   *
+   * 2. **application/json** (legacy / offline cache):
+   *    - body completo del DTO con `exhibiciones[].fotoBase64`.
+   *    - Sigue funcionando para que visitas guardadas en IndexedDB con el
+   *      formato viejo no se pierdan al desplegar.
+   *
+   * Multer límites: 10 MB por foto, máx 20 archivos por request.
+   */
   @Post()
   @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @UseInterceptors(
+    AnyFilesInterceptor({
+      limits: { fileSize: 10 * 1024 * 1024, files: 20 },
+    }),
+  )
+  @ApiConsumes('multipart/form-data', 'application/json')
   @ApiOperation({ summary: 'Registrar una auditoría completada en un PDV' })
-  create(
-    @Body() createDailyCaptureDto: CreateDailyCaptureDto,
+  async create(
+    @Body() body: any,
+    @UploadedFiles() files: Express.Multer.File[] = [],
     @ReqUser() user: any,
   ) {
+    let dto: CreateDailyCaptureDto;
+
+    // Detectar multipart por presencia del campo `payload` (string JSON).
+    // El multer interceptor expone los demás fields del FormData en `body`.
+    if (typeof body?.payload === 'string') {
+      try {
+        dto = JSON.parse(body.payload);
+      } catch {
+        throw new BadRequestException(
+          'El field `payload` no es JSON válido.',
+        );
+      }
+
+      // Asociar cada file a su exhibición por `_photoField`.
+      const fileByField = new Map<string, Express.Multer.File>(
+        files.map((f) => [f.fieldname, f]),
+      );
+      for (const ex of dto.exhibiciones ?? []) {
+        const field = (ex as any)._photoField as string | undefined;
+        if (field) {
+          const file = fileByField.get(field);
+          if (file) {
+            // El service detecta `_file` y usa cloudinary.uploadImage(buffer).
+            (ex as any)._file = file;
+          }
+          delete (ex as any)._photoField;
+        }
+      }
+    } else {
+      // Legacy JSON path. ValidationPipe arriba ya hizo el cast, pero como
+      // ahora el handler recibe `body: any` (para soportar multipart) lo
+      // validamos a mano de forma básica.
+      dto = body as CreateDailyCaptureDto;
+    }
+
+    // Validación mínima común a ambos paths.
+    if (!dto?.folio || !dto?.exhibiciones?.length || !dto?.stats) {
+      throw new BadRequestException(
+        'Payload incompleto: se requieren folio, exhibiciones y stats.',
+      );
+    }
+
     return this.dailyCapturesService.create(
-      createDailyCaptureDto,
+      dto,
       user.sub,
       user.username,
       user.zona,
@@ -46,6 +117,7 @@ export class DailyCapturesController {
 
   @Get()
   @RequirePermissions(Permission.VISITAS_VER)
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: false }))
   @ApiOperation({ summary: 'Consultar Cierres de Auditoría/Visitas' })
   @ApiQuery({ name: 'fecha', required: false })
   @ApiQuery({ name: 'zona', required: false })
@@ -56,17 +128,15 @@ export class DailyCapturesController {
     @Query('ejecutivo') ejecutivo?: string,
     @ReqUser() user?: any,
   ) {
-    // Protección de datos: un colaborador con permiso VISITAS_VER pero sin permisos globales
-    // sólo debe ver sus propios registros si su rol es 'colaborador' o 'ejecutivo'
-    const userIdFilter = user?.permissions?.[Permission.REPORTES_VER_GLOBAL]
-      ? undefined
-      : user.sub;
-
+    // /daily-captures es el workspace personal de cada capturista (página /captures).
+    // SIEMPRE se filtra por el usuario autenticado, sin importar el rol — incluso
+    // superadmin solo ve sus propias visitas en esta vista. Las vistas globales
+    // (admin/reports) consumen otros endpoints en /reports.
     return this.dailyCapturesService.findAll(
       fecha,
       zona,
       ejecutivo,
-      userIdFilter,
+      user.sub,
     );
   }
 
@@ -78,9 +148,15 @@ export class DailyCapturesController {
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.REPORTES_VER_GLOBAL)
-  @ApiOperation({ summary: 'Eliminar una visita por ID o folio (solo superadmin)' })
-  async remove(@Param('id') id: string) {
-    return this.dailyCapturesService.remove(id);
+  @RequirePermissions(Permission.REPORTES_GESTIONAR)
+  @ApiOperation({
+    summary: 'Eliminar una visita por ID o folio. Solo dueño o superadmin.',
+  })
+  async remove(@Param('id') id: string, @ReqUser() user: any) {
+    return this.dailyCapturesService.remove(id, {
+      sub: user.sub,
+      username: user.username,
+      role_name: user.role_name,
+    });
   }
 }

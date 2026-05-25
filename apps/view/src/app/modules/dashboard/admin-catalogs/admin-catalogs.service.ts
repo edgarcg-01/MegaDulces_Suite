@@ -10,12 +10,15 @@ export class AdminCatalogsService {
   private http = inject(HttpClient);
   private apiUrl = `${environment.apiUrl}/catalogs`;
 
-  getCatalog(type: string, parentId?: string): Observable<any[]> {
-    let url = `${this.apiUrl}/${type}`;
-    if (parentId) {
-      url += `?parent=${parentId}`;
-    }
-    return this.http.get<any[]>(url);
+  getCatalog(
+    type: string,
+    parentId?: string,
+    includeInactive = false,
+  ): Observable<any[]> {
+    let params = new HttpParams();
+    if (parentId) params = params.set('parent', parentId);
+    if (includeInactive) params = params.set('includeInactive', 'true');
+    return this.http.get<any[]>(`${this.apiUrl}/${type}`, { params });
   }
 
   getRoutesByZone(zoneId: string): Observable<any[]> {

@@ -1,62 +1,98 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { StoresService } from './stores.service';
+import { CreateStoreDto } from './dto/create-store.dto';
+import { UpdateStoreDto } from './dto/update-store.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { ReqUser } from '../../shared/decorators/req-user.decorator';
 import { Permission } from '../../shared/constants/permissions';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 
+interface AuthUser {
+  sub: string;
+  username?: string;
+  rules?: unknown[];
+}
+
 @ApiTags('stores')
 @ApiBearerAuth()
-@UseGuards(RequireAuthGuard)
+@UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('stores')
 export class StoresController {
   constructor(private readonly storesService: StoresService) {}
 
   @Get('nearby')
+  @RequirePermissions(Permission.TIENDAS_VER)
   @ApiOperation({ summary: 'Buscar tiendas cercanas por GPS' })
   findNearby(
     @Query('lat') lat: string,
     @Query('lng') lng: string,
+    @ReqUser() user: AuthUser,
     @Query('radius') radius?: string,
   ) {
     return this.storesService.findNearby(
       parseFloat(lat),
       parseFloat(lng),
       radius ? parseFloat(radius) : 50,
+      user,
     );
   }
 
   @Get()
+  @RequirePermissions(Permission.TIENDAS_VER)
   @ApiOperation({
-    summary:
-      'Lista completa de todos los PDV activos para el dispositivo móvil',
+    summary: 'Lista de PDV activos. Scope-aware por zona del requester.',
   })
-  findAll(@Query('zona_id') zona_id?: string, @Query('ruta_id') ruta_id?: string) {
-    return this.storesService.findAll(zona_id, ruta_id);
+  findAll(
+    @ReqUser() user: AuthUser,
+    @Query('zona_id') zona_id?: string,
+    @Query('ruta_id') ruta_id?: string,
+  ) {
+    return this.storesService.findAll(zona_id, ruta_id, user);
   }
 
   @Post()
-  @UseGuards(RolesGuard)
   @RequirePermissions(Permission.TIENDAS_CREAR)
   @ApiOperation({ summary: 'Crear nueva tienda o supermercado' })
-  create(@Body() body: any) {
-    return this.storesService.create(body);
+  create(@Body() dto: CreateStoreDto, @ReqUser() user: AuthUser) {
+    return this.storesService.create(dto, user);
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
   @RequirePermissions(Permission.CATALOGO_GESTIONAR)
-  @ApiOperation({ summary: 'Eliminar tienda o punto de venta' })
-  remove(@Param('id') id: string) {
-    return this.storesService.remove(id);
+  @ApiOperation({
+    summary: 'Eliminar tienda (soft delete — mantiene historial de visitas)',
+  })
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.storesService.remove(id, user);
   }
 
   @Put(':id')
-  @UseGuards(RolesGuard)
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
-  @ApiOperation({ summary: 'Actualizar metadata física del Local' })
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.storesService.update(id, body);
+  @RequirePermissions(Permission.TIENDAS_CREAR)
+  @ApiOperation({ summary: 'Actualizar metadata física del PDV' })
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateStoreDto,
+    @ReqUser() user: AuthUser,
+  ) {
+    return this.storesService.update(id, dto, user);
   }
 }

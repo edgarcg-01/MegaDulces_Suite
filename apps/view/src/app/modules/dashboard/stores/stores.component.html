@@ -5,28 +5,27 @@
       <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-building text-content-main"></i> Directorio de Tiendas (PDV)</h1>
       <p class="text-sm text-content-dim">Consulta de puntos de venta filtrados por zona y ruta.</p>
     </div>
-    <p-tag
-      *ngIf="showAllStores()"
-      value="Mostrando todas las zonas"
-      severity="info"
-      [rounded]="true"
-    />
+    @if (showAllStoresTag()) {
+      <p-tag value="Mostrando todas las zonas" severity="info" [rounded]="true" />
+    }
   </div>
 
   <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm p-4 mb-6">
     <div class="flex gap-4 items-end flex-wrap">
       <div class="flex flex-col gap-1 min-w-48">
         <label class="text-xs font-medium text-content-dim" for="zone-select">
-          Zona @if (userHasZone()) { <span class="text-brand-orange">(Mi Zona)</span> }
+          Zona @if (userHasFixedZone()) { <span class="text-brand-orange">(Mi Zona)</span> }
         </label>
         <p-select
           id="zone-select"
           [options]="zones()"
-          [(ngModel)]="selectedZone"
-          (ngModelChange)="onZoneChange()"
-          [disabled]="userHasZone()"
+          [ngModel]="selectedZoneId()"
+          (ngModelChange)="onZoneChange($event)"
+          [disabled]="userHasFixedZone()"
           placeholder="Todas las zonas"
-          [showClear]="hasGlobalScope()"
+          [showClear]="canSeeAllZones()"
+          optionLabel="label"
+          optionValue="value"
           class="w-full"
         />
       </div>
@@ -35,10 +34,12 @@
         <p-select
           id="route-select"
           [options]="routes()"
-          [(ngModel)]="selectedRoute"
-          (ngModelChange)="onRouteChange()"
+          [ngModel]="selectedRouteId()"
+          (ngModelChange)="onRouteChange($event)"
           placeholder="Todas las rutas"
           [showClear]="true"
+          optionLabel="label"
+          optionValue="value"
           class="w-full"
         />
       </div>
@@ -50,8 +51,9 @@
             id="search-input"
             pInputText
             type="text"
-            [(ngModel)]="searchQuery"
-            placeholder="Nombre o dirección..."
+            [ngModel]="searchQuery()"
+            (ngModelChange)="onSearchChange($event)"
+            placeholder="Nombre, dirección, zona o ruta..."
             class="w-full"
           />
         </span>
@@ -59,7 +61,7 @@
     </div>
   </div>
 
-  @if (!selectedZone() && !showAllStores()) {
+  @if (!selectedZoneId() && !showAllStoresTag()) {
     <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm p-12 text-center text-content-muted">
       <div class="w-16 h-16 rounded-full bg-surface-ground border border-surface-border flex items-center justify-center mx-auto mb-4 text-brand-orange">
         <i class="pi pi-map text-2xl"></i>
@@ -79,7 +81,7 @@
         [rows]="25"
         [paginator]="true"
         [rowsPerPageOptions]="[10, 25, 50]"
-        [globalFilterFields]="['nombre', 'direccion']"
+        [globalFilterFields]="['nombre', 'direccion', 'zona', 'ruta_nombre']"
         sortField="nombre"
         [sortOrder]="1"
         styleClass="p-datatable-sm"
@@ -143,6 +145,7 @@
                   [rounded]="true"
                   [text]="true"
                   size="small"
+                  [disabled]="deletingId() === store.id"
                   (click)="confirmDelete(store)"
                   pTooltip="Eliminar tienda"
                   tooltipPosition="top"
@@ -165,7 +168,8 @@
 
 <p-dialog
   header="Editar Zona y Ruta"
-  [(visible)]="editStoreDialog"
+  [visible]="editDialogVisible()"
+  (visibleChange)="editDialogVisible.set($event)"
   [modal]="true"
   [style]="{width: '450px'}"
   appendTo="body"
@@ -181,8 +185,8 @@
           <label class="text-xs font-medium text-content-muted">Zona</label>
           <p-select
             [options]="zones()"
-            [(ngModel)]="editZonaId"
-            (ngModelChange)="onEditZoneChange()"
+            [ngModel]="editZonaId()"
+            (ngModelChange)="onEditZoneChange($event)"
             placeholder="Seleccionar zona"
             [showClear]="true"
             appendTo="body"
@@ -194,8 +198,9 @@
         <div class="flex flex-col gap-2">
           <label class="text-xs font-medium text-content-muted">Ruta</label>
           <p-select
-            [options]="availableRoutes()"
-            [(ngModel)]="editRutaId"
+            [options]="availableEditRoutes()"
+            [ngModel]="editRutaId()"
+            (ngModelChange)="editRutaId.set($event)"
             placeholder="Seleccionar ruta"
             [showClear]="true"
             appendTo="body"
@@ -208,7 +213,7 @@
     </div>
   </ng-template>
   <ng-template pTemplate="footer">
-    <p-button label="Cancelar" severity="secondary" [text]="true" (click)="editStoreDialog.set(false)" />
-    <p-button label="Guardar" severity="success" (click)="confirmSave()" />
+    <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="saving()" (click)="closeEditDialog()" />
+    <p-button label="Guardar" severity="success" [disabled]="saving()" [loading]="saving()" (click)="saveStore()" />
   </ng-template>
 </p-dialog>

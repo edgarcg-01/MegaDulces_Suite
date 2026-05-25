@@ -111,59 +111,5 @@ export interface VisitaSnapshot {
   _offline?: boolean;
 }
 
-// ─── Mocks con puntuaciones (Simulando DB) ───────────────────────────────────
-
-/** Catálogo de conceptos de exhibición con puntuaciones */
-export const CONCEPTOS_EXHIBICION: ConceptoExhibicion[] = [
-  { id: 'exhibidor', nombre: 'Exhibidor', puntuacion: 10, icono: 'pi pi-box' },
-  { id: 'vitrina', nombre: 'Vitrina', puntuacion: 15, icono: 'pi pi-desktop' },
-  { id: 'vitrolero', nombre: 'Vitrolero', puntuacion: 5, icono: 'pi pi-database' },
-  { id: 'paletero', nombre: 'Paletero', puntuacion: 20, icono: 'pi pi-sun' },
-  { id: 'tiras', nombre: 'Tiras', puntuacion: 5, icono: 'pi pi-bars' },
-];
-
-/** Catálogo de ubicaciones de exhibidores con puntuaciones */
-export const UBICACIONES_EXHIBICION: UbicacionExhibicion[] = [
-  { id: 'al_frente', nombre: 'Al frente', puntuacion: 20 },
-  { id: 'lado_refri', nombre: 'Lado del refrigerador', puntuacion: 15 },
-  { id: 'pasillo', nombre: 'Pasillo principal', puntuacion: 10 },
-  { id: 'caja', nombre: 'Caja registradora', puntuacion: 25 },
-  { id: 'fondo', nombre: 'Al fondo', puntuacion: 5 },
-];
-
 /** Rangos de compra disponibles */
 export const RANGOS_COMPRA = ['>500', '>1000', '>1500', '>2000', '>2500'];
-
-/** Catálogo de productos del planograma agrupados por marca */
-export const PRODUCTOS_PLANOGRAMA: BrandGroup[] = [
-  {
-    marca: 'Bimbo',
-    items: [
-      { pid: 'pan-blanco', name: 'Pan Blanco Large', puntuacion: 5 },
-      { pid: 'pan-integral', name: 'Pan Integral', puntuacion: 5 },
-      { pid: 'medias-noches', name: 'Medias Noches 8p', puntuacion: 3 },
-    ]
-  },
-  {
-    marca: 'Marinela',
-    items: [
-      { pid: 'gansito', name: 'Gansito 50g', puntuacion: 8 },
-      { pid: 'pinguinos', name: 'Pinguinos 80g', puntuacion: 6 },
-      { pid: 'chocoroles', name: 'Chocoroles', puntuacion: 6 },
-    ]
-  },
-  {
-    marca: 'Barcel',
-    items: [
-      { pid: 'takis-fuego', name: 'Takis Fuego', puntuacion: 10 },
-      { pid: 'chips-sal', name: 'Chips Sal', puntuacion: 7 },
-    ]
-  },
-  {
-    marca: 'Tía Rosa',
-    items: [
-      { pid: 'tortillinas', name: 'Tortillinas 12p', puntuacion: 5 },
-      { pid: 'doraditas', name: 'Doraditas', puntuacion: 4 },
-    ]
-  }
-];

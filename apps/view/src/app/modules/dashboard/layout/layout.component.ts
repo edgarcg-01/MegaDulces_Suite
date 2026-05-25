@@ -1,7 +1,21 @@
-// layout.component.ts
-import { Component, inject, signal, computed, effect, Renderer2, HostListener, ViewChild, ElementRef, OnInit, OnDestroy, } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  HostListener,
+  OnDestroy,
+  OnInit,
+  Renderer2,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { CommonModule, DOCUMENT } from '@angular/common';
-import { RouterModule, Router } from '@angular/router';
+import { NavigationEnd, Router, RouterModule } from '@angular/router';
+import { MenuModule } from 'primeng/menu';
+import type { MenuItem } from 'primeng/api';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { filter, map, startWith } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
@@ -9,43 +23,86 @@ import { DataUpdateService } from '../../../core/services/data-update.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { Permission } from '../../../core/constants/permissions';
 
+interface NavItem {
+  label: string;
+  icon: string;
+  route: string;
+  permission: Permission;
+  /**
+   * Si es `true`, `routerLinkActive` solo matchea cuando la URL es
+   * exactamente `route` (no sub-rutas). Necesario para `/dashboard`, que
+   * como root sería prefix de TODAS las otras rutas.
+   */
+  exact?: boolean;
+}
+
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, MenuModule],
   templateUrl: './layout.component.html',
   styleUrls: ['./layout.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LayoutComponent implements OnInit, OnDestroy {
   private authService = inject(AuthService);
-  private perms       = inject(PermissionsService);
-  private router      = inject(Router);
-  themeService        = inject(ThemeService);
-  private renderer    = inject(Renderer2);
-  private document    = inject(DOCUMENT);
+  private perms = inject(PermissionsService);
+  private router = inject(Router);
+  themeService = inject(ThemeService);
+  private renderer = inject(Renderer2);
+  private document = inject(DOCUMENT);
   private dataUpdateService = inject(DataUpdateService);
   private wsService = inject(WebSocketService);
-
-  @ViewChild('mainContainer') mainContainer!: ElementRef<HTMLElement>;
 
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
 
-
-  
   // ── UI state ─────────────────────────────────────────────────────
-  sidebarCollapsed = signal(false);
-  sidebarOpen      = signal(false);
-  loading          = signal(false);
-  scrollProgress   = signal(0);
-  showScrollTop    = signal(false);
-  isMobile         = signal(window.innerWidth < 1024);
+  /** Drawer móvil abierto (overlay). En desktop no aplica. */
+  sidebarOpen = signal(false);
 
-  // ── Data Update ──────────────────────────────────────────────────
+  /**
+   * Estado de hover/focus del sidebar en desktop. Conjuntamente con
+   * `sidebarFocused` componen `sidebarExpanded`. Tener dos signals separados
+   * evita que el sidebar se colapse mientras el usuario navega con Tab
+   * (focus dentro) aunque haya salido del hover físico del mouse.
+   */
+  sidebarHover = signal(false);
+  sidebarFocused = signal(false);
+
+  /** Menú del avatar de usuario en el topbar (sincronizado con onShow/onHide). */
+  userMenuOpen = signal(false);
+
+  isMobile = signal(
+    typeof window !== 'undefined' && window.innerWidth < 1024,
+  );
+
+  /**
+   * "Expandido" = se muestran labels + secciones completas.
+   * - Mobile: lo controla el drawer (`sidebarOpen`)
+   * - Desktop: hover sobre el sidebar O focus de teclado dentro
+   * Patrón VS Code/Discord: el sidebar mantiene su rail de iconos siempre
+   * visible y se expande SOBRE el contenido (no empuja).
+   */
+  sidebarExpanded = computed(() => {
+    if (this.isMobile()) return this.sidebarOpen();
+    return this.sidebarHover() || this.sidebarFocused();
+  });
+
+  // ── Data Update / WS ──────────────────────────────────────────────
   hasPendingUpdate = this.dataUpdateService.hasPendingUpdate;
-  isPwaInstalled = this.dataUpdateService.isPwaInstalled;
   wsConnected = this.wsService.connected;
-  lastWsEvent = this.wsService.lastEvent;
+
+  // ── Router-aware signal — alimenta `currentPageTitle` y permite
+  // resaltado del item activo con `routerLinkActive` en el template.
+  private currentUrl = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map((e) => e.urlAfterRedirects),
+      startWith(this.router.url),
+    ),
+    { initialValue: this.router.url },
+  );
 
   // ── Effects ──────────────────────────────────────────────────────
   constructor() {
@@ -59,76 +116,91 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // Conectar WebSocket para actualizaciones en tiempo real
     this.dataUpdateService.init();
-    
-    console.log('[LayoutComponent] Inicializado con WebSocket para actualizaciones en tiempo real');
   }
 
   ngOnDestroy(): void {
-    // Desconectar WebSocket al destruir
     this.dataUpdateService.destroy();
+    if (this.resizeTimer) clearTimeout(this.resizeTimer);
   }
 
   // ── Data Update Methods ────────────────────────────────────────────
-  refreshData(): void {
+  /**
+   * El botón "refresh" del topbar marca el indicador de actualización como
+   * visto. No recarga datos: cada módulo se suscribe al WS y se actualiza
+   * por su cuenta.
+   */
+  dismissPendingUpdate(): void {
     this.dataUpdateService.dismissUpdate();
   }
 
   // ── Listeners ────────────────────────────────────────────────────
+  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
   @HostListener('window:resize')
   onResize(): void {
-    this.isMobile.set(window.innerWidth < 1024);
+    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.resizeTimer = setTimeout(() => {
+      this.isMobile.set(window.innerWidth < 1024);
+    }, 150);
   }
 
-  onMainScroll(event: Event): void {
-    const el        = event.target as HTMLElement;
-    const scrollTop = el.scrollTop;
-    const docHeight = el.scrollHeight - el.clientHeight;
-    const progress  = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
-    this.scrollProgress.set(Math.min(100, Math.max(0, progress)));
-    this.showScrollTop.set(scrollTop > 300);
-  }
-
-  scrollToTop(): void {
-    this.mainContainer?.nativeElement.scrollTo({ top: 0, behavior: 'smooth' });
+  /**
+   * Escape listener: short-circuit en el primer check, evita procesar la
+   * tecla cuando el sidebar mobile no está abierto. Esto importa porque
+   * Angular registra UN listener por instancia del component a nivel del
+   * `document` — sin el short-circuit, cada tecla del usuario en un form
+   * pasa por la lógica de modo/sidebar inútilmente.
+   */
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (!this.sidebarOpen() || !this.isMobile()) return;
+    this.closeSidebar();
   }
 
   // ── Sidebar ───────────────────────────────────────────────────────
-  toggleSidebar(): void {
-    if (this.isMobile()) {
-      this.sidebarOpen.update(v => !v);
-    } else {
-      this.sidebarCollapsed.update(v => !v);
-    }
+  /** Solo aplica en mobile (drawer). En desktop el hover decide. */
+  openSidebar(): void {
+    this.sidebarOpen.set(true);
+  }
+  closeSidebar(): void {
+    this.sidebarOpen.set(false);
   }
 
-  openSidebar():  void { this.sidebarOpen.set(true);  }
-  closeSidebar(): void { this.sidebarOpen.set(false); }
-
-  // ── Role Check (basado en abilities) ──────────────────────────────
-  isRestricted = computed(() => {
-    return !this.perms.can('read', 'reports_team');
-  });
+  /**
+   * Hover handlers — solo activan en desktop. En mobile el sidebar es
+   * drawer controlado por sidebarOpen, así que ignoramos el hover ahí.
+   */
+  onSidebarEnter(): void {
+    if (!this.isMobile()) this.sidebarHover.set(true);
+  }
+  onSidebarLeave(): void {
+    if (!this.isMobile()) this.sidebarHover.set(false);
+  }
+  onSidebarFocusIn(): void {
+    if (!this.isMobile()) this.sidebarFocused.set(true);
+  }
+  onSidebarFocusOut(): void {
+    if (!this.isMobile()) this.sidebarFocused.set(false);
+  }
 
   // ── Nav items (reactivos al user signal) ──────────────────────────
-  private rawNavItems = [
-    { label: 'Dashboard',        icon: 'pi pi-th-large',      route: '/dashboard',                       permission: Permission.REPORTES_VER_PROPIO  },
-    { label: 'Captura Diaria',   icon: 'pi pi-pencil',        route: '/dashboard/captures',              permission: Permission.VISITAS_REGISTRAR    },
-    { label: 'Reportes',         icon: 'pi pi-chart-bar',     route: '/dashboard/reports',               permission: Permission.REPORTES_VER_PROPIO  },
-    { label: 'Seguimiento',      icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',           permission: Permission.VER_SEGUIMIENTO      },
-    { label: 'Asignación Diaria',icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',     permission: Permission.USUARIOS_ASIGNAR_RUTA},
-    { label: 'Tiendas',         icon: 'pi pi-building',      route: '/dashboard/stores',                 permission: Permission.TIENDAS_VER  },
+  private rawNavItems: NavItem[] = [
+    { label: 'Dashboard',         icon: 'pi pi-th-large',      route: '/dashboard',                      permission: Permission.REPORTES_VER_PROPIO,   exact: true },
+    { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
+    { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
+    { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
+    { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
+    { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
   ];
 
-  private rawAdminItems = [
-    { label: 'Usuarios',    icon: 'pi pi-users',   route: '/dashboard/admin/users',                permission: Permission.USUARIOS_GESTIONAR  },
-    { label: 'Conceptos',   icon: 'pi pi-box',     route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR  },
-    { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR  },
-    { label: 'Niveles',     icon: 'pi pi-bolt',    route: '/dashboard/admin/catalogs/niveles',     permission: Permission.CATALOGO_GESTIONAR  },
-    { label: 'Planograma',  icon: 'pi pi-list',    route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR},
-    { label: 'Zonas',       icon: 'pi pi-globe',   route: '/dashboard/admin/catalogs/zonas',       permission: Permission.CATALOGO_GESTIONAR  },
-    { label: 'Roles',       icon: 'pi pi-shield',  route: '/dashboard/admin/catalogs/roles',       permission: Permission.ROLES_CONFIGURAR    },
+  private rawAdminItems: NavItem[] = [
+    { label: 'Usuarios',    icon: 'pi pi-users',      route: '/dashboard/admin/users',                permission: Permission.USUARIOS_GESTIONAR    },
+    { label: 'Conceptos',   icon: 'pi pi-box',        route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Niveles',     icon: 'pi pi-bolt',       route: '/dashboard/admin/catalogs/niveles',     permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Planograma',  icon: 'pi pi-list',       route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR },
+    { label: 'Zonas',       icon: 'pi pi-globe',      route: '/dashboard/admin/catalogs/zonas',       permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Roles',       icon: 'pi pi-shield',     route: '/dashboard/admin/catalogs/roles',       permission: Permission.ROLES_CONFIGURAR      },
   ];
 
   private permToSubject: Record<string, string> = {
@@ -147,29 +219,75 @@ export class LayoutComponent implements OnInit, OnDestroy {
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];
-    return this.rawNavItems.filter(item => this.perms.can('read', this.permToSubject[item.permission] as any));
+    return this.rawNavItems.filter((item) =>
+      this.perms.can('read', this.permToSubject[item.permission] as any),
+    );
   });
 
   adminItems = computed(() => {
     const user = this.user();
     if (!user) return [];
-    return this.rawAdminItems.filter(item => this.perms.can('read', this.permToSubject[item.permission] as any));
+    return this.rawAdminItems.filter((item) =>
+      this.perms.can('read', this.permToSubject[item.permission] as any),
+    );
+  });
+
+  /**
+   * Items del menú que abre el avatar/nombre del usuario en el topbar.
+   * Reactivo al theme actual (cambia el copy/icono del toggle) y al user
+   * (oculta "Proyectos" si no aplica). Reemplaza la dependencia exclusiva
+   * de los botones del footer del sidebar — útil cuando el usuario está
+   * restringido (sin sidebar) o en mobile con el menú cerrado.
+   */
+  userMenu = computed<MenuItem[]>(() => {
+    const isDark = this.themeService.isMonochrome();
+    return [
+      {
+        label: isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro',
+        icon: isDark ? 'pi pi-sun' : 'pi pi-moon',
+        command: () => this.themeService.toggleMonochrome(),
+      },
+      {
+        label: 'Proyectos',
+        icon: 'pi pi-arrow-right-arrow-left',
+        command: () => this.goToProjects(),
+      },
+      { separator: true },
+      {
+        label: 'Cerrar sesión',
+        icon: 'pi pi-sign-out',
+        styleClass: 'text-content-main',
+        command: () => this.logout(),
+      },
+    ];
+  });
+
+  /**
+   * "Restringido" = el usuario tiene como máximo una vista accesible.
+   * En ese caso ocultamos el sidebar y dejamos solo el topbar con logout.
+   * Antes esto se basaba en `reports_team`, lo que dejaba sin sidebar a
+   * usuarios con permisos válidos (p.ej. VER_SEGUIMIENTO).
+   */
+  isRestricted = computed(() => {
+    return this.navItems().length + this.adminItems().length <= 1;
+  });
+
+  // ── Page title (reactivo a NavigationEnd) ──────────────────────────
+  currentPageTitle = computed(() => {
+    const url = this.currentUrl();
+    const all = [...this.navItems(), ...this.adminItems()];
+    // Match más laxo que ===: cubre query params, hijos y trailing slashes.
+    const item =
+      all.find((i) => url === i.route) ||
+      all.find((i) => url.startsWith(i.route + '/')) ||
+      all.find((i) => url.startsWith(i.route + '?'));
+    return item?.label ?? 'Página Actual';
   });
 
   // ── Routing ───────────────────────────────────────────────────────
-  navigateTo(route: string): void {
-    this.router.navigate([route]);
+  /** En mobile el sidebar se cierra al tocar un link de navegación. */
+  onNavClick(): void {
     if (this.isMobile()) this.closeSidebar();
-  }
-
-  isActive(route: string): boolean {
-    return this.router.url === route;
-  }
-
-  getCurrentPageTitle(): string {
-    const all  = [...this.navItems(), ...this.adminItems()];
-    const item = all.find(i => i.route === this.router.url);
-    return item?.label ?? 'Página Actual';
   }
 
   logout(): void {

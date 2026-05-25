@@ -1,16 +1,40 @@
-import { Controller, Get, Post, Delete, Put, Body, Param, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { CatalogsService } from './catalogs.service';
+import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
+import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
+import { UpdateRolePermissionsDto } from './dto/update-role-permissions.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { createMongoAbility } from '@casl/ability';
 import type { AppAbility } from '../../shared/ability/ability.types';
 
 @ApiTags('catalogs')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('catalogs')
 export class CatalogsController {
   constructor(private readonly catalogsService: CatalogsService) {}
@@ -21,11 +45,21 @@ export class CatalogsController {
 
     if (['conceptos', 'ubicaciones', 'niveles'].includes(type)) {
       if (!ability.can('manage', 'scoring_config')) {
-        throw new ForbiddenException('No tienes permisos suficientes para gestionar parámetros del scoring.');
+        throw new ForbiddenException(
+          'No tienes permisos suficientes para gestionar parámetros del scoring.',
+        );
+      }
+    } else if (type === 'roles') {
+      if (!ability.can('manage', 'roles_config')) {
+        throw new ForbiddenException(
+          'No tienes permisos para gestionar roles del sistema.',
+        );
       }
     } else {
       if (!ability.can('manage', 'catalogs')) {
-        throw new ForbiddenException('No tienes permisos para gestionar catálogos maestros.');
+        throw new ForbiddenException(
+          'No tienes permisos para gestionar catálogos maestros.',
+        );
       }
     }
   }
@@ -36,7 +70,7 @@ export class CatalogsController {
     summary: 'Obtener los permisos dinámicos (JSONB) de un rol específico',
   })
   getRolePermissions(@Param('role_name') roleName: string) {
-    return this.catalogsService.getRolePermissions(roleName); 
+    return this.catalogsService.getRolePermissions(roleName);
   }
 
   @Put('permissions/:role_name')
@@ -46,15 +80,23 @@ export class CatalogsController {
   })
   updateRolePermissions(
     @Param('role_name') roleName: string,
-    @Body() body: any,
+    @Body() body: UpdateRolePermissionsDto,
+    @Req() req: any,
   ) {
-    return this.catalogsService.updateRolePermissions(roleName, body);
+    return this.catalogsService.updateRolePermissions(
+      roleName,
+      body as Record<string, boolean | undefined>,
+      req.user,
+    );
   }
 
   @Get(':type')
+  // Sin @RequirePermissions: el catálogo es metadata compartida que consumen
+  // múltiples módulos (captures/mobile lee conceptos/ubicaciones/niveles,
+  // daily-assignments lee rutas, seguimiento lee zonas, etc.). El control
+  // de mutaciones sí está protegido por checkCatalogManageAccess().
   @ApiOperation({
-    summary:
-      'Obtener un catálogo estructurado (ej. zonas, periodos, semanas, roles)',
+    summary: 'Obtener un catálogo estructurado (ej. zonas, periodos, semanas, roles)',
   })
   @ApiParam({ name: 'type', description: 'El catálogo que deseas consumir' })
   @ApiQuery({
@@ -62,8 +104,22 @@ export class CatalogsController {
     required: false,
     description: 'Filtrar por ID del padre (ej. zona para obtener rutas)',
   })
-  getByType(@Param('type') type: string, @Query('parent') parentId?: string) {
-    return this.catalogsService.getByType(type, parentId);
+  @ApiQuery({
+    name: 'includeInactive',
+    required: false,
+    description: 'Incluir ítems soft-deleted (default: false)',
+    type: Boolean,
+  })
+  getByType(
+    @Param('type') type: string,
+    @Query('parent') parentId?: string,
+    @Query('includeInactive') includeInactive?: string,
+  ) {
+    return this.catalogsService.getByType(
+      type,
+      parentId,
+      includeInactive === 'true',
+    );
   }
 
   @Post(':type')
@@ -72,20 +128,25 @@ export class CatalogsController {
   })
   create(
     @Param('type') type: string,
-    @Body() body: { value: string; orden?: number },
+    @Body() dto: CreateCatalogItemDto,
     @Req() req: any,
   ) {
     this.checkCatalogManageAccess(req, type);
-    return this.catalogsService.create(type, body);
+    return this.catalogsService.create(type, dto, req.user.sub);
   }
 
   @Delete(':type/:id')
   @ApiOperation({
-    summary: 'Eliminar el nodo de un catálogo usando su ID primario UUID',
+    summary:
+      'Eliminar un ítem. Soft-delete automático si está referenciado por capturas o por la versión activa de scoring; hard-delete si no.',
   })
-  deleteItem(@Param('type') type: string, @Param('id') id: string, @Req() req: any) {
+  deleteItem(
+    @Param('type') type: string,
+    @Param('id') id: string,
+    @Req() req: any,
+  ) {
     this.checkCatalogManageAccess(req, type);
-    return this.catalogsService.delete(type, id);
+    return this.catalogsService.delete(type, id, req.user.sub);
   }
 
   @Put(':type/:id')
@@ -93,10 +154,10 @@ export class CatalogsController {
   updateItem(
     @Param('type') type: string,
     @Param('id') id: string,
-    @Body() body: any,
+    @Body() dto: UpdateCatalogItemDto,
     @Req() req: any,
   ) {
     this.checkCatalogManageAccess(req, type);
-    return this.catalogsService.update(type, id, body);
+    return this.catalogsService.update(type, id, dto, req.user.sub);
   }
 }

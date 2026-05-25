@@ -29,8 +29,9 @@
       <div class="p-4 border-b border-surface-border bg-surface-ground/30">
         <div class="relative w-full">
             <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs"></i>
-            <input type="text" pInputText placeholder="Buscar colaborador..." 
-                   [(ngModel)]="searchQuery"
+            <input type="text" pInputText placeholder="Buscar colaborador..."
+                   [ngModel]="searchQuery()"
+                   (ngModelChange)="onSearchChange($event)"
                    class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-surface-border rounded-lg outline-none focus:border-brand transition-all" />
         </div>
       </div>
@@ -62,7 +63,7 @@
       @if (selectedMember()) {
         <div class="p-4 border-b border-surface-border bg-gradient-to-r from-surface-ground/50 to-transparent flex justify-between items-center">
             <div class="text-center">
-              <div class="text-sm font-black text-content-main uppercase tracking-[0.2em]">Semana de Trabajo Repetutiva</div>
+              <div class="text-sm font-black text-content-main uppercase tracking-[0.2em]">Semana de Trabajo Repetitiva</div>
               <div class="flex items-center justify-center gap-2 mt-1">
                 <span class="w-2 h-2 rounded-full bg-brand animate-pulse"></span>
                 <span class="text-[9px] font-black text-brand uppercase tracking-widest">Configuración Maestra</span>
@@ -87,13 +88,13 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
             @for (day of days; track day.id) {
               <div class="day-card bg-surface-ground/20 border border-surface-border rounded-2xl p-4 flex flex-col gap-4 hover:border-brand/30 transition-all"
-                   [class.today-card]="getTodayNumber() === day.id">
+                   [class.today-card]="todayNumber() === day.id">
                 <div class="flex justify-between items-start pb-3 border-b border-surface-border/50">
                   <div class="flex flex-col">
                     <span class="text-[11px] font-black uppercase tracking-[0.2em] text-brand">Día de la Semana</span>
                     <span class="text-2xl font-black text-content-main">{{ day.label }}</span>
                   </div>
-                  @if (getTodayNumber() === day.id) {
+                  @if (todayNumber() === day.id) {
                     <div class="bg-brand text-brand-contrast text-[8px] font-black px-2 py-0.5 rounded-full tracking-widest">ESTE DÍA</div>
                   }
                 </div>
@@ -101,29 +102,34 @@
                 <div class="space-y-3">
                   <div>
                     <label class="text-[9px] font-black text-content-faint uppercase tracking-widest mb-1 block">Ruta del día</label>
-                    <p-select [options]="routes()" 
-                                [(ngModel)]="weeklyAssignments()[day.id]"
+                    <p-select [options]="routes()"
+                                [ngModel]="routeIdForDay(day.id)"
                                 (onChange)="saveAssignment(day.id, $event.value)"
+                                [disabled]="savingDay() === day.id"
                                 placeholder="SIN RUTA" class="w-full" styleClass="w-full text-xs font-bold rounded-xl"
                                 optionLabel="label" optionValue="value" [filter]="true"></p-select>
                   </div>
                 </div>
 
                 <div class="mt-auto pt-3 flex items-center justify-between">
-                    @if (weeklyAssignments()[day.id]) {
+                    @if (routeIdForDay(day.id); as rid) {
                         <div class="flex items-center gap-1.5">
                             <div class="w-2 h-2 rounded-full bg-brand-orange shadow-[0_0_8px_rgba(246,143,30,0.5)]"></div>
-                            <span class="text-[10px] font-black text-brand uppercase truncate max-w-[120px]" [title]="getRouteName(weeklyAssignments()[day.id])">
-                                {{ getRouteName(weeklyAssignments()[day.id]) }}
+                            <span class="text-[10px] font-black text-brand uppercase truncate max-w-[120px]" [title]="getRouteName(rid)">
+                                {{ getRouteName(rid) }}
                             </span>
                         </div>
+                        <p-button icon="pi pi-times" [text]="true" size="small"
+                                  styleClass="w-6 h-6 p-0 text-content-faint hover:text-red-500"
+                                  [disabled]="savingDay() === day.id"
+                                  (onClick)="clearAssignment(day.id)"
+                                  pTooltip="Quitar ruta del día"></p-button>
                     } @else {
                         <div class="flex items-center gap-1.5">
                             <div class="w-2 h-2 rounded-full bg-warn shadow-[0_0_8px_rgba(234,179,8,0.5)]"></div>
                             <span class="text-[10px] font-black text-content-dim uppercase italic">Sin Asignar</span>
                         </div>
                     }
-                    <p-button icon="pi pi-ellipsis-h" [text]="true" size="small" styleClass="w-6 h-6 p-0 text-content-faint"></p-button>
                 </div>
               </div>
             }
@@ -143,3 +149,4 @@
 </div>
 
 <p-toast></p-toast>
+<p-confirmDialog></p-confirmDialog>

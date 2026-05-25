@@ -1,298 +1,357 @@
-
+<!--
+  `h-[100dvh]` (altura FIJA de viewport) en lugar de `min-h-[100dvh]` —
+  con min-h el root podía crecer si el contenido era alto, y el `<main>`
+  no scrolleaba internamente sino que scrolleaba TODO el documento,
+  llevándose al sidebar consigo (porque en desktop es `lg:static`).
+  Con h fija + `overflow-hidden`, el `<main>` interno absorbe el scroll
+  y el aside permanece visible.
+-->
 <div
-  class="flex min-h-screen min-h-[100dvh] bg-surface-layout overflow-hidden transition-colors duration-300"
+  class="flex h-[100dvh] bg-surface-layout overflow-hidden transition-colors duration-300"
   [class.theme-monochrome]="themeService.isMonochrome()"
 >
-  <!-- Mobile Overlay (solo si no es colaborador) -->
-  <div
-    *ngIf="sidebarOpen() && isMobile() && !isRestricted()"
-    class="fixed inset-0 bg-black/50 z-40 lg:hidden"
-    (click)="closeSidebar()"
-  ></div>
+  <!-- Mobile Overlay (solo si no es restringido) -->
+  @if (sidebarOpen() && isMobile() && !isRestricted()) {
+    <div
+      class="fixed inset-0 bg-black/50 z-40 lg:hidden"
+      (click)="closeSidebar()"
+      aria-hidden="true"
+    ></div>
+  }
 
-  <!-- Sidebar (oculto para colaboradores) -->
-  <aside
-    *ngIf="!isRestricted()"
-    class="fixed lg:static inset-y-0 left-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider shrink-0 shadow-xl lg:shadow-none h-screen overflow-hidden"
-    [ngClass]="{
-      'w-64': sidebarOpen(),
-      'w-16': sidebarCollapsed() && !isMobile(),
-      '-translate-x-full': !sidebarOpen() && isMobile(),
-      'translate-x-0': sidebarOpen() && isMobile(),
-    }"
-    style="transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease"
-  >
-    <!-- Header -->
-    <div class="flex items-center justify-between px-4 h-14 border-b border-divider shrink-0">
-      <div class="flex items-center gap-2 overflow-hidden" *ngIf="!sidebarCollapsed() || isMobile()" style="transition: opacity 0.2s ease 0.1s">
-        <img
-          src="assets/logos/mega-dulces-logo.webp"
-          alt="Logo"
-          class="w-6 h-6 object-contain transition-transform duration-300 hover:scale-110 flex-shrink-0"
-        >
-        <span class="text-sm font-bold text-content-main truncate transition-opacity duration-200">Trade Marketing</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <button
-          *ngIf="isMobile()"
-          (click)="closeSidebar()"
-          class="p-1.5 rounded-full hover:bg-surface-hover transition-colors text-content-muted lg:hidden"
-        >
-          <i class="pi pi-times text-sm"></i>
-        </button>
-        <button
-          *ngIf="!isMobile()"
-          (click)="toggleSidebar()"
-          class="p-1.5 rounded-full hover:bg-surface-hover transition-colors text-content-muted"
-        >
-          <i
-            [ngClass]="
-              sidebarCollapsed() ? 'pi pi-angle-right' : 'pi pi-angle-left'
-            "
-            class="text-sm"
-          ></i>
-        </button>
-      </div>
-    </div>
+  <!--
+    Sidebar (oculto para usuarios restringidos).
 
-    <!-- Navigation -->
-    <nav class="flex-1 overflow-y-auto min-h-0 py-4">
-      <!-- Main Nav -->
-      <div class="px-3">
-        <p
-          *ngIf="!sidebarCollapsed() || isMobile() || sidebarOpen() "
-          class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2"
-        >
-          Operaciones
-        </p>
-        <ul class="space-y-1">
-          <li *ngFor="let item of navItems()">
-            <button
-              (click)="navigateTo(item.route)"
-              class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-all duration-200 relative group"
-              [ngClass]="
-                isActive(item.route)
-                  ? 'bg-surface-active text-content-active rounded-xl'
-                  : 'text-content-muted hover:bg-surface-hover hover:text-content-main'
-              "
-              [title]="item.label"
+    Desktop: SIEMPRE `fixed left-0` con icon-rail de 4rem (`w-16`). Al pasar
+    el mouse o entrar focus con teclado, expande a `w-64` y FLOTA sobre el
+    contenido (no empuja el main). El `<main>` reserva `lg:ml-16` constante,
+    así nunca hay layout shift.
+
+    Mobile: drawer overlay controlado por `sidebarOpen` (translate).
+  -->
+  @if (!isRestricted()) {
+    <!--
+      Widths:
+        - Base `w-64` para mobile (drawer 256px que entra/sale con translate).
+        - Desktop `lg:w-16` por default (icon-rail). `lg:w-64` cuando
+          `sidebarExpanded()` (hover o focus) override la rail.
+      Sin la base `w-64`, el aside quedaba sin ancho en mobile cerrado.
+    -->
+    <aside
+      class="fixed inset-y-0 left-0 z-50 flex flex-col bg-surface-sidebar border-r border-divider shrink-0 shadow-xl h-screen overflow-hidden w-64 lg:w-16"
+      [class.lg:w-64]="sidebarExpanded() && !isMobile()"
+      [class.-translate-x-full]="!sidebarOpen() && isMobile()"
+      [class.translate-x-0]="sidebarOpen() && isMobile()"
+      style="transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease"
+      aria-label="Navegación principal"
+      (mouseenter)="onSidebarEnter()"
+      (mouseleave)="onSidebarLeave()"
+      (focusin)="onSidebarFocusIn()"
+      (focusout)="onSidebarFocusOut()"
+    >
+      <!-- Header -->
+      <div class="flex items-center justify-between px-4 h-14 border-b border-divider shrink-0">
+        @if (sidebarExpanded()) {
+          <div class="flex items-center gap-2 overflow-hidden" style="transition: opacity 0.2s ease 0.1s">
+            <img
+              src="assets/logos/mega-dulces-logo.webp"
+              alt="Mega Dulces"
+              class="w-6 h-6 object-contain flex-shrink-0"
             >
-              <!-- Indicador activo sutil -->
-              <span
-                *ngIf="isActive(item.route)"
-                class="absolute left-0 w-1 h-6 rounded-r bg-content-muted/50"
-              ></span>
-              <i
-                [ngClass]="item.icon"
-                class="shrink-0 w-8 text-center text-sm transition-all duration-200 group-hover:scale-110"
-              ></i>
-              <span
-                *ngIf="!sidebarCollapsed() || isMobile()"
-                class="ml-1 truncate flex-1 text-left transition-all duration-200"
-                [class.opacity-0]="sidebarCollapsed() && !isMobile()"
-                [class.w-0]="sidebarCollapsed() && !isMobile()"
-              >
-                {{ item.label }}
-              </span>
-            </button>
-          </li>
-        </ul>
+            <span class="text-sm font-bold text-content-main truncate">Trade Marketing</span>
+          </div>
+        } @else {
+          <!-- Cuando está colapsado, mostramos solo el logo centrado en el rail -->
+          <img
+            src="assets/logos/mega-dulces-logo.webp"
+            alt="Mega Dulces"
+            class="w-6 h-6 object-contain mx-auto"
+          >
+        }
+        <!-- Botón cerrar solo en mobile (en desktop el hover decide) -->
+        @if (isMobile()) {
+          <button
+            (click)="closeSidebar()"
+            class="p-1.5 rounded-full hover:bg-surface-hover transition-colors text-content-muted lg:hidden"
+            aria-label="Cerrar menú"
+          >
+            <i class="pi pi-times text-sm" aria-hidden="true"></i>
+          </button>
+        }
       </div>
 
-      <!-- Admin Nav -->
-      <div class="px-3 mt-4">
-        <p
-          *ngIf="!sidebarCollapsed() || isMobile() || sidebarOpen()"
-          class="text-[10px] font-semibold uppercase tracking-widest text-content-faint mb-2 px-2"
-        >
-          Administración
-        </p>
-        <ul class="space-y-1">
-          <li *ngFor="let item of adminItems()">
-            <button
-              (click)="navigateTo(item.route)"
-              class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-all duration-200 relative group"
-              [ngClass]="
-                isActive(item.route)
-                  ? 'bg-surface-active text-content-active rounded-xl'
-                  : 'text-content-muted hover:bg-surface-hover hover:text-content-main'
-              "
-              [title]="item.label"
-            >
-              <!-- Indicador activo sutil -->
-              <span
-                *ngIf="isActive(item.route)"
-                class="absolute left-0 w-1 h-6 rounded-r bg-content-muted/50"
-              ></span>
-              <i
-                [ngClass]="item.icon"
-                class="shrink-0 w-8 text-center text-sm transition-all duration-200 group-hover:scale-110"
-              ></i>
-              <span
-                *ngIf="!sidebarCollapsed() || isMobile()"
-                class="ml-1 truncate flex-1 text-left transition-all duration-200"
-                [class.opacity-0]="sidebarCollapsed() && !isMobile()"
-                [class.w-0]="sidebarCollapsed() && !isMobile()"
-              >
-                {{ item.label }}
-              </span>
-            </button>
-          </li>
-        </ul>
-      </div>
+    <!--
+      Navegación principal. Antes había dos bloques idénticos (Main + Admin)
+      con ~40 líneas duplicadas cada uno; ahora un solo `<ng-template>` con
+      los nav-items se renderiza para cada sección via `ngTemplateOutlet`.
+      `expanded` = "muestra labels" (true cuando NO está colapsado o cuando
+      es mobile/sidebar abierto).
+    -->
+    <nav class="flex-1 overflow-y-auto min-h-0 py-4" aria-label="Navegación lateral">
+      @if (navItems().length > 0) {
+        <ng-container *ngTemplateOutlet="navSection; context: { title: 'Operaciones', items: navItems(), expanded: sidebarExpanded() }"></ng-container>
+      }
+      @if (adminItems().length > 0) {
+        <ng-container *ngTemplateOutlet="navSection; context: { title: 'Administración', items: adminItems(), expanded: sidebarExpanded(), marginTop: true }"></ng-container>
+      }
     </nav>
 
+    <!--
+      Template reutilizable: header de sección + lista de NavItems.
+
+      Importante: el slot del título (`.section-header`) tiene altura FIJA
+      para que los iconos no se desplacen verticalmente al expandir. Antes
+      el `<p>` solo se renderizaba `@if (expanded)`, lo que hacía que los
+      items "saltaran" hacia abajo cuando aparecía el título al hacer hover.
+      Ahora siempre reservamos el espacio: muestra el texto cuando expandido
+      o un divider horizontal sutil cuando colapsado.
+    -->
+    <ng-template #navSection let-title="title" let-items="items" let-expanded="expanded" let-marginTop="marginTop">
+      <div class="px-3" [class.mt-4]="marginTop">
+        <div class="h-5 mb-2 px-2 flex items-end overflow-hidden">
+          @if (expanded) {
+            <p class="text-[10px] font-semibold uppercase tracking-widest text-content-faint truncate leading-none">{{ title }}</p>
+          } @else if (marginTop) {
+            <!--
+              Divider sutil para separar secciones cuando estamos colapsados.
+              Solo en la SEGUNDA sección (Administración) — la primera no
+              necesita divider porque ya tiene el border-bottom del header.
+            -->
+            <span class="block w-full border-t border-divider" aria-hidden="true"></span>
+          }
+        </div>
+        <ul class="space-y-1">
+          @for (item of items; track item.route) {
+            <li>
+              <a
+                [routerLink]="item.route"
+                routerLinkActive="bg-surface-active text-content-active rounded-xl"
+                #rla="routerLinkActive"
+                [routerLinkActiveOptions]="{ exact: item.exact === true }"
+                (click)="onNavClick()"
+                class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-all duration-200 relative group cursor-pointer no-underline"
+                [class.text-content-muted]="!rla.isActive"
+                [class.hover:bg-surface-hover]="!rla.isActive"
+                [class.hover:text-content-main]="!rla.isActive"
+                [attr.aria-current]="rla.isActive ? 'page' : null"
+                [attr.aria-label]="item.label"
+                [attr.title]="item.label"
+              >
+                @if (rla.isActive) {
+                  <span class="absolute left-0 w-1 h-6 rounded-r bg-content-muted/50" aria-hidden="true"></span>
+                }
+                <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm transition-all duration-200 group-hover:scale-110" aria-hidden="true"></i>
+                @if (expanded) {
+                  <span class="ml-1 truncate flex-1 text-left transition-all duration-200">{{ item.label }}</span>
+                }
+              </a>
+            </li>
+          }
+        </ul>
+      </div>
+    </ng-template>
+
     <!-- Footer -->
+    <!--
+      Footer del sidebar. Reusamos la variable `expanded` derivada arriba
+      en el `<nav>` (let-expanded). Para mantener el bloque autónomo sin
+      depender de scope externo, recalculamos aquí también.
+    -->
+    <!-- Footer del sidebar — usa el mismo sidebarExpanded() del computed -->
     <div class="border-t border-divider p-3 space-y-1 shrink-0 bg-surface-sidebar">
       <button
         (click)="goToProjects()"
+        title="Proyectos"
         class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
-        title="Cambiar proyecto"
+        aria-label="Cambiar proyecto"
       >
-        <i
-          class="pi pi-arrow-right-arrow-left shrink-0 w-8 text-center text-sm"
-        ></i>
-        <span *ngIf="!sidebarCollapsed() || isMobile()" class="ml-1 truncate">Proyectos</span>
+        <i class="pi pi-arrow-right-arrow-left shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
+        @if (sidebarExpanded()) {
+          <span class="ml-1 truncate">Proyectos</span>
+        }
       </button>
 
-      <!-- Theme Toggle -->
+      <!--
+        Theme toggle. El copy refleja el ESTADO ACTUAL y el aria-label
+        describe la ACCIÓN (cambio al opuesto), patrón estándar de toggles.
+      -->
       <button
         (click)="themeService.toggleMonochrome()"
-        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors"
-        [ngClass]="
-          themeService.isMonochrome()
-            ? 'bg-surface-active text-content-active'
-            : 'text-content-muted hover:bg-surface-hover hover:text-content-main'
-        "
-        [title]="themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N'"
+        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors text-content-muted hover:bg-surface-hover hover:text-content-main"
+        [attr.aria-label]="themeService.isMonochrome() ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'"
       >
         <i
-          [ngClass]="themeService.isMonochrome() ? 'pi pi-sun' : 'pi pi-moon'"
-          class="shrink-0 w-8 text-center text-sm"
+          class="shrink-0 w-8 text-center text-sm pi"
+          [class.pi-sun]="themeService.isMonochrome()"
+          [class.pi-moon]="!themeService.isMonochrome()"
+          aria-hidden="true"
         ></i>
-        <span *ngIf="!sidebarCollapsed() || isMobile()" class="ml-1 truncate">
-          {{ themeService.isMonochrome() ? 'Modo Normal' : 'Modo B&N' }}
-        </span>
+        @if (sidebarExpanded()) {
+          <span class="ml-1 truncate">
+            {{ themeService.isMonochrome() ? 'Tema oscuro' : 'Tema claro' }}
+          </span>
+        }
       </button>
 
+      <!--
+        Logout: usa tokens `status-bad` para que en dark mode siga siendo
+        legible y mantenga la semántica de "acción destructiva".
+      -->
       <button
         (click)="logout()"
-        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium text-[#dc2626] hover:bg-rose-500/10 transition-colors"
-        title="Cerrar sesión"
+        class="status-bad flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium status-text hover:bg-[color-mix(in_srgb,var(--status-fg)_10%,transparent)] transition-colors"
+        aria-label="Cerrar sesión"
       >
-        <i class="pi pi-sign-out shrink-0 w-8 text-center text-sm"></i>
-        <span *ngIf="!sidebarCollapsed() || isMobile()" class="ml-1 truncate"
-          >Cerrar Sesión</span
-        >
+        <i class="pi pi-sign-out shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
+        @if (sidebarExpanded()) {
+          <span class="ml-1 truncate">Cerrar Sesión</span>
+        }
       </button>
     </div>
   </aside>
+  }
 
-  <!-- Main Content -->
-  <div class="flex-1 flex flex-col overflow-hidden lg:ml-0">
+  <!--
+    Main column.
+    - `min-h-0` + `min-w-0`: cruciales en flex children. Sin ellos, el
+      browser le da `min-content` como mínimo y empuja el padre a crecer
+      cuando el `<main>` interno tiene contenido alto. Con `min-h-0` el
+      `flex-1` respeta el alto del root y el overflow-y-auto del `<main>`
+      toma el scroll internamente.
+    - `lg:ml-16`: reserva los 4rem del icon-rail del sidebar (que ahora
+      es siempre `fixed` en desktop). Sin esto, el contenido pasaría por
+      debajo del sidebar. Como `ml-16` es CONSTANTE, el contenido NUNCA
+      se mueve aunque el sidebar se expanda a w-64 (que flota encima).
+  -->
+  <div class="flex-1 flex flex-col overflow-hidden min-h-0 min-w-0 lg:ml-16">
     <!-- Top Bar -->
     <header
       class="h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-4 lg:px-6 shrink-0 transition-colors duration-300"
     >
-      <!-- Left: Mobile Menu (solo si no es colaborador) -->
+      <!-- Left: Mobile Menu (solo si no es restringido) -->
       <div class="flex items-center gap-3">
-        <button
-          *ngIf="!isRestricted()"
-          (click)="openSidebar()"
-          class="lg:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted"
-        >
-          <i class="pi pi-bars text-lg"></i>
-        </button>
+        @if (!isRestricted()) {
+          <button
+            (click)="openSidebar()"
+            class="lg:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted"
+            aria-label="Abrir menú"
+          >
+            <i class="pi pi-bars text-lg" aria-hidden="true"></i>
+          </button>
+        }
       </div>
 
       <!-- Right: User Info -->
       <div class="flex items-center gap-3">
-        <!-- Refresh Button (with WS connection status) -->
-        <button
-          (click)="refreshData()"
-          class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative"
-          [class.text-blue-500]="hasPendingUpdate()"
-          title="Actualizar datos"
+        <!--
+          WS indicator: dot semántico via tokens status-ok/status-bad.
+          Antes usaba bg-green-500/bg-red-400 crudo (dark mode ilegible).
+        -->
+        <div
+          class="hidden sm:flex items-center gap-1.5"
+          [class]="wsConnected() ? 'status-ok' : 'status-bad'"
+          [attr.aria-label]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexión en tiempo real'"
+          [title]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexión en tiempo real'"
         >
-          <i 
+          <span class="status-dot" aria-hidden="true"></span>
+        </div>
+
+        <!-- Pending Update Indicator (chip-info para tema-aware) -->
+        <button
+          (click)="dismissPendingUpdate()"
+          class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative"
+          [class.text-content-active]="hasPendingUpdate()"
+          aria-label="Limpiar indicador de actualización"
+        >
+          <i
             class="pi pi-refresh text-lg"
             [class.pi-spin]="hasPendingUpdate()"
+            aria-hidden="true"
           ></i>
-          <span
-            *ngIf="hasPendingUpdate()"
-            class="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full animate-pulse"
-          ></span>
-          <!-- WS connection indicator -->
-          <span
-            class="absolute bottom-0 right-0 h-2 w-2 rounded-full"
-            [class.bg-green-500]="wsConnected()"
-            [class.bg-red-400]="!wsConnected()"
-            [title]="wsConnected() ? 'Conectado en tiempo real' : 'Sin conexion en tiempo real'"
-          ></span>
+          @if (hasPendingUpdate()) {
+            <span
+              class="absolute -top-1 -right-1 h-3 w-3 rounded-full animate-pulse status-bad status-fill"
+              aria-hidden="true"
+            ></span>
+          }
         </button>
 
-        <!-- Logout Button (Solo para colaboradores) -->
+        <!-- Logout Button (Solo para usuarios restringidos) -->
+        @if (isRestricted()) {
+          <button
+            (click)="logout()"
+            class="status-bad p-2 rounded-lg status-text hover:bg-[color-mix(in_srgb,var(--status-fg)_10%,transparent)] transition-colors"
+            aria-label="Cerrar sesión"
+          >
+            <i class="pi pi-sign-out text-lg" aria-hidden="true"></i>
+          </button>
+        }
+
+        <!--
+          User card clickeable: el bloque entero (info + avatar) es un
+          botón que abre el menú con cambio de tema, proyectos y logout.
+          Antes era un `<div>` informativo sin acción → slot desperdiciado.
+        -->
         <button
-          *ngIf="isRestricted()"
-          (click)="logout()"
-          class="p-2 rounded-lg hover:bg-red-500/10 transition-colors text-red-500"
-          title="Cerrar sesión"
+          type="button"
+          (click)="userMenuRef.toggle($event)"
+          class="flex items-center gap-3 p-1 pr-1.5 rounded-xl hover:bg-surface-hover transition-colors
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="userMenuOpen()"
+          aria-label="Abrir menú de usuario"
         >
-          <i class="pi pi-sign-out text-lg"></i>
+          <div class="text-right hidden sm:block">
+            <p class="text-sm font-semibold text-content-main leading-tight">
+              {{ user()?.username }}
+            </p>
+            <p class="text-xs text-content-muted uppercase tracking-wider leading-tight">
+              {{ user()?.role_name }} · {{ user()?.zona }}
+            </p>
+          </div>
+          <div
+            class="h-8 w-8 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-bold uppercase transition-colors"
+            aria-hidden="true"
+          >
+            {{ (user()?.username?.charAt(0)) || '?' }}
+          </div>
         </button>
-
-        <!-- Loading Indicator -->
-        <div
-          *ngIf="loading()"
-          class="flex items-center gap-2 text-xs text-content-muted mr-2"
-        >
-          <i class="pi pi-spin pi-spinner text-sm"></i>
-          <span>Cargando...</span>
-        </div>
-
-        <!-- User Info -->
-        <div class="text-right">
-          <p class="text-sm font-semibold text-content-main">
-            {{ user()?.username }}
-          </p>
-          <p class="text-xs text-content-muted uppercase tracking-wider">
-            {{ user()?.role_name }} · {{ user()?.zona }}
-          </p>
-        </div>
-
-        <!-- User Avatar -->
-        <div
-          class="h-8 w-8 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-bold uppercase transition-colors"
-        >
-          {{ user()?.username?.charAt(0) }}
-        </div>
+        <p-menu
+          #userMenuRef
+          [popup]="true"
+          [model]="userMenu()"
+          appendTo="body"
+          (onShow)="userMenuOpen.set(true)"
+          (onHide)="userMenuOpen.set(false)"
+        ></p-menu>
       </div>
     </header>
 
-    <!-- Breadcrumbs -->
+    <!--
+      Breadcrumb semántico (ol + li). Antes era `<span>...<span>` con un
+      `aria-label`; screen readers no podían iterarlo como lista. Ahora
+      cumple WCAG 1.3.1 (Info and Relationships).
+    -->
     <nav
       class="px-6 py-2 bg-surface-card border-b border-divider text-xs text-content-muted"
+      aria-label="Migas de pan"
     >
-      <span>Dashboard</span> <span class="mx-2">/</span>
-      <span class="text-content-main font-medium">{{
-        getCurrentPageTitle()
-      }}</span>
+      <ol class="flex items-center gap-2 m-0 p-0 list-none">
+        <li>Dashboard</li>
+        <li aria-hidden="true" class="text-content-faint">/</li>
+        <li class="text-content-main font-medium" aria-current="page">
+          {{ currentPageTitle() }}
+        </li>
+      </ol>
     </nav>
 
     <!-- Page Content -->
-    <main class="flex-1 overflow-y-auto w-full h-full bg-surface-layout relative" #mainContainer>
-      <div class="animate-fade-in-up">
+    <main
+      class="flex-1 overflow-y-auto w-full h-full bg-surface-layout relative"
+    >
+      <div class="motion-safe:animate-fade-in-up">
         <router-outlet></router-outlet>
       </div>
-
-      <!-- Scroll to Top Button - Monocromático sutil -->
-      <button
-        *ngIf="showScrollTop()"
-        (click)="scrollToTop()"
-        class="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-surface-card border border-divider text-content-main shadow-md hover:shadow-lg hover:bg-surface-hover transition-all duration-200 flex items-center justify-center group"
-      >
-        <i class="pi pi-arrow-up text-lg group-hover:-translate-y-0.5 transition-transform"></i>
-      </button>
     </main>
   </div>
 </div>

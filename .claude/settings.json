@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -i \"http://localhost:3334/api/health\")",
+      "Bash(curl -s -i \"http://localhost:3334/\")",
+      "Bash(curl -s -i \"http://localhost:3334/socket.io/?EIO=4&transport=polling\")"
+    ]
+  }
+}

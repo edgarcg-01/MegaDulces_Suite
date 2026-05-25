@@ -1,87 +1,131 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { getDataScope } from '../../shared/ability/data-scope';
 import { EventsService } from '../websocket/events.service';
 import { ReportsCacheService } from './reports-cache.service';
+import { toMxDateKey, todayMx } from '../../shared/date/mx-date';
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly eventsService: EventsService,
     private readonly cache: ReportsCacheService,
   ) {
-    this.eventsService.onCaptureChange = async () => {
-      const before = this.cache.getHitRate();
-      this.cache.invalidateAllReports();
-
-      if (!this.eventsService.isServerReady) return;
+    this.eventsService.onCaptureChange = async (affectedUserIds: string[]) => {
+      // Rate-limit: si ya hay un broadcast en vuelo, acumular usuarios y salir.
+      // El broadcast en curso re-revisará la cola al terminar.
+      if (affectedUserIds && affectedUserIds.length > 0) {
+        for (const uid of affectedUserIds) this.pendingAffectedUsers.add(uid);
+      }
+      if (this.metricsBroadcastInFlight) return;
+      this.metricsBroadcastInFlight = true;
 
       try {
-        const today = new Date().toISOString().split('T')[0];
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        const startDate = startOfMonth.toLocaleDateString('en-CA');
-
-        const filters = { startDate, endDate: today };
-        const globalUser = { sub: 'system', permissions: {}, rules: [{ action: 'manage', subject: 'all' }] };
-
-        const [summary, dailyScores] = await Promise.all([
-          this.getSummary(filters, globalUser),
-          this.getDailyScoresPerUser(filters, globalUser),
-        ]);
-
-        const afterGlobal = this.cache.getHitRate();
-        const lines = [`[Cache] invalidated + global metrics emitted. Hit rate: ${before.rate} → ${afterGlobal.rate}`];
-
-        this.eventsService.emitMetricsUpdateToRoom('reports:global', {
-          type: 'metrics:updated',
-          scope: 'global',
-          summary,
-          dailyScores,
-        });
-
-        const connectedScopes = this.eventsService.getConnectedUserScopes();
-        const seen = new Map<string, boolean>();
-
-        for (const sc of connectedScopes) {
-          if (sc.type === 'all') continue;
-
-          const room = sc.type === 'team' ? `reports:team:${sc.userId}` : `reports:own:${sc.userId}`;
-          const key = `${sc.type}:${sc.userId}`;
-
-          if (seen.has(key)) continue;
-          seen.set(key, true);
-
-          try {
-            const user = sc.type === 'team'
-              ? { sub: sc.userId, permissions: {}, rules: [{ action: 'read', subject: 'reports_team' }] }
-              : { sub: sc.userId, permissions: {}, rules: [] };
-
-            const [s, ds] = await Promise.all([
-              this.getSummary(filters, user),
-              this.getDailyScoresPerUser(filters, user),
-            ]);
-
-            this.eventsService.emitMetricsUpdateToRoom(room, {
-              type: 'metrics:updated',
-              scope: sc.type,
-              summary: s,
-              dailyScores: ds,
-            });
-
-            lines.push(`  ${sc.type}/${sc.userId} → room ${room}`);
-          } catch (err) {
-            console.warn(`[ReportsService] Failed to compute ${sc.type} metrics for ${sc.userId}:`, err.message);
-          }
+        await this.runMetricsBroadcast();
+      } finally {
+        this.metricsBroadcastInFlight = false;
+        // Si llegaron más cambios mientras estábamos ocupados, programar otro
+        // pase con un pequeño cool-down para coalescer bursts.
+        if (this.pendingAffectedUsers.size > 0) {
+          setTimeout(() => {
+            // Re-disparar; los usuarios pendientes están en el set
+            if (this.eventsService.onCaptureChange) {
+              this.eventsService.onCaptureChange([]);
+            }
+          }, this.METRICS_COOLDOWN_MS).unref?.();
         }
-
-        console.log(lines.join('\n'));
-      } catch (err) {
-        console.warn('[ReportsService] Failed to compute metrics update:', err.message);
       }
     };
+  }
+
+  private metricsBroadcastInFlight = false;
+  private pendingAffectedUsers = new Set<string>();
+  private readonly METRICS_COOLDOWN_MS = 1500;
+
+  private async runMetricsBroadcast() {
+    const affectedUserIds = Array.from(this.pendingAffectedUsers);
+    this.pendingAffectedUsers.clear();
+
+    const before = this.cache.getHitRate();
+    if (affectedUserIds.length > 0) {
+      for (const uid of affectedUserIds) {
+        this.cache.invalidateForUser(uid);
+      }
+    } else {
+      this.cache.invalidateAllReports();
+    }
+
+    if (!this.eventsService.isServerReady) return;
+
+    try {
+      // Usar TZ MX: 'today' debe coincidir con el día calendario que ven los
+      // usuarios en México, no con UTC (que rola al día siguiente a las 18:00 MX).
+      const today = todayMx();
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      const startDate = toMxDateKey(startOfMonth);
+
+      const filters = { startDate, endDate: today };
+      const globalUser = { sub: 'system', permissions: {}, rules: [{ action: 'manage', subject: 'all' }] };
+
+      const [summary, dailyScores] = await Promise.all([
+        this.getSummary(filters, globalUser),
+        this.getDailyScoresPerUser(filters, globalUser),
+      ]);
+
+      const afterGlobal = this.cache.getHitRate();
+      const lines = [`[Cache] invalidated + global metrics emitted. Hit rate: ${before.rate} → ${afterGlobal.rate}`];
+
+      this.eventsService.emitMetricsUpdateToRoom('reports:global', {
+        type: 'metrics:updated',
+        scope: 'global',
+        summary,
+        dailyScores,
+      });
+
+      const connectedScopes = this.eventsService.getConnectedUserScopes();
+      const seen = new Map<string, boolean>();
+
+      for (const sc of connectedScopes) {
+        if (sc.type === 'all') continue;
+
+        const room = sc.type === 'team' ? `reports:team:${sc.userId}` : `reports:own:${sc.userId}`;
+        const key = `${sc.type}:${sc.userId}`;
+
+        if (seen.has(key)) continue;
+        seen.set(key, true);
+
+        try {
+          const user = sc.type === 'team'
+            ? { sub: sc.userId, permissions: {}, rules: [{ action: 'read', subject: 'reports_team' }] }
+            : { sub: sc.userId, permissions: {}, rules: [] };
+
+          const [s, ds] = await Promise.all([
+            this.getSummary(filters, user),
+            this.getDailyScoresPerUser(filters, user),
+          ]);
+
+          this.eventsService.emitMetricsUpdateToRoom(room, {
+            type: 'metrics:updated',
+            scope: sc.type,
+            summary: s,
+            dailyScores: ds,
+          });
+
+          lines.push(`  ${sc.type}/${sc.userId} → room ${room}`);
+        } catch (err) {
+          this.logger.warn(`Failed to compute ${sc.type} metrics for ${sc.userId}: ${err.message}`);
+        }
+      }
+
+      this.logger.debug(lines.join('\n'));
+    } catch (err) {
+      this.logger.warn(`Failed to compute metrics update: ${err.message}`);
+    }
   }
 
   async getSummary(
@@ -106,38 +150,19 @@ export class ReportsService {
       return cached;
     }
 
-    let dcQuery = this.knex('daily_captures');
-    let sQuery = this.knex('stores');
+    const { query: dcQuery } = await this.buildBaseQuery(user, filters);
+    const sQuery = this.knex('stores');
 
-    if (scope.type === 'own') {
-      dcQuery = dcQuery.where('user_id', scope.userId);
-    } else if (scope.type === 'team') {
-      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
-        const teamIds = await this.getTeamIds(scope.userId);
-        dcQuery = dcQuery.whereIn('user_id', teamIds);
-      }
-    }
-
-    if (filters.startDate) dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
-
-    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
-      const zone = await this.knex('zones').where({ id: filters.zone }).first();
-      if (zone && zone.name) {
-        dcQuery.where('zona_captura', String(zone.name));
-      }
-    }
-
-    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
-      const teamIds = await this.getTeamIds(filters.supervisorId);
-      dcQuery.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
-      dcQuery.whereIn('user_id', filters.userIds);
-    }
-
-    // Filtrar por fecha actual para cierres de hoy
-    const today = new Date().toISOString().split('T')[0];
-    const todayQuery = dcQuery.clone().whereRaw("DATE(hora_inicio) = ?", [today]);
+    // Filtrar por fecha actual para cierres de hoy. `today` debe ser el día
+    // calendario en MX — con UTC, después de las 18:00 MX el "today" del
+    // servidor avanza al día siguiente y se pierde la tarde de capturas.
+    // El `DATE(hora_inicio)` en Postgres se evalúa en la TZ de México para
+    // que coincida con el día calendario del negocio, no con UTC.
+    const today = todayMx();
+    const todayQuery = dcQuery.clone().whereRaw(
+      "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') = ?",
+      [today],
+    );
     const [totalDailyToday] = await todayQuery.count('id as count');
 
     const [totalDaily] = await dcQuery.clone().count('id as count');
@@ -261,34 +286,8 @@ export class ReportsService {
       return cached;
     }
 
-    let dcQuery = this.knex('daily_captures');
-    let sQuery = this.knex('stores');
-
-    if (scope.type === 'own') {
-      dcQuery = dcQuery.where('user_id', scope.userId);
-    } else if (scope.type === 'team') {
-      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
-        const teamIds = await this.getTeamIds(scope.userId);
-        dcQuery = dcQuery.whereIn('user_id', teamIds);
-      }
-    }
-
-    if (filters.startDate) dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
-
-    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
-      const zone = await this.knex('zones').where({ id: filters.zone }).first();
-      if (zone && zone.name) {
-        dcQuery.where('zona_captura', String(zone.name));
-      }
-    }
-
-    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
-      const teamIds = await this.getTeamIds(filters.supervisorId);
-      dcQuery.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
-      dcQuery.whereIn('user_id', filters.userIds);
-    }
+    const { query: dcQuery } = await this.buildBaseQuery(user, filters);
+    const sQuery = this.knex('stores');
 
     const [totalDaily] = await dcQuery.clone().count('id as count');
     const [totalTiendas] = await sQuery.count('id as count');
@@ -358,13 +357,19 @@ export class ReportsService {
     },
     user: any,
   ) {
-    console.log('[ReportsService] getFilteredData called with filters:', filters);
-    console.log('[ReportsService] user role:', user.role_name, 'user sub:', user.sub);
+    this.logger.debug(
+      `getFilteredData user=${user.username} role=${user.role_name} filters=${JSON.stringify(filters)}`,
+    );
 
+    // Paginación obligatoria: capamos a MAX_PAGE_SIZE para evitar cargar 10k+
+    // filas en una sola respuesta (cada fila puede traer JSONB pesado).
+    const MAX_PAGE_SIZE = 500;
+    const DEFAULT_PAGE_SIZE = 200;
     const page = filters.page ? parseInt(filters.page, 10) : 1;
-    const pageSize = filters.pageSize ? parseInt(filters.pageSize, 10) : 0;
+    const rawPageSize = filters.pageSize ? parseInt(filters.pageSize, 10) : DEFAULT_PAGE_SIZE;
     const safePage = page > 0 ? page : 1;
-    const safePageSize = pageSize > 0 ? pageSize : 0;
+    // pageSize=0 ya no significa "sin paginación" — se trata como DEFAULT.
+    const safePageSize = Math.min(rawPageSize > 0 ? rawPageSize : DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
     const include = filters.include || '';
 
     const query = this.knex('daily_captures as dc')
@@ -381,8 +386,18 @@ export class ReportsService {
       }
     }
 
-    if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) query.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+    if (filters.startDate) {
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [filters.startDate],
+      );
+    }
+    if (filters.endDate) {
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [filters.endDate],
+      );
+    }
     if (filters.userId) query.where('user_id', filters.userId);
 
     // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
@@ -396,24 +411,22 @@ export class ReportsService {
     if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       const zone = await this.knex('zones').where({ id: filters.zone }).first();
       if (zone && zone.name) {
-        // Usar el valor directamente como string primitivo
-        const zoneValue = String(zone.name);
-        query.where('zona_captura', zoneValue);
+        // Match tolerante (case/whitespace)
+        query.whereRaw('LOWER(TRIM(zona_captura)) = LOWER(TRIM(?))', [zone.name]);
       } else {
-        // Si no se encuentra la zona, no aplicar filtro
-        console.log('[ReportsService] Zone not found for ID:', filters.zone);
+        this.logger.warn(`Zone not found for ID: ${filters.zone}`);
       }
     }
 
-    console.log('[ReportsService] SQL Query:', query.toSQL());
     const [{ total }] = await query.clone().clearSelect().clearOrder().count('* as total');
-    console.log('[ReportsService] Total rows matching filters:', Number(total));
     const orderedQuery = query.clone().orderBy('hora_inicio', 'desc');
-    const rows = safePageSize > 0
-      ? await orderedQuery.limit(safePageSize).offset((safePage - 1) * safePageSize)
-      : await orderedQuery;
-    console.log('[ReportsService] Number of rows returned:', rows.length);
-    console.log('[ReportsService] zona_captura values:', rows.map(r => r.zona_captura));
+    // Siempre paginar — `safePageSize` ya está capado a MAX_PAGE_SIZE
+    const rows = await orderedQuery
+      .limit(safePageSize)
+      .offset((safePage - 1) * safePageSize);
+    this.logger.debug(
+      `getFilteredData total=${Number(total)} returned=${rows.length} page=${safePage} pageSize=${safePageSize}`,
+    );
 
     // Get conceptos catalog for mapping IDs to names contextually faster
     const conceptos = await this.knex('catalogs')
@@ -440,9 +453,7 @@ export class ReportsService {
         };
       });
       
-      console.log('[ReportsService] productMap keys:', Object.keys(productMap));
-      console.log('[ReportsService] productMap sample:', Object.keys(productMap).slice(0, 5));
-      console.log('[ReportsService] productMap sample with names:', Object.entries(productMap).slice(0, 5).map(([k, v]) => ({ id: k, name: v.name })));
+      this.logger.debug(`productMap size=${Object.keys(productMap).length}`);
     }
 
     // Parse and normalize stats for each row
@@ -482,15 +493,8 @@ export class ReportsService {
       totalScore += score;
       totalVentas += ventas;
 
-      const dateKey = row.fecha
-        ? (row.fecha instanceof Date
-            ? row.fecha.toISOString().split('T')[0]
-            : String(row.fecha).split('T')[0])
-        : (row.hora_inicio instanceof Date
-            ? row.hora_inicio.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' })
-            : typeof row.hora_inicio === 'string'
-              ? row.hora_inicio.split('T')[0]
-              : '');
+      // Todas las fechas del país se calculan en la TZ de MX (ver mx-date.ts).
+      const dateKey = toMxDateKey(row.fecha) || toMxDateKey(row.hora_inicio);
       if (!dailyTrend[dateKey]) {
         dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
       }
@@ -543,34 +547,34 @@ export class ReportsService {
     if (includeProducts) {
       const allPIDsInStats = Object.keys(productStats);
       const missingPIDs = allPIDsInStats.filter(pid => !productMap[pid]);
-      console.log('[ReportsService] PIDs in productStats not in productMap (deleted products):', missingPIDs);
-      console.log('[ReportsService] Total products in productMap:', Object.keys(productMap).length);
-      console.log('[ReportsService] Total PIDs in productStats before filtering:', allPIDsInStats.length);
+      this.logger.debug(
+        `productStats: total=${allPIDsInStats.length} missingInMap=${missingPIDs.length} mapSize=${Object.keys(productMap).length}`,
+      );
       
       if (missingPIDs.length > 0) {
         const missingProducts = await this.knex('products')
           .whereIn('id', missingPIDs)
           .select('id', 'nombre', 'brand_id');
         
-        console.log('[ReportsService] Found missing products in DB:', missingProducts.length);
+        this.logger.debug(`Found missing products in DB: ${missingProducts.length}`);
         
         missingProducts.forEach(p => {
           productMap[p.id] = { 
             name: p.nombre, 
             brandName: brandMap[p.brand_id] || 'Otras' 
           };
-          console.log('[ReportsService] Added to productMap:', p.id, '->', p.nombre);
+          this.logger.debug(`Added to productMap: ${p.id} → ${p.nombre}`);
         });
         
         const stillMissing = missingPIDs.filter(pid => !productMap[pid]);
         stillMissing.forEach(pid => {
           delete productStats[pid];
-          console.warn('[ReportsService] Removed deleted product from productStats:', pid);
+          this.logger.warn(`Removed deleted product from productStats: ${pid}`);
         });
         
-        console.log('[ReportsService] Summary: Found', missingProducts.length, 'of', missingPIDs.length, 'missing products');
-        console.log('[ReportsService] Removed', stillMissing.length, 'deleted products from productStats');
-        console.log('[ReportsService] Total PIDs in productStats after filtering:', Object.keys(productStats).length);
+        this.logger.debug(
+          `Products: missing=${missingPIDs.length} foundInDb=${missingProducts.length} deleted=${stillMissing.length} after=${Object.keys(productStats).length}`,
+        );
       }
 
       totalUniqueProducts = Object.keys(productStats).length;
@@ -622,41 +626,17 @@ export class ReportsService {
     },
     user: any,
   ) {
-    const query = this.knex('daily_captures').select('*');
-
-    const scope = getDataScope(user);
-    if (scope.type === 'own') {
-      query.where('user_id', scope.userId);
-    } else if (scope.type === 'team') {
-      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
-        const teamIds = await this.getTeamIds(scope.userId);
-        query.whereIn('user_id', teamIds);
-      }
-    }
-
-    if (filters.startDate) query.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) query.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+    const { query } = await this.buildBaseQuery(user, filters);
+    // CSV solo necesita estos campos — evitamos cargar el JSONB `exhibiciones`
+    // que puede ser muy pesado (varios MB por captura con muchas fotos).
+    query.select(
+      'folio',
+      'captured_by_username',
+      'zona_captura',
+      'fecha',
+      'stats',
+    );
     if (filters.userId) query.where('user_id', filters.userId);
-
-    // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
-    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
-      const teamIds = await this.getTeamIds(filters.supervisorId);
-      query.whereIn('user_id', teamIds);
-    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
-      query.whereIn('user_id', filters.userIds);
-    }
-
-    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
-      const zone = await this.knex('zones').where({ id: filters.zone }).first();
-      if (zone && zone.name) {
-        // Usar el valor directamente como string primitivo
-        const zoneValue = String(zone.name);
-        query.where('zona_captura', zoneValue);
-      } else {
-        // Si no se encuentra la zona, no aplicar filtro
-        console.log('[ReportsService] Zone not found for ID:', filters.zone);
-      }
-    }
 
     const data = await query.orderBy('fecha', 'desc');
 
@@ -666,10 +646,9 @@ export class ReportsService {
       const stats =
         typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
       const ventaTotal = (stats.ventaTotal || 0) > 0 ? stats.ventaTotal : (stats.ventaAdicional || 0);
-      const fecha =
-        row.fecha instanceof Date
-          ? row.fecha.toISOString().split('T')[0]
-          : row.fecha;
+      // CSV: fecha en TZ MX para que un export hecho a las 18:30 MX no liste
+      // las visitas de hoy como de "ayer".
+      const fecha = toMxDateKey(row.fecha);
       csvString += `${row.folio},${row.captured_by_username},${row.zona_captura},${fecha},${stats.totalExhibiciones || 0},${stats.puntuacionTotal || 0},${ventaTotal}\n`;
     }
 
@@ -685,7 +664,7 @@ export class ReportsService {
 
     // Role check: Only superadmin or Permission allowed (controller handles Permission)
     // Here we just perform the deletion.
-    console.log(`[ReportsService] Deleting report ${id} by user ${user.username}`);
+    this.logger.log(`Deleting report ${id} by user ${user.username}`);
     await this.knex('daily_captures').where({ id }).del();
 
     this.cache.invalidateAllReports();
@@ -710,7 +689,7 @@ export class ReportsService {
     user: any,
   ) {
     try {
-      console.log('[ReportsService] START getDailyScoresPerUser', { filters, userSub: user?.sub });
+      this.logger.debug(`START getDailyScoresPerUser user=${user?.sub} filters=${JSON.stringify(filters)}`);
 
       const scope = getDataScope(user || { sub: '' });
       const cacheKey = this.cache.buildKey('daily_scores', {
@@ -726,11 +705,16 @@ export class ReportsService {
 
       const dcQuery = this.knex('daily_captures');
       
-      // Select with explicit COALESCE to avoid nulls in calculations
+      // Select with explicit COALESCE to avoid nulls in calculations.
+      // `DATE(hora_inicio AT TIME ZONE ...)` para que el día calendario
+      // refleje MX, no UTC del servidor (visitas post-18:00 MX se contaban
+      // como del día siguiente).
       dcQuery.select(
         'user_id',
         'captured_by_username',
-        this.knex.raw("DATE(hora_inicio) as fecha"),
+        this.knex.raw(
+          "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') as fecha",
+        ),
         this.knex.raw("AVG(COALESCE((stats->>'puntuacionTotal')::float, 0)) as puntuacion"),
       );
 
@@ -745,26 +729,32 @@ export class ReportsService {
           }
         }
       } catch (scopeErr) {
-        console.error('[ReportsService] Scope check failed:', scopeErr.message);
+        this.logger.error(`Scope check failed: ${scopeErr.message}`);
       }
 
-      // Date filtering
+      // Date filtering — TZ MX (las fechas del cliente son MX-local).
       if (filters.startDate && filters.startDate !== 'null' && filters.startDate !== 'undefined') {
-        dcQuery.whereRaw("DATE(hora_inicio) >= ?", [filters.startDate]);
+        dcQuery.whereRaw(
+          "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+          [filters.startDate],
+        );
       }
       if (filters.endDate && filters.endDate !== 'null' && filters.endDate !== 'undefined') {
-        dcQuery.whereRaw("DATE(hora_inicio) <= ?", [filters.endDate]);
+        dcQuery.whereRaw(
+          "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+          [filters.endDate],
+        );
       }
 
-      // Metadata filtering (zone)
+      // Metadata filtering (zone) — match case/whitespace-tolerant
       if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined' && filters.zone.length > 5) {
         try {
           const zone = await this.knex('zones').where({ id: filters.zone }).first();
           if (zone && zone.name) {
-            dcQuery.where('zona_captura', String(zone.name));
+            dcQuery.whereRaw('LOWER(TRIM(zona_captura)) = LOWER(TRIM(?))', [zone.name]);
           }
         } catch (zErr) {
-          console.error('[ReportsService] Zone query failed:', zErr.message);
+          this.logger.error(`Zone query failed: ${zErr.message}`);
         }
       }
 
@@ -774,7 +764,7 @@ export class ReportsService {
           const teamIds = await this.getTeamIds(filters.supervisorId);
           if (teamIds.length > 0) dcQuery.whereIn('user_id', teamIds);
         } catch (tErr) {
-          console.error('[ReportsService] Team query failed:', tErr.message);
+          this.logger.error(`Team query failed: ${tErr.message}`);
         }
       } else if (filters.userIds && filters.userIds.length > 0) {
         const ids = Array.isArray(filters.userIds) ? filters.userIds : [filters.userIds];
@@ -782,13 +772,17 @@ export class ReportsService {
         if (validIds.length > 0) dcQuery.whereIn('user_id', validIds);
       }
 
-      dcQuery.groupBy('user_id', 'captured_by_username', this.knex.raw("DATE(hora_inicio)"));
+      dcQuery.groupBy(
+        'user_id',
+        'captured_by_username',
+        this.knex.raw("DATE(hora_inicio AT TIME ZONE 'America/Mexico_City')"),
+      );
       dcQuery.orderBy('captured_by_username', 'asc');
-      dcQuery.orderByRaw("DATE(hora_inicio) asc");
+      dcQuery.orderByRaw("DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') asc");
 
-      console.log('[ReportsService] Executing SQL for Daily Scores');
+      this.logger.debug('Executing SQL for Daily Scores');
       const rows = await dcQuery;
-      console.log('[ReportsService] Rows fetched:', rows.length);
+      this.logger.debug(`Daily scores rows fetched: ${rows.length}`);
 
       const metaDiaria = 5;
       const userMap = new Map<string, { nombre: string; scores: { fecha: string; puntuacion: number }[]; metaDiaria: number }>();
@@ -798,11 +792,9 @@ export class ReportsService {
           userMap.set(row.user_id, { nombre: row.captured_by_username, scores: [], metaDiaria });
         }
         
-        let fechaStr = 'n/a';
-        if (row.fecha) {
-          fechaStr = row.fecha instanceof Date ? row.fecha.toISOString().split('T')[0] : String(row.fecha);
-          if (fechaStr.includes('T')) fechaStr = fechaStr.split('T')[0];
-        }
+        // fecha del score en TZ MX — consumido por /seguimiento que agrupa
+        // por día calendario para el chart per-usuario.
+        const fechaStr = toMxDateKey(row.fecha) || 'n/a';
 
         userMap.get(row.user_id)!.scores.push({
           fecha: fechaStr,
@@ -814,25 +806,122 @@ export class ReportsService {
       this.cache.set(cacheKey, result);
       return result;
     } catch (error) {
-      console.error('[ReportsService] Critical error in getDailyScoresPerUser:', error);
+      this.logger.error(`Critical error in getDailyScoresPerUser: ${error.message}`, error.stack);
       return { users: [] };
     }
   }
+
+  /**
+   * Construye una query base sobre `daily_captures` aplicando, en orden:
+   *  1. Scope (own / team / all) basado en el JWT del usuario
+   *  2. Filtros de fecha (startDate / endDate)
+   *  3. Filtro de zona (case/whitespace-tolerant)
+   *  4. Filtro por supervisor (resuelve teamIds) o por userIds explícitos
+   *
+   * IMPORTANTE: Knex.QueryBuilder es "thenable" — si una función `async`
+   * retorna directamente un QueryBuilder, el `await` LO EJECUTA en vez de
+   * pasarlo (resuelve a un array de filas). Por eso envolvemos en `{ query }`.
+   * Llamar con: `const { query: dcQuery } = await this.buildBaseQuery(...)`.
+   */
+  private async buildBaseQuery(
+    user: any,
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      zone?: string;
+      supervisorId?: string;
+      userIds?: string[];
+    },
+  ): Promise<{ query: Knex.QueryBuilder }> {
+    const scope = getDataScope(user);
+    let query = this.knex('daily_captures');
+
+    // 1. Scope
+    if (scope.type === 'own') {
+      query = query.where('user_id', scope.userId);
+    } else if (scope.type === 'team') {
+      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
+        const teamIds = await this.getTeamIds(scope.userId);
+        // Si por algún motivo no hay teamIds (supervisor sin equipo),
+        // forzamos resultado vacío en lugar de quitar el filtro
+        query = query.whereIn('user_id', teamIds.length > 0 ? teamIds : ['__none__']);
+      } else {
+        // Scope team con userId inválido → no debe ver nada (fallar cerrado)
+        this.logger.warn(`buildBaseQuery: team scope with invalid userId; denying access`);
+        query = query.whereRaw('1=0');
+      }
+    }
+
+    // 2. Fechas
+    if (filters.startDate) {
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [filters.startDate],
+      );
+    }
+    if (filters.endDate) {
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [filters.endDate],
+      );
+    }
+
+    // 3. Zona (tolerante a case/whitespace)
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
+      const zone = await this.knex('zones').where({ id: filters.zone }).first();
+      if (zone && zone.name) {
+        query.whereRaw('LOWER(TRIM(zona_captura)) = LOWER(TRIM(?))', [zone.name]);
+      } else {
+        this.logger.warn(`Zone not found for ID: ${filters.zone}`);
+      }
+    }
+
+    // 4. Supervisor / userIds explícitos
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined') {
+      const teamIds = await this.getTeamIds(filters.supervisorId);
+      query.whereIn('user_id', teamIds);
+    } else if (filters.userIds && filters.userIds.length > 0 && Array.isArray(filters.userIds)) {
+      query.whereIn('user_id', filters.userIds);
+    }
+
+    return { query };
+  }
+
+  // Cache de team-ids con TTL corto — evita N+1 cuando varios endpoints/loops
+  // consultan al mismo supervisor en una ventana corta (típico en onCaptureChange).
+  private readonly teamIdsCache = new Map<string, { ids: string[]; expiresAt: number }>();
+  private readonly TEAM_IDS_TTL_MS = 30_000;
 
   private async getTeamIds(supervisorId: string): Promise<string[]> {
     if (!supervisorId || supervisorId === 'null' || supervisorId === 'undefined') {
       return [];
     }
-    
+
     // UUID regex check to prevent Postgres error
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(supervisorId);
     if (!isUuid) return [];
+
+    const now = Date.now();
+    const cached = this.teamIdsCache.get(supervisorId);
+    if (cached && cached.expiresAt > now) {
+      return cached.ids;
+    }
 
     const team = await this.knex('users')
       .select('id')
       .where('supervisor_id', supervisorId)
       .orWhere('id', supervisorId);
-    return team.map((u) => u.id);
+
+    const ids = team.map((u) => u.id);
+    this.teamIdsCache.set(supervisorId, { ids, expiresAt: now + this.TEAM_IDS_TTL_MS });
+
+    // Mantener el Map acotado (eviction simple por tamaño)
+    if (this.teamIdsCache.size > 200) {
+      const firstKey = this.teamIdsCache.keys().next().value;
+      if (firstKey) this.teamIdsCache.delete(firstKey);
+    }
+
+    return ids;
   }
 
   async getRoutesData(
@@ -848,14 +937,17 @@ export class ReportsService {
     const scope = getDataScope(user);
 
     // ── Previous period for trend ──
+    // Calcula el rango "anterior" del mismo tamaño: si el usuario filtra
+    // semana actual, prev = semana anterior. Las fechas YYYY-MM-DD se
+    // devuelven en TZ MX para que coincidan con la lógica del frontend.
     let prevStart: string | undefined;
     let prevEnd: string | undefined;
     if (filters.startDate && filters.endDate) {
       const dur = new Date(filters.endDate).getTime() - new Date(filters.startDate).getTime();
       const prevEndDate = new Date(new Date(filters.startDate).getTime() - 1);
       const prevStartDate = new Date(prevEndDate.getTime() - dur);
-      prevStart = prevStartDate.toISOString().split('T')[0];
-      prevEnd = prevEndDate.toISOString().split('T')[0];
+      prevStart = toMxDateKey(prevStartDate);
+      prevEnd = toMxDateKey(prevEndDate);
     }
 
     // Helper to build a route-aggregation query
@@ -990,7 +1082,7 @@ export class ReportsService {
     },
     user: any,
   ) {
-    console.log('[ReportsService] getStoresData called with filters:', filters);
+    this.logger.debug(`getStoresData filters=${JSON.stringify(filters)}`);
 
     // Base query: daily_captures with store_id
     let query = this.knex('daily_captures as dc')
@@ -1004,7 +1096,11 @@ export class ReportsService {
     } else if (scope.type === 'team') {
       if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
         const teamIds = await this.getTeamIds(scope.userId);
-        query.whereIn('dc.user_id', teamIds);
+        // Fail closed si el equipo está vacío — antes esto colaba ver todo.
+        query.whereIn('dc.user_id', teamIds.length > 0 ? teamIds : ['__none__']);
+      } else {
+        this.logger.warn('getStoresData: team scope with invalid userId; denying access');
+        query.whereRaw('1=0');
       }
     }
 
@@ -1072,20 +1168,17 @@ export class ReportsService {
           });
         });
 
-        const dateKey = row.hora_inicio instanceof Date
-          ? row.hora_inicio.toISOString().split('T')[0]
-          : String(row.hora_inicio).split('T')[0];
+        // dateKey en TZ MX — agrupa scoreEvolucion por día calendario local.
+        const dateKey = toMxDateKey(row.hora_inicio);
         if (!scoreEvolucion[dateKey]) scoreEvolucion[dateKey] = { sum: 0, count: 0 };
         scoreEvolucion[dateKey].sum += score;
         scoreEvolucion[dateKey].count++;
       });
 
-      // Last visits (distinct by date)
+      // Last visits (distinct by date — TZ MX)
       const visitDates = new Set<string>();
       rows.forEach((row) => {
-        const dateKey = row.hora_inicio instanceof Date
-          ? row.hora_inicio.toISOString().split('T')[0]
-          : String(row.hora_inicio).split('T')[0];
+        const dateKey = toMxDateKey(row.hora_inicio);
         if (!visitDates.has(dateKey)) {
           visitDates.add(dateKey);
           const stats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
@@ -1108,9 +1201,7 @@ export class ReportsService {
         .sort((a, b) => b.presencia - a.presencia);
 
       const totalExhibidores = healthCount.optimo + healthCount.regular + healthCount.critico;
-      const ultimaFecha = rows.length > 0
-        ? (rows[0].hora_inicio instanceof Date ? rows[0].hora_inicio.toISOString().split('T')[0] : String(rows[0].hora_inicio).split('T')[0])
-        : null;
+      const ultimaFecha = rows.length > 0 ? toMxDateKey(rows[0].hora_inicio) || null : null;
       const diasSinVisita = ultimaFecha
         ? Math.floor((Date.now() - new Date(ultimaFecha).getTime()) / (1000 * 60 * 60 * 24))
         : null;
@@ -1202,7 +1293,7 @@ export class ReportsService {
         if (rangoCompra) {
           const rangoValue = rangoMap[rangoCompra] || 0;
           if (rangoValue === 0 && rangoCompra) {
-            console.warn(`[ReportsService] Unknown rangoCompra value: "${rangoCompra}" for store ${sid}. Known values: ${Object.keys(rangoMap).join(', ')}`);
+            this.logger.warn(`Unknown rangoCompra value "${rangoCompra}" for store ${sid}`);
           }
           s.rangoCompraSum += rangoValue;
           s.rangoCompraCount++;
@@ -1217,9 +1308,9 @@ export class ReportsService {
         s.productCount += (ex.productosMarcados || []).length;
       });
 
-      const fecha = row.hora_inicio instanceof Date
-        ? row.hora_inicio.toISOString().split('T')[0]
-        : String(row.hora_inicio).split('T')[0];
+      // Última visita del store en TZ MX para no contar capturas de la tarde
+      // como del día siguiente.
+      const fecha = toMxDateKey(row.hora_inicio);
       if (!s.ultimaVisita || fecha > s.ultimaVisita) s.ultimaVisita = fecha;
     }
 
@@ -1262,7 +1353,9 @@ export class ReportsService {
           return distCurr < distPrev ? curr : prev;
         });
         rangoCompraPromedio = `>${nearestRange}`;
-        console.log(`[ReportsService] Store ${s.id}: rangoCompraCount=${s.rangoCompraCount}, sum=${s.rangoCompraSum}, avg=${avgRango.toFixed(2)}, rounded=${rangoCompraPromedio}`);
+        this.logger.debug(
+          `Store ${s.id}: rangoCompraCount=${s.rangoCompraCount} sum=${s.rangoCompraSum} avg=${avgRango.toFixed(2)} rounded=${rangoCompraPromedio}`,
+        );
       }
 
       const storeData = {

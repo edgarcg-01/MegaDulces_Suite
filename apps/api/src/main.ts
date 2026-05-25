@@ -4,9 +4,29 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
 import { ScheduleModule } from '@nestjs/schedule';
+import { INestApplicationContext } from '@nestjs/common';
+import { ServerOptions } from 'socket.io';
+
+/**
+ * Adapter custom para que socket.io escuche en `/reports/socket.io` en lugar
+ * del `/socket.io` por defecto. El frontend espera este path (ver
+ * websocket.service.ts) y el `setGlobalPrefix` lo excluye explícitamente.
+ */
+class ReportsIoAdapter extends IoAdapter {
+  constructor(app: INestApplicationContext) {
+    super(app);
+  }
+  override createIOServer(port: number, options?: ServerOptions): any {
+    return super.createIOServer(port, {
+      ...options,
+      path: '/reports/socket.io',
+    });
+  }
+}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -46,6 +66,14 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
+
+  // WebSocket adapter custom — sirve socket.io en `/reports/socket.io`.
+  app.useWebSocketAdapter(new ReportsIoAdapter(app));
+
+  // Habilita lifecycle hooks (onModuleDestroy, onApplicationShutdown).
+  // Sin esto los `setInterval` y `setTimeout` de servicios no se limpian
+  // al recibir SIGTERM/SIGINT en producción.
+  app.enableShutdownHooks();
 
   const port = process.env.API_PORT || process.env.PORT || 3334;
   await app.listen(port);

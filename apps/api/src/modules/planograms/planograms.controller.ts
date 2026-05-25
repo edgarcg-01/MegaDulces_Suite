@@ -1,23 +1,34 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Param,
-  Put,
+  Controller,
   Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { PlanogramsService } from './planograms.service';
+import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
+import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
 import { RolesGuard } from '../../shared/guards/roles.guard';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 
 @ApiTags('planograms')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('planograms/brands')
 export class PlanogramsController {
   constructor(private readonly planogramsService: PlanogramsService) {}
@@ -26,12 +37,20 @@ export class PlanogramsController {
   @ApiOperation({
     summary: 'Obtiene todo el catálogo jerárquico de Marcas y Productos',
   })
-  async getAll() {
-    return this.planogramsService.getAll();
+  @ApiQuery({
+    name: 'includeInactive',
+    required: false,
+    description: 'Incluir marcas/productos soft-deleted (default: false)',
+    type: Boolean,
+  })
+  async getAll(@Query('includeInactive') includeInactive?: string) {
+    return this.planogramsService.getAll(includeInactive === 'true');
   }
 
   @Get('version')
-  @ApiOperation({ summary: 'Obtiene la versión (última actualización) del planograma para cache' })
+  @ApiOperation({
+    summary: 'Obtiene la versión (última actualización) del planograma para cache',
+  })
   async getVersion() {
     return this.planogramsService.getVersion();
   }
@@ -39,27 +58,30 @@ export class PlanogramsController {
   @Post()
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Crea una nueva marca' })
-  async createBrand(@Body() body: any) {
-    return this.planogramsService.createBrand(body);
+  async createBrand(@Body() dto: CreateBrandDto) {
+    return this.planogramsService.createBrand(dto);
   }
 
   @Post(':id/products')
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Crea un producto bajo una marca existente' })
-  async addProduct(@Param('id') id: string, @Body() body: any) {
-    return this.planogramsService.addProduct(id, body);
+  async addProduct(@Param('id') id: string, @Body() dto: CreateProductDto) {
+    return this.planogramsService.addProduct(id, dto);
   }
 
   @Put(':id')
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Actualizar datos de una marca' })
-  async updateBrand(@Param('id') id: string, @Body() body: any) {
-    return this.planogramsService.updateBrand(id, body);
+  async updateBrand(@Param('id') id: string, @Body() dto: UpdateBrandDto) {
+    return this.planogramsService.updateBrand(id, dto);
   }
 
   @Delete(':id')
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
-  @ApiOperation({ summary: 'Borra una marca' })
+  @ApiOperation({
+    summary:
+      'Eliminar marca. Soft-delete automático si sus productos están en capturas históricas; hard-delete si no.',
+  })
   async deleteBrand(@Param('id') id: string) {
     return this.planogramsService.deleteBrand(id);
   }
@@ -68,6 +90,7 @@ export class PlanogramsController {
 @ApiTags('planograms')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('planograms/products')
 export class PlanogramsProductsController {
   constructor(private readonly planogramsService: PlanogramsService) {}
@@ -81,13 +104,16 @@ export class PlanogramsProductsController {
   @Put(':id')
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Actualiza datos de un producto' })
-  async updateProduct(@Param('id') id: string, @Body() body: any) {
-    return this.planogramsService.updateProduct(id, body);
+  async updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
+    return this.planogramsService.updateProduct(id, dto);
   }
 
   @Delete(':id')
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
-  @ApiOperation({ summary: 'Borra un producto' })
+  @ApiOperation({
+    summary:
+      'Eliminar producto. Soft-delete automático si está en capturas históricas; hard-delete si no.',
+  })
   async deleteProduct(@Param('id') id: string) {
     return this.planogramsService.deleteProduct(id);
   }

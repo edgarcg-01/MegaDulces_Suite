@@ -1,4 +1,8 @@
-<div class="p-6 space-y-6">
+<!--
+  pb-24 en mobile da espacio para el FAB sticky al final, evitando que se
+  solape con los botones Cancelar/Terminar Visita al hacer scroll al fondo.
+-->
+<div class="px-6 pt-6 pb-24 md:pb-6 space-y-6">
 
   <!-- Encabezado y Toolbar - Responsive Stack -->
 
@@ -40,7 +44,21 @@
 
       <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar Visita" icon="pi pi-play" (onClick)="onIniciarVisita()" styleClass="p-button-brand w-full md:w-auto"></p-button>
 
-      <p-button *ngIf="svc.hasActiveVisit()" label="Auditar Exhibidor" icon="pi pi-plus" (onClick)="startWizard()" styleClass="p-button-brand w-full md:w-auto"></p-button>
+      <!--
+        Sobre desktop mostramos el botón aquí arriba (junto al header).
+        En mobile lo escondemos porque el usuario lo accede vía el FAB sticky
+        al pie de la página (ver al final del archivo) — evita scroll hasta
+        arriba después de cada exhibidor.
+
+        Se deshabilita mientras `needsStore()` sea true (visita activa SIN
+        tienda vinculada). El tooltip explica por qué.
+      -->
+      <p-button *ngIf="svc.hasActiveVisit()" label="Auditar Exhibidor" icon="pi pi-plus"
+                (onClick)="startWizard()"
+                [disabled]="needsStore()"
+                [pTooltip]="needsStore() ? 'Primero confirma la tienda donde estás' : ''"
+                tooltipPosition="bottom"
+                styleClass="p-button-brand hidden md:inline-flex"></p-button>
 
     </div>
 
@@ -91,7 +109,7 @@
   </div>
 
   <!-- Banner de Tienda Detectada -->
-  <div *ngIf="svc.hasActiveVisit() && svc.detectedStore()" class="mb-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700/30 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+  <div *ngIf="svc.hasActiveVisit() && svc.detectedStore()" data-store-banner class="mb-6 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700/30 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-green-100 dark:bg-green-800/30 flex items-center justify-center text-green-600 dark:text-green-400 shrink-0">
         <i class="pi pi-check-circle text-lg sm:text-xl"></i>
@@ -109,11 +127,14 @@
   </div>
 
   <!-- Banner Múltiples Tiendas Cercanas -->
-  <div *ngIf="svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length > 1" class="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/30 p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500">
+  <div *ngIf="svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length > 1" data-store-banner class="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/30 p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500">
     <div class="flex flex-col gap-2">
-      <div class="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-        <i class="pi pi-question-circle text-lg"></i>
-        <span class="text-xs font-black uppercase tracking-wide">Selecciona la tienda</span>
+      <div class="flex items-center justify-between gap-2 text-amber-600 dark:text-amber-400">
+        <div class="flex items-center gap-2">
+          <i class="pi pi-question-circle text-lg"></i>
+          <span class="text-xs font-black uppercase tracking-wide">Selecciona la tienda</span>
+        </div>
+        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-200/60 text-amber-800 tracking-wider">Obligatorio</span>
       </div>
       <div class="flex flex-wrap gap-2">
         <p-button *ngFor="let store of svc.nearbyStores()" 
@@ -127,21 +148,29 @@
   </div>
 
   <!-- Banner Tienda No Encontrada -->
-  <div *ngIf="svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length === 0 && detectionStatus() === 'not-found'" class="mb-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/30 p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500">
+  <div *ngIf="svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length === 0 && detectionStatus() === 'not-found'" data-store-banner class="mb-6 bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-300 dark:border-blue-700/40 p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500 shadow-md shadow-blue-200/40 dark:shadow-none">
     <div class="flex flex-col gap-3">
-      <div class="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-        <i class="pi pi-map-marker text-lg"></i>
-        <span class="text-xs font-black uppercase tracking-wide">Tienda Nueva</span>
+      <div class="flex items-center justify-between gap-2 text-blue-600 dark:text-blue-400">
+        <div class="flex items-center gap-2">
+          <i class="pi pi-map-marker text-lg"></i>
+          <span class="text-xs font-black uppercase tracking-wide">Registra la tienda</span>
+        </div>
+        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-200/70 text-blue-800 tracking-wider">Obligatorio</span>
       </div>
-      <p class="text-xs sm:text-sm text-content-muted">No se encontró una tienda registrada. Ingresa el nombre para registrarla:</p>
-      <div class="flex gap-2">
-        <input pInputText type="text" placeholder="Nombre de la tienda" class="flex-1"
-               [ngModel]="newStoreName()" (ngModelChange)="newStoreName.set($event)" />
+      <p class="text-xs sm:text-sm text-content-muted">
+        No se encontró una tienda registrada cerca. El nombre es <span class="font-bold text-content-main">requerido</span> para poder capturar exhibidores y terminar la visita.
+      </p>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input pInputText type="text" placeholder="Nombre de la tienda *" class="flex-1"
+               required aria-required="true"
+               [ngModel]="newStoreName()" (ngModelChange)="newStoreName.set($event)"
+               (keydown.enter)="newStoreName().trim() && onCreateStore()" />
         <p-button label="Registrar" icon="pi pi-save" size="small"
                   [disabled]="!newStoreName().trim() || creatingStore()"
                   [loading]="creatingStore()"
                   (onClick)="onCreateStore()"></p-button>
         <p-button label="Re-detectar" severity="secondary" size="small" [text]="true"
+                  [disabled]="creatingStore()"
                   (onClick)="onReDetectarTienda()"></p-button>
       </div>
     </div>
@@ -339,7 +368,7 @@
 
                 <div class="text-[10px] text-content-dim flex items-center gap-1">
 
-                  <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                  <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
 
                 </div>
 
@@ -378,13 +407,27 @@
 
 
     <!-- Finalizar / Cancelar -->
-
-    <div class="flex justify-end gap-3 mt-6">
-
-      <p-button label="Cancelar Visita" severity="secondary" [outlined]="true" (onClick)="onCancelarVisita()"></p-button>
-
-      <p-button label="Terminar Visita" icon="pi pi-check-circle" styleClass="p-button-brand" (onClick)="openImpactDialog()" [disabled]="svc.activeExhibiciones().length === 0 || isSaving()" [loading]="isSaving()"></p-button>
-
+    <div class="mt-6 flex flex-col items-stretch md:items-end gap-2">
+      <div class="flex justify-end gap-3 w-full">
+        <p-button label="Cancelar Visita" severity="secondary" [outlined]="true"
+                  (onClick)="onCancelarVisita()"
+                  styleClass="flex-1 md:flex-none"></p-button>
+        <p-button label="Terminar Visita" icon="pi pi-check-circle" styleClass="p-button-brand flex-1 md:flex-none"
+                  (onClick)="openImpactDialog()"
+                  [disabled]="svc.activeExhibiciones().length === 0 || needsStore() || isSaving()"
+                  [loading]="isSaving()"></p-button>
+      </div>
+      @if (needsStore()) {
+        <p class="text-xs status-bad status-text italic flex items-center gap-1.5 self-end">
+          <i class="pi pi-info-circle"></i>
+          Registra el nombre de la tienda antes de terminar la visita
+        </p>
+      } @else if (svc.activeExhibiciones().length === 0) {
+        <p class="text-xs text-content-muted italic flex items-center gap-1.5 self-end">
+          <i class="pi pi-info-circle text-content-faint"></i>
+          Captura al menos un exhibidor para poder terminar la visita
+        </p>
+      }
     </div>
 
   </ng-container>
@@ -397,7 +440,7 @@
 
       <div class="w-16 h-16 rounded-full bg-surface-ground border border-surface-border flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
 
-        <i class="pi pi-map-pin text-2xl"></i>
+        <i class="pi pi-map-marker text-2xl"></i>
 
       </div>
 
@@ -529,7 +572,7 @@
 
                   <div class="text-xs text-content-dim flex items-center gap-1 mb-2">
 
-                    <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                    <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
 
                   </div>
 
@@ -647,7 +690,7 @@
 
                     <span class="text-[9px] text-content-dim flex items-center gap-1">
 
-                      <i class="pi pi-map-pin text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                      <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
 
                     </span>
 
@@ -702,6 +745,36 @@
 </div>
 
 
+
+<!--
+  FAB sticky de "Auditar Exhibidor" — solo mobile, solo durante visita activa.
+  Evita el scroll-to-top después de cada captura. Se posiciona respetando el
+  safe-area-inset de iPhones (notch + home indicator) usando `env()`.
+-->
+<!--
+  FAB sticky mobile. Se deshabilita visualmente cuando `needsStore()` (visita
+  activa sin tienda) — el click muestra un toast guiando al banner de tienda.
+  No usamos `*ngIf="!needsStore()"` para no esconderlo de golpe: queremos que
+  el usuario lo VEA pero entienda que no puede usarlo todavía.
+
+  Las clases con `/` (yellow-400/50, etc.) van por `[ngClass]` en lugar de
+  `[class.X]` porque Angular no acepta `/` como parte del nombre de clase
+  en la sintaxis `[class.foo\/50]`.
+-->
+<button
+  *ngIf="svc.hasActiveVisit() && !showWizard"
+  type="button"
+  (click)="startWizard()"
+  [attr.aria-disabled]="needsStore() ? 'true' : null"
+  [attr.aria-label]="needsStore() ? 'Auditar exhibidor (primero confirma la tienda)' : 'Auditar nuevo exhibidor'"
+  class="md:hidden fixed right-4 z-30 inline-flex items-center gap-2 px-5 py-4 rounded-full shadow-2xl font-bold text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-4"
+  [ngClass]="needsStore()
+    ? 'bg-surface-layout text-content-faint shadow-black/10 cursor-not-allowed opacity-70 focus-visible:ring-content-faint/30'
+    : 'bg-brand text-black shadow-yellow-400/50 focus-visible:ring-yellow-400/40'"
+  style="bottom: calc(1rem + env(safe-area-inset-bottom));">
+  <i class="pi text-base" aria-hidden="true" [ngClass]="needsStore() ? 'pi-lock' : 'pi-plus'"></i>
+  <span>{{ needsStore() ? 'Falta tienda' : 'Auditar exhibidor' }}</span>
+</button>
 
 <!-- CAPTURE WIZARD DIALOG -->
 
@@ -1357,7 +1430,7 @@
 
 <!-- RESULT DIALOG -->
 
-<p-dialog [(visible)]="showResultDialog" [modal]="true" appendTo="body" [style]="{width: '90vw', maxWidth: '450px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+<p-dialog [(visible)]="showResultDialog" [modal]="true" appendTo="body" [style]="{width: '90vw', maxWidth: '450px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'" ariaLabel="Confirmación de visita registrada">
 
   <div class="py-6 text-center" *ngIf="lastResult">
 

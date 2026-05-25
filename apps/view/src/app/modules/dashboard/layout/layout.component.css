@@ -1,145 +1,35 @@
 :host {
   display: block;
+  /*
+   * Theme tokens son globales (styles.css). No los redefinimos aquí — antes
+   * había una copia en `:host` que sombreaba al theme y desincronizaba al
+   * cambiar a dark mode.
+   */
 }
 
-/* Theme Variables */
-:host {
-  --layout-bg: #f8fafc;
-  --sidebar-bg: #ffffff;
-  --border: #e2e8f0;
-  --text-main: #0f172a;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
-  --hover-bg: #f1f5f9;
-
-  /* Brand Colors */
-  --brand-primary: rgba(253, 231, 7, 1);
-  --brand-orange: #f68f1e;
-  --brand-sunset: #f05a28;
-  --brand-light: #fff8bc;
-
-  /* Active State */
-  --active-bg: #09090b;
-  --active-text: #ffffff;
-}
-
-:host-context(.theme-monochrome) {
-  --layout-bg: #000000;
-  --sidebar-bg: #111111;
-  --border: #333333;
-  --text-main: #ffffff;
-  --text-muted: #a1a1aa;
-  --text-faint: #52525b;
-  --hover-bg: #222222;
-  --active-bg: #ffffff;
-  --active-text: #000000;
-}
-
-/* Custom Scrollbar for Nav - visible pero sutil */
+/* Scrollbar del nav del sidebar — sutil pero visible. */
 :host nav::-webkit-scrollbar {
   width: 4px;
 }
-
 :host nav::-webkit-scrollbar-track {
   background: transparent;
 }
-
 :host nav::-webkit-scrollbar-thumb {
-  background-color: var(--border);
+  background-color: var(--border-color);
   border-radius: 4px;
 }
-
 :host nav::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-faint);
 }
-
-/* Firefox scrollbar */
 :host nav {
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border-color) transparent;
 }
 
-/* ============================================================
-   ANIMACIONES PARA SIDEBAR CONTRAÍDO
-   ============================================================ */
-
-/* Transición suave para el aside */
-:host aside {
-  will-change: width;
-}
-
-/* Cuando el sidebar está colapsado, centrar iconos */
-:host aside.w-16 nav button {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-:host aside.w-16 nav button i {
-  margin: 0 auto;
-}
-
-/* Ocultar indicador de activo en modo colapsado para no sobrecargar */
-:host aside.w-16 nav button .animate-pulse {
-  display: none;
-}
-
-/* Efecto de resaltado en icono activo cuando está colapsado */
-:host aside.w-16 nav button.border-brand {
-  background: var(--active-bg);
-  transform: scale(1.05);
-}
-
-/* Transición del footer cuando colapsa */
-:host aside.w-16 .border-t button span {
-  opacity: 0;
-  width: 0;
-  transition: opacity 0.15s ease, width 0.2s ease;
-}
-
-/* Header logo mantiene visibilidad suave */
+/*
+ * Header logo: fade-out suave al colapsar/expandir. La transición de width
+ * ya está declarada inline en el aside (junto al transform para mobile).
+ */
 :host aside .overflow-hidden {
   transition: opacity 0.2s ease 0.1s, width 0.25s ease;
-}
-
-/* Responsive Adjustments */
-@media (max-width: 1024px) {
-  :host .main-content {
-    margin-left: 0;
-  }
-}
-
-@media (max-width: 768px) {
-  :host nav {
-    padding: 0.5rem;
-  }
-
-  :host ::ng-deep .p-datatable-responsive {
-    font-size: 0.8rem;
-    margin: 0 -0.5rem;
-  }
-}
-
-@media (max-width: 480px) {
-  :host .user-info {
-    display: none;
-  }
-
-  :host ::ng-deep .p-datatable-responsive {
-    font-size: 0.75rem;
-    margin: 0 -0.25rem;
-  }
-
-  :host .breadcrumb-mobile {
-    display: none;
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }

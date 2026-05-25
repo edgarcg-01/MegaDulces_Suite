@@ -56,6 +56,58 @@ body {
   --accent-brand-orange: var(--brand-orange);
   --accent-brand-sunset: var(--brand-sunset);
 
+  /*
+   * STATUS TOKENS (semáforo unificado).
+   *   -fg: color sólido (texto, barras, anillos)
+   *   -soft-bg: fondo suave para chips/badges
+   *   -soft-fg: texto sobre soft-bg (AA garantizado)
+   *   -border: borde sutil
+   * El theme-monochrome los re-define abajo para que los chips no queden
+   * blanco-sobre-blanco en dark mode.
+   */
+  --status-ok-fg: #16a34a;
+  --status-ok-soft-bg: #dcfce7;
+  --status-ok-soft-fg: #166534;
+  --status-ok-border: #bbf7d0;
+
+  --status-warn-fg: #f59e0b;
+  --status-warn-soft-bg: #fef3c7;
+  --status-warn-soft-fg: #92400e;
+  --status-warn-border: #fde68a;
+
+  --status-bad-fg: #ef4444;
+  --status-bad-soft-bg: #fee2e2;
+  --status-bad-soft-fg: #991b1b;
+  --status-bad-border: #fecaca;
+
+  /* Form accents — usados por <input type="checkbox|radio">.accent-color
+   * y por anillos de :focus-visible. Antes estaban hardcoded como #185FA5 en
+   * el HTML, ahora son temables. */
+  --checkbox-accent: #185fa5;
+  --checkbox-accent-hover: #0d4a8a;
+  --focus-ring: rgba(59, 130, 246, 0.4);
+
+  /* Tonos de barra para el chart de scores en /seguimiento. Antes eran
+   * hex hardcoded (#b4b4b4 / #6b6b6b / #1e1e1e). En dark mode se invierten
+   * para mantener contraste contra fondo oscuro. */
+  --chart-fill-low: #c8c8d0;
+  --chart-fill-mid: #6b6b75;
+  --chart-fill-high: #1e1e22;
+  --chart-meta-line: #9ca3af;
+
+  /* Tags informativos — chips neutrales NO-status (cliente, GPS,
+   * Mega Dulces, Competencia). Se usan en cards densos donde un
+   * status-* sería semánticamente incorrecto. */
+  --chip-info-bg: #eff6ff;
+  --chip-info-fg: #1d4ed8;
+  --chip-info-border: #bfdbfe;
+  --chip-warn-soft-bg: #fef3c7;
+  --chip-warn-soft-fg: #92400e;
+  --chip-warn-soft-border: #fde68a;
+  --chip-brand-bg: #fff8bc;
+  --chip-brand-fg: #92400e;
+  --chip-brand-border: #fde68a;
+
   font-family: 'Inter', sans-serif;
   background-color: var(--layout-bg);
   color: var(--text-main);
@@ -98,14 +150,138 @@ body.theme-monochrome {
   --accent-brand-light: rgba(253, 231, 7, 0.2);
   --accent-brand-orange: var(--brand-orange);
   --accent-brand-sunset: var(--brand-sunset);
+
+  /* STATUS TOKENS (dark variants — fondos translúcidos sobre #111) */
+  --status-ok-fg: #22c55e;
+  --status-ok-soft-bg: rgba(34, 197, 94, 0.15);
+  --status-ok-soft-fg: #86efac;
+  --status-ok-border: rgba(34, 197, 94, 0.35);
+
+  --status-warn-fg: #fbbf24;
+  --status-warn-soft-bg: rgba(251, 191, 36, 0.15);
+  --status-warn-soft-fg: #fcd34d;
+  --status-warn-border: rgba(251, 191, 36, 0.35);
+
+  --status-bad-fg: #f87171;
+  --status-bad-soft-bg: rgba(248, 113, 113, 0.15);
+  --status-bad-soft-fg: #fca5a5;
+  --status-bad-border: rgba(248, 113, 113, 0.35);
+
+  /* Form accents en dark — más claros para legibilidad sobre #111 */
+  --checkbox-accent: #3b82f6;
+  --checkbox-accent-hover: #60a5fa;
+  --focus-ring: rgba(96, 165, 250, 0.55);
+
+  /* Chart fills invertidos para dark mode (claro → oscuro = barra alta) */
+  --chart-fill-low: #3f3f46;
+  --chart-fill-mid: #a1a1aa;
+  --chart-fill-high: #fafafa;
+  --chart-meta-line: #71717a;
+
+  /* Chips informativos en dark — fondos translúcidos */
+  --chip-info-bg: rgba(96, 165, 250, 0.15);
+  --chip-info-fg: #93c5fd;
+  --chip-info-border: rgba(96, 165, 250, 0.35);
+  --chip-warn-soft-bg: rgba(251, 191, 36, 0.15);
+  --chip-warn-soft-fg: #fcd34d;
+  --chip-warn-soft-border: rgba(251, 191, 36, 0.35);
+  --chip-brand-bg: rgba(253, 231, 7, 0.15);
+  --chip-brand-fg: #fde047;
+  --chip-brand-border: rgba(253, 231, 7, 0.35);
 }
 
 *, *::before, *::after {
   box-sizing: inherit;
 }
 
-/* 
- * UTILITIES: BRAND ACCENTS 
+/*
+ * UTILITIES: SEMANTIC STATUS
+ * Uso:
+ *   <span class="status-chip status-warn">Atención</span>
+ *   <div class="status-border-left status-ok">…</div>
+ *   <div class="status-fill status-bad" style="--pct:42%"></div>
+ * Las clases base (`status-chip`, `status-border-left`, `status-fill`,
+ * `status-text`, `status-dot`) toman el color del modificador
+ * (`status-ok` / `status-warn` / `status-bad`).
+ */
+.status-ok    { --status-fg: var(--status-ok-fg);    --status-soft-bg: var(--status-ok-soft-bg);    --status-soft-fg: var(--status-ok-soft-fg);    --status-border: var(--status-ok-border); }
+.status-warn  { --status-fg: var(--status-warn-fg);  --status-soft-bg: var(--status-warn-soft-bg);  --status-soft-fg: var(--status-warn-soft-fg);  --status-border: var(--status-warn-border); }
+.status-bad   { --status-fg: var(--status-bad-fg);   --status-soft-bg: var(--status-bad-soft-bg);   --status-soft-fg: var(--status-bad-soft-fg);   --status-border: var(--status-bad-border); }
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background-color: var(--status-soft-bg);
+  color: var(--status-soft-fg);
+  border: 1px solid var(--status-border);
+}
+
+.status-border-left {
+  border-left: 4px solid var(--status-fg);
+}
+
+.status-fill {
+  background-color: var(--status-fg);
+}
+
+.status-text {
+  color: var(--status-fg);
+}
+
+.status-soft-bg {
+  background-color: var(--status-soft-bg);
+}
+
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background-color: var(--status-fg);
+}
+
+/*
+ * UTILITIES: CHIPS NEUTRALES (no-status)
+ * Para tags informativos que NO comunican un semáforo (cliente, GPS,
+ * Mega Dulces, Competencia). Tematizables y legibles en dark.
+ *   <span class="chip-info">GPS</span>
+ *   <span class="chip-brand">Mega Dulces</span>
+ *   <span class="chip-warn-soft">Competencia</span>
+ */
+.chip-info, .chip-warn-soft, .chip-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  border-width: 1px;
+  border-style: solid;
+}
+.chip-info       { background-color: var(--chip-info-bg);       color: var(--chip-info-fg);       border-color: var(--chip-info-border); }
+.chip-warn-soft  { background-color: var(--chip-warn-soft-bg);  color: var(--chip-warn-soft-fg);  border-color: var(--chip-warn-soft-border); }
+.chip-brand      { background-color: var(--chip-brand-bg);      color: var(--chip-brand-fg);      border-color: var(--chip-brand-border); }
+
+/*
+ * Close button para overlays sobre imágenes (fondo negro). Usa el accent
+ * azul del theme — antes estaba hardcoded como #185FA5.
+ */
+.btn-close-overlay {
+  background-color: var(--checkbox-accent);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+.btn-close-overlay:hover {
+  background-color: var(--checkbox-accent-hover);
+}
+
+/*
+ * UTILITIES: BRAND ACCENTS
  */
 .card-premium-accent {
   position: relative;

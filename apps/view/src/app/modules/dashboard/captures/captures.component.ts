@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit, OnDestroy, HostListener } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Subscription, take } from 'rxjs';
+import { Subscription, debounceTime, distinctUntilChanged, firstValueFrom, take } from 'rxjs';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { environment } from '../../../../environments/environment';
@@ -19,6 +20,7 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { RadioButtonModule } from 'primeng/radiobutton';
 import { ChipModule } from 'primeng/chip';
 import { CardModule } from 'primeng/card';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ThemeService } from '../../../core/services/theme.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -58,6 +60,7 @@ import {
     RadioButtonModule,
     ChipModule,
     CardModule,
+    TooltipModule,
     // Spartan
     HlmBadgeDirective,
     HlmButtonDirective,
@@ -85,6 +88,33 @@ export class CapturesComponent implements OnInit, OnDestroy {
   detectionStatus = signal<'idle' | 'detecting' | 'found' | 'not-found'>('idle');
   newStoreName = signal<string>('');
   creatingStore = signal(false);
+  /** Guard contra double-click en "Iniciar Visita" (GPS puede tardar ~45s). */
+  isStartingVisita = signal(false);
+
+  /**
+   * Toda visita activa DEBE estar vinculada a una tienda antes de capturar
+   * exhibidores o terminar la visita. Si el GPS detectó una sola tienda
+   * (`detectedStore`) o el usuario seleccionó/creó una manualmente, este
+   * computed es false. Mientras sea true:
+   *   - el FAB "Auditar Exhibidor" en mobile se deshabilita
+   *   - `startWizard()` rechaza la apertura con un toast
+   *   - `openImpactDialog()` (Terminar Visita) también rechaza
+   * Esto evita visitas huérfanas sin store_id, que ensucian reportes.
+   */
+  needsStore = computed(
+    () => this.svc.hasActiveVisit() && !this.svc.detectedStore(),
+  );
+
+  // Validación y compresión de archivos
+  private readonly MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB original
+  private readonly ALLOWED_IMAGE_TYPES = [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/heic',
+    'image/heif',
+  ];
 
   // ── Auth ──────────────────────────────────────────────────────────
   /** Usuario autenticado actual */
@@ -96,6 +126,25 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   ngOnInit() {
     this.svc.refreshAll();
+    // Suscribirse al stream de notificaciones del servicio (MessageService vive a
+    // nivel de componente, no se puede inyectar en el servicio root).
+    this.notificationSub = this.svc.notifications$.subscribe((evt) => {
+      if (evt.kind === 'simulated-coords') {
+        this.toast.add({
+          severity: 'warn',
+          summary: 'Ubicación aproximada',
+          detail: 'No fue posible obtener GPS. La visita se guardó con coordenadas aproximadas (Morelia). Verifica la ubicación de la tienda.',
+          life: 8000,
+        });
+      } else if (evt.kind === 'load-error') {
+        this.toast.add({
+          severity: 'error',
+          summary: evt.summary,
+          detail: evt.detail,
+          life: 6000,
+        });
+      }
+    });
   }
 
   /**
@@ -104,6 +153,16 @@ export class CapturesComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     if (this.saveSubscription) {
       this.saveSubscription.unsubscribe();
+    }
+    if (this.notificationSub) {
+      this.notificationSub.unsubscribe();
+    }
+    this.pendingTimeouts.forEach(clearTimeout);
+    this.pendingTimeouts.clear();
+    // Restaurar body scroll si el usuario navegó con el wizard abierto;
+    // sin esto, body queda `position: fixed` y toda la app pierde scroll.
+    if (this.showWizard) {
+      this.unlockBodyScroll();
     }
   }
 
@@ -124,6 +183,18 @@ export class CapturesComponent implements OnInit, OnDestroy {
   isSaving = signal<boolean>(false);
   /** Suscripción para guardar datos */
   private saveSubscription: Subscription | null = null;
+  /** Suscripción al stream de notificaciones del servicio */
+  private notificationSub: Subscription | null = null;
+  /** Timeouts pendientes — cancelables en ngOnDestroy */
+  private pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+  private scheduleTimeout(fn: () => void, ms: number): void {
+    const id = setTimeout(() => {
+      this.pendingTimeouts.delete(id);
+      fn();
+    }, ms);
+    this.pendingTimeouts.add(id);
+  }
 
   // ── Wizard State ──────────────────────────────────────────────────────────
   /** Indica si el wizard está visible */
@@ -144,6 +215,32 @@ export class CapturesComponent implements OnInit, OnDestroy {
     productosMarcados: [],
   });
 
+  /**
+   * Search debounceado (200 ms). Recomputar `filteredProducts` y
+   * `filteredBrands` en cada keystroke con catálogos grandes (1000+ SKUs)
+   * lagueaba la búsqueda en móvil.
+   */
+  private debouncedSearch = toSignal(
+    toObservable(this.searchQuery).pipe(
+      debounceTime(200),
+      distinctUntilChanged(),
+    ),
+    { initialValue: '' },
+  );
+
+  /**
+   * Map `pid → name` cached para `getProductName`. Antes recorría todas
+   * las marcas linealmente cada vez (O(M×N) por llamada) — en el result
+   * dialog con 50 productos × 100+ catálogo, era costosísimo.
+   */
+  private productNameMap = computed(() => {
+    const map = new Map<string, string>();
+    for (const brand of this.svc.groupedProducts()) {
+      for (const prod of brand.items) map.set(prod.pid, prod.name);
+    }
+    return map;
+  });
+
   // ── Impacto Comercial State ───────────────────────────────────────────────
   /** Valor del impacto de venta adicional */
   impactoVentaAdicional: number = 0;
@@ -159,7 +256,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @returns Lista de productos filtrados (máximo 20)
    */
   filteredProducts = computed(() => {
-    const query = this.searchQuery().toLowerCase();
+    const query = this.debouncedSearch().toLowerCase();
     const allProducts = this.svc.groupedProducts();
 
     if (!query) return [];
@@ -191,7 +288,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @returns Lista de marcas con productos filtrados
    */
   filteredBrands = computed(() => {
-    const query = this.searchQuery().toLowerCase();
+    const query = this.debouncedSearch().toLowerCase();
     const allBrands = this.svc.groupedProducts();
 
     if (!query) return allBrands;
@@ -258,20 +355,17 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   configNiveles = computed(() => {
     const niveles = this.svc.niveles();
-    if (niveles.length > 0) {
-      return niveles.map(n => ({
-        id: n.id,
-        value: n.value,
-        puntuacion: Number(n.puntuacion) || 1,
-      }));
+    if (niveles.length === 0) {
+      // NO usar fallback con IDs inventados (ej: 'legacy-0').
+      // Esto causaba que el backend recibiera UUIDs falsos que no existen
+      // en `catalogs`, rompiendo el scoring y dejando capturas sin nivelEjecucionId
+      // válido. Mejor devolver vacío y mostrar mensaje al usuario.
+      return [];
     }
-    // Fallback al scoring config legacy si el catálogo no ha cargado
-    const cfg = this.svc.scoringConfig();
-    const legacyNiveles = cfg?.niveles_ejecucion || { Alto: 1, Medio: 0.7, Bajo: 0.4, Crítico: 0.2 };
-    return Object.entries(legacyNiveles).map(([value, puntuacion], idx) => ({
-      id: `legacy-${idx}`,
-      value,
-      puntuacion: Number(puntuacion),
+    return niveles.map(n => ({
+      id: n.id,
+      value: n.value,
+      puntuacion: Number(n.puntuacion) || 1,
     }));
   });
 
@@ -282,12 +376,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @throws Error si no se puede capturar la ubicación
    */
   async onIniciarVisita() {
-    this.toast.add({
-      severity: 'info',
-      summary: 'GPS',
-      detail: 'Localizando tienda...',
-    });
+    // Guard: GPS puede tardar hasta ~45s con reintentos. Sin esto, el usuario
+    // tappea varias veces y dispara múltiples geolocation requests + toasts.
+    if (this.isStartingVisita() || this.svc.hasActiveVisit()) return;
 
+    this.isStartingVisita.set(true);
     try {
       const success = await this.svc.iniciarVisita();
       if (success) {
@@ -296,7 +389,6 @@ export class CapturesComponent implements OnInit, OnDestroy {
           summary: 'Visita Iniciada',
           detail: 'Ubicación capturada correctamente.',
         });
-        // Verificar si se detectó una tienda automáticamente
         if (this.svc.detectedStore()) {
           this.detectionStatus.set('found');
         } else if (this.svc.nearbyStores().length > 1) {
@@ -306,13 +398,16 @@ export class CapturesComponent implements OnInit, OnDestroy {
         }
       }
     } catch (error: any) {
-      console.error('[captures.component] Error al iniciar visita:', error);
       this.toast.add({
         severity: 'error',
         summary: 'Error de GPS',
-        detail: error.message || 'No se pudo capturar la ubicación. Verifique que el GPS esté activado.',
-        life: 5000
+        detail:
+          error?.message ||
+          'No se pudo capturar la ubicación. Verifique que el GPS esté activado.',
+        life: 5000,
       });
+    } finally {
+      this.isStartingVisita.set(false);
     }
   }
 
@@ -336,14 +431,29 @@ export class CapturesComponent implements OnInit, OnDestroy {
     const name = this.newStoreName().trim();
     if (!name) return;
 
+    const lat = this.svc.latitud();
+    const lng = this.svc.longitud();
+    // Sin coordenadas válidas no creamos la tienda — `0, 0` es el Golfo de
+    // Guinea y contamina los reports/mapas.
+    if (!lat || !lng) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Sin GPS',
+        detail:
+          'Captura primero la ubicación de la visita antes de crear una tienda nueva.',
+      });
+      return;
+    }
+
     this.creatingStore.set(true);
     try {
-      const store = await this.http.post<any>(`${this.apiUrl}/stores`, {
-        nombre: name,
-        latitud: this.svc.latitud(),
-        longitud: this.svc.longitud(),
-      }).toPromise();
-
+      const store = await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/stores`, {
+          nombre: name,
+          latitud: lat,
+          longitud: lng,
+        }),
+      );
       this.svc.selectStore({ id: store.id, nombre: store.nombre, distance: 0 });
       this.detectionStatus.set('found');
       this.toast.add({
@@ -355,7 +465,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
       this.toast.add({
         severity: 'error',
         summary: 'Error',
-        detail: 'No se pudo crear la tienda. Intente nuevamente.',
+        detail:
+          err?.error?.message || 'No se pudo crear la tienda. Intente nuevamente.',
       });
     } finally {
       this.creatingStore.set(false);
@@ -363,6 +474,19 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   openImpactDialog() {
+    // Guard: no permitir terminar la visita sin tienda vinculada.
+    if (this.needsStore()) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Falta nombre de tienda',
+        detail:
+          'Selecciona o registra la tienda antes de terminar la visita.',
+        life: 4500,
+      });
+      this.scrollToStoreBanner();
+      return;
+    }
+
     const ex = this.svc.activeExhibiciones();
 
     if (ex.length === 0) {
@@ -383,13 +507,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   onSaveCapturaTotal() {
-    // Prevent if already saving
+    // Guard: si ya se está guardando, ignorar el click silenciosamente
+    // (el botón ya está disabled/loading; este check evita race en double-tap rápido).
     if (this.isSaving()) {
-      this.toast.add({
-        severity: 'info',
-        summary: 'Enviando...',
-        detail: 'La visita ya se está guardando, por favor espera.',
-      });
       return;
     }
 
@@ -443,11 +563,12 @@ export class CapturesComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.isSaving.set(false);
-        console.error('[captures.component] Error al guardar visita:', err);
         this.toast.add({
           severity: 'error',
           summary: 'Error de Red',
-          detail: 'No pudimos registrar tu visita general en el servidor.',
+          detail:
+            err?.error?.message ||
+            'No pudimos registrar tu visita general en el servidor.',
         });
       },
     });
@@ -489,6 +610,20 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * Inicia el wizard para agregar un nuevo exhibidor
    */
   startWizard() {
+    // Guard: cada exhibidor pertenece a una tienda; no podemos auditar sin
+    // haber resuelto el `store_id` (vía detección GPS o registro manual).
+    if (this.needsStore()) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Selecciona o registra una tienda',
+        detail:
+          'Antes de auditar exhibidores debes confirmar el nombre de la tienda donde estás.',
+        life: 4500,
+      });
+      this.scrollToStoreBanner();
+      return;
+    }
+
     this.currentExhibicion.set({
       productosMarcados: [],
       rangoCompra: '',
@@ -498,6 +633,19 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.showWizard = true;
     this.expandedBrands.set(new Set()); // Reset expanded brands
     this.lockBodyScroll(); // Bloquear scroll del body cuando se abre el wizard
+  }
+
+  /**
+   * Hace scroll suave al primer banner de tienda visible. Útil cuando el
+   * usuario está al fondo de la página (tras varios exhibidores) y el toast
+   * apunta a algo que no ve.
+   */
+  private scrollToStoreBanner(): void {
+    if (typeof document === 'undefined') return;
+    const banner = document.querySelector(
+      '[data-store-banner]',
+    ) as HTMLElement | null;
+    banner?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /**
@@ -529,19 +677,32 @@ export class CapturesComponent implements OnInit, OnDestroy {
       });
       return;
     }
-    if (this.wizardStep === 4 && !curr.nivelEjecucion) {
-      this.toast.add({
-        severity: 'warn',
-        summary: 'Selecciona nivel',
-        detail: 'Debe evaluar la calidad de la ejecución.',
-      });
-      return;
+    if (this.wizardStep === 4) {
+      // Defensa: si el catálogo de niveles no cargó, NO permitir avanzar.
+      // Sin niveles válidos, el front guardaría con IDs inventados.
+      if (this.configNiveles().length === 0) {
+        this.toast.add({
+          severity: 'error',
+          summary: 'Catálogo no disponible',
+          detail:
+            'No se han cargado los niveles de ejecución. Verifica tu conexión y refresca la página.',
+        });
+        return;
+      }
+      if (!curr.nivelEjecucion || !curr.nivelEjecucionId) {
+        this.toast.add({
+          severity: 'warn',
+          summary: 'Selecciona nivel',
+          detail: 'Debe evaluar la calidad de la ejecución.',
+        });
+        return;
+      }
     }
     if (this.wizardStep < 6) {
       this.wizardStep++;
       // Al entrar al paso 5, expandir marcas que tienen productos seleccionados
       if (this.wizardStep === 5) {
-        setTimeout(() => this.expandBrandsWithSelectedProducts(), 0);
+        this.scheduleTimeout(() => this.expandBrandsWithSelectedProducts(), 0);
       }
     }
   }
@@ -636,21 +797,24 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Expande todas las marcas que tienen productos seleccionados
+   * Expande todas las marcas que tienen productos seleccionados.
+   * Usa `svc.groupedProducts()` y no `filteredBrands()` para que la
+   * expansión sea independiente del query de búsqueda actual.
    */
   expandBrandsWithSelectedProducts() {
     const selectedProducts = this.currentExhibicion().productosMarcados || [];
-    const brands = this.filteredBrands();
+    if (selectedProducts.length === 0) {
+      this.expandedBrands.set(new Set());
+      return;
+    }
+    const brands = this.svc.groupedProducts();
     const brandsToExpand = new Set<string>();
 
-    brands.forEach((brand: { marca: string; items: { pid: string }[] }) => {
-      const hasSelected = brand.items.some((item: { pid: string }) =>
-        selectedProducts.includes(item.pid)
-      );
-      if (hasSelected) {
+    for (const brand of brands) {
+      if (brand.items.some((item) => selectedProducts.includes(item.pid))) {
         brandsToExpand.add(brand.marca);
       }
-    });
+    }
 
     this.expandedBrands.set(brandsToExpand);
   }
@@ -694,22 +858,40 @@ export class CapturesComponent implements OnInit, OnDestroy {
     window.scrollTo(0, this.bodyScrollPosition);
   }
 
-  @HostListener('touchmove', ['$event'])
+  // Estado del gesto: necesario porque `event.touches[0]/[1]` son dos dedos
+  // distintos (multi-touch), no start/move del mismo dedo.
+  private touchStartX: number | null = null;
+  private touchStartY: number | null = null;
+
+  @HostListener('touchstart', ['$event'])
+  onTouchStart(event: TouchEvent) {
+    if (!this.showWizard || !event.touches[0]) {
+      this.touchStartX = null;
+      this.touchStartY = null;
+      return;
+    }
+    this.touchStartX = event.touches[0].clientX;
+    this.touchStartY = event.touches[0].clientY;
+  }
+
   /**
-   * Previene navegación hacia atrás con gestos horizontales
-   * @param event Evento de touch
+   * Previene navegación hacia atrás con gestos horizontales dentro del
+   * wizard. Solo activo cuando el wizard está abierto.
    */
+  @HostListener('touchmove', ['$event'])
   onTouchMove(event: TouchEvent) {
-    // Detectar si el gesto es más horizontal que vertical
-    const touchStartX = event.touches[0].clientX;
-    const touchStartY = event.touches[0].clientY;
-    const touchMoveX = event.touches[1]?.clientX || touchStartX;
-    const touchMoveY = event.touches[1]?.clientY || touchStartY;
+    if (
+      !this.showWizard ||
+      this.touchStartX === null ||
+      this.touchStartY === null ||
+      !event.touches[0]
+    ) {
+      return;
+    }
 
-    const deltaX = Math.abs(touchMoveX - touchStartX);
-    const deltaY = Math.abs(touchMoveY - touchStartY);
+    const deltaX = Math.abs(event.touches[0].clientX - this.touchStartX);
+    const deltaY = Math.abs(event.touches[0].clientY - this.touchStartY);
 
-    // Si el movimiento es más horizontal que vertical, prevenir el comportamiento por defecto
     if (deltaX > deltaY && deltaX > 30) {
       event.preventDefault();
     }
@@ -803,29 +985,39 @@ export class CapturesComponent implements OnInit, OnDestroy {
       });
       return;
     }
-    this.svc.addExhibicion(ex);
+    if (!ex.nivelEjecucion || !ex.nivelEjecucionId) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Evaluación requerida',
+        detail: 'Debes evaluar la calidad de la ejecución (paso 4).',
+      });
+      this.wizardStep = 4;
+      return;
+    }
+    try {
+      this.svc.addExhibicion(ex);
+    } catch (err: any) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error al guardar exhibidor',
+        detail: err?.message || 'No se pudo guardar.',
+      });
+      return;
+    }
     this.toast.add({
       severity: 'success',
       summary: 'Exhibidor registrado',
       detail: 'Guardado en la visita actual.',
     });
     this.showWizard = false;
-    this.unlockBodyScroll(); // Restaurar scroll del body cuando se cierra el wizard
+    this.unlockBodyScroll();
 
-    // Scroll to the bottom of the list
-    setTimeout(() => {
+    this.scheduleTimeout(() => {
       const container = document.getElementById('exhibiciones-list');
       if (container) {
         container.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }, 300);
-  }
-
-  /**
-   * Maneja el evento blur del input de búsqueda
-   */
-  onSearchBlur() {
-    // Manejar blur si es necesario
   }
 
   /**
@@ -854,17 +1046,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Obtiene el nombre de un producto por su ID
-   * @param pid ID del producto
-   * @returns Nombre del producto o el ID si no se encuentra
+   * Obtiene el nombre de un producto por su ID usando el map cached.
+   * O(1) por lookup; antes era O(M×N) escaneando todas las marcas.
    */
   getProductName(pid: string): string {
-    const allProducts = this.svc.groupedProducts();
-    for (const brand of allProducts) {
-      const prod = brand.items.find(p => p.pid === pid);
-      if (prod) return prod.name;
-    }
-    return pid;
+    return this.productNameMap().get(pid) ?? pid;
   }
 
   /**
@@ -902,21 +1088,95 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Maneja la selección de archivo para la foto del exhibidor
-   * @param event Evento de selección de archivo
+   * Maneja la selección de archivo: valida tipo (sólo imágenes), tamaño
+   * máximo (10 MB) y **comprime** la imagen vía canvas antes de guardarla
+   * como base64. Sin compresión, una foto de 5 MB se convierte en ~6.7 MB
+   * en base64 → payloads que rompen body-parser y llenan IndexedDB offline.
    */
-  onFileSelected(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) {
+  async onFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (!this.ALLOWED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Tipo no soportado',
+        detail: 'Solo imágenes JPG, PNG, WebP o HEIC.',
+      });
+      input.value = '';
+      return;
+    }
+
+    if (file.size > this.MAX_FILE_SIZE_BYTES) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Archivo demasiado grande',
+        detail: `Máximo 10 MB. Tu archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB.`,
+      });
+      input.value = '';
+      return;
+    }
+
+    try {
+      const compressed = await this.compressImage(file);
+      this.currentExhibicion.update((curr) => ({
+        ...curr,
+        fotoBase64: compressed,
+      }));
+    } catch (err) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error al procesar la imagen',
+        detail: 'Intenta con otra foto.',
+      });
+    } finally {
+      input.value = ''; // permite re-seleccionar el mismo archivo
+    }
+  }
+
+  /**
+   * Comprime una imagen a `maxDim` (lado mayor) y la devuelve como data URL
+   * JPEG con la calidad dada. Reduce el tamaño base64 de la foto del
+   * exhibidor de varios MB a típicamente <500 KB sin pérdida visible para
+   * el caso de uso (foto de tienda en móvil).
+   */
+  private compressImage(
+    file: File,
+    maxDim = 1920,
+    quality = 0.8,
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () =>
+        reject(reader.error || new Error('No se pudo leer el archivo'));
       reader.onload = (e) => {
-        this.currentExhibicion.update((curr) => ({
-          ...curr,
-          fotoBase64: e.target?.result as string,
-        }));
+        const img = new Image();
+        img.onerror = () => reject(new Error('No se pudo decodificar la imagen'));
+        img.onload = () => {
+          try {
+            const ratio = Math.min(
+              1,
+              maxDim / Math.max(img.width, img.height),
+            );
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * ratio);
+            canvas.height = Math.round(img.height * ratio);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error('Canvas sin contexto 2D'));
+              return;
+            }
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.src = e.target?.result as string;
       };
       reader.readAsDataURL(file);
-    }
+    });
   }
 
   /**
@@ -947,6 +1207,18 @@ export class CapturesComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Validación de nivel — devuelve al paso 4 si falta.
+    // Previene bug donde algunas capturas llegaban sin nivelEjecucionId.
+    if (!ex.nivelEjecucion || !ex.nivelEjecucionId) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Evaluación requerida',
+        detail: 'Debes evaluar la calidad de la ejecución antes de guardar.',
+      });
+      this.wizardStep = 4;
+      return;
+    }
+
     if (!ex.fotoBase64) {
       this.toast.add({
         severity: 'error',
@@ -957,7 +1229,16 @@ export class CapturesComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.svc.addExhibicion(ex);
+    try {
+      this.svc.addExhibicion(ex);
+    } catch (err: any) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'Error al guardar exhibidor',
+        detail: err?.message || 'No se pudo guardar.',
+      });
+      return;
+    }
     this.toast.add({
       severity: 'success',
       summary: 'Exhibidor registrado',
@@ -968,7 +1249,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       this.startWizard();
     } else {
       this.showWizard = false;
-      this.unlockBodyScroll(); // Restaurar scroll del body cuando se cierra el wizard
+      this.unlockBodyScroll();
     }
   }
 
@@ -984,7 +1265,23 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * @param id ID del exhibidor a eliminar
    */
   onRemoveExhibicion(id: string) {
-    this.svc.removeExhibicion(id);
+    this.confirmSvc.confirm({
+      message:
+        '¿Eliminar este exhibidor de la visita? Se perderán los productos marcados, foto y datos capturados.',
+      header: 'Eliminar Exhibidor',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, eliminar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        this.svc.removeExhibicion(id);
+        this.toast.add({
+          severity: 'info',
+          summary: 'Exhibidor eliminado',
+          detail: 'El exhibidor fue removido de la visita.',
+        });
+      },
+    });
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

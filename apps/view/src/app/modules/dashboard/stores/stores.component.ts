@@ -1,4 +1,12 @@
-import { Component, OnInit, inject, signal, computed } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -12,10 +20,54 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { HttpClient, HttpParams } from '@angular/common/http';
+import {
+  takeUntilDestroyed,
+  toObservable,
+  toSignal,
+} from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+
+interface ZoneOption {
+  label: string;
+  value: string;
+  name: string;
+}
+
+interface RouteOption {
+  label: string;
+  value: string;
+  parent_id?: string;
+}
+
+interface Store {
+  id: string;
+  nombre: string;
+  direccion?: string | null;
+  latitud?: number | null;
+  longitud?: number | null;
+  activo: boolean;
+  zona_id?: string | null;
+  zona?: string | null;
+  ruta_id?: string | null;
+  ruta_nombre?: string | null;
+  created_at?: string;
+}
+
+interface ZoneRow {
+  id: string;
+  value?: string;
+  name?: string;
+}
+
+interface RouteRow {
+  id: string;
+  value: string;
+  parent_id?: string;
+}
 
 @Component({
   selector: 'app-stores',
@@ -35,7 +87,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './stores.component.html',
-  styleUrls: ['./stores.component.css']
+  styleUrls: ['./stores.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class StoresComponent implements OnInit {
   private adminCatalogsService = inject(AdminCatalogsService);
@@ -44,48 +97,63 @@ export class StoresComponent implements OnInit {
   private http = inject(HttpClient);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
+  private destroyRef = inject(DestroyRef);
 
   loading = signal(false);
-  stores = signal<any[]>([]);
-  zones = signal<any[]>([]);
-  routes = signal<any[]>([]);
-  allRoutes = signal<any[]>([]);
-  selectedZone = signal<any | null>(null);
-  selectedRoute = signal<any | null>(null);
-  searchQuery = signal('');
+  deletingId = signal<string | null>(null);
+  saving = signal(false);
+  stores = signal<Store[]>([]);
+  zones = signal<ZoneOption[]>([]);
+  routes = signal<RouteOption[]>([]);
+  allRoutes = signal<RouteOption[]>([]);
+  selectedZoneId = signal<string | null>(null);
+  selectedRouteId = signal<string | null>(null);
+  searchQuery = signal<string>('');
 
-  editStoreDialog = signal(false);
-  editingStore = signal<any | null>(null);
+  editDialogVisible = signal(false);
+  editingStore = signal<Store | null>(null);
   editZonaId = signal<string | null>(null);
   editRutaId = signal<string | null>(null);
 
-  availableRoutes = computed(() => {
+  private debouncedSearch = toSignal(
+    toObservable(this.searchQuery).pipe(
+      debounceTime(250),
+      distinctUntilChanged(),
+    ),
+    { initialValue: '' },
+  );
+
+  readonly availableEditRoutes = computed(() => {
     const zonaId = this.editZonaId();
     if (!zonaId) return [];
-    return this.allRoutes().filter(r => r.parent_id === zonaId);
+    return this.allRoutes().filter((r) => r.parent_id === zonaId);
   });
 
-  hasGlobalScope = computed(() =>
-    this.perms.can('read', 'reports_global') || this.perms.can('read', 'reports_team')
+  readonly canSeeAllZones = computed(
+    () =>
+      this.perms.can('read', 'reports_global') ||
+      this.perms.can('read', 'reports_team'),
   );
 
-  userHasZone = computed(() => {
+  readonly userHasFixedZone = computed(() => {
     const zona = this.authService.user()?.zona;
-    return !!zona && !this.hasGlobalScope();
+    return !!zona && !this.canSeeAllZones();
   });
 
-  userZoneName = computed(() => this.authService.user()?.zona || '');
-
-  showAllStores = computed(() =>
-    !this.selectedZone() && this.hasGlobalScope()
+  readonly showAllStoresTag = computed(
+    () => !this.selectedZoneId() && this.canSeeAllZones(),
   );
 
-  filteredStores = computed(() => {
-    const q = this.searchQuery().toLowerCase().trim();
-    if (!q) return this.stores();
-    return this.stores().filter(s =>
-      (s.nombre || '').toLowerCase().includes(q) ||
-      (s.direccion || '').toLowerCase().includes(q)
+  readonly filteredStores = computed(() => {
+    const q = this.debouncedSearch().toLowerCase().trim();
+    const list = this.stores();
+    if (!q) return list;
+    return list.filter(
+      (s) =>
+        (s.nombre || '').toLowerCase().includes(q) ||
+        (s.direccion || '').toLowerCase().includes(q) ||
+        (s.zona || '').toLowerCase().includes(q) ||
+        (s.ruta_nombre || '').toLowerCase().includes(q),
     );
   });
 
@@ -97,239 +165,281 @@ export class StoresComponent implements OnInit {
     this.loadZones();
   }
 
-  getRoutesForStore(store: any): any[] {
-    return this.allRoutes().filter(r => r.parent_id === store.zona_id);
+  getRoutesForStore(store: Store): RouteOption[] {
+    return this.allRoutes().filter((r) => r.parent_id === store.zona_id);
   }
 
-  private loadAllRoutes() {
-    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas`).subscribe({
-      next: (routes) => {
-        this.allRoutes.set(routes.map(r => ({ label: r.value, value: r.id, parent_id: r.parent_id })));
-      },
-      error: () => {
-        this.allRoutes.set([]);
-      }
-    });
+  private loadAllRoutes(): void {
+    this.http
+      .get<RouteRow[]>(`${environment.apiUrl}/catalogs/rutas`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (routes) => {
+          this.allRoutes.set(
+            routes.map((r) => ({
+              label: r.value,
+              value: r.id,
+              parent_id: r.parent_id,
+            })),
+          );
+        },
+        error: () => this.allRoutes.set([]),
+      });
   }
 
-  loadZones() {
+  private loadZones(): void {
     const userZone = this.authService.user()?.zona;
-    this.adminCatalogsService.getCatalog('zonas').subscribe(zones => {
-      const zoneOptions = zones.map(z => ({ label: z.name || z.value, value: z.id, name: z.name || z.value }));
-      this.zones.set(zoneOptions);
+    this.adminCatalogsService
+      .getCatalog('zonas')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (zones: ZoneRow[]) => {
+          const zoneOptions: ZoneOption[] = zones.map((z) => ({
+            label: z.name || z.value || '',
+            value: z.id,
+            name: z.name || z.value || '',
+          }));
+          this.zones.set(zoneOptions);
 
-      if (userZone && !this.hasGlobalScope()) {
-        const match = zoneOptions.find(z =>
-          z.name?.toUpperCase() === userZone.toUpperCase() ||
-          z.label?.toUpperCase() === userZone.toUpperCase()
-        );
-        if (match) {
-          this.selectedZone.set(match);
-          this.selectedRoute.set(null);
-          this.loadRoutes(match.value);
-          this.loadStores(match.value, undefined);
-        } else {
+          if (userZone && !this.canSeeAllZones()) {
+            const match = zoneOptions.find(
+              (z) =>
+                z.name?.toUpperCase() === userZone.toUpperCase() ||
+                z.label?.toUpperCase() === userZone.toUpperCase(),
+            );
+            if (match) {
+              this.selectedZoneId.set(match.value);
+              this.selectedRouteId.set(null);
+              this.loadRoutes(match.value);
+              this.loadStores(match.value);
+            } else {
+              this.messageService.add({
+                severity: 'warn',
+                summary: 'Zona no encontrada',
+                detail: `No se encontró la zona "${userZone}" en el catálogo.`,
+              });
+            }
+          } else if (this.canSeeAllZones()) {
+            this.loadAllStores();
+          }
+
+          this.initialized = true;
+        },
+        error: () => {
+          this.initialized = true;
           this.messageService.add({
-            severity: 'warn',
-            summary: 'Zona No Encontrada',
-            detail: `No se encontró la zona "${userZone}" en el catálogo`
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar las zonas.',
           });
-        }
-      } else if (this.hasGlobalScope()) {
-        this.loadAllStores();
-      }
-
-      this.initialized = true;
-    });
+        },
+      });
   }
 
-  onZoneChange() {
+  onZoneChange(zoneId: string | null): void {
+    this.selectedZoneId.set(zoneId);
     if (!this.initialized) return;
-    const zone = this.selectedZone();
-    if (!zone && this.hasGlobalScope()) {
+
+    if (!zoneId && this.canSeeAllZones()) {
       this.routes.set([]);
-      this.selectedRoute.set(null);
+      this.selectedRouteId.set(null);
       this.loadAllStores();
       return;
     }
-    if (!zone) {
+    if (!zoneId) {
       this.routes.set([]);
-      this.selectedRoute.set(null);
+      this.selectedRouteId.set(null);
       this.stores.set([]);
       return;
     }
 
-    this.selectedRoute.set(null);
-    this.loadRoutes(zone.value);
-    this.loadStores(zone.value, undefined);
+    this.selectedRouteId.set(null);
+    this.loadRoutes(zoneId);
+    this.loadStores(zoneId);
   }
 
-  onRouteChange() {
-    const zone = this.selectedZone();
-    if (!this.selectedRoute() && this.hasGlobalScope()) {
-      this.loadAllStores();
+  onRouteChange(routeId: string | null): void {
+    this.selectedRouteId.set(routeId);
+    const zoneId = this.selectedZoneId();
+
+    if (!zoneId) {
+      if (this.canSeeAllZones()) this.loadAllStores();
       return;
     }
-    if (!zone) return;
-    const route = this.selectedRoute();
-    this.loadStores(zone.value, route?.value);
+
+    this.loadStores(zoneId, routeId ?? undefined);
   }
 
-  confirmDelete(store: any) {
+  onSearchChange(value: string): void {
+    this.searchQuery.set(value);
+  }
+
+  confirmDelete(store: Store): void {
+    if (this.deletingId() === store.id) return;
     this.confirmationService.confirm({
-      message: `¿Estás seguro de eliminar la tienda "${store.nombre}"? Esta acción no se puede deshacer.`,
+      message: `¿Estás seguro de eliminar la tienda "${store.nombre}"? Se ocultará del listado pero se mantendrá el historial de visitas.`,
       header: 'Confirmar Eliminación',
       icon: 'pi pi-exclamation-triangle',
       acceptLabel: 'Sí, eliminar',
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-danger',
-      accept: () => {
-        this.deleteStore(store);
-      },
-      reject: () => {
-        this.messageService.add({
-          severity: 'info',
-          summary: 'Cancelado',
-          detail: 'Eliminación cancelada.',
-        });
-      }
+      accept: () => this.deleteStore(store),
     });
   }
 
-  private deleteStore(store: any) {
-    this.http.delete(`${environment.apiUrl}/stores/${store.id}`).subscribe({
-      next: () => {
-        this.stores.update(s => s.filter(st => st.id !== store.id));
-        this.messageService.add({
-          severity: 'success',
-          summary: 'Eliminado',
-          detail: `Tienda "${store.nombre}" eliminada correctamente.`,
-        });
-      },
-      error: (err) => {
-        const errorMsg = err?.error?.message || 'No se pudo eliminar la tienda.';
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: errorMsg,
-        });
-      }
-    });
+  private deleteStore(store: Store): void {
+    this.deletingId.set(store.id);
+    this.http
+      .delete(`${environment.apiUrl}/stores/${store.id}`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.stores.update((s) => s.filter((st) => st.id !== store.id));
+          this.deletingId.set(null);
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Eliminado',
+            detail: `Tienda "${store.nombre}" eliminada correctamente.`,
+          });
+        },
+        error: (err) => {
+          this.deletingId.set(null);
+          const detail =
+            err?.error?.message || 'No se pudo eliminar la tienda.';
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail,
+          });
+        },
+      });
   }
 
-  openEditDialog(store: any) {
+  openEditDialog(store: Store): void {
     this.editingStore.set(store);
     this.editZonaId.set(store.zona_id || null);
     this.editRutaId.set(store.ruta_id || null);
-    this.editStoreDialog.set(true);
+    this.editDialogVisible.set(true);
   }
 
-  onEditZoneChange() {
+  closeEditDialog(): void {
+    this.editDialogVisible.set(false);
+  }
+
+  onEditZoneChange(zonaId: string | null): void {
+    this.editZonaId.set(zonaId);
     this.editRutaId.set(null);
   }
 
-  confirmSave() {
-    const store = this.editingStore();
-    if (!store) return;
-
-    this.confirmationService.confirm({
-      message: `¿Guardar los cambios de zona y ruta para "${store.nombre}"?`,
-      header: 'Confirmar Cambios',
-      icon: 'pi pi-check-circle',
-      acceptLabel: 'Sí, guardar',
-      rejectLabel: 'Cancelar',
-      accept: () => this.saveStore(),
-    });
-  }
-
-  private saveStore() {
+  saveStore(): void {
     const store = this.editingStore();
     if (!store) return;
 
     const newZonaId = this.editZonaId();
     const newRutaId = this.editRutaId();
-    const oldZona = store.zona;
-    const oldRuta = store.ruta_nombre;
 
-    const zoneMatch = this.zones().find(z => z.value === newZonaId);
-    const routeMatch = newRutaId ? this.allRoutes().find(r => r.value === newRutaId) : null;
+    // No-op detection: si nada cambió, cerrar el dialog sin tocar el backend.
+    if (
+      (store.zona_id ?? null) === newZonaId &&
+      (store.ruta_id ?? null) === newRutaId
+    ) {
+      this.editDialogVisible.set(false);
+      return;
+    }
 
-    store.zona_id = newZonaId;
-    store.zona = zoneMatch?.label || null;
-    store.ruta_id = newRutaId;
-    store.ruta_nombre = routeMatch?.label || null;
-
-    this.http.put(`${environment.apiUrl}/stores/${store.id}`, {
-      zona_id: newZonaId,
-      ruta_id: newRutaId,
-    }).subscribe({
-      next: () => {
-        this.editStoreDialog.set(false);
-        this.messageService.add({
-          severity: 'success',
-          summary: 'Guardado',
-          detail: `Zona y ruta actualizadas para ${store.nombre}`,
-        });
-      },
-      error: () => {
-        store.zona = oldZona;
-        store.ruta_nombre = oldRuta;
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: `No se pudieron guardar los cambios de ${store.nombre}`,
-        });
-      }
-    });
+    this.saving.set(true);
+    this.http
+      .put<Store>(`${environment.apiUrl}/stores/${store.id}`, {
+        zona_id: newZonaId,
+        ruta_id: newRutaId,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          // Usar la respuesta del backend como fuente de verdad — incluye
+          // zona resuelta y ruta_nombre actualizados.
+          this.stores.update((list) =>
+            list.map((s) => (s.id === store.id ? { ...s, ...updated } : s)),
+          );
+          this.saving.set(false);
+          this.editDialogVisible.set(false);
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Guardado',
+            detail: `Zona y ruta actualizadas para ${store.nombre}.`,
+          });
+        },
+        error: (err) => {
+          this.saving.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail:
+              err?.error?.message ??
+              `No se pudieron guardar los cambios de ${store.nombre}.`,
+          });
+        },
+      });
   }
 
-  private loadAllStores() {
+  private loadAllStores(): void {
     this.loading.set(true);
-    this.http.get<any[]>(`${environment.apiUrl}/stores`).subscribe({
-      next: (data) => {
-        this.stores.set(data);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        console.error('Error loading stores:', err);
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: 'No se pudieron cargar las tiendas'
-        });
-        this.loading.set(false);
-      }
-    });
+    this.http
+      .get<Store[]>(`${environment.apiUrl}/stores`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => {
+          this.stores.set(data);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar las tiendas.',
+          });
+        },
+      });
   }
 
-  private loadRoutes(zoneId: string) {
+  private loadRoutes(zoneId: string): void {
     if (!zoneId) return;
-    this.adminCatalogsService.getRoutesByZone(zoneId).subscribe(routes => {
-      this.routes.set(routes.map(r => ({ label: r.value, value: r.id })));
-    });
+    this.adminCatalogsService
+      .getRoutesByZone(zoneId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (routes: RouteRow[]) => {
+          this.routes.set(
+            routes.map((r) => ({ label: r.value, value: r.id })),
+          );
+        },
+        error: () => this.routes.set([]),
+      });
   }
 
-  private loadStores(zoneId: string, rutaId?: string) {
+  private loadStores(zoneId: string, rutaId?: string): void {
     if (!zoneId) return;
     this.loading.set(true);
     let params = new HttpParams().set('zona_id', zoneId);
-    if (rutaId) {
-      params = params.set('ruta_id', rutaId);
-    }
-    this.http.get<any[]>(`${environment.apiUrl}/stores`, { params }).subscribe({
-      next: (data) => {
-        this.stores.set(data);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        console.error('Error loading stores:', err);
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: 'No se pudieron cargar las tiendas'
-        });
-        this.loading.set(false);
-      }
-    });
+    if (rutaId) params = params.set('ruta_id', rutaId);
+
+    this.http
+      .get<Store[]>(`${environment.apiUrl}/stores`, { params })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => {
+          this.stores.set(data);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar las tiendas.',
+          });
+        },
+      });
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable, signal, computed, inject, effect } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, tap, forkJoin, catchError, of, throwError, from, map, firstValueFrom } from 'rxjs';
+import { Observable, Subject, tap, forkJoin, catchError, of, throwError, from, map, firstValueFrom } from 'rxjs';
 import {
   VisitaSnapshot,
   RegistroExhibicion,
@@ -11,7 +11,16 @@ import {
 import { AuthService } from '../../../core/services/auth.service';
 import { OfflineDailyCaptureService } from '../../../core/services/offline-daily-capture.service';
 import { OfflineDatabaseService } from '../../../core/services/offline-database.service';
+import { buildVisitFormData } from '../../../core/http/visit-form-data';
+import { todayMx } from '../../../core/utils/mx-date';
 import { environment } from '../../../../environments/environment';
+import { calcularPuntosExhibicion } from '@megadulces/shared-scoring';
+
+const SIMULATED_GPS_COORDS = { lat: 19.7033, lng: -101.1949 }; // Morelia, Michoacán
+
+export type CaptureUserNotification =
+  | { kind: 'simulated-coords'; source: string }
+  | { kind: 'load-error'; summary: string; detail: string };
 
 @Injectable({ providedIn: 'root' })
 /**
@@ -25,6 +34,18 @@ export class DailyCaptureService {
   private offlineService = inject(OfflineDailyCaptureService);
   private offlineDb = inject(OfflineDatabaseService);
   private apiUrl = environment.apiUrl;
+
+  /**
+   * Stream de notificaciones para que el componente las muestre como toast.
+   * Se usa este patrón porque `MessageService` de PrimeNG vive a nivel de
+   * componente (no root), por lo que inyectarlo aquí causa NG0200 cíclico.
+   */
+  private _notifications$ = new Subject<CaptureUserNotification>();
+  readonly notifications$ = this._notifications$.asObservable();
+
+  private notifySimulatedCoords(source: string) {
+    this._notifications$.next({ kind: 'simulated-coords', source });
+  }
 
   // --- Master Data (Fetched from API) ---
   /** Catálogo de conceptos de exhibición */
@@ -88,19 +109,22 @@ export class DailyCaptureService {
   private _captures = signal<VisitaSnapshot[]>([]);
   readonly captures = this._captures.asReadonly();
 
-  /** Asignación actual del usuario */
+  /** Asignación del usuario para HOY (route_name, etc.) — banner del header. */
   private _currentAssignment = signal<any | null>(null);
   readonly currentAssignment = this._currentAssignment.asReadonly();
 
   /**
-   * Filtra las visitas realizadas hoy por el usuario actual
+   * Lista de visitas de hoy.
+   * El backend ya filtra por scope (admins ven todo, capturistas ven lo suyo)
+   * vía `userIdFilter` en daily-captures.controller. El frontend NO debe
+   * re-filtrar por user.sub porque deja a los admins viendo 0.
    * @returns Lista de visitas de hoy
    */
   readonly visitasHoy = computed(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const user = this.auth.user();
-    if (!user) return [];
-    return this._captures().filter((c) => c.fechaCaptura === today && c.userId === user.sub);
+    // "Hoy" en TZ MX para que coincida con `fechaCaptura` que el backend
+    // ya guarda como día calendario local del negocio.
+    const today = todayMx();
+    return this._captures().filter((c) => c.fechaCaptura === today);
   });
 
   // --- Computed Stats for Active Capture ---
@@ -150,79 +174,52 @@ export class DailyCaptureService {
    * @throws Error si no se puede capturar la ubicación GPS
    */
   async iniciarVisita(): Promise<boolean> {
-    console.log('[iniciarVisita] 🚀 Iniciando visita...');
-    console.log('[iniciarVisita] Estado inicial de GPS:', { latitud: this._latitud(), longitud: this._longitud() });
-    console.log('[iniciarVisita] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
-
     this._horaInicio.set(new Date().toISOString());
     this._activeExhibiciones.set([]);
     this._latitud.set(null);
     this._longitud.set(null);
 
-    // Intentar capturar ubicación al iniciar la visita (con reintentos)
     const MAX_RETRIES = 3;
     let gpsCapturado = false;
 
     for (let i = 0; i < MAX_RETRIES; i++) {
-      console.log(`[iniciarVisita] 📡 Intento ${i + 1}/${MAX_RETRIES} de capturar GPS...`);
       try {
         await this.capturarUbicacion();
-
-        // Verificar que se capturaron coordenadas válidas
         const lat = this._latitud();
         const lng = this._longitud();
-
-        console.log(`[iniciarVisita] 📍 Coordenadas después de intento ${i + 1}:`, { latitud: lat, longitud: lng });
-
         if (lat && lng && lat !== 0 && lng !== 0) {
-          console.log('[iniciarVisita] ✅ GPS capturado exitosamente (intento', i + 1, '):', lat, lng);
           gpsCapturado = true;
-          // Guardar última posición conocida en localStorage
           this.guardarUltimaPosicionConocida(lat, lng);
           break;
-        } else {
-          console.warn('[iniciarVisita] ⚠️ GPS capturado pero coordenadas inválidas (intento', i + 1, '):', lat, lng);
         }
-      } catch (error) {
-        console.warn('[iniciarVisita] ❌ Error capturando GPS (intento', i + 1, '):', error);
+      } catch {
+        // continúa reintentando
       }
     }
 
-    console.log('[iniciarVisita] Estado final de GPS después de reintentos:', { latitud: this._latitud(), longitud: this._longitud() });
-
     if (!gpsCapturado) {
-      console.error('[iniciarVisita] ❌ No se pudo capturar GPS después de', MAX_RETRIES, 'intentos');
-
-      // Intentar usar última posición conocida del localStorage
       const ultimaPosicion = this.obtenerUltimaPosicionConocida();
       if (ultimaPosicion) {
-        console.warn('[iniciarVisita] 🔧 Usando ÚLTIMA POSICIÓN CONOCIDA:', ultimaPosicion);
         this._latitud.set(ultimaPosicion.lat);
         this._longitud.set(ultimaPosicion.lng);
         return true;
       }
 
-      // Como último recurso, usar coordenadas simuladas cuando está offline
-      const isOffline = !navigator.onLine;
-      if (isOffline) {
-        const SIMULATED_COORDS = { lat: 19.7033, lng: -101.1949 };
-        console.warn('[iniciarVisita] 🔧 MODO OFFLINE: Usando coordenadas SIMULADAS (último recurso):', SIMULATED_COORDS);
-        this._latitud.set(SIMULATED_COORDS.lat);
-        this._longitud.set(SIMULATED_COORDS.lng);
+      if (!navigator.onLine) {
+        this.notifySimulatedCoords('iniciarVisita-offline');
+        this._latitud.set(SIMULATED_GPS_COORDS.lat);
+        this._longitud.set(SIMULATED_GPS_COORDS.lng);
         return true;
       }
 
-      // No permitir iniciar visita sin GPS cuando está online
       this._horaInicio.set(null);
       this._activeExhibiciones.set([]);
-      throw new Error('No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.');
+      throw new Error(
+        'No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.',
+      );
     }
 
-    console.log('[iniciarVisita] ✅ Visita iniciada con GPS:', { latitud: this._latitud(), longitud: this._longitud() });
-
-    // Detectar tienda cercana por GPS
     await this.detectarTiendaCercana();
-
     return true;
   }
 
@@ -232,18 +229,14 @@ export class DailyCaptureService {
     if (!lat || !lng) return;
 
     try {
-      const stores = await this.http.get<any[]>(
-        `${this.apiUrl}/stores/nearby?lat=${lat}&lng=${lng}&radius=${radius}`
-      ).toPromise();
-
+      const stores = await firstValueFrom(
+        this.http.get<any[]>(
+          `${this.apiUrl}/stores/nearby?lat=${lat}&lng=${lng}&radius=${radius}`,
+        ),
+      );
       this._nearbyStores.set(stores || []);
-      if (stores && stores.length > 0) {
-        this._detectedStore.set(stores[0]);
-      } else {
-        this._detectedStore.set(null);
-      }
-    } catch (err) {
-      console.warn('[detectarTiendaCercana] Error al buscar tiendas:', err);
+      this._detectedStore.set(stores && stores.length > 0 ? stores[0] : null);
+    } catch {
       this._nearbyStores.set([]);
       this._detectedStore.set(null);
     }
@@ -266,15 +259,12 @@ export class DailyCaptureService {
    */
   private guardarUltimaPosicionConocida(lat: number, lng: number): void {
     try {
-      const posicion = {
-        lat,
-        lng,
-        timestamp: new Date().toISOString()
-      };
-      localStorage.setItem('ultimaPosicionGPS', JSON.stringify(posicion));
-      console.log('[GPS] 💾 Última posición guardada en localStorage:', posicion);
-    } catch (error) {
-      console.error('[GPS] Error al guardar última posición:', error);
+      localStorage.setItem(
+        'ultimaPosicionGPS',
+        JSON.stringify({ lat, lng, timestamp: new Date().toISOString() }),
+      );
+    } catch {
+      /* localStorage lleno o bloqueado — ignorar */
     }
   }
 
@@ -285,23 +275,16 @@ export class DailyCaptureService {
   private obtenerUltimaPosicionConocida(): { lat: number; lng: number } | null {
     try {
       const data = localStorage.getItem('ultimaPosicionGPS');
-      if (data) {
-        const posicion = JSON.parse(data);
-        const edad = Date.now() - new Date(posicion.timestamp).getTime();
-        const MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
-
-        if (edad < MAX_AGE) {
-          console.log('[GPS] 📦 Última posición recuperada (edad:', Math.round(edad / 1000 / 60), 'minutos):', posicion);
-          return { lat: posicion.lat, lng: posicion.lng };
-        } else {
-          console.warn('[GPS] ⚠️ Última posición muy antigua (>24 horas), ignorando');
-          localStorage.removeItem('ultimaPosicionGPS');
-          return null;
-        }
+      if (!data) return null;
+      const posicion = JSON.parse(data);
+      const edad = Date.now() - new Date(posicion.timestamp).getTime();
+      const MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
+      if (edad < MAX_AGE) {
+        return { lat: posicion.lat, lng: posicion.lng };
       }
+      localStorage.removeItem('ultimaPosicionGPS');
       return null;
-    } catch (error) {
-      console.error('[GPS] Error al recuperar última posición:', error);
+    } catch {
       return null;
     }
   }
@@ -314,88 +297,34 @@ export class DailyCaptureService {
   capturarUbicacion(): Promise<{ lat: number; lng: number; precision: number }> {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
-        console.error('[GPS] Geolocalización no soportada en este navegador');
-        reject('Geolocation not supported');
+        reject(new Error('Geolocation not supported'));
         return;
       }
 
-      console.log('[GPS] Iniciando captura de ubicación...');
-
-      // Coordenadas simuladas para desarrollo (Morelia, Michoacán)
-      const SIMULATED_GPS = false; // Cambiar a true para usar coordenadas simuladas
-      const SIMULATED_COORDS = {
-        lat: 19.7033,
-        lng: -101.1949,
-        precision: 15
+      const applyAndResolve = (
+        pos: GeolocationPosition,
+        resolveFn: typeof resolve,
+      ) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const precision = pos.coords.accuracy;
+        this._latitud.set(lat);
+        this._longitud.set(lng);
+        resolveFn({ lat, lng, precision });
       };
 
-      if (SIMULATED_GPS) {
-        console.warn('[GPS] 🔧 Usando coordenadas SIMULADAS (modo desarrollo)');
-        this._latitud.set(SIMULATED_COORDS.lat);
-        this._longitud.set(SIMULATED_COORDS.lng);
-        resolve(SIMULATED_COORDS);
-        return;
-      }
-
-      // Intentar con alta precisión primero (timeout aumentado a 30s)
+      // Intento 1: alta precisión (móvil con GPS activo).
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          const precision = pos.coords.accuracy;
-
-          this._latitud.set(lat);
-          this._longitud.set(lng);
-
-          console.log('[GPS] ✅ Señal GPS recuperada exitosamente:', {
-            latitud: lat,
-            longitud: lng,
-            precision: precision + ' metros',
-            timestamp: new Date(pos.timestamp).toISOString()
-          });
-
-          resolve({ lat, lng, precision });
-        },
-        (err) => {
-          console.warn('[GPS] ⚠️ Error con GPS de alta precisión:', err.message, '- Código:', err.code);
-          console.log('[GPS] Intentando con baja precisión...');
-
-          // Intentar con baja precisión como fallback (timeout aumentado a 20s)
+        (pos) => applyAndResolve(pos, resolve),
+        () => {
+          // Fallback baja precisión (caché reciente si existe).
           navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              const lat = pos.coords.latitude;
-              const lng = pos.coords.longitude;
-              const precision = pos.coords.accuracy;
-
-              this._latitud.set(lat);
-              this._longitud.set(lng);
-
-              console.log('[GPS] ✅ Señal GPS recuperada (baja precisión):', {
-                latitud: lat,
-                longitud: lng,
-                precision: precision + ' metros',
-                modo: 'baja precisión'
-              });
-
-              resolve({ lat, lng, precision });
-            },
-            (err2) => {
-              console.error('[GPS] ❌ Fallo absoluto de GPS:', err2.message, '- Código:', err2.code);
-              console.warn('[GPS] 💡 Tip: Activa el GPS del navegador o usa coordenadas simuladas cambiando SIMULATED_GPS=true en el código');
-              reject(err2);
-            },
-            {
-              enableHighAccuracy: false,
-              timeout: 20000, // Aumentado de 10s a 20s
-              maximumAge: 60000
-            }
+            (pos) => applyAndResolve(pos, resolve),
+            (err2) => reject(err2),
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 },
           );
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 30000, // Aumentado de 20s a 30s
-          maximumAge: 0
-        }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
       );
     });
   }
@@ -406,43 +335,27 @@ export class DailyCaptureService {
    * @param registro Datos de la exhibición sin ID, puntuación ni hora
    */
   addExhibicion(registro: Omit<RegistroExhibicion, 'id' | 'puntuacionCalculada' | 'horaRegistro'>) {
-    console.log('[addExhibicion] Called with:', registro);
-
-    // 1. Resolve objects from Catalogs (Source of Truth)
-    const ubi = this._ubicaciones().find((u) => u.id === registro.ubicacionId);
-    const con = this._conceptos().find((c) => c.id === registro.conceptoId);
-    const niv = this._niveles().find(n => n.value.toLowerCase() === registro.nivelEjecucion?.toLowerCase());
-
-    console.log('[addExhibicion] Catalog lookup:');
-    console.log('  - ubicaciones available:', this._ubicaciones());
-    console.log('  - conceptos available:', this._conceptos());
-    console.log('  - niveles available:', this._niveles());
-    console.log('  - niveles structure:', this._niveles().map(n => ({ value: n.value, puntuacion: n.puntuacion })));
-    console.log('  - registro.nivelEjecucion:', registro.nivelEjecucion);
-    console.log('  - ubi found:', ubi);
-    console.log('  - con found:', con);
-    console.log('  - niv found:', niv);
-
-    // 2. Base points from Catalog Items
-    const puntosPosicion = Number(ubi?.puntuacion) || 0;
-    const puntosConcepto = Number(con?.puntuacion) || 0;
-    const multiplicador = Number(niv?.puntuacion) || 1; // Niveles ahora usan valores decimales: 1.0, 0.7, 0.4, 0.2
-
-    console.log('[addExhibicion] Base points:');
-    console.log('  - puntosPosicion:', puntosPosicion);
-    console.log('  - puntosConcepto:', puntosConcepto);
-    console.log('  - multiplicador:', multiplicador);
-
-    // 3. Sumar puntos de productos marcados (legacy aux, no contribuye al score principal)
-    if (registro.productosMarcados && registro.productosMarcados.length > 0) {
-      // (Reservado para analíticas secundarias futuras, no afecta el score principal)
+    // Defensa: nivel es obligatorio. Sin él, score = ubicacion × concepto × 1
+    // (falsamente Alto).
+    if (!registro.nivelEjecucion || !registro.nivelEjecucionId) {
+      throw new Error(
+        'Exhibición sin nivel de ejecución. Debe completar paso 4 del wizard.',
+      );
     }
 
-    // 4. Calcular puntuación total (Fórmula: Concepto * Ubicacion * Nivel)
-    const puntuacionCalculada = Math.round(puntosConcepto * puntosPosicion * multiplicador);
+    const ubi = this._ubicaciones().find((u) => u.id === registro.ubicacionId);
+    const con = this._conceptos().find((c) => c.id === registro.conceptoId);
+    const niv = this._niveles().find(
+      (n) => n.value.toLowerCase() === registro.nivelEjecucion?.toLowerCase(),
+    );
 
-    console.log('[addExhibicion] Final calculation:');
-    console.log('  - puntuacionCalculada:', puntuacionCalculada);
+    const puntuacionCalculada = Math.round(
+      calcularPuntosExhibicion({
+        posicionPuntuacion: Number(ubi?.puntuacion) || 0,
+        conceptoPuntuacion: Number(con?.puntuacion) || 0,
+        nivelPuntuacion: Number(niv?.puntuacion) || 1,
+      }),
+    );
 
     const exhibicion: RegistroExhibicion = {
       ...registro,
@@ -456,8 +369,7 @@ export class DailyCaptureService {
   }
 
   /**
-   * Calcula el score de una exhibición usando la misma fórmula que el backend.
-   * Fórmula: concepto.puntuacion × ubicacion.puntuacion × nivel.puntuacion
+   * Calcula el score de una exhibición usando la fórmula canónica compartida.
    * Se usa en modo offline cuando el backend no está disponible.
    */
   calculateExhibicionScoreOffline(
@@ -469,11 +381,13 @@ export class DailyCaptureService {
     const ubicacion = this._ubicaciones().find(u => u.id === ubicacionId);
     const nivel = this._niveles().find(n => n.id === nivelEjecucionId);
 
-    const puntosConcepto = Number(concepto?.puntuacion) || 0;
-    const puntosPosicion = Number(ubicacion?.puntuacion) || 0;
-    const factorNivel = Number(nivel?.puntuacion) || 1;
-
-    return Math.round(puntosConcepto * puntosPosicion * factorNivel);
+    return Math.round(
+      calcularPuntosExhibicion({
+        posicionPuntuacion: Number(ubicacion?.puntuacion) || 0,
+        conceptoPuntuacion: Number(concepto?.puntuacion) || 0,
+        nivelPuntuacion: Number(nivel?.puntuacion) || 1,
+      }),
+    );
   }
 
   /**
@@ -534,8 +448,6 @@ export class DailyCaptureService {
    * @returns Observable con el resultado de la operación
    */
   saveCapturaTotal(): Observable<any> {
-    console.log('[saveCapturaTotal] Estado de conexión:', navigator.onLine ? 'online' : 'offline');
-
     const s = this.stats();
     const user = this.auth.user();
     if (!user) return of(null);
@@ -545,41 +457,31 @@ export class DailyCaptureService {
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
     const customFolio = `${user.username.charAt(0).toUpperCase()}-${hh}${mm}${ss}`;
-    // Usar la fecha de inicio de la visita para fechaCaptura (extraer del timestamp ISO)
     const fechaInicio = this._horaInicio()!;
     const localDateStr = fechaInicio.split('T')[0];
 
     const latitud = this._latitud();
     const longitud = this._longitud();
 
-    console.log('[saveCapturaTotal] 📤 Enviando datos al backend:', {
-      folio: customFolio,
-      latitud: latitud,
-      longitud: longitud,
-      totalExhibiciones: s.totalExhibiciones,
-      puntuacionTotal: s.puntuacionTotal,
-      horaInicio: this._horaInicio(),
-      horaFin: d.toISOString()
-    });
-
-    // Validar que tenemos coordenadas válidas
-    if (!latitud || !longitud || latitud === 0 || longitud === 0) {
-      console.warn('[saveCapturaTotal] ⚠️ GPS no disponible o inválido:', { latitud, longitud });
-      console.warn('[saveCapturaTotal] 💡 El GPS debería haberse capturado al iniciar la visita');
-    } else {
-      console.log('[saveCapturaTotal] ✅ GPS disponible y válido:', { latitud, longitud });
+    // Sin coordenadas válidas no enviamos: `0, 0` es el Golfo de Guinea y
+    // contamina reports/mapas. La defensa en `iniciarVisita` ya debería
+    // garantizarlas, este es el último cinturón.
+    if (!latitud || !longitud) {
+      return throwError(
+        () =>
+          new Error(
+            'No hay ubicación GPS válida para esta visita. Re-inicia la visita capturando GPS antes de guardar.',
+          ),
+      );
     }
 
     const store = this._detectedStore();
-
-    // Copiar rangoCompra de visita a cada exhibición
     const rangoCompraVisita = this._visitaRangoCompra();
-    const exhibicionesConRango = this._activeExhibiciones().map(ex => ({
+    const exhibicionesConRango = this._activeExhibiciones().map((ex) => ({
       ...ex,
-      rangoCompra: rangoCompraVisita
+      rangoCompra: rangoCompraVisita,
     }));
 
-    // Si estamos offline, usar el cálculo local del score (misma fórmula que el backend)
     const isOffline = !navigator.onLine;
     const puntuacionTotal = isOffline
       ? this.calculateVisitScoreOffline()
@@ -599,38 +501,21 @@ export class DailyCaptureService {
       horaFin: d.toISOString(),
       exhibiciones: exhibicionesConRango,
       stats: statsForPayload,
-      latitud: latitud || 0,
-      longitud: longitud || 0,
+      latitud,
+      longitud,
       store_id: store?.id || null,
-      _offline: isOffline,
+      // Nota: NO enviamos `_offline` al backend — lo añadimos solo al
+      // response del offline-catch para que el componente lo identifique.
     };
 
-    console.log('[saveCapturaTotal] 📡 POST a /daily-captures con payload:', JSON.stringify(payload, null, 2));
-    console.log('[saveCapturaTotal] 🧮 Score calculation:', {
-      mode: isOffline ? 'OFFLINE (frontend)' : 'ONLINE (backend recalculate)',
-      puntuacionTotal,
-      exhibiciones: exhibicionesConRango.map(ex => ({
-        concepto: ex.conceptoId,
-        ubicacion: ex.ubicacionId,
-        nivel: ex.nivelEjecucion,
-        nivelId: ex.nivelEjecucionId,
-        score: this.calculateExhibicionScoreOffline(ex.conceptoId, ex.ubicacionId, ex.nivelEjecucionId),
-      })),
-    });
+    // Multipart en lugar de JSON+base64: ahorra ~25% de wire al evitar la
+    // codificación base64 de las fotos (cada byte binario pasa de 1 byte
+    // a ~1.33 bytes como string). El backend acepta ambos formatos, pero
+    // multipart es el preferido para el flujo online.
+    const formData = buildVisitFormData(payload);
 
-    return this.http.post<any>(`${this.apiUrl}/daily-captures`, payload).pipe(
+    return this.http.post<any>(`${this.apiUrl}/daily-captures`, formData).pipe(
       tap((res: any) => {
-        console.log('[saveCapturaTotal] ✅ Respuesta del backend:', res);
-        console.log('[saveCapturaTotal] 💾 Datos guardados en BD:', {
-          id: res.id,
-          folio: res.folio,
-          latitud: res.latitud,
-          longitud: res.longitud,
-          fecha: res.fecha,
-          hora_inicio: res.hora_inicio
-        });
-        console.log('[saveCapturaTotal] Stats in response:', res.stats);
-
         const parsedRes: VisitaSnapshot = {
           folio: res.folio,
           userId: res.user_id,
@@ -639,69 +524,56 @@ export class DailyCaptureService {
           horaFin: res.hora_fin || res.horaFin,
           capturedBy: res.captured_by_username || user?.username || 'Sistema',
           zona: res.zona_captura,
-          exhibiciones: typeof res.exhibiciones === 'string' ? JSON.parse(res.exhibiciones) : (res.exhibiciones || []),
-          stats: typeof res.stats === 'string' ? JSON.parse(res.stats) : (res.stats || {})
+          exhibiciones:
+            typeof res.exhibiciones === 'string'
+              ? JSON.parse(res.exhibiciones)
+              : res.exhibiciones || [],
+          stats:
+            typeof res.stats === 'string'
+              ? JSON.parse(res.stats)
+              : res.stats || {},
         };
-
-        console.log('[saveCapturaTotal] Parsed stats:', parsedRes.stats);
 
         this._captures.update((curr) => [parsedRes, ...curr]);
         this.clearActiveState();
       }),
       catchError((error) => {
-        console.error('[saveCapturaTotal] ❌ Error al enviar al backend:', error);
-        console.error('[saveCapturaTotal] Error details:', {
-          status: error.status,
-          statusText: error.statusText,
-          message: error.message,
-          errorType: error.error?.type || 'unknown'
-        });
-
-        // Detectar si es error de red (offline)
-        const isNetworkError = !error.status || error.status === 0 || error.message?.includes('NetworkError') || error.message?.includes('ERR_INTERNET_DISCONNECTED');
+        // Detectar error de red: status 0 (cors/network) o offline conocido.
+        const isNetworkError = !error.status || error.status === 0;
 
         if (isNetworkError) {
-          console.warn('[saveCapturaTotal] 📶 Detectado error de red, intentando guardar offline...');
-          console.log('[saveCapturaTotal] Coordenadas actuales:', { latitud: this._latitud(), longitud: this._longitud() });
-          console.log('[saveCapturaTotal] Coordenadas en payload:', { latitud: payload.latitud, longitud: payload.longitud });
-
-          // Recuperar coordenadas de localStorage si están null
-          let latitud = payload.latitud || this._latitud() || null;
-          let longitud = payload.longitud || this._longitud() || null;
-
-          if (!latitud || !longitud || latitud === 0 || longitud === 0) {
+          // Recuperar coordenadas de localStorage si payload llegó sin ellas
+          // (no debería pasar tras la validación arriba, pero defensa extra).
+          let lat = payload.latitud || this._latitud();
+          let lng = payload.longitud || this._longitud();
+          if (!lat || !lng) {
             const ultimaPosicion = this.obtenerUltimaPosicionConocida();
             if (ultimaPosicion) {
-              console.warn('[saveCapturaTotal] 🔧 Recuperando coordenadas de localStorage:', ultimaPosicion);
-              latitud = ultimaPosicion.lat;
-              longitud = ultimaPosicion.lng;
+              lat = ultimaPosicion.lat;
+              lng = ultimaPosicion.lng;
             } else {
-              // Coordenadas simuladas como último recurso
-              const SIMULATED_COORDS = { lat: 19.7033, lng: -101.1949 };
-              console.warn('[saveCapturaTotal] 🔧 Usando coordenadas SIMULADAS:', SIMULATED_COORDS);
-              latitud = SIMULATED_COORDS.lat;
-              longitud = SIMULATED_COORDS.lng;
+              this.notifySimulatedCoords('saveCapturaTotal');
+              lat = SIMULATED_GPS_COORDS.lat;
+              lng = SIMULATED_GPS_COORDS.lng;
             }
           }
 
-          // Guardar offline con coordenadas recuperadas
-          return from(this.offlineService.guardarCapturaOffline(
-            store?.id ?? 'default',
-            user.sub,
-            {
-              horaInicio: payload.horaInicio,
-              horaFin: payload.horaFin,
-              exhibiciones: payload.exhibiciones,
-              stats: payload.stats,
-              latitud: latitud,
-              longitud: longitud,
-              precision: 20
-            }
-          )).pipe(
-            tap((result) => {
-              console.log('[saveCapturaTotal] ✅ Visita guardada offline:', result);
-
-              // Crear una respuesta simulada para mantener consistencia
+          return from(
+            this.offlineService.guardarCapturaOffline(
+              store?.id ?? 'default',
+              user.sub,
+              {
+                horaInicio: payload.horaInicio,
+                horaFin: payload.horaFin,
+                exhibiciones: payload.exhibiciones,
+                stats: payload.stats,
+                latitud: lat,
+                longitud: lng,
+                precision: 20,
+              },
+            ),
+          ).pipe(
+            tap(() => {
               const offlineRes: VisitaSnapshot = {
                 folio: `${customFolio}-OFFLINE`,
                 userId: user.sub,
@@ -711,47 +583,57 @@ export class DailyCaptureService {
                 capturedBy: user.username,
                 zona: 'Offline',
                 exhibiciones: payload.exhibiciones,
-                stats: payload.stats
+                stats: payload.stats,
+                _offline: true,
               };
-
               this._captures.update((curr) => [offlineRes, ...curr]);
               this.clearActiveState();
             }),
-            map(() => {
-              // Retornar un objeto simulado para que el componente funcione
-              return {
-                folio: `${customFolio}-OFFLINE`,
-                user_id: user.sub,
-                fecha: localDateStr,
-                hora_inicio: payload.horaInicio,
-                hora_fin: payload.horaFin,
-                captured_by_username: user.username,
-                zona_captura: 'Offline',
-                exhibiciones: payload.exhibiciones,
-                stats: payload.stats,
-                latitud: payload.latitud,
-                longitud: payload.longitud,
-                _offline: true // Flag para identificar visitas offline
-              } as any;
-            }),
-            catchError((offlineError) => {
-              console.error('[saveCapturaTotal] ❌ Error también al guardar offline:', offlineError);
-              return throwError(() => new Error(`Error de red y fallo al guardar offline: ${offlineError.message}`));
-            })
+            map(
+              () =>
+                ({
+                  folio: `${customFolio}-OFFLINE`,
+                  user_id: user.sub,
+                  fecha: localDateStr,
+                  hora_inicio: payload.horaInicio,
+                  hora_fin: payload.horaFin,
+                  captured_by_username: user.username,
+                  zona_captura: 'Offline',
+                  exhibiciones: payload.exhibiciones,
+                  stats: payload.stats,
+                  latitud: payload.latitud,
+                  longitud: payload.longitud,
+                  _offline: true,
+                }) as any,
+            ),
+            catchError((offlineError) =>
+              throwError(
+                () =>
+                  new Error(
+                    `Error de red y fallo al guardar offline: ${offlineError.message}`,
+                  ),
+              ),
+            ),
           );
         }
 
-        // Si no es error de red, propagar el error
         return throwError(() => error);
-      })
+      }),
     );
   }
 
+  private _todayCapturesInFlight = false;
   loadTodayCaptures() {
-    const today = new Date().toISOString().split('T')[0];
+    if (this._todayCapturesInFlight) return;
+    this._todayCapturesInFlight = true;
+    // "Hoy" en TZ MX — coincide con la query del backend que ahora también
+    // evalúa DATE() en MX. Antes (UTC) el filtro se "movía" al día siguiente
+    // a partir de las 18:00 MX y la lista quedaba vacía.
+    const today = todayMx();
     this.http.get<any[]>(`${this.apiUrl}/daily-captures?fecha=${today}`).subscribe({
-        next: (data: any[]) => {
-        const parsedData = data.map(item => ({
+      next: (data: any[]) => {
+        try {
+          const parsedData = data.map((item) => ({
             folio: item.folio,
             userId: item.user_id,
             fechaCaptura: this.formatDate(item.fecha || item.fechaCaptura),
@@ -759,35 +641,59 @@ export class DailyCaptureService {
             horaFin: item.hora_fin || item.horaFin,
             capturedBy: item.captured_by_username || 'Sistema',
             zona: item.zona_captura,
-            exhibiciones: typeof item.exhibiciones === 'string' ? JSON.parse(item.exhibiciones) : (item.exhibiciones || []),
-            stats: typeof item.stats === 'string' ? JSON.parse(item.stats) : (item.stats || {})          }));
+            exhibiciones:
+              typeof item.exhibiciones === 'string'
+                ? JSON.parse(item.exhibiciones)
+                : item.exhibiciones || [],
+            stats:
+              typeof item.stats === 'string'
+                ? JSON.parse(item.stats)
+                : item.stats || {},
+          }));
           this._captures.set(parsedData);
-        },
-      error: (err) => console.error('Error fetching visits from server', err)
-      });
+        } catch {
+          /* corrupt JSON en JSONB — ignorar para no romper la vista */
+        } finally {
+          this._todayCapturesInFlight = false;
+        }
+      },
+      error: () => {
+        this._todayCapturesInFlight = false;
+        this._notifications$.next({
+          kind: 'load-error',
+          summary: 'No se pudieron cargar las visitas de hoy',
+          detail: 'Verifica tu conexión e intenta refrescar la página.',
+        });
+      },
+    });
   }
 
   loadTodayAssignment() {
     const user = this.auth.user();
     if (!user) return;
-
     const day = new Date().getDay();
-    const dayOfWeek = day === 0 ? 7 : day; // 1=Mon, 7=Sun
-
-    this.http.get<any[]>(`${this.apiUrl}/daily-assignments?user_id=${user.sub}&day_of_week=${dayOfWeek}`)
+    const dayOfWeek = day === 0 ? 7 : day; // 1=Lun, 7=Dom
+    this.http
+      .get<any[]>(
+        `${this.apiUrl}/daily-assignments?user_id=${user.sub}&day_of_week=${dayOfWeek}`,
+      )
       .subscribe({
         next: (data) => {
-          if (data && data.length > 0) {
-            this._currentAssignment.set(data[0]);
-          } else {
-            this._currentAssignment.set(null);
-          }
+          this._currentAssignment.set(data && data.length > 0 ? data[0] : null);
         },
-        error: (err) => console.error('Error loading today assignment', err)
+        error: () => {
+          /* sin asignación visible si falla — no es crítico */
+        },
       });
   }
 
+  private _masterDataInFlight = false;
   loadMasterData() {
+    // Dedup: el `effect()` del constructor y `refreshAll()` pueden disparar
+    // esto en paralelo al cargar el componente.
+    if (this._masterDataInFlight) return;
+    this._masterDataInFlight = true;
+
     forkJoin({
       conceptos: this.http.get<any[]>(`${this.apiUrl}/catalogs/conceptos`),
       ubicaciones: this.http.get<any[]>(`${this.apiUrl}/catalogs/ubicaciones`),
@@ -802,10 +708,9 @@ export class DailyCaptureService {
             id: c.id,
             nombre: c.value,
             puntuacion: c.puntuacion,
-            icono: c.icono
+            icono: c.icono,
           })),
         );
-
         this._ubicaciones.set(
           res.ubicaciones.map((u) => ({
             id: u.id,
@@ -813,9 +718,11 @@ export class DailyCaptureService {
             puntuacion: u.puntuacion,
           })),
         );
+        this._masterDataInFlight = false;
       },
-      error: (err) =>
-        console.error('Error loading master data from backend', err),
+      error: () => {
+        this._masterDataInFlight = false;
+      },
     });
 
     this.loadPlanogramData();
@@ -839,42 +746,41 @@ export class DailyCaptureService {
     try {
       const cached = await this.offlineDb.getCatalogo('planograma');
       const serverVersion = await firstValueFrom(
-        this.http.get<{ version: string }>(`${this.apiUrl}/planograms/brands/version`)
+        this.http.get<{ version: string }>(
+          `${this.apiUrl}/planograms/brands/version`,
+        ),
       );
 
-      const serverTime = serverVersion?.version ? new Date(serverVersion.version).getTime() : -1; // -1 para forzar descarga si version es null
-      const cachedTime = cached?.version ? new Date(cached.version).getTime() : 0;
-
-      console.log('[loadPlanogramData] Server version:', serverVersion?.version, 'Server time:', serverTime);
-      console.log('[loadPlanogramData] Cached version:', cached?.version, 'Cached time:', cachedTime);
+      const serverTime = serverVersion?.version
+        ? new Date(serverVersion.version).getTime()
+        : -1; // -1 = forzar descarga si version es null
+      const cachedTime = cached?.version
+        ? new Date(cached.version).getTime()
+        : 0;
 
       if (cached && cachedTime >= serverTime && serverTime !== -1) {
-        console.log('[loadPlanogramData] Using cached data');
         this._groupedProducts.set(this._mapPlanogramData(cached.datos));
         return;
       }
 
-      console.log('[loadPlanogramData] Downloading fresh data');
       const data = await firstValueFrom(
-        this.http.get<any[]>(`${this.apiUrl}/planograms/brands`)
+        this.http.get<any[]>(`${this.apiUrl}/planograms/brands`),
       );
       this._groupedProducts.set(this._mapPlanogramData(data));
-      await this.offlineDb.guardarCatalogo('planograma', data, serverVersion?.version || new Date().toISOString());
-    } catch (err) {
-      console.error('[loadPlanogramData] Error al cargar planograma:', err);
-      // Si hay error, intentar usar cache como fallback
+      await this.offlineDb.guardarCatalogo(
+        'planograma',
+        data,
+        serverVersion?.version || new Date().toISOString(),
+      );
+    } catch {
+      // Fallback a cache si la descarga falla
       const cached = await this.offlineDb.getCatalogo('planograma');
       if (cached) {
-        console.warn('[loadPlanogramData] Using cached data as fallback due to error');
         this._groupedProducts.set(this._mapPlanogramData(cached.datos));
       }
     }
   }
 
-  // Manual trigger if needed by components
-  /**
-   * Refresca todos los datos del servicio
-   */
   refreshAll() {
     if (this.auth.isAuthenticated) {
       this.loadTodayCaptures();
@@ -884,17 +790,17 @@ export class DailyCaptureService {
   }
 
   /**
-   * Formatea una fecha a formato YYYY-MM-DD
-   * @param dateStr Fecha a formatear
-   * @returns Fecha formateada o string vacío
+   * Formatea una fecha a formato YYYY-MM-DD. Si la entrada es inválida,
+   * devuelve la entrada original como string (no pierde info).
    */
   private formatDate(dateStr: string | Date | undefined): string {
     if (!dateStr) return '';
     try {
       const d = new Date(dateStr);
-      return d.toISOString().split('T')[0];
+      const iso = d.toISOString();
+      return iso.split('T')[0];
     } catch {
-      return '';
+      return typeof dateStr === 'string' ? dateStr : '';
     }
   }
 }

@@ -57,6 +57,36 @@ export class WebSocketService {
 
   constructor() {
     this.setupAutoReconnect();
+    this.setupBfcacheHandlers();
+  }
+
+  /**
+   * Permite que Chrome guarde la página en bfcache (back/forward cache).
+   *
+   * Una conexión WebSocket abierta es uno de los killers más comunes de
+   * bfcache: el browser asume que la página tiene estado vivo y no puede
+   * congelarla. Lighthouse penaliza esto en "Page prevented back/forward
+   * cache restoration".
+   *
+   * Estrategia: en `pagehide` cerramos el socket (libera el lock de bfcache);
+   * en `pageshow` con `event.persisted === true` (la página viene del
+   * bfcache) reconectamos. Si el usuario llega por navegación normal,
+   * `pageshow` también dispara pero `persisted` es false — no reconectamos
+   * porque la conexión inicial la maneja otro flujo (auth login).
+   */
+  private setupBfcacheHandlers(): void {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('pagehide', () => {
+      if (this.socket?.connected) {
+        this.socket.disconnect();
+      }
+    });
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        const token = this.auth.token();
+        if (token) this.connect(token);
+      }
+    });
   }
 
   private setupAutoReconnect(): void {

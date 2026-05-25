@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   OnInit,
   inject,
   signal,
@@ -10,6 +11,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { toMxDateKey, todayMx, parseLocalDate } from '../../../core/utils/mx-date';
+import {
+  takeUntilDestroyed,
+  toObservable,
+  toSignal,
+} from '@angular/core/rxjs-interop';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -30,20 +38,22 @@ import { DropdownModule } from 'primeng/dropdown';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SkeletonModule } from 'primeng/skeleton';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { MenuModule } from 'primeng/menu';
+import type { MenuItem } from 'primeng/api';
+// jsPDF + autoTable se importan dinámicamente (lazy) la primera vez que el
+// usuario exporta un PDF. Ahorra ~400-600 KB del bundle inicial — eran las
+// libs más pesadas del tree para una funcionalidad on-demand.
+// Tipos via `import type` (sólo TypeScript, no genera código en runtime).
+import type jsPDFType from 'jspdf';
+type JsPDFCtor = typeof jsPDFType;
+type AutoTableFn = (doc: jsPDFType, options: Record<string, unknown>) => void;
 
 import { ReportsService, ReportsData } from './reports.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { FiltersStateService } from '../reports/graphics/filters-state.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
-import {
-  UBICACIONES_EXHIBICION,
-  CONCEPTOS_EXHIBICION,
-  PRODUCTOS_PLANOGRAMA,
-  BrandGroup,
-} from '../captures/daily-capture.models';
+import { BrandGroup } from '../captures/daily-capture.models';
 import {
   MetasConfigService,
   KpiStatus,
@@ -65,7 +75,6 @@ interface DayGroup {
   scoreStatus: KpiStatus;
   visitasStatus: KpiStatus;
   visits: any[];
-  selected: boolean;
 }
 
 /**
@@ -104,6 +113,7 @@ interface PdfSection {
     RoutesTabComponent,
     ConfirmDialogModule,
     SkeletonModule,
+    MenuModule,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './reports.component.html',
@@ -132,13 +142,43 @@ export class ReportsComponent implements OnInit {
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
   private dailyCaptureService = inject(DailyCaptureService);
+  private destroyRef = inject(DestroyRef);
 
   /** Estado de carga */
   loading = signal(false);
   /** Datos de reportes */
   reportsData = signal<ReportsData | null>(null);
-  /** Texto de búsqueda */
-  searchText = '';
+  /** Tab activo (lazy-load: solo se renderiza el contenido del tab visible) */
+  activeTab = signal<number>(0);
+  /** Texto de búsqueda (signal para poder debouncear) */
+  searchText = signal<string>('');
+
+  /**
+   * Set de IDs de día seleccionados — antes vivía mutando `day.selected`
+   * dentro del computed `groupedRows()`, lo que se perdía cada vez que el
+   * computed se recomputaba (cambio de filtro, WS event, recarga).
+   */
+  private selectedDayIds = signal<Set<string>>(new Set());
+
+  isDaySelected(id: string): boolean {
+    return this.selectedDayIds().has(id);
+  }
+
+  toggleDaySelected(id: string, checked: boolean): void {
+    const next = new Set(this.selectedDayIds());
+    if (checked) next.add(id);
+    else next.delete(id);
+    this.selectedDayIds.set(next);
+  }
+
+  /** Search debounceado para filtrar la tabla sin lag por keystroke. */
+  searchTextDebounced = toSignal(
+    toObservable(this.searchText).pipe(
+      debounceTime(250),
+      distinctUntilChanged(),
+    ),
+    { initialValue: '' },
+  );
   /** Filas expandidas en la tabla */
   expandedRows: { [key: string]: boolean } = {};
   /** Fila seleccionada */
@@ -320,24 +360,27 @@ export class ReportsComponent implements OnInit {
    */
   private deleteReport(id: string) {
     this.loading.set(true);
-    this.reportsService.deleteReport(id).subscribe({
-      next: () => {
-        this.messageService.add({
-          severity: 'success',
-          summary: 'Eliminado',
-          detail: 'El reporte ha sido eliminado correctamente',
-        });
-        this.loadData();
-      },
-      error: () => {
-        this.loading.set(false);
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: 'No se pudo eliminar el reporte',
-        });
-      },
-    });
+    this.reportsService
+      .deleteReport(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Eliminado',
+            detail: 'El reporte ha sido eliminado correctamente',
+          });
+          this.loadData();
+        },
+        error: (err: any) => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo eliminar el reporte',
+          });
+        },
+      });
   }
 
   constructor() {
@@ -429,12 +472,11 @@ export class ReportsComponent implements OnInit {
 
     const groups: Record<string, DayGroup> = {};
     data.rows.forEach((row: any) => {
-      const dStr =
-        (typeof row.hora_inicio === 'string'
-          ? row.hora_inicio.split('T')[0]
-          : row.hora_inicio instanceof Date
-            ? row.hora_inicio.toISOString().split('T')[0]
-            : row.fecha) || row.fecha;
+      // Derivar día calendario en TZ MX. `row.fecha` viene del backend ya
+      // tematizado a MX (DATE en MX). Si por alguna razón solo está
+      // `hora_inicio`, lo convertimos. Antes se usaba `toISOString()` que
+      // movía la fecha al día siguiente UTC para capturas vespertinas.
+      const dStr = toMxDateKey(row.fecha) || toMxDateKey(row.hora_inicio);
       if (!groups[dStr]) {
         groups[dStr] = {
           id: dStr,
@@ -445,7 +487,6 @@ export class ReportsComponent implements OnInit {
           scoreStatus: 'ok',
           visitasStatus: 'ok',
           visits: [],
-          selected: false,
         };
       }
       groups[dStr].visits.push(row);
@@ -472,9 +513,7 @@ export class ReportsComponent implements OnInit {
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
   });
 
-  selectedDayCount = computed(
-    () => this.groupedRows().filter((d) => d.selected).length,
-  );
+  selectedDayCount = computed(() => this.selectedDayIds().size);
 
   kpiCards = computed(() => {
     const data = this.reportsData();
@@ -542,18 +581,28 @@ export class ReportsComponent implements OnInit {
       const range = this.metasConfig.getRange(d.id);
       const status = this.metasConfig.statusFor(d.id, d.raw);
       const pct = this.metasConfig.progressPct(d.id, d.raw);
-      const prev = (m as any)['prev_' + d.id] ?? d.raw;
-      const diff = prev ? Math.round(((d.raw - prev) / prev) * 100) : 0;
+      // Solo calcular delta si el backend envió `prev_*` real; si no, dejar
+      // el campo vacío. Antes el fallback `?? d.raw` igualaba prev = raw y
+      // mostraba "Sin variación" para todos los KPIs aunque nunca hubiéramos
+      // calculado una comparación real.
+      const prevRaw = (m as any)['prev_' + d.id];
+      const hasPrev =
+        typeof prevRaw === 'number' && Number.isFinite(prevRaw) && prevRaw !== 0;
+      const diff = hasPrev ? Math.round(((d.raw - prevRaw) / prevRaw) * 100) : null;
       return {
         label: d.label,
         value: d.fmt(d.raw),
         status,
         pct,
         delta:
-          diff === 0
-            ? 'Sin variación'
-            : (diff > 0 ? `+${diff}%` : `${diff}%`) + ' vs anterior',
-        deltaDir: diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
+          diff === null
+            ? ''
+            : diff === 0
+              ? 'Sin variación'
+              : (diff > 0 ? `+${diff}%` : `${diff}%`) + ' vs anterior',
+        deltaDir: diff === null
+          ? 'flat'
+          : diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
         meta: range ? `${range.opt}${d.unit}` : '—',
       };
     });
@@ -583,13 +632,21 @@ export class ReportsComponent implements OnInit {
         supervisorId: f.supervisorId,
         sellerIds: f.sellerIds,
       }, undefined, undefined, 'products')
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data: ReportsData) => {
           this.reportsData.set(data);
           this.buildCharts(data);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar los reportes.',
+          });
+        },
       });
   }
 
@@ -612,10 +669,13 @@ export class ReportsComponent implements OnInit {
     // Filtrar solo los últimos 7 días
     const last7Days = trend.slice(-7);
 
-    // Crear etiquetas con nombres de días de la semana
+    // Etiquetas con nombre de día. `parseLocalDate` evita el desplazamiento
+    // de UTC (`new Date('YYYY-MM-DD')` interpreta como UTC midnight y en MX
+    // cae al día anterior). Util compartido en core/utils/mx-date.
     const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
     const labels = last7Days.map((d: any) => {
-      const date = new Date(d.date);
+      const date = parseLocalDate(d.date);
+      if (!date) return '';
       return dayNames[date.getDay()] + ' ' + date.getDate();
     });
 
@@ -749,40 +809,31 @@ export class ReportsComponent implements OnInit {
       ],
     };
 
-    // Gráfica apilada moderna - Visitas por día desglosadas por score (últimos 7 días)
-    const dailyStats = last7Days.map((d: any) => {
-      // Simular desglose por tipo de visita basado en score promedio
-      const highVisits = Math.round(d.visits * (d.avgScore / 100) * 0.6);
-      const mediumVisits = Math.round(d.visits * (d.avgScore / 100) * 0.3);
-      const lowVisits = d.visits - highVisits - mediumVisits;
-      return {
-        high: Math.max(0, highVisits),
-        medium: Math.max(0, mediumVisits),
-        low: Math.max(0, lowVisits),
-      };
-    });
+    // Gráfica de visitas por día — barra única coloreada por el score
+    // promedio REAL del día. Antes inventaba un desglose 60/30/10 que no
+    // representaba nada (todas las visitas con score alto seguían mostrando
+    // barras de "Bajo Score" por la fórmula).
+    const dailyStats = last7Days.map((d: any) => ({
+      visits: d.visits || 0,
+      avgScore: typeof d.avgScore === 'number' ? d.avgScore : 0,
+    }));
+
+    // Una barra por día con el TOTAL real de visitas; color según el score
+    // promedio real del día (≥80 alto, ≥50 medio, sino bajo).
+    const colorForScore = (score: number): string => {
+      if (score >= scoreMeta) return '#185FA5';
+      if (score >= (this.metasConfig.getRange('score')?.min ?? 50)) return '#5B9BD5';
+      return '#BDD7EE';
+    };
 
     this.stackedChartData = {
       labels: labels,
       datasets: [
         {
-          label: 'Visitas Alto Score',
-          data: dailyStats.map((s: any) => s.high),
-          backgroundColor: '#185FA5', // Azul oscuro
-          borderRadius: 4,
-          borderSkipped: false,
-        },
-        {
-          label: 'Visitas Score Medio',
-          data: dailyStats.map((s: any) => s.medium),
-          backgroundColor: '#5B9BD5', // Azul medio
-          borderRadius: 4,
-          borderSkipped: false,
-        },
-        {
-          label: 'Visitas Bajo Score',
-          data: dailyStats.map((s: any) => s.low),
-          backgroundColor: '#BDD7EE', // Azul claro
+          label: 'Visitas',
+          data: dailyStats.map((s) => s.visits),
+          backgroundColor: dailyStats.map((s) => colorForScore(s.avgScore)),
+          avgScores: dailyStats.map((s) => s.avgScore),
           borderRadius: 4,
           borderSkipped: false,
         },
@@ -948,10 +999,8 @@ export class ReportsComponent implements OnInit {
   }
 
   buildProductCharts(data: ReportsData) {
-    console.log('[ReportsComponent] buildProductCharts() -> productStats received:', data.productStats);
 
     if (!data.productStats || Object.keys(data.productStats).length === 0) {
-      console.warn('[ReportsComponent] No product stats available or is empty object.');
       this.productStatsProcessed = false;
       return;
     }
@@ -968,8 +1017,11 @@ export class ReportsComponent implements OnInit {
       g.items.forEach((i: any) => this.pidToBrandMap[i.pid] = g.marca);
     });
     
-    // Extraer marcas directamente de la Base de Datos (del catálogo asíncrono)
-    const dbBrands = groups.length > 0 ? groups.map(g => g.marca) : PRODUCTOS_PLANOGRAMA.map(g => g.marca);
+    // Extraer marcas directamente de la Base de Datos (del catálogo asíncrono).
+    // Si la BD no devolvió marcas, dejamos la lista vacía — antes había un
+    // fallback a mocks Bimbo/Marinela que producía datos falsos sin que el
+    // usuario se enterara.
+    const dbBrands = groups.map(g => g.marca);
     const uniqueBrands = Array.from(new Set(dbBrands));
 
     // Preparar lista de marcas para el dropdown
@@ -997,7 +1049,6 @@ export class ReportsComponent implements OnInit {
         if (dbGroup) marca = dbGroup.marca;
       }
       
-      console.log(`[ReportsComponent] Mapping PID: ${pid} -> Name: ${name}, Marca: ${marca}`);
       return {
         pid,
         name,
@@ -1472,6 +1523,66 @@ export class ReportsComponent implements OnInit {
       visit.stats?.puntuacionTotal ?? 0,
     );
   }
+
+  /**
+   * Devuelve el status semántico (ok|warn|bad) según el nivel de ejecución
+   * textual capturado en campo. Reemplaza la lógica `[ngClass]` ternaria
+   * gigante que se repetía 3+ veces en el template.
+   */
+  nivelSeverity(nivel: string | null | undefined): KpiStatus {
+    const n = (nivel ?? '').toLowerCase();
+    if (n === 'alto' || n === 'excelente' || n === 'optimo' || n === 'óptimo') return 'ok';
+    if (n === 'medio' || n === 'regular') return 'warn';
+    return 'bad';
+  }
+
+  /**
+   * Status para el stockout rate de un producto (mayor % = peor).
+   */
+  stockoutSeverity(rate: number | string): KpiStatus {
+    const r = +rate;
+    if (r > 20) return 'bad';
+    if (r > 10) return 'warn';
+    return 'ok';
+  }
+
+  /**
+   * Items del menú "..." que aparece en mobile cuando los botones secundarios
+   * del header se colapsan (Refrescar / CSV / Metas / Rutas). El botón PDF
+   * sigue siendo el primario visible. `canEditMetas()` se evalúa en build,
+   * así que el item de Metas solo aparece si el usuario tiene permiso.
+   */
+  headerActionsMenu = computed<MenuItem[]>(() => {
+    const items: MenuItem[] = [
+      {
+        label: 'Refrescar filtros',
+        icon: 'pi pi-refresh',
+        disabled: this.loading(),
+        command: () => this.resetAll(),
+      },
+      {
+        label: 'Exportar CSV',
+        icon: 'pi pi-file-excel',
+        disabled: this.loading(),
+        command: () => this.exportCsv(),
+      },
+      {
+        label: 'Reporte de rutas',
+        icon: 'pi pi-route',
+        disabled: this.loading(),
+        command: () => this.openRouteReportDialog(),
+      },
+    ];
+    if (this.canEditMetas()) {
+      items.push({
+        label: 'Configurar metas',
+        icon: 'pi pi-sliders-h',
+        disabled: this.loading(),
+        command: () => this.openMetasDialog(),
+      });
+    }
+    return items;
+  });
   toggleExpand(day: DayGroup) {
     if (this.expandedRows[day.id]) delete this.expandedRows[day.id];
     else this.expandedRows[day.id] = true;
@@ -1479,7 +1590,11 @@ export class ReportsComponent implements OnInit {
   }
   toggleSelectAll(event: Event) {
     const checked = (event.target as HTMLInputElement).checked;
-    this.groupedRows().forEach((d) => (d.selected = checked));
+    if (checked) {
+      this.selectedDayIds.set(new Set(this.groupedRows().map((d) => d.id)));
+    } else {
+      this.selectedDayIds.set(new Set());
+    }
   }
   viewDetail(row: any) {
     this.selectedRow = row;
@@ -1495,22 +1610,45 @@ export class ReportsComponent implements OnInit {
       this.selectedRouteUsers = [user.sub];
     } else {
       // Si es supervisor, cargar usuarios disponibles
-      this.reportsService.getSellers().subscribe({
-        next: (users) => {
-          this.availableUsers.set(users || []);
-          this.selectedRouteUsers = [];
-        },
-        error: (error) => {
-          console.error('Error loading users:', error);
-          this.availableUsers.set([]);
-          this.selectedRouteUsers = [];
-        },
-      });
+      this.reportsService
+        .getSellers()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (users) => {
+            this.availableUsers.set(users || []);
+            this.selectedRouteUsers = [];
+          },
+          error: () => {
+            this.availableUsers.set([]);
+            this.selectedRouteUsers = [];
+          },
+        });
     }
 
-    // Establecer fecha de hoy por defecto
-    this.routeReportDate = new Date().toISOString().split('T')[0];
+    // Fecha de hoy por defecto en TZ MX (no UTC, evita off-by-one al cargar
+    // el dialog después de las 18:00 MX).
+    this.routeReportDate = todayMx();
     this.showRouteReportDialog = true;
+  }
+
+  /**
+   * Carga jsPDF + autoTable on-demand. Se cachea el resultado para que solo
+   * haya un download de chunk la primera vez; subsecuentes exports reusan.
+   * Esto saca ~400-600 KB del bundle inicial — la bestia eran ambas libs
+   * cargadas eagerly aunque el 99% de sesiones nunca exportan PDF.
+   */
+  private _pdfLibsPromise: Promise<{ jsPDF: JsPDFCtor; autoTable: AutoTableFn }> | null = null;
+  private getPdfLibs() {
+    if (!this._pdfLibsPromise) {
+      this._pdfLibsPromise = Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ]).then(([jsPDFMod, autoTableMod]) => ({
+        jsPDF: jsPDFMod.default as JsPDFCtor,
+        autoTable: autoTableMod.default as unknown as AutoTableFn,
+      }));
+    }
+    return this._pdfLibsPromise;
   }
 
   async exportRouteReportPdf() {
@@ -1531,6 +1669,7 @@ export class ReportsComponent implements OnInit {
 
   async generateRouteReportPdf(userIds: string[], date: string) {
     try {
+      const { jsPDF, autoTable } = await this.getPdfLibs();
       const doc = new jsPDF();
       const margin = 15;
       const pageWidth = doc.internal.pageSize.width;
@@ -1661,7 +1800,6 @@ export class ReportsComponent implements OnInit {
       doc.save(`rutas_${date}.pdf`);
       this.messageService.add({ severity: 'success', summary: 'PDF generado', detail: 'El reporte de rutas se ha generado correctamente.' });
     } catch (error) {
-      console.error('Error generando PDF de rutas:', error);
       this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF de rutas. Por favor intenta nuevamente.' });
     }
   }
@@ -1697,15 +1835,7 @@ export class ReportsComponent implements OnInit {
       return reportData.productMap[pid].name;
     }
 
-    // 2. Buscar en los catálogos importados estáticos
-    for (const group of PRODUCTOS_PLANOGRAMA) {
-      const prod = group.items.find((p) => p.pid === pid);
-      if (prod) {
-        return prod.name;
-      }
-    }
-    
-    // 3. Fallback: tratar de buscar en el signal service
+    // 2. Fallback: buscar en el catálogo dinámico del service (BD)
     const allProducts = this.dailyCaptureService.groupedProducts();
     for (const brand of allProducts) {
       const prod = brand.items.find((p) => p.pid === pid);
@@ -1714,7 +1844,6 @@ export class ReportsComponent implements OnInit {
       }
     }
 
-    console.warn('[getProductName] Product not found for PID:', pid, '- returning PID as fallback');
     return pid;
   }
 
@@ -1744,25 +1873,37 @@ export class ReportsComponent implements OnInit {
 
   exportCsv() {
     const f = this.filtersState.filters();
-    (this.reportsService as any)
+    this.reportsService
       .exportCsv({
         startDate: f.startDate,
         endDate: f.endDate,
         zone: f.zone,
         userIds: f.sellerIds,
       })
-      .subscribe((blob: Blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'reporte.csv';
-        a.click();
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob: Blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'reporte.csv';
+          a.click();
+          window.URL.revokeObjectURL(url);
+        },
+        error: () => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudo generar el CSV.',
+          });
+        },
       });
   }
 
   exportSelectedCsv() {
+    const selectedIds = this.selectedDayIds();
     const selected = this.groupedRows()
-      .filter((d) => d.selected)
+      .filter((d) => selectedIds.has(d.id))
       .flatMap((d) => d.visits);
     if (!selected.length) return;
     const headers = ['Folio', 'Ejecutivo', 'Zona', 'Score', 'Venta'];
@@ -1782,9 +1923,11 @@ export class ReportsComponent implements OnInit {
     a.click();
   }
 
-  exportSelectedPdf() {
-    const selected = this.groupedRows().filter((d) => d.selected);
+  async exportSelectedPdf() {
+    const selectedIds = this.selectedDayIds();
+    const selected = this.groupedRows().filter((d) => selectedIds.has(d.id));
     if (!selected.length) return;
+    const { jsPDF, autoTable } = await this.getPdfLibs();
     const doc = new jsPDF();
     const f = this.filtersState.filters();
     doc.setFontSize(14);
@@ -1808,7 +1951,7 @@ export class ReportsComponent implements OnInit {
   // Logo base64 (placeholder - reemplazar con logo real convertido a base64)
   private logoBase64 = ''; // Aquí irá el logo en base64
 
-  exportBuiltPdf() {
+  async exportBuiltPdf() {
     try {
       const data = this.reportsData();
       if (!data) {
@@ -1819,6 +1962,7 @@ export class ReportsComponent implements OnInit {
         });
         return;
       }
+      const { jsPDF, autoTable } = await this.getPdfLibs();
       const doc = new jsPDF();
       const f = this.filtersState.filters();
       const pageWidth = doc.internal.pageSize.width;
@@ -2254,7 +2398,6 @@ export class ReportsComponent implements OnInit {
         detail: 'El reporte se ha generado correctamente.',
       });
     } catch (error) {
-      console.error('Error generando PDF:', error);
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
@@ -2263,7 +2406,7 @@ export class ReportsComponent implements OnInit {
     }
   }
 
-  exportBrandPdf() {
+  async exportBrandPdf() {
     try {
       const data = this.reportsData();
       if (!data || !this.selectedBrand) {
@@ -2275,6 +2418,7 @@ export class ReportsComponent implements OnInit {
         return;
       }
 
+      const { jsPDF, autoTable } = await this.getPdfLibs();
       const doc = new jsPDF();
       const f = this.filtersState.filters();
       const pageWidth = doc.internal.pageSize.width;
@@ -2480,7 +2624,6 @@ export class ReportsComponent implements OnInit {
         detail: `Reporte de marca "${this.selectedBrand}" generado correctamente.`,
       });
     } catch (error) {
-      console.error('Error generando PDF de marca:', error);
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
@@ -2489,11 +2632,9 @@ export class ReportsComponent implements OnInit {
     }
   }
 
-  exportSingleVisitPdf(row: any) {
+  async exportSingleVisitPdf(row: any) {
     try {
-      console.log('Generando PDF para visita:', row.folio);
-      console.log('Datos de visita:', row);
-
+      const { jsPDF, autoTable } = await this.getPdfLibs();
       const doc = new jsPDF();
       const margin = 15;
       const pageWidth = doc.internal.pageSize.width;
@@ -2622,7 +2763,6 @@ export class ReportsComponent implements OnInit {
               (ex.puntuacionCalculada || 0).toString(),
             ];
           } catch (e) {
-            console.error('Error procesando exhibición:', e);
             return ['N/A', 'N/A', 'N/A', 'Error', '$0', '0'];
           }
         });
@@ -2743,7 +2883,6 @@ export class ReportsComponent implements OnInit {
         detail: 'El reporte de visita se ha generado correctamente.',
       });
     } catch (error) {
-      console.error('Error generando PDF de visita:', error);
       this.messageService.add({
         severity: 'error',
         summary: 'Error',
@@ -2763,17 +2902,39 @@ export class ReportsComponent implements OnInit {
   }
 
   saveMetas() {
-    // Al guardar, actualizamos el servicio local que maneja el localStorage
+    // Persistir AMBOS bloques del dialog:
+    //  1. targets de mobiliario (vitrinas/checkstands/etc.)
+    //  2. rangos KPI (score/visitas/gps/exhibiciones) — antes se perdían
+    //     porque solo se llamaba updateFurnitureTarget, lo cual hacía que
+    //     los semáforos y umbrales de las gráficas no respondieran a los
+    //     cambios del usuario.
     this.editableFurniture.forEach((f) =>
       this.metasConfig.updateFurnitureTarget(f.id, f.target),
     );
+    this.editableKpi.forEach((k) =>
+      this.metasConfig.updateKpiRange(k.id, k.min, k.opt),
+    );
+
     this.showMetasDialog = false;
-    // Forzamos un refresco de los datos para aplicar los nuevos rangos
-    this.reportsData.set({ ...this.reportsData()! });
+
+    // Reconstruir las gráficas con los nuevos umbrales:
+    //   - `buildCharts(data)` lee directamente `metasConfig.getRange(...)`
+    //     para visitas/score, y dibuja líneas de meta + colores tier.
+    //   - Las tablas/KPI cards/cumplimiento usan `statusFor()` en computeds
+    //     que sí reaccionan al cambio de signal de metasConfig, pero los
+    //     charts de Chart.js no se redibujan solos: hay que reasignar el
+    //     objeto data para que `<p-chart>` detecte el change.
+    const data = this.reportsData();
+    if (data) {
+      this.buildCharts(data);
+      // Trigger signal reactivity para computeds que dependen de reportsData
+      this.reportsData.set({ ...data });
+    }
+
     this.messageService.add({
       severity: 'success',
       summary: 'Metas actualizadas',
-      detail: 'Las metas se han guardado correctamente',
+      detail: 'Las metas se han guardado y las gráficas se actualizaron.',
     });
   }
 
@@ -2811,6 +2972,17 @@ export class ReportsComponent implements OnInit {
     const fechaHastaStr = f.endDate ? new Date(f.endDate).toLocaleDateString('es-MX') : '-';
 
     // Preparar datos para enviar al backend
+    // Helper: extraer fecha (YYYY-MM-DD) tolerante a `hora_inicio` o `fecha`.
+    const rowDate = (r: any): string => {
+      const raw = r.hora_inicio || r.fecha;
+      if (!raw) return '-';
+      try {
+        return new Date(raw).toLocaleDateString('es-MX');
+      } catch {
+        return String(raw);
+      }
+    };
+
     const payload = {
       fechaDesde: fechaDesdeStr,
       fechaHasta: fechaHastaStr,
@@ -2820,7 +2992,7 @@ export class ReportsComponent implements OnInit {
         venta: (data.metrics?.totalVentas || 0).toLocaleString('es-MX'),
       },
       chartData: data.rows && data.rows.length > 0 ? JSON.stringify({
-        labels: data.rows.slice(0, 10).map((r: any) => new Date(r.fecha).toLocaleDateString('es-MX')),
+        labels: data.rows.slice(0, 10).map((r: any) => rowDate(r)),
         datasets: [{
           label: 'Visitas',
           data: data.rows.slice(0, 10).map((r: any) => r.stats?.puntuacionTotal || 0),
@@ -2829,7 +3001,7 @@ export class ReportsComponent implements OnInit {
       }) : null,
       tableData: data.rows && data.rows.length > 0 ? data.rows.slice(0, 20).map((r: any) => ({
         folio: r.folio?.substring(0, 8) || 'N/A',
-        fecha: new Date(r.fecha).toLocaleDateString('es-MX'),
+        fecha: rowDate(r),
         ejecutivo: r.captured_by_username?.substring(0, 15) || 'N/A',
         zona: r.zona_captura?.substring(0, 12) || 'N/A',
         score: Math.round(r.stats?.puntuacionTotal || 0),
@@ -2837,32 +3009,39 @@ export class ReportsComponent implements OnInit {
       })) : null,
     };
 
-    // Petición HTTP al backend
-    this.http.post('/api/reports/export-pdf', payload, { responseType: 'blob' }).subscribe({
-      next: (blob: Blob) => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `reporte-mercadeo-${new Date().toISOString().split('T')[0]}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
+    // Usar `environment.apiUrl` para soportar deploy con frontend y API en
+    // hosts distintos (CDN + API separadas).
+    this.http
+      .post(`${environment.apiUrl}/reports/export-pdf`, payload, {
+        responseType: 'blob',
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob: Blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `reporte-mercadeo-${todayMx()}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
 
-        this.messageService.add({
-          severity: 'success',
-          summary: 'PDF Generado',
-          detail: 'El reporte se ha descargado correctamente.',
-        });
-      },
-      error: (err) => {
-        console.error('Error generando PDF:', err);
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: 'No se pudo generar el PDF. Por favor intenta nuevamente.',
-        });
-      }
-    });
+          this.messageService.add({
+            severity: 'success',
+            summary: 'PDF Generado',
+            detail: 'El reporte se ha descargado correctamente.',
+          });
+        },
+        error: (err: any) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail:
+              err?.error?.message ||
+              'No se pudo generar el PDF. Por favor intenta nuevamente.',
+          });
+        },
+      });
   }
 }

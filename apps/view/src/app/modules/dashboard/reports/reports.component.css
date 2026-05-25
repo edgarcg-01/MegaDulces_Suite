@@ -222,3 +222,38 @@
   color: var(--accent-brand) !important;
   border-bottom-color: var(--accent-brand) !important;
 }
+
+/*
+ * Tabs wrapper con fade en bordes — sugiere visualmente que hay más tabs
+ * cuando el scroll horizontal está activo en mobile. El gradient se atenúa
+ * cuando el contenido cabe sin overflow (no scroll).
+ */
+.modern-tabs-wrapper {
+  position: relative;
+  isolation: isolate;
+}
+.modern-tabs-wrapper::before,
+.modern-tabs-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 2;
+}
+.modern-tabs-wrapper::before {
+  left: 0;
+  background: linear-gradient(to right, var(--layout-bg) 0%, transparent 100%);
+}
+.modern-tabs-wrapper::after {
+  right: 0;
+  background: linear-gradient(to left, var(--layout-bg) 0%, transparent 100%);
+}
+@media (min-width: 768px) {
+  /* En desktop no hace falta el hint visual: tabs caben sin scroll */
+  .modern-tabs-wrapper::before,
+  .modern-tabs-wrapper::after {
+    display: none;
+  }
+}

@@ -1,6 +1,7 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { calcularPuntosExhibicion } from '@megadulces/shared-scoring';
 
 export interface ScoringV2CalculateDto {
   posicion_id: string;
@@ -112,25 +113,27 @@ export class ScoringV2Service {
     }
 
     // Obtener parámetros desde la configuración versionada
-    const pesoPosicionRaw = pesos.posicion[nombrePosicion];
-    const factorPosicion = pesoPosicionRaw ? Number(pesoPosicionRaw) : 0;
+    const factorPosicion = pesos.posicion[nombrePosicion] ? Number(pesos.posicion[nombrePosicion]) : 0;
+    const nivelRaw = pesos.ejecucion[nombreNivel] ? Number(pesos.ejecucion[nombreNivel]) : 0;
+    const puntuacionBase = pesos.exhibicion[nombreExhibicion] ? Number(pesos.exhibicion[nombreExhibicion]) : 0;
 
-    const nivelRaw = pesos.ejecucion[nombreNivel];
-    const factorNivel = nivelRaw ? Math.min(Number(nivelRaw), 1) : 1;
     if (nivelRaw > 1) {
       console.warn(`[ScoringV2] Factor nivel "${nombreNivel}" > 1: ${nivelRaw}. Revisar scoring_pesos.`);
     }
 
-    const puntuacionBase = pesos.exhibicion[nombreExhibicion] ? Number(pesos.exhibicion[nombreExhibicion]) : 0;
-
-    // Calcular puntos: "concepto" * "ubicacion" * "nivel_de_ejecucion"
-    const puntos = puntuacionBase * factorPosicion * factorNivel;
+    // Fórmula canónica compartida con el frontend
+    const puntos = calcularPuntosExhibicion({
+      posicionPuntuacion: factorPosicion,
+      conceptoPuntuacion: puntuacionBase,
+      nivelPuntuacion: nivelRaw,
+    });
+    const factorNivel = Math.min(nivelRaw, 1);
 
     return {
       puntos: Number(puntos.toFixed(2)),
       puntuacionBase,
       factorPosicion,
-      factorNivel
+      factorNivel,
     };
   }
 

@@ -31,7 +31,10 @@ import { WebSocketModule } from './modules/websocket/websocket.module';
     }),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'view'),
-      exclude: ['/api/{*path}'],
+      // Exclude API routes y el namespace WS de /reports/socket.io.
+      // Sin esta segunda exclusión, el fallback SPA respondía con index.html
+      // al handshake de socket.io → cliente recibía "websocket error".
+      exclude: ['/api/{*path}', '/reports/socket.io/{*path}'],
     }),
     DatabaseModule,
     AuthModule,

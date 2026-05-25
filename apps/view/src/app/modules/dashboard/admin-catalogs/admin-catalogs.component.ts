@@ -1,23 +1,42 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AdminCatalogsService } from './admin-catalogs.service';
-import { AuthService } from '../../../core/services/auth.service';
-import { PermissionsService, AppSubject } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
-import { environment } from '../../../../environments/environment';
+import {
+  AppSubject,
+  PermissionsService,
+} from '../../../core/services/permissions.service';
+
+type CatalogType =
+  | 'conceptos'
+  | 'ubicaciones'
+  | 'niveles'
+  | 'zonas'
+  | 'roles'
+  | 'rutas'
+  | 'periodos'
+  | 'semanas';
+
+const SCORING_TYPES: CatalogType[] = ['conceptos', 'ubicaciones', 'niveles'];
 
 @Component({
   selector: 'app-admin-catalogs',
@@ -29,7 +48,6 @@ import { environment } from '../../../../environments/environment';
     ButtonModule,
     InputTextModule,
     InputNumberModule,
-    SelectModule,
     DialogModule,
     ToastModule,
     ConfirmDialogModule,
@@ -38,6 +56,7 @@ import { environment } from '../../../../environments/environment';
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-catalogs.component.html',
   styleUrls: ['./admin-catalogs.component.css'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AdminCatalogsComponent implements OnInit {
   private catalogsService = inject(AdminCatalogsService);
@@ -45,147 +64,109 @@ export class AdminCatalogsComponent implements OnInit {
   private confirmationService = inject(ConfirmationService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  private authService = inject(AuthService);
   private perms = inject(PermissionsService);
-  private http = inject(HttpClient);
+  private destroyRef = inject(DestroyRef);
 
+  // Signals — estado UI
   selectedType = signal<string>('conceptos');
   title = signal<string>('Catálogos');
   items = signal<any[]>([]);
   loading = signal<boolean>(false);
+  saving = signal<boolean>(false);
+  showInactive = signal<boolean>(false);
 
-  showAddDialog = false;
-  showRouteDialog = false;
+  showAddDialog = signal<boolean>(false);
+  showRouteDialog = signal<boolean>(false);
   isEditMode = signal<boolean>(false);
   currentEditingId = signal<string | null>(null);
   currentZoneId = signal<string | null>(null);
-  isRouteMode = signal<boolean>(false);
 
+  // Zonas expandibles y sus rutas — signals para que OnPush detecte cambios.
+  expandedZones = signal<Record<string, boolean>>({});
+  zoneRoutes = signal<Record<string, any[]>>({});
+
+  // Form fields (no signals: solo se leen al guardar).
   newItemValue = '';
   newItemOrder = 0;
   newItemScore = 0;
   newItemIcon = '';
 
-  // Zonas expandibles y sus rutas
-  expandedZones: { [key: string]: boolean } = {};
-  zoneRoutes: { [key: string]: any[] } = {};
+  /**
+   * Permiso de gestión según el tipo activo. El backend valida igual; este
+   * computed solo gobierna la visibilidad de los botones de write.
+   */
+  readonly canManageCurrent = computed(() => {
+    const type = this.selectedType();
+    if (type === 'roles') return this.perms.can('manage', 'roles_config');
+    if (SCORING_TYPES.includes(type as CatalogType)) {
+      return this.perms.can('manage', 'scoring_config');
+    }
+    return this.perms.can('manage', 'catalogs');
+  });
 
-  constructor() {
-    // Listen to route param changes to switch catalog type
-    this.route.params.subscribe((p) => {
-      let type = p['type'];
-      
-      // Si el parámetro no viene (como en /admin/catalogs/roles), 
-      // verificamos si la URL termina en /roles
-      if (!type && this.router.url.endsWith('/roles')) {
-        type = 'roles';
-      } else if (!type) {
-        type = 'conceptos';
-      }
+  readonly hasScoring = computed(() =>
+    SCORING_TYPES.includes(this.selectedType() as CatalogType),
+  );
 
-      this.selectedType.set(type);
-      this.updateTitle(type);
-      this.loadCatalog(type);
-    });
+  /**
+   * Tipos con soporte de `activo` (soft-delete + toggle "Mostrar inactivos"
+   * + acción "Reactivar"). Tras la migración de audit, también incluye zonas.
+   */
+  readonly supportsInactive = computed(() => {
+    const t = this.selectedType();
+    return (
+      SCORING_TYPES.includes(t as CatalogType) || t === 'zonas' || t === 'zones'
+    );
+  });
 
-    // Make fix method available globally for debugging
-    (window as any).fixPruebaRoute = () => {
-      this.fixRouteWithNullParentId('prueba', 'cc7738f3-5a7b-441c-9258-9d53935f9d38');
-    };
-
-    // Fix Paty Chavarria's zona_id
-    (window as any).fixPatyZone = () => {
-      const LA_PIEDAD_VECINAL_ID = 'cc7738f3-5a7b-441c-9258-9d53935f9d38';
-      const patyUserId = 'Paty.chavarria';
-      
-      console.log('[AdminCatalogs] Fixing Paty Chavarria zona_id to:', LA_PIEDAD_VECINAL_ID);
-      
-      this.http.patch(`${environment.apiUrl}/users/${patyUserId}`, {
-        zona_id: LA_PIEDAD_VECINAL_ID,
-        zona: 'LA PIEDAD VECINAL'
-      }).subscribe({
-        next: (result) => {
-          console.log('[AdminCatalogs] Paty Chavarria zona_id fixed:', result);
-          this.messageService.add({ 
-            severity: 'success', 
-            summary: 'Corregido', 
-            detail: 'Zona de Paty Chavarria actualizada correctamente' 
-          });
-        },
-        error: (err) => {
-          console.error('[AdminCatalogs] Error fixing Paty zona_id:', err);
-          this.messageService.add({ 
-            severity: 'error', 
-            summary: 'Error', 
-            detail: 'No se pudo corregir la zona de Paty' 
-          });
-        }
-      });
-    };
-
-    // Debug zones and Paty assignment
-    (window as any).debugZonesAndPaty = () => {
-      console.log('=== DEBUGGING ZONES AND PATY CHAVARRIA ===');
-      
-      // Load all zones
-      this.catalogsService.getCatalog('zonas').subscribe((zones: any[]) => {
-        console.log('All zones:', zones);
-        
-        const laPiedadZones = zones.filter(z => 
-          (z.name && z.name.toLowerCase().includes('la piedad')) || 
-          (z.value && z.value.toLowerCase().includes('la piedad'))
-        );
-        console.log('LA PIEDAD zones:', laPiedadZones);
-        
-        // Load all users to find Paty
-        this.http.get<any[]>(`${environment.apiUrl}/users`).subscribe((users: any[]) => {
-          const patyUsers = users.filter(u => 
-            u.username?.toLowerCase().includes('paty') || 
-            u.nombre?.toLowerCase().includes('paty') ||
-            u.username?.toLowerCase().includes('chavarria') || 
-            u.nombre?.toLowerCase().includes('chavarria')
-          );
-          console.log('Paty users found:', patyUsers);
-          
-          patyUsers.forEach(paty => {
-            console.log(`Paty ${paty.nombre}: zone_id=${paty.zona_id}, zone_name=${paty.zona}`);
-          });
-        });
-      });
-    };
-  }
+  readonly hasIcon = computed(() => {
+    const t = this.selectedType();
+    return t === 'conceptos' || t === 'niveles';
+  });
 
   ngOnInit(): void {
-    let type = this.route.snapshot.params['type'];
-    
-    // Soporte para ruta estática /admin/catalogs/roles
-    if (!type && this.router.url.endsWith('/roles')) {
-      type = 'roles';
-    } else if (!type) {
-      type = 'conceptos';
-    }
+    // Una sola suscripción a params; cubre tanto el primer pintado como
+    // navegaciones laterales del sidebar (/admin/catalogs/{type}).
+    this.route.params
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((p) => {
+        let type = p['type'];
+        if (!type && this.router.url.endsWith('/roles')) {
+          type = 'roles';
+        } else if (!type) {
+          type = 'conceptos';
+        }
 
-    let subject: AppSubject = 'catalogs';
-    if (type === 'roles') subject = 'roles_config';
-    else if (['conceptos', 'ubicaciones', 'niveles'].includes(type)) subject = 'scoring_config';
+        const subject = this.subjectForType(type);
+        if (!this.perms.can('read', subject)) {
+          if (
+            this.perms.can('read', 'reports_team') ||
+            this.perms.can('read', 'reports_global')
+          ) {
+            this.router.navigate(['/dashboard']);
+          } else {
+            this.router.navigate(['/dashboard/captures']);
+          }
+          return;
+        }
 
-    
-    if (!this.perms.can('read', subject)) {
-      if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
-        this.router.navigate(['/dashboard']);
-      } else {
-        this.router.navigate(['/dashboard/captures']);
-      }
-      return;
-    }
-    
-    this.selectedType.set(type);
-    this.updateTitle(type);
-    this.loadCatalog(type);
+        this.selectedType.set(type);
+        this.updateTitle(type);
+        // Reset estado dependiente al cambiar de tipo.
+        this.expandedZones.set({});
+        this.zoneRoutes.set({});
+        this.loadCatalog(type);
+      });
   }
 
-  updateTitle(type: string) {
-    const titles: any = {
+  private subjectForType(type: string): AppSubject {
+    if (type === 'roles') return 'roles_config';
+    if (SCORING_TYPES.includes(type as CatalogType)) return 'scoring_config';
+    return 'catalogs';
+  }
+
+  private updateTitle(type: string): void {
+    const titles: Record<string, string> = {
       conceptos: 'Gestión de Conceptos',
       ubicaciones: 'Ubicaciones en Tienda',
       niveles: 'Niveles de Ejecución',
@@ -195,114 +176,112 @@ export class AdminCatalogsComponent implements OnInit {
     this.title.set(titles[type] || 'Catálogos');
   }
 
-  onTypeChange(event: any) {
-    // Ya no se usa por el sidebar, pero mantenemos lógica si fuera necesario
-  }
-
-  loadCatalog(type: string) {
+  private loadCatalog(type: string): void {
     this.loading.set(true);
-    this.catalogsService.getCatalog(type).subscribe({
-      next: (data) => {
-        this.items.set(data);
-        console.log(`[AdminCatalogs] Loaded ${type}:`, data);
-        
-        // Si es zonas, mostrar detalles de todas las zonas La Piedad
-        if (type === 'zonas') {
-          const laPiedadZones = data.filter((z: any) => 
-            (z.name && z.name.toLowerCase().includes('la piedad')) || 
-            (z.value && z.value.toLowerCase().includes('la piedad'))
-          );
-          console.log('[AdminCatalogs] All LA PIEDAD zones found:', laPiedadZones);
-          
-          this.loadRoutesForExpandedZones();
-        }
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el catálogo' });
-        this.loading.set(false);
-      },
-    });
+    this.catalogsService
+      .getCatalog(type, undefined, this.showInactive())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (data) => {
+          this.items.set(data);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudo cargar el catálogo.',
+          });
+        },
+      });
   }
 
-  // --- Funciones para Zonas y Rutas ---
+  toggleShowInactive(value: boolean): void {
+    this.showInactive.set(value);
+    this.loadCatalog(this.selectedType());
+  }
 
-  toggleZoneExpansion(zone: any) {
+  reactivateItem(item: any): void {
+    this.catalogsService
+      .updateItem(this.selectedType(), item.id, { activo: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Reactivado',
+            detail: `"${item.value}" volvió a estar activo.`,
+          });
+          this.loadCatalog(this.selectedType());
+        },
+        error: (err: any) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail:
+              err?.error?.message || 'No se pudo reactivar el ítem.',
+          });
+        },
+      });
+  }
+
+  // --- Zonas y Rutas ---
+
+  toggleZoneExpansion(zone: any): void {
     const zoneId = zone.id;
-    this.expandedZones[zoneId] = !this.expandedZones[zoneId];
+    const expanded = { ...this.expandedZones() };
+    expanded[zoneId] = !expanded[zoneId];
+    this.expandedZones.set(expanded);
 
-    if (this.expandedZones[zoneId] && !this.zoneRoutes[zoneId]) {
+    if (expanded[zoneId] && !this.zoneRoutes()[zoneId]) {
       this.loadRoutesForZone(zoneId);
     }
   }
 
   isZoneExpanded(zoneId: string): boolean {
-    return this.expandedZones[zoneId] || false;
+    return this.expandedZones()[zoneId] || false;
   }
 
-  loadRoutesForZone(zoneId: string) {
-    console.log('[AdminCatalogs] Loading routes for zone:', zoneId);
-    console.log('[AdminCatalogs] Full API URL:', `${environment.apiUrl}/catalogs/rutas?parent=${zoneId}`);
-    
-    // Also load all routes to debug
-    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas`).subscribe({
-      next: (allRoutes) => {
-        console.log('[AdminCatalogs] ALL routes in database:', allRoutes);
-        console.log('[AdminCatalogs] Looking for zone ID:', zoneId);
-        console.log('[AdminCatalogs] Routes with parent_id details:');
-        allRoutes.forEach(route => {
-          console.log(`  - Route: ${route.value}, parent_id: ${route.parent_id}`);
-        });
-        console.log('[AdminCatalogs] Routes with parent_id matching zone:', allRoutes.filter(r => r.parent_id === zoneId));
-      },
-      error: (err) => {
-        console.error('[AdminCatalogs] Error loading all routes:', err);
-      }
-    });
-    
-    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas?parent=${zoneId}`).subscribe({
-      next: (routes) => {
-        console.log('[AdminCatalogs] Routes loaded for zone:', zoneId, 'Count:', routes.length);
-        console.log('[AdminCatalogs] Routes details:', routes);
-        this.zoneRoutes[zoneId] = routes;
-        
-        if (routes.length === 0) {
-          console.warn('[AdminCatalogs] No routes found for zone:', zoneId);
-        }
-      },
-      error: (err) => {
-        console.error('[AdminCatalogs] Error loading routes for zone:', zoneId, err);
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las rutas' });
-      }
-    });
+  getRoutesOf(zoneId: string): any[] {
+    return this.zoneRoutes()[zoneId] || [];
   }
 
-  loadRoutesForExpandedZones() {
-    Object.keys(this.expandedZones).forEach(zoneId => {
-      if (this.expandedZones[zoneId]) {
-        this.loadRoutesForZone(zoneId);
-      }
-    });
+  private loadRoutesForZone(zoneId: string): void {
+    this.catalogsService
+      .getRoutesByZone(zoneId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (routes) => {
+          this.zoneRoutes.update((current) => ({
+            ...current,
+            [zoneId]: routes,
+          }));
+        },
+        error: () => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'No se pudieron cargar las rutas.',
+          });
+        },
+      });
   }
 
   // --- Diálogos para Rutas ---
 
-  openAddRouteDialog(zone: any) {
-    console.log('[AdminCatalogs] Opening route dialog for zone:', zone);
-    this.isRouteMode.set(true);
+  openAddRouteDialog(zone: any): void {
     this.currentZoneId.set(zone.id);
     this.isEditMode.set(false);
     this.currentEditingId.set(null);
     this.newItemValue = '';
-    this.newItemOrder = (this.zoneRoutes[zone.id]?.length || 0) + 1;
+    this.newItemOrder = (this.getRoutesOf(zone.id).length || 0) + 1;
     this.newItemScore = 0;
     this.newItemIcon = '';
-    this.showRouteDialog = true;
-    console.log('[AdminCatalogs] Current zone ID set to:', zone.id);
+    this.showRouteDialog.set(true);
   }
 
-  openEditRouteDialog(route: any, zone: any) {
-    this.isRouteMode.set(true);
+  openEditRouteDialog(route: any, zone: any): void {
     this.currentZoneId.set(zone.id);
     this.isEditMode.set(true);
     this.currentEditingId.set(route.id);
@@ -310,284 +289,267 @@ export class AdminCatalogsComponent implements OnInit {
     this.newItemOrder = route.orden;
     this.newItemScore = route.puntuacion || 0;
     this.newItemIcon = route.icono || '';
-    this.showRouteDialog = true;
+    this.showRouteDialog.set(true);
   }
 
-  saveRoute() {
-    if (!this.newItemValue.trim()) return;
+  closeRouteDialog(): void {
+    this.showRouteDialog.set(false);
+  }
+
+  saveRoute(): void {
+    if (this.saving() || !this.newItemValue.trim()) return;
+    const zoneId = this.currentZoneId();
+    if (!zoneId) {
+      this.messageService.add({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'No se ha seleccionado una zona para la ruta.',
+      });
+      return;
+    }
 
     const data = {
-      value: this.newItemValue,
+      value: this.newItemValue.trim(),
       orden: this.newItemOrder,
       puntuacion: this.newItemScore,
       icono: this.newItemIcon,
-      parent_id: this.currentZoneId() || undefined
+      parent_id: zoneId,
     };
 
-    if (this.isEditMode()) {
-      this.catalogsService.updateItem('rutas', this.currentEditingId()!, data).subscribe({
-        next: () => {
-          this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta actualizada correctamente' });
-          this.loadRoutesForZone(this.currentZoneId()!);
-          this.showRouteDialog = false;
-        },
-        error: (err) => {
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar la ruta' });
-        }
-      });
-    } else {
-      // Add parent_id for routes
-      const currentZoneId = this.currentZoneId();
-      console.log('[AdminCatalogs] Creating route with zone ID:', currentZoneId);
-      console.log('[AdminCatalogs] Route data:', data);
-      
-      if (!currentZoneId) {
-        console.error('[AdminCatalogs] No zone ID selected for route creation');
-        this.messageService.add({ 
-          severity: 'error', 
-          summary: 'Error', 
-          detail: 'No se ha seleccionado una zona para agregar la ruta' 
+    this.saving.set(true);
+
+    const obs = this.isEditMode()
+      ? this.catalogsService.updateItem('rutas', this.currentEditingId()!, data)
+      : this.catalogsService.addItem('rutas', data);
+
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Éxito',
+          detail: this.isEditMode()
+            ? 'Ruta actualizada correctamente.'
+            : 'Ruta agregada correctamente.',
         });
-        return;
-      }
-      
-      const routeData = {
-        ...data,
-        parent_id: currentZoneId
-      };
-      console.log('[AdminCatalogs] Final route data:', routeData);
-      
-      this.catalogsService.addItem('rutas', routeData).subscribe({
-        next: () => {
-          this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta agregada correctamente' });
-          this.loadRoutesForZone(this.currentZoneId()!);
-          this.showRouteDialog = false;
-        },
-        error: (err) => {
-          console.error('[AdminCatalogs] Error adding route:', err);
-          
-          // Handle duplicate route name error
-          if (err.error?.code === '23505' || err.status === 409) {
-            this.messageService.add({ 
-              severity: 'warn', 
-              summary: 'Ruta Duplicada', 
-              detail: `Ya existe una ruta con el nombre "${data.value}" en esta zona. Por favor, usa un nombre diferente.` 
-            });
-          } else {
-            this.messageService.add({ 
-              severity: 'error', 
-              summary: 'Error', 
-              detail: 'No se pudo agregar la ruta. Inténtalo nuevamente.' 
-            });
-          }
-        }
-      });
-    }
+        this.loadRoutesForZone(zoneId);
+        this.showRouteDialog.set(false);
+      },
+      error: (err: any) => {
+        this.saving.set(false);
+        const detail =
+          err?.error?.message ||
+          'No se pudo guardar la ruta. Inténtalo nuevamente.';
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail,
+        });
+      },
+    });
   }
 
-  deleteRoute(routeId: string, zoneId: string) {
+  deleteRoute(routeId: string, zoneId: string): void {
     this.confirmationService.confirm({
-      message: '¿Estás seguro de eliminar esta ruta? Esta acción no se puede deshacer.',
+      message:
+        '¿Estás seguro de eliminar esta ruta? Esta acción no se puede deshacer.',
       header: 'Confirmar Eliminación',
       icon: 'pi pi-exclamation-triangle',
       acceptLabel: 'Sí, eliminar',
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-danger',
-      accept: () => {
-        this.executeDeleteRoute(routeId, zoneId);
-      },
-      reject: () => {
-        this.messageService.add({
-          severity: 'info',
-          summary: 'Cancelado',
-          detail: 'Eliminación cancelada.',
-        });
-      }
+      accept: () => this.executeDeleteRoute(routeId, zoneId),
     });
   }
 
-  private executeDeleteRoute(routeId: string, zoneId: string) {
-    this.catalogsService.deleteItem('rutas', routeId).subscribe({
-      next: () => {
-        this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ruta eliminada correctamente' });
-        this.loadRoutesForZone(zoneId);
-      },
-      error: (err) => {
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar la ruta' });
-      }
-    });
-  }
-
-  // Fix routes with null parent_id
-  fixRouteWithNullParentId(routeName: string, zoneId: string) {
-    console.log(`[AdminCatalogs] Fixing route "${routeName}" with null parent_id to zone: ${zoneId}`);
-    
-    // First find the route with null parent_id
-    this.http.get<any[]>(`${environment.apiUrl}/catalogs/rutas`).subscribe({
-      next: (allRoutes) => {
-        const routeToFix = allRoutes.find(r => r.value === routeName && r.parent_id === null);
-        
-        if (routeToFix) {
-          console.log(`[AdminCatalogs] Found route to fix:`, routeToFix);
-          
-          // Update the route with correct parent_id
-          const updateData = {
-            value: routeToFix.value,
-            orden: routeToFix.orden,
-            puntuacion: routeToFix.puntuacion || 0,
-            icono: routeToFix.icono || '',
-            parent_id: zoneId
-          };
-          
-          this.catalogsService.updateItem('rutas', routeToFix.id, updateData).subscribe({
-            next: () => {
-              console.log(`[AdminCatalogs] Route "${routeName}" fixed successfully`);
-              this.messageService.add({ 
-                severity: 'success', 
-                summary: 'Ruta Corregida', 
-                detail: `La ruta "${routeName}" ahora está asociada a la zona correctamente` 
-              });
-              this.loadRoutesForZone(zoneId);
-            },
-            error: (err) => {
-              console.error(`[AdminCatalogs] Error fixing route:`, err);
-              this.messageService.add({ 
-                severity: 'error', 
-                summary: 'Error', 
-                detail: 'No se pudo corregir la ruta' 
-              });
-            }
+  private executeDeleteRoute(routeId: string, zoneId: string): void {
+    this.catalogsService
+      .deleteItem('rutas', routeId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Éxito',
+            detail: 'Ruta eliminada correctamente.',
           });
-        } else {
-          console.warn(`[AdminCatalogs] Route "${routeName}" with null parent_id not found`);
-          this.messageService.add({ 
-            severity: 'warn', 
-            summary: 'Ruta No Encontrada', 
-            detail: `No se encontró la ruta "${routeName}" con parent_id null` 
+          this.loadRoutesForZone(zoneId);
+        },
+        error: (err: any) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo eliminar la ruta.',
           });
-        }
-      },
-      error: (err) => {
-        console.error('[AdminCatalogs] Error loading routes to fix:', err);
-      }
-    });
+        },
+      });
   }
 
-  openAddDialog() {
+  // --- Diálogos para Ítem genérico ---
+
+  openAddDialog(): void {
     this.isEditMode.set(false);
     this.currentEditingId.set(null);
     this.newItemValue = '';
     this.newItemOrder = this.items().length + 1;
     this.newItemScore = 0;
     this.newItemIcon = '';
-    this.showAddDialog = true;
+    this.showAddDialog.set(true);
   }
 
-  openEditDialog(item: any) {
+  openEditDialog(item: any): void {
     this.isEditMode.set(true);
     this.currentEditingId.set(item.id);
     this.newItemValue = item.value;
     this.newItemOrder = item.orden;
     this.newItemScore = item.puntuacion || 0;
     this.newItemIcon = item.icono || '';
-    this.showAddDialog = true;
+    this.showAddDialog.set(true);
   }
 
-  saveItem() {
-    if (!this.newItemValue.trim()) return;
+  closeAddDialog(): void {
+    this.showAddDialog.set(false);
+  }
 
-    const data = {
-      value: this.newItemValue,
+  saveItem(): void {
+    if (this.saving() || !this.newItemValue.trim()) return;
+
+    const data: {
+      value: string;
+      orden: number;
+      puntuacion?: number;
+      icono?: string;
+    } = {
+      value: this.newItemValue.trim(),
       orden: this.newItemOrder,
-      puntuacion: this.newItemScore,
-      icono: this.newItemIcon
     };
+    if (this.hasScoring()) data.puntuacion = this.newItemScore;
+    if (this.hasIcon()) data.icono = this.newItemIcon;
 
-    if (this.isEditMode()) {
-      this.catalogsService.updateItem(this.selectedType(), this.currentEditingId()!, data).subscribe({
-        next: () => {
-          this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ítem actualizado correctamente' });
-          this.loadCatalog(this.selectedType());
-          this.showAddDialog = false;
-        },
-        error: (err) => {
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar el ítem' });
-        }
-      });
-    } else {
-      this.catalogsService.addItem(this.selectedType(), data).subscribe({
-        next: () => {
-          this.messageService.add({ severity: 'success', summary: 'Éxito', detail: 'Ítem agregado correctamente' });
-          this.loadCatalog(this.selectedType());
-          this.showAddDialog = false;
-        },
-        error: (err) => {
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo agregar el ítem' });
-        }
-      });
-    }
+    this.saving.set(true);
+
+    const obs = this.isEditMode()
+      ? this.catalogsService.updateItem(
+          this.selectedType(),
+          this.currentEditingId()!,
+          data,
+        )
+      : this.catalogsService.addItem(this.selectedType(), data);
+
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Éxito',
+          detail: this.isEditMode()
+            ? 'Ítem actualizado correctamente.'
+            : 'Ítem agregado correctamente.',
+        });
+        this.loadCatalog(this.selectedType());
+        this.showAddDialog.set(false);
+      },
+      error: (err: any) => {
+        this.saving.set(false);
+        const detail =
+          err?.error?.message ||
+          (this.isEditMode()
+            ? 'No se pudo actualizar el ítem.'
+            : 'No se pudo agregar el ítem.');
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail,
+        });
+      },
+    });
   }
 
-  deleteItem(id: string, itemName?: string) {
-    // Confirmation dialog for all catalog types
+  deleteItem(id: string, itemName?: string): void {
     const typeLabel = this.getTypeLabel(this.selectedType());
     this.confirmationService.confirm({
-      message: `¿Estás seguro de eliminar ${typeLabel} "${itemName || 'seleccionado'}"? Esta acción no se puede deshacer.`,
+      message: `¿Estás seguro de eliminar ${typeLabel} "${
+        itemName || 'seleccionado'
+      }"? Esta acción no se puede deshacer.`,
       header: 'Confirmar Eliminación',
       icon: 'pi pi-exclamation-triangle',
       acceptLabel: 'Sí, eliminar',
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-danger',
-      accept: () => {
-        this.executeDelete(id);
-      },
-      reject: () => {
-        this.messageService.add({
-          severity: 'info',
-          summary: 'Cancelado',
-          detail: 'Eliminación cancelada.',
-        });
-      }
+      accept: () => this.executeDelete(id),
     });
   }
 
   private getTypeLabel(type: string): string {
     const labels: Record<string, string> = {
-      'roles': 'el rol',
-      'zonas': 'la zona',
-      'rutas': 'la ruta',
-      'conceptos': 'el concepto',
-      'ubicaciones': 'la ubicación',
-      'niveles': 'el nivel',
-      'periodos': 'el periodo',
-      'semanas': 'la semana',
+      roles: 'el rol',
+      zonas: 'la zona',
+      rutas: 'la ruta',
+      conceptos: 'el concepto',
+      ubicaciones: 'la ubicación',
+      niveles: 'el nivel',
+      periodos: 'el periodo',
+      semanas: 'la semana',
     };
     return labels[type] || 'el elemento';
   }
 
-  private executeDelete(id: string) {
-    this.catalogsService.deleteItem(this.selectedType(), id).subscribe({
-      next: () => {
-        this.items.update((items) => items.filter((i) => i.id !== id));
-        const typeLabel = this.getTypeLabel(this.selectedType()).charAt(0).toUpperCase() + this.getTypeLabel(this.selectedType()).slice(1);
-        this.messageService.add({
-          severity: 'success',
-          summary: 'Eliminado',
-          detail: `${typeLabel} eliminado correctamente.`,
-        });
-      },
-      error: (err: any) => {
-        const errorMsg = err?.error?.message || 'No se pudo eliminar el elemento.';
-        this.messageService.add({
-          severity: 'error',
-          summary: 'Error',
-          detail: errorMsg,
-        });
-      },
-    });
+  private executeDelete(id: string): void {
+    this.catalogsService
+      .deleteItem(this.selectedType(), id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (response: any) => {
+          const typeLabel = this.getTypeLabel(this.selectedType());
+          const formatted =
+            typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1);
+
+          // Limpiar estado expandido/cache de rutas si era una zona
+          // borrada (evita zombie state).
+          if (this.selectedType() === 'zonas') {
+            this.expandedZones.update((current) => {
+              const next = { ...current };
+              delete next[id];
+              return next;
+            });
+            this.zoneRoutes.update((current) => {
+              const next = { ...current };
+              delete next[id];
+              return next;
+            });
+          }
+
+          if (response?.soft_deleted) {
+            // Marcado como inactivo: refrescar listado para reflejar el estado.
+            this.loadCatalog(this.selectedType());
+            this.messageService.add({
+              severity: 'info',
+              summary: 'Marcado como inactivo',
+              detail:
+                response.message ||
+                `${formatted} está referenciado por capturas históricas; se mantiene en el sistema pero ya no estará disponible para nuevas capturas.`,
+              life: 6000,
+            });
+          } else {
+            this.items.update((items) => items.filter((i) => i.id !== id));
+            this.messageService.add({
+              severity: 'success',
+              summary: 'Eliminado',
+              detail: `${formatted} eliminado correctamente.`,
+            });
+          }
+        },
+        error: (err: any) => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo eliminar el elemento.',
+          });
+        },
+      });
   }
 
-  goToPermissions(roleName: string) {
+  goToPermissions(roleName: string): void {
     this.router.navigate(['/dashboard/admin/roles', roleName, 'permissions']);
   }
 }

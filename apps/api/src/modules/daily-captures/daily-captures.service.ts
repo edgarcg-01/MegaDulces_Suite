@@ -1,13 +1,22 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
 import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
 import { EventsService } from '../websocket/events.service';
+import { toMxDateKey } from '../../shared/date/mx-date';
 
 @Injectable()
 export class DailyCapturesService {
+  private readonly logger = new Logger(DailyCapturesService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly cloudinaryService: CloudinaryService,
@@ -21,113 +30,151 @@ export class DailyCapturesService {
     username: string,
     zona: string,
   ) {
-    console.log('[DailyCapturesService] 📥 Recibiendo datos del frontend:');
-    console.log('  - folio:', dto.folio);
-    console.log('  - userId:', userId);
-    console.log('  - username:', username);
-    console.log('  - zona:', zona);
-    console.log('  - GPS recibido:', { latitud: dto.latitud, longitud: dto.longitud });
-    console.log('  - stats:', dto.stats);
-    console.log('  - exhibiciones count:', dto.exhibiciones?.length);
+    this.logger.log(
+      `create folio=${dto.folio} user=${username} zona=${zona} exh=${dto.exhibiciones?.length}`,
+    );
+    this.logger.debug(`stats=${JSON.stringify(dto.stats)}`);
 
     // Validar coordenadas GPS
     const latitud = Number(dto.latitud);
     const longitud = Number(dto.longitud);
     if (!latitud || !longitud || latitud === 0 || longitud === 0) {
-      console.warn('[DailyCapturesService] ⚠️ GPS inválido o no proporcionado:', { latitud, longitud });
-    } else {
-      console.log('[DailyCapturesService] ✅ GPS válido recibido:', { latitud, longitud });
+      this.logger.warn(`GPS inválido o no proporcionado: lat=${latitud} lng=${longitud}`);
     }
 
-    // Procesar fotos Base64 subiéndolas a Cloudinary y guardando URL + Public ID
-    console.log('[DailyCapturesService] 📸 Procesando fotos de exhibiciones...');
+    // Procesar fotos Base64 con concurrencia limitada (máx 3) y timeout por foto.
     let fotosSubidas = 0;
     let fotosFallidas = 0;
+    const UPLOAD_CONCURRENCY = 3;
+    const UPLOAD_TIMEOUT_MS = 30_000;
 
-    const processedExhibiciones = await Promise.all(
-      dto.exhibiciones.map(async (ex, index) => {
-        if (ex.fotoBase64) {
-          console.log(`[DailyCapturesService] 📤 Subiendo foto ${index + 1} a Cloudinary...`);
-          try {
-            const cloudinaryResult =
-              await this.cloudinaryService.uploadImageBase64(
-                ex.fotoBase64,
-                `daily-captures/${dto.folio}`,
-              );
+    const uploadOne = async (ex: any, index: number) => {
+      // Path preferido: multipart attaches `_file` (Express.Multer.File con buffer).
+      // Ahorra ~25% en wire vs base64 + evita el costo de re-codificar.
+      if (ex._file) {
+        try {
+          const cloudinaryResult = await Promise.race([
+            this.cloudinaryService.uploadImage(
+              ex._file,
+              `daily-captures/${dto.folio}`,
+            ),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`Upload timeout (${UPLOAD_TIMEOUT_MS}ms)`)),
+                UPLOAD_TIMEOUT_MS,
+              ),
+            ),
+          ]);
 
-            ex.fotoUrl = cloudinaryResult.secure_url;
-            ex.fotoPublicId = cloudinaryResult.public_id;
-            fotosSubidas++;
-            console.log(`[DailyCapturesService] ✅ Foto ${index + 1} subida exitosamente:`, cloudinaryResult.secure_url);
-          } catch (error) {
-            fotosFallidas++;
-            console.error(
-              `[DailyCapturesService] ❌ Error subiendo foto ${index + 1} a Cloudinary:`,
-              error.message || error
-            );
-            // En caso de error, dejar sin foto pero continuar el proceso
-            ex.fotoUrl = null;
-            ex.fotoPublicId = null;
-          }
-          // Remove heavy payload before persisting
-          delete ex.fotoBase64;
+          ex.fotoUrl = cloudinaryResult.secure_url;
+          ex.fotoPublicId = cloudinaryResult.public_id;
+          fotosSubidas++;
+        } catch (error) {
+          fotosFallidas++;
+          this.logger.error(
+            `Foto ${index + 1} falló (multipart): ${error.message || error}`,
+          );
+          ex.fotoUrl = null;
+          ex.fotoPublicId = null;
         }
+        delete ex._file;
+        delete ex.fotoBase64; // safety
         return ex;
-      }),
-    );
+      }
 
-    console.log(`[DailyCapturesService] 📊 Resumen de fotos: ${fotosSubidas} subidas, ${fotosFallidas} fallidas`);
+      // Legacy path: base64 dentro del JSON (offline cache antigua).
+      if (!ex.fotoBase64) return ex;
+      try {
+        const cloudinaryResult = await Promise.race([
+          this.cloudinaryService.uploadImageBase64(
+            ex.fotoBase64,
+            `daily-captures/${dto.folio}`,
+          ),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`Upload timeout (${UPLOAD_TIMEOUT_MS}ms)`)),
+              UPLOAD_TIMEOUT_MS,
+            ),
+          ),
+        ]);
 
-    console.log('[DailyCapturesService] 💾 Insertando en daily_captures...');
-    console.log('  - stats a insertar:', dto.stats);
-    console.log('  - coordenadas a guardar:', { latitud, longitud });
+        ex.fotoUrl = cloudinaryResult.secure_url;
+        ex.fotoPublicId = cloudinaryResult.public_id;
+        fotosSubidas++;
+      } catch (error) {
+        fotosFallidas++;
+        this.logger.error(
+          `Foto ${index + 1} falló (base64): ${error.message || error}`,
+        );
+        ex.fotoUrl = null;
+        ex.fotoPublicId = null;
+      }
+      delete ex.fotoBase64;
+      return ex;
+    };
+
+    const processedExhibiciones: any[] = [];
+    for (let i = 0; i < dto.exhibiciones.length; i += UPLOAD_CONCURRENCY) {
+      const batch = dto.exhibiciones.slice(i, i + UPLOAD_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map((ex, j) => uploadOne(ex, i + j)),
+      );
+      processedExhibiciones.push(...results);
+    }
+
+    if (fotosSubidas || fotosFallidas) {
+      this.logger.log(`Fotos: ${fotosSubidas} subidas, ${fotosFallidas} fallidas`);
+    }
+
+    // ── ENRIQUECIMIENTO: backfill nivelEjecucionId desde el string si falta ──
+    // Esto resuelve el bug donde el frontend mandaba exhibiciones sin nivelEjecucionId.
+    // Bulk lookup: una sola query por todos los nombres distintos de nivel faltantes.
+    const nivelesFaltantes = new Set<string>();
+    for (const ex of processedExhibiciones) {
+      if (!ex.nivelEjecucionId && !ex.nivel_ejecucion_id && ex.nivelEjecucion) {
+        nivelesFaltantes.add(String(ex.nivelEjecucion).toLowerCase());
+      }
+    }
+
+    if (nivelesFaltantes.size > 0) {
+      const valores = Array.from(nivelesFaltantes);
+      const nivelRows = await this.knex('catalogs')
+        .where({ catalog_id: 'niveles' })
+        .whereIn(this.knex.raw('LOWER(value)') as any, valores)
+        .select('id', 'value');
+
+      const nivelByName = new Map<string, string>();
+      for (const row of nivelRows) {
+        nivelByName.set(String(row.value).toLowerCase(), row.id);
+      }
+
+      for (const ex of processedExhibiciones) {
+        if (!ex.nivelEjecucionId && !ex.nivel_ejecucion_id && ex.nivelEjecucion) {
+          const id = nivelByName.get(String(ex.nivelEjecucion).toLowerCase());
+          if (id) {
+            ex.nivelEjecucionId = id;
+            this.logger.debug(
+              `Backfill nivelEjecucionId "${ex.nivelEjecucion}" → ${id}`,
+            );
+          }
+        }
+      }
+    }
 
     // Consultar score_maximo dinámico desde scoring_config_versions (para meta local opcional)
     const activeVersion = await this.scoringV2Service.getActiveVersion();
     const configVersionId = activeVersion?.id;
-    
+
     // Recalcular los puntos puros con el Backend Engine y no de la app móvil
     let puntosBackendTotales = dto.stats.puntuacionTotal || 0;
-    
+
     if (configVersionId && processedExhibiciones.length > 0) {
        try {
-         // Resolver nivelEjecucionId desde el string si no viene como UUID
-         // (compatibilidad con datos antiguos y fallback)
-         const nivelCache = new Map<string, string>();
-         
-         const exhibicionesParaScoring = await Promise.all(
-           processedExhibiciones.map(async (ex) => {
-             let nivelId = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
-             
-             if (!nivelId && ex.nivelEjecucion) {
-               // Buscar en caché primero
-               if (nivelCache.has(ex.nivelEjecucion)) {
-                 nivelId = nivelCache.get(ex.nivelEjecucion)!;
-               } else {
-                 // Buscar en el catálogo catalogs
-                  const nivelRow = await this.knex('catalogs')
-                    .where({ catalog_id: 'niveles' })
-                    .whereILike('value', ex.nivelEjecucion)
-                    .select('id')
-                    .first();
-                 
-                 if (nivelRow) {
-                   nivelId = nivelRow.id;
-                   nivelCache.set(ex.nivelEjecucion, nivelId);
-                   console.log(`[DailyCapturesService] Resuelto nivelEjecucionId para "${ex.nivelEjecucion}": ${nivelId}`);
-                 } else {
-                   console.warn(`[DailyCapturesService] ⚠️ Nivel "${ex.nivelEjecucion}" no encontrado en catálogo`);
-                 }
-               }
-             }
-             
-             return {
-               posicion_id: ex.ubicacionId,
-               exhibicion_id: ex.conceptoId,
-               nivel_ejecucion_id: nivelId,
-             };
-           })
-         );
+         const exhibicionesParaScoring = processedExhibiciones.map((ex) => ({
+           posicion_id: ex.ubicacionId,
+           exhibicion_id: ex.conceptoId,
+           nivel_ejecucion_id: ex.nivelEjecucionId || ex.nivel_ejecucion_id,
+         }));
 
          // Filtrar exhibiciones que tienen todos los IDs resueltos
          const validExhibiciones = exhibicionesParaScoring.filter(
@@ -142,16 +189,18 @@ export class DailyCapturesService {
            
            const backendScore = await this.scoringV2Service.calculateVisitScore(scoringDto as any);
            puntosBackendTotales = backendScore.puntos_obtenidos;
-           console.log('[DailyCapturesService] 🧮 Puntos recalculados por Backend Engine:', puntosBackendTotales);
-           
+           this.logger.log(`Puntos backend: ${puntosBackendTotales}`);
+
            if (validExhibiciones.length < processedExhibiciones.length) {
-             console.warn(`[DailyCapturesService] ⚠️ ${processedExhibiciones.length - validExhibiciones.length} exhibiciones sin nivelEjecucionId válido, usando score frontend para esas`);
+             this.logger.warn(
+               `${processedExhibiciones.length - validExhibiciones.length} exhibiciones sin nivelEjecucionId; usando score frontend para esas`,
+             );
            }
          } else {
-           console.warn('[DailyCapturesService] ⚠️ Ninguna exhibición tiene nivelEjecucionId válido, usando score del frontend');
+           this.logger.warn('Ninguna exhibición con nivelEjecucionId válido; usando score frontend');
          }
        } catch (error) {
-         console.warn('[DailyCapturesService] ⚠️ Fallo al recalcular scores, se usará valor del frontend. Error:', error.message);
+         this.logger.warn(`Fallo al recalcular scores; usando frontend. ${error.message}`);
        }
     }
 
@@ -168,16 +217,18 @@ export class DailyCapturesService {
       // Se eliminan campos legacy % obsoletos
     };
 
-    console.log('[DailyCapturesService] 💾 Stats normalizados a insertar:', {
-      ventaTotalRecibido: ventaTotalActual,
-      ventaAdicional: ventaAdicional,
-      ventaTotalFinal,
-    });
+    this.logger.debug(
+      `ventaTotal recibido=${ventaTotalActual} ventaAdicional=${ventaAdicional} ventaTotalFinal=${ventaTotalFinal}`,
+    );
 
-    // Extraer fecha de hora_inicio o usar fecha actual
+    // CRÍTICO: derivar `fecha` (DATE) en TZ MX, no UTC. Antes se usaba
+    // `toISOString().split('T')[0]` que devuelve UTC — capturas hechas
+    // entre 18:00–23:59 MX rolaban al día siguiente en UTC y la fila se
+    // insertaba con `fecha` del día equivocado, contaminando TODOS los
+    // reportes downstream (trend semanal, CSV, heatmap, etc.).
     const fecha = dto.horaInicio
-      ? new Date(dto.horaInicio).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0];
+      ? toMxDateKey(new Date(dto.horaInicio))
+      : toMxDateKey(new Date());
 
     const [dailyCapture] = await this.knex('daily_captures')
       .insert({
@@ -196,12 +247,9 @@ export class DailyCapturesService {
       })
       .returning('*');
 
-    console.log('[DailyCapturesService] ✅ Insert exitoso. Datos guardados:');
-    console.log('  - id:', dailyCapture.id);
-    console.log('  - folio:', dailyCapture.folio);
-    console.log('  - GPS guardado:', { latitud: dailyCapture.latitud, longitud: dailyCapture.longitud });
-    console.log('  - fecha/hora:', { fecha: dailyCapture.fecha, hora_inicio: dailyCapture.hora_inicio });
-    console.log('  - stats:', dailyCapture.stats);
+    this.logger.log(
+      `Captura guardada id=${dailyCapture.id} folio=${dailyCapture.folio} fecha=${dailyCapture.fecha}`,
+    );
 
     this.eventsService.emitCaptureCreated({
       type: 'capture:created',
@@ -224,8 +272,13 @@ export class DailyCapturesService {
   ) {
     const query = this.knex('daily_captures').select('*');
     if (fecha) {
-      // Usar hora_inicio en lugar de fecha para evitar problemas de timezone
-      query.whereRaw("DATE(hora_inicio) = ?", [fecha]);
+      // hora_inicio convertida a TZ MX para que "hoy" del cliente coincida
+      // con el día calendario del backend (visitas vespertinas en MX están
+      // en UTC del día siguiente).
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') = ?",
+        [fecha],
+      );
     }
     if (zona) query.where({ zona_captura: zona });
     if (ejecutivo) query.where({ captured_by_username: ejecutivo });
@@ -249,13 +302,37 @@ export class DailyCapturesService {
     return dailyCapture;
   }
 
-  async remove(id: string) {
+  async remove(
+    id: string,
+    requester?: { sub: string; username: string; role_name: string },
+  ) {
     const visit = await this.knex('daily_captures').where({ id }).first()
       || await this.knex('daily_captures').where({ folio: id }).first();
     if (!visit) {
       throw new NotFoundException(`Visita con identificador ${id} no encontrada`);
     }
+
+    // Ownership check: si pasaron un requester, solo puede borrar si es el dueño
+    // o si tiene rol administrativo (superadmin). El control de permiso fino
+    // (REPORTES_GESTIONAR) ya lo hace el guard en el controller.
+    if (requester) {
+      const isOwner = visit.user_id === requester.sub;
+      const isAdmin = requester.role_name === 'superadmin';
+      if (!isOwner && !isAdmin) {
+        throw new ForbiddenException(
+          'No puedes eliminar visitas que no te pertenecen.',
+        );
+      }
+    }
+
     await this.knex('daily_captures').where({ id: visit.id }).del();
+
+    // Audit log mínimo: queda en logs del servidor con quién borró qué.
+    this.logger.log(
+      `Visita eliminada folio=${visit.folio} id=${visit.id} owner=${visit.user_id} ` +
+        `por=${requester?.username ?? 'sistema'} role=${requester?.role_name ?? '?'}`,
+    );
+
     return { message: `Visita ${visit.folio} eliminada` };
   }
 }

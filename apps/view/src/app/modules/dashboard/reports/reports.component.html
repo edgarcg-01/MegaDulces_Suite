@@ -1,482 +1,590 @@
-<main class="reports-container p-6 pl-8 pt-8 space-y-6 min-h-screen">
+<main class="reports-container p-6 pt-8 space-y-6 min-h-screen">
 
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-chart-bar text-content-main"></i> Mercadeo Inteligente</h1>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+        <i class="pi pi-chart-bar text-content-main" aria-hidden="true"></i> Mercadeo Inteligente
+      </h1>
       <p class="text-content-muted text-sm">Reportes avanzados · {{ filtersState.rangeLabel() }}</p>
     </div>
-    <div class="flex gap-2 flex-wrap sm:flex-nowrap">
-      <p-button icon="pi pi-refresh" severity="secondary" [text]="true" [rounded]="true" (onClick)="resetAll()" [disabled]="loading()" pTooltip="Resetear filtros"></p-button>
-      <p-button label="CSV" icon="pi pi-file-excel" severity="secondary" (onClick)="exportCsv()" [disabled]="loading()" styleClass="text-xs sm:text-sm whitespace-nowrap"></p-button>
-      <p-button *ngIf="canEditMetas()" label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="openMetasDialog()" [disabled]="loading()"></p-button>
-      <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand text-xs sm:text-sm whitespace-nowrap" (onClick)="exportarPDF()" [disabled]="loading()"></p-button>
-      <p-button label="Rutas" icon="pi pi-route" severity="secondary" styleClass="text-xs sm:text-sm whitespace-nowrap" (onClick)="openRouteReportDialog()" [disabled]="loading()"></p-button>
+
+    <!--
+      Desktop (md+): los 5 botones inline.
+      Mobile (<md): primario PDF visible, el resto colapsa en un menu kebab para no saturar.
+    -->
+    <div class="flex gap-2 items-center">
+      <!-- Botón primario PDF (siempre visible) -->
+      <p-button label="PDF" icon="pi pi-file-pdf" styleClass="p-button-brand text-sm whitespace-nowrap"
+                (onClick)="exportarPDF()" [disabled]="loading()" ariaLabel="Exportar reporte a PDF"></p-button>
+
+      <!-- Botones secundarios — visibles solo en desktop -->
+      <div class="hidden md:flex gap-2 items-center">
+        <p-button icon="pi pi-refresh" severity="secondary" [text]="true" [rounded]="true"
+                  (onClick)="resetAll()" [disabled]="loading()" pTooltip="Resetear filtros" ariaLabel="Resetear filtros"></p-button>
+        <p-button label="CSV" icon="pi pi-file-excel" severity="secondary"
+                  (onClick)="exportCsv()" [disabled]="loading()" styleClass="text-sm whitespace-nowrap"></p-button>
+        @if (canEditMetas()) {
+          <p-button label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand text-sm whitespace-nowrap"
+                    (onClick)="openMetasDialog()" [disabled]="loading()"></p-button>
+        }
+        <p-button label="Rutas" icon="pi pi-route" severity="secondary" styleClass="text-sm whitespace-nowrap"
+                  (onClick)="openRouteReportDialog()" [disabled]="loading()"></p-button>
+      </div>
+
+      <!-- Menú "más acciones" — solo mobile -->
+      <p-button icon="pi pi-ellipsis-v" severity="secondary" [text]="true" [rounded]="true"
+                styleClass="md:hidden"
+                (onClick)="actionsMenu.toggle($event)" [disabled]="loading()"
+                ariaLabel="Más acciones"></p-button>
+      <p-menu #actionsMenu [popup]="true" appendTo="body" [model]="headerActionsMenu()"></p-menu>
     </div>
   </div>
 
   <app-global-filters (filtersChanged)="loadData()"></app-global-filters>
 
+  <!--
+    `modern-tabs-wrapper` añade fade en los bordes para indicar scroll horizontal
+    en mobile (CSS: gradient mask en ::before/::after). Sin flex-wrap: las tabs
+    quedan en una sola línea con scroll, evitando el doble renglón antiestético.
+  -->
   <div class="modern-tabs-wrapper">
-    <p-tabs [value]="0">
-      <p-tablist class="flex-wrap sm:flex-nowrap overflow-x-auto">
-        <p-tab [value]="0" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Resumen</p-tab>
-        
-        <p-tab [value]="1" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Registros</p-tab>
-        <p-tab [value]="2" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Rutas</p-tab>
-        <p-tab [value]="3" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Productos</p-tab>
-        <p-tab [value]="4" class="text-xs sm:text-sm whitespace-nowrap px-2 sm:px-4">Tiendas</p-tab>
+    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set(+$event)">
+      <p-tablist class="overflow-x-auto">
+        <p-tab [value]="0" class="text-sm whitespace-nowrap px-3 sm:px-4">Resumen</p-tab>
+        <p-tab [value]="1" class="text-sm whitespace-nowrap px-3 sm:px-4">Registros</p-tab>
+        <p-tab [value]="2" class="text-sm whitespace-nowrap px-3 sm:px-4">Rutas</p-tab>
+        <p-tab [value]="3" class="text-sm whitespace-nowrap px-3 sm:px-4">Productos</p-tab>
+        <p-tab [value]="4" class="text-sm whitespace-nowrap px-3 sm:px-4">Tiendas</p-tab>
       </p-tablist>
 
       <p-tabpanels>
         <p-tabpanel [value]="0">
-          <div class="pt-4 space-y-6" *ngIf="reportsData() as data">
+          @if (reportsData()) {
+          <div class="pt-4 space-y-6">
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div *ngFor="let k of kpiCards()" class="card-premium flex flex-col gap-2 border-l-4"
-                [ngClass]="{
-                  'border-l-green-500': k.status === 'ok',
-                  'border-l-amber-400': k.status === 'warn',
-                  'border-l-red-500':   k.status === 'bad'
-                }">
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-bold text-content-faint uppercase">{{ k.label }}</span>
-                  <span class="text-[11px] px-1.5 py-0.5 rounded-full font-bold"
-                    [ngClass]="{
-                      'bg-green-100 text-green-700': k.status === 'ok',
-                      'bg-amber-100 text-amber-700': k.status === 'warn',
-                      'bg-red-100 text-red-700':     k.status === 'bad'
-                    }">{{ statusLabel(k.status) }}</span>
+              @for (k of kpiCards(); track k.label) {
+                <div class="card-premium card-flat status-border-left flex flex-col gap-2"
+                     [class]="'status-' + k.status">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-content-faint uppercase">{{ k.label }}</span>
+                    <span class="status-chip uppercase">{{ statusLabel(k.status) }}</span>
+                  </div>
+                  <div class="text-2xl font-bold text-content-main">{{ k.value }}</div>
+                  <div class="text-xs"
+                    [class.status-text]="k.deltaDir === 'up' || k.deltaDir === 'down'"
+                    [class.status-ok]="k.deltaDir === 'up'"
+                    [class.status-bad]="k.deltaDir === 'down'"
+                    [class.text-content-faint]="k.deltaDir === 'flat'">{{ k.delta }}</div>
+                  <div class="h-1 rounded-full bg-surface-layout overflow-hidden">
+                    <div class="h-full rounded-full status-fill" [style.width.%]="k.pct"></div>
+                  </div>
+                  <div class="text-[11px] text-content-faint">Meta: {{ k.meta }}</div>
                 </div>
-                <div class="text-2xl font-bold text-content-main">{{ k.value }}</div>
-                <div class="text-xs"
-                  [ngClass]="{
-                    'text-green-600': k.deltaDir === 'up',
-                    'text-red-500':   k.deltaDir === 'down',
-                    'text-content-faint': k.deltaDir === 'flat'
-                  }">{{ k.delta }}</div>
-                <div class="h-1 rounded-full bg-surface-layout overflow-hidden">
-                  <div class="h-full rounded-full" [style.width.%]="k.pct"
-                    [ngClass]="{ 'bg-green-500': k.status === 'ok', 'bg-amber-400': k.status === 'warn', 'bg-red-500': k.status === 'bad' }"></div>
-                </div>
-                <div class="text-[11px] text-content-faint">Meta: {{ k.meta }}</div>
-              </div>
+              }
             </div>
 
-            <div class="card-premium">
-              <div class="flex items-center justify-between mb-4">
+            <div class="card-premium card-flat">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
                 <h3 class="text-sm font-bold text-content-main">Visitas de los Últimos 7 Días</h3>
-                <div class="flex gap-3 text-[11px] text-content-muted">
-                  <span class="flex items-center gap-1"><span class="w-3 h-3 bg-blue-500 rounded-sm inline-block"></span>Visitas diarias</span>
-                  <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-red-400 inline-block" style="border-top:2px dashed #E24B4A"></span>Meta diaria</span>
+                <div class="flex gap-3 text-[11px] text-content-muted flex-wrap">
+                  <span class="flex items-center gap-1.5">
+                    <span class="w-3 h-3 bg-brand-orange rounded-sm inline-block"></span>
+                    Visitas diarias
+                  </span>
+                  <span class="flex items-center gap-1.5 status-bad">
+                    <span class="w-4 inline-block border-t-2 border-dashed" style="border-color: var(--status-fg)"></span>
+                    <span class="text-content-muted">Meta diaria</span>
+                  </span>
                 </div>
               </div>
               <div class="h-[300px]">
-                <p-chart type="bar" [data]="chartData" [options]="chartOptions" height="100%" *ngIf="chartData"></p-chart>
+                @if (chartData) {
+                  <p-chart type="bar" [data]="chartData" [options]="chartOptions" height="100%"></p-chart>
+                }
               </div>
             </div>
           </div>
+          }
           <div class="mt-8"></div>
 
-          <ng-container *ngIf="!loading(); else tabSkeleton">
-          <div class="pt-4 space-y-6">
-            <!-- Grid de gráficas PrimeNG -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          @if (!loading()) {
+            <div class="pt-4 space-y-6">
+              <!-- Grid de gráficas PrimeNG -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-              <!-- 1. DOUGHNUT - Distribución porcentual -->
-              <div class="card-premium">
-                <div class="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 class="text-sm font-bold text-content-main">Calidad de Visitas</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Distribución por Nivel de Ejecución</p>
+                <!-- 1. DOUGHNUT - Distribución porcentual -->
+                <div class="card-premium card-flat">
+                  <div class="flex items-center justify-between mb-4 gap-2">
+                    <div>
+                      <h3 class="text-sm font-bold text-content-main">Calidad de Visitas</h3>
+                      <p class="text-xs text-content-muted mt-0.5">Distribución por Nivel de Ejecución</p>
+                    </div>
+                    <button (click)="captureChartAndExport('doughnut')"
+                            class="text-xs px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout shrink-0
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                            aria-label="Exportar gráfica de Calidad de Visitas a PDF">+ PDF</button>
                   </div>
-                  <button (click)="captureChartAndExport('doughnut')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
+                  <div class="h-[260px]">
+                    @if (doughnutChartData) {
+                      <p-chart type="doughnut" [data]="doughnutChartData" [options]="doughnutChartOptions" height="100%" #doughnutChart></p-chart>
+                    }
+                  </div>
+                  <p class="text-xs text-content-muted mt-2 text-center">Muestra el % de visitas por nivel: Alto, Medio, Bajo, Crítico</p>
                 </div>
-                <div class="h-[260px]">
-                  <p-chart type="doughnut" [data]="doughnutChartData" [options]="doughnutChartOptions" height="100%" *ngIf="doughnutChartData" #doughnutChart></p-chart>
+
+                <!-- 2. RADAR - Comparación multivariable -->
+                <div class="card-premium card-flat">
+                  <div class="flex items-center justify-between mb-4 gap-2">
+                    <div>
+                      <h3 class="text-sm font-bold text-content-main">Performance por Zona</h3>
+                      <p class="text-xs text-content-muted mt-0.5">Comparación multidimensional</p>
+                    </div>
+                    <button (click)="captureChartAndExport('radar')"
+                            class="text-xs px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout shrink-0
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                            aria-label="Exportar gráfica de Performance por Zona a PDF">+ PDF</button>
+                  </div>
+                  <div class="h-[260px]">
+                    @if (radarChartData) {
+                      <p-chart type="radar" [data]="radarChartData" [options]="radarChartOptions" height="100%" #radarChart></p-chart>
+                    }
+                  </div>
+                  <p class="text-xs text-content-muted mt-2 text-center">Compara zonas en: Score, Visitas, GPS, Exhibiciones y Ventas</p>
                 </div>
-                <p class="text-xs text-content-muted mt-2 text-center">Muestra el % de visitas por nivel: Alto, Medio, Bajo, Crítico</p>
+
+                <!-- 3. POLAR AREA - Distribución angular -->
+                <div class="card-premium card-flat">
+                  <div class="flex items-center justify-between mb-4 gap-2">
+                    <div>
+                      <h3 class="text-sm font-bold text-content-main">Distribución Angular</h3>
+                      <p class="text-xs text-content-muted mt-0.5">Intensidad por calidad de visita</p>
+                    </div>
+                    <button (click)="captureChartAndExport('polar')"
+                            class="text-xs px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout shrink-0
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                            aria-label="Exportar gráfica de Distribución Angular a PDF">+ PDF</button>
+                  </div>
+                  <div class="h-[260px]">
+                    @if (polarAreaChartData) {
+                      <p-chart type="polarArea" [data]="polarAreaChartData" [options]="polarAreaChartOptions" height="100%" #polarChart></p-chart>
+                    }
+                  </div>
+                  <p class="text-xs text-content-muted mt-2 text-center">El área representa la cantidad de visitas por calidad</p>
+                </div>
+
+                <!-- 4. SCATTER - Correlación -->
+                <div class="card-premium card-flat">
+                  <div class="flex items-center justify-between mb-4 gap-2">
+                    <div>
+                      <h3 class="text-sm font-bold text-content-main">Correlación Score-Ventas</h3>
+                      <p class="text-xs text-content-muted mt-0.5">Relación calidad vs impacto económico</p>
+                    </div>
+                    <button (click)="captureChartAndExport('scatter')"
+                            class="text-xs px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout shrink-0
+                                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                            aria-label="Exportar gráfica de Correlación Score-Ventas a PDF">+ PDF</button>
+                  </div>
+                  <div class="h-[260px]">
+                    @if (scatterChartData) {
+                      <p-chart type="scatter" [data]="scatterChartData" [options]="scatterChartOptions" height="100%"></p-chart>
+                    }
+                  </div>
+                  <p class="text-xs text-content-muted mt-2 text-center">Cada punto = 1 visita. Muestra si más score = más ventas</p>
+                </div>
+
               </div>
 
-              <!-- 2. RADAR - Comparación multivariable -->
-              <div class="card-premium">
-                <div class="flex items-center justify-between mb-4">
+              <!-- Gráfica de Ejecución Semanal vs Meta (movida desde Home) -->
+              <div class="card-premium card-flat mt-6">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
                   <div>
-                    <h3 class="text-sm font-bold text-content-main">Performance por Zona</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Comparación multidimensional</p>
+                    <h3 class="text-base font-bold text-content-main">Ejecución Semanal vs Meta</h3>
+                    <p class="text-xs text-content-muted mt-1">Tendencia de score promedio en el tiempo</p>
                   </div>
-                  <button (click)="captureChartAndExport('radar')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
-                </div>
-                <div class="h-[260px]">
-                  <p-chart type="radar" [data]="radarChartData" [options]="radarChartOptions" height="100%" *ngIf="radarChartData" #radarChart></p-chart>
-                </div>
-                <p class="text-xs text-content-muted mt-2 text-center">Compara zonas en: Score, Visitas, GPS, Exhibiciones y Ventas</p>
-              </div>
-
-              <!-- 3. POLAR AREA - Distribución angular -->
-              <div class="card-premium">
-                <div class="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 class="text-sm font-bold text-content-main">Distribución Angular</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Intensidad por calidad de visita</p>
+                  <div class="flex gap-4 text-xs text-content-muted flex-wrap">
+                    <span class="flex items-center gap-1.5">
+                      <span class="w-3 h-0.5 bg-brand inline-block"></span>
+                      Score
+                    </span>
                   </div>
-                  <button (click)="captureChartAndExport('polar')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
                 </div>
-                <div class="h-[260px]">
-                  <p-chart type="polarArea" [data]="polarAreaChartData" [options]="polarAreaChartOptions" height="100%" *ngIf="polarAreaChartData" #polarChart></p-chart>
+                <div class="h-[280px]">
+                  @if (lineChartData) {
+                    <p-chart type="line" [data]="lineChartData" [options]="lineChartOptions" height="100%" #lineChart></p-chart>
+                  }
                 </div>
-                <p class="text-xs text-content-muted mt-2 text-center">El área representa la cantidad de visitas por calidad</p>
-              </div>
-
-              <!-- 4. SCATTER - Correlación -->
-              <div class="card-premium">
-                <div class="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 class="text-sm font-bold text-content-main">Correlación Score-Ventas</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Relación calidad vs impacto económico</p>
-                  </div>
-                  <button (click)="captureChartAndExport('scatter')" class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout">+ PDF</button>
-                </div>
-                <div class="h-[260px]">
-                  <p-chart type="scatter" [data]="scatterChartData" [options]="scatterChartOptions" height="100%" *ngIf="scatterChartData"></p-chart>
-                </div>
-                <p class="text-xs text-content-muted mt-2 text-center">Cada punto = 1 visita. Muestra si más score = más ventas</p>
               </div>
 
             </div>
-
-            <!-- Gráfica de Ejecución Semanal vs Meta (movida desde Home) -->
-            <div class="card-premium mt-6">
-              <div class="flex items-center justify-between mb-6">
-                <div>
-                  <h3 class="text-base font-bold text-content-main">Ejecución Semanal vs Meta</h3>
-                  <p class="text-xs text-content-muted mt-1">Tendencia de score promedio en el tiempo</p>
-                </div>
-                <div class="flex gap-4 text-[11px] text-content-muted flex-wrap">
-                  <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 bg-[#f6d200] inline-block"></span>Score</span>
-                </div>
-              </div>
-              <div class="h-[280px]">
-                <p-chart type="line" [data]="lineChartData" [options]="lineChartOptions" height="100%" *ngIf="lineChartData" #lineChart></p-chart>
-              </div>
-            </div>
-
-          </div>
-          </ng-container>
+          } @else {
+            <ng-container *ngTemplateOutlet="tabSkeleton"></ng-container>
+          }
         </p-tabpanel>
 
         <p-tabpanel [value]="1">
-          <ng-container *ngIf="!loading(); else tabSkeleton">
-          <div class="pt-4 space-y-4">
+          @if (!loading()) {
+            <div class="pt-4 space-y-4">
 
-            <div *ngIf="selectedDayCount() > 0" class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider">
-              <span class="text-xs text-content-muted flex-1">{{ selectedDayCount() }} jornada(s) seleccionada(s)</span>
-              <p-button label="CSV selección" icon="pi pi-file-excel" severity="secondary" size="small" (onClick)="exportSelectedCsv()"></p-button>
-              <p-button label="PDF selección" icon="pi pi-file-pdf" severity="secondary" size="small" (onClick)="exportSelectedPdf()"></p-button>
-            </div>
+              @if (selectedDayCount() > 0) {
+                <div class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider flex-wrap">
+                  <span class="text-xs text-content-muted flex-1">{{ selectedDayCount() }} jornada(s) seleccionada(s)</span>
+                  <p-button label="CSV selección" icon="pi pi-file-excel" severity="secondary" size="small" (onClick)="exportSelectedCsv()"></p-button>
+                  <p-button label="PDF selección" icon="pi pi-file-pdf" severity="secondary" size="small" (onClick)="exportSelectedPdf()"></p-button>
+                </div>
+              }
 
-            <div class="flex items-center justify-between">
-              <p class="text-xs text-content-muted italic">Desglose de visitas por fecha.</p>
-              <p-iconfield>
-                <label for="searchInput" class="sr-only">Buscar visitas</label>
-                <p-inputicon class="pi pi-search"></p-inputicon>
-                <input id="searchInput" pInputText type="text" [(ngModel)]="searchText" placeholder="Buscar día o folio..." (input)="dt.filterGlobal(searchText, 'contains')" />
-              </p-iconfield>
-            </div>
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <p class="text-xs text-content-muted italic">Desglose de visitas por fecha.</p>
+                <p-iconfield>
+                  <label for="searchInput" class="sr-only">Buscar visitas</label>
+                  <p-inputicon class="pi pi-search"></p-inputicon>
+                  <input id="searchInput" pInputText type="text" [ngModel]="searchText()" (ngModelChange)="searchText.set($event)" placeholder="Buscar día o folio..." />
+                </p-iconfield>
+              </div>
 
-            <p-table #dt [value]="groupedRows()" [paginator]="true" [rows]="10" dataKey="id" [expandedRowKeys]="expandedRows" styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider">
-              <ng-template pTemplate="header">
-                <tr class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider">
-                  <th style="width:3rem"><input type="checkbox" (change)="toggleSelectAll($event)" style="accent-color:#185FA5" class="focus-visible:ring-2 focus-visible:ring-blue-300" /></th>
-                  <th style="width:3rem"></th>
-                  <th class="py-3 px-4">Jornada / Fecha</th>
-                  <th class="text-center">Visitas</th>
-                  <th class="text-center">Avg Score</th>
-                  <th class="text-center">Score vs meta</th>
-                  <th class="text-right pr-6">Total venta</th>
-                </tr>
-              </ng-template>
+              <p-table #dt [value]="groupedRows()" [paginator]="true" [rows]="10" dataKey="id" [expandedRowKeys]="expandedRows" [globalFilterFields]="['fecha','visits.folio','visits.captured_by_username','visits.zona_captura']" [filters]="{ global: { value: searchTextDebounced(), matchMode: 'contains' } }" styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider">
+                <ng-template pTemplate="header">
+                  <tr class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider">
+                    <th style="width:3rem">
+                      <input type="checkbox" (change)="toggleSelectAll($event)"
+                             style="accent-color: var(--checkbox-accent)"
+                             class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                             aria-label="Seleccionar todas las jornadas" />
+                    </th>
+                    <th style="width:3rem"></th>
+                    <th class="py-3 px-4">Jornada / Fecha</th>
+                    <th class="text-center">Visitas</th>
+                    <th class="text-center">Avg Score</th>
+                    <th class="text-center">Score vs meta</th>
+                    <th class="text-right pr-6">Total venta</th>
+                  </tr>
+                </ng-template>
 
-              <ng-template pTemplate="body" let-day let-expanded="expanded">
-                <tr class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none" (click)="toggleExpand(day)">
-                  <td (click)="$event.stopPropagation()"><input type="checkbox" [(ngModel)]="day.selected" style="accent-color:#185FA5" class="focus-visible:ring-2 focus-visible:ring-blue-300" /></td>
-                  <td><button type="button" pButton [pRowToggler]="day" class="p-button-text p-button-rounded p-button-plain w-8 h-8" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button></td>
-                  <td class="py-4 px-4 font-bold text-content-main">{{ day.fecha | date:'fullDate':'UTC' }}</td>
-                  <td class="text-center">
-                    <span class="px-2.5 py-0.5 rounded-full text-xs font-bold"
-                      [ngClass]="{ 'bg-green-100 text-green-800': day.visitasStatus === 'ok', 'bg-amber-100 text-amber-800': day.visitasStatus === 'warn', 'bg-red-100 text-red-800': day.visitasStatus === 'bad' }">
-                      {{ day.totalVisitas }}
-                    </span>
-                  </td>
-                  <td class="text-center">
-                    <div class="flex flex-col items-center gap-1">
-                      <span class="font-black" [ngClass]="{ 'text-green-600': day.scoreStatus === 'ok', 'text-amber-500': day.scoreStatus === 'warn', 'text-red-500': day.scoreStatus === 'bad' }">{{ day.avgScore }} pts</span>
-                      <div class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden">
-                        <div class="h-full rounded-full" [style.width]="day.avgScore + '%'" [ngClass]="{ 'bg-green-500': day.scoreStatus === 'ok', 'bg-amber-400': day.scoreStatus === 'warn', 'bg-red-500': day.scoreStatus === 'bad' }"></div>
+                <ng-template pTemplate="body" let-day let-expanded="expanded">
+                  <!--
+                    Una sola fila clickable expande/colapsa. El chevron es indicador
+                    visual del estado, no un segundo trigger (antes había conflict
+                    entre [pRowToggler] del botón y el (click) de la fila).
+                  -->
+                  <tr class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] focus-visible:outline-none"
+                      [class]="'status-' + day.scoreStatus"
+                      (click)="toggleExpand(day)">
+                    <td (click)="$event.stopPropagation()">
+                      <input type="checkbox" [checked]="isDaySelected(day.id)"
+                             (change)="toggleDaySelected(day.id, $any($event.target).checked)"
+                             style="accent-color: var(--checkbox-accent)"
+                             class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                             [attr.aria-label]="'Seleccionar jornada ' + (day.fecha | date:'fullDate':'UTC')" />
+                    </td>
+                    <td>
+                      <i class="pi text-content-muted"
+                         [class.pi-chevron-down]="expanded"
+                         [class.pi-chevron-right]="!expanded"
+                         aria-hidden="true"></i>
+                    </td>
+                    <td class="py-4 px-4 font-bold text-content-main">{{ day.fecha | date:'fullDate':'UTC' }}</td>
+                    <td class="text-center">
+                      <span class="status-chip" [class]="'status-' + day.visitasStatus">
+                        {{ day.totalVisitas }}
+                      </span>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex flex-col items-center gap-1">
+                        <span class="font-black status-text">{{ day.avgScore }} pts</span>
+                        <div class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden">
+                          <div class="h-full rounded-full status-fill" [style.width]="day.avgScore + '%'"></div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td class="text-center">
-                    <span class="text-xs px-2 py-0.5 rounded-full font-bold"
-                      [ngClass]="{ 'bg-green-100 text-green-800': day.scoreStatus === 'ok', 'bg-amber-100 text-amber-800': day.scoreStatus === 'warn', 'bg-red-100 text-red-800': day.scoreStatus === 'bad' }">
-                      {{ statusLabel(day.scoreStatus) }}
-                    </span>
-                  </td>
-                  <td class="text-right pr-6 font-black" [ngClass]="{ 'text-green-600': day.scoreStatus === 'ok', 'text-amber-500': day.scoreStatus === 'warn', 'text-red-500': day.scoreStatus === 'bad' }">
-                    {{ day.totalVenta | number:'1.0-0' }}
-                  </td>
-                </tr>
-              </ng-template>
+                    </td>
+                    <td class="text-center">
+                      <span class="status-chip uppercase">{{ statusLabel(day.scoreStatus) }}</span>
+                    </td>
+                    <td class="text-right pr-6 font-black status-text">
+                      {{ day.totalVenta | number:'1.0-0' }}
+                    </td>
+                  </tr>
+                </ng-template>
 
-              <ng-template pTemplate="rowexpansion" let-day>
-                <tr class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none">
-                  <td colspan="7" class="bg-surface-ground p-4 border-b border-surface-border">
-                    <div class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden">
-                      <p-table [value]="day.visits" styleClass="p-datatable-sm p-datatable-striped">
-                        <ng-template pTemplate="header">
-                          <tr class="text-xs uppercase text-content-muted bg-surface-ground">
-                            <th class="pl-4 py-2 w-24">Folio</th><th>Ejecutivo</th><th class="w-32">Zona</th><th class="text-center w-24">Score</th><th class="text-center w-24">Estado</th><th class="text-center w-24">Acción</th>
-                          </tr>
-                        </ng-template>
-                        <ng-template pTemplate="body" let-visit>
-                          <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer" (click)="viewDetail(visit)">
-                            <td class="pl-4 font-black text-content-main py-3">#{{ visit.folio }}</td>
-                            <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
-                            <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
-                            <td class="text-center">
-                              <span class="font-black" [ngClass]="{ 'text-green-600': visitScoreStatus(visit) === 'ok', 'text-amber-500': visitScoreStatus(visit) === 'warn', 'text-red-500': visitScoreStatus(visit) === 'bad' }">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
-                            </td>
-                            <td class="text-center">
-                              <span class="text-[11px] px-2 py-0.5 rounded-full font-bold"
-                                [ngClass]="{ 'bg-green-100 text-green-800': visitScoreStatus(visit) === 'ok', 'bg-amber-100 text-amber-800': visitScoreStatus(visit) === 'warn', 'bg-red-100 text-red-800': visitScoreStatus(visit) === 'bad' }">{{ statusLabel(visitScoreStatus(visit)) }}</span>
-                            </td>
-                            <td class="text-center">
-                              <p-button icon="pi pi-eye" [text]="true" [rounded]="true" severity="info" size="small" (click)="viewDetail(visit); $event.stopPropagation()"></p-button>
-                              <p-button *ngIf="canManageReports()" icon="pi pi-trash" [text]="true" [rounded]="true" severity="danger" size="small" (click)="confirmDelete(visit); $event.stopPropagation()"></p-button>
-                            </td>
-                          </tr>
-                        </ng-template>
-                      </p-table>
-                    </div>
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
-          </div>
-          </ng-container>
+                <ng-template pTemplate="rowexpansion" let-day>
+                  <tr class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] focus-visible:outline-none">
+                    <td colspan="7" class="bg-surface-ground p-4 border-b border-surface-border">
+                      <div class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden">
+                        <p-table [value]="day.visits" styleClass="p-datatable-sm p-datatable-striped">
+                          <ng-template pTemplate="header">
+                            <tr class="text-xs uppercase text-content-muted bg-surface-ground">
+                              <th class="pl-4 py-2 w-24">Folio</th><th>Ejecutivo</th><th class="w-32">Zona</th><th class="text-center w-24">Score</th><th class="text-center w-24">Estado</th><th class="text-center w-24">Acción</th>
+                            </tr>
+                          </ng-template>
+                          <ng-template pTemplate="body" let-visit>
+                            <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer"
+                                [class]="'status-' + visitScoreStatus(visit)"
+                                (click)="viewDetail(visit)">
+                              <td class="pl-4 font-black text-content-main py-3">#{{ visit.folio }}</td>
+                              <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
+                              <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-xs uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
+                              <td class="text-center">
+                                <span class="font-black status-text">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                              </td>
+                              <td class="text-center">
+                                <span class="status-chip uppercase">{{ statusLabel(visitScoreStatus(visit)) }}</span>
+                              </td>
+                              <td class="text-center">
+                                <p-button icon="pi pi-eye" [text]="true" [rounded]="true" severity="info" size="small" (click)="viewDetail(visit); $event.stopPropagation()" ariaLabel="Ver detalle de visita"></p-button>
+                                @if (canManageReports()) {
+                                  <p-button icon="pi pi-trash" [text]="true" [rounded]="true" severity="danger" size="small" (click)="confirmDelete(visit); $event.stopPropagation()" ariaLabel="Eliminar visita"></p-button>
+                                }
+                              </td>
+                            </tr>
+                          </ng-template>
+                        </p-table>
+                      </div>
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+          } @else {
+            <ng-container *ngTemplateOutlet="tabSkeleton"></ng-container>
+          }
         </p-tabpanel>
 
         <p-tabpanel [value]="2">
-          <div class="pt-4">
-            <app-routes-tab />
-          </div>
+          <!-- Lazy-load: solo instanciar el componente cuando el tab está activo -->
+          @if (activeTab() === 2) {
+            <div class="pt-4">
+              <app-routes-tab />
+            </div>
+          }
         </p-tabpanel>
 
         <!-- Visitas tab removed — moved to /seguimiento -->
 
         <p-tabpanel [value]="3">
-          <ng-container *ngIf="!loading(); else tabSkeleton">
-          <div class="pt-4 space-y-6" *ngIf="productStatsProcessed">
-            
-            <!-- KPIs de Ejecución: Salud y Agotamiento -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <!-- Salud de Exhibidores -->
-              <div class="card-premium">
-                <div class="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 class="text-sm font-bold text-content-main">Salud General de Exhibidores</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Estado de ejecución e imagen en PDV</p>
-                  </div>
-                  <div class="flex gap-2">
-                    <span class="flex items-center gap-1 text-[11px] font-bold text-green-600"><span class="w-2 h-2 rounded-full bg-green-500"></span> Óptimo</span>
-                    <span class="flex items-center gap-1 text-[11px] font-bold text-amber-600"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Regular</span>
-                    <span class="flex items-center gap-1 text-[11px] font-bold text-red-600"><span class="w-2 h-2 rounded-full bg-red-500"></span> Crítico</span>
-                  </div>
-                </div>
-                <div class="h-[240px] flex items-center justify-center">
-                  <p-chart type="pie" [data]="exhibidoresHealthChartData" [options]="doughnutChartOptions" height="100%" *ngIf="exhibidoresHealthChartData"></p-chart>
-                </div>
-                <div class="mt-4 grid grid-cols-3 gap-2 text-center">
-                  <div class="p-2 rounded-lg bg-green-50 border border-green-100">
-                    <div class="text-xs font-bold text-green-700">{{ currentHealthStats.optimo }}</div>
-                    <div class="text-[8px] text-green-600 uppercase font-black">Excelentes</div>
-                  </div>
-                  <div class="p-2 rounded-lg bg-amber-50 border border-amber-100">
-                    <div class="text-xs font-bold text-amber-700">{{ currentHealthStats.regular }}</div>
-                    <div class="text-[8px] text-amber-600 uppercase font-black">Regulares</div>
-                  </div>
-                  <div class="p-2 rounded-lg bg-red-50 border border-red-100">
-                    <div class="text-xs font-bold text-red-700">{{ currentHealthStats.critico }}</div>
-                    <div class="text-[8px] text-red-600 uppercase font-black">Críticos</div>
-                  </div>
-                </div>
-              </div>
+          @if (!loading()) {
+            @if (productStatsProcessed) {
+              <div class="pt-4 space-y-6">
 
-              <!-- Tasa de Agotamiento (Stockouts) -->
-              <div class="card-premium">
-                <div class="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes (Stockout Rate)</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
+                <!-- KPIs de Ejecución: Salud y Agotamiento -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <!-- Salud de Exhibidores -->
+                  <div class="card-premium card-flat">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                      <div>
+                        <h3 class="text-sm font-bold text-content-main">Salud General de Exhibidores</h3>
+                        <p class="text-xs text-content-muted mt-0.5">Estado de ejecución e imagen en PDV</p>
+                      </div>
+                      <div class="flex gap-2 flex-wrap">
+                        <span class="flex items-center gap-1 text-xs font-bold status-ok status-text">
+                          <span class="status-dot"></span> Óptimo
+                        </span>
+                        <span class="flex items-center gap-1 text-xs font-bold status-warn status-text">
+                          <span class="status-dot"></span> Regular
+                        </span>
+                        <span class="flex items-center gap-1 text-xs font-bold status-bad status-text">
+                          <span class="status-dot"></span> Crítico
+                        </span>
+                      </div>
+                    </div>
+                    <div class="h-[240px] flex items-center justify-center">
+                      @if (exhibidoresHealthChartData) {
+                        <p-chart type="pie" [data]="exhibidoresHealthChartData" [options]="doughnutChartOptions" height="100%"></p-chart>
+                      }
+                    </div>
+                    <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+                      <div class="p-2 rounded-lg status-ok status-soft-bg border" style="border-color: var(--status-border)">
+                        <div class="text-sm font-bold status-text">{{ currentHealthStats.optimo }}</div>
+                        <div class="text-[11px] uppercase font-black status-text">Excelentes</div>
+                      </div>
+                      <div class="p-2 rounded-lg status-warn status-soft-bg border" style="border-color: var(--status-border)">
+                        <div class="text-sm font-bold status-text">{{ currentHealthStats.regular }}</div>
+                        <div class="text-[11px] uppercase font-black status-text">Regulares</div>
+                      </div>
+                      <div class="p-2 rounded-lg status-bad status-soft-bg border" style="border-color: var(--status-border)">
+                        <div class="text-sm font-bold status-text">{{ currentHealthStats.critico }}</div>
+                        <div class="text-[11px] uppercase font-black status-text">Críticos</div>
+                      </div>
+                    </div>
                   </div>
-                  <i class="pi pi-exclamation-circle text-red-500"></i>
+
+                  <!-- Tasa de Agotamiento (Stockouts) -->
+                  <div class="card-premium card-flat">
+                    <div class="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes (Stockout Rate)</h3>
+                        <p class="text-xs text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
+                      </div>
+                      <i class="pi pi-exclamation-circle status-bad status-text" aria-hidden="true"></i>
+                    </div>
+                    <div class="overflow-hidden rounded-xl border border-divider">
+                      <p-table [value]="topFaltantes" styleClass="p-datatable-sm">
+                        <ng-template pTemplate="header">
+                          <tr class="text-xs uppercase text-content-faint bg-surface-ground">
+                            <th class="py-2 px-3">Producto</th>
+                            <th class="py-2 px-3 text-right">Stockout Rate</th>
+                          </tr>
+                        </ng-template>
+                        <ng-template pTemplate="body" let-p>
+                          <tr class="text-xs border-b border-divider/50 last:border-0"
+                              [class]="'status-' + stockoutSeverity(p.stockoutRate)">
+                            <td class="py-2 px-3 font-medium text-content-main truncate max-w-[150px]">{{ p.name }}</td>
+                            <td class="py-2 px-3 text-right">
+                              <div class="flex items-center justify-end gap-2">
+                                <div class="w-12 h-1.5 rounded-full bg-surface-layout overflow-hidden hidden sm:block">
+                                  <div class="h-full status-fill rounded-full" [style.width.%]="p.stockoutRate"></div>
+                                </div>
+                                <span class="status-chip">{{ p.stockoutRate }}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        </ng-template>
+                      </p-table>
+                    </div>
+                    <p class="text-xs text-content-muted mt-3 italic">* Basado en la ausencia de aparición del SKU en el total de visitas filtradas.</p>
+                  </div>
                 </div>
-                <div class="overflow-hidden rounded-xl border border-divider">
-                  <p-table [value]="topFaltantes" styleClass="p-datatable-sm">
-                    <ng-template pTemplate="header">
-                      <tr class="text-[11px] uppercase text-content-faint bg-surface-ground">
-                        <th class="py-2 px-3">Producto</th>
-                        <th class="py-2 px-3 text-right">Stockout Rate</th>
-                      </tr>
-                    </ng-template>
-                    <ng-template pTemplate="body" let-p>
-                      <tr class="text-xs border-b border-divider/50 last:border-0">
-                        <td class="py-2 px-3 font-medium text-content-main truncate max-w-[150px]">{{ p.name }}</td>
-                        <td class="py-2 px-3 text-right">
-                          <div class="flex items-center justify-end gap-2">
-                            <div class="w-12 h-1.5 rounded-full bg-surface-layout overflow-hidden hidden sm:block">
-                              <div class="h-full bg-red-500 rounded-full" [style.width.%]="p.stockoutRate"></div>
+
+                <!-- Gráfica de Top Productos (Existente) -->
+                <div class="card-premium card-flat mt-6">
+                  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
+                    <div>
+                      <h3 class="text-sm font-bold text-content-main">Presencia de Productos por Marca</h3>
+                      <p class="text-xs text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
+                    </div>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                      <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
+                      <p-button icon="pi pi-file-pdf" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand" pTooltip="Generar reporte PDF por marca" ariaLabel="Exportar reporte PDF por marca"></p-button>
+                      <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="openAllProductsDialog()" pTooltip="Ver todos los productos" ariaLabel="Ver todos los productos"></p-button>
+                    </div>
+                  </div>
+                  <div class="h-[280px]">
+                    @if (productTopChartData) {
+                      <p-chart type="bar" [data]="productTopChartData" [options]="horizontalChartOptions" height="100%"></p-chart>
+                    }
+                  </div>
+                </div>
+
+                <!-- Tablas Comparativas -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                  <div class="card-premium card-flat status-ok">
+                    <h3 class="text-sm font-bold text-content-main mb-4 flex items-center gap-2">
+                      <i class="pi pi-star-fill text-brand" aria-hidden="true"></i> Estrellas del Planograma (Top)
+                    </h3>
+                    <p-table [value]="topProducts" [rows]="10" styleClass="p-datatable-sm">
+                      <ng-template pTemplate="header">
+                        <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
+                          <th class="py-2 px-3 text-left">Producto</th>
+                          <th class="py-2 px-3 text-center">Frecuencia</th>
+                        </tr>
+                      </ng-template>
+                      <ng-template pTemplate="body" let-p>
+                        <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
+                          <td class="py-2 px-3 font-bold text-content-main">{{ p.name }}</td>
+                          <td class="py-2 px-3 text-center">
+                            <span class="status-chip status-ok">{{ p.total }}</span>
+                          </td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+
+                  <div class="card-premium card-flat status-bad status-border-left">
+                    <h3 class="text-sm font-bold text-content-main mb-4 flex items-center gap-2">
+                      <i class="pi pi-exclamation-triangle status-text" aria-hidden="true"></i> Áreas de Oportunidad (Bottom)
+                    </h3>
+                    <p-table [value]="bottomProducts" [rows]="10" styleClass="p-datatable-sm">
+                      <ng-template pTemplate="header">
+                        <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
+                          <th class="py-2 px-3 text-left">Producto</th>
+                          <th class="py-2 px-3 text-center">Frecuencia</th>
+                        </tr>
+                      </ng-template>
+                      <ng-template pTemplate="body" let-p>
+                        <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
+                          <td class="py-2 px-3 font-medium text-content-muted">{{ p.name }}</td>
+                          <td class="py-2 px-3 text-center">
+                            <span class="status-chip status-bad">{{ p.total }}</span>
+                          </td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+              </div>
+            </div>
+
+                <!-- Productos por Usuario -->
+                @if (sellerProductsByUser().length > 0) {
+                  <div class="card-premium card-flat mt-6">
+                    <div class="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 class="text-sm font-bold text-content-main">Productos por Ejecutivo</h3>
+                        <p class="text-xs text-content-muted mt-0.5">Productos movidos por cada usuario en el período seleccionado</p>
+                      </div>
+                    </div>
+                    <div class="space-y-4">
+                      @for (user of sellerProductsByUser(); track user.username) {
+                        <div class="bg-surface-ground rounded-xl border border-surface-border overflow-hidden">
+                          <div class="flex items-center justify-between p-3 bg-surface-card border-b border-surface-border">
+                            <div class="flex items-center gap-3">
+                              <div class="w-10 h-10 rounded-full bg-brand flex items-center justify-center text-black font-bold text-sm">
+                                {{ user.username.charAt(0).toUpperCase() }}
+                              </div>
+                              <div>
+                                <div class="font-bold text-sm text-content-main">{{ user.username }}</div>
+                                <div class="text-xs text-content-muted">{{ user.totalProducts }} productos totales</div>
+                              </div>
                             </div>
-                            <span class="px-2 py-0.5 rounded-full text-xs font-bold" 
-                              [ngClass]="{
-                                'bg-red-100 text-red-700': +p.stockoutRate > 20,
-                                'bg-amber-100 text-amber-700': +p.stockoutRate > 10 && +p.stockoutRate <= 20,
-                                'bg-green-100 text-green-700': +p.stockoutRate <= 10
-                              }">
-                              {{ p.stockoutRate }}%
+                            <span class="status-chip status-ok">
+                              {{ user.products.length }} productos únicos
                             </span>
                           </div>
-                        </td>
-                      </tr>
-                    </ng-template>
-                  </p-table>
-                </div>
-                <p class="text-[11px] text-content-muted mt-3 italic">* Basado en la ausencia de aparición del SKU en el total de visitas filtradas.</p>
-              </div>
-            </div>
-
-            <!-- Gráfica de Top Productos (Existente) -->
-            <div class="card-premium mt-6">
-              <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-                <div>
-                  <h3 class="text-sm font-bold text-content-main">Presencia de Productos por Marca</h3>
-                  <p class="text-xs text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
-                </div>
-                <div class="flex gap-2 w-full sm:w-auto">
-                  <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
-                  <p-button icon="pi pi-file-pdf" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand" pTooltip="Generar reporte PDF por marca"></p-button>
-                  <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="openAllProductsDialog()" pTooltip="Ver todos los productos"></p-button>
-                </div>
-              </div>
-              <div class="h-[280px]">
-                <p-chart type="bar" [data]="productTopChartData" [options]="horizontalChartOptions" height="100%" *ngIf="productTopChartData"></p-chart>
-              </div>
-            </div>
-
-            <!-- Tablas Comparativas -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-              <div class="card-premium">
-                <h3 class="text-sm font-bold text-content-main mb-4 flex items-center gap-2">
-                  <i class="pi pi-star-fill text-yellow-500"></i> Estrellas del Planograma (Top)
-                </h3>
-                <p-table [value]="topProducts" [rows]="10" styleClass="p-datatable-sm">
-                  <ng-template pTemplate="header">
-                    <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
-                      <th class="py-2 px-3 text-left">Producto</th>
-                      <th class="py-2 px-3 text-center">Frecuencia</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template pTemplate="body" let-p>
-                    <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
-                      <td class="py-2 px-3 font-bold text-content-main">{{ p.name }}</td>
-                      <td class="py-2 px-3 text-center">
-                        <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 font-bold border border-green-200">{{ p.total }}</span>
-                      </td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              </div>
-
-              <div class="card-premium border-t-4 border-t-red-400">
-                <h3 class="text-sm font-bold text-content-main mb-4 flex items-center gap-2">
-                  <i class="pi pi-exclamation-triangle text-red-500"></i> Áreas de Oportunidad (Bottom)
-                </h3>
-                <p-table [value]="bottomProducts" [rows]="10" styleClass="p-datatable-sm">
-                  <ng-template pTemplate="header">
-                    <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
-                      <th class="py-2 px-3 text-left">Producto</th>
-                      <th class="py-2 px-3 text-center">Frecuencia</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template pTemplate="body" let-p>
-                    <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
-                      <td class="py-2 px-3 font-medium text-content-muted">{{ p.name }}</td>
-                      <td class="py-2 px-3 text-center">
-                        <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-bold border border-red-200">{{ p.total }}</span>
-                      </td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              </div>
-            </div>
-
-            <!-- Productos por Usuario -->
-            <div class="card-premium mt-6" *ngIf="sellerProductsByUser().length > 0">
-              <div class="flex items-center justify-between mb-4">
-                <div>
-                  <h3 class="text-sm font-bold text-content-main">Productos por Ejecutivo</h3>
-                  <p class="text-xs text-content-muted mt-0.5">Productos movidos por cada usuario en el período seleccionado</p>
-                </div>
-              </div>
-              <div class="space-y-4">
-                <div *ngFor="let user of sellerProductsByUser()" class="bg-surface-ground rounded-xl border border-surface-border overflow-hidden">
-                  <div class="flex items-center justify-between p-3 bg-surface-card border-b border-surface-border">
-                    <div class="flex items-center gap-3">
-                      <div class="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center text-brand-700 font-bold text-sm">
-                        {{ user.username.charAt(0).toUpperCase() }}
-                      </div>
-                      <div>
-                        <div class="font-bold text-sm text-content-main">{{ user.username }}</div>
-                        <div class="text-xs text-content-muted">{{ user.totalProducts }} productos totales</div>
-                      </div>
-                    </div>
-                    <span class="px-3 py-1 rounded-full text-xs font-bold bg-brand-100 text-brand-700 border border-brand-200">
-                      {{ user.products.length }} productos únicos
-                    </span>
-                  </div>
-                  <div class="p-3">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                      <div *ngFor="let product of user.products.slice(0, 12)" class="flex items-center justify-between p-2 bg-surface-card rounded-lg border border-surface-border">
-                        <div class="flex-1 min-w-0">
-                          <div class="text-xs font-medium text-content-main truncate">{{ product.name }}</div>
-                          <div class="text-[11px] text-content-muted">{{ product.brandName }}</div>
+                          <div class="p-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                              @for (product of user.products.slice(0, 12); track product.name) {
+                                <div class="flex items-center justify-between p-2 bg-surface-card rounded-lg border border-surface-border">
+                                  <div class="flex-1 min-w-0">
+                                    <div class="text-xs font-medium text-content-main truncate">{{ product.name }}</div>
+                                    <div class="text-xs text-content-muted">{{ product.brandName }}</div>
+                                  </div>
+                                  <span class="px-2 py-0.5 rounded-full bg-surface-hover text-content-faint text-xs font-bold">{{ product.count }}</span>
+                                </div>
+                              }
+                            </div>
+                            @if (user.products.length > 12) {
+                              <div class="text-center mt-2">
+                                <span class="text-xs text-content-muted italic">... y {{ user.products.length - 12 }} productos más</span>
+                              </div>
+                            }
+                          </div>
                         </div>
-                        <span class="px-2 py-0.5 rounded-full bg-surface-hover text-content-faint text-xs font-bold">{{ product.count }}</span>
-                      </div>
-                    </div>
-                    <div *ngIf="user.products.length > 12" class="text-center mt-2">
-                      <span class="text-xs text-content-muted italic">... y {{ user.products.length - 12 }} productos más</span>
+                      }
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
+                }
 
-          </div>
-          
-          <div *ngIf="!productStatsProcessed" class="pt-16 pb-8 text-center bg-surface-ground rounded-2xl border border-divider mt-4">
-            <i class="pi pi-box mb-4 text-4xl text-content-faint"></i>
-            <h3 class="text-lg font-bold text-content-main">No hay datos de productos</h3>
-            <p class="text-content-muted text-sm max-w-md mx-auto mt-2">No se encontraron productos registrados en las visitas para el rango de fechas y zona seleccionados.</p>
-          </div>
-          </ng-container>
+              </div>
+            } @else {
+              <div class="pt-16 pb-8 text-center bg-surface-ground rounded-2xl border border-divider mt-4">
+                <i class="pi pi-box mb-4 text-4xl text-content-faint" aria-hidden="true"></i>
+                <h3 class="text-lg font-bold text-content-main">No hay datos de productos</h3>
+                <p class="text-content-muted text-sm max-w-md mx-auto mt-2">No se encontraron productos registrados en las visitas para el rango de fechas y zona seleccionados.</p>
+              </div>
+            }
+          } @else {
+            <ng-container *ngTemplateOutlet="tabSkeleton"></ng-container>
+          }
         </p-tabpanel>
 
         <p-tabpanel [value]="4">
-          <ng-container *ngIf="!loading(); else tabSkeleton">
-          <div class="pt-4">
-            <app-stores-tab></app-stores-tab>
-          </div>
-          </ng-container>
+          @if (!loading()) {
+            <!-- Lazy-load: solo instanciar el componente cuando el tab está activo -->
+            @if (activeTab() === 4) {
+              <div class="pt-4">
+                <app-stores-tab></app-stores-tab>
+              </div>
+            }
+          } @else {
+            <ng-container *ngTemplateOutlet="tabSkeleton"></ng-container>
+          }
         </p-tabpanel>
       </p-tabpanels>
     </p-tabs>
@@ -486,10 +594,15 @@
     <div class="space-y-4 pt-2">
       <p class="text-sm text-content-muted">Selecciona las secciones a incluir. El PDF se genera con los filtros activos.</p>
       <div class="space-y-2">
-        <div *ngFor="let s of pdfSections" class="flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout">
-          <span class="text-sm font-medium">{{ s.label }}</span>
-          <input type="checkbox" [(ngModel)]="s.checked" style="accent-color:#185FA5;width:16px;height:16px" class="focus-visible:ring-2 focus-visible:ring-blue-300" />
-        </div>
+        @for (s of pdfSections; track s.label) {
+          <label class="flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout cursor-pointer hover:bg-surface-hover transition-colors">
+            <span class="text-sm font-medium">{{ s.label }}</span>
+            <input type="checkbox" [(ngModel)]="s.checked"
+                   style="accent-color: var(--checkbox-accent); width: 16px; height: 16px;"
+                   class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                   [attr.aria-label]="'Incluir sección ' + s.label" />
+          </label>
+        }
       </div>
       <div class="flex flex-col gap-1 mt-2">
         <label class="text-xs font-bold text-content-faint uppercase">Título del reporte</label>
@@ -505,139 +618,165 @@
   </p-dialog>
 
   <p-dialog header="Detalle visita" [(visible)]="showDetail" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
-    <div *ngIf="selectedRow" class="space-y-4 pt-2">
-      
-      <!-- Card: Información General -->
-      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
-        <div class="flex items-center gap-2 mb-3">
-          <i class="pi pi-info-circle text-content-muted"></i>
-           <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
-        </div>
-        <div class="grid grid-cols-2 gap-3 text-sm">
-          <div class="space-y-1">
-            <p class="text-xs text-content-muted uppercase">Folio</p>
-            <p class="font-bold text-content-main">#{{ selectedRow.folio }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-content-muted uppercase">Ejecutivo</p>
-            <p class="font-bold text-content-main">{{ selectedRow.captured_by_username }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-content-muted uppercase">Zona</p>
-            <p class="font-bold text-content-main">{{ selectedRow.zona_captura }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-content-muted uppercase">Fecha</p>
-            <p class="font-bold text-content-main">{{ selectedRow.fecha | date:'mediumDate' }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-content-muted uppercase">Hora inicio</p>
-            <p class="font-bold text-content-main">{{ selectedRow.hora_inicio | date:'shortTime' }}</p>
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs text-content-muted uppercase">Hora fin</p>
-            <p class="font-bold text-content-main">{{ selectedRow.hora_fin | date:'shortTime' }}</p>
-          </div>
-          <div class="space-y-1 col-span-2">
-            <p class="text-xs text-content-muted uppercase">Exhibiciones registradas</p>
-            <p class="font-bold text-content-main">{{ selectedRow.exhibiciones?.length ?? 0 }}</p>
-          </div>
-        </div>
-      </div>
+    @if (selectedRow) {
+      <div class="space-y-4 pt-2">
 
-      <!-- Card: Score y Métricas -->
-      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <i class="pi pi-chart-bar text-content-muted"></i>
-            <h3 class="text-sm font-bold text-content-main uppercase">Score y Métricas</h3>
+        <!-- Card: Información General -->
+        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+          <div class="flex items-center gap-2 mb-3">
+            <i class="pi pi-info-circle text-content-muted" aria-hidden="true"></i>
+            <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="text-center px-4 py-2 rounded-xl border-2"
-              [ngClass]="{ 'border-green-400 bg-green-50': visitScoreStatus(selectedRow) === 'ok', 'border-amber-400 bg-amber-50': visitScoreStatus(selectedRow) === 'warn', 'border-red-400 bg-red-50': visitScoreStatus(selectedRow) === 'bad' }">
-              <div class="text-[11px] uppercase font-black opacity-60">Score</div>
-              <div class="text-2xl font-black" [ngClass]="{ 'text-green-700': visitScoreStatus(selectedRow) === 'ok', 'text-amber-700': visitScoreStatus(selectedRow) === 'warn', 'text-red-700': visitScoreStatus(selectedRow) === 'bad' }">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
-              <div class="text-[11px] font-bold uppercase opacity-60">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
+          <!-- grid-cols-1 en mobile para que cada campo respire -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div class="space-y-1">
+              <p class="text-xs text-content-muted uppercase">Folio</p>
+              <p class="font-bold text-content-main">#{{ selectedRow.folio }}</p>
             </div>
-            <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Card: Ubicación GPS -->
-      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
-        <div class="flex items-center gap-2 mb-3">
-          <i class="pi pi-map-marker text-content-muted"></i>
-          <h3 class="text-sm font-bold text-content-main uppercase">Ubicación</h3>
-        </div>
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center">
-              <i class="pi pi-map-marker text-content-main"></i>
+            <div class="space-y-1">
+              <p class="text-xs text-content-muted uppercase">Ejecutivo</p>
+              <p class="font-bold text-content-main">{{ selectedRow.captured_by_username }}</p>
             </div>
-            <div>
-              <div class="text-xs font-bold uppercase text-content-muted">Coordenadas GPS</div>
-              <div class="text-xs font-mono text-content-dim" *ngIf="selectedRow.latitud">{{ selectedRow.latitud | number:'1.6-6' }}, {{ selectedRow.longitud | number:'1.6-6' }}</div>
-              <div class="text-xs text-content-faint font-bold" *ngIf="!selectedRow.latitud">No se capturó GPS</div>
+            <div class="space-y-1">
+              <p class="text-xs text-content-muted uppercase">Zona</p>
+              <p class="font-bold text-content-main">{{ selectedRow.zona_captura }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-xs text-content-muted uppercase">Fecha</p>
+              <p class="font-bold text-content-main">{{ selectedRow.fecha | date:'mediumDate' }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-xs text-content-muted uppercase">Hora inicio</p>
+              <p class="font-bold text-content-main">{{ selectedRow.hora_inicio | date:'shortTime' }}</p>
+            </div>
+            <div class="space-y-1">
+              <p class="text-xs text-content-muted uppercase">Hora fin</p>
+              <p class="font-bold text-content-main">{{ selectedRow.hora_fin | date:'shortTime' }}</p>
+            </div>
+            <div class="space-y-1 sm:col-span-2">
+              <p class="text-xs text-content-muted uppercase">Exhibiciones registradas</p>
+              <p class="font-bold text-content-main">{{ selectedRow.exhibiciones?.length ?? 0 }}</p>
             </div>
           </div>
-          <p-button *ngIf="selectedRow.latitud" label="Ver mapa" icon="pi pi-external-link" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
         </div>
-      </div>
 
-      <!-- Card: Exhibiciones -->
-      <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
-        <div class="flex items-center gap-2 mb-3">
-          <i class="pi pi-list text-content-muted"></i>
-          <h3 class="text-sm font-bold text-content-main uppercase">Exhibiciones</h3>
+        <!-- Card: Score y Métricas -->
+        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <i class="pi pi-chart-bar text-content-muted" aria-hidden="true"></i>
+              <h3 class="text-sm font-bold text-content-main uppercase">Score y Métricas</h3>
+            </div>
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="text-center px-4 py-2 rounded-xl border-2 status-soft-bg"
+                   [class]="'status-' + visitScoreStatus(selectedRow)"
+                   style="border-color: var(--status-fg)">
+                <div class="text-xs uppercase font-black opacity-70">Score</div>
+                <div class="text-2xl font-black status-text">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
+                <div class="text-xs font-bold uppercase opacity-70">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
+              </div>
+              <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
+            </div>
+          </div>
         </div>
-        <div class="border border-surface-border rounded-xl overflow-hidden">
-          <p-table [value]="selectedRow.exhibiciones || []" [rows]="10" [paginator]="true">
-            <ng-template pTemplate="header">
-              <tr class="text-sm bg-surface-ground uppercase text-content-muted">
-                <th class="py-4 px-5">Formato</th><th class="text-center py-4 px-5">Nivel</th><th class="text-center py-4 px-5">Rango</th><th class="text-center py-4 px-5">Imagen</th><th class="py-4 px-5">Productos</th><th class="text-right pr-5 py-4">Venta</th><th class="text-right pr-5 py-4">Puntos</th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-ex>
-              <tr class="text-base">
-                <td class="py-4 px-5"><span class="text-sm px-3 py-2 rounded bg-surface-100 border border-surface-300 font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span></td>
-                <td class="text-center py-4 px-5">
-                  <span class="text-sm px-3 py-2 rounded-full font-bold"
-                    [ngClass]="{ 'bg-green-100 text-green-800': ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo', 'bg-amber-100 text-amber-800': ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular', 'bg-red-100 text-red-800': ex.nivelEjecucion?.toLowerCase() === 'bajo' || ex.nivelEjecucion?.toLowerCase() === 'crítico' }">
-                    {{ (ex.nivelEjecucion || 'N/A') | titlecase }}
-                  </span>
-                </td>
-                <td class="text-center py-4 px-5">
-                  <span class="text-sm font-bold text-brand">{{ ex.rangoCompra || ex.rango_compra || ex.rango || '-' }}</span>
-                </td>
-                <td class="text-center py-4 px-5">
-                  <img *ngIf="ex.fotoUrl" [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición" class="w-24 h-24 rounded-lg shadow-sm cursor-pointer hover:shadow-md hover:scale-105 transition-all object-cover" (click)="openImagePreview(getImageUrl(ex.fotoUrl))">
-                  <span *ngIf="!ex.fotoUrl" class="text-sm text-content-faint">-</span>
-                </td>
-                <td class="py-4 px-5">
-                  <div *ngIf="ex.productosMarcados && ex.productosMarcados.length > 0" class="flex flex-wrap gap-3">
-                    <p-chip *ngFor="let pid of ex.productosMarcados" [label]="getProductName(pid)" class="text-sm px-3 py-2 bg-surface-50 border border-surface-200 text-content-main"></p-chip>
-                  </div>
-                  <span *ngIf="!ex.productosMarcados || ex.productosMarcados.length === 0" class="text-sm text-content-faint">Sin productos</span>
-                </td>
-                <td class="text-right pr-5 py-4 font-bold">${{ ex.ventaAdicional || 0 }}</td>
-                <td class="text-right pr-5 py-4 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
-              </tr>
-            </ng-template>
-          </p-table>
+
+        <!-- Card: Ubicación GPS -->
+        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+          <div class="flex items-center gap-2 mb-3">
+            <i class="pi pi-map-marker text-content-muted" aria-hidden="true"></i>
+            <h3 class="text-sm font-bold text-content-main uppercase">Ubicación</h3>
+          </div>
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center">
+                <i class="pi pi-map-marker text-content-main" aria-hidden="true"></i>
+              </div>
+              <div>
+                <div class="text-xs font-bold uppercase text-content-muted">Coordenadas GPS</div>
+                @if (selectedRow.latitud) {
+                  <div class="text-xs font-mono text-content-dim">{{ selectedRow.latitud | number:'1.6-6' }}, {{ selectedRow.longitud | number:'1.6-6' }}</div>
+                } @else {
+                  <div class="text-xs text-content-faint font-bold">No se capturó GPS</div>
+                }
+              </div>
+            </div>
+            @if (selectedRow.latitud) {
+              <p-button label="Ver mapa" icon="pi pi-external-link" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
+            }
+          </div>
+        </div>
+
+        <!-- Card: Exhibiciones -->
+        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+          <div class="flex items-center gap-2 mb-3">
+            <i class="pi pi-list text-content-muted" aria-hidden="true"></i>
+            <h3 class="text-sm font-bold text-content-main uppercase">Exhibiciones</h3>
+          </div>
+          <div class="border border-surface-border rounded-xl overflow-hidden">
+            <p-table [value]="selectedRow.exhibiciones || []" [rows]="10" [paginator]="true">
+              <ng-template pTemplate="header">
+                <tr class="text-sm bg-surface-ground uppercase text-content-muted">
+                  <th class="py-4 px-5">Formato</th><th class="text-center py-4 px-5">Nivel</th><th class="text-center py-4 px-5">Rango</th><th class="text-center py-4 px-5">Imagen</th><th class="py-4 px-5">Productos</th><th class="text-right pr-5 py-4">Venta</th><th class="text-right pr-5 py-4">Puntos</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-ex>
+                <tr class="text-base">
+                  <td class="py-4 px-5">
+                    <span class="text-sm px-3 py-2 rounded bg-surface-layout border border-divider font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span>
+                  </td>
+                  <td class="text-center py-4 px-5">
+                    <span class="status-chip text-sm" [class]="'status-' + nivelSeverity(ex.nivelEjecucion)">
+                      {{ (ex.nivelEjecucion || 'N/A') | titlecase }}
+                    </span>
+                  </td>
+                  <td class="text-center py-4 px-5">
+                    <span class="text-sm font-bold text-brand-orange">{{ ex.rangoCompra || ex.rango_compra || ex.rango || '-' }}</span>
+                  </td>
+                  <td class="text-center py-4 px-5">
+                    @if (ex.fotoUrl) {
+                      <img [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición {{ getConceptoName(ex.conceptoId) }}"
+                           class="w-24 h-24 rounded-lg shadow-sm cursor-pointer hover:shadow-md hover:scale-105 transition-all object-cover"
+                           (click)="openImagePreview(getImageUrl(ex.fotoUrl))">
+                    } @else {
+                      <span class="text-sm text-content-faint">-</span>
+                    }
+                  </td>
+                  <td class="py-4 px-5">
+                    @if (ex.productosMarcados && ex.productosMarcados.length > 0) {
+                      <div class="flex flex-wrap gap-3">
+                        @for (pid of ex.productosMarcados; track pid) {
+                          <p-chip [label]="getProductName(pid)" class="text-sm px-3 py-2 bg-surface-layout border border-divider text-content-main"></p-chip>
+                        }
+                      </div>
+                    } @else {
+                      <span class="text-sm text-content-faint">Sin productos</span>
+                    }
+                  </td>
+                  <td class="text-right pr-5 py-4 font-bold">${{ ex.ventaAdicional || 0 }}</td>
+                  <td class="text-right pr-5 py-4 font-bold">{{ ex.puntuacionCalculada || 0 }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
         </div>
       </div>
-    </div>
+    }
   </p-dialog>
 
   <!-- Modal personalizado para preview de imágenes -->
-  <p-dialog [(visible)]="showImagePreview" [modal]="true" [closable]="false" appendTo="body" [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-black p-0 overflow-hidden'">
+  <p-dialog [(visible)]="showImagePreview" [modal]="true" [closable]="false" appendTo="body" [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-black p-0 overflow-hidden'" ariaLabel="Previsualización de imagen de exhibición">
     <div class="relative w-full h-full flex flex-col">
-      <!-- Botón de cerrar en la esquina superior derecha -->
-      <button (click)="closeImagePreview()" class="absolute top-4 right-4 z-10 w-12 h-12 bg-[#185FA5] text-white rounded-full flex items-center justify-center shadow-lg hover:bg-[#0d4a8a] hover:scale-110 transition-all border-2 border-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none">
-        <i class="pi pi-times text-xl"></i>
+      <!--
+        Botón de cerrar — bg/hover heredan del token --checkbox-accent (azul tematizable),
+        manteniendo el contraste fuerte contra el fondo negro de la preview de imagen.
+      -->
+      <button (click)="closeImagePreview()"
+              aria-label="Cerrar previsualización de imagen"
+              class="btn-close-overlay absolute top-4 right-4 z-10 w-12 h-12 text-white rounded-full flex items-center justify-center shadow-lg hover:scale-110 border-2 border-white
+                     focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--focus-ring)]">
+        <i class="pi pi-times text-xl" aria-hidden="true"></i>
       </button>
-      
+
       <!-- Imagen -->
       <img [src]="previewImageUrl" alt="Preview" class="w-full h-full object-contain max-h-[85vh]" (click)="closeImagePreview()">
     </div>
@@ -650,22 +789,24 @@
         <input type="date" [(ngModel)]="routeReportDate" name="routeReportDate" pInputText class="w-full" />
       </div>
       
-      <div *ngIf="isSupervisor()">
-        <label class="block text-sm font-medium mb-2">Seleccionar usuarios</label>
-        <p-multiSelect 
-          [options]="availableUsers()" 
-          [(ngModel)]="selectedRouteUsers" 
-          optionLabel="username" 
-          optionValue="id"
-          placeholder="Selecciona usuarios..."
-          class="w-full">
-        </p-multiSelect>
-        <p class="text-xs text-content-muted mt-1">Deja vacío para seleccionar todos tus usuarios</p>
-      </div>
-      
-      <div *ngIf="!isSupervisor()" class="p-3 bg-surface-ground rounded-lg border border-surface-border">
-        <p class="text-sm text-content-muted">Solo puedes generar tu reporte diario como colaborador.</p>
-      </div>
+      @if (isSupervisor()) {
+        <div>
+          <label class="block text-sm font-medium mb-2">Seleccionar usuarios</label>
+          <p-multiSelect
+            [options]="availableUsers()"
+            [(ngModel)]="selectedRouteUsers"
+            optionLabel="username"
+            optionValue="id"
+            placeholder="Selecciona usuarios..."
+            class="w-full">
+          </p-multiSelect>
+          <p class="text-xs text-content-muted mt-1">Deja vacío para seleccionar todos tus usuarios</p>
+        </div>
+      } @else {
+        <div class="p-3 bg-surface-ground rounded-lg border border-surface-border">
+          <p class="text-sm text-content-muted">Solo puedes generar tu reporte diario como colaborador.</p>
+        </div>
+      }
     </div>
     
     <ng-template pTemplate="footer">
@@ -689,7 +830,8 @@
   </ng-template>
 
   <!-- Diálogo de Metas (solo visible para superadmin y supervisor_m) -->
-  <p-dialog *ngIf="canEditMetas()" header="Metas y rangos de cumplimiento" [(visible)]="showMetasDialog" [modal]="true"
+  @if (canEditMetas()) {
+  <p-dialog header="Metas y rangos de cumplimiento" [(visible)]="showMetasDialog" [modal]="true"
     [style]="{ width: '95vw', maxWidth: '600px' }" [draggable]="false" [resizable]="false" [blockScroll]="true"
     [focusOnShow]="false" appendTo="body"
     [contentStyle]="{'overflow-y': 'auto', 'max-height': '70vh', 'padding': '0.5rem'}"
@@ -701,61 +843,75 @@
         <span>Define dos umbrales por KPI. El dashboard y los reportes usarán estos rangos para colorear el semáforo automáticamente.</span>
       </div>
 
-      <div class="flex gap-4 flex-wrap text-[11px]">
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-200 inline-block"></span><span class="text-red-700">Por debajo del mínimo</span></span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-200 inline-block"></span><span class="text-amber-700">Entre mínimo y óptimo</span></span>
-        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-green-200 inline-block"></span><span class="text-green-700">Óptimo o superior</span></span>
+      <div class="flex gap-4 flex-wrap text-xs">
+        <span class="flex items-center gap-1.5 status-bad">
+          <span class="w-3 h-3 rounded inline-block status-fill"></span>
+          <span class="status-text">Por debajo del mínimo</span>
+        </span>
+        <span class="flex items-center gap-1.5 status-warn">
+          <span class="w-3 h-3 rounded inline-block status-fill"></span>
+          <span class="status-text">Entre mínimo y óptimo</span>
+        </span>
+        <span class="flex items-center gap-1.5 status-ok">
+          <span class="w-3 h-3 rounded inline-block status-fill"></span>
+          <span class="status-text">Óptimo o superior</span>
+        </span>
       </div>
 
       <div>
         <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">KPIs de ejecución</h4>
         <div class="space-y-4">
-          <div *ngFor="let r of editableKpi" class="p-4 bg-surface-layout rounded-xl border border-divider">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-              <span class="font-bold text-sm">{{ r.label }}</span>
-              <div class="flex flex-wrap gap-2 text-xs">
-                <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700">&lt; {{ r.min }}{{ r.unit }} = bajo</span>
-                <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700">≥ {{ r.opt }}{{ r.unit }} = óptimo</span>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              <div class="flex flex-col gap-1">
-                <label class="text-xs font-bold text-content-faint uppercase">Meta mínima</label>
-                <div class="w-full">
-                  <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
-                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+          @for (r of editableKpi; track r.id) {
+            <div class="p-4 bg-surface-layout rounded-xl border border-divider">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                <span class="font-bold text-sm">{{ r.label }}</span>
+                <div class="flex flex-wrap gap-2 text-xs">
+                  <span class="status-chip status-bad">&lt; {{ r.min }}{{ r.unit }} = bajo</span>
+                  <span class="status-chip status-ok">≥ {{ r.opt }}{{ r.unit }} = óptimo</span>
                 </div>
               </div>
-              <div class="flex flex-col gap-1">
-                <label class="text-xs font-bold text-content-faint uppercase">Meta óptima</label>
-                <div class="w-full">
-                  <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
-                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs font-bold text-content-faint uppercase">Meta mínima</label>
+                  <div class="w-full">
+                    <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
+                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="text-xs font-bold text-content-faint uppercase">Meta óptima</label>
+                  <div class="w-full">
+                    <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
+                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                  </div>
                 </div>
               </div>
+              <div class="mt-3 h-2 rounded-full overflow-hidden flex">
+                <div class="status-bad status-fill" [style.flex]="r.min"></div>
+                <div class="status-warn status-fill" [style.flex]="r.opt - r.min"></div>
+                <div class="status-ok status-fill" [style.flex]="r.opt * 0.5"></div>
+              </div>
             </div>
-            <div class="mt-3 h-2 rounded-full overflow-hidden flex">
-              <div class="bg-red-300" [style.flex]="r.min"></div>
-              <div class="bg-amber-300" [style.flex]="r.opt - r.min"></div>
-              <div class="bg-green-300" [style.flex]="r.opt * 0.5"></div>
-            </div>
-          </div>
+          }
         </div>
       </div>
 
       <div>
         <h4 class="text-xs font-black uppercase tracking-widest text-content-faint mb-3">Mobiliario</h4>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div *ngFor="let f of editableFurniture" class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3">
-            <div class="flex items-center gap-2 flex-1 min-w-0">
-              <i [class]="f.icon" class="text-content-muted w-5 text-center shrink-0"></i>
-              <span class="font-medium text-sm truncate">{{ f.label }}</span>
+          @for (f of editableFurniture; track f.id) {
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3">
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <i [class]="f.icon" class="text-content-muted w-5 text-center shrink-0" aria-hidden="true"></i>
+                <span class="font-medium text-sm truncate">{{ f.label }}</span>
+              </div>
+              <div class="shrink-0 w-20 sm:w-16">
+                <input type="number" [(ngModel)]="f.target" [min]="0"
+                  class="w-full px-2 py-1 border border-divider rounded text-sm bg-surface-card text-content-main focus:outline-none focus:ring-2 focus:ring-brand"
+                  [attr.aria-label]="'Meta para ' + f.label" />
+              </div>
             </div>
-            <div class="shrink-0 w-20 sm:w-16">
-              <input type="number" [(ngModel)]="f.target" [min]="0" 
-                class="w-full px-2 py-1 border border-divider rounded text-sm bg-surface-card text-content-main focus:outline-none focus:ring-2 focus:ring-brand" />
-            </div>
-          </div>
+          }
         </div>
       </div>
     </div>
@@ -767,6 +923,7 @@
       </div>
     </ng-template>
   </p-dialog>
+  }
 
   <!-- Diálogo de Todos los Productos -->
   <p-dialog header="Todos los Productos" [(visible)]="showAllProductsDialog" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
@@ -812,13 +969,15 @@
             <td class="py-2 px-3 font-bold text-content-main">{{ p.name }}</td>
             <td class="py-2 px-3 text-content-muted">{{ p.brandName }}</td>
             <td class="py-2 px-3 text-center">
-              <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 font-bold border border-green-200">{{ p.total }}</span>
+              <span class="status-chip status-ok">{{ p.total }}</span>
             </td>
             <td class="py-2 px-3">
               <div class="flex flex-wrap gap-1">
-                <span *ngFor="let exhibidor of objectKeys(p.exhibidores)" class="text-[11px] px-1.5 py-0.5 rounded bg-surface-hover border border-surface-border text-content-muted">
-                  {{ exhibidor }}: {{ p.exhibidores[exhibidor] }}
-                </span>
+                @for (exhibidor of objectKeys(p.exhibidores); track exhibidor) {
+                  <span class="text-xs px-1.5 py-0.5 rounded bg-surface-hover border border-surface-border text-content-muted">
+                    {{ exhibidor }}: {{ p.exhibidores[exhibidor] }}
+                  </span>
+                }
               </div>
             </td>
           </tr>

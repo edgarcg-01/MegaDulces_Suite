@@ -17,9 +17,41 @@ export interface User {
   route_name_today?: string;
 }
 
-@Injectable({
-  providedIn: 'root',
-})
+export interface UserCreatePayload {
+  username: string;
+  password: string;
+  nombre?: string;
+  zona?: string;
+  zona_id?: string | null;
+  role_name: string;
+  supervisor_id?: string | null;
+}
+
+export interface UserUpdatePayload {
+  username?: string;
+  password?: string;
+  nombre?: string;
+  zona?: string;
+  zona_id?: string | null;
+  role_name?: string;
+  supervisor_id?: string | null;
+  activo?: boolean;
+}
+
+export interface SupervisorOption {
+  id: string;
+  nombre?: string;
+  username: string;
+  zona?: string;
+}
+
+export interface ZoneOption {
+  id: string;
+  value: string;
+  orden?: number;
+}
+
+@Injectable({ providedIn: 'root' })
 export class UsersService {
   private http = inject(HttpClient);
   private apiUrl = `${environment.apiUrl}/users`;
@@ -36,35 +68,39 @@ export class UsersService {
     return this.http.get<User>(`${this.apiUrl}/${id}`);
   }
 
-  create(user: any): Observable<User> {
+  create(user: UserCreatePayload): Observable<User> {
     return this.http.post<User>(this.apiUrl, user);
   }
 
-  update(id: string, user: any): Observable<User> {
+  update(id: string, user: UserUpdatePayload): Observable<User> {
     return this.http.put<User>(`${this.apiUrl}/${id}`, user);
   }
 
-  remove(id: string): Observable<any> {
-    return this.http.delete(`${this.apiUrl}/${id}`);
+  remove(id: string): Observable<{ message: string; orphans_cleared: number }> {
+    return this.http.delete<{ message: string; orphans_cleared: number }>(
+      `${this.apiUrl}/${id}`,
+    );
   }
 
   getRoles(): Observable<{ role_name: string }[]> {
     return this.http.get<{ role_name: string }[]>(`${this.apiUrl}/roles`);
   }
 
-  getSupervisors(zona?: string): Observable<any[]> {
+  getSupervisors(zona?: string): Observable<SupervisorOption[]> {
     let params = new HttpParams();
     if (zona) params = params.set('zona', zona);
-    return this.http.get<any[]>(`${this.apiUrl}/supervisors`, { params });
+    return this.http.get<SupervisorOption[]>(`${this.apiUrl}/supervisors`, {
+      params,
+    });
   }
 
-  getTeam(supervisorId: string): Observable<any[]> {
-    return this.http.get<any[]>(
+  getTeam(supervisorId: string): Observable<User[]> {
+    return this.http.get<User[]>(
       `${this.apiUrl}/supervisor/${supervisorId}/team`,
     );
   }
 
-  getZones(): Observable<any[]> {
-    return this.http.get<any[]>(`${this.apiUrl}/zones`);
+  getZones(): Observable<ZoneOption[]> {
+    return this.http.get<ZoneOption[]>(`${this.apiUrl}/zones`);
   }
 }

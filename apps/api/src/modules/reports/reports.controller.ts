@@ -1,4 +1,18 @@
-import { Controller, Get, Post, UseGuards, Res, Query, Delete, Param, Body } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Logger,
+  Param,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { PdfService } from './pdf.service';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
@@ -8,12 +22,22 @@ import { Permission } from '../../shared/constants/permissions';
 import { ReqUser } from '../../shared/decorators/req-user.decorator';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import type { Response } from 'express';
+import {
+  ExportPdfDto,
+  ReportsDataFilterDto,
+  ReportsFilterDto,
+  ReportsStoresFilterDto,
+} from './dto/reports-filter.dto';
+import { getDataScope } from '../../shared/ability/data-scope';
 
 @ApiTags('reports')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
+@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 @Controller('reports')
 export class ReportsController {
+  private readonly logger = new Logger(ReportsController.name);
+
   constructor(
     private readonly reportsService: ReportsService,
     private readonly pdfService: PdfService,
@@ -24,15 +48,8 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Genera un payload con el KPI global de toda la plataforma',
   })
-  getSummary(
-    @ReqUser() user: any,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('zone') zone?: string,
-    @Query('supervisorId') supervisorId?: string,
-    @Query('userIds') userIds?: string[],
-  ) {
-    return this.reportsService.getSummary({ startDate, endDate, zone, supervisorId, userIds }, user);
+  getSummary(@ReqUser() user: any, @Query() filters: ReportsFilterDto) {
+    return this.reportsService.getSummary(filters, user);
   }
 
   @Get('daily-compliance')
@@ -40,18 +57,8 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Obtiene métricas de cumplimiento diario filtradas por fecha',
   })
-  getDailyCompliance(
-    @ReqUser() user: any,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('zone') zone?: string,
-    @Query('supervisorId') supervisorId?: string,
-    @Query('userIds') userIds?: string[],
-  ) {
-    return this.reportsService.getDailyCompliance(
-      { startDate, endDate, zone, supervisorId, userIds },
-      user,
-    );
+  getDailyCompliance(@ReqUser() user: any, @Query() filters: ReportsFilterDto) {
+    return this.reportsService.getDailyCompliance(filters, user);
   }
 
   @Get('daily-scores/per-user')
@@ -61,21 +68,12 @@ export class ReportsController {
   })
   async getDailyScoresPerUser(
     @ReqUser() user: any,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('zone') zone?: string,
-    @Query('supervisorId') supervisorId?: string,
-    @Query('userIds') userIds?: string[],
+    @Query() filters: ReportsFilterDto,
   ) {
     try {
-      console.log('[ReportsController] Calling getDailyScoresPerUser');
-      const result = await this.reportsService.getDailyScoresPerUser(
-        { startDate, endDate, zone, supervisorId, userIds },
-        user,
-      );
-      return result;
+      return await this.reportsService.getDailyScoresPerUser(filters, user);
     } catch (error) {
-      console.error('[ReportsController] Error in getDailyScoresPerUser:', error);
+      this.logger.error(`getDailyScoresPerUser error: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -85,23 +83,15 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Obtiene datos filtrados y agregados para el dashboard',
   })
-  getData(
-    @ReqUser() user: any,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('userId') userId?: string,
-    @Query('userIds') userIds?: string[],
-    @Query('zone') zone?: string,
-    @Query('supervisorId') supervisorId?: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-    @Query('include') include?: string,
-  ) {
-    console.log('[ReportsController] GET /reports/data', {
-      startDate, endDate, userId, userIds, zone, supervisorId, page, pageSize, include,
-    });
+  getData(@ReqUser() user: any, @Query() filters: ReportsDataFilterDto) {
+    // El service aún recibe page/pageSize como string en su contrato actual.
+    // Convertimos a string aquí para no tocar reports.service en este pase.
     return this.reportsService.getFilteredData(
-      { startDate, endDate, userId, userIds, zone, supervisorId, page, pageSize, include },
+      {
+        ...filters,
+        page: filters.page != null ? String(filters.page) : undefined,
+        pageSize: filters.pageSize != null ? String(filters.pageSize) : undefined,
+      },
       user,
     );
   }
@@ -109,15 +99,8 @@ export class ReportsController {
   @Get('routes')
   @RequirePermissions(Permission.REPORTES_VER_PROPIO)
   @ApiOperation({ summary: 'Obtiene métricas agregadas por ruta' })
-  getRoutesData(
-    @ReqUser() user: any,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('zone') zone?: string,
-    @Query('supervisorId') supervisorId?: string,
-    @Query('userIds') userIds?: string[],
-  ) {
-    return this.reportsService.getRoutesData({ startDate, endDate, zone, supervisorId, userIds }, user);
+  getRoutesData(@ReqUser() user: any, @Query() filters: ReportsFilterDto) {
+    return this.reportsService.getRoutesData(filters, user);
   }
 
   @Get('stores')
@@ -125,17 +108,8 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Obtiene métricas por tienda para el tab de Tiendas',
   })
-  getStoresData(
-    @ReqUser() user: any,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('storeId') storeId?: string,
-    @Query('zone') zone?: string,
-  ) {
-    return this.reportsService.getStoresData(
-      { startDate, endDate, storeId, zone },
-      user,
-    );
+  getStoresData(@ReqUser() user: any, @Query() filters: ReportsStoresFilterDto) {
+    return this.reportsService.getStoresData(filters, user);
   }
 
   @Get('export')
@@ -146,15 +120,10 @@ export class ReportsController {
   async exportCsv(
     @ReqUser() user: any,
     @Res() res: Response,
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('userId') userId?: string,
-    @Query('userIds') userIds?: string[],
-    @Query('zone') zone?: string,
-    @Query('supervisorId') supervisorId?: string,
+    @Query() filters: ReportsDataFilterDto,
   ) {
     const csvBuffer = await this.reportsService.exportCsvInBuffer(
-      { startDate, endDate, userId, userIds, zone, supervisorId },
+      filters,
       user,
     );
 
@@ -164,7 +133,6 @@ export class ReportsController {
       'attachment; filename="reporte_ejecutivos_trade.csv"',
     );
 
-    // Disparar
     res.send(csvBuffer);
   }
 
@@ -182,7 +150,22 @@ export class ReportsController {
   @ApiOperation({
     summary: 'Genera un PDF del reporte usando Puppeteer',
   })
-  async exportPdf(@Body() datos: any, @Res() res: Response) {
+  async exportPdf(
+    @ReqUser() user: any,
+    @Body() datos: ExportPdfDto,
+    @Res() res: Response,
+  ) {
+    // Verificar ownership: si el body trae userId distinto al solicitante,
+    // solo permitir si el usuario tiene scope global.
+    if (datos.userId && datos.userId !== user.sub) {
+      const scope = getDataScope(user);
+      if (scope.type !== 'all') {
+        throw new ForbiddenException(
+          'No puedes exportar reportes de otro usuario.',
+        );
+      }
+    }
+
     try {
       const buffer = await this.pdfService.generarReporte(datos);
 
@@ -194,7 +177,7 @@ export class ReportsController {
 
       res.end(buffer);
     } catch (error) {
-      console.error('[ReportsController] Error generando PDF:', error);
+      this.logger.error(`exportPdf error: ${error.message}`, error.stack);
       res.status(500).json({
         error: 'Error generando PDF',
         message: error.message,

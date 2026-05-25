@@ -55,6 +55,15 @@
   transform: translateY(-2px);
 }
 
+/*
+ * Modifier para cards informativos sin acción de click. Anula el "lift"
+ * hover heredado de .card-premium para no crear affordance falsa.
+ */
+.card-premium.card-flat:hover {
+  box-shadow: var(--shadow-light);
+  transform: none;
+}
+
 :host-context(.theme-monochrome) .card-premium:hover {
   border-color: var(--border-color);
 }
