@@ -721,6 +721,17 @@ export class CatalogsService {
       throw new NotFoundException(`Rol "${roleName}" no encontrado.`);
     }
 
+    // Guardrail: el rol `superadmin` nunca debe poder editarse vía este
+    // endpoint. Si alguien (incluido otro superadmin por error) postea un set
+    // parcial al rol `superadmin`, queda con permisos de un rol menor y se
+    // pierde el acceso al panel. La única forma legítima de modificar al
+    // superadmin es vía migración o directamente en DB.
+    if (roleName.toLowerCase() === 'superadmin') {
+      throw new ForbiddenException(
+        'El rol "superadmin" no puede modificarse desde la UI. Si necesitas ajustar permisos del superadmin, hazlo vía migración.',
+      );
+    }
+
     const previousPerms: Record<string, boolean> = existing.permissions || {};
     const requesterPerms: Record<string, boolean> = requester?.permissions || {};
     const isRequesterSuperadmin =
