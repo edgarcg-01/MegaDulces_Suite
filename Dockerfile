@@ -29,10 +29,12 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
 # invalidar esta capa.
 COPY package*.json .npmrc ./
 
-# `npm ci` requiere lockfile (lo tenemos). `--prefer-offline` corta latencia
-# del registry cuando la cache de BuildKit ya tiene los tarballs.
+# `npm ci` requiere lockfile (lo tenemos). NO usamos `--prefer-offline`:
+# en Railway la cache de BuildKit no se reusa entre builds (por el formato
+# custom de id) y prefer-offline solo añade lógica extra para decidir entre
+# cache parcial y registry. Las opciones de retry vienen de .npmrc.
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm,target=/root/.npm \
-    npm ci --prefer-offline
+    npm ci
 
 # ── Stage 2: Compilación de view + api ──────────────────────────────────────
 FROM node:20-bookworm AS builder
@@ -74,7 +76,7 @@ COPY package*.json .npmrc ./
 # capa final (BuildKit lo mantiene fuera), así que limpiar es redundante
 # y además falla con ENOTEMPTY al ser un mount externo.
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts --prefer-offline
+    npm ci --omit=dev --ignore-scripts
 
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
