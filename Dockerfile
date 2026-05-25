@@ -9,16 +9,15 @@
 #   4. runner    → imagen final: nginx + node + dist + node_modules de prod
 #
 # BuildKit es requerido por los `--mount=type=cache`. Railway exige que el
-# `id` siga el formato `s/<service-id>-<target>`; lo parametrizamos vía
-# ARG NPM_CACHE_ID para que pueda rotarse si cambia el servicio.
-# Local: el ARG cae al valor por defecto (un id arbitrario sigue siendo
-# válido en BuildKit estándar — solo es la clave del cache).
+# `id` esté hardcodeado (no acepta interpolación de ARGs) y siga el formato
+# `s/<service-id>-<target>`. Service ID actual: 69f64078-1678-40f4-a266-a18b61a20cde.
+# Si se migra a otro servicio de Railway, reemplazar el UUID en ambos RUN.
+# Local: el id es solo la clave del cache, así que el literal funciona igual
+# en BuildKit estándar (no comparte cache entre máquinas).
 # ─────────────────────────────────────────────────────────────────────────────
-ARG NPM_CACHE_ID=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm
 
 # ── Stage 1: Dependencias completas (capa cacheable) ────────────────────────
 FROM node:20-bookworm AS deps
-ARG NPM_CACHE_ID
 WORKDIR /app
 
 ENV NPM_CONFIG_LOGLEVEL=warn \
@@ -32,7 +31,7 @@ COPY package*.json .npmrc ./
 
 # `npm ci` requiere lockfile (lo tenemos). `--prefer-offline` corta latencia
 # del registry cuando la cache de BuildKit ya tiene los tarballs.
-RUN --mount=type=cache,id=${NPM_CACHE_ID},target=/root/.npm \
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm,target=/root/.npm \
     npm ci --prefer-offline
 
 # ── Stage 2: Compilación de view + api ──────────────────────────────────────
@@ -61,7 +60,6 @@ RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.m
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────
 FROM node:20-bookworm AS prod-deps
-ARG NPM_CACHE_ID
 WORKDIR /app
 
 ENV NPM_CONFIG_LOGLEVEL=warn \
@@ -73,7 +71,7 @@ COPY package*.json .npmrc ./
 
 # `--ignore-scripts` evita husky/postinstall en imagen final (no aplican en
 # runtime). `npm cache clean` recupera ~100 MB de la capa.
-RUN --mount=type=cache,id=${NPM_CACHE_ID},target=/root/.npm \
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm,target=/root/.npm \
     npm ci --omit=dev --ignore-scripts --prefer-offline && \
     npm cache clean --force
 
