@@ -7,20 +7,29 @@ import { LoginDto } from './dto/login.dto';
 import { buildAbility } from '../../shared/ability/ability.factory';
 
 /**
- * El JWT solo carga la identidad estable del usuario (id, username, role).
- * Los permisos NO van en el JWT — se leen frescos de DB en cada request
- * protegido (vía PermissionsCacheService). Esto permite que cambios en
- * /admin/roles se propaguen sin requerir re-login.
+ * El JWT carga:
+ *   - Identidad estable (sub, username, role_name, zona) — usada por el
+ *     backend para identificar al usuario.
+ *   - `permissions` y `rules` — usadas SOLO por el frontend para gating de UI
+ *     (esconder/mostrar menús). El backend las IGNORA: el `RolesGuard` lee
+ *     permisos frescos de `role_permissions` en cada request (via cache TTL
+ *     30s + invalidación en update). Así los cambios de permisos se aplican
+ *     al instante para autorización aunque la UI tarde hasta el próximo
+ *     login en reflejarlos.
  *
- * `permissions` y `rules` siguen viajando en el RESPONSE del login para
- * que el frontend hidrate su UI inicial; pero el backend NO confía en
- * ellos para autorización.
+ * Por qué siguen en el JWT (y no solo en el response): cuando el usuario
+ * recarga la página, el frontend restaura sesión desde la cookie. Sin
+ * `rules` en el JWT, la UI se quedaría sin permisos hasta hacer una request
+ * adicional a /auth/me. Mantenerlas en el JWT es un hint de UI cómodo,
+ * no una source-of-truth de seguridad.
  */
 interface JwtPayload {
   sub: string;
   username: string;
   zona: string;
   role_name: string;
+  permissions?: Record<string, boolean>;
+  rules?: any[];
 }
 
 @Injectable()
@@ -62,6 +71,9 @@ export class AuthService {
       username: user.username,
       zona: user.zona,
       role_name: user.role_name,
+      // Snapshot para UI gating (no para autorización backend).
+      permissions: permissions,
+      rules: ability.rules,
     };
 
     return {
