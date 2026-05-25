@@ -16,7 +16,6 @@ import {
 import { CatalogsService } from './catalogs.service';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
-import { UpdateRolePermissionsDto } from './dto/update-role-permissions.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
@@ -80,12 +79,19 @@ export class CatalogsController {
   })
   updateRolePermissions(
     @Param('role_name') roleName: string,
-    @Body() body: UpdateRolePermissionsDto,
+    // Tipo PLANO (Record) en lugar de un DTO de clase — el `@UsePipes(
+    // ValidationPipe { whitelist: true })` a nivel de controller, combinado
+    // con un DTO que solo tenía index signature `[k: string]: boolean`,
+    // borraba TODAS las keys del body (whitelist sólo conserva propiedades
+    // declaradas con decoradores de class-validator). Con tipo plano, la
+    // metadata de reflect resulta `Object` y el pipe pasa el body intacto.
+    // La validación real (whitelist por enum Permission) la hace el service.
+    @Body() body: Record<string, boolean>,
     @Req() req: any,
   ) {
     return this.catalogsService.updateRolePermissions(
       roleName,
-      body as Record<string, boolean | undefined>,
+      body,
       req.user,
     );
   }
