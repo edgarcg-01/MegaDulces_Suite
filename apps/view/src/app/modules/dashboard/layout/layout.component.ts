@@ -70,6 +70,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
   sidebarHover = signal(false);
   sidebarFocused = signal(false);
 
+  /**
+   * Modalidad del último input del usuario (teclado vs pointer). Necesario
+   * para emular `:focus-visible` en TS: cuando el usuario CLICKEA un nav-item,
+   * el `<a>` retiene focus tras la navegación y nuestro `(focusin)` disparaba
+   * `sidebarFocused = true`, dejando el sidebar pegado expandido aunque
+   * sacaras el mouse. Con esta flag, solo expandimos por focus si el focus
+   * vino de Tab/Shift+Tab (teclado real).
+   */
+  private keyboardFocus = false;
+
   /** Menú del avatar de usuario en el topbar (sincronizado con onShow/onHide). */
   userMenuOpen = signal(false);
 
@@ -157,6 +167,26 @@ export class LayoutComponent implements OnInit, OnDestroy {
     this.closeSidebar();
   }
 
+  /**
+   * Trackers de modalidad del input. Cualquier keydown de Tab marca al
+   * usuario como "navegando con teclado"; cualquier pointerdown lo desmarca
+   * (y además colapsa el sidebar si estaba abierto por focus, para que el
+   * hover sea quien decida desde ese momento).
+   */
+  @HostListener('document:keydown', ['$event'])
+  onAnyKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Tab') this.keyboardFocus = true;
+  }
+
+  @HostListener('document:pointerdown')
+  onAnyPointerDown(): void {
+    this.keyboardFocus = false;
+    // Si veníamos con sidebarFocused (Tab previo) y ahora el usuario tomó
+    // el mouse, devolvemos el control al hover — sin esto, el sidebar
+    // quedaba pegado abierto al alternar entre teclado y mouse.
+    if (this.sidebarFocused()) this.sidebarFocused.set(false);
+  }
+
   // ── Sidebar ───────────────────────────────────────────────────────
   /** Solo aplica en mobile (drawer). En desktop el hover decide. */
   openSidebar(): void {
@@ -169,6 +199,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
   /**
    * Hover handlers — solo activan en desktop. En mobile el sidebar es
    * drawer controlado por sidebarOpen, así que ignoramos el hover ahí.
+   *
+   * `onSidebarFocusIn` se gatea por `keyboardFocus`: si el focus vino de
+   * un click (pointerdown previo bajó la flag a false), NO mantenemos el
+   * sidebar expandido — solo el hover decide. Esto soluciona el bug en
+   * que clickear un nav-item dejaba el `<a>` con focus y el sidebar pegado
+   * abierto aunque el mouse saliera.
    */
   onSidebarEnter(): void {
     if (!this.isMobile()) this.sidebarHover.set(true);
@@ -177,7 +213,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (!this.isMobile()) this.sidebarHover.set(false);
   }
   onSidebarFocusIn(): void {
-    if (!this.isMobile()) this.sidebarFocused.set(true);
+    if (!this.isMobile() && this.keyboardFocus) this.sidebarFocused.set(true);
   }
   onSidebarFocusOut(): void {
     if (!this.isMobile()) this.sidebarFocused.set(false);
