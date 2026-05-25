@@ -28,7 +28,7 @@ COPY package*.json .npmrc ./
 
 # `npm ci` requiere lockfile (lo tenemos). `--prefer-offline` corta latencia
 # del registry cuando la cache de BuildKit ya tiene el tarball.
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
     npm ci --prefer-offline
 
 # ── Stage 2: Compilación de view + api ──────────────────────────────────────
@@ -68,7 +68,7 @@ COPY package*.json .npmrc ./
 
 # `--ignore-scripts` evita husky/postinstall en imagen final (no aplican en
 # runtime). `npm cache clean` recupera ~100 MB de la capa.
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
     npm ci --omit=dev --ignore-scripts --prefer-offline && \
     npm cache clean --force
 
