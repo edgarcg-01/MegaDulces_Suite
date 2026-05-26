@@ -102,8 +102,8 @@ _(vacío)_
 - [x] **[A.0mt.1.2]** ✅ Variables `DATABASE_URL_NEW` + `NEW_DB_*` agregadas a `.env` local + `.env.example` template (2026-05-26).
 - [x] **[A.0mt.1.3]** ✅ `database/knexfile-newdb.js` creado con segunda conexión + dotenv loading explícito + directorios `migrations-newdb/` + `seeds-newdb/` (2026-05-26).
 - [x] **[A.0mt.1.4]** ✅ Migración `20260526000001_init_tenants_and_extensions.js` aplicada en local: tabla `tenants` + extensión `pgcrypto` + función `current_tenant_id()`. Seed `01_first_tenant_mega_dulces.js` insertó tenant `mega_dulces` (`00000000-0000-0000-0000-00000000d01c`) (2026-05-26).
-- [ ] **[A.0mt.1.5]** 🔨 Helper `setTenantContext(trx, tenantId)` con `SET LOCAL app.tenant_id` — próximo
-- [ ] **[A.0mt.1.6]** ⬜ Test: insert + read con contexto correcto/incorrecto
+- [x] **[A.0mt.1.5]** ✅ Helper `setTenantContext` + `runWithTenant` + `TenantKnexService` creados en `apps/api/src/shared/database/tenant-knex.service.ts` + módulo `NewDatabaseModule` (sin wirear al AppModule todavía — esperará al cutover) (2026-05-26).
+- [x] **[A.0mt.1.6]** ✅ Test end-to-end `database/test-newdb-tenant-context.js`: 8/8 pass — incluye aislamiento entre tx concurrentes con tenants distintos, no-leak post-commit, validación regex anti-injection (2026-05-26).
 
 #### A.0mt.2 — Schema completo + RLS (1-1.5 sem)
 - [ ] **[A.0mt.2.1]** ⬜ Diseño detallado: revisar cada tabla legacy + decidir inclusión

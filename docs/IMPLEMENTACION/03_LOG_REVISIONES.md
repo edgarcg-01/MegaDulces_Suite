@@ -113,4 +113,44 @@
 
 ---
 
+## 2026-05-26 — Sub-sprint A.0mt.1 cerrado: aprovisionamiento + schema base nueva DB
+
+**Tipo:** Sprint checkpoint
+**Items revisados:** A.0mt.1.1 → A.0mt.1.6 (6 items)
+**Estado al cierre:** ✅ TODOS COMPLETADOS
+
+**Qué se logró:**
+- **DB `postgres_platform` operando local** en `192.168.0.245:5432` (Postgres 18.4).
+- **Tabla `tenants`** creada con audit timestamps + soft-delete + jsonb metadata.
+- **Mega Dulces seedeado** como primer tenant con UUID `00000000-0000-0000-0000-00000000d01c`.
+- **Función Postgres `current_tenant_id()`** lee el tenant del contexto de sesión via `current_setting('app.tenant_id', true)::uuid`.
+- **Extensión `pgcrypto`** habilitada para `gen_random_uuid()`.
+- **Knexfile separado** `database/knexfile-newdb.js` con dotenv loading explícito (resuelve issue de Knex CLI que cambia cwd).
+- **Directorios paralelos** `database/migrations-newdb/` y `database/seeds-newdb/` para no contaminar legacy.
+- **Helper TypeScript** `TenantKnexService` + `runWithTenant()` + `setTenantContext()` en `apps/api/src/shared/database/tenant-knex.service.ts`. Usa `SET LOCAL app.tenant_id` (no SET regular) para evitar leaks cross-request en el pool de Knex.
+- **Validación regex anti-injection** en el tenantId antes de interpolar (Postgres no soporta `SET` con parameter binding).
+- **Test end-to-end** `database/test-newdb-tenant-context.js`: 8/8 pass, incluye aislamiento entre 2 transacciones concurrentes con tenants distintos.
+
+**Lecciones aprendidas:**
+- Knex CLI cambia `cwd` a `database/` al cargar el knexfile → hay que cargar dotenv con path absoluto (`path.resolve(__dirname, '..', '.env')`) o las env vars no llegan.
+- `SET LOCAL` (no `SET`) es mandatorio en Postgres para tenancy correcto: garantiza que el valor se reset al COMMIT/ROLLBACK y no leak por el pool de conexiones.
+- Postgres NO acepta parameter binding en `SET` → validar tenantId con regex UUID antes de interpolar es la forma correcta.
+
+**Archivos creados/modificados:**
+- `.env` (vars NEW_DB_* + DATABASE_URL_NEW agregadas localmente, no commiteadas)
+- `.env.example` (template con todas las vars)
+- `database/knexfile-newdb.js` (knexfile separado)
+- `database/migrations-newdb/20260526000001_init_tenants_and_extensions.js`
+- `database/seeds-newdb/01_first_tenant_mega_dulces.js`
+- `database/test-newdb-tenant-context.js`
+- `apps/api/src/shared/database/new-database.module.ts` (sin wirear todavía al AppModule)
+- `apps/api/src/shared/database/tenant-knex.service.ts`
+
+**Estado de prod:** Sin cambios. Toda la app sigue operando contra la DB legacy. Los archivos nuevos no se ejecutan en runtime de prod.
+
+**Siguiente paso:**
+- **Sub-sprint A.0mt.2** — diseñar y crear el schema multi-tenant completo (10+ tablas) + índices por `tenant_id` + políticas RLS de aislamiento + seeds iniciales (rol superadmin + usuario superoot del tenant mega_dulces).
+
+---
+
 <!-- Las siguientes entradas se agregan al revisar / cerrar items reales. -->

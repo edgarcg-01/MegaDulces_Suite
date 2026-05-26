@@ -35,7 +35,9 @@ App de **trade marketing y auditoría de ejecución en PdV** para **Mega Dulces*
 
 **Sprint actual:** `A.0-multitenant` (3-4 semanas). Plan detallado en [`docs/IMPLEMENTACION/FASES/FASE_A0_MULTITENANT_NEW_DB.md`](docs/IMPLEMENTACION/FASES/FASE_A0_MULTITENANT_NEW_DB.md).
 
-**Primer item a tocar:** `[A.0mt.1.1]` — crear servicio Postgres nuevo en Railway.
+**Sub-sprint A.0mt.1 ✅ COMPLETADO 2026-05-26**: nueva DB local creada con tabla `tenants`, función `current_tenant_id()`, helper TS `TenantKnexService`, tests de aislamiento pasando 8/8.
+
+**Próximo:** Sub-sprint `A.0mt.2` — diseñar y crear todas las tablas del schema multi-tenant (users, zones, rutas, role_permissions, catalogs, stores, visits, exhibitions, captures, daily_captures, scoring_config) + índices `idx_*_tenant_id` + políticas RLS.
 
 ---
 
@@ -118,7 +120,8 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 
 - **Service ID Railway**: `69f64078-1678-40f4-a266-a18b61a20cde` (cache mounts `id=s/<service>-<target>`).
 - **DB legacy (actual prod)**: Postgres en Railway (host `switchback.proxy.rlw...`, accesible via `.env` local).
-- **DB nueva (multi-tenant)**: pendiente crear en Railway — `[A.0mt.1.1]`.
+- **DB nueva multi-tenant**: ✅ Creada local en `192.168.0.245:5432/postgres_platform` con Postgres 18.4. Pendiente migrar a Railway (Sprint A.0mt.5 cutover).
+- **Primer tenant**: `mega_dulces` con UUID `00000000-0000-0000-0000-00000000d01c`.
 - **WhatsApp BSP**: pendiente decidir (ADR-006).
 - **LLM provider**: pendiente decidir (ADR-007, recomendado Claude Haiku 4.5).
 - **Partner fintech**: pendiente identificar (ADR-008).
