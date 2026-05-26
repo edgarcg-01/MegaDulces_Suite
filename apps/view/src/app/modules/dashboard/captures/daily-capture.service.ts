@@ -179,6 +179,10 @@ export class DailyCaptureService {
     this._activeExhibiciones.set([]);
     this._latitud.set(null);
     this._longitud.set(null);
+    // Limpiar deteccion previa: sin esto, la UI podia mostrar la tienda de
+    // una visita anterior si por alguna razon clearActiveState no se ejecuto.
+    this._detectedStore.set(null);
+    this._nearbyStores.set([]);
 
     const MAX_RETRIES = 3;
     let gpsCapturado = false;
@@ -203,23 +207,22 @@ export class DailyCaptureService {
       if (ultimaPosicion) {
         this._latitud.set(ultimaPosicion.lat);
         this._longitud.set(ultimaPosicion.lng);
-        return true;
-      }
-
-      if (!navigator.onLine) {
+      } else if (!navigator.onLine) {
         this.notifySimulatedCoords('iniciarVisita-offline');
         this._latitud.set(SIMULATED_GPS_COORDS.lat);
         this._longitud.set(SIMULATED_GPS_COORDS.lng);
-        return true;
+      } else {
+        this._horaInicio.set(null);
+        this._activeExhibiciones.set([]);
+        throw new Error(
+          'No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.',
+        );
       }
-
-      this._horaInicio.set(null);
-      this._activeExhibiciones.set([]);
-      throw new Error(
-        'No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.',
-      );
     }
 
+    // Critico: detectar la tienda SIEMPRE que tengamos coords (GPS real,
+    // ultima conocida o simuladas). Antes solo se llamaba en el happy path,
+    // por eso la 2da visita y los flujos offline quedaban sin tienda.
     await this.detectarTiendaCercana();
     return true;
   }
