@@ -32,7 +32,7 @@ export interface VisitaPendiente {
 
 export interface CatalogoOffline {
   id: string;
-  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'planograma';
+  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'planograma' | 'stores';
   datos: any;
   version: string;
   ultima_sincronizacion: string;
@@ -134,6 +134,16 @@ export class OfflineDatabaseService extends Dexie {
       ultimo_intento: new Date().toISOString()
     });
     console.log(`[OfflineDB] Visita marcada como sincronizada: ${visitaId}`);
+  }
+
+  /**
+   * Actualiza el `tiendaId` de una visita pendiente. Se usa en el flujo de
+   * sync para reparar retroactivamente visitas guardadas con el placeholder
+   * legacy 'default' (antes del fix de offline stores).
+   */
+  async actualizarTiendaIdVisita(visitaId: string, tiendaId: string): Promise<void> {
+    await this.visitas.update(visitaId, { tiendaId });
+    console.log(`[OfflineDB] tiendaId reparado en visita ${visitaId} -> ${tiendaId}`);
   }
 
   async incrementarIntentoFallido(visitaId: string, error: string): Promise<void> {

@@ -20,9 +20,6 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-
 import { DashboardService, DashboardData } from './dashboard.service';
 import { FiltersStateService } from '../graphics/filters-state.service';
 import {
@@ -950,7 +947,29 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   // ── Export PDF ────────────────────────────────────────────────
-  exportPdf() {
+  // jspdf y jspdf-autotable se cargan bajo demanda al primer export
+  // para no engrosar el chunk del dashboard. Se cachean en _pdfLibs
+  // tras la primera carga.
+  private _pdfLibs?: {
+    jsPDF: typeof import('jspdf').default;
+    autoTable: typeof import('jspdf-autotable').default;
+  };
+  private async loadPdfLibs() {
+    if (!this._pdfLibs) {
+      const [jspdfMod, autotableMod] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ]);
+      this._pdfLibs = {
+        jsPDF: jspdfMod.default,
+        autoTable: autotableMod.default,
+      };
+    }
+    return this._pdfLibs;
+  }
+
+  async exportPdf() {
+    const { jsPDF, autoTable } = await this.loadPdfLibs();
     const doc = new jsPDF();
     const f = this.filtersState.filters();
 

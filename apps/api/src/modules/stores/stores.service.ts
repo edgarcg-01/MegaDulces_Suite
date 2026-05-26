@@ -106,6 +106,56 @@ export class StoresService {
       .sort((a, b) => a.distance - b.distance);
   }
 
+  /**
+   * Devuelve el "version stamp" del catalogo de tiendas (la fecha mas
+   * reciente entre updated_at y created_at). El frontend lo compara con
+   * el version cacheado en IndexedDB para decidir si redescargar el
+   * catalogo completo (mismo patron que planograms/brands/version).
+   *
+   * Scope-aware: si el requester esta restringido a una zona, la version
+   * se calcula solo sobre las tiendas de esa zona.
+   */
+  async getCatalogVersion(requester?: RequesterContext) {
+    const query = this.knex('stores')
+      .where({ activo: true })
+      .select(
+        this.knex.raw('MAX(GREATEST(updated_at, created_at)) as version'),
+      );
+
+    if (requester) {
+      const zonaId = await this.getRequesterZonaId(requester);
+      if (zonaId) query.where({ zona_id: zonaId });
+    }
+
+    const row = await query.first();
+    return { version: row?.version ?? null };
+  }
+
+  /**
+   * Catalogo completo de tiendas activas (con coordenadas) para cache
+   * offline en IndexedDB. El frontend lo usa para detectar la tienda mas
+   * cercana via Haversine cuando no hay red.
+   *
+   * Solo incluye tiendas con lat/lng validos — sin coords no se puede
+   * hacer matching offline.
+   */
+  async findAllForOfflineSync(requester?: RequesterContext) {
+    const query = this.knex('stores')
+      .where({ activo: true })
+      .whereNotNull('latitud')
+      .whereNotNull('longitud')
+      .where('latitud', '!=', 0)
+      .where('longitud', '!=', 0)
+      .select('id', 'nombre', 'direccion', 'latitud', 'longitud', 'zona_id');
+
+    if (requester) {
+      const zonaId = await this.getRequesterZonaId(requester);
+      if (zonaId) query.where({ zona_id: zonaId });
+    }
+
+    return query.orderBy('nombre', 'asc');
+  }
+
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
     const cleaned = zonaName.trim();

@@ -10,9 +10,10 @@ import {
 } from './daily-capture.models';
 import { AuthService } from '../../../core/services/auth.service';
 import { OfflineDailyCaptureService } from '../../../core/services/offline-daily-capture.service';
-import { OfflineDatabaseService } from '../../../core/services/offline-database.service';
+import { OfflineDatabaseService, TiendaOffline } from '../../../core/services/offline-database.service';
 import { buildVisitFormData } from '../../../core/http/visit-form-data';
 import { todayMx } from '../../../core/utils/mx-date';
+import { haversineMeters } from '../../../core/utils/geo';
 import { environment } from '../../../../environments/environment';
 import { calcularPuntosExhibicion } from '@megadulces/shared-scoring';
 
@@ -228,14 +229,41 @@ export class DailyCaptureService {
     const lng = this._longitud();
     if (!lat || !lng) return;
 
+    // 1. Intento online primero: el backend ya filtra por scope/zona y
+    //    aplica reglas de negocio que el cliente no conoce.
+    if (navigator.onLine) {
+      try {
+        const stores = await firstValueFrom(
+          this.http.get<{ id: string; nombre: string; distance: number }[]>(
+            `${this.apiUrl}/stores/nearby?lat=${lat}&lng=${lng}&radius=${radius}`,
+          ),
+        );
+        this._nearbyStores.set(stores || []);
+        this._detectedStore.set(stores && stores.length > 0 ? stores[0] : null);
+        return;
+      } catch {
+        // Cae al fallback offline en lugar de dejar al usuario sin tienda.
+      }
+    }
+
+    // 2. Fallback offline: Haversine sobre tiendas cacheadas en IndexedDB.
+    //    `loadStoresData()` corre al login y mantiene el cache fresco; si
+    //    el dispositivo nunca estuvo online, la lista estara vacia y el
+    //    componente cae al banner de "registra la tienda" como hoy.
     try {
-      const stores = await firstValueFrom(
-        this.http.get<any[]>(
-          `${this.apiUrl}/stores/nearby?lat=${lat}&lng=${lng}&radius=${radius}`,
-        ),
-      );
-      this._nearbyStores.set(stores || []);
-      this._detectedStore.set(stores && stores.length > 0 ? stores[0] : null);
+      const cached = await this.offlineDb.getTiendas();
+      const nearby = cached
+        .filter((s) => s.lat && s.lng)
+        .map((s) => ({
+          id: s.id,
+          nombre: s.nombre,
+          distance: Math.round(haversineMeters(lat, lng, s.lat, s.lng)),
+        }))
+        .filter((s) => s.distance <= radius)
+        .sort((a, b) => a.distance - b.distance);
+
+      this._nearbyStores.set(nearby);
+      this._detectedStore.set(nearby[0] ?? null);
     } catch {
       this._nearbyStores.set([]);
       this._detectedStore.set(null);
@@ -542,6 +570,19 @@ export class DailyCaptureService {
         const isNetworkError = !error.status || error.status === 0;
 
         if (isNetworkError) {
+          // Sin tienda no guardamos offline: el placeholder 'default' de
+          // antes generaba registros que nunca podian sincronizar (FK a
+          // stores.id rechaza valores no-UUID). La UI bloquea via
+          // `needsStore`, pero esta es la red de seguridad final.
+          if (!store?.id) {
+            return throwError(
+              () =>
+                new Error(
+                  'No hay tienda seleccionada. Selecciona una tienda antes de guardar la visita.',
+                ),
+            );
+          }
+
           // Recuperar coordenadas de localStorage si payload llegó sin ellas
           // (no debería pasar tras la validación arriba, pero defensa extra).
           let lat = payload.latitud || this._latitud();
@@ -560,7 +601,7 @@ export class DailyCaptureService {
 
           return from(
             this.offlineService.guardarCapturaOffline(
-              store?.id ?? 'default',
+              store.id,
               user.sub,
               {
                 horaInicio: payload.horaInicio,
@@ -688,10 +729,15 @@ export class DailyCaptureService {
   }
 
   private _masterDataInFlight = false;
+  private _masterDataLoaded = false;
+  /**
+   * Carga catalogos maestros (conceptos, ubicaciones, niveles, scoring).
+   * Una vez cargados con exito, sucesivas llamadas son no-op para no
+   * re-pegarle al backend en cada navegacion. Para forzar refresh ante
+   * cambios de admin, llamar `reloadMasterData()`.
+   */
   loadMasterData() {
-    // Dedup: el `effect()` del constructor y `refreshAll()` pueden disparar
-    // esto en paralelo al cargar el componente.
-    if (this._masterDataInFlight) return;
+    if (this._masterDataLoaded || this._masterDataInFlight) return;
     this._masterDataInFlight = true;
 
     forkJoin({
@@ -719,13 +765,91 @@ export class DailyCaptureService {
           })),
         );
         this._masterDataInFlight = false;
+        this._masterDataLoaded = true;
       },
       error: () => {
         this._masterDataInFlight = false;
+        // No marcamos loaded=true en error: que el siguiente refreshAll lo reintente.
       },
     });
 
     this.loadPlanogramData();
+    this.loadStoresData();
+  }
+
+  /**
+   * Fuerza recarga de master data (catalogos). Util cuando admin edita
+   * conceptos/ubicaciones/niveles y los demas usuarios necesitan ver el cambio
+   * sin recargar pestana.
+   */
+  reloadMasterData() {
+    this._masterDataLoaded = false;
+    this.loadMasterData();
+  }
+
+  /**
+   * Descarga el catalogo completo de tiendas y lo guarda en IndexedDB para
+   * que la deteccion offline (Haversine en cliente) tenga datos con que
+   * trabajar. Versionado por timestamp del catalogo: si cache local esta
+   * al dia, no redescarga.
+   *
+   * Mismo patron que `loadPlanogramData()`: silencioso ante errores de
+   * red — confiamos en que el cache previo siga viable.
+   */
+  private async loadStoresData() {
+    try {
+      const cached = await this.offlineDb.getCatalogo('stores');
+      const serverVersion = await firstValueFrom(
+        this.http.get<{ version: string | null }>(
+          `${this.apiUrl}/stores/version`,
+        ),
+      );
+
+      const serverTime = serverVersion?.version
+        ? new Date(serverVersion.version).getTime()
+        : -1;
+      const cachedTime = cached?.version
+        ? new Date(cached.version).getTime()
+        : 0;
+
+      // Cache vigente — no hay que volver a bajar el bulk.
+      if (cached && cachedTime >= serverTime && serverTime !== -1) {
+        return;
+      }
+
+      const stores = await firstValueFrom(
+        this.http.get<
+          {
+            id: string;
+            nombre: string;
+            direccion?: string;
+            latitud: number | string;
+            longitud: number | string;
+            zona_id?: string;
+          }[]
+        >(`${this.apiUrl}/stores/all-for-sync`),
+      );
+
+      // Mapeo (backend usa latitud/longitud, IndexedDB usa lat/lng).
+      const tiendasOffline: TiendaOffline[] = stores.map((s) => ({
+        id: s.id,
+        nombre: s.nombre,
+        lat: Number(s.latitud),
+        lng: Number(s.longitud),
+        direccion: s.direccion,
+        zona: s.zona_id,
+        ultima_sincronizacion: new Date().toISOString(),
+      }));
+
+      await this.offlineDb.guardarTiendas(tiendasOffline);
+      await this.offlineDb.guardarCatalogo(
+        'stores',
+        stores,
+        serverVersion?.version || new Date().toISOString(),
+      );
+    } catch {
+      // Sin red o backend caido: confiamos en lo que ya este en Dexie.
+    }
   }
 
   private _mapPlanogramData(data: any[]): BrandGroup[] {

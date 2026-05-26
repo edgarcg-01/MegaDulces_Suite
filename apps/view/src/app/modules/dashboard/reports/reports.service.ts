@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, shareReplay } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 
 /**
@@ -108,44 +108,90 @@ export class ReportsService {
     });
   }
 
+  // Cache de catalogos (usuarios/zonas/supervisores/vendedores). Estos
+  // datos cambian pocas veces al dia; cachearlos elimina decenas de HTTP
+  // redundantes cuando el usuario navega entre /reports, /seguimiento, etc.
+  // Para invalidar tras editar usuarios desde admin, llamar `invalidateCaches()`.
+  private _usersCache$?: Observable<any[]>;
+  private _zonesCache$?: Observable<any[]>;
+  private _supervisorsCache = new Map<string, Observable<any[]>>();
+  private _sellersCache = new Map<string, Observable<any[]>>();
+
   /**
-   * Obtiene la lista de usuarios
+   * Obtiene la lista de usuarios. Cacheado tras la primera llamada.
    * @returns Observable con la lista de usuarios
    */
   getUsers(): Observable<any[]> {
-    return this.http.get<any[]>(`${environment.apiUrl}/users`);
+    if (!this._usersCache$) {
+      this._usersCache$ = this.http
+        .get<any[]>(`${environment.apiUrl}/users`)
+        .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+    }
+    return this._usersCache$;
   }
 
   /**
-   * Obtiene la lista de zonas
+   * Obtiene la lista de zonas. Cacheado tras la primera llamada.
    * @returns Observable con la lista de zonas
    */
   getZones(): Observable<any[]> {
-    return this.http.get<any[]>(`${environment.apiUrl}/users/zones`);
+    if (!this._zonesCache$) {
+      this._zonesCache$ = this.http
+        .get<any[]>(`${environment.apiUrl}/users/zones`)
+        .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+    }
+    return this._zonesCache$;
   }
 
   /**
-   * Obtiene la lista de supervisores
+   * Obtiene la lista de supervisores. Cacheado por valor de `zona`.
    * @param zona Zona opcional para filtrar
    * @returns Observable con la lista de supervisores
    */
   getSupervisors(zona?: string): Observable<any[]> {
+    const key = zona ?? '_all_';
+    const cached = this._supervisorsCache.get(key);
+    if (cached) return cached;
+
     let params = new HttpParams();
     if (zona) params = params.set('zona', zona);
-    return this.http.get<any[]>(`${environment.apiUrl}/users/supervisors`, { params });
+    const obs$ = this.http
+      .get<any[]>(`${environment.apiUrl}/users/supervisors`, { params })
+      .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+    this._supervisorsCache.set(key, obs$);
+    return obs$;
   }
 
   /**
-   * Obtiene la lista de vendedores
+   * Obtiene la lista de vendedores. Cacheado por combinacion (zona, supervisorId).
    * @param zona Zona opcional para filtrar
    * @param supervisorId ID del supervisor opcional para filtrar
    * @returns Observable con la lista de vendedores
    */
   getSellers(zona?: string, supervisorId?: string): Observable<any[]> {
+    const key = `${zona ?? '_'}|${supervisorId ?? '_'}`;
+    const cached = this._sellersCache.get(key);
+    if (cached) return cached;
+
     let params = new HttpParams();
     if (zona) params = params.set('zona', zona);
     if (supervisorId) params = params.set('supervisor_id', supervisorId);
-    return this.http.get<any[]>(`${environment.apiUrl}/users/sellers`, { params });
+    const obs$ = this.http
+      .get<any[]>(`${environment.apiUrl}/users/sellers`, { params })
+      .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+    this._sellersCache.set(key, obs$);
+    return obs$;
+  }
+
+  /**
+   * Invalida los caches de catalogos. Llamar tras editar usuarios/zonas
+   * desde admin para que la proxima navegacion vuelva a pegarle al backend.
+   */
+  invalidateCaches() {
+    this._usersCache$ = undefined;
+    this._zonesCache$ = undefined;
+    this._supervisorsCache.clear();
+    this._sellersCache.clear();
   }
 
   /**

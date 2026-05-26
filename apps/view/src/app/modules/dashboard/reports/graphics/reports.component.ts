@@ -27,9 +27,6 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { SkeletonModule } from 'primeng/skeleton';
 import { PaginatorModule } from 'primeng/paginator';
 import { MessageService } from 'primeng/api';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-
 import { ReportsService, ReportsData } from '../reports.service'; // tu servicio existente
 import { AuthService } from '../../../../core/services/auth.service';
 import { FiltersStateService } from './filters-state.service';
@@ -1597,9 +1594,31 @@ export class ReportsComponent implements OnInit {
     a.click();
   }
 
-  exportSelectedPdf() {
+  // jspdf y jspdf-autotable se cargan bajo demanda al primer export
+  // para no engrosar el chunk de Reports. Se cachean en _pdfLibs tras
+  // la primera carga (siguientes exports son instantaneos).
+  private _pdfLibs?: {
+    jsPDF: typeof import('jspdf').default;
+    autoTable: typeof import('jspdf-autotable').default;
+  };
+  private async loadPdfLibs() {
+    if (!this._pdfLibs) {
+      const [jspdfMod, autotableMod] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ]);
+      this._pdfLibs = {
+        jsPDF: jspdfMod.default,
+        autoTable: autotableMod.default,
+      };
+    }
+    return this._pdfLibs;
+  }
+
+  async exportSelectedPdf() {
     const selected = this.groupedRows().filter((d) => this.selectedDayIds().has(d.id));
     if (!selected.length) return;
+    const { jsPDF, autoTable } = await this.loadPdfLibs();
     const doc = new jsPDF();
     const f = this.filtersState.filters();
     doc.setFontSize(14);
@@ -1620,9 +1639,10 @@ export class ReportsComponent implements OnInit {
     doc.save('jornadas_seleccion.pdf');
   }
 
-  exportBuiltPdf() {
+  async exportBuiltPdf() {
     const data = this.reportsData();
     if (!data) return;
+    const { jsPDF, autoTable } = await this.loadPdfLibs();
     const doc = new jsPDF();
     const f = this.filtersState.filters();
     let y = 14;
@@ -1724,7 +1744,9 @@ export class ReportsComponent implements OnInit {
     this.showPdfBuilder = false;
   }
 
-  exportSingleVisitPdf(row: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async exportSingleVisitPdf(row: any) {
+    const { jsPDF, autoTable } = await this.loadPdfLibs();
     const doc = new jsPDF();
     doc.setFontSize(14);
     doc.text(`Visita #${row.folio}`, 14, 20);
@@ -1768,9 +1790,10 @@ export class ReportsComponent implements OnInit {
     doc.save(`visita_${row.folio}.pdf`);
   }
 
-  exportSelectedVisitsPdf() {
+  async exportSelectedVisitsPdf() {
     const selected = this.selectedVisits();
     if (!selected.length) return;
+    const { jsPDF, autoTable } = await this.loadPdfLibs();
     const doc = new jsPDF();
     selected.forEach((row: any, i: number) => {
       if (i > 0) doc.addPage();

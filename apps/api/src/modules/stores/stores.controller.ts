@@ -53,6 +53,26 @@ export class StoresController {
     );
   }
 
+  @Get('version')
+  @RequirePermissions(Permission.TIENDAS_VER)
+  @ApiOperation({
+    summary:
+      'Version stamp del catalogo de tiendas. El frontend lo usa para decidir si redescargar el cache offline (IndexedDB).',
+  })
+  catalogVersion(@ReqUser() user: AuthUser) {
+    return this.storesService.getCatalogVersion(user);
+  }
+
+  @Get('all-for-sync')
+  @RequirePermissions(Permission.TIENDAS_VER)
+  @ApiOperation({
+    summary:
+      'Catalogo completo de tiendas activas (con coords) para detection por GPS offline via Haversine en cliente.',
+  })
+  allForSync(@ReqUser() user: AuthUser) {
+    return this.storesService.findAllForOfflineSync(user);
+  }
+
   @Get()
   @RequirePermissions(Permission.TIENDAS_VER)
   @ApiOperation({

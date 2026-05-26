@@ -6,7 +6,18 @@ import { OfflineDatabaseService, VisitaPendiente, TiendaOffline } from './offlin
 import { GeoValidationService, Coordenada } from './geo-validation.service';
 import { buildVisitFormData } from '../http/visit-form-data';
 import { todayMx } from '../utils/mx-date';
+import { haversineMeters } from '../utils/geo';
 import { environment } from '../../../environments/environment';
+
+// UUID v4 lax (acepta cualquier hex; el FK del backend valida estructura real).
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Radio para reparacion retroactiva de tiendaId legacy ('default' o vacio).
+// Coincide con el radio normal de deteccion online — solo aceptamos auto-fix
+// si hay EXACTAMENTE una tienda dentro del radio, para no asignar a la
+// equivocada cuando hay varias cercanas.
+const RETROFIT_RADIUS_M = 50;
 
 export interface SyncStatus {
   online: boolean;
@@ -242,6 +253,64 @@ export class OfflineSyncService {
   }
 
   /**
+   * Resuelve el store_id que se mandara al backend al sincronizar una visita.
+   *
+   * - Si `visita.tiendaId` es un UUID valido → se respeta tal cual.
+   * - Si es 'default' o vacio (legacy) → se intenta mapear via Haversine
+   *   contra el catalogo de tiendas cacheado. Solo aceptamos auto-fix si
+   *   hay UNA sola tienda dentro de `RETROFIT_RADIUS_M`; si hay multiples
+   *   se marca como error de sync y queda pendiente para revision manual.
+   * - Si no hay match alguno → error explicito y no se intenta sincronizar.
+   *
+   * El tiendaId reparado se persiste en IndexedDB para que el flujo no
+   * vuelva a recalcular en cada intento de sync.
+   */
+  private async resolveStoreIdForSync(visita: VisitaPendiente): Promise<string> {
+    if (UUID_REGEX.test(visita.tiendaId)) {
+      return visita.tiendaId;
+    }
+
+    // Sin coords no se puede recalcular — fallaria igual el FK del backend.
+    if (!visita.latitud || !visita.longitud) {
+      throw new Error(
+        `Visita ${visita.id} sin coordenadas y tiendaId invalido. Requiere asignacion manual.`,
+      );
+    }
+
+    const cached = await this.db.getTiendas();
+    const matches = cached
+      .filter((s) => s.lat && s.lng)
+      .map((s) => ({
+        id: s.id,
+        distance: haversineMeters(
+          visita.latitud,
+          visita.longitud,
+          s.lat,
+          s.lng,
+        ),
+      }))
+      .filter((s) => s.distance <= RETROFIT_RADIUS_M)
+      .sort((a, b) => a.distance - b.distance);
+
+    if (matches.length === 0) {
+      throw new Error(
+        `Visita ${visita.id}: ninguna tienda dentro de ${RETROFIT_RADIUS_M}m de las coords. Requiere asignacion manual.`,
+      );
+    }
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Visita ${visita.id}: ${matches.length} tiendas posibles dentro de ${RETROFIT_RADIUS_M}m. Requiere asignacion manual para evitar ambiguedad.`,
+      );
+    }
+
+    const resolved = matches[0].id;
+    // Persistir el fix para no re-calcular en cada intento futuro.
+    await this.db.actualizarTiendaIdVisita(visita.id, resolved);
+    return resolved;
+  }
+
+  /**
    * Sincroniza una visita individual
    */
   private async sincronizarVisitaIndividual(visita: VisitaPendiente): Promise<void> {
@@ -249,6 +318,12 @@ export class OfflineSyncService {
     if (visita.intentos_fallidos >= this.MAX_RETRY_ATTEMPTS) {
       throw new Error(`Máximo de intentos de sincronización alcanzado (${this.MAX_RETRY_ATTEMPTS})`);
     }
+
+    // Reparar tiendaId si vino con el placeholder legacy 'default' o vacio.
+    // Pre-fix del 26-may-2026: las visitas offline se guardaban con
+    // tiendaId='default' que rechaza el FK del backend. Aqui intentamos
+    // identificar la tienda real via Haversine antes de mandar al servidor.
+    const storeId = await this.resolveStoreIdForSync(visita);
 
     try {
       // Preparar payload para el backend (mismo formato que daily-captures)
@@ -261,7 +336,8 @@ export class OfflineSyncService {
         stats: visita.stats,
         latitud: visita.latitud,
         longitud: visita.longitud,
-        precision: visita.precision
+        precision: visita.precision,
+        store_id: storeId,
       };
 
       // Multipart en lugar de JSON+base64: el endpoint acepta ambos pero
