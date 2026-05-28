@@ -585,14 +585,15 @@
                   </div>
                 }
 
-              </div>
             } @else {
-              <div class="pt-16 pb-8 text-center bg-surface-ground rounded-2xl border border-divider mt-4">
-                <i class="pi pi-box mb-4 text-4xl text-content-faint" aria-hidden="true"></i>
-                <h3 class="text-lg font-bold text-content-main">No hay datos de productos</h3>
+              <div class="pt-12 pb-6 text-center bg-surface-ground rounded-2xl border border-divider">
+                <i class="pi pi-box mb-3 text-4xl text-content-faint" aria-hidden="true"></i>
+                <h3 class="text-base font-bold text-content-main">No hay datos de productos</h3>
                 <p class="text-content-muted text-sm max-w-md mx-auto mt-2">No se encontraron productos registrados en las visitas para el rango de fechas y zona seleccionados.</p>
               </div>
             }
+
+            </div>
           } @else {
             <ng-container *ngTemplateOutlet="tabSkeleton"></ng-container>
           }
