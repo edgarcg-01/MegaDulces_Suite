@@ -22,6 +22,7 @@ import {
   MatchResponse,
 } from './ai-product-matcher.service';
 import { BrandGroup } from './daily-capture.models';
+import { HapticService } from '../../../core/services/haptic.service';
 
 type UiState = 'idle' | 'loading' | 'preview' | 'error';
 
@@ -49,10 +50,20 @@ interface UiItem extends MatchedItem {
   ],
   providers: [MessageService],
   templateUrl: './ai-product-picker.component.html',
+  styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      height: 100%;
+    }
+  `],
 })
 export class AiProductPickerComponent {
   private readonly svc = inject(AiProductMatcherService);
   private readonly toast = inject(MessageService);
+  private readonly haptic = inject(HapticService);
 
   /** Catálogo agrupado por marca, para mostrar nombre + lookup en alternativas. */
   @Input() catalog: BrandGroup[] = [];
@@ -109,6 +120,7 @@ export class AiProductPickerComponent {
       this.items.set(ui);
       this.meta.set(res.meta);
       this.state.set('preview');
+      this.haptic.impact('light');
     } catch (err: any) {
       const status = err?.status;
       let msg = err?.error?.message || err?.message || 'Error desconocido';
@@ -117,10 +129,12 @@ export class AiProductPickerComponent {
       else if (status === 400) msg = `Texto inválido: ${msg}`;
       this.errorMsg.set(msg);
       this.state.set('error');
+      this.haptic.notification('error');
     }
   }
 
   onSelectAlternative(itemIndex: number, productId: string): void {
+    this.haptic.selection();
     this.items.update((list) =>
       list.map((it, i) =>
         i === itemIndex ? { ...it, selectedProductId: productId, confirmed: true } : it,
@@ -129,6 +143,7 @@ export class AiProductPickerComponent {
   }
 
   onToggleConfirm(itemIndex: number): void {
+    this.haptic.selection();
     this.items.update((list) =>
       list.map((it, i) => {
         if (i !== itemIndex) return it;
@@ -159,6 +174,7 @@ export class AiProductPickerComponent {
       .filter((pid) => !this.currentSelected.includes(pid)); // dedupe contra ya seleccionados
 
     if (pids.length === 0) {
+      this.haptic.notification('warning');
       this.toast.add({
         severity: 'warn',
         summary: 'Nada para agregar',
@@ -167,6 +183,7 @@ export class AiProductPickerComponent {
       });
       return;
     }
+    this.haptic.impact('medium');
     this.applied.emit(pids);
   }
 

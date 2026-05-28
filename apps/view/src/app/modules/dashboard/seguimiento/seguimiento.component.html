@@ -98,10 +98,15 @@
           <p-inputicon class="pi pi-search" />
           <input
             pInputText
-            type="text"
+            type="search"
             [ngModel]="searchText()"
             (ngModelChange)="searchText.set($event)"
             placeholder="Buscar visita..."
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             class="p-inputtext-sm"
           />
         </p-iconfield>

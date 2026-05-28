@@ -1,7 +1,11 @@
-<div class="min-h-screen bg-surface-layout">
+<div class="min-h-[100dvh] bg-surface-layout">
 
-  <!-- Top Bar -->
-  <header class="bg-surface-card border-b border-divider px-6 py-4">
+  <!--
+    Top Bar. `safe-top` + `safe-x` para que el header pinte detrás del notch
+    pero el contenido (saludo + botón logout) quede debajo de él. En landscape
+    de iPhones notched, `safe-x` agrega el padding lateral del notch.
+  -->
+  <header class="bg-surface-card border-b border-divider px-6 py-4 safe-top safe-x">
     <div class="max-w-6xl mx-auto flex items-center justify-between">
       <div>
         <h1 class="text-headline text-content-main">Plataforma Operativa</h1>
@@ -24,8 +28,12 @@
     </div>
   </header>
 
-  <!-- Main Content -->
-  <main class="max-w-6xl mx-auto px-6 py-12">
+  <!--
+    Main content. `safe-x` evita que las cards queden tapadas por el notch
+    en landscape; `safe-bottom` mantiene la última card visible sobre el
+    home indicator si el grid llega al borde inferior.
+  -->
+  <main class="max-w-6xl mx-auto px-6 py-12 safe-x safe-bottom">
 
     <!-- Greeting -->
     <div class="mb-10">

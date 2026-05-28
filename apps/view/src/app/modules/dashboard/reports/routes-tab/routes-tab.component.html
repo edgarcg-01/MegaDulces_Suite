@@ -6,7 +6,7 @@
         <div class="sidebar-title">Rutas del período</div>
         <div class="s-wrap">
           <i class="pi pi-search s-icon"></i>
-          <input class="s-input" pInputText type="text" placeholder="Buscar ruta..." [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" />
+          <input class="s-input" pInputText type="search" placeholder="Buscar ruta..." [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
         </div>
         <div class="sort-row">
           <button pButton [text]="true" [size]="'small'" [class.active]="sortKey() === 'score'" (click)="setSort('score')" label="Score"></button>

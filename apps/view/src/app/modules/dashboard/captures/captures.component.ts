@@ -24,6 +24,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ThemeService } from '../../../core/services/theme.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { HapticService } from '../../../core/services/haptic.service';
 
 // Spartan
 import { HlmBadgeDirective } from '@spartan-ng/helm/badge';
@@ -84,6 +85,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly themeService = inject(ThemeService);
   readonly authService = inject(AuthService);
   readonly toast = inject(MessageService);
+  private readonly haptic = inject(HapticService);
   readonly confirmSvc = inject(ConfirmationService);
   private http = inject(HttpClient);
   private apiUrl = environment.apiUrl;
@@ -606,6 +608,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.showImpactDialog = false;
         
         if (isOffline) {
+          this.haptic.notification('warning');
           this.toast.add({
             severity: 'warn',
             summary: 'Visita Guardada Offline',
@@ -613,6 +616,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
             life: 5000
           });
         } else {
+          this.haptic.notification('success');
           this.toast.add({
             severity: 'success',
             summary: 'Visita Finalizada',
@@ -622,6 +626,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.isSaving.set(false);
+        this.haptic.notification('error');
         console.error('[saveCapturaTotal] error completo:', err);
         // El backend NestJS típicamente responde { statusCode, message, error }.
         // En multipart, err.error puede llegar como string (no JSON parsed)

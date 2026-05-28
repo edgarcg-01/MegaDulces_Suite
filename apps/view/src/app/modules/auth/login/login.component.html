@@ -73,6 +73,12 @@
               type="text"
               formControlName="username"
               placeholder="Nombre de usuario"
+              autocomplete="username"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              enterkeyhint="next"
               class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
               [ngClass]="{'border-bad-fg focus:border-bad-fg': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
             <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
@@ -91,6 +97,8 @@
               type="password"
               formControlName="password"
               placeholder="Mínimo 6 caracteres"
+              autocomplete="current-password"
+              enterkeyhint="go"
               class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
               [ngClass]="{'border-bad-fg focus:border-bad-fg': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
             <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"

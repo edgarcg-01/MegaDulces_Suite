@@ -81,7 +81,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <!-- Tabla -->
     <p-card>
       <div class="filter-row">
-        <input pInputText [(ngModel)]="search" placeholder="Buscar por folio o destino" />
+        <input pInputText type="search" [(ngModel)]="search" placeholder="Buscar por folio o destino"
+               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
         <span class="muted small">{{ filtered().length }} / {{ expenses().length }}</span>
       </div>
 

@@ -1008,13 +1008,15 @@
           <input id="capture-search"
                  type="search"
                  inputmode="search"
+                 enterkeyhint="search"
                  [ngModel]="searchQuery()"
                  (ngModelChange)="onSearchChange($event)"
                  placeholder="Buscar marca o producto..."
                  class="w-full min-h-[48px] pl-11 pr-11 py-3 bg-surface-card border border-divider rounded-xl text-base focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
                  autocomplete="off"
                  autocorrect="off"
-                 autocapitalize="off">
+                 autocapitalize="off"
+                 spellcheck="false">
           <button *ngIf="searchQuery()"
                   type="button"
                   (click)="clearSearch()"

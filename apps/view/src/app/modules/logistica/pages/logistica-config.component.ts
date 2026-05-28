@@ -64,7 +64,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
         <!-- ──── Tab 1: Comisiones por ruta ──── -->
         <p-tabpanel value="routes">
           <div class="tab-toolbar">
-            <input pInputText [(ngModel)]="routeSearch" (input)="onRouteSearch()" placeholder="Buscar destino..." />
+            <input pInputText type="search" [(ngModel)]="routeSearch" (input)="onRouteSearch()" placeholder="Buscar destino..."
+                   inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
             <button pButton icon="pi pi-plus" label="Nueva ruta" (click)="openRouteDialog()"></button>
           </div>
           <p-card>

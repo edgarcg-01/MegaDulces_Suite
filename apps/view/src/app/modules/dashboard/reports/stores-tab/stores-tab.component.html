@@ -34,7 +34,8 @@
     <div class="p-3 border-b border-divider">
       <div class="flex items-center gap-2">
         <i class="pi pi-search text-content-faint text-xs"></i>
-        <input pInputText type="text" [(ngModel)]="searchQuery" placeholder="Buscar tienda o zona..."
+        <input pInputText type="search" [(ngModel)]="searchQuery" placeholder="Buscar tienda o zona..."
+               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false"
                class="w-full text-sm bg-transparent border-0 outline-none p-0" />
       </div>
     </div>

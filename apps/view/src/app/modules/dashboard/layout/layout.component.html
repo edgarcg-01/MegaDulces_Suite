@@ -181,7 +181,7 @@
         describe la ACCIÓN (cambio al opuesto), patrón estándar de toggles.
       -->
       <button
-        (click)="themeService.toggleMonochrome()"
+        (click)="toggleTheme()"
         class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors text-content-muted hover:bg-surface-hover hover:text-content-main"
         [attr.aria-label]="themeService.isMonochrome() ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'"
       >
@@ -238,9 +238,13 @@
     <header
       class="min-h-14 bg-surface-sidebar border-b border-divider flex items-center justify-between px-4 lg:px-6 shrink-0 transition-colors duration-300 safe-top"
     >
-      <!-- Left: Mobile Menu (solo si no es restringido) -->
+      <!--
+        Left slot del topbar. Hamburger SOLO cuando NO hay bottom nav (es decir
+        en restringido — único caso mobile sin bottom nav). Con bottom nav
+        activo, el slot "Más" reemplaza al hamburger.
+      -->
       <div class="flex items-center gap-3">
-        @if (!isRestricted()) {
+        @if (!isRestricted() && !useBottomNav()) {
           <button
             (click)="openSidebar()"
             class="lg:hidden p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted"
@@ -363,5 +367,46 @@
         <router-outlet></router-outlet>
       </div>
     </main>
+
+    <!--
+      Bottom Navigation (mobile only). Patrón FB/Insta/Twitter/Slack: primary
+      actions visibles bottom-thumb-reachable; el resto se accede via "Más"
+      que abre el drawer existente. `safe-bottom` evita home indicator. La
+      altura del nav reduce el espacio del <main> de arriba via flex chain
+      sin necesidad de padding-bottom manual.
+    -->
+    @if (useBottomNav()) {
+      <nav
+        class="lg:hidden bg-surface-sidebar border-t border-divider flex justify-around shrink-0 safe-bottom"
+        aria-label="Navegación principal"
+      >
+        @for (item of bottomNavItems(); track item.route) {
+          <a
+            [routerLink]="item.route"
+            routerLinkActive="text-content-main"
+            #rla="routerLinkActive"
+            [routerLinkActiveOptions]="{ exact: item.exact === true }"
+            (click)="onNavClick()"
+            class="flex-1 flex flex-col items-center justify-center gap-1 py-2 px-1 text-content-muted hover:text-content-main motion-safe:transition-colors no-underline min-h-[56px]"
+            [attr.aria-current]="rla.isActive ? 'page' : null"
+            [attr.aria-label]="item.label"
+          >
+            <i [ngClass]="item.icon" class="text-lg" aria-hidden="true"></i>
+            <span class="text-[10px] font-medium leading-none truncate max-w-full">{{ item.label }}</span>
+          </a>
+        }
+        @if (hasOverflowItems()) {
+          <button
+            type="button"
+            (click)="openSidebar()"
+            class="flex-1 flex flex-col items-center justify-center gap-1 py-2 px-1 text-content-muted hover:text-content-main motion-safe:transition-colors min-h-[56px]"
+            aria-label="Más opciones"
+          >
+            <i class="pi pi-ellipsis-h text-lg" aria-hidden="true"></i>
+            <span class="text-[10px] font-medium leading-none">Más</span>
+          </button>
+        }
+      </nav>
+    }
   </div>
 </div>

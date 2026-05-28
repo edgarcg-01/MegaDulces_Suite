@@ -10,10 +10,15 @@
         <p-inputicon class="pi pi-search"></p-inputicon>
         <input
           pInputText
-          type="text"
+          type="search"
           [ngModel]="searchText()"
           (ngModelChange)="onSearchChange($event)"
           placeholder="Buscar marca o producto..."
+          inputmode="search"
+          enterkeyhint="search"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
           class="w-full sm:w-64" />
       </p-iconfield>
       <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer whitespace-nowrap">

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
 import { ThemeService } from '../../../core/services/theme.service';
+import { HapticService } from '../../../core/services/haptic.service';
 import { Router } from '@angular/router';
 
 @Component({
@@ -17,6 +18,7 @@ export class LoginComponent implements OnInit {
   private authService = inject(AuthService);
   private router = inject(Router);
   public themeService = inject(ThemeService);
+  private haptic = inject(HapticService);
 
   loginForm = this.fb.group({
     username: ['', [Validators.required]],
@@ -31,6 +33,7 @@ export class LoginComponent implements OnInit {
   }
 
   toggleTheme() {
+    this.haptic.selection();
     this.themeService.toggleMonochrome();
   }
 
@@ -56,11 +59,13 @@ export class LoginComponent implements OnInit {
       .subscribe({
         next: () => {
           this.isLoading = false;
+          this.haptic.notification('success');
           // /projects decide entre selector, auto-redirect (si N=1) o fallback.
           this.router.navigate(['/projects']);
         },
         error: (err) => {
           this.isLoading = false;
+          this.haptic.notification('error');
           if (err.status === 401) {
             this.errorMessage =
               'Credenciales incorrectas. Verifica tu usuario y contraseña.';

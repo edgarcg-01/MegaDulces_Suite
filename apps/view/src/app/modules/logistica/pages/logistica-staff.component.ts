@@ -72,7 +72,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <!-- Filters -->
     <p-card>
       <div class="filter-row">
-        <input pInputText [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por nombre" />
+        <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por nombre"
+               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
         <p-select [(ngModel)]="roleFilter" [options]="roleOptions" optionLabel="label" optionValue="value"
                   (onChange)="reload()" placeholder="Rol" [showClear]="true" styleClass="filter-select"></p-select>
       </div>

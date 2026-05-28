@@ -18,6 +18,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PortalService, Order } from '../portal.service';
+import { HapticService } from '../../../core/services/haptic.service';
 
 @Component({
   selector: 'app-portal-cart',
@@ -204,6 +205,7 @@ import { PortalService, Order } from '../portal.service';
 export class PortalCartComponent implements OnInit {
   private readonly api = inject(PortalService);
   private readonly toast = inject(MessageService);
+  private readonly haptic = inject(HapticService);
   private readonly confirmSvc = inject(ConfirmationService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -279,6 +281,7 @@ export class PortalCartComponent implements OnInit {
         this.api.confirm(c.id).subscribe({
           next: (confirmed) => {
             this.confirming.set(false);
+            this.haptic.notification('success');
             this.toast.add({
               severity: 'success',
               summary: 'Pedido confirmado',
@@ -288,6 +291,7 @@ export class PortalCartComponent implements OnInit {
           },
           error: (err) => {
             this.confirming.set(false);
+            this.haptic.notification('error');
             this.toast.add({
               severity: 'error',
               summary: 'No se pudo confirmar',

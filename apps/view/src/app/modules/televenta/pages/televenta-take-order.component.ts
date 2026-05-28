@@ -69,6 +69,11 @@ interface CartRow {
           placeholder="Buscar producto..."
           class="search"
           aria-label="Buscar producto"
+          inputmode="search"
+          enterkeyhint="search"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
         />
 
         <div *ngIf="filteredRows().length === 0" class="empty-mini">Sin productos.</div>

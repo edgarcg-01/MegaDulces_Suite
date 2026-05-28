@@ -56,9 +56,10 @@ import { debounceTime, Subject } from 'rxjs';
       <div class="filters">
         <p-iconField iconPosition="left">
           <p-inputIcon styleClass="pi pi-search" />
-          <input pInputText placeholder="Buscar por nombre, código, RFC, email…"
+          <input pInputText type="search" placeholder="Buscar por nombre, código, RFC, email…"
                  [value]="searchTerm()"
-                 (input)="onSearchChange($any($event.target).value)" />
+                 (input)="onSearchChange($any($event.target).value)"
+                 inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
         </p-iconField>
         <div class="active-toggle">
           <label>Solo activos</label>

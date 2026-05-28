@@ -1,7 +1,20 @@
 import { Injectable, signal } from '@angular/core';
 
 const THEME_STORAGE_KEY = 'tradeMarketingThemeMode';
+const THEME_USER_CHOICE_KEY = 'tradeMarketingThemeUserChoice';
 
+/**
+ * ThemeService — controla light vs dark (interno: `theme-monochrome`).
+ *
+ * Resolución de tema al boot:
+ *   1. Si el usuario eligió manualmente alguna vez (`THEME_USER_CHOICE_KEY=true`),
+ *      respetamos su última elección persistida (`THEME_STORAGE_KEY`).
+ *   2. Sino, seguimos `prefers-color-scheme: dark` del sistema.
+ *
+ * Al cambiar el sistema (`matchMedia('change')`), el theme se actualiza solo
+ * SI el usuario no ha tocado el toggle. Una vez que toggleó manual, ignoramos
+ * el sistema — patrón estándar (Twitter, Google, Apple).
+ */
 @Injectable({
   providedIn: 'root'
 })
@@ -9,21 +22,58 @@ export class ThemeService {
   private _isMonochrome = signal<boolean>(false);
   readonly isMonochrome = this._isMonochrome.asReadonly();
 
+  private userOverride = false;
+
   constructor() {
-    const savedTheme = this.getSavedTheme();
-    if (savedTheme !== null) {
-      this._isMonochrome.set(savedTheme);
-      this.updateBodyClass(savedTheme);
-    }
+    this.userOverride = this.getUserChoice();
+    const initial = this.userOverride
+      ? this.getSavedTheme() ?? this.systemPrefersDark()
+      : this.systemPrefersDark();
+    this._isMonochrome.set(initial);
+    this.updateBodyClass(initial);
+
+    this.watchSystemPreference();
   }
 
   toggleMonochrome() {
     this._isMonochrome.update(v => {
       const next = !v;
+      this.userOverride = true;
+      this.saveUserChoice();
       this.saveTheme(next);
       this.updateBodyClass(next);
       return next;
     });
+  }
+
+  /** Resetea la elección manual: vuelve a seguir el sistema. */
+  resetToSystem() {
+    this.userOverride = false;
+    try { localStorage.removeItem(THEME_USER_CHOICE_KEY); } catch {}
+    try { localStorage.removeItem(THEME_STORAGE_KEY); } catch {}
+    const sys = this.systemPrefersDark();
+    this._isMonochrome.set(sys);
+    this.updateBodyClass(sys);
+  }
+
+  private systemPrefersDark(): boolean {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  private watchSystemPreference() {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => {
+      if (this.userOverride) return;
+      this._isMonochrome.set(e.matches);
+      this.updateBodyClass(e.matches);
+    };
+    if (mq.addEventListener) {
+      mq.addEventListener('change', handler);
+    } else if ((mq as any).addListener) {
+      (mq as any).addListener(handler);
+    }
   }
 
   private saveTheme(isMonochrome: boolean) {
@@ -41,6 +91,14 @@ export class ThemeService {
     } catch {
       return null;
     }
+  }
+
+  private saveUserChoice() {
+    try { localStorage.setItem(THEME_USER_CHOICE_KEY, 'true'); } catch {}
+  }
+
+  private getUserChoice(): boolean {
+    try { return localStorage.getItem(THEME_USER_CHOICE_KEY) === 'true'; } catch { return false; }
   }
 
   private updateBodyClass(isMonochrome: boolean) {

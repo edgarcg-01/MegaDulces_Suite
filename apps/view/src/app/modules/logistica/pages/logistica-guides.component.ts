@@ -78,7 +78,8 @@ interface GuideRow extends DeliveryGuide {
     <!-- Filtros + tabla -->
     <p-card>
       <div class="filter-row">
-        <input pInputText [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por número de guía" />
+        <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por número de guía"
+               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
         <p-select [(ngModel)]="statusFilter" [options]="statusOptions" optionLabel="label" optionValue="value"
                   (onChange)="applyFilters()" placeholder="Estado" [showClear]="true" styleClass="filter-select"></p-select>
         <p-select [(ngModel)]="driverFilter" [options]="driverOptions()" optionLabel="full_name" optionValue="id"

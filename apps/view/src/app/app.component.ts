@@ -5,6 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { PwaInstallService } from './core/services/pwa-install.service';
+import { StatusBarService } from './core/services/status-bar.service';
 
 @Component({
   selector: 'app-root',
@@ -19,6 +20,9 @@ export class AppComponent implements OnInit {
   private swUpdate = inject(SwUpdate);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
+  // Side-effect: StatusBarService se suscribe al ThemeService al instanciarse.
+  // Inyectarlo acá garantiza que el effect arranque al boot de la app.
+  private statusBar = inject(StatusBarService);
 
   private updatePending = false;
   private static readonly UPDATE_POLL_MS = 30 * 60 * 1000;

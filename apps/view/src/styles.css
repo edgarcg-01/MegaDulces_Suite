@@ -53,6 +53,58 @@
 }
 
 /*
+ * Mobile baseline — patrones universales de apps top (FB / Instagram / Twitter /
+ * WhatsApp). Aplica a TODA app por default; los componentes individuales no
+ * tienen que recordar estos detalles.
+ *
+ *   - `tap-highlight: transparent`: elimina el flash gris/azul al tocar.
+ *   - `touch-action: manipulation`: mata el delay de 300ms del doble-tap
+ *     historic de iOS Safari.
+ *   - `user-select: none` en botones: evita selección accidental al hacer long-press.
+ *   - Tap targets: cualquier elemento interactivo apunta a 44×44 min via min-h/min-w
+ *     en las utilities de Tailwind (no global porque puede romper inputs/links inline).
+ */
+a, button, input[type="button"], input[type="submit"], [role="button"], [role="tab"], [role="menuitem"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button, [role="button"], [role="tab"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/*
+ * iOS auto-zoom kill: inputs <16px detonan auto-zoom de Safari mobile que
+ * desencaja layout y molesta. Forzamos 16px en mobile para los inputs.
+ */
+@media (max-width: 768px) {
+  input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/*
+ * Motion curves estandarizadas. Reemplaza los cubic-bezier hardcoded
+ * repartidos por la app. Convención Material 3 + adaptado.
+ *
+ *   --ease-standard:    movimiento general (sidebar slide, hover lift)
+ *   --ease-decelerate:  entrada en pantalla (fade in, scale up de modal)
+ *   --ease-accelerate:  salida de pantalla (close modal, dismiss toast)
+ *   --ease-spring:      energía iOS-style (liquid tabs, swipe-back)
+ *   --ease-emphasized:  Material 3 emphasized — destaca acción importante
+ */
+:root {
+  --ease-standard:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate:  cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring:      cubic-bezier(0.34, 1.4, 0.5, 1);
+  --ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
  * ROOT LAYOUT — sólo geometría base. Los tokens viven en tokens.css.
  */
 html, body {
@@ -205,14 +257,22 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
+  /*
+   * 44×44 cumple Apple HIG (44pt) y se aproxima a Material 48dp.
+   * Antes era 32×32 → falla touch targets en mobile. Si el caller necesita
+   * un visual más chico, puede sobrescribir con w-X h-X pero el tap area
+   * sigue siendo el del padding interno.
+   */
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.625rem;
   background-color: transparent;
   color: var(--text-faint);
   border: none;
   cursor: pointer;
   transition: color 150ms ease, background-color 150ms ease, transform 100ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .icon-btn-ghost:hover {

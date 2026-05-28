@@ -1,6 +1,13 @@
 <p-toast position="top-center"></p-toast>
 
-<div class="flex flex-col h-full">
+<!--
+  Root flex column. `flex-1 min-h-0` es CRÍTICO: sin min-h-0 los flex-items
+  hijos (en particular la lista de productos en preview con `flex-1 overflow-y-auto`)
+  no pueden achicarse por debajo de su contenido — el container crece más allá
+  del 80dvh del dialog y nada scrollea. Esta es la regla universal de scroll
+  dentro de flex columns.
+-->
+<div class="flex flex-col flex-1 min-h-0">
   <!-- Header -->
   <header class="space-y-1 mb-5">
     <h2 class="text-base font-semibold text-content-main flex items-center gap-2">
@@ -22,6 +29,11 @@
                 placeholder="mazapán rosa, pulparindo 20pz, paleta payaso, vero mango chamoy..."
                 rows="6"
                 maxlength="5000"
+                inputmode="text"
+                autocapitalize="sentences"
+                autocorrect="on"
+                spellcheck="true"
+                enterkeyhint="enter"
                 class="w-full p-3 bg-surface-card border border-divider rounded-xl text-sm leading-relaxed focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors resize-none"></textarea>
       <p class="text-[11px] text-content-muted text-right tabular-nums">{{ rawText().length }} / 5000</p>
     </div>
@@ -74,8 +86,8 @@
       {{ meta()?.items_count }} items detectados en {{ meta()?.elapsed_ms }} ms
     </p>
 
-    <!-- Items list -->
-    <div class="flex-1 overflow-y-auto space-y-2 -mx-1 px-1 pb-3" role="list">
+    <!-- Items list — `min-h-0` permite que flex-1 active overflow scroll real -->
+    <div class="flex-1 min-h-0 overflow-y-auto space-y-2 -mx-1 px-1 pb-3" role="list">
       <div *ngFor="let it of items(); let i = index; trackBy: trackByRawIndex"
            role="listitem"
            class="p-3 bg-surface-card rounded-xl border motion-safe:transition-colors"
@@ -145,8 +157,8 @@
       </div>
     </div>
 
-    <!-- Action bar -->
-    <div class="flex gap-2 justify-end pt-4 border-t border-divider mt-auto">
+    <!-- Action bar — shrink-0 garantiza altura propia, no se achica con scroll -->
+    <div class="flex gap-2 justify-end pt-4 border-t border-divider shrink-0">
       <p-button label="Otra lista" severity="secondary" [text]="true" icon="pi pi-refresh" (onClick)="onReset()"></p-button>
       <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onCancel()"></p-button>
       <p-button [label]="'Agregar ' + summary().confirmed"

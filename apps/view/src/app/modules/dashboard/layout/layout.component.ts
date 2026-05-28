@@ -21,6 +21,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { DataUpdateService } from '../../../core/services/data-update.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { HapticService } from '../../../core/services/haptic.service';
 import { Permission } from '../../../core/constants/permissions';
 
 interface NavItem {
@@ -53,6 +54,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private document = inject(DOCUMENT);
   private dataUpdateService = inject(DataUpdateService);
   private wsService = inject(WebSocketService);
+  private haptic = inject(HapticService);
 
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
@@ -352,7 +354,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       {
         label: isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro',
         icon: isDark ? 'pi pi-sun' : 'pi pi-moon',
-        command: () => this.themeService.toggleMonochrome(),
+        command: () => this.toggleTheme(),
       },
       {
         label: 'Proyectos',
@@ -379,6 +381,23 @@ export class LayoutComponent implements OnInit, OnDestroy {
     return this.navItems().length + this.adminItems().length <= 1;
   });
 
+  /**
+   * Bottom nav activo cuando: mobile + no restringido. Trae los primeros 4
+   * items del proyecto activo. Si hay más, el slot #5 es "Más" → abre drawer.
+   * Patrón FB / Instagram / Twitter / Slack mobile.
+   */
+  useBottomNav = computed(() => this.isMobile() && !this.isRestricted());
+
+  bottomNavItems = computed(() => {
+    if (!this.useBottomNav()) return [];
+    return this.navItems().slice(0, 4);
+  });
+
+  hasOverflowItems = computed(() => {
+    if (!this.useBottomNav()) return false;
+    return this.navItems().length > 4 || this.adminItems().length > 0;
+  });
+
   // ── Page title (reactivo a NavigationEnd) ──────────────────────────
   currentPageTitle = computed(() => {
     const url = this.currentUrl();
@@ -398,11 +417,19 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   logout(): void {
+    this.haptic.impact('medium');
     this.authService.logout();
     this.router.navigate(['/login']);
   }
 
   goToProjects(): void {
+    this.haptic.impact('light');
     this.router.navigate(['/projects']);
+  }
+
+  /** Wrapper: theme toggle + haptic. Usar este en lugar de llamar al service directo. */
+  toggleTheme(): void {
+    this.haptic.selection();
+    this.themeService.toggleMonochrome();
   }
 }

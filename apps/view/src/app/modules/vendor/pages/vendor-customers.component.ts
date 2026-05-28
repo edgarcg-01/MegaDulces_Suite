@@ -40,6 +40,11 @@ import { VendorService, VendorCustomer } from '../vendor.service';
           placeholder="Buscar por nombre, código o RFC"
           [(ngModel)]="search"
           (ngModelChange)="onSearch($event)"
+          inputmode="search"
+          enterkeyhint="search"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
         />
       </span>
     </div>

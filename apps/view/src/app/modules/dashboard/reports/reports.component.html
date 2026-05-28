@@ -259,7 +259,7 @@
                 <p-iconfield>
                   <label for="searchInput" class="sr-only">Buscar visitas</label>
                   <p-inputicon class="pi pi-search"></p-inputicon>
-                  <input id="searchInput" pInputText type="text" [ngModel]="searchText()" (ngModelChange)="searchText.set($event)" placeholder="Buscar día o folio..." />
+                  <input id="searchInput" pInputText type="search" [ngModel]="searchText()" (ngModelChange)="searchText.set($event)" placeholder="Buscar día o folio..." inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
                 </p-iconfield>
               </div>
 
@@ -958,12 +958,17 @@
         <div class="flex gap-2 items-center">
           <span class="p-input-icon-left flex-1">
             <i class="pi pi-search"></i>
-            <input 
-              pInputText 
-              type="text" 
-              placeholder="Buscar por nombre de producto o marca..." 
+            <input
+              pInputText
+              type="search"
+              placeholder="Buscar por nombre de producto o marca..."
               [(ngModel)]="productSearchTerm"
               (input)="filterProducts()"
+              inputmode="search"
+              enterkeyhint="search"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
               class="w-full"
             />
           </span>

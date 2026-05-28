@@ -50,10 +50,15 @@
           <input
             id="search-input"
             pInputText
-            type="text"
+            type="search"
             [ngModel]="searchQuery()"
             (ngModelChange)="onSearchChange($event)"
             placeholder="Nombre, dirección, zona o ruta..."
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             class="w-full"
           />
         </span>

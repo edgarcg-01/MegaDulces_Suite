@@ -55,13 +55,15 @@
         <input
           type="search"
           inputmode="search"
+          enterkeyhint="search"
           autocomplete="off"
           autocorrect="off"
           autocapitalize="off"
+          spellcheck="false"
           placeholder="Buscar por nombre..."
           [ngModel]="searchQuery()"
           (ngModelChange)="onSearchChange($event)"
-          class="w-full min-h-[40px] pl-9 pr-9 py-2 bg-surface-card border border-divider rounded-lg text-sm text-content-main focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
+          class="w-full min-h-[44px] pl-9 pr-9 py-2 bg-surface-card border border-divider rounded-lg text-sm text-content-main focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
         />
         @if (searchQuery()) {
           <button type="button"

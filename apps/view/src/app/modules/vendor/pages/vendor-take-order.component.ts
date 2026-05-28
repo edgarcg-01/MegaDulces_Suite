@@ -24,6 +24,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, switchMap } from 'rxjs';
 import { VendorService, VendorCustomer } from '../vendor.service';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
+import { HapticService } from '../../../core/services/haptic.service';
 
 @Component({
   selector: 'app-vendor-take-order',
@@ -107,6 +108,11 @@ import { PriceRow, OrderLine } from '../../portal/portal.service';
           placeholder="Buscar producto"
           [(ngModel)]="searchTerm"
           class="search-input"
+          inputmode="search"
+          enterkeyhint="search"
+          autocapitalize="none"
+          autocorrect="off"
+          spellcheck="false"
         />
       </div>
 
@@ -348,6 +354,7 @@ export class VendorTakeOrderComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly confirmSvc = inject(ConfirmationService);
   private readonly toast = inject(MessageService);
+  private readonly haptic = inject(HapticService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly loading = signal(true);
@@ -502,6 +509,7 @@ export class VendorTakeOrderComponent implements OnInit {
       .subscribe({
         next: () => {
           this.adding[p.product_id] = false;
+          this.haptic.selection();
           this.toast.add({
             severity: 'success',
             summary: 'Agregado',
@@ -512,6 +520,7 @@ export class VendorTakeOrderComponent implements OnInit {
         },
         error: (err) => {
           this.adding[p.product_id] = false;
+          this.haptic.notification('error');
           this.toast.add({
             severity: 'error',
             summary: 'Error',
@@ -561,6 +570,7 @@ export class VendorTakeOrderComponent implements OnInit {
         this.api.confirm(orderId).subscribe({
           next: (confirmed) => {
             this.confirming.set(false);
+            this.haptic.notification('success');
             this.toast.add({
               severity: 'success',
               summary: 'Pedido confirmado',
@@ -570,6 +580,7 @@ export class VendorTakeOrderComponent implements OnInit {
           },
           error: (err) => {
             this.confirming.set(false);
+            this.haptic.notification('error');
             this.toast.add({
               severity: 'error',
               summary: 'Error',

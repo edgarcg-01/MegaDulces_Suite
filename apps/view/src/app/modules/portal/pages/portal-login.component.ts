@@ -37,15 +37,38 @@ import { AuthService } from '../../../core/services/auth.service';
               id="tenant"
               formControlName="tenant_slug"
               placeholder="mega_dulces"
+              autocomplete="organization"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              enterkeyhint="next"
             />
           </div>
           <div class="form-field">
             <label for="user">Usuario</label>
-            <input pInputText id="user" formControlName="username" />
+            <input
+              pInputText
+              id="user"
+              formControlName="username"
+              autocomplete="username"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              enterkeyhint="next"
+            />
           </div>
           <div class="form-field">
             <label for="pass">Contraseña</label>
-            <input pInputText id="pass" type="password" formControlName="password" />
+            <input
+              pInputText
+              id="pass"
+              type="password"
+              formControlName="password"
+              autocomplete="current-password"
+              enterkeyhint="go"
+            />
           </div>
           <p-message
             *ngIf="error()"
