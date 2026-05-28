@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Knex } from 'knex';
-import { Observable } from 'rxjs';
+import { firstValueFrom, from, Observable } from 'rxjs';
 import { KNEX_CONNECTION_RAW } from '../database/database.module';
 import { legacyTxStorage } from './legacy-tx.als';
 import { TenantContextService } from './tenant-context.service';
@@ -53,50 +53,36 @@ export class TenantContextInterceptor implements NestInterceptor {
     request.user = payload;
     const tenantId = payload.tenant_id as string;
 
-    return new Observable((subscriber) => {
-      this.tenantCtx.run(
-        {
-          tenantId,
-          userId: payload.sub,
-          username: payload.username,
-          roleName: payload.role_name,
-        },
-        () => {
-          // Abre trx en knex raw, setea GUC, ejecuta handler en ALS scope.
-          // commit/rollback se hace según el outcome del Observable.
-          this.legacyRawKnex
-            .transaction(async (tx) => {
-              // set_config(name, value, is_local=true) equivale a SET LOCAL pero
-              // sí acepta bind params (SET LOCAL es DDL y los rechaza con $1).
-              await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+    // Ejecutamos el flow como Promise → from() lo convierte en Observable que
+    // Nest sabe consumir (un único valor → response HTTP → complete).
+    //
+    // El handler corre dentro de:
+    //   - tenantCtx.run (CLS multi-tenant accesible a TenantContextService.get())
+    //   - legacyTxStorage.run (CLS para que el Proxy de KNEX_CONNECTION enrute al tx)
+    //   - knex.transaction (tx con `app.tenant_id` seteado → trigger lee current_tenant_id())
+    //
+    // El COMMIT ocurre cuando firstValueFrom resuelve sin error. Si tira →
+    // ROLLBACK automático.
+    const handlerPromise = this.legacyRawKnex.transaction((tx) =>
+      tx
+        .raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId])
+        .then(() =>
+          this.tenantCtx.run(
+            {
+              tenantId,
+              userId: payload.sub,
+              username: payload.username,
+              roleName: payload.role_name,
+            },
+            () =>
+              legacyTxStorage.run({ tx, tenantId }, () =>
+                firstValueFrom(next.handle()),
+              ),
+          ),
+        ),
+    );
 
-              await new Promise<void>((resolve, reject) => {
-                legacyTxStorage.run({ tx, tenantId }, () => {
-                  next.handle().subscribe({
-                    next: (value) => subscriber.next(value),
-                    error: (err) => {
-                      subscriber.error(err);
-                      reject(err);
-                    },
-                    complete: () => {
-                      subscriber.complete();
-                      resolve();
-                    },
-                  });
-                });
-              });
-            })
-            .catch((err) => {
-              // Si subscriber.error ya se llamó arriba, este catch es no-op
-              // (rxjs ignora errores duplicados). Sólo aplica si el trx falla
-              // antes de que el handler corra.
-              if (!subscriber.closed) {
-                subscriber.error(err);
-              }
-            });
-        },
-      );
-    });
+    return from(handlerPromise);
   }
 
   private extractPayload(request: any): {

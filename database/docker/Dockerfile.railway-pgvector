@@ -1,0 +1,35 @@
+# Postgres 18 con pgvector 0.8.2 para Railway.
+# Extiende la imagen oficial de Railway (SSL pre-configurado) y compila
+# pgvector desde fuente. Misma versión que nuestro Docker local (`pgvector-md`)
+# para mantener paridad de feature flags y comportamiento del HNSW index.
+#
+# Build estimado: ~3-5 min la primera vez (compila pgvector).
+# Tamaño final: ~250 MB (purgamos build deps al final).
+
+FROM ghcr.io/railwayapp-templates/postgres-ssl:18
+
+ARG PGVECTOR_VERSION=v0.8.2
+
+USER root
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        git \
+        postgresql-server-dev-18; \
+    cd /tmp; \
+    git clone --branch ${PGVECTOR_VERSION} --depth 1 https://github.com/pgvector/pgvector.git; \
+    cd pgvector; \
+    make OPTFLAGS=""; \
+    make install; \
+    mkdir -p /usr/share/doc/pgvector; \
+    cp LICENSE README.md /usr/share/doc/pgvector/; \
+    cd /; \
+    rm -rf /tmp/pgvector; \
+    apt-get purge -y --auto-remove build-essential git postgresql-server-dev-18; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
+
+USER postgres
