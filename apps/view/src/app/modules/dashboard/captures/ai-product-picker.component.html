@@ -22,7 +22,7 @@
                 placeholder="mazapán rosa, pulparindo 20pz, paleta payaso, vero mango chamoy..."
                 rows="6"
                 maxlength="5000"
-                class="w-full p-3 bg-surface-card border border-surface-border rounded-xl text-sm leading-relaxed focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors resize-none"></textarea>
+                class="w-full p-3 bg-surface-card border border-divider rounded-xl text-sm leading-relaxed focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors resize-none"></textarea>
       <p class="text-[11px] text-content-muted text-right tabular-nums">{{ rawText().length }} / 5000</p>
     </div>
 
@@ -83,7 +83,7 @@
              ? 'border-brand-orange'
              : severity(it) === 'danger'
                ? 'border-bad-border'
-               : 'border-surface-border'">
+               : 'border-divider'">
 
         <!-- Header row: checkbox + raw + suggested -->
         <label class="flex items-start gap-3 cursor-pointer"
@@ -135,7 +135,7 @@
                   class="w-full text-left p-2 rounded-lg border text-xs motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-1"
                   [ngClass]="it.selectedProductId === alt.product_id
                     ? 'border-brand-orange bg-brand-orange/5'
-                    : 'border-surface-border hover:bg-surface-ground'">
+                    : 'border-divider hover:bg-surface-ground'">
             <span class="text-content-muted">{{ alt.brand_name }} —</span>
             <span class="text-content-main">{{ alt.product_name }}</span>
             <span class="ml-1 text-content-muted tabular-nums">({{ (alt.score * 100 | number:'1.0-0') }}%)</span>
@@ -146,7 +146,7 @@
     </div>
 
     <!-- Action bar -->
-    <div class="flex gap-2 justify-end pt-4 border-t border-surface-border mt-auto">
+    <div class="flex gap-2 justify-end pt-4 border-t border-divider mt-auto">
       <p-button label="Otra lista" severity="secondary" [text]="true" icon="pi pi-refresh" (onClick)="onReset()"></p-button>
       <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onCancel()"></p-button>
       <p-button [label]="'Agregar ' + summary().confirmed"

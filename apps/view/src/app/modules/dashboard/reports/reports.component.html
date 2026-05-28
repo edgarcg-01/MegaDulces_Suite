@@ -328,8 +328,8 @@
 
                 <ng-template pTemplate="rowexpansion" let-day>
                   <tr class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] focus-visible:outline-none">
-                    <td colspan="7" class="bg-surface-ground p-4 border-b border-surface-border">
-                      <div class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden">
+                    <td colspan="7" class="bg-surface-ground p-4 border-b border-divider">
+                      <div class="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden">
                         <p-table [value]="day.visits" styleClass="p-datatable-sm p-datatable-striped">
                           <ng-template pTemplate="header">
                             <tr class="text-xs uppercase text-content-muted bg-surface-ground">
@@ -337,12 +337,12 @@
                             </tr>
                           </ng-template>
                           <ng-template pTemplate="body" let-visit>
-                            <tr class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer"
+                            <tr class="text-xs hover:bg-surface-hover border-b border-divider last:border-0 cursor-pointer"
                                 [class]="'status-' + visitScoreStatus(visit)"
                                 (click)="viewDetail(visit)">
                               <td class="pl-4 font-black text-content-main py-3">#{{ visit.folio }}</td>
                               <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
-                              <td><span class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-xs uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
+                              <td><span class="bg-surface-ground border border-divider px-2 py-0.5 rounded text-xs uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
                               <td class="text-center">
                                 <span class="font-black status-text">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
                               </td>
@@ -546,8 +546,8 @@
                     </div>
                     <div class="space-y-4">
                       @for (user of sellerProductsByUser(); track user.username) {
-                        <div class="bg-surface-ground rounded-xl border border-surface-border overflow-hidden">
-                          <div class="flex items-center justify-between p-3 bg-surface-card border-b border-surface-border">
+                        <div class="bg-surface-ground rounded-xl border border-divider overflow-hidden">
+                          <div class="flex items-center justify-between p-3 bg-surface-card border-b border-divider">
                             <div class="flex items-center gap-3">
                               <div class="w-10 h-10 rounded-full bg-brand flex items-center justify-center text-black font-bold text-sm">
                                 {{ user.username.charAt(0).toUpperCase() }}
@@ -564,7 +564,7 @@
                           <div class="p-3">
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                               @for (product of user.products.slice(0, 12); track product.name) {
-                                <div class="flex items-center justify-between p-2 bg-surface-card rounded-lg border border-surface-border">
+                                <div class="flex items-center justify-between p-2 bg-surface-card rounded-lg border border-divider">
                                   <div class="flex-1 min-w-0">
                                     <div class="text-xs font-medium text-content-main truncate">{{ product.name }}</div>
                                     <div class="text-xs text-content-muted">{{ product.brandName }}</div>
@@ -647,7 +647,7 @@
       <div class="space-y-4 pt-2">
 
         <!-- Card: Información General -->
-        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="bg-surface-ground p-4 rounded-2xl border border-divider">
           <div class="flex items-center gap-2 mb-3">
             <i class="pi pi-info-circle text-content-muted" aria-hidden="true"></i>
             <h3 class="text-sm font-bold text-content-main uppercase">Información General</h3>
@@ -686,7 +686,7 @@
         </div>
 
         <!-- Card: Score y Métricas -->
-        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="bg-surface-ground p-4 rounded-2xl border border-divider">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="flex items-center gap-2">
               <i class="pi pi-chart-bar text-content-muted" aria-hidden="true"></i>
@@ -706,7 +706,7 @@
         </div>
 
         <!-- Card: Ubicación GPS -->
-        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="bg-surface-ground p-4 rounded-2xl border border-divider">
           <div class="flex items-center gap-2 mb-3">
             <i class="pi pi-map-marker text-content-muted" aria-hidden="true"></i>
             <h3 class="text-sm font-bold text-content-main uppercase">Ubicación</h3>
@@ -732,12 +732,12 @@
         </div>
 
         <!-- Card: Exhibiciones -->
-        <div class="bg-surface-ground p-4 rounded-2xl border border-surface-border">
+        <div class="bg-surface-ground p-4 rounded-2xl border border-divider">
           <div class="flex items-center gap-2 mb-3">
             <i class="pi pi-list text-content-muted" aria-hidden="true"></i>
             <h3 class="text-sm font-bold text-content-main uppercase">Exhibiciones</h3>
           </div>
-          <div class="border border-surface-border rounded-xl overflow-hidden">
+          <div class="border border-divider rounded-xl overflow-hidden">
             <p-table [value]="selectedRow.exhibiciones || []" [rows]="10" [paginator]="true">
               <ng-template pTemplate="header">
                 <tr class="text-sm bg-surface-ground uppercase text-content-muted">
@@ -828,7 +828,7 @@
           <p class="text-xs text-content-muted mt-1">Deja vacío para seleccionar todos tus usuarios</p>
         </div>
       } @else {
-        <div class="p-3 bg-surface-ground rounded-lg border border-surface-border">
+        <div class="p-3 bg-surface-ground rounded-lg border border-divider">
           <p class="text-sm text-content-muted">Solo puedes generar tu reporte diario como colaborador.</p>
         </div>
       }
@@ -999,7 +999,7 @@
             <td class="py-2 px-3">
               <div class="flex flex-wrap gap-1">
                 @for (exhibidor of objectKeys(p.exhibidores); track exhibidor) {
-                  <span class="text-xs px-1.5 py-0.5 rounded bg-surface-hover border border-surface-border text-content-muted">
+                  <span class="text-xs px-1.5 py-0.5 rounded bg-surface-hover border border-divider text-content-muted">
                     {{ exhibidor }}: {{ p.exhibidores[exhibidor] }}
                   </span>
                 }

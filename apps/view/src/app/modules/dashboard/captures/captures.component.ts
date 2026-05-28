@@ -622,12 +622,29 @@ export class CapturesComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.isSaving.set(false);
+        console.error('[saveCapturaTotal] error completo:', err);
+        // El backend NestJS típicamente responde { statusCode, message, error }.
+        // En multipart, err.error puede llegar como string (no JSON parsed)
+        // o como Blob. Probamos todas las variantes antes del genérico.
+        let detail = '';
+        if (typeof err?.error === 'string') {
+          detail = err.error;
+        } else if (err?.error?.message) {
+          detail = Array.isArray(err.error.message)
+            ? err.error.message.join(', ')
+            : err.error.message;
+        } else if (err?.message) {
+          detail = err.message;
+        }
+        const statusInfo = err?.status ? ` (HTTP ${err.status})` : '';
         this.toast.add({
           severity: 'error',
-          summary: 'Error de Red',
+          summary: err?.status === 0 ? 'Error de Red' : 'Error del Servidor',
           detail:
-            err?.error?.message ||
-            'No pudimos registrar tu visita general en el servidor.',
+            (detail ||
+              'No pudimos registrar tu visita general en el servidor.') +
+            statusInfo,
+          life: 10000,
         });
       },
     });

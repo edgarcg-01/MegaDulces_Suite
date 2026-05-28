@@ -88,7 +88,7 @@
 
     </div>
 
-    <div class="bg-surface-card px-3 py-2 rounded-xl border border-surface-border shadow-sm flex items-center gap-3 self-start sm:self-auto">
+    <div class="bg-surface-card px-3 py-2 rounded-xl border border-divider shadow-sm flex items-center gap-3 self-start sm:self-auto">
 
         <div class="flex flex-col items-end">
 
@@ -195,9 +195,9 @@
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
 
-      <div *ngFor="let stat of statCards()" class="p-4 bg-surface-card border border-surface-border rounded-xl shadow-sm flex items-center gap-4">
+      <div *ngFor="let stat of statCards()" class="p-4 bg-surface-card border border-divider rounded-xl shadow-sm flex items-center gap-4">
 
-        <div class="w-12 h-12 rounded-lg bg-surface-ground flex items-center justify-center flex-shrink-0 border border-surface-border">
+        <div class="w-12 h-12 rounded-lg bg-surface-ground flex items-center justify-center flex-shrink-0 border border-divider">
 
           <i [class]="stat.icon" class="text-xl" [style.color]="stat.valueColor"></i>
 
@@ -225,9 +225,9 @@
 
     <!-- Exhibidores Auditados - Desktop Table -->
 
-    <div class="hidden md:block bg-surface-card border border-surface-border rounded-2xl shadow-sm overflow-hidden mb-6">
+    <div class="hidden md:block bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden mb-6">
 
-      <div class="p-4 border-b border-surface-border bg-surface-ground flex justify-between items-center">
+      <div class="p-4 border-b border-divider bg-surface-ground flex justify-between items-center">
 
         <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
 
@@ -289,7 +289,7 @@
 
             </td>
 
-            <td class="text-right font-mono text-brand-orange font-bold border-r border-surface-border/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
+            <td class="text-right font-mono text-brand-orange font-bold border-r border-divider/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
 
             <td class="text-center bg-surface-ground/50">
 
@@ -343,7 +343,7 @@
 
     <div class="md:hidden space-y-3 mb-6">
 
-      <div class="p-3 bg-surface-card border border-surface-border rounded-2xl">
+      <div class="p-3 bg-surface-card border border-divider rounded-2xl">
 
         <div class="flex justify-between items-center mb-3">
 
@@ -361,7 +361,7 @@
 
         </div>
 
-        <div *ngFor="let ex of svc.activeExhibiciones()" class="bg-surface-ground border border-surface-border rounded-xl p-3 mb-3 last:mb-0">
+        <div *ngFor="let ex of svc.activeExhibiciones()" class="bg-surface-ground border border-divider rounded-xl p-3 mb-3 last:mb-0">
 
           <div class="flex justify-between items-start mb-2">
 
@@ -391,7 +391,7 @@
 
           </div>
 
-          <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
+          <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/50">
 
             <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'"
 
@@ -447,9 +447,9 @@
 
   <ng-container *ngIf="!svc.hasActiveVisit()">
 
-    <div class="p-12 text-center bg-surface-card border border-surface-border rounded-xl mt-6">
+    <div class="p-12 text-center bg-surface-card border border-divider rounded-xl mt-6">
 
-      <div class="w-16 h-16 rounded-full bg-surface-ground border border-surface-border flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
+      <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
 
         <i class="pi pi-map-marker text-2xl"></i>
 
@@ -481,13 +481,13 @@
 
 
 
-    <div class="bg-surface-card border border-surface-border rounded-2xl shadow-sm overflow-hidden hidden md:block">
+    <div class="bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden hidden md:block">
 
       <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
 
         <ng-template pTemplate="header">
 
-          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
 
             <th style="width: 3rem"></th>
 
@@ -509,7 +509,7 @@
 
         <ng-template pTemplate="body" let-visita let-expanded="expanded">
 
-          <tr class="text-sm border-b border-surface-border hover:bg-surface-hover/30 transition-colors">
+          <tr class="text-sm border-b border-divider hover:bg-surface-hover/30 transition-colors">
 
             <td>
 
@@ -565,7 +565,7 @@
 
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-                <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-card p-3 rounded-lg border border-surface-border shadow-sm">
+                <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-card p-3 rounded-lg border border-divider shadow-sm">
 
                   <div class="flex justify-between items-start mb-2">
 
@@ -587,7 +587,7 @@
 
                   </div>
 
-                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-surface-border/50">
+                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/50">
 
                     <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[9px]"></p-tag>
 
@@ -631,7 +631,7 @@
 
     <div class="md:hidden space-y-4 mt-4">
 
-      <div *ngFor="let visita of svc.visitasHoy()" class="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform">
+      <div *ngFor="let visita of svc.visitasHoy()" class="bg-surface-card border border-divider rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform">
 
         <div class="flex items-center justify-between mb-3">
 
@@ -677,13 +677,13 @@
 
         <!-- Expandable exhibiciones details -->
 
-        <div *ngIf="expandedRows[visita.folio]" class="mt-4 pt-4 border-t border-surface-border animate-in fade-in slide-in-from-top-2 duration-300">
+        <div *ngIf="expandedRows[visita.folio]" class="mt-4 pt-4 border-t border-divider animate-in fade-in slide-in-from-top-2 duration-300">
 
           <div class="text-[10px] font-black text-content-faint uppercase tracking-[0.2em] mb-3">Auditoría Técnica:</div>
 
           <div class="grid grid-cols-1 gap-3">
 
-            <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-ground/50 p-3 rounded-xl border border-surface-border/50">
+            <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-ground/50 p-3 rounded-xl border border-divider/50">
 
               <div class="flex justify-between items-start mb-2">
 
@@ -733,7 +733,7 @@
 
         </div>
 
-        <div class="mt-3 pt-3 border-t border-surface-border flex justify-center">
+        <div class="mt-3 pt-3 border-t border-divider flex justify-center">
 
           <p-button type="button" [text]="true" [rounded]="true" 
 
@@ -804,7 +804,7 @@
     <!-- Progress Indicator -->
     <div class="mb-6 mt-2 px-2">
       <div class="flex justify-between items-center relative" role="progressbar" [attr.aria-valuenow]="wizardStep" aria-valuemin="1" aria-valuemax="6" [attr.aria-label]="'Paso ' + wizardStep + ' de 6'">
-        <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-border -z-10 -translate-y-1/2" aria-hidden="true"></div>
+        <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
         <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'" aria-hidden="true"></div>
 
         <div *ngFor="let s of [1,2,3,4,5,6]"
@@ -813,7 +813,7 @@
                ? 'border-brand-orange bg-brand-orange text-white'
                : s === wizardStep
                  ? 'border-brand-orange text-brand-orange'
-                 : 'border-surface-border text-content-muted'"
+                 : 'border-divider text-content-muted'"
              [attr.aria-current]="s === wizardStep ? 'step' : null">
           {{s}}
         </div>
@@ -843,7 +843,7 @@
                   class="min-h-[56px] flex items-center gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().ubicacionId === ubi.id
                     ? 'border-brand-orange bg-brand-orange/5'
-                    : 'border-surface-border'">
+                    : 'border-divider'">
             <i class="pi pi-map-marker text-base shrink-0"
                [ngClass]="currentExhibicion().ubicacionId === ubi.id ? 'text-brand-orange' : 'text-content-muted'"
                aria-hidden="true"></i>
@@ -857,7 +857,7 @@
 
         <!-- Empty / loading -->
         <div *ngIf="configPosiciones().length === 0"
-             class="p-8 text-center bg-surface-ground rounded-xl border border-dashed border-surface-border"
+             class="p-8 text-center bg-surface-ground rounded-xl border border-dashed border-divider"
              aria-live="polite">
           <i class="pi pi-spin pi-spinner text-xl mb-3 text-content-muted block" aria-hidden="true"></i>
           <p class="text-xs text-content-muted mb-4">Cargando ubicaciones disponibles...</p>
@@ -886,7 +886,7 @@
                   class="min-h-[56px] flex items-center gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().conceptoId === tip.id
                     ? 'border-brand-orange bg-brand-orange/5'
-                    : 'border-surface-border'">
+                    : 'border-divider'">
             <i [class]="tip.icono + ' text-lg shrink-0'"
                [ngClass]="currentExhibicion().conceptoId === tip.id ? 'text-brand-orange' : 'text-content-muted'"
                aria-hidden="true"></i>
@@ -917,7 +917,7 @@
                   class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === true
                     ? 'border-brand-orange bg-brand-orange/5'
-                    : 'border-surface-border'">
+                    : 'border-divider'">
             <span class="text-sm"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'text-brand-orange font-medium' : 'text-content-main'">
               Sí, pertenece a Mega Dulces
@@ -934,7 +934,7 @@
                   class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === false
                     ? 'border-brand-orange bg-brand-orange/5'
-                    : 'border-surface-border'">
+                    : 'border-divider'">
             <span class="text-sm"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'text-brand-orange font-medium' : 'text-content-main'">
               No, es de la competencia
@@ -968,7 +968,7 @@
                   class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase()
                     ? 'border-brand-orange bg-brand-orange/5'
-                    : 'border-surface-border'">
+                    : 'border-divider'">
             <span class="text-sm"
                   [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase() ? 'text-brand-orange font-medium' : 'text-content-main'">
               {{ niv.value | titlecase }}
@@ -1011,7 +1011,7 @@
                  [ngModel]="searchQuery()"
                  (ngModelChange)="onSearchChange($event)"
                  placeholder="Buscar marca o producto..."
-                 class="w-full min-h-[48px] pl-11 pr-11 py-3 bg-surface-card border border-surface-border rounded-xl text-base focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
+                 class="w-full min-h-[48px] pl-11 pr-11 py-3 bg-surface-card border border-divider rounded-xl text-base focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
                  autocomplete="off"
                  autocorrect="off"
                  autocapitalize="off">
@@ -1028,7 +1028,7 @@
         <div *ngIf="currentExhibicion() as exhibicion"
              class="mb-3"
              [class.hidden]="(exhibicion.productosMarcados?.length || 0) === 0">
-          <div class="flex flex-wrap gap-1.5 p-2 bg-surface-ground rounded-xl border border-surface-border" aria-live="polite">
+          <div class="flex flex-wrap gap-1.5 p-2 bg-surface-ground rounded-xl border border-divider" aria-live="polite">
             <p-chip *ngFor="let pid of (exhibicion.productosMarcados?.slice(0, 3) || []); trackBy: trackByPid"
                     [label]="getProductName(pid)"
                     (onRemove)="removeProducto(pid)"
@@ -1047,7 +1047,7 @@
         <!-- Products by Brand -->
         <div class="flex-1 overflow-y-auto -mx-1 px-1 pb-24 space-y-2">
           <div *ngFor="let brand of filteredBrands(); trackBy: trackByMarca"
-               class="border border-surface-border rounded-xl overflow-hidden bg-surface-card">
+               class="border border-divider rounded-xl overflow-hidden bg-surface-card">
 
             <!-- Brand Header -->
             <button type="button"
@@ -1075,7 +1075,7 @@
 
             <!-- Products List -->
             <div *ngIf="isBrandExpanded(brand.marca)"
-                 class="border-t border-surface-border motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                 class="border-t border-divider motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
               <button *ngFor="let prod of brand.items | slice:0:productsVisibleCount(brand.marca, brand.items.length); trackBy: trackByPid"
                       type="button"
                       (click)="toggleProducto(prod.pid)"
@@ -1093,7 +1093,7 @@
               <button *ngIf="productsRemaining(brand.marca, brand.items.length) > 0"
                       type="button"
                       (click)="showMoreInBrand(brand.marca, brand.items.length)"
-                      class="w-full min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 text-sm font-medium text-brand-orange border-t border-surface-border hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px] motion-safe:transition-colors"
+                      class="w-full min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 text-sm font-medium text-brand-orange border-t border-divider hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px] motion-safe:transition-colors"
                       [attr.aria-label]="'Mostrar ' + nextPageSize(brand.marca, brand.items.length) + ' productos más de ' + brand.marca">
                 <i class="pi pi-chevron-down text-xs" aria-hidden="true"></i>
                 <span>Mostrar {{ nextPageSize(brand.marca, brand.items.length) }} más</span>
@@ -1114,7 +1114,7 @@
 
         <!-- Sticky Footer -->
         <div *ngIf="currentExhibicion() as exhibicion"
-             class="sticky -mx-2 px-3 py-3 bg-surface-card border-t border-surface-border flex justify-between items-center z-10"
+             class="sticky -mx-2 px-3 py-3 bg-surface-card border-t border-divider flex justify-between items-center z-10"
              style="bottom: calc(-1rem + env(safe-area-inset-bottom, 0px));">
           <div class="flex items-baseline gap-2">
             <span class="text-2xl font-semibold text-content-main tabular-nums">{{exhibicion.productosMarcados?.length || 0}}</span>
@@ -1136,7 +1136,7 @@
 
         <!-- Upload state -->
         <label *ngIf="!currentExhibicion().fotoBase64"
-               class="block border-2 border-dashed border-surface-border rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
+               class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
           <input type="file"
                  accept="image/*"
                  capture="environment"
@@ -1152,7 +1152,7 @@
 
         <!-- Preview state -->
         <div *ngIf="currentExhibicion().fotoBase64" class="space-y-3">
-          <div class="relative rounded-xl border border-surface-border overflow-hidden bg-black max-w-sm mx-auto">
+          <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
             <img [src]="currentExhibicion().fotoBase64"
                  alt="Vista previa del exhibidor capturado"
                  class="w-full h-64 object-cover">
@@ -1170,7 +1170,7 @@
 
 
     <!-- Navigation -->
-    <nav class="flex justify-between items-center gap-2 pt-5 mt-5 border-t border-surface-border" aria-label="Navegación del wizard">
+    <nav class="flex justify-between items-center gap-2 pt-5 mt-5 border-t border-divider" aria-label="Navegación del wizard">
       <p-button label="Atrás"
                 icon="pi pi-arrow-left"
                 severity="secondary"
@@ -1331,7 +1331,7 @@
 
     
 
-    <div class="p-6 bg-surface-ground border border-surface-border rounded-3xl relative overflow-hidden">
+    <div class="p-6 bg-surface-ground border border-divider rounded-3xl relative overflow-hidden">
 
        <div class="absolute top-0 right-0 p-2 opacity-5 italic text-[8px] font-black uppercase tracking-widest rotate-6">Verified Operations</div>
 
@@ -1341,7 +1341,7 @@
 
        <div class="mt-6 flex justify-center gap-4">
 
-          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
+          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider">
 
              <div class="text-[8px] uppercase text-content-dim font-bold">Items</div>
 
@@ -1349,7 +1349,7 @@
 
           </div>
 
-          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-surface-border">
+          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider">
 
              <div class="text-[8px] uppercase text-content-dim font-bold">Score</div>
 

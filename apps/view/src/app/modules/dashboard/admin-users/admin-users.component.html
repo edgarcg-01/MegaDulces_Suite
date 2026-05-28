@@ -33,11 +33,11 @@
     </div>
   </div>
 
-  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
+  <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
     <!-- Tabla de Usuarios -->
     <p-table [value]="filteredUsers()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
-        <tr class="table-header text-content-muted bg-surface-ground border-b border-surface-border">
+        <tr class="table-header text-content-muted bg-surface-ground border-b border-divider">
           <th pSortableColumn="nombre" class="pl-4">Vendedor / Empleado <p-sortIcon field="nombre"></p-sortIcon></th>
           <th pSortableColumn="username">Acceso (Usuario) <p-sortIcon field="username"></p-sortIcon></th>
           <th pSortableColumn="role_name">Puesto / Rol <p-sortIcon field="role_name"></p-sortIcon></th>
@@ -49,7 +49,7 @@
         </tr>
       </ng-template>
       <ng-template pTemplate="body" let-user>
-        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover transition-colors">
+        <tr class="text-sm border-b border-divider hover:bg-surface-hover transition-colors">
           <td class="pl-4">
             <div class="flex flex-col">
               <span class="font-bold text-content-main">{{ user.nombre || 'SIN NOMBRE' }}</span>
@@ -69,7 +69,7 @@
                    [value]="user.role_name | uppercase" [rounded]="true" styleClass="text-[9px] font-bold"></p-tag>
           </td>
           <td>
-             <span class="text-label bg-surface-ground border border-surface-border px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+             <span class="text-label bg-surface-ground border border-divider px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
           </td>
           <td class="text-content-dim">
             {{ user.role_name === 'colaborador' ? getSupervisorName(user.supervisor_id) : '-' }}
@@ -121,7 +121,7 @@
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-4">
     @for (user of filteredUsers(); track user.id) {
-    <div class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm relative overflow-hidden">
+    <div class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm relative overflow-hidden">
       <!-- Decorator for Role -->
       <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground"
            [class.!bg-brand-sunset]="user.role_name === 'superadmin'"></div>
@@ -205,7 +205,7 @@
     <!-- Usuario -->
     <div class="flex flex-col gap-2">
       <label for="username" class="text-label text-content-muted">Nombre de Usuario (Login)</label>
-      <div class="p-inputgroup border-surface-border">
+      <div class="p-inputgroup border-divider">
           <span class="p-inputgroup-addon bg-surface-ground">
               <i class="pi pi-user text-content-dim"></i>
           </span>
@@ -240,7 +240,7 @@
     }
 
     <!-- Contraseña -->
-    <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-surface-border rounded-lg">
+    <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-divider rounded-lg">
       <label for="password" class="text-label text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
       <input pInputText id="password" type="password" formControlName="password"
              placeholder="{{ isEditing() ? 'Dejar en blanco para no cambiar' : 'Min. 6 caracteres' }}" />
@@ -252,7 +252,7 @@
     </div>
 
     <!-- Activo -->
-    <div class="flex items-center justify-between p-4 bg-surface-ground border border-surface-border rounded-lg">
+    <div class="flex items-center justify-between p-4 bg-surface-ground border border-divider rounded-lg">
       <div>
          <div class="text-body font-bold text-content-main">Estado Activo</div>
          <div class="text-label text-content-muted">Al desactivar, se revocará el acceso al sistema.</div>
@@ -260,7 +260,7 @@
       <p-inputSwitch formControlName="activo"></p-inputSwitch>
     </div>
 
-    <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-surface-border">
+    <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-divider">
       <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="closeDialog()" [disabled]="saving()"></p-button>
       <p-button [label]="isEditing() ? 'Actualizar' : 'Registrar'" type="submit" [disabled]="userForm.invalid || saving()" [loading]="saving()" styleClass="p-button-brand"></p-button>
     </div>

@@ -129,7 +129,7 @@
                 #rla="routerLinkActive"
                 [routerLinkActiveOptions]="{ exact: item.exact === true }"
                 (click)="onNavClick()"
-                class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-all duration-200 relative group cursor-pointer no-underline"
+                class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium motion-safe:transition-colors duration-200 relative group cursor-pointer no-underline"
                 [class.text-content-muted]="!rla.isActive"
                 [class.hover:bg-surface-hover]="!rla.isActive"
                 [class.hover:text-content-main]="!rla.isActive"
@@ -137,10 +137,7 @@
                 [attr.aria-label]="item.label"
                 [attr.title]="item.label"
               >
-                @if (rla.isActive) {
-                  <span class="absolute left-0 w-1 h-6 rounded-r bg-content-muted/50" aria-hidden="true"></span>
-                }
-                <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm transition-all duration-200 group-hover:scale-110" aria-hidden="true"></i>
+                <i [ngClass]="item.icon" class="shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
                 @if (expanded) {
                   <span class="ml-1 truncate flex-1 text-left transition-all duration-200">{{ item.label }}</span>
                 }
@@ -280,7 +277,7 @@
         @if (isRestricted()) {
           <button
             (click)="logout()"
-            class="status-bad p-2 rounded-lg status-text hover:bg-[color-mix(in_srgb,var(--status-fg)_10%,transparent)] transition-colors"
+            class="icon-btn-ghost icon-btn-ghost-bad"
             aria-label="Cerrar sesión"
           >
             <i class="pi pi-sign-out text-lg" aria-hidden="true"></i>
@@ -337,7 +334,7 @@
       aria-label="Migas de pan"
     >
       <ol class="flex items-center gap-2 m-0 p-0 list-none">
-        <li>Dashboard</li>
+        <li>{{ projectLabel() }}</li>
         <li aria-hidden="true" class="text-content-faint">/</li>
         <li class="text-content-main font-medium" aria-current="page">
           {{ currentPageTitle() }}

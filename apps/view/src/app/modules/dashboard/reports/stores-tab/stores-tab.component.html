@@ -7,22 +7,22 @@
 
   <!-- KPI Summary -->
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" *ngIf="data()?.kpiGlobales as kg">
-    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">{{ kg.totalTiendas }} tiendas</div>
       <div class="text-lg font-black text-content-main mt-1">{{ kg.scorePromedio }}</div>
       <div class="text-[9px] text-content-muted">Score Promedio</div>
     </div>
-    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Stockout</div>
       <div class="text-lg font-black text-bad-fg mt-1">{{ kg.stockoutPromedio }}%</div>
       <div class="text-[9px] text-content-muted">Promedio general</div>
     </div>
-    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Sin visita 7d+</div>
       <div class="text-lg font-black text-warn-fg mt-1">{{ kg.tiendasSinVisita7d }}</div>
       <div class="text-[9px] text-content-muted">Tiendas en riesgo</div>
     </div>
-    <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
+    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Oportunidades</div>
       <div class="text-lg font-black text-brand-orange mt-1">{{ data()?.oportunidades?.length || 0 }}</div>
       <div class="text-[9px] text-content-muted">Requieren atención</div>
@@ -30,8 +30,8 @@
   </div>
 
   <!-- Search & Table -->
-  <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden">
-    <div class="p-3 border-b border-surface-border">
+  <div class="bg-surface-card border border-divider rounded-xl overflow-hidden">
+    <div class="p-3 border-b border-divider">
       <div class="flex items-center gap-2">
         <i class="pi pi-search text-content-faint text-xs"></i>
         <input pInputText type="text" [(ngModel)]="searchQuery" placeholder="Buscar tienda o zona..."

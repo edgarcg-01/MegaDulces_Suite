@@ -26,10 +26,6 @@
   scrollbar-color: var(--border-color) transparent;
 }
 
-/*
- * Header logo: fade-out suave al colapsar/expandir. La transición de width
- * ya está declarada inline en el aside (junto al transform para mobile).
- */
-:host aside .overflow-hidden {
-  transition: opacity 0.2s ease 0.1s, width 0.25s ease;
+:host aside > .flex.items-center.justify-between {
+  transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }

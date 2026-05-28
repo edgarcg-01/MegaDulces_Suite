@@ -32,10 +32,10 @@
   </div>
 
   <!-- Tabla de Marcas con Expansión -->
-  <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
+  <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
     <p-table [value]="filteredBrands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
       <ng-template pTemplate="header">
-        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
           <th style="width: 3rem"></th>
           <th>Marca / Fabricante</th>
           <th class="text-center">Productos</th>
@@ -44,7 +44,7 @@
         </tr>
       </ng-template>
       <ng-template pTemplate="body" let-brand let-expanded="expanded">
-        <tr class="text-sm border-b border-surface-border hover:bg-surface-hover" [class.opacity-50]="brand.activo === false">
+        <tr class="text-sm border-b border-divider hover:bg-surface-hover" [class.opacity-50]="brand.activo === false">
           <td>
             <button type="button" pButton pRipple [pRowToggler]="brand" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
           </td>
@@ -82,7 +82,7 @@
       <ng-template pTemplate="rowexpansion" let-brand>
         <tr>
           <td colspan="5" class="p-4 bg-surface-ground">
-            <div class="p-3 border border-surface-border bg-surface-card rounded-lg shadow-inner">
+            <div class="p-3 border border-divider bg-surface-card rounded-lg shadow-inner">
                <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>
                <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">
                   <ng-template pTemplate="header">
@@ -134,7 +134,7 @@
 
   <!-- Mobile Card View -->
   <div class="lg:hidden space-y-4 mt-4">
-    <div *ngFor="let brand of filteredBrands()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm" [class.ring-2]="brand._highlight" [class.ring-brand]="brand._highlight" [class.opacity-60]="brand.activo === false">
+    <div *ngFor="let brand of filteredBrands()" class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm" [class.ring-2]="brand._highlight" [class.ring-brand]="brand._highlight" [class.opacity-60]="brand.activo === false">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-3">
           <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>
@@ -161,10 +161,10 @@
       </div>
       <!-- Expandable products details -->
       @if (isRowExpanded(brand.id)) {
-        <div class="mt-4 pt-4 border-t border-surface-border">
+        <div class="mt-4 pt-4 border-t border-divider">
           <div class="text-xs font-bold text-content-muted mb-3">PRODUCTOS:</div>
           <div class="space-y-2">
-            <div *ngFor="let product of brand.productos || []" class="bg-surface-ground p-3 rounded-lg border border-surface-border" [class.opacity-60]="product.activo === false">
+            <div *ngFor="let product of brand.productos || []" class="bg-surface-ground p-3 rounded-lg border border-divider" [class.opacity-60]="product.activo === false">
               <div class="flex justify-between items-center">
                 <span class="text-xs font-medium text-content-main">
                   {{ product.nombre }}
@@ -189,7 +189,7 @@
           </div>
         </div>
       }
-      <div class="mt-3 pt-3 border-t border-surface-border">
+      <div class="mt-3 pt-3 border-t border-divider">
         <p-button type="button" [text]="true" [rounded]="true"
                   [icon]="isRowExpanded(brand.id) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
                   (onClick)="toggleRowExpansion(brand)"

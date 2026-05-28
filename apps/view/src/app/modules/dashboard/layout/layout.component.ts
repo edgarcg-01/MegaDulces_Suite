@@ -306,6 +306,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
     return 'trademk';
   });
 
+  projectLabel = computed(() => {
+    switch (this.currentProject()) {
+      case 'comercial':  return 'Comercial';
+      case 'logistica':  return 'Logística';
+      case 'admin':      return 'Administración';
+      default:           return 'Trade Marketing';
+    }
+  });
+
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];

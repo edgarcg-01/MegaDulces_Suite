@@ -158,6 +158,7 @@ module.exports = {
           main:     'var(--text-main)',
           muted:    'var(--text-muted)',
           faint:    'var(--text-faint)',
+          dim:      'var(--text-faint)',
           disabled: 'var(--text-disabled)',
           active:   'var(--active-text)',
         },

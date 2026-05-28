@@ -25,14 +25,14 @@
   <div *ngIf="config()" class="grid grid-cols-1 md:grid-cols-3 gap-6">
     
     <!-- Pesos por Posición -->
-    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden h-fit">
-      <div class="p-4 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+    <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden h-fit">
+      <div class="p-4 bg-surface-ground border-b border-divider flex justify-between items-center">
         <h3 class="text-xs font-bold text-content-muted uppercase">1. Pesos por Posición (Base)</h3>
         <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('pesos_posicion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
         <p class="text-xs text-content-dim italic mb-2">Define el valor base según la visibilidad de la ubicación en la tienda.</p>
-        <div *ngFor="let key of objectKeys(config().pesos_posicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
+        <div *ngFor="let key of objectKeys(config().pesos_posicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-divider transition-colors">
           <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
           <div class="flex items-center gap-2">
             <p-inputNumber [ngModel]="config().pesos_posicion[key]" (ngModelChange)="updateValue('pesos_posicion', key, $event)" [min]="0" styleClass="w-20"></p-inputNumber>
@@ -43,14 +43,14 @@
     </div>
 
     <!-- Factores por Tipo de Exhibición -->
-    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden h-fit">
-      <div class="p-4 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+    <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden h-fit">
+      <div class="p-4 bg-surface-ground border-b border-divider flex justify-between items-center">
         <h3 class="text-xs font-bold text-content-muted uppercase">2. Factores de Complejidad</h3>
         <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('tipos_exhibicion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
         <p class="text-xs text-content-dim italic mb-2">Multiplicador basado en el tipo de mueble o material instalado.</p>
-        <div *ngFor="let key of objectKeys(config().tipos_exhibicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
+        <div *ngFor="let key of objectKeys(config().tipos_exhibicion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-divider transition-colors">
           <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
           <div class="flex items-center gap-2">
             <p-inputNumber [ngModel]="config().tipos_exhibicion[key]" (ngModelChange)="updateValue('tipos_exhibicion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputNumber>
@@ -61,14 +61,14 @@
     </div>
 
     <!-- Multiplicadores por Nivel de Ejecución -->
-    <div class="bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden h-fit">
-      <div class="p-4 bg-surface-ground border-b border-surface-border flex justify-between items-center">
+    <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden h-fit">
+      <div class="p-4 bg-surface-ground border-b border-divider flex justify-between items-center">
         <h3 class="text-xs font-bold text-content-muted uppercase">3. Calidad de Ejecución</h3>
         <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('niveles_ejecucion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
         <p class="text-[10px] text-content-dim italic mb-2">Factor de ajuste según la calidad del armado y limpieza.</p>
-        <div *ngFor="let key of objectKeys(config().niveles_ejecucion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-surface-border transition-colors">
+        <div *ngFor="let key of objectKeys(config().niveles_ejecucion)" class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-divider transition-colors">
           <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
           <div class="flex items-center gap-2">
             <p-inputNumber [ngModel]="config().niveles_ejecucion[key]" (ngModelChange)="updateValue('niveles_ejecucion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputNumber>

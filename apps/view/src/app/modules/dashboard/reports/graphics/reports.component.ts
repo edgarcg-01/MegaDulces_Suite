@@ -524,10 +524,10 @@ class="text-xs font-bold text-content-faint uppercase"
                     <tr>
                       <td
                         colspan="7"
-                        class="bg-surface-ground p-4 border-b border-surface-border"
+                        class="bg-surface-ground p-4 border-b border-divider"
                       >
                         <div
-                          class="bg-surface-card rounded-xl border border-surface-border shadow-sm overflow-hidden"
+                          class="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden"
                         >
                           <p-table
                             [value]="day.visits"
@@ -547,7 +547,7 @@ class="text-xs font-bold text-content-faint uppercase"
                             </ng-template>
                             <ng-template pTemplate="body" let-visit>
                               <tr
-                                class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                class="text-xs hover:bg-surface-hover border-b border-divider last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                                 (click)="viewDetail(visit)"
                               >
                                 <td
@@ -560,7 +560,7 @@ class="text-xs font-bold text-content-faint uppercase"
                                 </td>
                                 <td>
                                   <span
-                                    class="bg-surface-ground border border-surface-border px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted"
+                                    class="bg-surface-ground border border-divider px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted"
                                   >
                                     {{ visit.zona_captura }}
                                   </span>
@@ -921,7 +921,7 @@ class="text-xs font-bold text-content-faint uppercase"
           <!-- Cabecera folio + export -->
           <div
             class="flex flex-col sm:flex-row justify-between items-start sm:items-center
-                  bg-surface-ground p-4 rounded-2xl border border-surface-border gap-3"
+                  bg-surface-ground p-4 rounded-2xl border border-divider gap-3"
           >
             <div>
               <div
@@ -1015,7 +1015,7 @@ class="text-xs font-bold text-content-faint uppercase"
 
           <!-- GPS -->
           <div
-            class="flex items-center justify-between p-4 border border-surface-border bg-surface-ground rounded-2xl"
+            class="flex items-center justify-between p-4 border border-divider bg-surface-ground rounded-2xl"
           >
             <div class="flex items-center gap-3">
               <div
@@ -1053,7 +1053,7 @@ class="text-xs font-bold text-content-faint uppercase"
           </div>
 
           <!-- Exhibiciones -->
-          <div class="border border-surface-border rounded-2xl overflow-hidden">
+          <div class="border border-divider rounded-2xl overflow-hidden">
             <p-table
               [value]="selectedRow.exhibiciones || []"
               styleClass="p-datatable-sm"

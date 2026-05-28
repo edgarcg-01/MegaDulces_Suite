@@ -103,7 +103,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
       </div>
 
       @if (auditInfo().updatedAt) {
-        <div class="mb-4 px-4 py-2 bg-surface-layout/40 border border-surface-border rounded-lg text-xs text-content-muted flex items-center gap-2">
+        <div class="mb-4 px-4 py-2 bg-surface-layout/40 border border-divider rounded-lg text-xs text-content-muted flex items-center gap-2">
           <i class="pi pi-history text-content-faint"></i>
           Última modificación: <span class="font-medium text-content-main">{{ auditInfo().updatedAt | date:'medium' }}</span>
           @if (auditInfo().updatedBy) {
@@ -113,7 +113,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
         </div>
       }
 
-      <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden">
+      <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
         <p-table
           [value]="permissionRows()"
           sortField="category"
@@ -154,7 +154,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
                       <span class="status-chip status-bad" pTooltip="Permiso de alto impacto">Crítico</span>
                     }
                     @if (isElevatedAndLocked(row.key, row.enabled)) {
-                      <span class="text-[9px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5" pTooltip="No puedes otorgar este permiso porque tu rol no lo tiene">Bloqueado</span>
+                      <span class="text-[9px] uppercase tracking-wider text-content-faint border border-divider rounded px-1.5 py-0.5" pTooltip="No puedes otorgar este permiso porque tu rol no lo tiene">Bloqueado</span>
                     }
                   </span>
                   <span class="text-[10px] font-mono text-content-faint">{{ row.key }}</span>

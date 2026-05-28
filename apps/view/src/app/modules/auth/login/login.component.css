@@ -58,15 +58,6 @@
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-/* Kinetic Background */
-.kinetic-bg {
-  background: radial-gradient(circle at 20% 30%, #1b1b23 0%, #13131a 100%);
-}
-
-/* Text Jolt Effect */
-.text-jolt {
-  text-shadow: 0 0 40px rgba(255, 255, 0, 0.1);
-}
 
 /* Tipografía unificada: Inter para todo */
 .font-headline,
@@ -91,7 +82,7 @@
 
 /* Focus Styles */
 .focus-visible:focus {
-  outline: 2px solid var(--primary-fixed);
+  outline: 2px solid var(--brand-400);
   outline-offset: 2px;
 }
 
@@ -111,10 +102,6 @@ input:focus {
 
 /* Responsive Design */
 @media (max-width: 768px) {
-  .kinetic-bg {
-    background: radial-gradient(circle at 50% 50%, #1b1b23 0%, #13131a 100%);
-  }
-
   /* Mobile adjustments */
   .text-4xl {
     font-size: 1.875rem; /* 30px */
@@ -222,9 +209,3 @@ input:focus {
   outline: none;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-  .kinetic-bg {
-    background: radial-gradient(circle at 50% 50%, #1b1b23 0%, #13131a 100%);
-  }
-}

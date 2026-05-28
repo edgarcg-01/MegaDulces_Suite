@@ -98,15 +98,24 @@
   transition: width 0.8s ease-out;
 }
 
-/* Always-dark card: fondo fijo en ambos temas. */
+/* Highlight card: oscuro en light, sigue card-bg en dark (donde ya todo es oscuro). */
 .monochrome-highlight {
-  background: #000;
-  color: #fff;
+  background: var(--neutral-950);
+  color: var(--neutral-50);
   border: none;
 }
 
-.monochrome-highlight .text-dim        { color: var(--neutral-600); }
-.monochrome-highlight .text-dim-strong { color: var(--neutral-400); }
+.theme-monochrome .monochrome-highlight {
+  background: var(--card-bg);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+.monochrome-highlight .text-dim        { color: var(--neutral-500); }
+.monochrome-highlight .text-dim-strong { color: var(--neutral-300); }
+
+.theme-monochrome .monochrome-highlight .text-dim        { color: var(--text-muted); }
+.theme-monochrome .monochrome-highlight .text-dim-strong { color: var(--text-faint); }
 
 /* Animations */
 @keyframes slideUp {

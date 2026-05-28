@@ -6,8 +6,8 @@
       </h1>
       <p class="text-sm text-content-dim">Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.</p>
     </div>
-    <div class="bg-surface-card border border-surface-border px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">
-        <div class="text-xs font-black text-brand uppercase tracking-widest border-r border-surface-border pr-3">Equipos Activos</div>
+    <div class="bg-surface-card border border-divider px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">
+        <div class="text-xs font-black text-brand uppercase tracking-widest border-r border-divider pr-3">Equipos Activos</div>
         <div class="flex -space-x-2">
             @for (m of filteredTeam().slice(0, 5); track m.id) {
                 <div class="w-8 h-8 rounded-full border-2 border-surface-card bg-surface-ground flex items-center justify-center text-xs font-bold text-primary">
@@ -25,14 +25,14 @@
 
   <div class="flex flex-1 flex-col lg:flex-row gap-4 sm:gap-6 overflow-hidden min-h-0 lg:min-h-[500px]">
     <!-- Left: Master / Members -->
-    <div class="w-full lg:w-80 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden max-h-[200px] lg:max-h-none">
-      <div class="p-4 border-b border-surface-border bg-surface-ground/30">
+    <div class="w-full lg:w-80 flex flex-col bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden max-h-[200px] lg:max-h-none">
+      <div class="p-4 border-b border-divider bg-surface-ground/30">
         <div class="relative w-full">
             <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-xs"></i>
             <input type="text" pInputText placeholder="Buscar colaborador..."
                    [ngModel]="searchQuery()"
                    (ngModelChange)="onSearchChange($event)"
-                   class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-surface-border rounded-lg outline-none focus:border-brand transition-all" />
+                   class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-divider rounded-lg outline-none focus:border-brand transition-all" />
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">
@@ -59,9 +59,9 @@
     </div>
 
     <!-- Right: Detail / Weekly View -->
-    <div class="flex-1 flex flex-col bg-surface-card border border-surface-border rounded-xl shadow-sm overflow-hidden relative">
+    <div class="flex-1 flex flex-col bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden relative">
       @if (selectedMember()) {
-        <div class="p-4 border-b border-surface-border bg-gradient-to-r from-surface-ground/50 to-transparent flex justify-between items-center">
+        <div class="p-4 border-b border-divider bg-gradient-to-r from-surface-ground/50 to-transparent flex justify-between items-center">
             <div class="text-center">
               <div class="text-sm font-black text-content-main uppercase tracking-[0.2em]">Semana de Trabajo Repetitiva</div>
               <div class="flex items-center justify-center gap-2 mt-1">
@@ -72,12 +72,12 @@
         </div>
 
         <!-- Selected Member Summary -->
-        <div class="px-6 py-4 bg-brand/[0.03] border-b border-surface-border flex items-center gap-4">
+        <div class="px-6 py-4 bg-brand/[0.03] border-b border-divider flex items-center gap-4">
             <div class="flex flex-col">
                 <span class="text-xs font-black uppercase tracking-tighter text-content-faint">Gestionando agenda de:</span>
                 <span class="text-lg font-black text-content-main">{{ selectedMember()?.nombre || selectedMember()?.username }}</span>
             </div>
-            <div class="h-8 w-[1px] bg-surface-border"></div>
+            <div class="h-8 w-[1px] bg-surface-ground border border-divider"></div>
             <div class="flex flex-col">
                 <span class="text-xs font-black uppercase tracking-tighter text-content-faint">Zona de Trabajo:</span>
                 <span class="text-sm font-bold text-brand uppercase tracking-widest">{{ selectedMember()?.zona }}</span>
@@ -87,9 +87,9 @@
         <div class="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
           <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
             @for (day of days; track day.id) {
-              <div class="day-card bg-surface-ground/20 border border-surface-border rounded-2xl p-4 flex flex-col gap-4 hover:border-brand/30 transition-all"
+              <div class="day-card bg-surface-ground/20 border border-divider rounded-2xl p-4 flex flex-col gap-4 hover:border-brand/30 transition-all"
                    [class.today-card]="todayNumber() === day.id">
-                <div class="flex justify-between items-start pb-3 border-b border-surface-border/50">
+                <div class="flex justify-between items-start pb-3 border-b border-divider/50">
                   <div class="flex flex-col">
                     <span class="text-[11px] font-black uppercase tracking-[0.2em] text-brand">Día de la Semana</span>
                     <span class="text-2xl font-black text-content-main">{{ day.label }}</span>
