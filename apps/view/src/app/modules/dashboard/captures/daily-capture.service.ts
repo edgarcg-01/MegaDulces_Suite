@@ -569,8 +569,15 @@ export class DailyCaptureService {
         this.clearActiveState();
       }),
       catchError((error) => {
-        // Detectar error de red: status 0 (cors/network) o offline conocido.
-        const isNetworkError = !error.status || error.status === 0;
+        // Considerar "no llegó al backend" tanto network errors puros
+        // (status 0) como timeouts del proxy/edge (504/503/502/408/522/524).
+        // En todos esos casos la visita NO se persistió en server y el UX
+        // correcto es caer al path offline para no perder la captura.
+        const TIMEOUT_STATUSES = new Set([408, 502, 503, 504, 522, 524]);
+        const isNetworkError =
+          !error.status ||
+          error.status === 0 ||
+          TIMEOUT_STATUSES.has(error.status);
 
         if (isNetworkError) {
           // Sin tienda no guardamos offline: el placeholder 'default' de

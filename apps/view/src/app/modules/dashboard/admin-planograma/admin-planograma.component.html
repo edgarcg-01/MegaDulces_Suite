@@ -66,12 +66,20 @@
           <td class="text-center">
             <div class="flex justify-center gap-1">
               @if (canManage() && brand.activo === false) {
-                <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateBrand(brand)" pTooltip="Reactivar"></p-button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateBrand(brand)" pTooltip="Reactivar" aria-label="Reactivar marca">
+                  <i class="pi pi-replay" aria-hidden="true"></i>
+                </button>
               }
               @if (canManage()) {
-                <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand)" pTooltip="Agregar producto"></p-button>
-                <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>
-                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)" [disabled]="brand.activo === false" [pTooltip]="brand.activo === false ? 'Ya está inactiva' : 'Eliminar'"></p-button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openAddProduct(brand)" pTooltip="Agregar producto" aria-label="Agregar producto">
+                  <i class="pi pi-plus" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="icon-btn-ghost" (click)="openEditBrand(brand)" pTooltip="Editar marca" aria-label="Editar marca">
+                  <i class="pi pi-pencil" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteBrand(brand.id)" [disabled]="brand.activo === false" [pTooltip]="brand.activo === false ? 'Ya está inactiva' : 'Eliminar'" aria-label="Eliminar marca">
+                  <i class="pi pi-trash" aria-hidden="true"></i>
+                </button>
               }
             </div>
           </td>
@@ -104,11 +112,17 @@
                        <td class="text-center">
                           <div class="flex justify-center gap-1">
                              @if (canManage() && product.activo === false) {
-                               <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateProduct(product)" pTooltip="Reactivar"></p-button>
+                               <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateProduct(product)" pTooltip="Reactivar" aria-label="Reactivar producto">
+                                 <i class="pi pi-replay" aria-hidden="true"></i>
+                               </button>
                              }
                              @if (canManage()) {
-                               <p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openEditProduct(product)"></p-button>
-                               <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteProduct(product.id)" [disabled]="product.activo === false" [pTooltip]="product.activo === false ? 'Ya está inactivo' : 'Eliminar'"></p-button>
+                               <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" pTooltip="Editar producto" aria-label="Editar producto">
+                                 <i class="pi pi-pencil" aria-hidden="true"></i>
+                               </button>
+                               <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteProduct(product.id)" [disabled]="product.activo === false" [pTooltip]="product.activo === false ? 'Ya está inactivo' : 'Eliminar'" aria-label="Eliminar producto">
+                                 <i class="pi pi-trash" aria-hidden="true"></i>
+                               </button>
                              }
                           </div>
                        </td>
@@ -144,12 +158,20 @@
         </div>
         <div class="flex gap-1">
           @if (canManage() && brand.activo === false) {
-            <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateBrand(brand)"></p-button>
+            <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateBrand(brand)" aria-label="Reactivar marca">
+              <i class="pi pi-replay" aria-hidden="true"></i>
+            </button>
           }
           @if (canManage()) {
-            <p-button icon="pi pi-plus" [text]="true" severity="info" size="small" (onClick)="openAddProduct(brand)"></p-button>
-            <p-button icon="pi pi-pencil" [text]="true" severity="secondary" size="small" (onClick)="openEditBrand(brand)"></p-button>
-            <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteBrand(brand.id)" [disabled]="brand.activo === false"></p-button>
+            <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openAddProduct(brand)" aria-label="Agregar producto">
+              <i class="pi pi-plus" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="icon-btn-ghost" (click)="openEditBrand(brand)" aria-label="Editar marca">
+              <i class="pi pi-pencil" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteBrand(brand.id)" [disabled]="brand.activo === false" aria-label="Eliminar marca">
+              <i class="pi pi-trash" aria-hidden="true"></i>
+            </button>
           }
         </div>
       </div>
@@ -174,11 +196,17 @@
                 </span>
                 <div class="flex gap-1">
                   @if (canManage() && product.activo === false) {
-                    <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateProduct(product)"></p-button>
+                    <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateProduct(product)" aria-label="Reactivar producto">
+                      <i class="pi pi-replay" aria-hidden="true"></i>
+                    </button>
                   }
                   @if (canManage()) {
-                    <p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openEditProduct(product)"></p-button>
-                    <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteProduct(product.id)" [disabled]="product.activo === false"></p-button>
+                    <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" aria-label="Editar producto">
+                      <i class="pi pi-pencil" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteProduct(product.id)" [disabled]="product.activo === false" aria-label="Eliminar producto">
+                      <i class="pi pi-trash" aria-hidden="true"></i>
+                    </button>
                   }
                 </div>
               </div>
@@ -206,6 +234,12 @@
   (visibleChange)="showAddBrandDialog.set($event)"
   [modal]="true"
   [style]="{width: '350px'}"
+  [breakpoints]="{'640px': '100vw'}"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  [draggable]="false"
+  [resizable]="false"
+  appendTo="body"
   styleClass="surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="flex flex-col gap-4 py-4">
@@ -226,6 +260,12 @@
   (visibleChange)="showEditBrandDialog.set($event)"
   [modal]="true"
   [style]="{width: '350px'}"
+  [breakpoints]="{'640px': '100vw'}"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  [draggable]="false"
+  [resizable]="false"
+  appendTo="body"
   styleClass="surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="flex flex-col gap-4 py-4">
@@ -247,6 +287,12 @@
   (visibleChange)="showAddProductDialog.set($event)"
   [modal]="true"
   [style]="{width: '350px'}"
+  [breakpoints]="{'640px': '100vw'}"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  [draggable]="false"
+  [resizable]="false"
+  appendTo="body"
   styleClass="surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="flex flex-col gap-4 py-4">
@@ -267,6 +313,12 @@
   (visibleChange)="showEditProductDialog.set($event)"
   [modal]="true"
   [style]="{width: '350px'}"
+  [breakpoints]="{'640px': '100vw'}"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  [draggable]="false"
+  [resizable]="false"
+  appendTo="body"
   styleClass="surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main'">
   <div class="flex flex-col gap-4 py-4">

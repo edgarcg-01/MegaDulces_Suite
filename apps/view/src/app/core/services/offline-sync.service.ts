@@ -361,9 +361,21 @@ export class OfflineSyncService {
 
       console.log(`[OfflineSync] Visita ${visita.id} sincronizada exitosamente`);
 
-    } catch (error) {
-      // Incrementar contador de intentos fallidos
-      await this.db.incrementarIntentoFallido(visita.id, error as string);
+    } catch (error: any) {
+      // Timeouts del proxy/edge (502/503/504/408/522/524) y network errors (0)
+      // NO consumen el contador de retries — el problema es transitorio del
+      // servidor, no de la visita. Reintentamos en el próximo ciclo (60s).
+      const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
+      const status = error?.status;
+      const isTransient = status === undefined || TRANSIENT_STATUSES.has(status);
+
+      if (!isTransient) {
+        await this.db.incrementarIntentoFallido(visita.id, error as string);
+      } else {
+        console.warn(
+          `[OfflineSync] Visita ${visita.id}: error transitorio (status=${status ?? 'unknown'}), no se cuenta como intento fallido`,
+        );
+      }
       throw error;
     }
   }
