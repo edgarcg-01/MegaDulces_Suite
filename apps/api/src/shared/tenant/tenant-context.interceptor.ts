@@ -1,24 +1,30 @@
 import {
   CallHandler,
   ExecutionContext,
+  Inject,
   Injectable,
   Logger,
   NestInterceptor,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Knex } from 'knex';
 import { Observable } from 'rxjs';
+import { KNEX_CONNECTION_RAW } from '../database/database.module';
+import { legacyTxStorage } from './legacy-tx.als';
 import { TenantContextService } from './tenant-context.service';
 
 /**
- * Interceptor GLOBAL que extrae tenant_id del Authorization Bearer JWT y abre
- * un AsyncLocalStorage scope para el resto del request.
+ * Interceptor GLOBAL que extrae tenant_id del Authorization Bearer JWT y:
+ *   1. Abre AsyncLocalStorage scope via TenantContextService (multi-tenant CLS).
+ *   2. Abre un trx contra KNEX_CONNECTION_RAW, hace `SET LOCAL app.tenant_id`,
+ *      guarda el trx en `legacyTxStorage`, y corre el handler en ese scope.
+ *      Esto permite que los servicios legacy (que usan KNEX_CONNECTION) hagan
+ *      INSERTs en tablas con `tenant_id NOT NULL` — el trigger SQL
+ *      `auto_populate_tenant_id` lee `current_tenant_id()` y rellena el campo.
  *
  * Decode inline del JWT (no requiere passport-jwt). Si el cliente manda un Bearer
  * inválido o expirado, devolvemos 401. Sin Bearer pasa sin scope.
- *
- * Después de pasar por este interceptor, cualquier service puede inyectar
- * `TenantContextService` y llamar `get()` o `requireTenantId()`.
  */
 @Injectable()
 export class TenantContextInterceptor implements NestInterceptor {
@@ -27,6 +33,7 @@ export class TenantContextInterceptor implements NestInterceptor {
   constructor(
     private readonly tenantCtx: TenantContextService,
     private readonly jwtService: JwtService,
+    @Inject(KNEX_CONNECTION_RAW) private readonly legacyRawKnex: Knex,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
@@ -44,21 +51,47 @@ export class TenantContextInterceptor implements NestInterceptor {
     }
 
     request.user = payload;
+    const tenantId = payload.tenant_id as string;
 
     return new Observable((subscriber) => {
       this.tenantCtx.run(
         {
-          tenantId: payload.tenant_id as string,
+          tenantId,
           userId: payload.sub,
           username: payload.username,
           roleName: payload.role_name,
         },
         () => {
-          next.handle().subscribe({
-            next: (value) => subscriber.next(value),
-            error: (err) => subscriber.error(err),
-            complete: () => subscriber.complete(),
-          });
+          // Abre trx en knex raw, setea GUC, ejecuta handler en ALS scope.
+          // commit/rollback se hace según el outcome del Observable.
+          this.legacyRawKnex
+            .transaction(async (tx) => {
+              await tx.raw(`SET LOCAL app.tenant_id = ?`, [tenantId]);
+
+              await new Promise<void>((resolve, reject) => {
+                legacyTxStorage.run({ tx, tenantId }, () => {
+                  next.handle().subscribe({
+                    next: (value) => subscriber.next(value),
+                    error: (err) => {
+                      subscriber.error(err);
+                      reject(err);
+                    },
+                    complete: () => {
+                      subscriber.complete();
+                      resolve();
+                    },
+                  });
+                });
+              });
+            })
+            .catch((err) => {
+              // Si subscriber.error ya se llamó arriba, este catch es no-op
+              // (rxjs ignora errores duplicados). Sólo aplica si el trx falla
+              // antes de que el handler corra.
+              if (!subscriber.closed) {
+                subscriber.error(err);
+              }
+            });
         },
       );
     });

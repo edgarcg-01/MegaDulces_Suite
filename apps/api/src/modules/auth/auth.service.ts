@@ -28,6 +28,7 @@ interface JwtPayload {
   username: string;
   zona: string;
   role_name: string;
+  tenant_id?: string;
   permissions?: Record<string, boolean>;
   rules?: any[];
 }
@@ -71,6 +72,7 @@ export class AuthService {
       username: user.username,
       zona: user.zona,
       role_name: user.role_name,
+      tenant_id: user.tenant_id,
       // Snapshot para UI gating (no para autorización backend).
       permissions: permissions,
       rules: ability.rules,

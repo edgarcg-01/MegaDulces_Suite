@@ -382,87 +382,91 @@
 
         <p-tabpanel [value]="3">
           @if (!loading()) {
-            @if (productStatsProcessed) {
-              <div class="pt-4 space-y-6">
+            <div class="pt-4 space-y-6">
 
-                <!-- KPIs de Ejecución: Salud y Agotamiento -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <!-- Salud de Exhibidores -->
-                  <div class="card-premium card-flat">
-                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-                      <div>
-                        <h3 class="text-sm font-bold text-content-main">Salud General de Exhibidores</h3>
-                        <p class="text-xs text-content-muted mt-0.5">Estado de ejecución e imagen en PDV</p>
-                      </div>
-                      <div class="flex gap-2 flex-wrap">
-                        <span class="flex items-center gap-1 text-xs font-bold status-ok status-text">
-                          <span class="status-dot"></span> Óptimo
-                        </span>
-                        <span class="flex items-center gap-1 text-xs font-bold status-warn status-text">
-                          <span class="status-dot"></span> Regular
-                        </span>
-                        <span class="flex items-center gap-1 text-xs font-bold status-bad status-text">
-                          <span class="status-dot"></span> Crítico
-                        </span>
-                      </div>
-                    </div>
-                    <div class="h-[240px] flex items-center justify-center">
-                      @if (exhibidoresHealthChartData) {
-                        <p-chart type="pie" [data]="exhibidoresHealthChartData" [options]="doughnutChartOptions" height="100%"></p-chart>
-                      }
-                    </div>
-                    <div class="mt-4 grid grid-cols-3 gap-2 text-center">
-                      <div class="p-2 rounded-lg status-ok status-soft-bg border" style="border-color: var(--status-border)">
-                        <div class="text-sm font-bold status-text">{{ currentHealthStats.optimo }}</div>
-                        <div class="text-[11px] uppercase font-black status-text">Excelentes</div>
-                      </div>
-                      <div class="p-2 rounded-lg status-warn status-soft-bg border" style="border-color: var(--status-border)">
-                        <div class="text-sm font-bold status-text">{{ currentHealthStats.regular }}</div>
-                        <div class="text-[11px] uppercase font-black status-text">Regulares</div>
-                      </div>
-                      <div class="p-2 rounded-lg status-bad status-soft-bg border" style="border-color: var(--status-border)">
-                        <div class="text-sm font-bold status-text">{{ currentHealthStats.critico }}</div>
-                        <div class="text-[11px] uppercase font-black status-text">Críticos</div>
-                      </div>
-                    </div>
+              <!-- Salud General — siempre visible cuando hay health data, aunque no haya productos -->
+              <div class="card-premium card-flat">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                  <div>
+                    <h3 class="text-sm font-bold text-content-main">Salud General de Exhibidores</h3>
+                    <p class="text-xs text-content-muted mt-0.5">Estado de ejecución e imagen en PDV</p>
                   </div>
-
-                  <!-- Tasa de Agotamiento (Stockouts) -->
-                  <div class="card-premium card-flat">
-                    <div class="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes (Stockout Rate)</h3>
-                        <p class="text-xs text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
-                      </div>
-                      <i class="pi pi-exclamation-circle status-bad status-text" aria-hidden="true"></i>
-                    </div>
-                    <div class="overflow-hidden rounded-xl border border-divider">
-                      <p-table [value]="topFaltantes" styleClass="p-datatable-sm">
-                        <ng-template pTemplate="header">
-                          <tr class="text-xs uppercase text-content-faint bg-surface-ground">
-                            <th class="py-2 px-3">Producto</th>
-                            <th class="py-2 px-3 text-right">Stockout Rate</th>
-                          </tr>
-                        </ng-template>
-                        <ng-template pTemplate="body" let-p>
-                          <tr class="text-xs border-b border-divider/50 last:border-0"
-                              [class]="'status-' + stockoutSeverity(p.stockoutRate)">
-                            <td class="py-2 px-3 font-medium text-content-main truncate max-w-[150px]">{{ p.name }}</td>
-                            <td class="py-2 px-3 text-right">
-                              <div class="flex items-center justify-end gap-2">
-                                <div class="w-12 h-1.5 rounded-full bg-surface-layout overflow-hidden hidden sm:block">
-                                  <div class="h-full status-fill rounded-full" [style.width.%]="p.stockoutRate"></div>
-                                </div>
-                                <span class="status-chip">{{ p.stockoutRate }}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        </ng-template>
-                      </p-table>
-                    </div>
-                    <p class="text-xs text-content-muted mt-3 italic">* Basado en la ausencia de aparición del SKU en el total de visitas filtradas.</p>
+                  <div class="flex gap-2 flex-wrap">
+                    <span class="flex items-center gap-1 text-xs font-bold status-ok status-text">
+                      <span class="status-dot"></span> Óptimo
+                    </span>
+                    <span class="flex items-center gap-1 text-xs font-bold status-warn status-text">
+                      <span class="status-dot"></span> Regular
+                    </span>
+                    <span class="flex items-center gap-1 text-xs font-bold status-bad status-text">
+                      <span class="status-dot"></span> Crítico
+                    </span>
                   </div>
                 </div>
+                <div class="h-[240px] flex items-center justify-center">
+                  @if (totalHealthExhibidores() > 0 && exhibidoresHealthChartData) {
+                    <p-chart type="pie" [data]="exhibidoresHealthChartData" [options]="doughnutChartOptions" height="100%"></p-chart>
+                  } @else {
+                    <div class="text-center text-content-muted px-4">
+                      <i class="pi pi-chart-pie text-3xl text-content-faint mb-2 block" aria-hidden="true"></i>
+                      <p class="text-sm">Aún no hay exhibidores capturados para este rango.</p>
+                      <p class="text-xs text-content-faint mt-1">Cambia los filtros o registra una visita para ver el desglose.</p>
+                    </div>
+                  }
+                </div>
+                <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+                  <div class="p-2 rounded-lg status-ok status-soft-bg border" style="border-color: var(--status-border)">
+                    <div class="text-sm font-bold status-text">{{ currentHealthStats.optimo }}</div>
+                    <div class="text-[11px] uppercase font-black status-text">Excelentes</div>
+                  </div>
+                  <div class="p-2 rounded-lg status-warn status-soft-bg border" style="border-color: var(--status-border)">
+                    <div class="text-sm font-bold status-text">{{ currentHealthStats.regular }}</div>
+                    <div class="text-[11px] uppercase font-black status-text">Regulares</div>
+                  </div>
+                  <div class="p-2 rounded-lg status-bad status-soft-bg border" style="border-color: var(--status-border)">
+                    <div class="text-sm font-bold status-text">{{ currentHealthStats.critico }}</div>
+                    <div class="text-[11px] uppercase font-black status-text">Críticos</div>
+                  </div>
+                </div>
+              </div>
+
+            @if (productStatsProcessed) {
+
+              <!-- Tasa de Agotamiento (Stockouts) -->
+              <div class="card-premium card-flat">
+                <div class="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes (Stockout Rate)</h3>
+                    <p class="text-xs text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
+                  </div>
+                  <i class="pi pi-exclamation-circle status-bad status-text" aria-hidden="true"></i>
+                </div>
+                <div class="overflow-hidden rounded-xl border border-divider">
+                  <p-table [value]="topFaltantes" styleClass="p-datatable-sm">
+                    <ng-template pTemplate="header">
+                      <tr class="text-xs uppercase text-content-faint bg-surface-ground">
+                        <th class="py-2 px-3">Producto</th>
+                        <th class="py-2 px-3 text-right">Stockout Rate</th>
+                      </tr>
+                    </ng-template>
+                    <ng-template pTemplate="body" let-p>
+                      <tr class="text-xs border-b border-divider/50 last:border-0"
+                          [class]="'status-' + stockoutSeverity(p.stockoutRate)">
+                        <td class="py-2 px-3 font-medium text-content-main truncate max-w-[150px]">{{ p.name }}</td>
+                        <td class="py-2 px-3 text-right">
+                          <div class="flex items-center justify-end gap-2">
+                            <div class="w-12 h-1.5 rounded-full bg-surface-layout overflow-hidden hidden sm:block">
+                              <div class="h-full status-fill rounded-full" [style.width.%]="p.stockoutRate"></div>
+                            </div>
+                            <span class="status-chip">{{ p.stockoutRate }}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                </div>
+                <p class="text-xs text-content-muted mt-3 italic">* Basado en la ausencia de aparición del SKU en el total de visitas filtradas.</p>
+              </div>
 
                 <!-- Gráfica de Top Productos (Existente) -->
                 <div class="card-premium card-flat mt-6">

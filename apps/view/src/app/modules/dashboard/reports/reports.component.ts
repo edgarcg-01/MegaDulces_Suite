@@ -1060,6 +1060,9 @@ export class ReportsComponent implements OnInit, AfterViewInit {
   }
 
   buildProductCharts(data: ReportsData) {
+    // Health chart se puebla siempre — `exhibidoresHealth` viene del backend
+    // aunque productStats esté vacío (el agregado se hace en otro loop).
+    this.refreshHealthData(data.exhibidoresHealth);
 
     if (!data.productStats || Object.keys(data.productStats).length === 0) {
       this.productStatsProcessed = false;
@@ -1067,9 +1070,6 @@ export class ReportsComponent implements OnInit, AfterViewInit {
     }
     this.productStatsProcessed = true;
     const stats = data.productStats;
-    
-    // Build Health Chart
-    this.refreshHealthData(data.exhibidoresHealth);
 
     const groups = this.dailyCaptureService.groupedProducts();
     // Poblar mapa de productos para búsqueda rápida por marca
@@ -1164,6 +1164,11 @@ export class ReportsComponent implements OnInit, AfterViewInit {
 
   pidToBrandMap: Record<string, string> = {};
   currentHealthStats = { optimo: 0, regular: 0, critico: 0 };
+
+  totalHealthExhibidores(): number {
+    const h = this.currentHealthStats;
+    return (h?.optimo || 0) + (h?.regular || 0) + (h?.critico || 0);
+  }
 
   updateHealthByBrand() {
     const data = this.reportsData();
