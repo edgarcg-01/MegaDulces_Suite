@@ -140,11 +140,21 @@ export class OfflineSyncService {
 
     try {
       console.log('[OfflineSync] Iniciando sincronización completa');
-      
-      // Sincronizar catálogos primero
-      await this.sincronizarCatalogos();
-      
-      // Sincronizar visitas
+
+      // Catálogos son nice-to-have. Si fallan (504 del server, endpoint roto)
+      // NO debe bloquear el sync de visitas — esas son lo crítico para no
+      // perder data del usuario. Antes de este aislamiento, un 504 en
+      // /catalogs/* dejaba las visitas atascadas indefinidamente en Dexie.
+      try {
+        await this.sincronizarCatalogos();
+      } catch (catErr) {
+        console.warn(
+          '[OfflineSync] Catálogos fallaron, continuando con sync de visitas:',
+          catErr,
+        );
+      }
+
+      // Sincronizar visitas — fuente real de verdad del trabajo del usuario.
       const resultadoVisitas = await this.sincronizarVisitas();
       
       // Actualizar estado

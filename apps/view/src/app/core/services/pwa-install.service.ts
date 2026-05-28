@@ -10,6 +10,9 @@ export interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
 }
 
+const DISMISS_STORAGE_KEY = 'pwa-install-dismissed-at';
+const DISMISS_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
+
 @Injectable({ providedIn: 'root' })
 export class PwaInstallService {
   private deferredPrompt: BeforeInstallPromptEvent | null = null;
@@ -22,57 +25,43 @@ export class PwaInstallService {
 
   private setupInstallPrompt(): void {
     window.addEventListener('beforeinstallprompt', (e) => {
-      // Prevenir el prompt automático
       e.preventDefault();
       this.deferredPrompt = e as BeforeInstallPromptEvent;
-      
-      // Mostrar el prompt personalizado después de un pequeño retraso
-      setTimeout(() => {
-        this.installPromptSource.next(true);
-      }, 3000);
+      if (this.isDismissedRecently()) return;
+      setTimeout(() => this.installPromptSource.next(true), 5000);
     });
 
     window.addEventListener('appinstalled', () => {
-      console.log('[PWA] App instalada exitosamente');
       this.deferredPrompt = null;
       this.installPromptSource.next(false);
+      try { localStorage.removeItem(DISMISS_STORAGE_KEY); } catch {}
     });
+  }
+
+  private isDismissedRecently(): boolean {
+    try {
+      const ts = parseInt(localStorage.getItem(DISMISS_STORAGE_KEY) || '0', 10);
+      return ts > 0 && Date.now() - ts < DISMISS_COOLDOWN_MS;
+    } catch {
+      return false;
+    }
   }
 
   async installPWA(): Promise<{ success: boolean; message: string }> {
     if (!this.deferredPrompt) {
-      return {
-        success: false,
-        message: 'No hay instalación pendiente o la app ya está instalada'
-      };
+      return { success: false, message: 'No hay instalación pendiente o la app ya está instalada' };
     }
-
     try {
-      // Mostrar el prompt de instalación
       await this.deferredPrompt.prompt();
-      
-      // Esperar la respuesta del usuario
       const { outcome } = await this.deferredPrompt.userChoice;
-      
       if (outcome === 'accepted') {
-        console.log('[PWA] Usuario aceptó la instalación');
-        return {
-          success: true,
-          message: 'Instalación iniciada correctamente'
-        };
-      } else {
-        console.log('[PWA] Usuario rechazó la instalación');
-        return {
-          success: false,
-          message: 'Instalación cancelada por el usuario'
-        };
+        return { success: true, message: 'Instalación iniciada correctamente' };
       }
+      this.persistDismissal();
+      return { success: false, message: 'Instalación cancelada por el usuario' };
     } catch (error) {
       console.error('[PWA] Error durante la instalación:', error);
-      return {
-        success: false,
-        message: 'Error durante la instalación'
-      };
+      return { success: false, message: 'Error durante la instalación' };
     } finally {
       this.deferredPrompt = null;
       this.installPromptSource.next(false);
@@ -80,19 +69,17 @@ export class PwaInstallService {
   }
 
   dismissInstallPrompt(): void {
-    this.deferredPrompt = null;
+    this.persistDismissal();
     this.installPromptSource.next(false);
-    
-    // Ocultar/remover el prompt visualmente
     const prompt = document.querySelector('.pwa-install-prompt');
     if (prompt) {
       prompt.classList.add('hide');
-      setTimeout(() => {
-        if (prompt.parentElement) {
-          prompt.remove();
-        }
-      }, 300);
+      setTimeout(() => prompt.remove(), 300);
     }
+  }
+
+  private persistDismissal(): void {
+    try { localStorage.setItem(DISMISS_STORAGE_KEY, Date.now().toString()); } catch {}
   }
 
   canInstall(): boolean {
@@ -167,11 +154,11 @@ export class PwaInstallService {
 
     const title = document.createElement('div');
     title.className = 'pwa-install-prompt-title';
-    title.textContent = '📱 Instalar Trade Marketing';
+    title.textContent = 'Instalar Mega Dulces';
 
     const text = document.createElement('div');
     text.className = 'pwa-install-prompt-text';
-    text.textContent = 'Instala esta app para acceder más rápido.';
+    text.textContent = 'Sumá la app a tu pantalla de inicio para acceder más rápido.';
 
     content.appendChild(title);
     content.appendChild(text);

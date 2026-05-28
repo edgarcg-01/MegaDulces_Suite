@@ -25,10 +25,11 @@
   <link rel="icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
   <link rel="shortcut icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
 
-  <!-- Theme Color para navegadores móviles (azul trade marketing) -->
-  <meta name="theme-color" content="#1976d2">
-  <meta name="msapplication-TileColor" content="#1976d2">
-  <meta name="msapplication-config" content="browserconfig.xml">
+  <!-- Theme color (amarillo Mega Dulces). Tema claro = brand-400; el browser
+       puede usar uno distinto en dark mode si declarás media. -->
+  <meta name="theme-color" content="#FDE707" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#09090B" media="(prefers-color-scheme: dark)">
+  <meta name="msapplication-TileColor" content="#FDE707">
 
   <!-- Apple Touch Icon - Logo Mega Dulces -->
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/icon-192x192.png">
@@ -38,33 +39,32 @@
 
   <!-- Meta tags para iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="TM Offline">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mega Dulces">
 
   <!-- Meta tags para PWA -->
-  <meta name="application-name" content="TM Offline">
+  <meta name="application-name" content="Mega Dulces">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-touch-fullscreen" content="yes">
   <meta name="format-detection" content="telephone=no">
 
   <!-- Meta tags para descripción y SEO -->
-  <meta name="description" content="Sistema de Trade Marketing Offline - Gestión de visitas y exhibiciones sin conexión">
-  <meta name="keywords" content="trade marketing, offline, visitas, exhibiciones, sincronización">
-  <meta name="author" content="Trade Marketing Team">
+  <meta name="description" content="Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.">
+  <meta name="keywords" content="mega dulces, trade marketing, pedidos b2b, logística, ventas">
+  <meta name="author" content="Mega Dulces">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="/">
-  <meta property="og:title" content="Trade Marketing Offline">
-  <meta property="og:description" content="Sistema de Trade Marketing Offline - Gestión de visitas y exhibiciones sin conexión">
+  <meta property="og:title" content="Mega Dulces — Plataforma B2B">
+  <meta property="og:description" content="Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.">
   <meta property="og:image" content="assets/icons/icon-512x512.png">
 
   <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image">
   <meta property="twitter:url" content="/">
-  <meta property="twitter:title" content="Trade Marketing Offline">
-  <meta property="twitter:description" content="Sistema de Trade Marketing Offline - Gestión de visitas y exhibiciones sin conexión">
+  <meta property="twitter:title" content="Mega Dulces — Plataforma B2B">
+  <meta property="twitter:description" content="Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.">
   <meta property="twitter:image" content="assets/icons/icon-512x512.png">
 
   <!-- Preload critical resources -->
@@ -77,52 +77,47 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="X-XSS-Protection" content="1; mode=block">
 
-  <!-- PWA Installation prompt styles -->
+  <!--
+    PWA install prompt — usa los design tokens cargados desde styles.css.
+    Las vars existen apenas Angular monta la app; los estilos viven en el
+    <head> y aplican igual al prompt inyectado por PwaInstallService.
+  -->
   <style>
     .pwa-install-prompt {
       position: fixed;
-      bottom: 20px;
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
       left: 20px;
       right: 20px;
-      background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
-      color: white;
+      background: var(--card-bg, #FFFFFF);
+      color: var(--text-main, #09090B);
+      border: 1px solid var(--border-color, #E4E4E7);
       padding: 16px;
-      border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      border-radius: 16px;
+      box-shadow: var(--shadow-hover, 0 10px 30px -10px rgba(0, 0, 0, 0.1));
       z-index: 9999;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      animation: slideUp 0.3s ease-out;
+      animation: pwaSlideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
 
     .pwa-install-prompt.hide {
-      animation: slideDown 0.3s ease-out forwards;
+      animation: pwaSlideDown 0.3s ease-out forwards;
     }
 
-    @keyframes slideUp {
+    @keyframes pwaSlideUp {
       from { transform: translateY(100px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
     }
 
-    @keyframes slideDown {
+    @keyframes pwaSlideDown {
       from { transform: translateY(0); opacity: 1; }
       to { transform: translateY(100px); opacity: 0; }
     }
 
-    .pwa-install-prompt-content {
-      flex: 1;
-    }
-
-    .pwa-install-prompt-title {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .pwa-install-prompt-text {
-      font-size: 14px;
-      opacity: 0.9;
-    }
+    .pwa-install-prompt-content { flex: 1; min-width: 0; }
+    .pwa-install-prompt-title { font-weight: 600; margin-bottom: 4px; }
+    .pwa-install-prompt-text { font-size: 14px; color: var(--text-muted, #52525B); }
 
     .pwa-install-prompt-buttons {
       display: flex;
@@ -133,27 +128,31 @@
     .pwa-install-prompt button {
       padding: 8px 16px;
       border: none;
-      border-radius: 6px;
+      border-radius: 10px;
       font-size: 14px;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
 
     .pwa-install-prompt .install-btn {
-      background: white;
-      color: #1976d2;
+      background: var(--brand-400, #FDE707);
+      color: var(--neutral-950, #09090B);
     }
 
     .pwa-install-prompt .dismiss-btn {
       background: transparent;
-      color: white;
-      border: 1px solid rgba(255,255,255,0.3);
+      color: var(--text-muted, #52525B);
+      border: 1px solid var(--border-color, #E4E4E7);
     }
 
     .pwa-install-prompt .install-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      box-shadow: var(--shadow-light, 0 1px 3px rgba(0, 0, 0, 0.05));
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pwa-install-prompt { animation: none; }
     }
   </style>
 </head>

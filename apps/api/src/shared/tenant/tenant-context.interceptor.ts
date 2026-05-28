@@ -52,22 +52,20 @@ export class TenantContextInterceptor implements NestInterceptor {
 
     request.user = payload;
     const tenantId = payload.tenant_id as string;
+    const url = (request.url || '').split('?')[0];
+    const method = request.method;
+    const reqId = Math.random().toString(36).slice(2, 8);
 
     // Ejecutamos el flow como Promise → from() lo convierte en Observable que
-    // Nest sabe consumir (un único valor → response HTTP → complete).
-    //
-    // El handler corre dentro de:
-    //   - tenantCtx.run (CLS multi-tenant accesible a TenantContextService.get())
-    //   - legacyTxStorage.run (CLS para que el Proxy de KNEX_CONNECTION enrute al tx)
-    //   - knex.transaction (tx con `app.tenant_id` seteado → trigger lee current_tenant_id())
-    //
-    // El COMMIT ocurre cuando firstValueFrom resuelve sin error. Si tira →
-    // ROLLBACK automático.
-    const handlerPromise = this.legacyRawKnex.transaction((tx) =>
-      tx
-        .raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId])
-        .then(() =>
-          this.tenantCtx.run(
+    // Nest sabe consumir.
+    const handlerPromise = (async () => {
+      const t0 = Date.now();
+      this.logger.log(`[${reqId}] ${method} ${url} → BEGIN tx tenant=${tenantId}`);
+      try {
+        const result = await this.legacyRawKnex.transaction(async (tx) => {
+          await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+          this.logger.log(`[${reqId}] set_config OK (+${Date.now() - t0}ms), invocando handler`);
+          const value = await this.tenantCtx.run(
             {
               tenantId,
               userId: payload.sub,
@@ -78,9 +76,17 @@ export class TenantContextInterceptor implements NestInterceptor {
               legacyTxStorage.run({ tx, tenantId }, () =>
                 firstValueFrom(next.handle()),
               ),
-          ),
-        ),
-    );
+          );
+          this.logger.log(`[${reqId}] handler resolved (+${Date.now() - t0}ms), pre-COMMIT`);
+          return value;
+        });
+        this.logger.log(`[${reqId}] tx COMMITTED (+${Date.now() - t0}ms), returning to Nest`);
+        return result;
+      } catch (err: any) {
+        this.logger.error(`[${reqId}] tx failed (+${Date.now() - t0}ms): ${err?.message ?? err}`);
+        throw err;
+      }
+    })();
 
     return from(handlerPromise);
   }

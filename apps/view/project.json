@@ -22,7 +22,8 @@
         ],
         "styles": ["apps/view/src/styles.css"],
         "scripts": [],
-
+        "serviceWorker": true,
+        "ngswConfigPath": "apps/view/ngsw-config.json"
       },
       "configurations": {
   "production": {

@@ -1,7 +1,14 @@
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import { ApplicationConfig, isDevMode, provideZoneChangeDetection } from '@angular/core';
+
+const isCapacitorNative = (): boolean =>
+  typeof window !== 'undefined' &&
+  (window.location.protocol === 'capacitor:' ||
+    !!(window as any).Capacitor?.isNativePlatform?.());
+
 import { provideRouter, withPreloading, PreloadAllModules } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { authInterceptor } from './core/http/auth.interceptor';
 
@@ -26,5 +33,9 @@ export const appConfig: ApplicationConfig = {
       }
     }),
     ConfirmationService,
+    provideServiceWorker('ngsw-worker.js', {
+      enabled: !isDevMode() && !isCapacitorNative(),
+      registrationStrategy: 'registerWhenStable:30000'
+    })
   ]
 };
