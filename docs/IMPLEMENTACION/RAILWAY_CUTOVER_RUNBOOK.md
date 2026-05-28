@@ -111,8 +111,31 @@ Esperado:
 Ir al **servicio API** en Railway → **Variables** → agregar/editar:
 
 ```bash
-# Conexión a la NUEVA DB
+# ──────────────────────────────────────────────────────────────
+# CONEXIONES A LA NUEVA DB — REQUIERE 2 URLs (postgres + app_runtime)
+# ──────────────────────────────────────────────────────────────
+
+# 1) Admin pool (rol postgres) — usado SOLO por:
+#    - migraciones (knex migrate:latest en start.sh)
+#    - REFRESH MATERIALIZED VIEW (cron analytics)
 DATABASE_URL_NEW=postgresql://postgres:NEW_PASSWORD@NEW_HOST.proxy.rlwy.net:NEW_PORT/railway
+
+# 2) Runtime pool (rol app_runtime) — usado por TODOS los endpoints multi-tenant.
+#    CRÍTICO: sin esta var, KNEX_NEW_DB cae al fallback LAN .245
+#    y todos los endpoints multi-tenant fallan en producción.
+#
+#    Construcción manual del URL después del Paso 2 (migraciones aplicadas):
+#    Reemplazar 'postgres' por 'app_runtime' y usar APP_RUNTIME_PASSWORD.
+DATABASE_URL_NEW_RUNTIME=postgresql://app_runtime:APP_RUNTIME_PASSWORD@NEW_HOST.proxy.rlwy.net:NEW_PORT/railway
+
+# 3) Password del rol app_runtime — leído por la migración 003.
+#    Si NO se setea antes de correr migraciones, el rol queda con password
+#    default 'app_runtime' (inseguro). En prod siempre setear.
+APP_RUNTIME_PASSWORD=<password_fuerte_aqui>
+
+# ──────────────────────────────────────────────────────────────
+# TOGGLES Y SECRETOS
+# ──────────────────────────────────────────────────────────────
 
 # Toggle: activa todos los módulos multi-tenant + JwtAuthGuard global
 ENABLE_MULTITENANT=true
@@ -134,6 +157,20 @@ ANTHROPIC_API_KEY=...
 ```
 
 ⚠️ **DEJAR la `DATABASE_URL` antigua intacta** si la legacy aún sirve algún tráfico. Si vas full cutover, podés eliminarla.
+
+### Verificar que la API arranque con las 2 conexiones
+
+En el log de boot deberías ver:
+
+```
+[DatabaseModule] Connecting to legacy DB via DATABASE_URL (env=production)
+[NewDatabaseModule] Connecting to new multi-tenant DB at <from DATABASE_URL_NEW_RUNTIME>
+[NewDatabaseModule:Admin] Admin (postgres) Knex connection lista para mantenimiento
+```
+
+Si ves:
+- `Connecting to new multi-tenant DB at 192.168.0.245:5432/postgres_platform (fallback)` → **DATABASE_URL_NEW_RUNTIME no está seteado**, fix antes de seguir.
+- `DATABASE_URL_NEW no seteado` → cron analytics no podrá refrescar MVs (no crítico para boot).
 
 ---
 
@@ -237,11 +274,12 @@ Son `@Cron('*/5')` y `@Cron('0 0 9 * * *')`. Verificar logs del API en Railway. 
 ## Resumen de comandos (cheat-sheet)
 
 ```bash
-# Setup
+# Setup (local — para correr migraciones contra Railway)
 export DATABASE_URL_NEW="postgresql://postgres:NEW@NEW_HOST:NEW_PORT/railway"
+export APP_RUNTIME_PASSWORD="<password_fuerte>"
 export LEGACY_DATABASE_URL="postgresql://postgres:GlUi...@switchback.proxy.rlwy.net:16885/railway"
 
-# Cutover automático
+# Cutover automático (aplica migraciones + crea rol app_runtime con APP_RUNTIME_PASSWORD)
 node database/cutover-to-railway.js
 
 # Migrar data legacy
@@ -251,3 +289,16 @@ node database/migrate-legacy-to-newdb.js
 # Verificar
 node database/diff-railway-vs-local.js
 ```
+
+### Env vars que van en el servicio Railway de la API
+
+```
+DATABASE_URL=<URL_legacy_railway>                         # legacy (se mantiene)
+DATABASE_URL_NEW=postgresql://postgres:...@HOST:PORT/db   # admin pool (cron)
+DATABASE_URL_NEW_RUNTIME=postgresql://app_runtime:APP_RUNTIME_PASSWORD@HOST:PORT/db
+APP_RUNTIME_PASSWORD=<password_fuerte>                    # del paso de migraciones
+ENABLE_MULTITENANT=true
+JWT_SECRET=<generado_con_openssl>
+```
+
+⚠️ Sin `DATABASE_URL_NEW_RUNTIME` la app arranca pero **todos los endpoints multi-tenant fallan** (auth-mt/login, /commercial/*, /logistica/*).

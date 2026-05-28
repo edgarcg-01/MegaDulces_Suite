@@ -93,10 +93,15 @@ function buildNewDbConfig(): Knex.Config {
       useFactory: () => {
         const logger = new Logger('NewDatabaseModule');
         const config = buildNewDbConfig();
-        const target = process.env.DATABASE_URL_NEW
-          ? '<from DATABASE_URL_NEW>'
-          : `${process.env.NEW_DB_HOST || '192.168.0.245'}:${process.env.NEW_DB_PORT || 5432}/${process.env.NEW_DB_NAME || 'postgres_platform'}`;
+        const target = process.env.DATABASE_URL_NEW_RUNTIME
+          ? '<from DATABASE_URL_NEW_RUNTIME>'
+          : `${process.env.NEW_DB_HOST || '192.168.0.245'}:${process.env.NEW_DB_PORT || 5432}/${process.env.NEW_DB_NAME || 'postgres_platform'} (fallback)`;
         logger.log(`Connecting to new multi-tenant DB at ${target}`);
+        if (!process.env.DATABASE_URL_NEW_RUNTIME && process.env.NODE_ENV === 'production') {
+          logger.error(
+            'DATABASE_URL_NEW_RUNTIME no seteado en production — multi-tenant endpoints fallarán. Setear esta env var apuntando al rol app_runtime de la new DB Railway.',
+          );
+        }
         return knex(config);
       },
     },
