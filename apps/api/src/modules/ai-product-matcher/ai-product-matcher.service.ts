@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB } from '../../shared/database/new-database.module';
+import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { EmbeddingsService } from '../../shared/ai/embeddings.service';
 import { LlmExtractorService } from '../../shared/ai/llm-extractor.service';
 
@@ -55,7 +55,7 @@ export class AiProductMatcherService {
   private readonly maxItems: number;
 
   constructor(
-    @Inject(KNEX_NEW_DB) private readonly knex: Knex,
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly embeddings: EmbeddingsService,
     private readonly extractor: LlmExtractorService,
   ) {
