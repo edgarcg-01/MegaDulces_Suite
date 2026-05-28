@@ -665,6 +665,25 @@ export class SeguimientoComponent implements OnInit {
     return (exhibiciones ?? []).filter((ex) => ex.fotoUrl).length;
   }
 
+  /** Cuenta exhibiciones marcadas como propias (Mega Dulces). */
+  countOwnBrand(exhibiciones: Exhibicion[] | undefined): number {
+    return (exhibiciones ?? []).filter((ex) => ex.perteneceMegaDulces === true).length;
+  }
+
+  /** Cuenta exhibiciones marcadas como de la competencia. */
+  countCompetition(exhibiciones: Exhibicion[] | undefined): number {
+    return (exhibiciones ?? []).filter((ex) => ex.perteneceMegaDulces === false).length;
+  }
+
+  /**
+   * Devuelve true si la visita tiene AL MENOS una exhibición clasificada
+   * (propia o competencia). Útil para no mostrar chips vacíos en data legacy
+   * sin clasificar (donde perteneceMegaDulces es undefined).
+   */
+  hasOwnershipData(exhibiciones: Exhibicion[] | undefined): boolean {
+    return (exhibiciones ?? []).some((ex) => ex.perteneceMegaDulces !== undefined && ex.perteneceMegaDulces !== null);
+  }
+
   openImagePreview(url: string): void {
     const safe = this.getImageUrl(url);
     if (!safe) return;

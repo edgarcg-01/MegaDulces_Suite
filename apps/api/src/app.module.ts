@@ -110,7 +110,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       // al handshake de socket.io → cliente recibía "websocket error".
       exclude: ['/api/{*path}', '/reports/socket.io/{*path}'],
     }),
-    DatabaseModule,
+    DatabaseModule.forRoot(),
     AbilityModule,
     AuthModule,
     UsersModule,

@@ -124,14 +124,8 @@
       @if (allVisits().length > 0) {
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           @for (visit of filteredVisits(); track visit.folio) {
-            <!--
-              Card clickable con seleccionable interna. Toda el área abre el
-              detail (incluye keyboard via tabindex+enter). El botón "Detalle"
-              de antes era redundante y se eliminó; el ícono `chevron-right`
-              al final indica la acción.
-            -->
             <div
-              class="card-premium cursor-pointer hover:border-content-muted/30 transition-all
+              class="card-premium cursor-pointer transition-all hover-lift
                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
               [class.ring-2]="isVisitSelected(visit.folio)"
               [class.ring-brand-orange]="isVisitSelected(visit.folio)"
@@ -142,40 +136,56 @@
               (keydown.enter)="viewDetail(visit)"
               (keydown.space)="$event.preventDefault(); viewDetail(visit)"
             >
-              <div class="flex items-start gap-3 mb-4">
+              <!-- Top row: checkbox + identidad + score badge -->
+              <div class="flex items-start gap-3">
                 <input
                   type="checkbox"
                   [ngModel]="isVisitSelected(visit.folio)"
                   (ngModelChange)="toggleVisitSelection(visit.folio, $event)"
                   (click)="$event.stopPropagation()"
                   style="accent-color: var(--checkbox-accent); margin-top: 3px;"
-                  class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                  class="w-4 h-4 cursor-pointer focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] shrink-0"
                   [attr.aria-label]="'Seleccionar visita #' + visit.folio + ' para comparar'"
                 />
                 <div class="flex-1 min-w-0">
-                  <div class="text-xs text-content-faint mb-0.5">#{{ visit.folio }} &middot; {{ visit.fecha | date:'dd MMM':'UTC' }} &middot; {{ visit.zona_captura | uppercase }}</div>
-                  <div class="font-bold text-sm text-content-main truncate">{{ visit.captured_by_username }}</div>
-                  <div class="flex gap-1.5 mt-1 flex-wrap">
-                    @if (visit.cliente_nombre) {
-                      <span class="chip-warn-soft uppercase">{{ visit.cliente_nombre }}</span>
-                    }
-                    @if (visit.latitud) {
-                      <span class="chip-info">GPS</span>
-                    }
+                  <div class="text-[11px] text-content-faint font-mono uppercase tracking-wide truncate">
+                    #{{ visit.folio }} · {{ visit.fecha | date:'dd MMM':'UTC' }}
                   </div>
+                  <div class="font-bold text-sm text-content-main truncate mt-0.5">{{ visit.captured_by_username }}</div>
+                  <div class="text-[11px] text-content-muted uppercase tracking-wide mt-0.5 truncate">{{ visit.zona_captura }}</div>
                 </div>
-                <div class="flex flex-col items-center justify-center w-12 h-12 rounded-xl flex-shrink-0 status-soft-bg status-text"
+                <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 status-soft-bg status-text"
                      [class]="'status-' + visitScoreStatus(visit)">
-                  <span class="text-base font-semibold leading-none">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
-                  <span class="text-xs font-medium mt-0.5 opacity-70">pts</span>
+                  <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                  <span class="text-[10px] font-medium mt-0.5 opacity-70 uppercase tracking-wider">pts</span>
                 </div>
               </div>
 
+              <!-- Chips de ownership (solo si hay datos clasificados) -->
+              @if (hasOwnershipData(visit.exhibiciones)) {
+                <div class="flex gap-1.5 mt-3 flex-wrap">
+                  @if (countOwnBrand(visit.exhibiciones) > 0) {
+                    <span class="status-chip status-ok" pTooltip="Exhibiciones de Mega Dulces">
+                      <i class="pi pi-check-circle"></i>
+                      {{ countOwnBrand(visit.exhibiciones) }} Mega Dulces
+                    </span>
+                  }
+                  @if (countCompetition(visit.exhibiciones) > 0) {
+                    <span class="status-chip status-bad" pTooltip="Exhibiciones de competencia">
+                      <i class="pi pi-times-circle"></i>
+                      {{ countCompetition(visit.exhibiciones) }} Competencia
+                    </span>
+                  }
+                </div>
+              }
+
+              <!-- Footer: métricas + chevron -->
               <div class="flex items-center justify-between pt-3 mt-3 border-t border-divider">
                 <span class="text-xs text-content-muted">
-                  {{ visit.exhibiciones?.length ?? 0 }} exhib.
+                  <span class="font-semibold text-content-main tabular-nums">{{ visit.exhibiciones?.length ?? 0 }}</span> exhib.
                   @if (visit.stats?.ventaTotal) {
-                    <span> &middot; ${{ visit.stats?.ventaTotal | number:'1.0-0' }}</span>
+                    <span class="text-content-faint mx-1">·</span>
+                    <span class="font-semibold text-content-main tabular-nums">${{ visit.stats?.ventaTotal | number:'1.0-0' }}</span>
                   }
                 </span>
                 <i class="pi pi-chevron-right text-xs text-content-faint" aria-hidden="true"></i>
@@ -184,8 +194,15 @@
           }
         </div>
       } @else {
-        <div class="text-center py-12 text-content-muted">
-          No hay visitas para hoy
+        <div class="text-center py-12 text-content-muted flex flex-col items-center gap-2">
+          <i class="pi pi-inbox text-3xl text-content-faint" aria-hidden="true"></i>
+          <p class="text-sm">
+            @if (searchText()) {
+              Sin resultados para <span class="font-semibold">"{{ searchText() }}"</span>
+            } @else {
+              No hay visitas para este período
+            }
+          </p>
         </div>
       }
     }
