@@ -1,7 +1,12 @@
 import {
+  AfterViewInit,
   Component,
   DestroyRef,
+  ElementRef,
   OnInit,
+  QueryList,
+  ViewChild,
+  ViewChildren,
   inject,
   signal,
   computed,
@@ -135,7 +140,12 @@ interface PdfSection {
  * Componente principal de reportes y análisis de métricas
  * Muestra KPIs, gráficas y tablas de visitas individuales
  */
-export class ReportsComponent implements OnInit {
+export class ReportsComponent implements OnInit, AfterViewInit {
+  @ViewChildren('liquidTab') liquidTabs?: QueryList<ElementRef<HTMLButtonElement>>;
+  @ViewChild('liquidIndicator') liquidIndicator?: ElementRef<HTMLSpanElement>;
+  @ViewChild('liquidTabsContainer') liquidTabsContainer?: ElementRef<HTMLDivElement>;
+  private liquidResizeObserver?: ResizeObserver;
+
   private reportsService = inject(ReportsService);
   private http = inject(HttpClient);
   private auth = inject(AuthService);
@@ -408,6 +418,46 @@ export class ReportsComponent implements OnInit {
         if (data) this.buildCharts(data);
       });
     });
+
+    // Reposicionar el blob deslizante de los tabs al cambiar activeTab.
+    effect(() => {
+      this.activeTab();
+      untracked(() => queueMicrotask(() => this.syncLiquidIndicator()));
+    });
+  }
+
+  ngAfterViewInit(): void {
+    queueMicrotask(() => this.syncLiquidIndicator());
+    if (typeof ResizeObserver !== 'undefined' && this.liquidTabsContainer) {
+      this.liquidResizeObserver = new ResizeObserver(() => this.syncLiquidIndicator());
+      this.liquidResizeObserver.observe(this.liquidTabsContainer.nativeElement);
+      this.liquidTabs?.forEach(t => this.liquidResizeObserver!.observe(t.nativeElement));
+      this.destroyRef.onDestroy(() => this.liquidResizeObserver?.disconnect());
+    }
+  }
+
+  private syncLiquidIndicator(): void {
+    const tabs = this.liquidTabs?.toArray();
+    const idx = this.activeTab();
+    const tab = tabs?.[idx]?.nativeElement;
+    const indicator = this.liquidIndicator?.nativeElement;
+    const container = this.liquidTabsContainer?.nativeElement;
+    if (!tab || !indicator || !container) return;
+
+    const left = tab.offsetLeft;
+    const width = tab.offsetWidth;
+    indicator.style.transform = `translate3d(${left}px, 0, 0)`;
+    indicator.style.width = `${width}px`;
+
+    // Scroll horizontal en mobile: asegurar que la tab activa quede visible.
+    if (container.scrollWidth > container.clientWidth) {
+      const tabCenter = left + width / 2;
+      const viewCenter = container.scrollLeft + container.clientWidth / 2;
+      const delta = tabCenter - viewCenter;
+      if (Math.abs(delta) > 8) {
+        container.scrollTo({ left: container.scrollLeft + delta, behavior: 'smooth' });
+      }
+    }
   }
 
   /** Datos de la gráfica principal */

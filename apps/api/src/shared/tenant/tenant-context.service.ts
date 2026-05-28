@@ -18,6 +18,16 @@ export interface TenantContext {
   userId?: string;
   username?: string;
   roleName?: string;
+  /**
+   * Transacción Knex del pool legacy con `SET LOCAL app.tenant_id` aplicado.
+   * Abierta por TenantContextInterceptor al inicio del request, commit al
+   * éxito o rollback en error. El KNEX_CONNECTION proxy del DatabaseModule
+   * legacy la usa transparentemente — los services legacy NO ven la diferencia.
+   *
+   * Sin esto, los services legacy fallarían INSERTs con `null violates
+   * tenant_id NOT NULL` o leerían/escribirían cross-tenant (RLS bypass).
+   */
+  legacyTx?: any;
 }
 
 @Injectable()

@@ -1396,3 +1396,177 @@ input:focus, textarea:focus, select:focus {
   filter: brightness(1.1);
   transform: translateY(-1px);
 }
+
+/* ============================================================
+ * Liquid Tabs estilo iOS 26 (blob deslizante)
+ *
+ * Uso:
+ *   <div class="modern-tabs-wrapper liquid-tabs-host">
+ *     <div class="liquid-tabs" role="tablist"
+ *          [style.--liquid-tab-count]="N"
+ *          [style.--liquid-tab-active]="activeIndex">
+ *       <span class="liquid-tabs-indicator"></span>
+ *       <button class="liquid-tab" [class.is-active]="..." ...>Label</button>
+ *       ...
+ *     </div>
+ *   </div>
+ *
+ * Truco: tabs `flex: 1` (ancho uniforme), indicator pill `width: 100% / N`
+ * absoluto, `translateX(activeIndex * 100%)` mueve por su propio ancho =
+ * exactamente 1/N del container. Spring easing en transform da bounce.
+ *
+ * Si hay `p-tabs` interno que conserva los `p-tabpanels`, agregar
+ * `.liquid-tabs-hide-tablist` para ocultar el tablist nativo.
+ * ============================================================ */
+
+.liquid-tabs-host {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.liquid-tabs {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  max-width: 100%;
+  padding: 4px;
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+  /* Scroll horizontal en mobile cuando los tabs no caben. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+  /* Indicator absolute requiere height definido en el flex parent. */
+  min-height: 44px;
+}
+
+.liquid-tabs::-webkit-scrollbar { display: none; }
+
+.theme-monochrome .liquid-tabs {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.liquid-tabs-indicator {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  height: calc(100% - 8px);
+  /* width y transform los setea el componente vía JS (syncLiquidIndicator).
+     Fallback inicial mientras AfterViewInit no ha corrido: 0 width. */
+  width: 0;
+  transform: translate3d(0, 0, 0);
+  background: var(--card-bg);
+  border-radius: 9999px;
+  transition:
+    transform 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    width 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    background-color 320ms ease,
+    box-shadow 320ms ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 16px rgba(0, 0, 0, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform, width;
+}
+
+.theme-monochrome .liquid-tabs-indicator {
+  background: var(--neutral-700);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.liquid-tab {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 9999px;
+  transition:
+    color 320ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    transform 180ms ease;
+}
+
+/* En viewports anchos, repartir el espacio uniformemente. En mobile cada
+   tab toma su ancho intrínseco y el container scrollea horizontal. */
+@media (min-width: 768px) {
+  .liquid-tab {
+    flex: 1 1 0;
+  }
+  .liquid-tabs {
+    overflow: hidden;
+  }
+}
+
+.liquid-tab.is-active {
+  color: var(--text-main);
+}
+
+.liquid-tab:hover:not(.is-active) {
+  color: var(--text-main);
+}
+
+.liquid-tab:active {
+  transform: scale(0.96);
+}
+
+.liquid-tab:focus-visible {
+  outline: 2px solid var(--brand-400);
+  outline-offset: 2px;
+}
+
+/* Oculta el tablist nativo de PrimeNG cuando usamos nuestro liquid custom
+   pero mantenemos el `p-tabs/p-tabpanels` para que los contenidos sigan
+   resolviéndose por `[value]`. */
+.liquid-tabs-hide-tablist > .p-tablist,
+.liquid-tabs-hide-tablist .p-tablist {
+  display: none !important;
+}
+
+.liquid-tabs-host .p-tabs.liquid-tabs-hide-tablist,
+.liquid-tabs-host .liquid-tabs-hide-tablist.p-tabs {
+  background: transparent !important;
+  border: none !important;
+}
+
+.liquid-tabs-host .liquid-tabs-hide-tablist .p-tabpanels,
+.liquid-tabs-host .liquid-tabs-hide-tablist .p-tabpanel {
+  background: transparent !important;
+  border: none !important;
+  padding: 1rem 0 0 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-tabs-indicator,
+  .liquid-tab {
+    transition-duration: 0.01ms !important;
+  }
+}

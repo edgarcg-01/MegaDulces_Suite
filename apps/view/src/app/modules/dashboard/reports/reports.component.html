@@ -47,15 +47,35 @@
     en mobile (CSS: gradient mask en ::before/::after). Sin flex-wrap: las tabs
     quedan en una sola línea con scroll, evitando el doble renglón antiestético.
   -->
-  <div class="modern-tabs-wrapper">
-    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set(+$event)">
-      <p-tablist class="overflow-x-auto">
-        <p-tab [value]="0" class="text-sm whitespace-nowrap px-3 sm:px-4">Resumen</p-tab>
-        <p-tab [value]="1" class="text-sm whitespace-nowrap px-3 sm:px-4">Registros</p-tab>
-        <p-tab [value]="2" class="text-sm whitespace-nowrap px-3 sm:px-4">Rutas</p-tab>
-        <p-tab [value]="3" class="text-sm whitespace-nowrap px-3 sm:px-4">Productos</p-tab>
-        <p-tab [value]="4" class="text-sm whitespace-nowrap px-3 sm:px-4">Tiendas</p-tab>
-      </p-tablist>
+  <div class="modern-tabs-wrapper liquid-tabs-host">
+    <!-- Tablist custom estilo iOS 26: blob que se desliza con spring easing.
+         La posición y ancho del indicador se miden vía JS (syncLiquidIndicator)
+         para soportar tabs de ancho variable y scroll horizontal en mobile. -->
+    <div class="liquid-tabs" role="tablist" #liquidTabsContainer>
+      <span class="liquid-tabs-indicator" aria-hidden="true" #liquidIndicator></span>
+      <button #liquidTab type="button" role="tab" class="liquid-tab"
+              [class.is-active]="activeTab() === 0"
+              [attr.aria-selected]="activeTab() === 0"
+              (click)="activeTab.set(0)">Resumen</button>
+      <button #liquidTab type="button" role="tab" class="liquid-tab"
+              [class.is-active]="activeTab() === 1"
+              [attr.aria-selected]="activeTab() === 1"
+              (click)="activeTab.set(1)">Registros</button>
+      <button #liquidTab type="button" role="tab" class="liquid-tab"
+              [class.is-active]="activeTab() === 2"
+              [attr.aria-selected]="activeTab() === 2"
+              (click)="activeTab.set(2)">Rutas</button>
+      <button #liquidTab type="button" role="tab" class="liquid-tab"
+              [class.is-active]="activeTab() === 3"
+              [attr.aria-selected]="activeTab() === 3"
+              (click)="activeTab.set(3)">Productos</button>
+      <button #liquidTab type="button" role="tab" class="liquid-tab"
+              [class.is-active]="activeTab() === 4"
+              [attr.aria-selected]="activeTab() === 4"
+              (click)="activeTab.set(4)">Tiendas</button>
+    </div>
+
+    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set(+$event)" styleClass="liquid-tabs-hide-tablist">
 
       <p-tabpanels>
         <p-tabpanel [value]="0">

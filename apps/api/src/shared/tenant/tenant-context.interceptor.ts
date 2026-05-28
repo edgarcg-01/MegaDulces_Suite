@@ -1,27 +1,36 @@
 import {
   CallHandler,
   ExecutionContext,
+  Inject,
   Injectable,
-  NestInterceptor,
   Logger,
+  NestInterceptor,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Knex } from 'knex';
 import { Observable } from 'rxjs';
+import { KNEX_CONNECTION_RAW } from '../database/database.module';
 import { TenantContextService } from './tenant-context.service';
 
 /**
- * Interceptor GLOBAL que extrae tenant_id del Authorization Bearer JWT y abre
- * un AsyncLocalStorage scope para el resto del request.
+ * Interceptor GLOBAL que:
  *
- * Decode inline del JWT (no requiere passport-jwt ni JwtAuthGuard separados —
- * minimal wiring para el cutover multi-tenant). Si el cliente manda un Bearer
- * inválido o expirado, NO bloqueamos el request — solo no abrimos scope. La
- * autorización real (rechazar requests sin auth) la hará el JwtAuthGuard
- * cuando se wire (sprint A.0mt.5 cutover).
+ *  1. Extrae el tenant_id del Authorization Bearer JWT (decode inline).
+ *  2. Abre un AsyncLocalStorage scope con `{ tenantId, userId, username, roleName }`.
+ *  3. Abre una **transacción del pool legacy** con `SET LOCAL app.tenant_id = '...'`
+ *     y la guarda en `ctx.legacyTx`. El KNEX_CONNECTION del DatabaseModule legacy
+ *     es un Proxy que routea queries a esa tx, así los services single-tenant
+ *     (stores, visits, captures, etc.) automáticamente respetan el tenant
+ *     context sin modificar ni una línea.
+ *  4. Commit al final del request, rollback en error.
  *
- * Después de pasar por este interceptor, cualquier service puede inyectar
- * `TenantContextService` y llamar `get()` o `requireTenantId()`.
+ * Sin Authorization → no abre scope ni tx (endpoints públicos: login, health).
+ * Con token inválido → 401.
+ *
+ * NOTA: el `TenantKnexService` (pool nuevo) hace su propio SET LOCAL en cada
+ * `tk.run(cb)`. Acá solo manejamos la tx del pool legacy.
  */
 @Injectable()
 export class TenantContextInterceptor implements NestInterceptor {
@@ -30,53 +39,89 @@ export class TenantContextInterceptor implements NestInterceptor {
   constructor(
     private readonly tenantCtx: TenantContextService,
     private readonly jwtService: JwtService,
+    // KNEX_CONNECTION_RAW = el pool legacy SIN proxy. Acá lo usamos para abrir
+    // la tx manualmente. Si no está disponible (legacy puro), el wrapping
+    // de tx se desactiva y los services legacy operan con el pool normal.
+    @Optional()
+    @Inject(KNEX_CONNECTION_RAW)
+    private readonly legacyKnex: Knex | null = null,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
-
-    // Distinguir 2 casos a partir del header:
-    //   (A) Sin Authorization → endpoint público o legacy. Pasamos sin scope.
-    //   (B) Con Authorization Bearer → DEBE ser válido. Si falla la verificación
-    //       o no trae tenant_id, devolvemos 401 explícito para que el frontend
-    //       sepa hacer logout + redirect a login. Antes pasábamos silencioso y
-    //       el endpoint commercial fallaba con 500 confuso (vivido 2026-05-27).
     const auth = request.headers?.authorization;
-    if (!auth) {
-      return next.handle();
-    }
+
+    // Sin Authorization → endpoint público. Pasa sin scope ni tx.
+    if (!auth) return next.handle();
 
     const payload = this.extractPayload(request);
-    if (!payload) {
-      throw new UnauthorizedException('Token inválido o expirado');
-    }
+    if (!payload) throw new UnauthorizedException('Token inválido o expirado');
+
+    // Token válido pero sin tenant_id → JWT legacy single-tenant. Pasa sin
+    // scope tenant ni tx (los endpoints commercial/logistics fallarán con
+    // mensaje claro, los legacy single-tenant siguen funcionando como antes).
     if (!payload.tenant_id) {
-      // Token válido pero sin tenant_id → es un JWT legacy (single-tenant).
-      // Pasamos sin scope; los endpoints commercial fallarán con su propio
-      // mensaje claro, los legacy funcionarán normal.
       request.user = payload;
       return next.handle();
     }
 
-    // Populate request.user para compat con código que lo lee directamente.
     request.user = payload;
 
+    const ctxBase = {
+      tenantId: payload.tenant_id as string,
+      userId: payload.sub,
+      username: payload.username,
+      roleName: payload.role_name,
+    };
+
     return new Observable((subscriber) => {
-      this.tenantCtx.run(
-        {
-          tenantId: payload.tenant_id as string,
-          userId: payload.sub,
-          username: payload.username,
-          roleName: payload.role_name,
-        },
-        () => {
-          next.handle().subscribe({
-            next: (value) => subscriber.next(value),
-            error: (err) => subscriber.error(err),
-            complete: () => subscriber.complete(),
+      // Si NO hay pool legacy disponible (puede pasar en tests / boot
+      // temprano), abrimos solo el scope CLS sin tx.
+      if (!this.legacyKnex) {
+        this.tenantCtx.run(ctxBase, () => {
+          this.subscribeToHandler(next, subscriber);
+        });
+        return;
+      }
+
+      // Abrimos tx del pool legacy + SET LOCAL app.tenant_id.
+      // commit al success, rollback al error.
+      this.legacyKnex
+        .transaction(async (tx) => {
+          await tx.raw(`SET LOCAL app.tenant_id = ?`, [ctxBase.tenantId]);
+
+          // Promesa que se resuelve cuando el subscriber complete/error.
+          // Si error → throw para que la tx haga rollback automático.
+          await new Promise<void>((resolveTx, rejectTx) => {
+            this.tenantCtx.run({ ...ctxBase, legacyTx: tx }, () => {
+              next.handle().subscribe({
+                next: (value) => subscriber.next(value),
+                error: (err) => {
+                  // Rollback de la tx legacy + propagar al subscriber.
+                  subscriber.error(err);
+                  rejectTx(err);
+                },
+                complete: () => {
+                  subscriber.complete();
+                  resolveTx();
+                },
+              });
+            });
           });
-        },
-      );
+        })
+        .catch((err) => {
+          // Errores del transaction wrapper que no llegaron al subscriber
+          // (raro). Garantizamos que el subscriber siempre cierra.
+          if (!subscriber.closed) subscriber.error(err);
+        });
+    });
+  }
+
+  private subscribeToHandler(next: CallHandler, subscriber: any): void {
+    next.handle().subscribe({
+      next: (v) => subscriber.next(v),
+      error: (e) => subscriber.error(e),
+      complete: () => subscriber.complete(),
     });
   }
 
@@ -86,10 +131,8 @@ export class TenantContextInterceptor implements NestInterceptor {
     username?: string;
     role_name?: string;
   } | null {
-    // 1. Si algún guard previo ya pobló request.user, úsalo.
     if (request.user?.tenant_id) return request.user;
 
-    // 2. Decode del Authorization Bearer.
     const auth = request.headers?.authorization;
     if (!auth || typeof auth !== 'string') return null;
     const [scheme, token] = auth.split(' ');
@@ -98,8 +141,6 @@ export class TenantContextInterceptor implements NestInterceptor {
     try {
       return this.jwtService.verify(token);
     } catch (e) {
-      // Token inválido/expirado — no abrimos scope, no logueamos verbose para
-      // evitar ruido de scans/bots.
       return null;
     }
   }

@@ -31,16 +31,17 @@
       }
     </div>
 
-    <!-- Selector de catálogo: tabs visibles para cambiar entre conceptos/zonas/etc. -->
-    <div class="flex flex-wrap gap-1.5 p-1 bg-surface-ground rounded-xl border border-divider w-fit">
+    <!-- Selector de catálogo: liquid tabs estilo iOS 26 (blob deslizante). -->
+    <div class="liquid-tabs" role="tablist" #liquidTabsContainer>
+      <span class="liquid-tabs-indicator" aria-hidden="true" #liquidIndicator></span>
       @for (cat of availableCatalogTypes(); track cat.type) {
-        <button type="button"
-                (click)="selectCatalogType(cat.type)"
-                class="inline-flex items-center gap-2 px-3 py-2 min-h-[40px] rounded-lg text-sm font-medium motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange"
-                [ngClass]="selectedType() === cat.type
-                  ? 'bg-surface-card text-content-main shadow-sm'
-                  : 'text-content-muted hover:text-content-main hover:bg-surface-hover'"
-                [attr.aria-current]="selectedType() === cat.type ? 'page' : null">
+        <button #liquidTab
+                type="button"
+                role="tab"
+                class="liquid-tab"
+                [class.is-active]="selectedType() === cat.type"
+                [attr.aria-selected]="selectedType() === cat.type"
+                (click)="selectCatalogType(cat.type)">
           <i [class]="cat.icon" class="text-xs" aria-hidden="true"></i>
           {{ cat.label }}
         </button>

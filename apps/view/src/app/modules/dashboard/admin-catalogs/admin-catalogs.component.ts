@@ -1,11 +1,18 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   OnInit,
+  QueryList,
+  ViewChild,
+  ViewChildren,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
@@ -58,7 +65,20 @@ const SCORING_TYPES: CatalogType[] = ['conceptos', 'ubicaciones', 'niveles'];
   styleUrls: ['./admin-catalogs.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AdminCatalogsComponent implements OnInit {
+export class AdminCatalogsComponent implements OnInit, AfterViewInit {
+  @ViewChildren('liquidTab') liquidTabs?: QueryList<ElementRef<HTMLButtonElement>>;
+  @ViewChild('liquidIndicator') liquidIndicator?: ElementRef<HTMLSpanElement>;
+  @ViewChild('liquidTabsContainer') liquidTabsContainer?: ElementRef<HTMLDivElement>;
+  private liquidResizeObserver?: ResizeObserver;
+
+  constructor() {
+    effect(() => {
+      this.selectedType();
+      this.availableCatalogTypes();
+      untracked(() => queueMicrotask(() => this.syncLiquidIndicator()));
+    });
+  }
+
   private catalogsService = inject(AdminCatalogsService);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
@@ -186,6 +206,45 @@ export class AdminCatalogsComponent implements OnInit {
         this.zoneRoutes.set({});
         this.loadCatalog(type);
       });
+  }
+
+  ngAfterViewInit(): void {
+    queueMicrotask(() => this.syncLiquidIndicator());
+    if (typeof ResizeObserver !== 'undefined' && this.liquidTabsContainer) {
+      this.liquidResizeObserver = new ResizeObserver(() => this.syncLiquidIndicator());
+      this.liquidResizeObserver.observe(this.liquidTabsContainer.nativeElement);
+      this.liquidTabs?.forEach(t => this.liquidResizeObserver!.observe(t.nativeElement));
+      this.destroyRef.onDestroy(() => this.liquidResizeObserver?.disconnect());
+    }
+    // Re-mide cuando cambia la lista de tabs disponibles (perms reload, etc.).
+    this.liquidTabs?.changes.subscribe(() => {
+      queueMicrotask(() => this.syncLiquidIndicator());
+      this.liquidTabs?.forEach(t => this.liquidResizeObserver?.observe(t.nativeElement));
+    });
+  }
+
+  private syncLiquidIndicator(): void {
+    const tabs = this.liquidTabs?.toArray();
+    const types = this.availableCatalogTypes();
+    const idx = types.findIndex(c => c.type === this.selectedType());
+    const tab = tabs?.[idx]?.nativeElement;
+    const indicator = this.liquidIndicator?.nativeElement;
+    const container = this.liquidTabsContainer?.nativeElement;
+    if (!tab || !indicator || !container) return;
+
+    const left = tab.offsetLeft;
+    const width = tab.offsetWidth;
+    indicator.style.transform = `translate3d(${left}px, 0, 0)`;
+    indicator.style.width = `${width}px`;
+
+    if (container.scrollWidth > container.clientWidth) {
+      const tabCenter = left + width / 2;
+      const viewCenter = container.scrollLeft + container.clientWidth / 2;
+      const delta = tabCenter - viewCenter;
+      if (Math.abs(delta) > 8) {
+        container.scrollTo({ left: container.scrollLeft + delta, behavior: 'smooth' });
+      }
+    }
   }
 
   private subjectForType(type: string): AppSubject {
