@@ -154,7 +154,7 @@
                   <div class="font-bold text-sm text-content-main truncate mt-0.5">{{ visit.captured_by_username }}</div>
                   <div class="text-[11px] text-content-muted uppercase tracking-wide mt-0.5 truncate">{{ visit.zona_captura }}</div>
                 </div>
-                <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 status-soft-bg status-text"
+                <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 bg-surface-card border border-divider status-text"
                      [class]="'status-' + visitScoreStatus(visit)">
                   <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
                   <span class="text-[10px] font-medium mt-0.5 opacity-70 uppercase tracking-wider">pts</span>
@@ -165,7 +165,7 @@
               @if (hasOwnershipData(visit.exhibiciones)) {
                 <div class="flex gap-1.5 mt-3 flex-wrap">
                   @if (countOwnBrand(visit.exhibiciones) > 0) {
-                    <span class="status-chip status-ok" pTooltip="Exhibiciones de Mega Dulces">
+                    <span class="chip-brand inline-flex items-center gap-1" pTooltip="Exhibiciones de Mega Dulces">
                       <i class="pi pi-check-circle"></i>
                       {{ countOwnBrand(visit.exhibiciones) }} Mega Dulces
                     </span>

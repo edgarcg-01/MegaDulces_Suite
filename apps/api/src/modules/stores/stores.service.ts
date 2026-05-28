@@ -4,21 +4,27 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { getDataScope } from '../../shared/ability/data-scope';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 
 interface RequesterContext {
   sub: string;
+  tenant_id?: string;
   rules?: unknown[];
 }
 
 @Injectable()
 export class StoresService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    @Optional() private readonly tenantCtx: TenantContextService | null = null,
+  ) {}
 
   private haversine(
     lat1: number,

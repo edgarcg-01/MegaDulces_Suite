@@ -4,61 +4,30 @@ import {
   Injectable,
   Logger,
   NestInterceptor,
-  OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { Knex } from 'knex';
 import { Observable } from 'rxjs';
-import { KNEX_CONNECTION_RAW } from '../database/database.module';
 import { TenantContextService } from './tenant-context.service';
 
 /**
- * Interceptor GLOBAL que:
+ * Interceptor GLOBAL que extrae tenant_id del Authorization Bearer JWT y abre
+ * un AsyncLocalStorage scope para el resto del request.
  *
- *  1. Extrae tenant_id del Authorization Bearer JWT.
- *  2. Abre un AsyncLocalStorage scope con `{ tenantId, userId, username, roleName }`.
- *  3. Abre una **transacción del pool legacy** con `SET LOCAL app.tenant_id = '...'`
- *     y la guarda en `ctx.legacyTx`. El KNEX_CONNECTION del DatabaseModule legacy
- *     es un Proxy que routea queries a esa tx, así los services single-tenant
- *     (stores, visits, captures, etc.) automáticamente respetan el tenant
- *     context sin modificar ni una línea.
- *  4. Commit al final del request, rollback en error.
+ * Decode inline del JWT (no requiere passport-jwt). Si el cliente manda un Bearer
+ * inválido o expirado, devolvemos 401. Sin Bearer pasa sin scope.
  *
- * NOTA importante: el legacy Knex se inyecta via `ModuleRef.get(..., { strict: false })`
- * de manera LAZY en `onModuleInit`. Esto evita ciclo de dependencias entre
- * DatabaseModule (que importa TenantModule) y TenantModule (que provee este
- * interceptor que necesita KNEX_CONNECTION_RAW de DatabaseModule).
+ * Después de pasar por este interceptor, cualquier service puede inyectar
+ * `TenantContextService` y llamar `get()` o `requireTenantId()`.
  */
 @Injectable()
-export class TenantContextInterceptor implements NestInterceptor, OnModuleInit {
+export class TenantContextInterceptor implements NestInterceptor {
   private readonly logger = new Logger(TenantContextInterceptor.name);
-  private legacyKnex: Knex | null = null;
 
   constructor(
     private readonly tenantCtx: TenantContextService,
     private readonly jwtService: JwtService,
-    private readonly moduleRef: ModuleRef,
   ) {}
-
-  onModuleInit() {
-    // Lazy resolution: cuando NestJS termina de cargar todos los módulos,
-    // intentamos resolver KNEX_CONNECTION_RAW del scope global. Si lo
-    // encontramos, activamos el wrapping de tx legacy. Si no (caso single-
-    // tenant puro sin DatabaseModule legacy), seguimos sin tx.
-    try {
-      this.legacyKnex = this.moduleRef.get(KNEX_CONNECTION_RAW, { strict: false });
-      if (this.legacyKnex) {
-        this.logger.log('Legacy Knex RAW resuelto via ModuleRef — tx wrapping ACTIVO en cada request.');
-      } else {
-        this.logger.warn('Legacy Knex RAW no encontrado — tx wrapping INACTIVO (INSERTs legacy fallarán).');
-      }
-    } catch (e: any) {
-      this.logger.warn(`No se pudo resolver KNEX_CONNECTION_RAW: ${e?.message || e}`);
-      this.legacyKnex = null;
-    }
-  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
@@ -76,50 +45,22 @@ export class TenantContextInterceptor implements NestInterceptor, OnModuleInit {
 
     request.user = payload;
 
-    const ctxBase = {
-      tenantId: payload.tenant_id as string,
-      userId: payload.sub,
-      username: payload.username,
-      roleName: payload.role_name,
-    };
-
     return new Observable((subscriber) => {
-      // Sin legacy Knex disponible → solo abrimos scope CLS, sin tx legacy.
-      if (!this.legacyKnex) {
-        this.tenantCtx.run(ctxBase, () => {
+      this.tenantCtx.run(
+        {
+          tenantId: payload.tenant_id as string,
+          userId: payload.sub,
+          username: payload.username,
+          roleName: payload.role_name,
+        },
+        () => {
           next.handle().subscribe({
-            next: (v) => subscriber.next(v),
-            error: (e) => subscriber.error(e),
+            next: (value) => subscriber.next(value),
+            error: (err) => subscriber.error(err),
             complete: () => subscriber.complete(),
           });
-        });
-        return;
-      }
-
-      // Abrimos tx del pool legacy con SET LOCAL app.tenant_id.
-      // commit al success, rollback al error.
-      this.legacyKnex
-        .transaction(async (tx) => {
-          await tx.raw(`SET LOCAL app.tenant_id = ?`, [ctxBase.tenantId]);
-          await new Promise<void>((resolveTx, rejectTx) => {
-            this.tenantCtx.run({ ...ctxBase, legacyTx: tx }, () => {
-              next.handle().subscribe({
-                next: (value) => subscriber.next(value),
-                error: (err) => {
-                  subscriber.error(err);
-                  rejectTx(err);
-                },
-                complete: () => {
-                  subscriber.complete();
-                  resolveTx();
-                },
-              });
-            });
-          });
-        })
-        .catch((err) => {
-          if (!subscriber.closed) subscriber.error(err);
-        });
+        },
+      );
     });
   }
 
