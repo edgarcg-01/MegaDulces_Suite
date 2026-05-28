@@ -14,9 +14,9 @@ import { ChartModule } from 'primeng/chart';
         </div>
         <div class="flex items-center gap-4">
           <div class="flex items-center gap-4 text-[11px] text-content-muted">
-            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#185FA5]"></span>Alto Score</span>
-            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#5B9BD5]"></span>Medio</span>
-            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-[#BDD7EE]"></span>Bajo</span>
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-ok"></span>Alto Score</span>
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-warn"></span>Medio</span>
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-bad"></span>Bajo</span>
           </div>
         </div>
       </div>

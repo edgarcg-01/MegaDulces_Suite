@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../../../environments/environment';
 import { FiltersStateService } from '../graphics/filters-state.service';
+import { getChartTokens, colorForScore } from '../../../../shared/theme/chart-theme';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -123,9 +124,9 @@ export class RoutesTabComponent {
   }
 
   scoreColor(s: number): string {
-    if (s >= 80) return '#1D9E75';
-    if (s >= 60) return '#EF9F27';
-    return '#E24B4A';
+    // Re-lee tokens en cada llamada (CD cycle) — los CSS vars resuelven al
+    // tema vigente automáticamente.
+    return colorForScore(getChartTokens(), s, { high: 80, mid: 60 });
   }
 
   fmtCurrency(n: number): string {

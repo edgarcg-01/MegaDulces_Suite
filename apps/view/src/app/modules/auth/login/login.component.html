@@ -44,7 +44,7 @@
       <div class="bg-surface-card border border-divider/50 p-6 sm:p-8 rounded-2xl shadow-sm">
 
         <!-- Error Message -->
-        <div *ngIf="errorMessage" class="bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">
+        <div *ngIf="errorMessage" class="bg-bad-soft-bg border border-bad-border text-bad-soft-fg p-3 sm:p-4 rounded-lg mb-6 text-xs sm:text-sm font-medium">
           <div class="flex items-center gap-2">
             <i class="pi pi-exclamation-circle"></i>
             <span>{{ errorMessage }}</span>
@@ -64,9 +64,9 @@
               formControlName="username"
               placeholder="Nombre de usuario"
               class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
-              [ngClass]="{'border-red-400 focus:border-red-400': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
+              [ngClass]="{'border-bad-fg focus:border-bad-fg': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
             <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
-               class="text-xs text-red-500 mt-1 font-medium">
+               class="text-xs text-bad-fg mt-1 font-medium">
               El usuario es requerido
             </p>
           </div>
@@ -82,9 +82,9 @@
               formControlName="password"
               placeholder="Mínimo 6 caracteres"
               class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
-              [ngClass]="{'border-red-400 focus:border-red-400': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
+              [ngClass]="{'border-bad-fg focus:border-bad-fg': loginForm.get('password')?.invalid && loginForm.get('password')?.touched}">
             <p *ngIf="loginForm.get('password')?.invalid && loginForm.get('password')?.touched"
-               class="text-xs text-red-500 mt-1 font-medium">
+               class="text-xs text-bad-fg mt-1 font-medium">
               Mínimo 6 caracteres
             </p>
           </div>

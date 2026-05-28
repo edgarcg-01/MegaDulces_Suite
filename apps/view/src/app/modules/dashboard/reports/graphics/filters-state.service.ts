@@ -1,4 +1,6 @@
-import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, signal } from '@angular/core';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { debounceTime } from 'rxjs';
 
 export interface FiltersState {
   period: string;
@@ -41,35 +43,22 @@ export class FiltersStateService {
    */
   readonly filters = this._filters.asReadonly();
 
+  private static readonly DEBOUNCE_MS = 300;
+
   /**
    * Signal con los filtros debounceados (300 ms) — diseñado para disparar
    * refetches HTTP. Si el usuario cambia rápido entre zona/supervisor/seller,
    * este signal solo emite una vez al final.
    *
-   * Internamente arranca como copia de `filters`. Un `effect` observa
-   * cambios y programa un setTimeout que actualiza el signal debounceado.
-   * Si llega otro cambio antes del flush, se cancela y reprograma.
+   * Implementado con RxJS porque la versión con `effect + setTimeout` perdía
+   * emisiones cuando el primer componente que inyectaba el service se
+   * destruía (root DestroyRef + scoping). `toSignal` maneja todo el
+   * cleanup automáticamente vía DestroyRef del root injector.
    */
-  private _filtersDebounced = signal<FiltersState>({ ...FiltersStateService.INITIAL_STATE });
-  readonly filtersDebounced = this._filtersDebounced.asReadonly();
-  private static readonly DEBOUNCE_MS = 300;
-
-  constructor() {
-    const destroyRef = inject(DestroyRef);
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    const eff = effect(() => {
-      const snapshot = this._filters();
-      if (pending) clearTimeout(pending);
-      pending = setTimeout(() => {
-        this._filtersDebounced.set(snapshot);
-        pending = null;
-      }, FiltersStateService.DEBOUNCE_MS);
-    });
-    destroyRef.onDestroy(() => {
-      if (pending) clearTimeout(pending);
-      eff.destroy();
-    });
-  }
+  readonly filtersDebounced = toSignal(
+    toObservable(this._filters).pipe(debounceTime(FiltersStateService.DEBOUNCE_MS)),
+    { initialValue: this._filters() },
+  );
 
   // Texto legible del rango activo para mostrar en UI
   readonly rangeLabel = computed(() => {

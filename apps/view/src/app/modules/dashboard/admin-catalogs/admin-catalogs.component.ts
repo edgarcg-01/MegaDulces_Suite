@@ -74,6 +74,35 @@ export class AdminCatalogsComponent implements OnInit {
   loading = signal<boolean>(false);
   saving = signal<boolean>(false);
   showInactive = signal<boolean>(false);
+  searchQuery = signal<string>('');
+
+  /** Catálogos navegables vía selector inline. El sidebar sigue siendo
+   *  válido pero el usuario puede saltar entre tipos sin abandonar la página. */
+  private readonly ALL_CATALOG_TYPES: { type: CatalogType; label: string; icon: string; subject: AppSubject }[] = [
+    { type: 'conceptos',   label: 'Conceptos',   icon: 'pi pi-box',         subject: 'scoring_config' },
+    { type: 'ubicaciones', label: 'Ubicaciones', icon: 'pi pi-map-marker',  subject: 'scoring_config' },
+    { type: 'niveles',     label: 'Niveles',     icon: 'pi pi-chart-bar',   subject: 'scoring_config' },
+    { type: 'zonas',       label: 'Zonas',       icon: 'pi pi-globe',       subject: 'catalogs' },
+    { type: 'roles',       label: 'Roles',       icon: 'pi pi-shield',      subject: 'roles_config' },
+  ];
+
+  readonly availableCatalogTypes = computed(() =>
+    this.ALL_CATALOG_TYPES.filter(c => this.perms.can('read', c.subject)),
+  );
+
+  readonly filteredItems = computed(() => {
+    const q = this.searchQuery().trim().toLowerCase();
+    if (!q) return this.items();
+    const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const nq = norm(q);
+    return this.items().filter(item => norm(item.value).includes(nq));
+  });
+
+  readonly activeCountInfo = computed(() => {
+    const total = this.items().length;
+    const inactive = this.items().filter(i => i.activo === false).length;
+    return { total, inactive, active: total - inactive };
+  });
 
   showAddDialog = signal<boolean>(false);
   showRouteDialog = signal<boolean>(false);
@@ -174,6 +203,20 @@ export class AdminCatalogsComponent implements OnInit {
       roles: 'Roles de Sistema',
     };
     this.title.set(titles[type] || 'Catálogos');
+  }
+
+  selectCatalogType(type: CatalogType): void {
+    if (type === this.selectedType()) return;
+    this.searchQuery.set('');
+    this.router.navigate(['/dashboard/admin/catalogs', type]);
+  }
+
+  onSearchChange(value: string): void {
+    this.searchQuery.set(value);
+  }
+
+  clearSearch(): void {
+    this.searchQuery.set('');
   }
 
   private loadCatalog(type: string): void {
@@ -550,6 +593,6 @@ export class AdminCatalogsComponent implements OnInit {
   }
 
   goToPermissions(roleName: string): void {
-    this.router.navigate(['/dashboard/admin/roles', roleName, 'permissions']);
+    this.router.navigate(['/admin/roles', roleName, 'permissions']);
   }
 }

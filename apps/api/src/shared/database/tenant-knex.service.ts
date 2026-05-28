@@ -1,6 +1,12 @@
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB } from './new-database.module';
+import { TenantContextService } from '../tenant/tenant-context.service';
+
+/**
+ * Token string para evitar circular import con new-database.module.ts.
+ * Debe coincidir con el `provide:` que registra el provider del Knex.
+ */
+const KNEX_NEW_DB_TOKEN = 'KNEX_NEW_DB';
 
 /**
  * Helpers para correr queries con tenant context aislado.
@@ -92,17 +98,32 @@ export async function runWithTenant<T>(
 export class TenantKnexService {
   private readonly logger = new Logger(TenantKnexService.name);
 
-  constructor(@Inject(KNEX_NEW_DB) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_NEW_DB_TOKEN) private readonly knex: Knex,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
 
   /**
    * Ejecuta `callback` dentro de una transacción con `app.tenant_id` seteado.
-   * El callback recibe la transacción como argumento.
+   * Si NO se pasa tenantId explícito, lo lee del AsyncLocalStorage (poblado
+   * por TenantContextInterceptor al inicio del request). Si tampoco hay
+   * context activo, lanza.
    */
   async run<T>(
-    tenantId: string,
-    callback: (trx: Knex.Transaction) => Promise<T>,
+    callbackOrTenantId: ((trx: Knex.Transaction) => Promise<T>) | string,
+    callback?: (trx: Knex.Transaction) => Promise<T>,
   ): Promise<T> {
-    return runWithTenant(this.knex, tenantId, callback);
+    // Overload: run(tenantId, callback) o run(callback)
+    let tenantId: string;
+    let cb: (trx: Knex.Transaction) => Promise<T>;
+    if (typeof callbackOrTenantId === 'string') {
+      tenantId = callbackOrTenantId;
+      cb = callback!;
+    } else {
+      tenantId = this.tenantCtx.requireTenantId();
+      cb = callbackOrTenantId;
+    }
+    return runWithTenant(this.knex, tenantId, cb);
   }
 
   /**

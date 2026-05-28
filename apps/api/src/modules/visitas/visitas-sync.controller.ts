@@ -1,8 +1,10 @@
-import { Controller, Post, Body, Get, Query, Param, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Param, HttpCode, HttpStatus, Logger } from '@nestjs/common';
 import { VisitasSyncService, VisitaSyncDto } from './visitas-sync.service';
 
 @Controller('visitas')
 export class VisitasSyncController {
+  private readonly logger = new Logger(VisitasSyncController.name);
+
   constructor(private readonly visitasSyncService: VisitasSyncService) {}
 
   /**
@@ -20,7 +22,7 @@ export class VisitasSyncController {
         message: resultado.mensaje
       };
     } catch (error) {
-      console.error('[VisitasSyncController] Error en sincronización:', error);
+      this.logger.error('Error en sincronización:: ' + (error as Error).message);
       
       return {
         success: false,
@@ -51,7 +53,7 @@ export class VisitasSyncController {
         data: estadisticas
       };
     } catch (error) {
-      console.error('[VisitasSyncController] Error obteniendo estadísticas:', error);
+      this.logger.error('Error obteniendo estadísticas:: ' + (error as Error).message);
       
       return {
         success: false,
@@ -75,7 +77,7 @@ export class VisitasSyncController {
         count: visitas.length
       };
     } catch (error) {
-      console.error('[VisitasSyncController] Error obteniendo visitas con fraude:', error);
+      this.logger.error('Error obteniendo visitas con fraude:: ' + (error as Error).message);
       
       return {
         success: false,
@@ -101,7 +103,7 @@ export class VisitasSyncController {
         message: 'Visita marcada como revisada exitosamente'
       };
     } catch (error) {
-      console.error('[VisitasSyncController] Error marcando visita como revisada:', error);
+      this.logger.error('Error marcando visita como revisada:: ' + (error as Error).message);
       
       return {
         success: false,

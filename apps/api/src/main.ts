@@ -35,6 +35,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { join } from 'path';
 import { json, urlencoded } from 'express';
+import helmet from 'helmet';
 import { ScheduleModule } from '@nestjs/schedule';
 import { INestApplicationContext } from '@nestjs/common';
 import { ServerOptions } from 'socket.io';
@@ -77,8 +78,25 @@ async function bootstrap() {
     optionsSuccessStatus: 204,
   });
 
-  app.use(json({ limit: '50mb' }));
-  app.use(urlencoded({ extended: true, limit: '50mb' }));
+  // Body parsers diferenciados:
+  // - JSON global: 2mb (suficiente para casi todos los endpoints)
+  // - URLEncoded: 2mb
+  // - Endpoints de upload (daily-captures multipart): los maneja AnyFilesInterceptor
+  //   sin pasar por este middleware, así que el límite del JSON no aplica.
+  // - Endpoints con payload grande (base64 photos legacy): override por route si surge necesidad.
+  app.use(json({ limit: '2mb' }));
+  app.use(urlencoded({ extended: true, limit: '2mb' }));
+
+  // Helmet: headers HTTP de seguridad (X-Frame-Options, X-Content-Type-Options,
+  // Strict-Transport-Security, X-XSS-Protection, etc.). contentSecurityPolicy
+  // deshabilitado por ahora porque rompe Swagger UI; activar después con
+  // policy específico que permita Swagger.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false, // para que Swagger UI cargue
+    }),
+  );
 
   const apiPrefix = process.env.API_PREFIX || 'api';
   app.setGlobalPrefix(apiPrefix, {

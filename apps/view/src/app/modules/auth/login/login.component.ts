@@ -2,7 +2,6 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
-import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { Router } from '@angular/router';
 
@@ -16,7 +15,6 @@ import { Router } from '@angular/router';
 export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
-  private perms = inject(PermissionsService);
   private router = inject(Router);
   public themeService = inject(ThemeService);
 
@@ -45,31 +43,31 @@ export class LoginComponent implements OnInit {
     this.isLoading = true;
     this.errorMessage = null;
 
-    const credentials = {
-      username: this.loginForm.value.username!,
-      password: this.loginForm.value.password!,
-    };
-
-    // Usando HttpClient subscripción estándar
-    this.authService.login(credentials).subscribe({
-      next: () => {
-        this.isLoading = false;
-
-        if (this.perms.can('read', 'reports_team') || this.perms.can('read', 'reports_global')) {
-          this.router.navigate(['/dashboard']);
-        } else {
-          this.router.navigate(['/dashboard/captures']);
-        }
-      },
-      error: (err) => {
-        this.isLoading = false;
-        if (err.status === 401) {
-          this.errorMessage =
-            'Credenciales incorrectas. Verifica tu usuario y contraseña.';
-        } else {
-          this.errorMessage = 'Error de conexión. Inténtalo de nuevo.';
-        }
-      },
-    });
+    // Multi-tenant login (auth-mt). En beta Mega Dulces es el único tenant, así
+    // que tenant_slug está hardcoded. El JWT resultante incluye tenant_id, sin
+    // el cual todos los endpoints /commercial/* fallan con 500 porque el
+    // TenantContextInterceptor del backend no puede resolver el contexto.
+    this.authService
+      .loginMt({
+        tenant_slug: 'mega_dulces',
+        username: this.loginForm.value.username!,
+        password: this.loginForm.value.password!,
+      })
+      .subscribe({
+        next: () => {
+          this.isLoading = false;
+          // /projects decide entre selector, auto-redirect (si N=1) o fallback.
+          this.router.navigate(['/projects']);
+        },
+        error: (err) => {
+          this.isLoading = false;
+          if (err.status === 401) {
+            this.errorMessage =
+              'Credenciales incorrectas. Verifica tu usuario y contraseña.';
+          } else {
+            this.errorMessage = 'Error de conexión. Inténtalo de nuevo.';
+          }
+        },
+      });
   }
 }

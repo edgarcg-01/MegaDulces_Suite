@@ -51,7 +51,7 @@
           <td class="font-bold text-content-main uppercase tracking-wider">
             {{ brand.nombre }}
             @if (brand.activo === false) {
-              <span class="ml-2 text-[10px] uppercase tracking-wider text-red-500 border border-red-200 rounded px-1.5 py-0.5" pTooltip="Marca inactiva — referenciada en capturas históricas">Inactiva</span>
+              <span class="ml-2 text-[10px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5" pTooltip="Marca inactiva — referenciada en capturas históricas">Inactiva</span>
             }
           </td>
           <td class="text-center font-mono">
@@ -139,7 +139,7 @@
         <div class="flex items-center gap-3">
           <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>
           @if (brand.activo === false) {
-            <span class="text-[9px] uppercase tracking-wider text-red-500 border border-red-200 rounded px-1.5 py-0.5">Inactiva</span>
+            <span class="text-[9px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactiva</span>
           }
         </div>
         <div class="flex gap-1">
@@ -169,7 +169,7 @@
                 <span class="text-xs font-medium text-content-main">
                   {{ product.nombre }}
                   @if (product.activo === false) {
-                    <span class="ml-1 text-[8px] uppercase text-red-500">Inactivo</span>
+                    <span class="ml-1 text-[8px] uppercase text-bad-fg">Inactivo</span>
                   }
                 </span>
                 <div class="flex gap-1">

@@ -9,12 +9,61 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
+import { EmbeddingsService } from '../../shared/ai/embeddings.service';
 
 @Injectable()
 export class PlanogramsService {
   private readonly logger = new Logger(PlanogramsService.name);
 
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly embeddings: EmbeddingsService,
+  ) {}
+
+  /**
+   * Fase K — re-embed síncrono del producto.
+   *
+   * Llamado tras add/update cuando cambia `nombre` o `brand_id`. Acepta
+   * latencia +200ms en el path admin para evitar staleness en el endpoint
+   * de match-ai. Si Voyage está caído, loguea warning pero NO rompe la
+   * operación admin — el producto queda con embedding=null y se re-intenta
+   * en el próximo update o vía backfill script.
+   *
+   * Source text: "MARCA — NOMBRE" (mismo formato que el backfill).
+   */
+  private async embedProduct(productId: string): Promise<void> {
+    try {
+      const row = await this.knex('products as p')
+        .leftJoin('brands as b', 'b.id', 'p.brand_id')
+        .where('p.id', productId)
+        .select('p.nombre as product_name', 'b.nombre as brand_name')
+        .first();
+      if (!row) return;
+
+      const sourceText = [row.brand_name, row.product_name]
+        .filter((s) => s && s.trim())
+        .map((s) => s.trim())
+        .join(' — ');
+
+      const vec = await this.embeddings.embedSingle(sourceText, 'document');
+      const vecLiteral = `[${vec.join(',')}]`;
+
+      await this.knex.raw(
+        `UPDATE products
+           SET embedding = ?::vector,
+               embedding_source_text = ?,
+               embedding_updated_at = NOW()
+         WHERE id = ?`,
+        [vecLiteral, sourceText, productId],
+      );
+    } catch (err: any) {
+      // No-throw: el feature debe degradar elegante. El producto queda
+      // marcado sin embedding y el backfill script lo recoge.
+      this.logger.warn(
+        `embedProduct(${productId}) falló: ${err.message}. El producto quedará sin embedding hasta el próximo update o backfill.`,
+      );
+    }
+  }
 
   private timestampColumnCache: Record<string, 'updated_at' | 'created_at' | null> = {};
 
@@ -145,6 +194,10 @@ export class PlanogramsService {
         await this.knex('brands').where({ id: brandId }).update(brandUpdatePayload);
       }
 
+      // Fase K: embebe el producto recién creado para que aparezca en match-ai.
+      // No-blocking en caso de falla — el catch interno loguea warning.
+      await this.embedProduct(product.id);
+
       return product;
     } catch (error: any) {
       if (error.code === '23505') {
@@ -173,6 +226,13 @@ export class PlanogramsService {
       return existing;
     }
 
+    // Fase K integridad: si cambia el nombre del brand, el `source_text` de
+    // sus products queda stale. Capturamos el nombre previo para comparar.
+    const willRenameBrand = Object.prototype.hasOwnProperty.call(data, 'nombre');
+    const previousNombre = willRenameBrand
+      ? (await this.knex('brands').where({ id }).first('nombre'))?.nombre
+      : null;
+
     const payload = await this.withTimestamp('brands', data);
 
     try {
@@ -183,6 +243,28 @@ export class PlanogramsService {
       if (!brand) {
         throw new NotFoundException(`Marca con ID ${id} no encontrada.`);
       }
+
+      // Fase K integridad: si efectivamente cambió el nombre del brand,
+      // marcar como stale los embeddings de sus products. El scanner los
+      // recoge en el próximo tick. NOTA: este UPDATE NO recalcula el
+      // embedding ni dispara el trigger de products (que solo reacciona a
+      // cambios de products.nombre o products.brand_id).
+      if (
+        willRenameBrand &&
+        previousNombre &&
+        previousNombre !== brand.nombre
+      ) {
+        const result = await this.knex('products')
+          .where({ brand_id: id })
+          .update({
+            embedding_updated_at: null,
+            embedding_source_text: null,
+          });
+        this.logger.log(
+          `updateBrand(${id}): brand renamed ${previousNombre} → ${brand.nombre}. ${result} products marked stale.`,
+        );
+      }
+
       return brand;
     } catch (error: any) {
       if (error.code === '23505') {
@@ -213,6 +295,16 @@ export class PlanogramsService {
       if (!product) {
         throw new NotFoundException(`Producto con ID ${id} no encontrado.`);
       }
+
+      // Fase K: re-embed solo si cambió algo que afecta el source text.
+      // Cambiar `activo` o `orden` no requiere re-embed (no aparece en text).
+      if (
+        Object.prototype.hasOwnProperty.call(data, 'nombre') ||
+        Object.prototype.hasOwnProperty.call(data, 'brand_id')
+      ) {
+        await this.embedProduct(id);
+      }
+
       return product;
     } catch (error: any) {
       if (error.code === '23505') {

@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, Inject, Logger, BadRequestException, ConflictException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { EventsService } from '../websocket/events.service';
@@ -29,6 +29,8 @@ export interface GeoValidationBackend {
 
 @Injectable()
 export class VisitasSyncService {
+  private readonly logger = new Logger(VisitasSyncService.name);
+
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly eventsService: EventsService,
@@ -51,7 +53,7 @@ export class VisitasSyncService {
         .first();
 
       if (visitaExistente) {
-        console.log(`[VisitasSync] Visita duplicada detectada: ${visitaDto.id}`);
+        this.logger.log(`Visita duplicada detectada: ${visitaDto.id}`);
         return {
           id: visitaExistente.id,
           folio: visitaExistente.folio,
@@ -125,7 +127,7 @@ export class VisitasSyncService {
         }
       });
 
-      console.log(`[VisitasSync] Visita sincronizada exitosamente: ${nuevaVisita.id} (${folio})`);
+      this.logger.log(`Visita sincronizada exitosamente: ${nuevaVisita.id} (${folio})`);
 
       this.eventsService.emitCaptureSynced({
         type: 'capture:synced',
@@ -209,7 +211,7 @@ export class VisitasSyncService {
       };
 
     } catch (error) {
-      console.error('[VisitasSync] Error validando geolocalización:', error);
+      this.logger.error(`Error validando geolocalización: ${(error as Error).message}`);
       return {
         distancia_tienda: 0,
         coordenadas_tienda: { lat: 0, lng: 0 },
@@ -277,7 +279,7 @@ export class VisitasSyncService {
         fecha: this.knex.fn.now()
       });
     } catch (error) {
-      console.error('[VisitasSync] Error registrando log de sincronización:', error);
+      this.logger.error(`Error registrando log de sincronización: ${(error as Error).message}`);
       // No lanzar error para no interrumpir el flujo principal
     }
   }

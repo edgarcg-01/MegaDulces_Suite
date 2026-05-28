@@ -77,14 +77,14 @@ export class CatalogsService {
           'id',
           'name as value',
           'orden',
-          'activo',
+          this.knex.raw('(deleted_at IS NULL) as activo'),
           'is_system',
           'updated_at',
           'created_by',
           'updated_by',
         );
       if (!includeInactive) {
-        query.where({ activo: true });
+        query.whereNull('deleted_at');
       }
       return query;
     }
@@ -101,7 +101,7 @@ export class CatalogsService {
       .orderBy('orden', 'asc');
 
     if (!includeInactive) {
-      query.where({ activo: true });
+      query.whereNull('deleted_at');
     }
     if (parentId) {
       query.where({ parent_id: parentId });
@@ -129,11 +129,16 @@ export class CatalogsService {
           .insert({
             name: data.value,
             orden: data.orden ?? 0,
-            activo: true,
             created_by: requesterId,
             updated_by: requesterId,
           })
-          .returning(['id', 'name as value', 'orden', 'activo', 'is_system']);
+          .returning([
+            'id',
+            'name as value',
+            'orden',
+            this.knex.raw('(deleted_at IS NULL) as activo'),
+            'is_system',
+          ]);
         return item;
       } catch (error: any) {
         if (error.code === '23505') {
@@ -230,7 +235,7 @@ export class CatalogsService {
         // Soft-delete: marcar inactiva y preservar las FKs. La zona queda
         // oculta del listado por defecto pero las referencias siguen viables.
         await this.knex('zones').where({ id }).update({
-          activo: false,
+          deleted_at: this.knex.fn.now(),
           updated_by: requesterId,
           updated_at: this.knex.fn.now(),
         });
@@ -310,7 +315,7 @@ export class CatalogsService {
         await this.knex('catalogs')
           .where({ catalog_id: type, id })
           .update({
-            activo: false,
+            deleted_at: this.knex.fn.now(),
             updated_by: requesterId,
             updated_at: this.knex.fn.now(),
           });
@@ -364,7 +369,7 @@ export class CatalogsService {
    *
    * Para `niveles` también busca el legacy: capturas viejas que llegaban
    * solo con `nivelEjecucion` (string) en lugar del UUID, y la rúbrica
-   * activa en `scoring_pesos` que referencia por `nombre`.
+   * activa en `scoring_weights` que referencia por `nombre`.
    */
   private async isReferenced(
     type: string,
@@ -392,9 +397,9 @@ export class CatalogsService {
         .first();
       if (captureByName) return true;
 
-      // Rúbrica activa: scoring_pesos guarda niveles por `nombre` (string,
+      // Rúbrica activa: scoring_weights guarda niveles por `nombre` (string,
       // no UUID). Borrar el nivel rompería el peso de la rúbrica.
-      const peso = await this.knex('scoring_pesos')
+      const peso = await this.knex('scoring_weights')
         .where({ tipo: 'ejecucion' })
         .andWhereRaw('LOWER(nombre) = LOWER(?)', [item.value])
         .select('id')
@@ -403,20 +408,26 @@ export class CatalogsService {
     }
 
     // Versión activa de scoring (combinaciones_validas para conceptos/ubicaciones).
+    // La tabla no existe en el schema multi-tenant — guard defensivo evita 500
+    // mientras se decide si restaurarla o reemplazarla por otro modelo.
     if (type === 'conceptos' || type === 'ubicaciones') {
       const col = type === 'conceptos' ? 'exhibicion_id' : 'posicion_id';
-      const combo = await this.knex('combinaciones_validas')
-        .where({ [col]: item.id, activo: true })
-        .select('id')
-        .first();
-      if (combo) return true;
+      try {
+        const combo = await this.knex('combinaciones_validas')
+          .where({ [col]: item.id, activo: true })
+          .select('id')
+          .first();
+        if (combo) return true;
+      } catch (err: any) {
+        if (err?.code !== '42P01') throw err;
+      }
 
-      // Conceptos/ubicaciones también pueden estar en scoring_pesos por nombre.
+      // Conceptos/ubicaciones también pueden estar en scoring_weights por nombre.
       const tipoMap: Record<string, string> = {
         conceptos: 'exhibicion',
         ubicaciones: 'posicion',
       };
-      const peso = await this.knex('scoring_pesos')
+      const peso = await this.knex('scoring_weights')
         .where({ tipo: tipoMap[type] })
         .andWhereRaw('LOWER(nombre) = LOWER(?)', [item.value])
         .select('id')
@@ -486,14 +497,16 @@ export class CatalogsService {
       const updateData: Record<string, any> = {};
       if (data.value !== undefined) updateData.name = data.value;
       if (data.orden !== undefined) updateData.orden = data.orden;
-      if (data.activo !== undefined) updateData.activo = data.activo;
+      if (data.activo !== undefined) {
+        updateData.deleted_at = data.activo ? null : this.knex.fn.now();
+      }
 
       if (Object.keys(updateData).length === 0) {
         return {
           id: existing.id,
           value: existing.name,
           orden: existing.orden,
-          activo: existing.activo,
+          activo: existing.deleted_at === null,
           is_system: existing.is_system,
         };
       }
@@ -505,7 +518,13 @@ export class CatalogsService {
         const [item] = await this.knex('zones')
           .where({ id })
           .update(updateData)
-          .returning(['id', 'name as value', 'orden', 'activo', 'is_system']);
+          .returning([
+            'id',
+            'name as value',
+            'orden',
+            this.knex.raw('(deleted_at IS NULL) as activo'),
+            'is_system',
+          ]);
         if (!item)
           throw new NotFoundException('Zona no encontrada para actualizar');
 
@@ -604,7 +623,9 @@ export class CatalogsService {
     if (data.icono !== undefined) updateData.icono = data.icono;
     if (data.puntuacion !== undefined) updateData.puntuacion = data.puntuacion;
     if (data.parent_id !== undefined) updateData.parent_id = data.parent_id;
-    if (data.activo !== undefined) updateData.activo = data.activo;
+    if (data.activo !== undefined) {
+      updateData.deleted_at = data.activo ? null : this.knex.fn.now();
+    }
 
     // Para tipos de scoring: si el rename colisiona case-insensitive con
     // otro item, abortar (importante para que el backfill por nombre no

@@ -14,11 +14,11 @@
     <div class="detail-section">
       <h4>Estado de Conexión</h4>
       <div class="detail-item">
-        <i class="pi" [class]="isOnline ? 'pi-check-circle text-green-500' : 'pi-times-circle text-red-500'"></i>
+        <i class="pi" [class]="isOnline ? 'pi-check-circle text-ok-fg' : 'pi-times-circle text-bad-fg'"></i>
         <span>{{ isOnline ? 'En línea' : 'Sin conexión' }}</span>
       </div>
       <div class="detail-item">
-        <i class="pi pi-clock text-blue-500"></i>
+        <i class="pi pi-clock text-info-fg"></i>
         <span>Última sincronización: {{ getUltimaSincronizacionText() }}</span>
       </div>
     </div>
@@ -26,19 +26,19 @@
     <div class="detail-section" *ngIf="isOffline || visitasPendientes > 0">
       <h4>Datos Offline</h4>
       <div class="detail-item">
-        <i class="pi pi-shopping-bag text-purple-500"></i>
+        <i class="pi pi-shopping-bag text-chart-3"></i>
         <span>Tiendas disponibles: {{ tiendasOffline }}</span>
       </div>
       <div class="detail-item">
-        <i class="pi pi-database text-blue-500"></i>
+        <i class="pi pi-database text-info-fg"></i>
         <span>Catálogos actualizados: {{ catalogosActualizados ? 'Sí' : 'No' }}</span>
       </div>
       <div class="detail-item">
-        <i class="pi pi-map-marker text-green-500"></i>
+        <i class="pi pi-map-marker text-ok-fg"></i>
         <span>GPS disponible: {{ gpsDisponible ? 'Sí' : 'No' }}</span>
       </div>
       <div class="detail-item" *ngIf="visitasPendientes > 0">
-        <i class="pi pi-exclamation-triangle text-orange-500"></i>
+        <i class="pi pi-exclamation-triangle text-warn-fg"></i>
         <span>Visitas pendientes: {{ visitasPendientes }}</span>
       </div>
     </div>

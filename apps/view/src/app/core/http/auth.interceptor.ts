@@ -9,8 +9,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
-  // Skip interceptor if calling an open route like /auth/login
-  if (req.url.includes('/auth/login')) {
+  // Skip open routes: legacy /auth/login + multi-tenant /auth-mt/login.
+  // Sin esto, un 401 en /auth-mt/login (credenciales incorrectas en portal) gatillaría
+  // el redirect global a /login y el usuario nunca vería el error inline.
+  if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')) {
     return next(req);
   }
 
@@ -27,10 +29,14 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(modifiedReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      // Si el backend dictamina un 401 Unauthorized, forzamos logout (la regla del JWT)
+      // 401 → logout + redirect. Respeta el contexto: si el user está en /portal/*
+      // mandalo a /portal/login (no al admin /login que lo confunde).
       if (error.status === 401) {
         authService.logout();
-        router.navigate(['/login']);
+        const onPortal = router.url.startsWith('/portal');
+        const onVendor = router.url.startsWith('/vendor');
+        const target = onPortal ? '/portal/login' : onVendor ? '/login' : '/login';
+        router.navigateByUrl(target);
       }
       return throwError(() => error);
     })

@@ -66,6 +66,25 @@ export class AuthService {
       );
   }
 
+  /**
+   * Auth multi-tenant para Portal B2B y nuevo flujo customer_b2b.
+   * El backend valida tenant_slug + username + password contra `commercial.users`
+   * filtrado por tenant. JWT incluye `tenant_id` además del estándar.
+   */
+  loginMt(payload: {
+    tenant_slug: string;
+    username: string;
+    password: string;
+  }): Observable<{ access_token: string; user: any }> {
+    return this.http
+      .post<{ access_token: string; user: any }>(`${this.apiUrl}/auth-mt/login`, payload)
+      .pipe(
+        tap((response) => {
+          this.setSession(response.access_token);
+        }),
+      );
+  }
+
   logout(): void {
     this.token.set(null);
     this.user.set(null);

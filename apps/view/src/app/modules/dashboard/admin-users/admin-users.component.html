@@ -98,8 +98,9 @@
                 </button>
                 <button
                   (click)="deleteUser(user)"
-                  class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-red-500 hover:bg-red-50 transition-all duration-200"
-                  title="Eliminar">
+                  class="icon-btn-ghost icon-btn-ghost-bad"
+                  title="Eliminar"
+                  aria-label="Eliminar usuario">
                   <i class="pi pi-trash text-sm"></i>
                 </button>
               }
@@ -166,7 +167,7 @@
           }
         </div>
         @if (canManageUsers()) {
-          <button (click)="deleteUser(user)" class="text-xs text-red-400 hover:text-red-500 font-bold uppercase tracking-tighter">Eliminar</button>
+          <button (click)="deleteUser(user)" class="btn-ghost btn-ghost-bad text-xs font-bold uppercase tracking-tighter">Eliminar</button>
         }
       </div>
     </div>
@@ -211,7 +212,7 @@
           <input pInputText id="username" formControlName="username" placeholder="jperez" />
       </div>
       @if (userForm.get('username')?.invalid && userForm.get('username')?.touched) {
-        <small class="text-red-500">
+        <small class="text-bad-fg">
           El usuario es obligatorio (3+ caracteres, sin espacios).
         </small>
       }
@@ -231,7 +232,7 @@
         <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe"
                     optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
         @if (userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched) {
-          <small class="text-red-500">
+          <small class="text-bad-fg">
             Debes asignar un supervisor para este colaborador.
           </small>
         }
@@ -244,7 +245,7 @@
       <input pInputText id="password" type="password" formControlName="password"
              placeholder="{{ isEditing() ? 'Dejar en blanco para no cambiar' : 'Min. 6 caracteres' }}" />
       @if (userForm.get('password')?.hasError('minlength')) {
-        <small class="text-red-500">
+        <small class="text-bad-fg">
           Requiere al menos 6 caracteres.
         </small>
       }

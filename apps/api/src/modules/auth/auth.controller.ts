@@ -4,12 +4,14 @@ import { LoginDto } from './dto/login.dto';
 import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
 import { ReqUser } from '../../shared/decorators/req-user.decorator';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Public } from '../../shared/auth/public.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Public()
   @Post('login')
   @ApiOperation({ summary: 'Inicia sesión con usuario y contraseña' })
   login(@Body() loginDto: LoginDto) {

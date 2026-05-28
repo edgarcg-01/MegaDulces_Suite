@@ -197,20 +197,32 @@ Detallado en `FASES/FASE_A0bis_MULTITENANT_NEW_DB.md` (nuevo). Sprint **A.0-mult
 
 ## ADR-005 — Stack mobile (Ionic actual vs React Native nuevo)
 
-**Estado:** Pendiente — decidir en Sprint D.2.1
+**Estado:** ✅ Aceptado (2026-05-26)
 
-**Fecha:** _(por completar)_
+**Fecha:** 2026-05-26
 
-**Contexto:** App mobile actual está embebida en `apps/view` vía Capacitor (Ionic + Angular). Yom.ai (referencia) usa React Native. Al agregar el módulo "toma de pedidos" para fuerza de ventas, hay que decidir si extender lo actual o crear `apps/mobile-sales` separado en RN.
+**Contexto:** App mobile actual está embebida en `apps/view` vía Capacitor (Angular + PrimeNG + Dexie). Yom.ai (referencia) usa React Native. Al agregar el módulo "toma de pedidos" para fuerza de ventas (Sprint D.2), hay que decidir si extender lo actual o crear `apps/mobile-sales` separado en RN.
 
-**Decisión:** _(pendiente — depende de evaluar capacidad del dev en RN vs Angular/Ionic)_
+**Decisión:** **Extender `apps/view` con módulo `vendor/` y rutas `/vendor/*` mobile-first**. Sin app RN separada por ahora.
 
-**Alternativas consideradas:**
-- **A. Extender Ionic actual**: bajo riesgo de stack pero `apps/view` se vuelve más complejo.
-- **B. Separar a `apps/mobile-capturistas` (Ionic) + `apps/mobile-sales` (RN nuevo)**: dos stacks distintos para mantener.
-- **C. Extender a `apps/mobile-capturistas` (Ionic) + agregar "Sales" como módulo más en el mismo Ionic**: stack único, separación funcional clara.
+**Razonamiento:**
+1. Capacitor + Dexie ya están configurados y funcionando para capturistas.
+2. 1 sólo dev (Edgar) — agregar RN duplica stack a mantener (Angular + RN, dos toolchains de build, dos sistemas de assets).
+3. PrimeNG ya tiene componentes mobile-friendly (Card/InputNumber/Table responsive).
+4. Reuso de `PortalService`, `AuthService`, guards y `environment.ts` — sin duplicar API client.
+5. Si en el futuro hace falta UX nativo profundo (cámara avanzada, geofencing, push background), se puede crear app RN entonces; el backend ya está listo y multi-tenant.
 
-**Consecuencias:** _(por completar)_
+**Alternativas consideradas y rechazadas:**
+- **B. Separar a `apps/mobile-capturistas` (Ionic) + `apps/mobile-sales` (RN nuevo)**: dos stacks, doble esfuerzo de mantenimiento, no justificable con 1 dev.
+- **C. Extender a `apps/mobile-capturistas` (Ionic) + agregar "Sales" como módulo más en el mismo Ionic separado**: complejidad organizacional sin ganancia técnica vs A.
+
+**Consecuencias:**
+- ✅ Reuso de toda la infra (auth, environment, PrimeNG, Dexie, Capacitor build, deploy).
+- ✅ El módulo `vendor/` con `vendor-shell` (sin sidebar, bottom-nav) ofrece UX mobile-first sin requerir framework nuevo.
+- ✅ Web responsive + Capacitor en dispositivos → mismo código corre en navegador (desktop/mobile) y en APK Android.
+- ⚠️ `apps/view` se vuelve más grande — mitigable con lazy-load de módulos (ya hecho).
+- ⚠️ Performance Angular en mobile es buena pero no nativa — si surgen problemas, evaluar RN/Flutter en futuro.
+- 🔄 Reversible: el backend NO depende del frontend. Migrar a RN futuro sólo requiere reimplementar UI consumiendo los mismos endpoints REST + WS.
 
 ---
 
@@ -263,6 +275,62 @@ Detallado en `FASES/FASE_A0bis_MULTITENANT_NEW_DB.md` (nuevo). Sprint **A.0-mult
 - **BBVA API Business**: bancarización formal, requiere relación corporativa.
 - **Clip**: enfoque comercios, menos enterprise.
 - **Stripe Connect**: limitado en MX para algunos use cases.
+
+---
+
+## ADR-011 — Provider de embeddings: Voyage AI `voyage-3`
+
+**Estado:** ✅ Aceptado
+
+**Fecha:** 2026-05-27
+
+**Contexto:**
+- Fase K (AI product match en captures) necesita embeddings vectoriales del catálogo TM (`products.nombre`) para hacer similarity search semántica vía pgvector.
+- Anthropic Claude **no genera embeddings** — hay que elegir provider externo o local.
+- Catálogo Mega Dulces hoy ~1000 SKUs en español MX, crecerá a ~5k al onboardear más tenants.
+
+**Decisión:** Voyage AI con modelo **`voyage-3`** (1024 dimensiones, multilingual, alignment recomendado por Anthropic).
+
+**Alternativas consideradas:**
+- **Voyage `voyage-3-lite`** (512 dims): más barato y rápido pero margen de calidad menor — descartado para evitar refactor cuando catálogo crezca.
+- **OpenAI `text-embedding-3-small`** (1536 dims): calidad comparable, pero suma otro proveedor / cuenta / billing — innecesario teniendo Voyage alineado con Anthropic.
+- **Local sentence-transformers** (Python sidecar): $0 ongoing pero complica infra Railway (Docker custom, healthcheck, scaling) — no escala para 1 dev.
+
+**Consecuencias:**
+- ✅ Mismo provider ecosystem que Anthropic (1 cuenta de billing + 1 API key adicional).
+- ✅ Multilingual español MX excelente, maneja acentos / abreviaciones / typos del nombre de producto.
+- ✅ Costo trivial: ~$0.02 backfill 1k SKUs; ~$0.0001 por query online.
+- ✅ Index pgvector HNSW sobre 1024 dims es performante para escala ≤100k SKUs (no hace falta IVFFLAT).
+- ⚠️ Dependencia externa: si Voyage cae, el feature degrada al search clásico (acceptable, no blocker).
+- ⚠️ Necesita `VOYAGE_API_KEY` en `.env` + Railway secrets.
+- 🔄 Reversible: el campo `embedding vector(1024)` se puede re-generar con otro provider si dimensión coincide (o se altera con `ALTER COLUMN TYPE vector(NEW_DIMS)` perdiendo data).
+
+---
+
+## ADR-012 — pgvector en DB legacy, portar con la tabla cuando se migre a multi-tenant
+
+**Estado:** ✅ Aceptado
+
+**Fecha:** 2026-05-27
+
+**Contexto:**
+- Catálogo TM (`brands` + `products`) vive hoy en DB legacy, NO en la DB multi-tenant nueva (`postgres_platform`). La migración Fase A.0mt solo movió `auth/users/roles`; las tablas TM siguen pendientes.
+- Fase K (AI product match) necesita pgvector + columna `embedding` en `products`.
+- Postergar Fase K hasta migrar TM a multi-tenant retrasa el feature ~2 semanas mínimo.
+
+**Decisión:** Instalar `CREATE EXTENSION vector` y agregar `embedding` a `products` **en la DB legacy** ahora. Cuando se migre TM a la DB multi-tenant (sprint futuro tipo A.0mt.6), la columna `embedding` viaja con la tabla en el script de copia y se recrea el HNSW index del lado nuevo.
+
+**Alternativas consideradas:**
+- **Migrar TM a multi-tenant primero, luego pgvector**: bloquea Fase K 2 semanas mínimo, sin valor entregable. Rechazado.
+- **Dual-write a ambas DBs ahora**: complejidad innecesaria, single source of truth se rompe.
+- **No usar pgvector, hacer similarity search en JS**: O(N) por query sobre 1000+ SKUs en backend, latencia mata el UX mobile. Rechazado.
+
+**Consecuencias:**
+- ✅ Fase K arranca inmediatamente.
+- ✅ El feature funciona contra DB legacy (que es donde hoy se hace todo TM en prod).
+- ⚠️ Cuando migremos TM a multi-tenant: hay que extender el script de copia para mover la columna `embedding` (1 línea más en SELECT/INSERT) + recrear el HNSW index del lado destino. Trivial.
+- ⚠️ La extensión `vector` debe estar en ambos servidores (legacy actual + DB nueva futura). Verificado: Railway Postgres + Postgres local 18.4 lo soportan.
+- 🔄 Reversible: la columna `embedding` se puede dropear sin afectar el resto del catálogo (degradación a search clásico).
 
 ---
 

@@ -20,6 +20,7 @@
 | [`01_TRACKER_PROGRESO.md`](01_TRACKER_PROGRESO.md) | **Kanban en vivo**. Estados ⬜🔨🧪🚀✅⚠️❌ por item. | CADA cierre de item |
 | [`02_DECISIONES_ARQUITECTURA.md`](02_DECISIONES_ARQUITECTURA.md) | ADRs (10 hasta hoy). | Al tomar decisión |
 | [`03_LOG_REVISIONES.md`](03_LOG_REVISIONES.md) | Historial de checkpoints + lessons learned. | Al cerrar sprint |
+| [`04_FLUJO_END_TO_END_REVIEW.md`](04_FLUJO_END_TO_END_REVIEW.md) | **Revisión flow Trade→Comercial→Logística + 10 GAPS + plan sprints J.6/J.7 (2026-05-27)** | Al cerrar items J.6/J.7 |
 | [`AUDITORIA_BASE_INICIAL.md`](AUDITORIA_BASE_INICIAL.md) | 60 findings del código actual. Severidad + plan correctivo. | Al descubrir finding nuevo |
 
 ### Plan macro
@@ -40,6 +41,8 @@
 | [`FASES/FASE_G_GROWTH_CAMPANAS.md`](FASES/FASE_G_GROWTH_CAMPANAS.md) | 📝 Stub | 10-12 sem |
 | [`FASES/FASE_H_FINTECH.md`](FASES/FASE_H_FINTECH.md) | 📝 Stub | 12-16 sem |
 | [`FASES/FASE_I_ML_ESCALADO.md`](FASES/FASE_I_ML_ESCALADO.md) | 📝 Stub | 8-12 sem |
+| [`FASES/FASE_J_LOGISTICA.md`](FASES/FASE_J_LOGISTICA.md) | 🟡 En progreso (60%) | 3-4 sem |
+| [`FASES/FASE_K_AI_PRODUCT_MATCH.md`](FASES/FASE_K_AI_PRODUCT_MATCH.md) | 🟡 **Plan listo 2026-05-27** | 1-2 sesiones |
 
 ---
 

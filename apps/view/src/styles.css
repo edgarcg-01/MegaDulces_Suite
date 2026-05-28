@@ -1,11 +1,17 @@
 @import 'primeicons/primeicons.css';
+/*
+ * Design system tokens — fuente única de verdad para colores, surfaces,
+ * text, charts, avatares y aliases legacy. Light + dark mode viven ahí.
+ * Cualquier color nuevo se agrega en tokens.css, NO en este archivo.
+ */
+@import './styles/tokens.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* 
- * ROOT THEME VARIABLES: Applied globally
+/*
+ * ROOT LAYOUT — sólo geometría base. Los tokens viven en tokens.css.
  */
 html, body {
   margin: 0;
@@ -23,91 +29,6 @@ html {
 }
 
 body {
-  --layout-bg: #f4f4f5;
-  --sidebar-bg: #ffffff;
-  --border-color: #e4e4e7;
-  
-  --text-main: #09090b;
-  --text-muted: #52525b;
-  --text-faint: #a1a1aa;
-  --text-disabled: rgba(9, 9, 11, 0.5);
-  
-  --hover-bg: #f4f4f5;
-  --active-bg: #09090b;
-  --active-text: #ffffff;
-
-  --card-bg: #ffffff;
-  --table-border: #f8fafc;
-  --table-hover: rgba(248, 250, 252, 0.5);
-
-  --shadow-light: 0 1px 3px rgba(0,0,0,0.05);
-  --shadow-hover: 0 10px 30px -10px rgba(0,0,0,0.1);
-  --skeleton-bg: #e2e8f0;
-
-  --surface-ground: #f8fafc;
-
-  /* BRAND PALETTE: Yellow-Orange Gradient */
-  --brand-primary: rgba(253, 231, 7, 1);
-  --brand-orange: #f68f1e;
-  --brand-sunset: #f05a28;
-  --brand-light: #fff8bc;
-  --accent-brand: var(--brand-primary);
-  --accent-brand-light: rgba(253, 231, 7, 0.15);
-  --accent-brand-orange: var(--brand-orange);
-  --accent-brand-sunset: var(--brand-sunset);
-
-  /*
-   * STATUS TOKENS (semáforo unificado).
-   *   -fg: color sólido (texto, barras, anillos)
-   *   -soft-bg: fondo suave para chips/badges
-   *   -soft-fg: texto sobre soft-bg (AA garantizado)
-   *   -border: borde sutil
-   * El theme-monochrome los re-define abajo para que los chips no queden
-   * blanco-sobre-blanco en dark mode.
-   */
-  --status-ok-fg: #16a34a;
-  --status-ok-soft-bg: #dcfce7;
-  --status-ok-soft-fg: #166534;
-  --status-ok-border: #bbf7d0;
-
-  --status-warn-fg: #f59e0b;
-  --status-warn-soft-bg: #fef3c7;
-  --status-warn-soft-fg: #92400e;
-  --status-warn-border: #fde68a;
-
-  --status-bad-fg: #ef4444;
-  --status-bad-soft-bg: #fee2e2;
-  --status-bad-soft-fg: #991b1b;
-  --status-bad-border: #fecaca;
-
-  /* Form accents — usados por <input type="checkbox|radio">.accent-color
-   * y por anillos de :focus-visible. Antes estaban hardcoded como #185FA5 en
-   * el HTML, ahora son temables. */
-  --checkbox-accent: #185fa5;
-  --checkbox-accent-hover: #0d4a8a;
-  --focus-ring: rgba(59, 130, 246, 0.4);
-
-  /* Tonos de barra para el chart de scores en /seguimiento. Antes eran
-   * hex hardcoded (#b4b4b4 / #6b6b6b / #1e1e1e). En dark mode se invierten
-   * para mantener contraste contra fondo oscuro. */
-  --chart-fill-low: #c8c8d0;
-  --chart-fill-mid: #6b6b75;
-  --chart-fill-high: #1e1e22;
-  --chart-meta-line: #9ca3af;
-
-  /* Tags informativos — chips neutrales NO-status (cliente, GPS,
-   * Mega Dulces, Competencia). Se usan en cards densos donde un
-   * status-* sería semánticamente incorrecto. */
-  --chip-info-bg: #eff6ff;
-  --chip-info-fg: #1d4ed8;
-  --chip-info-border: #bfdbfe;
-  --chip-warn-soft-bg: #fef3c7;
-  --chip-warn-soft-fg: #92400e;
-  --chip-warn-soft-border: #fde68a;
-  --chip-brand-bg: #fff8bc;
-  --chip-brand-fg: #92400e;
-  --chip-brand-border: #fde68a;
-
   font-family: 'Inter', sans-serif;
   background-color: var(--layout-bg);
   color: var(--text-main);
@@ -116,82 +37,176 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Dark Mode / Monochrome Theme */
-body.theme-monochrome {
-  --layout-bg: #000000;
-  --sidebar-bg: #111111;
-  --border-color: #333333;
-  
-  --text-main: #ffffff;
-  --text-muted: #a1a1aa;
-  --text-faint: #52525b;
-  --text-disabled: rgba(255, 255, 255, 0.5);
-  
-  --hover-bg: #222222;
-  --active-bg: #ffffff;
-  --active-text: #000000;
-
-  --card-bg: #111111;
-  --table-border: #222222;
-  --table-hover: rgba(255, 255, 255, 0.05);
-
-  --shadow-light: 0 1px 3px rgba(0,0,0,0.5);
-  --shadow-hover: 0 0 20px rgba(255,255,255,0.1);
-  --skeleton-bg: #333333;
-
-  --surface-ground: #111111;
-
-  /* BRAND PALETTE: Yellow-Orange Gradient */
-  --brand-primary: rgba(253, 231, 7, 1);
-  --brand-orange: #f68f1e;
-  --brand-sunset: #f05a28;
-  --brand-light: #fff8bc;
-  --accent-brand: var(--brand-primary);
-  --accent-brand-light: rgba(253, 231, 7, 0.2);
-  --accent-brand-orange: var(--brand-orange);
-  --accent-brand-sunset: var(--brand-sunset);
-
-  /* STATUS TOKENS (dark variants — fondos translúcidos sobre #111) */
-  --status-ok-fg: #22c55e;
-  --status-ok-soft-bg: rgba(34, 197, 94, 0.15);
-  --status-ok-soft-fg: #86efac;
-  --status-ok-border: rgba(34, 197, 94, 0.35);
-
-  --status-warn-fg: #fbbf24;
-  --status-warn-soft-bg: rgba(251, 191, 36, 0.15);
-  --status-warn-soft-fg: #fcd34d;
-  --status-warn-border: rgba(251, 191, 36, 0.35);
-
-  --status-bad-fg: #f87171;
-  --status-bad-soft-bg: rgba(248, 113, 113, 0.15);
-  --status-bad-soft-fg: #fca5a5;
-  --status-bad-border: rgba(248, 113, 113, 0.35);
-
-  /* Form accents en dark — más claros para legibilidad sobre #111 */
-  --checkbox-accent: #3b82f6;
-  --checkbox-accent-hover: #60a5fa;
-  --focus-ring: rgba(96, 165, 250, 0.55);
-
-  /* Chart fills invertidos para dark mode (claro → oscuro = barra alta) */
-  --chart-fill-low: #3f3f46;
-  --chart-fill-mid: #a1a1aa;
-  --chart-fill-high: #fafafa;
-  --chart-meta-line: #71717a;
-
-  /* Chips informativos en dark — fondos translúcidos */
-  --chip-info-bg: rgba(96, 165, 250, 0.15);
-  --chip-info-fg: #93c5fd;
-  --chip-info-border: rgba(96, 165, 250, 0.35);
-  --chip-warn-soft-bg: rgba(251, 191, 36, 0.15);
-  --chip-warn-soft-fg: #fcd34d;
-  --chip-warn-soft-border: rgba(251, 191, 36, 0.35);
-  --chip-brand-bg: rgba(253, 231, 7, 0.15);
-  --chip-brand-fg: #fde047;
-  --chip-brand-border: rgba(253, 231, 7, 0.35);
-}
-
 *, *::before, *::after {
   box-sizing: inherit;
+}
+
+/* ============================================================
+ * UTILITIES: GHOST BUTTONS (color reveal on hover)
+ *
+ * Patrón: botones discretos (texto/icono en gris neutro, fondo
+ * transparente) que REVELAN su color semántico al hover. Útil
+ * para acciones de fila (delete, edit, view, archive) donde el
+ * color cargado constante saturaría visualmente la tabla.
+ *
+ * Uso:
+ *   <button class="btn-ghost btn-ghost-bad">Eliminar</button>
+ *   <button class="btn-ghost btn-ghost-ok">Aprobar</button>
+ *   <button class="btn-ghost btn-ghost-info">Editar</button>
+ *   <button class="btn-ghost btn-ghost-warn">Archivar</button>
+ *   <button class="btn-ghost btn-ghost-brand">Destacar</button>
+ *
+ * Variante icon-only (sin fondo soft, sólo recolorea el icono):
+ *   <button class="icon-btn-ghost icon-btn-ghost-bad">
+ *     <i class="pi pi-trash"></i>
+ *   </button>
+ * ============================================================ */
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  background-color: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
+}
+
+.btn-ghost:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-main);
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost:disabled,
+.btn-ghost[aria-disabled="true"] {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.btn-ghost:disabled:hover,
+.btn-ghost[aria-disabled="true"]:hover {
+  background-color: transparent;
+  color: var(--text-disabled);
+}
+
+/* ─── Semantic reveal modifiers ─── */
+
+.btn-ghost-bad:hover {
+  color: var(--bad-fg);
+  background-color: var(--bad-soft-bg);
+  border-color: var(--bad-border);
+}
+.btn-ghost-bad:focus-visible {
+  outline: 2px solid var(--bad-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-ok:hover {
+  color: var(--ok-fg);
+  background-color: var(--ok-soft-bg);
+  border-color: var(--ok-border);
+}
+.btn-ghost-ok:focus-visible {
+  outline: 2px solid var(--ok-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-warn:hover {
+  color: var(--warn-fg);
+  background-color: var(--warn-soft-bg);
+  border-color: var(--warn-border);
+}
+.btn-ghost-warn:focus-visible {
+  outline: 2px solid var(--warn-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-info:hover {
+  color: var(--info-fg);
+  background-color: var(--info-soft-bg);
+  border-color: var(--info-border);
+}
+.btn-ghost-info:focus-visible {
+  outline: 2px solid var(--info-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-brand:hover {
+  color: var(--brand-900);
+  background-color: var(--brand-100);
+  border-color: var(--brand-200);
+}
+.btn-ghost-brand:focus-visible {
+  outline: 2px solid var(--brand-600);
+  outline-offset: 2px;
+}
+
+/* En dark mode el brand-900 es ilegible sobre fondo brand-100 translúcido —
+ * usamos brand-300 (amarillo más claro) para mantener legibilidad. */
+.theme-monochrome .btn-ghost-brand:hover {
+  color: var(--brand-300);
+}
+
+/* ─── Icon-only variant (acción densa en tablas/listas) ─── */
+
+.icon-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background-color: transparent;
+  color: var(--text-faint);
+  border: none;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, transform 100ms ease;
+}
+
+.icon-btn-ghost:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-main);
+}
+
+.icon-btn-ghost:active {
+  transform: scale(0.92);
+}
+
+.icon-btn-ghost:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  background-color: transparent;
+}
+
+.icon-btn-ghost-bad:hover  { color: var(--bad-fg);  background-color: var(--bad-soft-bg);  }
+.icon-btn-ghost-ok:hover   { color: var(--ok-fg);   background-color: var(--ok-soft-bg);   }
+.icon-btn-ghost-warn:hover { color: var(--warn-fg); background-color: var(--warn-soft-bg); }
+.icon-btn-ghost-info:hover { color: var(--info-fg); background-color: var(--info-soft-bg); }
+.icon-btn-ghost-brand:hover {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+}
+.theme-monochrome .icon-btn-ghost-brand:hover {
+  color: var(--brand-300);
+}
+
+.icon-btn-ghost-bad:focus-visible,
+.icon-btn-ghost-ok:focus-visible,
+.icon-btn-ghost-warn:focus-visible,
+.icon-btn-ghost-info:focus-visible,
+.icon-btn-ghost-brand:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 /*

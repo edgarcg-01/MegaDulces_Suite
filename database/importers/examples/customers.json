@@ -1,0 +1,39 @@
+[
+  {
+    "code": "CLI-0001",
+    "name": "Abarrotes La Esquina",
+    "legal_name": "Abarrotes La Esquina S.A. de C.V.",
+    "rfc": "AES010203XYZ",
+    "email": "ventas@laesquina.mx",
+    "phone": "+52 55 1234 5678",
+    "billing_address": {
+      "street": "Av. Insurgentes",
+      "exterior_number": "123",
+      "neighborhood": "Roma",
+      "city": "Cuauhtémoc",
+      "state": "CDMX",
+      "zip": "06700",
+      "country": "MX"
+    },
+    "default_price_list_code": "BASE-MXN",
+    "credit_limit": 15000,
+    "payment_terms_days": 15,
+    "active": true,
+    "notes": "Cliente con buena rotación"
+  },
+  {
+    "code": "CLI-0002",
+    "name": "Mini Súper Don Pancho",
+    "phone": "+52 55 9876 5432",
+    "default_price_list_code": "BASE-MXN",
+    "credit_limit": 5000,
+    "payment_terms_days": 0,
+    "active": true
+  },
+  {
+    "code": "CLI-0003",
+    "name": "Tienda La Curva",
+    "default_price_list_code": "BASE-MXN",
+    "active": true
+  }
+]

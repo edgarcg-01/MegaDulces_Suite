@@ -219,8 +219,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (!this.isMobile()) this.sidebarFocused.set(false);
   }
 
-  // ── Nav items (reactivos al user signal) ──────────────────────────
-  private rawNavItems: NavItem[] = [
+  // ── Nav items por proyecto ────────────────────────────────────────
+  // Cada proyecto tiene su propio set. El shell elige cuál mostrar según
+  // el URL prefix actual (/dashboard, /comercial, /admin).
+  private tradeMkNavItems: NavItem[] = [
     { label: 'Dashboard',         icon: 'pi pi-th-large',      route: '/dashboard',                      permission: Permission.REPORTES_VER_PROPIO,   exact: true },
     { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
@@ -229,14 +231,41 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
   ];
 
-  private rawAdminItems: NavItem[] = [
-    { label: 'Usuarios',    icon: 'pi pi-users',      route: '/dashboard/admin/users',                permission: Permission.USUARIOS_GESTIONAR    },
+  private tradeMkAdminItems: NavItem[] = [
     { label: 'Conceptos',   icon: 'pi pi-box',        route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
     { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR    },
     { label: 'Niveles',     icon: 'pi pi-bolt',       route: '/dashboard/admin/catalogs/niveles',     permission: Permission.CATALOGO_GESTIONAR    },
     { label: 'Planograma',  icon: 'pi pi-list',       route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR },
     { label: 'Zonas',       icon: 'pi pi-globe',      route: '/dashboard/admin/catalogs/zonas',       permission: Permission.CATALOGO_GESTIONAR    },
-    { label: 'Roles',       icon: 'pi pi-shield',     route: '/dashboard/admin/catalogs/roles',       permission: Permission.ROLES_CONFIGURAR      },
+  ];
+
+  private comercialNavItems: NavItem[] = [
+    { label: 'Centro de Control', icon: 'pi pi-compass',        route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
+    { label: 'Pedidos',           icon: 'pi pi-file-edit',      route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
+    { label: 'Clientes',          icon: 'pi pi-users',          route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
+    { label: 'Inventario',        icon: 'pi pi-box',            route: '/comercial/inventory',      permission: Permission.COMMERCIAL_INVENTORY_VER },
+    { label: 'Listas de precios', icon: 'pi pi-tag',            route: '/comercial/pricing',        permission: Permission.COMMERCIAL_PRICING_VER },
+    { label: 'Promociones',       icon: 'pi pi-gift',           route: '/comercial/promotions',     permission: Permission.COMMERCIAL_PROMOTIONS_VER },
+    { label: 'Almacenes',         icon: 'pi pi-warehouse',      route: '/comercial/warehouses',     permission: Permission.COMMERCIAL_WAREHOUSES_VER },
+    { label: 'Modo Vendedor',     icon: 'pi pi-briefcase',      route: '/vendor/customers',         permission: Permission.COMMERCIAL_ORDERS_CREAR },
+  ];
+
+  private adminNavItems: NavItem[] = [
+    { label: 'Usuarios', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_GESTIONAR },
+    { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_CONFIGURAR   },
+  ];
+
+  private logisticaNavItems: NavItem[] = [
+    { label: 'Dashboard',        icon: 'pi pi-th-large',  route: '/logistica/dashboard', permission: Permission.LOGISTICS_SHIPMENTS_VER },
+    { label: 'Embarques',        icon: 'pi pi-truck',     route: '/logistica/shipments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
+    { label: 'Mis entregas',     icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
+    { label: 'Guías',            icon: 'pi pi-file-edit', route: '/logistica/guides',    permission: Permission.LOGISTICS_GUIDES_VER },
+    { label: 'Costos',           icon: 'pi pi-money-bill', route: '/logistica/costs',    permission: Permission.LOGISTICS_EXPENSES_VER },
+    { label: 'Reportes',         icon: 'pi pi-chart-bar', route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
+    { label: 'Flotilla',         icon: 'pi pi-car',       route: '/logistica/fleet',     permission: Permission.LOGISTICS_FLEET_VER     },
+    { label: 'Personal',         icon: 'pi pi-users',     route: '/logistica/staff',     permission: Permission.LOGISTICS_FLEET_VER },
+    { label: 'Liquidaciones',    icon: 'pi pi-wallet',    route: '/logistica/payroll',   permission: Permission.LOGISTICS_PAYROLL_VER   },
+    { label: 'Configuración',    icon: 'pi pi-cog',       route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },
   ];
 
   private permToSubject: Record<string, string> = {
@@ -252,20 +281,53 @@ export class LayoutComponent implements OnInit, OnDestroy {
     [Permission.VER_SEGUIMIENTO]: 'seguimiento',
   };
 
+  /**
+   * Chequeo combinado: CASL rules (subjectMap) + fallback al record legacy
+   * `user.permissions[X] === true`. Necesario porque las perms commercial
+   * no están mapeadas a subjects CASL todavía, pero sí se sirven en el JWT
+   * legacy permission record.
+   */
+  private hasPermFor(item: NavItem): boolean {
+    const subject = this.permToSubject[item.permission];
+    if (subject && this.perms.can('read', subject as any)) return true;
+    const legacy = this.user()?.permissions;
+    return legacy ? legacy[item.permission] === true : false;
+  }
+
+  /**
+   * Detecta proyecto activo según prefix del URL. Default = trade marketing.
+   * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
+   */
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica'>(() => {
+    const url = this.currentUrl();
+    if (url.startsWith('/admin')) return 'admin';
+    if (url.startsWith('/comercial')) return 'comercial';
+    if (url.startsWith('/logistica')) return 'logistica';
+    return 'trademk';
+  });
+
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];
-    return this.rawNavItems.filter((item) =>
-      this.perms.can('read', this.permToSubject[item.permission] as any),
-    );
+    const project = this.currentProject();
+    const items =
+      project === 'comercial'
+        ? this.comercialNavItems
+        : project === 'admin'
+        ? this.adminNavItems
+        : project === 'logistica'
+        ? this.logisticaNavItems
+        : this.tradeMkNavItems;
+    return items.filter((i) => this.hasPermFor(i));
   });
 
   adminItems = computed(() => {
     const user = this.user();
     if (!user) return [];
-    return this.rawAdminItems.filter((item) =>
-      this.perms.can('read', this.permToSubject[item.permission] as any),
-    );
+    // Solo Trade Marketing tiene sección admin separada (catálogos + planograma).
+    // En /comercial y /admin no hay sub-sección admin.
+    if (this.currentProject() !== 'trademk') return [];
+    return this.tradeMkAdminItems.filter((i) => this.hasPermFor(i));
   });
 
   /**

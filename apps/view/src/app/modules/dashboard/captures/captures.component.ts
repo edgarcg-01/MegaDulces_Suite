@@ -38,6 +38,8 @@ import {
   RANGOS_COMPRA,
   RegistroExhibicion,
 } from './daily-capture.models';
+// Fase K — AI product picker
+import { AiProductPickerComponent } from './ai-product-picker.component';
 
 @Component({
   selector: 'app-daily-capture',
@@ -66,6 +68,8 @@ import {
     HlmButtonDirective,
     HlmInputDirective,
     HlmLabelDirective,
+    // Fase K
+    AiProductPickerComponent,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './captures.component.html',
@@ -126,6 +130,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   ngOnInit() {
     this.svc.refreshAll();
+    // Fase K — escucha cambios de conectividad para mostrar/ocultar el botón AI.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', this.onlineHandler);
+      window.addEventListener('offline', this.offlineHandler);
+    }
     // Suscribirse al stream de notificaciones del servicio (MessageService vive a
     // nivel de componente, no se puede inyectar en el servicio root).
     this.notificationSub = this.svc.notifications$.subscribe((evt) => {
@@ -163,6 +172,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     // sin esto, body queda `position: fixed` y toda la app pierde scroll.
     if (this.showWizard) {
       this.unlockBodyScroll();
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.onlineHandler);
+      window.removeEventListener('offline', this.offlineHandler);
     }
   }
 
@@ -210,10 +223,56 @@ export class CapturesComponent implements OnInit, OnDestroy {
   /** Marcas expandidas en el paso de productos */
   expandedBrands = signal<Set<string>>(new Set());
 
+  /** Productos visibles por marca. Marcas con >PRODUCTS_PAGE_SIZE items
+   * renderizan en páginas para no colapsar el DOM mobile con 200+ nodos.
+   * Se incrementa con "Mostrar más"; se resetea con search/cierre wizard. */
+  private readonly PRODUCTS_PAGE_SIZE = 50;
+  productsShownByBrand = signal<Map<string, number>>(new Map());
+
+  productsVisibleCount(marca: string, total: number): number {
+    return Math.min(this.productsShownByBrand().get(marca) ?? this.PRODUCTS_PAGE_SIZE, total);
+  }
+
+  productsRemaining(marca: string, total: number): number {
+    return Math.max(0, total - this.productsVisibleCount(marca, total));
+  }
+
+  showMoreInBrand(marca: string, total: number): void {
+    this.productsShownByBrand.update((m) => {
+      const next = new Map(m);
+      const current = next.get(marca) ?? this.PRODUCTS_PAGE_SIZE;
+      next.set(marca, Math.min(current + this.PRODUCTS_PAGE_SIZE, total));
+      return next;
+    });
+  }
+
+  nextPageSize(marca: string, total: number): number {
+    return Math.min(this.PRODUCTS_PAGE_SIZE, this.productsRemaining(marca, total));
+  }
+
   /** Exhibición actual siendo editada en el wizard */
   currentExhibicion = signal<Partial<RegistroExhibicion>>({
     productosMarcados: [],
   });
+
+  // ── Fase K — AI product picker ────────────────────────────────────────
+  /** Toggle del modal `<app-ai-product-picker>` en el paso 5. */
+  showAiPicker = signal<boolean>(false);
+  /**
+   * Adaptador para `[(visible)]` de PrimeNG `<p-dialog>` que espera
+   * property tradicional, no signal. Read del signal, write con `.set`.
+   */
+  get showAiPickerModel(): boolean {
+    return this.showAiPicker();
+  }
+  set showAiPickerModel(v: boolean) {
+    this.showAiPicker.set(v);
+  }
+  /** Online flag para esconder el botón AI cuando no hay red (captures es offline-first). */
+  isOnline = signal<boolean>(typeof navigator === 'undefined' || navigator.onLine);
+
+  private onlineHandler = () => this.isOnline.set(true);
+  private offlineHandler = () => this.isOnline.set(false);
 
   /**
    * Search debounceado (200 ms). Recomputar `filteredProducts` y
@@ -332,14 +391,14 @@ export class CapturesComponent implements OnInit, OnDestroy {
         value: `${Math.round(s.puntuacionTotal)} pts`,
         description: `Puntos absolutos obtenidos`,
         icon: 'pi pi-star-fill',
-        valueColor: s.puntuacionTotal > 0 ? '#10b981' : 'var(--text-main)',
+        valueColor: s.puntuacionTotal > 0 ? 'var(--ok-fg)' : 'var(--text-main)',
       },
       {
         label: 'Venta Adicional Total',
         value: `$${s.ventaTotal.toLocaleString('es-MX')}`,
         description: 'Impacto comercial',
         icon: 'pi pi-dollar',
-        valueColor: s.ventaTotal > 0 ? '#10b981' : 'var(--text-main)',
+        valueColor: s.ventaTotal > 0 ? 'var(--ok-fg)' : 'var(--text-main)',
       },
     ];
   });
@@ -631,8 +690,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
     this.wizardStep = 1;
     this.showWizard = true;
-    this.expandedBrands.set(new Set()); // Reset expanded brands
-    this.lockBodyScroll(); // Bloquear scroll del body cuando se abre el wizard
+    this.expandedBrands.set(new Set());
+    this.productsShownByBrand.set(new Map());
+    this.lockBodyScroll();
   }
 
   /**
@@ -960,6 +1020,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   onSearchChange(query: string) {
     this.searchQuery.set(query);
+    this.productsShownByBrand.set(new Map());
   }
 
   /**
@@ -967,6 +1028,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   clearSearch() {
     this.searchQuery.set('');
+    this.productsShownByBrand.set(new Map());
   }
 
   /**
@@ -1032,6 +1094,40 @@ export class CapturesComponent implements OnInit, OnDestroy {
       }
       return curr;
     });
+  }
+
+  // ── Fase K — AI product picker handlers ─────────────────────────────────
+  openAiPicker() {
+    if (!this.isOnline()) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Sin conexión',
+        detail: 'La búsqueda con AI requiere internet. Usa el buscador clásico.',
+        life: 3500,
+      });
+      return;
+    }
+    this.showAiPicker.set(true);
+  }
+
+  onAiPickerApplied(pids: string[]) {
+    // Merge con dedupe automático contra los ya seleccionados.
+    this.currentExhibicion.update((curr) => {
+      const existing = curr.productosMarcados || [];
+      const fresh = pids.filter((p) => !existing.includes(p));
+      return { ...curr, productosMarcados: [...existing, ...fresh] };
+    });
+    this.showAiPicker.set(false);
+    this.toast.add({
+      severity: 'success',
+      summary: 'Productos agregados',
+      detail: `${pids.length} producto${pids.length === 1 ? '' : 's'} reconocidos por AI.`,
+      life: 3000,
+    });
+  }
+
+  onAiPickerCancelled() {
+    this.showAiPicker.set(false);
   }
 
   /**
@@ -1125,13 +1221,17 @@ export class CapturesComponent implements OnInit, OnDestroy {
         fotoBase64: compressed,
       }));
     } catch (err) {
+      const isHeic = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
       this.toast.add({
         severity: 'error',
-        summary: 'Error al procesar la imagen',
-        detail: 'Intenta con otra foto.',
+        summary: isHeic ? 'Formato HEIC no soportado' : 'Error al procesar la imagen',
+        detail: isHeic
+          ? 'En este dispositivo tu foto no se puede decodificar. Cambiá el formato a "Más compatible" en Ajustes → Cámara → Formatos, o tomá la foto de nuevo.'
+          : 'Intenta con otra foto.',
+        life: 6000,
       });
     } finally {
-      input.value = ''; // permite re-seleccionar el mismo archivo
+      input.value = '';
     }
   }
 

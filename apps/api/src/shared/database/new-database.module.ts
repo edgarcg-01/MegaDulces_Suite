@@ -1,6 +1,7 @@
 import { Global, Module, Logger } from '@nestjs/common';
 import knex, { Knex } from 'knex';
 import * as path from 'path';
+import { TenantKnexService } from './tenant-knex.service';
 
 /**
  * Módulo que provee conexión a la **nueva DB multi-tenant** (`postgres_platform`).
@@ -19,16 +20,36 @@ import * as path from 'path';
 export const KNEX_NEW_DB = 'KNEX_NEW_DB';
 
 /**
- * Carga config de la nueva DB desde env vars. Prefiere `DATABASE_URL_NEW`
- * (connection string completo) sobre las variables sueltas.
+ * Token de inyección para una conexión separada con el rol `postgres`
+ * (superuser). Usado SOLO por operaciones admin que requieren bypass de RLS o
+ * privilegios que app_runtime no tiene:
+ *   - REFRESH MATERIALIZED VIEW (owner-only en Postgres)
+ *   - Operaciones de mantenimiento (VACUUM, ANALYZE, etc.)
+ *
+ * NUNCA usar este token desde endpoints públicos — solo desde cron jobs y
+ * servicios de admin. Si crece el surface area, agregar un guard que
+ * restrinja el acceso por role_name.
+ */
+export const KNEX_NEW_DB_ADMIN = 'KNEX_NEW_DB_ADMIN';
+
+/**
+ * Carga config de la nueva DB desde env vars.
+ *
+ * CRÍTICO: usa `DATABASE_URL_NEW_RUNTIME` (rol `app_runtime`) — NO
+ * `DATABASE_URL_NEW` (rol `postgres` superuser). El runtime debe correr con
+ * un usuario que NO bypasee RLS, de lo contrario cualquier bug en el código
+ * expondría data cross-tenant.
+ *
+ * Las MIGRACIONES sí usan `DATABASE_URL_NEW` (postgres) — knexfile-newdb.js
+ * lee de ahí. Esta separación es intencional.
  */
 function buildNewDbConfig(): Knex.Config {
-  if (process.env.DATABASE_URL_NEW) {
+  const connStr = process.env.DATABASE_URL_NEW_RUNTIME;
+  if (connStr) {
     return {
       client: 'pg',
       connection: {
-        connectionString: process.env.DATABASE_URL_NEW,
-        // SSL solo en prod (Railway requiere, local no).
+        connectionString: connStr,
         ssl:
           process.env.NODE_ENV === 'production'
             ? { rejectUnauthorized: false }
@@ -42,14 +63,15 @@ function buildNewDbConfig(): Knex.Config {
     };
   }
 
+  // Fallback con variables sueltas — usa user `app_runtime` (no postgres) en runtime
   return {
     client: 'pg',
     connection: {
       host: process.env.NEW_DB_HOST || '192.168.0.245',
       port: Number(process.env.NEW_DB_PORT) || 5432,
       database: process.env.NEW_DB_NAME || 'postgres_platform',
-      user: process.env.NEW_DB_USER || 'postgres',
-      password: process.env.NEW_DB_PASSWORD || '',
+      user: 'app_runtime',
+      password: process.env.APP_RUNTIME_PASSWORD || 'app_runtime',
       ssl:
         process.env.NODE_ENV === 'production'
           ? { rejectUnauthorized: false }
@@ -78,7 +100,34 @@ function buildNewDbConfig(): Knex.Config {
         return knex(config);
       },
     },
+    {
+      provide: KNEX_NEW_DB_ADMIN,
+      useFactory: () => {
+        const logger = new Logger('NewDatabaseModule:Admin');
+        const connStr = process.env.DATABASE_URL_NEW;
+        if (!connStr) {
+          logger.warn(
+            'DATABASE_URL_NEW no seteado — KNEX_NEW_DB_ADMIN no podrá hacer REFRESH MV. Setear var para activar cron analytics.',
+          );
+          // Devolvemos null en runtime → consumers chequean antes de usar.
+          return null;
+        }
+        logger.log('Admin (postgres) Knex connection lista para mantenimiento');
+        return knex({
+          client: 'pg',
+          connection: {
+            connectionString: connStr,
+            ssl:
+              process.env.NODE_ENV === 'production'
+                ? { rejectUnauthorized: false }
+                : false,
+          },
+          pool: { min: 0, max: 2 }, // pool chico — solo para cron/admin
+        });
+      },
+    },
+    TenantKnexService,
   ],
-  exports: [KNEX_NEW_DB],
+  exports: [KNEX_NEW_DB, KNEX_NEW_DB_ADMIN, TenantKnexService],
 })
 export class NewDatabaseModule {}

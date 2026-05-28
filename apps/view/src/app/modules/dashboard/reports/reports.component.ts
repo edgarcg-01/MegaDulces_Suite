@@ -6,6 +6,7 @@ import {
   signal,
   computed,
   effect,
+  untracked,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -62,6 +63,8 @@ import { GlobalFiltersComponent } from '../reports/graphics/global-filters.compo
 import { StoresTabComponent } from './stores-tab/stores-tab.component';
 import { RoutesTabComponent } from './routes-tab/routes-tab.component';
 import { Permission } from '../../../core/constants/permissions';
+import { ThemeService } from '../../../core/services/theme.service';
+import { getChartTokens, chartSeriesPalette } from '../../../shared/theme/chart-theme';
 
 /**
  * Interfaz para agrupar visitas por día
@@ -143,6 +146,7 @@ export class ReportsComponent implements OnInit {
   readonly metasConfig = inject(MetasConfigService);
   private dailyCaptureService = inject(DailyCaptureService);
   private destroyRef = inject(DestroyRef);
+  public themeService = inject(ThemeService);
 
   /** Estado de carga */
   loading = signal(false);
@@ -391,6 +395,18 @@ export class ReportsComponent implements OnInit {
       if (data?.productStats && products.length > 0) {
         this.buildProductCharts(data);
       }
+    });
+
+    // Re-render chart options + data al cambiar tema. Los tokens se resuelven
+    // desde getComputedStyle al construir los configs, por eso necesitamos
+    // re-construir cuando cambia el tema (NG0600: writes vía untracked).
+    effect(() => {
+      this.themeService.isMonochrome();
+      untracked(() => {
+        this.initChartOptions();
+        const data = this.reportsData();
+        if (data) this.buildCharts(data);
+      });
     });
   }
 
@@ -662,6 +678,7 @@ export class ReportsComponent implements OnInit {
    * @param data Datos de reportes
    */
   buildCharts(data: ReportsData) {
+    const t = getChartTokens();
     const visitasMeta = this.metasConfig.getRange('visitas')?.opt ?? 50;
     const scoreMeta = this.metasConfig.getRange('score')?.opt ?? 80;
     const trend = data.trendData ?? [];
@@ -685,8 +702,8 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas por día',
           data: last7Days.map((d: any) => d.visits),
-          borderColor: '#185FA5',
-          backgroundColor: 'rgba(24,95,165,0.8)',
+          borderColor: t.okFg,
+          backgroundColor: t.okFg,
           borderWidth: 2,
           borderRadius: 6,
           borderSkipped: false,
@@ -695,7 +712,7 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Meta diaria',
           data: last7Days.map(() => Math.round(visitasMeta / 7)), // Meta distribuida por día
-          borderColor: '#E24B4A',
+          borderColor: t.badFg,
           borderDash: [4, 3],
           borderWidth: 2,
           pointRadius: 0,
@@ -714,10 +731,10 @@ export class ReportsComponent implements OnInit {
           data: zones.map((z: any) => z.avgScore),
           backgroundColor: zones.map((z: any) =>
             z.avgScore >= scoreMeta
-              ? '#97C459'
+              ? t.okFg
               : z.avgScore >= this.metasConfig.getRange('score')!.min
-                ? '#FAC775'
-                : '#F09595',
+                ? t.warnFg
+                : t.badFg,
           ),
         },
       ],
@@ -730,7 +747,7 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas',
           data: sellers.map((s: any) => s.totalVisitas),
-          backgroundColor: '#185FA5',
+          backgroundColor: t.okFg,
         },
       ],
     };
@@ -743,17 +760,17 @@ export class ReportsComponent implements OnInit {
     
     // Mapear niveles del catálogo con colores
     const colorMap: Record<string, string> = {
-      'alto': '#97C459',
-      'medio': '#85B7EB',
-      'bajo': '#FAC775',
-      'crítico': '#F09595',
+      'alto': t.okFg,
+      'medio': t.infoFg,
+      'bajo': t.warnFg,
+      'crítico': t.badFg,
     };
-    
+
     nivelesCatalogo.forEach(n => {
       nivelMap.set(n.id, {
         value: n.value.toLowerCase(),
         puntuacion: Number(n.puntuacion) || 1,
-        color: colorMap[n.value.toLowerCase()] || '#888888',
+        color: colorMap[n.value.toLowerCase()] || t.chart8,
       });
     });
 
@@ -804,7 +821,7 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas',
           data: dist,
-          backgroundColor: nivelOrden.map(n => colorMap[n] || '#888888'),
+          backgroundColor: nivelOrden.map(n => colorMap[n] || t.chart8),
         },
       ],
     };
@@ -821,9 +838,9 @@ export class ReportsComponent implements OnInit {
     // Una barra por día con el TOTAL real de visitas; color según el score
     // promedio real del día (≥80 alto, ≥50 medio, sino bajo).
     const colorForScore = (score: number): string => {
-      if (score >= scoreMeta) return '#185FA5';
-      if (score >= (this.metasConfig.getRange('score')?.min ?? 50)) return '#5B9BD5';
-      return '#BDD7EE';
+      if (score >= scoreMeta) return t.okFg;
+      if (score >= (this.metasConfig.getRange('score')?.min ?? 50)) return t.warnFg;
+      return t.badFg;
     };
 
     this.stackedChartData = {
@@ -843,7 +860,7 @@ export class ReportsComponent implements OnInit {
     // 1. DOUGHNUT CHART - Distribución porcentual de visitas por nivel de ejecución real
     const doughnutLabels = nivelOrden.map(n => n.charAt(0).toUpperCase() + n.slice(1));
     const doughnutValues = nivelOrden.map(nivel => visitLevelCounts[nivel] || 0);
-    const doughnutColors = nivelOrden.map(n => colorMap[n] || '#888888');
+    const doughnutColors = nivelOrden.map(n => colorMap[n] || t.chart8);
     
     this.doughnutChartData = {
       labels: doughnutLabels,
@@ -917,16 +934,8 @@ export class ReportsComponent implements OnInit {
           Math.min(100, (z.totalExhibiciones ?? 0) / 2), // Normalizado a 100
           Math.min(100, (z.totalVentas ?? 0) / 1000), // Normalizado a 100 (asumiendo ventas en miles)
         ],
-        borderColor: ['#185FA5', '#5B9BD5', '#97C459', '#FAC775', '#F09595'][
-          idx
-        ],
-        backgroundColor: [
-          'rgba(24,95,165,0.2)',
-          'rgba(91,155,213,0.2)',
-          'rgba(151,196,89,0.2)',
-          'rgba(250,199,117,0.2)',
-          'rgba(240,149,149,0.2)',
-        ][idx],
+        borderColor: chartSeriesPalette(t, 5)[idx],
+        backgroundColor: chartSeriesPalette(t, 5)[idx],
       })),
     };
 
@@ -934,8 +943,10 @@ export class ReportsComponent implements OnInit {
     const polarLabels = [...nivelOrden].reverse().map(n => n.charAt(0).toUpperCase() + n.slice(1));
     const polarValues = [...nivelOrden].reverse().map(nivel => visitLevelCounts[nivel] || 0);
     const polarColors = [...nivelOrden].reverse().map(n => {
-      const baseColor = colorMap[n] || '#888888';
-      // Convert hex to rgba
+      const baseColor = colorMap[n] || t.chart8;
+      // Convert hex to rgba (only works for #RRGGBB literals; CSS vars del
+      // tema resuelven a hex, así que es seguro).
+      if (!baseColor.startsWith('#') || baseColor.length < 7) return baseColor;
       const r = parseInt(baseColor.slice(1, 3), 16);
       const g = parseInt(baseColor.slice(3, 5), 16);
       const b = parseInt(baseColor.slice(5, 7), 16);
@@ -949,7 +960,7 @@ export class ReportsComponent implements OnInit {
           data: polarValues,
           backgroundColor: polarColors,
           borderWidth: 1,
-          borderColor: '#fff',
+          borderColor: t.cardBg,
         },
       ],
     };
@@ -965,8 +976,8 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas: Score vs Ventas',
           data: scatterData,
-          backgroundColor: '#185FA5',
-          borderColor: '#185FA5',
+          backgroundColor: t.okFg,
+          borderColor: t.okFg,
           pointRadius: 4,
           pointHoverRadius: 6,
         },
@@ -981,13 +992,13 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Score Promedio',
           data: trend.map((d: any) => d.avgScore),
-          borderColor: '#f6d200',
-          backgroundColor: 'rgba(246, 210, 0, 0.1)',
+          borderColor: t.brand400,
+          backgroundColor: t.brand400,
           fill: true,
           tension: 0.4,
           pointRadius: 4,
-          pointBackgroundColor: '#f6d200',
-          pointBorderColor: '#fff',
+          pointBackgroundColor: t.brand400,
+          pointBorderColor: t.cardBg,
           pointBorderWidth: 2,
         },
       ],
@@ -1065,20 +1076,21 @@ export class ReportsComponent implements OnInit {
   }
 
   applyBrandFilter() {
-    const filtered = this.selectedBrand 
+    const t = getChartTokens();
+    const filtered = this.selectedBrand
       ? this.allProductStatsRaw.filter(p => p.marca === this.selectedBrand)
       : this.allProductStatsRaw;
 
-    this.topProducts = filtered.slice(0, 7); 
-    this.bottomProducts = [...filtered].reverse().slice(0, 5); 
-    
+    this.topProducts = filtered.slice(0, 7);
+    this.bottomProducts = [...filtered].reverse().slice(0, 5);
+
     this.productTopChartData = {
       labels: this.topProducts.map(p => p.name.length > 20 ? p.name.substring(0,20)+'...' : p.name),
       datasets: [
         {
           label: 'Frecuencia en puntos de venta',
           data: this.topProducts.map(p => p.total),
-          backgroundColor: '#97C459', 
+          backgroundColor: t.okFg,
           borderRadius: 4,
         }
       ]
@@ -1137,19 +1149,21 @@ export class ReportsComponent implements OnInit {
   }
 
   refreshHealthData(h: any) {
+    const t = getChartTokens();
     this.currentHealthStats = h || { optimo: 0, regular: 0, critico: 0 };
     this.exhibidoresHealthChartData = {
       labels: ['Óptimo', 'Regular', 'Crítico'],
       datasets: [{
         data: [this.currentHealthStats.optimo, this.currentHealthStats.regular, this.currentHealthStats.critico],
-        backgroundColor: ['#97C459', '#F59E0B', '#EF4444'],
-        hoverBackgroundColor: ['#86b04f', '#d97706', '#dc2626'],
+        backgroundColor: [t.okFg, t.warnFg, t.badFg],
+        hoverBackgroundColor: [t.okFg, t.warnFg, t.badFg],
         borderWidth: 0
       }]
     };
   }
 
   initChartOptions() {
+    const t = getChartTokens();
     // Base moderna para todas las gráficas
     const base = {
       responsive: true,
@@ -1163,14 +1177,14 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'circle',
             padding: 20,
             font: { size: 12, weight: '500' },
-            color: '#52525b',
+            color: t.textMuted,
           },
         },
         tooltip: {
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          titleColor: '#09090b',
-          bodyColor: '#52525b',
-          borderColor: '#e4e4e7',
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
           borderWidth: 1,
           padding: 12,
           cornerRadius: 8,
@@ -1195,14 +1209,14 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'rect',
             padding: 20,
             font: { size: 12, weight: '500' },
-            color: '#52525b',
+            color: t.textMuted,
           },
         },
         tooltip: {
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          titleColor: '#09090b',
-          bodyColor: '#52525b',
-          borderColor: '#e4e4e7',
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
           borderWidth: 1,
           padding: 12,
           cornerRadius: 8,
@@ -1217,13 +1231,13 @@ export class ReportsComponent implements OnInit {
           grid: { display: false },
           ticks: {
             font: { size: 11, weight: '500' },
-            color: '#71717a',
+            color: t.chartAxis,
           },
         },
         y: {
           beginAtZero: true,
-          grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' },
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
         },
       },
     };
@@ -1238,12 +1252,12 @@ export class ReportsComponent implements OnInit {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 11, weight: '500' }, color: '#71717a' },
+          ticks: { font: { size: 11, weight: '500' }, color: t.chartAxis },
         },
         y: {
           beginAtZero: true,
-          grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' },
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
         },
       },
     };
@@ -1259,12 +1273,12 @@ export class ReportsComponent implements OnInit {
       scales: {
         x: {
           beginAtZero: true,
-          grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' },
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
         },
         y: {
           grid: { display: false },
-          ticks: { font: { size: 12, weight: '500' }, color: '#52525b' },
+          ticks: { font: { size: 12, weight: '500' }, color: t.textMuted },
         },
       },
     };
@@ -1279,12 +1293,12 @@ export class ReportsComponent implements OnInit {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 11, weight: '500' }, color: '#52525b' },
+          ticks: { font: { size: 11, weight: '500' }, color: t.textMuted },
         },
         y: {
           beginAtZero: true,
-          grid: { color: '#f4f4f5', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#71717a' },
+          grid: { color: t.chartGrid, drawBorder: false },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
         },
       },
     };
@@ -1302,14 +1316,14 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'circle',
             padding: 15,
             font: { size: 11, weight: '500' },
-            color: '#52525b',
+            color: t.textMuted,
           },
         },
         tooltip: {
-          backgroundColor: 'rgba(255, 255, 255, 0.98)',
-          titleColor: '#09090b',
-          bodyColor: '#52525b',
-          borderColor: '#e4e4e7',
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
           borderWidth: 1,
           padding: 12,
           cornerRadius: 10,
@@ -1334,16 +1348,16 @@ export class ReportsComponent implements OnInit {
           grid: { display: false },
           ticks: {
             font: { size: 11, weight: '500' },
-            color: '#71717a',
+            color: t.chartAxis,
           },
         },
         y: {
           stacked: true,
           beginAtZero: true,
-          grid: { color: '#f4f4f5', drawBorder: false },
+          grid: { color: t.chartGrid, drawBorder: false },
           ticks: {
             font: { size: 11 },
-            color: '#71717a',
+            color: t.chartAxis,
             callback: function (value: number) {
               return value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value;
             },
@@ -1372,7 +1386,7 @@ export class ReportsComponent implements OnInit {
             pointStyle: 'circle',
             padding: 15,
             font: { size: 11 },
-            color: '#52525b',
+            color: t.textMuted,
           },
         },
         tooltip: {
@@ -1398,15 +1412,15 @@ export class ReportsComponent implements OnInit {
       ...base,
       scales: {
         r: {
-          angleLines: { color: '#e4e4e7' },
-          grid: { color: '#f4f4f5' },
+          angleLines: { color: t.borderColor },
+          grid: { color: t.chartGrid },
           pointLabels: {
             font: { size: 11, weight: '500' },
-            color: '#52525b',
+            color: t.textMuted,
           },
           ticks: {
             backdropColor: 'transparent',
-            color: '#71717a',
+            color: t.chartAxis,
             font: { size: 10 },
           },
           suggestedMin: 0,
@@ -1420,15 +1434,15 @@ export class ReportsComponent implements OnInit {
       ...base,
       scales: {
         r: {
-          grid: { color: '#f4f4f5' },
-          angleLines: { color: '#e4e4e7' },
+          grid: { color: t.chartGrid },
+          angleLines: { color: t.borderColor },
           pointLabels: {
             font: { size: 11 },
-            color: '#52525b',
+            color: t.textMuted,
           },
           ticks: {
             backdropColor: 'transparent',
-            color: '#71717a',
+            color: t.chartAxis,
           },
         },
       },
@@ -1455,20 +1469,20 @@ export class ReportsComponent implements OnInit {
             display: true,
             text: 'Score (pts)',
             font: { size: 12, weight: '500' },
-            color: '#52525b',
+            color: t.textMuted,
           },
-          grid: { color: '#f4f4f5' },
-          ticks: { color: '#71717a' },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
         },
         y: {
           title: {
             display: true,
             text: 'Ventas ($)',
             font: { size: 12, weight: '500' },
-            color: '#52525b',
+            color: t.textMuted,
           },
-          grid: { color: '#f4f4f5' },
-          ticks: { color: '#71717a' },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
         },
       },
     };
@@ -1481,10 +1495,10 @@ export class ReportsComponent implements OnInit {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          titleColor: '#09090b',
-          bodyColor: '#52525b',
-          borderColor: '#e4e4e7',
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
           borderWidth: 1,
           padding: 12,
           boxPadding: 6,
@@ -1497,14 +1511,14 @@ export class ReportsComponent implements OnInit {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: '#71717a', font: { size: 11, weight: '500' } },
+          ticks: { color: t.chartAxis, font: { size: 11, weight: '500' } },
         },
         y: {
           min: 0,
           max: 100,
-          grid: { color: '#f4f4f5', drawTicks: false },
+          grid: { color: t.chartGrid, drawTicks: false },
           ticks: {
-            color: '#71717a',
+            color: t.chartAxis,
             font: { size: 11 },
             callback: (value: any) => `${value}%`,
           },

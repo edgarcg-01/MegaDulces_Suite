@@ -1,0 +1,31 @@
+[
+  { "brand_nombre": "Chocolates Premium", "nombre": "Barra Chocolate Amargo 70%", "orden": 1, "puntuacion": 1.5 },
+  { "brand_nombre": "Chocolates Premium", "nombre": "Trufas Surtidas 12pz", "orden": 2, "puntuacion": 1.4 },
+  { "brand_nombre": "Chocolates Premium", "nombre": "Bombones Rellenos 24pz", "orden": 3, "puntuacion": 1.3 },
+  { "brand_nombre": "Chocolates Premium", "nombre": "Chocolate con Almendras 80g", "orden": 4, "puntuacion": 1.2 },
+  { "brand_nombre": "Chocolates Premium", "nombre": "Chocolate Blanco Premium", "orden": 5, "puntuacion": 1.1 },
+
+  { "brand_nombre": "Dulces Típicos MX", "nombre": "Tamarindo Enchilado 500g", "orden": 1, "puntuacion": 1.3 },
+  { "brand_nombre": "Dulces Típicos MX", "nombre": "Pulparindo 20pz", "orden": 2, "puntuacion": 1.4 },
+  { "brand_nombre": "Dulces Típicos MX", "nombre": "Cacahuates Japoneses 1kg", "orden": 3, "puntuacion": 1.0 },
+  { "brand_nombre": "Dulces Típicos MX", "nombre": "Cocadas Tradicional 24pz", "orden": 4, "puntuacion": 1.2 },
+  { "brand_nombre": "Dulces Típicos MX", "nombre": "Mazapán 30pz", "orden": 5, "puntuacion": 1.5 },
+
+  { "brand_nombre": "Chicles & Gomitas", "nombre": "Chicle Bomba Bubble 100pz", "orden": 1, "puntuacion": 1.3 },
+  { "brand_nombre": "Chicles & Gomitas", "nombre": "Gomitas Frutales 1kg", "orden": 2, "puntuacion": 1.4 },
+  { "brand_nombre": "Chicles & Gomitas", "nombre": "Gomitas Acidas 1kg", "orden": 3, "puntuacion": 1.4 },
+  { "brand_nombre": "Chicles & Gomitas", "nombre": "Chicle Menta Display 50pz", "orden": 4, "puntuacion": 1.1 },
+  { "brand_nombre": "Chicles & Gomitas", "nombre": "Gomitas de Tiburón 500g", "orden": 5, "puntuacion": 1.2 },
+
+  { "brand_nombre": "Paletas y Helados", "nombre": "Paleta Payaso 20pz", "orden": 1, "puntuacion": 1.4 },
+  { "brand_nombre": "Paletas y Helados", "nombre": "Paleta Tutsi Pop 100pz", "orden": 2, "puntuacion": 1.5 },
+  { "brand_nombre": "Paletas y Helados", "nombre": "Bolis Surtidos 24pz", "orden": 3, "puntuacion": 1.0 },
+  { "brand_nombre": "Paletas y Helados", "nombre": "Paleta Glaseada Caramelo", "orden": 4, "puntuacion": 1.1 },
+  { "brand_nombre": "Paletas y Helados", "nombre": "Paleta de Chamoy 25pz", "orden": 5, "puntuacion": 1.2 },
+
+  { "brand_nombre": "Galletas y Snacks", "nombre": "Galletas Marías 1kg", "orden": 1, "puntuacion": 1.0 },
+  { "brand_nombre": "Galletas y Snacks", "nombre": "Galletas Chocolate Chip 500g", "orden": 2, "puntuacion": 1.3 },
+  { "brand_nombre": "Galletas y Snacks", "nombre": "Palomitas Caramelo 200g", "orden": 3, "puntuacion": 1.1 },
+  { "brand_nombre": "Galletas y Snacks", "nombre": "Pretzels Salados 300g", "orden": 4, "puntuacion": 1.0 },
+  { "brand_nombre": "Galletas y Snacks", "nombre": "Cacahuates Salados 1kg", "orden": 5, "puntuacion": 1.0 }
+]

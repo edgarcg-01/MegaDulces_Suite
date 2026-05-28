@@ -4,6 +4,8 @@ import {
   inject,
   signal,
   computed,
+  effect,
+  untracked,
   ViewChild,
   ElementRef,
   DestroyRef,
@@ -33,6 +35,8 @@ import { FiltersStateService } from './filters-state.service';
 import { MetasConfigService, KpiStatus } from './metas-config.service';
 import { GlobalFiltersComponent } from './global-filters.component';
 import { WebSocketService } from '../../../../core/services/websocket.service';
+import { ThemeService } from '../../../../core/services/theme.service';
+import { getChartTokens } from '../../../../shared/theme/chart-theme';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos internos
@@ -143,9 +147,9 @@ interface PdfSection {
                     *ngFor="let k of kpiCards()"
                     class="card-premium flex flex-col gap-2 border-l-4"
                     [ngClass]="{
-                      'border-l-green-500': k.status === 'ok',
-                      'border-l-amber-400': k.status === 'warn',
-                      'border-l-red-500': k.status === 'bad',
+                      'border-l-ok': k.status === 'ok',
+                      'border-l-warn': k.status === 'warn',
+                      'border-l-bad': k.status === 'bad',
                     }"
                   >
                     <div class="flex items-center justify-between">
@@ -156,9 +160,9 @@ class="text-xs font-bold text-content-faint uppercase"
                       <span
                         class="text-[11px] px-1.5 py-0.5 rounded-full font-bold"
                         [ngClass]="{
-                          'bg-green-100 text-green-700': k.status === 'ok',
-                          'bg-amber-100 text-amber-700': k.status === 'warn',
-                          'bg-red-100 text-red-700': k.status === 'bad',
+                          'bg-ok-soft-bg text-ok-fg': k.status === 'ok',
+                          'bg-warn-soft-bg text-warn-fg': k.status === 'warn',
+                          'bg-bad-soft-bg text-bad-fg': k.status === 'bad',
                         }"
                         >{{ statusLabel(k.status) }}</span
                       >
@@ -169,8 +173,8 @@ class="text-xs font-bold text-content-faint uppercase"
                     <div
                       class="text-xs"
                       [ngClass]="{
-                        'text-green-600': k.deltaDir === 'up',
-                        'text-red-500': k.deltaDir === 'down',
+                        'text-ok-fg': k.deltaDir === 'up',
+                        'text-bad-fg': k.deltaDir === 'down',
                         'text-content-faint': k.deltaDir === 'flat',
                       }"
                     >
@@ -183,9 +187,9 @@ class="text-xs font-bold text-content-faint uppercase"
                         class="h-full rounded-full"
                         [style.width.%]="k.pct"
                         [ngClass]="{
-                          'bg-green-500': k.status === 'ok',
-                          'bg-amber-400': k.status === 'warn',
-                          'bg-red-500': k.status === 'bad',
+                          'bg-ok': k.status === 'ok',
+                          'bg-warn': k.status === 'warn',
+                          'bg-bad': k.status === 'bad',
                         }"
                       ></div>
                     </div>
@@ -203,20 +207,20 @@ class="text-xs font-bold text-content-faint uppercase"
                     </h3>
                     <div class="flex gap-3 text-[11px] text-content-muted">
                       <span class="flex items-center gap-1">
-                        <span class="w-3 h-0.5 bg-blue-500 inline-block"></span
+                        <span class="w-3 h-0.5 bg-info inline-block"></span
                         >Visitas
                       </span>
                       <span class="flex items-center gap-1">
                         <span
-                          class="w-3 h-0.5 bg-amber-400 inline-block"
-                          style="border-top:2px dashed #EF9F27"
+                          class="w-3 h-0.5 bg-warn inline-block"
+                          style="border-top:2px dashed var(--warn-fg)"
                         ></span
                         >Score
                       </span>
                       <span class="flex items-center gap-1">
                         <span
-                          class="w-3 h-0.5 bg-red-400 inline-block"
-                          style="border-top:2px dashed #E24B4A"
+                          class="w-3 h-0.5 bg-bad inline-block"
+                          style="border-top:2px dashed var(--bad-fg)"
                         ></span
                         >Meta
                       </span>
@@ -395,8 +399,8 @@ class="text-xs font-bold text-content-faint uppercase"
                         <input
                           type="checkbox"
                           (change)="toggleSelectAll($event)"
-                          class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
-                          style="accent-color:#185FA5"
+                          class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                          style="accent-color:var(--ok-fg)"
                         />
                       </th>
                       <th style="width:3rem"></th>
@@ -410,7 +414,7 @@ class="text-xs font-bold text-content-faint uppercase"
 
                   <ng-template pTemplate="body" let-day let-expanded="expanded">
                     <tr
-                      class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+                      class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                       (click)="toggleExpand(day)"
                     >
                       <!-- Checkbox de selección -->
@@ -419,8 +423,8 @@ class="text-xs font-bold text-content-faint uppercase"
                           type="checkbox"
                           [checked]="selectedDayIds().has(day.id)"
                           (change)="toggleDaySelection(day.id, $event)"
-                          class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
-                          style="accent-color:#185FA5"
+                          class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                          style="accent-color:var(--ok-fg)"
                         />
                       </td>
 
@@ -446,11 +450,11 @@ class="text-xs font-bold text-content-faint uppercase"
                         <span
                           class="px-2.5 py-0.5 rounded-full text-xs font-bold"
                           [ngClass]="{
-                            'bg-green-100 text-green-800':
+                            'bg-ok-soft-bg text-ok-fg':
                               day.visitasStatus === 'ok',
-                            'bg-amber-100 text-amber-800':
+                            'bg-warn-soft-bg text-warn-fg':
                               day.visitasStatus === 'warn',
-                            'bg-red-100 text-red-800':
+                            'bg-bad-soft-bg text-bad-fg':
                               day.visitasStatus === 'bad',
                           }"
                         >
@@ -463,9 +467,9 @@ class="text-xs font-bold text-content-faint uppercase"
                           <span
                             class="font-black"
                             [ngClass]="{
-                              'text-green-600': day.scoreStatus === 'ok',
-                              'text-amber-500': day.scoreStatus === 'warn',
-                              'text-red-500': day.scoreStatus === 'bad',
+                              'text-ok-fg': day.scoreStatus === 'ok',
+                              'text-warn-fg': day.scoreStatus === 'warn',
+                              'text-bad-fg': day.scoreStatus === 'bad',
                             }"
                             >{{ day.avgScore }} pts</span
                           >
@@ -476,9 +480,9 @@ class="text-xs font-bold text-content-faint uppercase"
                               class="h-full rounded-full"
                               [style.width.%]="day.avgScore > 100 ? 100 : day.avgScore"
                               [ngClass]="{
-                                'bg-green-500': day.scoreStatus === 'ok',
-                                'bg-amber-400': day.scoreStatus === 'warn',
-                                'bg-red-500': day.scoreStatus === 'bad',
+                                'bg-ok': day.scoreStatus === 'ok',
+                                'bg-warn': day.scoreStatus === 'warn',
+                                'bg-bad': day.scoreStatus === 'bad',
                               }"
                             ></div>
                           </div>
@@ -490,11 +494,11 @@ class="text-xs font-bold text-content-faint uppercase"
                         <span
                           class="text-xs px-2 py-0.5 rounded-full font-bold"
                           [ngClass]="{
-                            'bg-green-100 text-green-800':
+                            'bg-ok-soft-bg text-ok-fg':
                               day.scoreStatus === 'ok',
-                            'bg-amber-100 text-amber-800':
+                            'bg-warn-soft-bg text-warn-fg':
                               day.scoreStatus === 'warn',
-                            'bg-red-100 text-red-800':
+                            'bg-bad-soft-bg text-bad-fg':
                               day.scoreStatus === 'bad',
                           }"
                         >
@@ -505,9 +509,9 @@ class="text-xs font-bold text-content-faint uppercase"
                       <td
                         class="text-right pr-6 font-black"
                         [ngClass]="{
-                          'text-green-600': day.scoreStatus === 'ok',
-                          'text-amber-500': day.scoreStatus === 'warn',
-                          'text-red-500': day.scoreStatus === 'bad',
+                          'text-ok-fg': day.scoreStatus === 'ok',
+                          'text-warn-fg': day.scoreStatus === 'warn',
+                          'text-bad-fg': day.scoreStatus === 'bad',
                         }"
                       >
                         {{ day.totalVenta | number: '1.0-0' }}
@@ -543,7 +547,7 @@ class="text-xs font-bold text-content-faint uppercase"
                             </ng-template>
                             <ng-template pTemplate="body" let-visit>
                               <tr
-                                class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+                                class="text-xs hover:bg-surface-hover border-b border-surface-border last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                                 (click)="viewDetail(visit)"
                               >
                                 <td
@@ -565,11 +569,11 @@ class="text-xs font-bold text-content-faint uppercase"
                                   <span
                                     class="font-black"
                                     [ngClass]="{
-                                      'text-green-600':
+                                      'text-ok-fg':
                                         visitScoreStatus(visit) === 'ok',
-                                      'text-amber-500':
+                                      'text-warn-fg':
                                         visitScoreStatus(visit) === 'warn',
-                                      'text-red-500':
+                                      'text-bad-fg':
                                         visitScoreStatus(visit) === 'bad',
                                     }"
                                     >{{ fmtScore(visit.stats?.puntuacionTotal) }}</span
@@ -579,11 +583,11 @@ class="text-xs font-bold text-content-faint uppercase"
                                   <span
                                     class="text-[11px] px-2 py-0.5 rounded-full font-bold"
                                     [ngClass]="{
-                                      'bg-green-100 text-green-800':
+                                      'bg-ok-soft-bg text-ok-fg':
                                         visitScoreStatus(visit) === 'ok',
-                                      'bg-amber-100 text-amber-800':
+                                      'bg-warn-soft-bg text-warn-fg':
                                         visitScoreStatus(visit) === 'warn',
-                                      'bg-red-100 text-red-800':
+                                      'bg-bad-soft-bg text-bad-fg':
                                         visitScoreStatus(visit) === 'bad',
                                     }"
                                     >{{
@@ -659,9 +663,9 @@ class="text-xs font-bold text-content-faint uppercase"
                 >
                   <div
                     *ngFor="let visit of allVisits()"
-                    class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
+                    class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                     [class.ring-2]="selectedVisitIds().has(visit.folio)"
-                    [class.ring-blue-400]="selectedVisitIds().has(visit.folio)"
+                    [class.ring-info]="selectedVisitIds().has(visit.folio)"
                   >
                     <div class="flex items-start gap-3 mb-4">
                       <input
@@ -669,8 +673,8 @@ class="text-xs font-bold text-content-faint uppercase"
                         [checked]="selectedVisitIds().has(visit.folio)"
                         (change)="toggleVisitSelection(visit.folio, $event)"
                         (click)="$event.stopPropagation()"
-                        class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
-                        style="accent-color:#185FA5;margin-top:3px"
+                        class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                        style="accent-color:var(--ok-fg);margin-top:3px"
                       />
                       <div class="flex-1 min-w-0">
                         <div class="text-xs text-content-faint mb-0.5">
@@ -690,7 +694,7 @@ class="text-xs font-bold text-content-faint uppercase"
                           </span>
                           <span
                             *ngIf="visit.latitud"
-                            class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-bold"
+                            class="text-[11px] px-1.5 py-0.5 rounded bg-info-soft-bg text-info-fg border border-info-border font-bold"
                           >
                             GPS
                           </span>
@@ -700,11 +704,11 @@ class="text-xs font-bold text-content-faint uppercase"
                       <div
                         class="w-16 h-16 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                         [ngClass]="{
-                          'border-green-400 text-green-700':
+                          'border-ok-border text-ok-fg':
                             visitScoreStatus(visit) === 'ok',
-                          'border-amber-400 text-amber-700':
+                          'border-warn-border text-warn-fg':
                             visitScoreStatus(visit) === 'warn',
-                          'border-red-400 text-red-700':
+                          'border-bad-border text-bad-fg':
                             visitScoreStatus(visit) === 'bad',
                         }"
                       >
@@ -768,9 +772,9 @@ class="text-xs font-bold text-content-faint uppercase"
                             *ngFor="let v of selectedVisits()"
                             class="py-2 text-center font-bold"
                             [ngClass]="{
-                              'text-green-600': visitScoreStatus(v) === 'ok',
-                              'text-amber-500': visitScoreStatus(v) === 'warn',
-                              'text-red-500': visitScoreStatus(v) === 'bad',
+                              'text-ok-fg': visitScoreStatus(v) === 'ok',
+                              'text-warn-fg': visitScoreStatus(v) === 'warn',
+                              'text-bad-fg': visitScoreStatus(v) === 'bad',
                             }"
                           >
                              {{ fmtScore(v.stats?.puntuacionTotal) }}
@@ -802,7 +806,7 @@ class="text-xs font-bold text-content-faint uppercase"
                           >
                             <span
                               [ngClass]="
-                                v.latitud ? 'text-green-600' : 'text-red-500'
+                                v.latitud ? 'text-ok-fg' : 'text-bad-fg'
                               "
                               class="font-bold text-xs"
                             >
@@ -866,8 +870,8 @@ class="text-xs font-bold text-content-faint uppercase"
               <input
                 type="checkbox"
                 [(ngModel)]="s.checked"
-                class="focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none"
-                style="accent-color:#185FA5;width:16px;height:16px"
+                class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                style="accent-color:var(--ok-fg);width:16px;height:16px"
               />
             </div>
           </div>
@@ -934,11 +938,11 @@ class="text-xs font-bold text-content-faint uppercase"
               <div
                 class="text-center px-4 py-2 rounded-xl border-2"
                 [ngClass]="{
-                  'border-green-400 bg-green-50':
+                  'border-ok-border bg-ok-soft-bg':
                     visitScoreStatus(selectedRow) === 'ok',
-                  'border-amber-400 bg-amber-50':
+                  'border-warn-border bg-warn-soft-bg':
                     visitScoreStatus(selectedRow) === 'warn',
-                  'border-red-400 bg-red-50':
+                  'border-bad-border bg-bad-soft-bg':
                     visitScoreStatus(selectedRow) === 'bad',
                 }"
               >
@@ -948,9 +952,9 @@ class="text-xs font-bold text-content-faint uppercase"
                 <div
                   class="text-2xl font-black"
                   [ngClass]="{
-                    'text-green-700': visitScoreStatus(selectedRow) === 'ok',
-                    'text-amber-700': visitScoreStatus(selectedRow) === 'warn',
-                    'text-red-700': visitScoreStatus(selectedRow) === 'bad',
+                    'text-ok-fg': visitScoreStatus(selectedRow) === 'ok',
+                    'text-warn-fg': visitScoreStatus(selectedRow) === 'warn',
+                    'text-bad-fg': visitScoreStatus(selectedRow) === 'bad',
                   }"
                 >
                    {{ fmtScore(selectedRow.stats?.puntuacionTotal) }}
@@ -1115,6 +1119,21 @@ export class ReportsComponent implements OnInit {
   readonly metasConfig = inject(MetasConfigService);
   private ws = inject(WebSocketService);
   private destroyRef = inject(DestroyRef);
+  public themeService = inject(ThemeService);
+
+  constructor() {
+    // Re-render chart options + data al cambiar tema. Los tokens se resuelven
+    // desde getComputedStyle al construir los configs, por eso necesitamos
+    // re-construir cuando cambia el tema (NG0600: writes vía untracked).
+    effect(() => {
+      this.themeService.isMonochrome();
+      untracked(() => {
+        this.initChartOptions();
+        const data = this.reportsData();
+        if (data) this.buildCharts(data);
+      });
+    });
+  }
 
   loadingMetrics = signal(false);
   loadingCharts = signal(false);
@@ -1347,6 +1366,7 @@ export class ReportsComponent implements OnInit {
 
   // ── Charts ────────────────────────────────────────────────────
   buildCharts(data: ReportsData) {
+    const t = getChartTokens();
     const visitasMeta = this.metasConfig.getRange('visitas')?.opt ?? 50;
     const scoreMeta = this.metasConfig.getRange('score')?.opt ?? 80;
     const trend = data.trendData ?? [];
@@ -1358,8 +1378,8 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas',
           data: trend.map((d: any) => d.visits),
-          borderColor: '#185FA5',
-          backgroundColor: 'rgba(24,95,165,.06)',
+          borderColor: t.okFg,
+          backgroundColor: t.okFg,
           tension: 0.4,
           pointRadius: 4,
           yAxisID: 'y',
@@ -1367,9 +1387,9 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Score (pts)',
           data: trend.map((d: any) => d.avgScore),
-          borderColor: '#EF9F27',
+          borderColor: t.warnFg,
           borderDash: [4, 3],
-          backgroundColor: 'rgba(239,159,39,.04)',
+          backgroundColor: t.warnFg,
           tension: 0.4,
           pointRadius: 4,
           yAxisID: 'y2',
@@ -1377,7 +1397,7 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Meta visitas',
           data: trend.map(() => visitasMeta),
-          borderColor: '#E24B4A',
+          borderColor: t.badFg,
           borderDash: [6, 4],
           borderWidth: 1.5,
           pointRadius: 0,
@@ -1397,10 +1417,10 @@ export class ReportsComponent implements OnInit {
           data: zones.map((z: any) => z.avgScore),
           backgroundColor: zones.map((z: any) =>
             z.avgScore >= scoreMeta
-              ? '#97C459'
+              ? t.okFg
               : z.avgScore >= this.metasConfig.getRange('score')!.min
-                ? '#FAC775'
-                : '#F09595',
+                ? t.warnFg
+                : t.badFg,
           ),
         },
       ],
@@ -1414,7 +1434,7 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas',
           data: sellers.map((s: any) => s.totalVisitas),
-          backgroundColor: '#185FA5',
+          backgroundColor: t.okFg,
         },
       ],
     };
@@ -1439,7 +1459,7 @@ export class ReportsComponent implements OnInit {
         {
           label: 'Visitas',
           data: dist,
-          backgroundColor: ['#F09595', '#FAC775', '#85B7EB', '#97C459'],
+          backgroundColor: [t.badFg, t.warnFg, t.infoFg, t.okFg],
         },
       ],
     };

@@ -22,10 +22,19 @@ PORT="${PORT:-10000}"
 # ── 1. Migraciones de base de datos ─────────────────────────────────────────
 # Skip opcional via SKIP_MIGRATIONS=1 (útil para debugging o para deployar el
 # código sin tocar el esquema). En condiciones normales NO debe usarse.
+#
+# Cuando ENABLE_MULTITENANT=true (post-cutover), corremos las migraciones
+# del directorio `migrations-newdb/` apuntando a la nueva DB (`DATABASE_URL_NEW`)
+# en lugar del legacy `migrations/`. Sin este branch knex_migrations contendría
+# entries de los 2 directorios y daría "directory corrupt".
 if [ "${SKIP_MIGRATIONS:-0}" = "1" ]; then
   echo "[start] SKIP_MIGRATIONS=1 — saltando knex migrate:latest"
+elif [ "${ENABLE_MULTITENANT:-false}" = "true" ]; then
+  echo "[start] ENABLE_MULTITENANT=true — corriendo migraciones nuevas (migrations-newdb/)..."
+  NODE_ENV=production npx knex migrate:latest --knexfile database/knexfile-newdb.js
+  echo "[start] Migrations (nueva DB multi-tenant) aplicadas."
 else
-  echo "[start] Running knex migrate:latest..."
+  echo "[start] Running knex migrate:latest (legacy DB)..."
   NODE_ENV=production npx knex migrate:latest --knexfile database/knexfile.js
   echo "[start] Migrations applied."
 fi

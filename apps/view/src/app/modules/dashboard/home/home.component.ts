@@ -21,6 +21,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { HomeChartsComponent } from './home-charts.component';
+import { getChartTokens, colorForScore } from '../../../shared/theme/chart-theme';
 import { forkJoin } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
@@ -141,7 +142,6 @@ export class HomeComponent implements OnInit {
         label: 'Score Global',
         value: `${Math.round(scoreVal || 0)} pts`,
         icon: 'pi pi-chart-line',
-        colorClass: 'text-blue-500',
         status: scoreStatus,
         meta: scoreRange ? `${scoreRange.opt} pts` : '—',
         pct: this.metasConfig.progressPct('score', scoreVal),
@@ -150,7 +150,6 @@ export class HomeComponent implements OnInit {
         label: 'Tiempo Prom/Visita',
         value: `${metrics.avg_duration_min || 0}m`,
         icon: 'pi pi-clock',
-        colorClass: 'text-amber-500',
         status: avgDurationStatus,
         meta: avgDurationRange ? `≥ ${avgDurationRange.opt} min` : '—',
         pct: this.metasConfig.progressPct('avgDuration', avgDurationVal),
@@ -159,7 +158,6 @@ export class HomeComponent implements OnInit {
         label: 'Evidencia Visual',
         value: (metrics.total_fotos || 0).toString(),
         icon: 'pi pi-camera',
-        colorClass: 'text-purple-500',
         status: evidenciaStatus,
         meta: evidenciaRange ? `≥ ${evidenciaRange.opt} fotos` : '—',
         pct: this.metasConfig.progressPct('evidenciaVisual', evidenciaVal),
@@ -168,7 +166,6 @@ export class HomeComponent implements OnInit {
         label: 'Meta Diaria',
         value: `${cierresHoy}/${metaDiaria}`,
         icon: 'pi pi-bullseye',
-        colorClass: 'text-green-500',
         status: pending > 0 ? 'warn' : 'ok',
         meta: `${metaDiaria} visitas`,
         delta: pending > 0 ? `${pending} restantes` : 'Completado',
@@ -218,15 +215,14 @@ export class HomeComponent implements OnInit {
       untracked(() => this.loadDashboardData());
     });
 
-    // Effect: regenerar opciones del chart al cambiar el tema. Leemos el
-    // signal reactivamente (para reaccionar al cambio) y escribimos dentro
-    // de `untracked` para que el write a `stackedChartOptions` no caiga en
-    // la regla NG0600 (no-writes-in-effect).
+    // Re-render options + data colors al cambiar tema (NG0600: writes vía untracked).
     effect(() => {
-      const isDark = this.themeService.isMonochrome();
-      untracked(() =>
-        this.stackedChartOptions.set(this.buildChartOptions(isDark)),
-      );
+      this.themeService.isMonochrome();
+      untracked(() => {
+        this.stackedChartOptions.set(this.buildChartOptions());
+        const data = this.reportsData();
+        if (data) this.updateChart(data);
+      });
     });
 
     // WebSocket: recargar dashboard al llegar capturas (con debounce interno).
@@ -340,11 +336,8 @@ export class HomeComponent implements OnInit {
       });
   }
 
-  /**
-   * Construye las opciones del chart según el tema actual. Llamado desde un
-   * effect que reacciona a `themeService.isMonochrome()`.
-   */
-  private buildChartOptions(isDark: boolean): any {
+  private buildChartOptions(): any {
+    const t = getChartTokens();
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -352,10 +345,10 @@ export class HomeComponent implements OnInit {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: isDark ? '#18181b' : '#ffffff',
-          titleColor: isDark ? '#ffffff' : '#09090b',
-          bodyColor: isDark ? '#a1a1aa' : '#64748b',
-          borderColor: isDark ? '#3f3f46' : '#e2e8f0',
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMuted,
+          borderColor: t.borderColor,
           borderWidth: 1,
           padding: 12,
           cornerRadius: 8,
@@ -373,19 +366,13 @@ export class HomeComponent implements OnInit {
       scales: {
         x: {
           grid: { display: false },
-          ticks: {
-            color: isDark ? '#71717a' : '#64748b',
-            font: { size: 11, weight: '500' },
-          },
+          ticks: { color: t.chartAxis, font: { size: 11, weight: '500' } },
         },
         y: {
           beginAtZero: true,
-          grid: {
-            color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-            drawBorder: false,
-          },
+          grid: { color: t.chartGrid, drawBorder: false },
           ticks: {
-            color: isDark ? '#71717a' : '#64748b',
+            color: t.chartAxis,
             font: { size: 10 },
             callback: (value: number) =>
               value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value,
@@ -433,21 +420,14 @@ export class HomeComponent implements OnInit {
       s.scoreCount > 0 ? s.scoreSum / s.scoreCount : null,
     );
 
-    const isDark = this.themeService.isMonochrome();
-    const colorForScore = (score: number | null): string => {
-      if (score == null) return isDark ? '#3f3f46' : '#e2e8f0';
-      if (score >= 80) return '#185FA5'; // alto
-      if (score >= 50) return '#5B9BD5'; // medio
-      return '#BDD7EE'; // bajo
-    };
-
+    const t = getChartTokens();
     this.stackedChartData.set({
       labels: weekDays,
       datasets: [
         {
           label: 'Visitas',
           data: weekStats.map((s) => s.visits),
-          backgroundColor: avgScores.map(colorForScore),
+          backgroundColor: avgScores.map((score) => colorForScore(t, score)),
           scores: avgScores,
           borderRadius: 6,
           borderSkipped: false,

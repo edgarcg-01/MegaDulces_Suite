@@ -140,6 +140,18 @@
                   tooltipPosition="top"
                 />
                 <p-button
+                  icon="pi pi-shopping-cart"
+                  severity="success"
+                  [rounded]="true"
+                  [text]="true"
+                  size="small"
+                  *ngIf="canPromoteToCustomer()"
+                  [disabled]="promotingId() === store.id"
+                  (click)="promoteToCustomer(store)"
+                  pTooltip="Habilitar esta tienda como cliente B2B (para recibir pedidos)"
+                  tooltipPosition="top"
+                />
+                <p-button
                   icon="pi pi-trash"
                   severity="danger"
                   [rounded]="true"

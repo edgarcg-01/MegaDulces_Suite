@@ -98,14 +98,15 @@
   transition: width 0.8s ease-out;
 }
 
-/* Special B&W Highlight Card */
+/* Always-dark card: fondo fijo en ambos temas. */
 .monochrome-highlight {
   background: #000;
   color: #fff;
   border: none;
 }
 
-.monochrome-highlight .text-dim { color: #52525b; }
+.monochrome-highlight .text-dim        { color: var(--neutral-600); }
+.monochrome-highlight .text-dim-strong { color: var(--neutral-400); }
 
 /* Animations */
 @keyframes slideUp {

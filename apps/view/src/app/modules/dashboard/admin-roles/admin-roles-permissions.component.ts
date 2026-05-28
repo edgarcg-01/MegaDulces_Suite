@@ -77,7 +77,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
             <i class="pi pi-shield text-content-main"></i> Permisos de Rol:
             <span class="text-brand">{{ roleName() }}</span>
             @if (isDirty()) {
-              <span class="ml-2 text-[10px] uppercase tracking-wider text-amber-600 border border-amber-200 rounded px-1.5 py-0.5">Sin guardar</span>
+              <span class="ml-2 text-[10px] uppercase tracking-wider text-warn-fg border border-warn-border rounded px-1.5 py-0.5">Sin guardar</span>
             }
           </h1>
           <p class="text-sm text-content-dim">
@@ -137,7 +137,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
           </ng-template>
 
           <ng-template pTemplate="body" let-row>
-            <tr [class.bg-red-50]="row.critical">
+            <tr [class.bg-bad-soft-bg]="row.critical">
               <td>
                 <p-checkbox
                   [ngModel]="row.enabled"
@@ -151,7 +151,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
                   <span class="font-bold text-content-main text-sm flex items-center gap-2">
                     {{ row.label }}
                     @if (row.critical) {
-                      <span class="text-[9px] uppercase tracking-wider text-red-700 border border-red-300 bg-red-100 rounded px-1.5 py-0.5" pTooltip="Permiso de alto impacto">Crítico</span>
+                      <span class="status-chip status-bad" pTooltip="Permiso de alto impacto">Crítico</span>
                     }
                     @if (isElevatedAndLocked(row.key, row.enabled)) {
                       <span class="text-[9px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5" pTooltip="No puedes otorgar este permiso porque tu rol no lo tiene">Bloqueado</span>
@@ -292,10 +292,10 @@ export class AdminRolesPermissionsComponent implements OnInit {
         rejectLabel: 'Cancelar',
         acceptButtonStyleClass: 'p-button-danger',
         accept: () =>
-          this.router.navigate(['/dashboard/admin/catalogs/roles']),
+          this.router.navigate(['/admin/roles']),
       });
     } else {
-      this.router.navigate(['/dashboard/admin/catalogs/roles']);
+      this.router.navigate(['/admin/roles']);
     }
   }
 

@@ -35,7 +35,7 @@ export class ScoringV2Service {
    * Se debe llamar cuando cambian los valores del catálogo
    */
   async recalcularScoreMaximo(configVersionId: string) {
-    const pesos = await this.knex('scoring_pesos')
+    const pesos = await this.knex('scoring_weights')
       .where({ config_version_id: configVersionId })
       .select('*');
     
@@ -71,7 +71,7 @@ export class ScoringV2Service {
    * Obtiene los pesos de una versión de configuración
    */
   async getPesosByVersion(configVersionId: string) {
-    const pesos = await this.knex('scoring_pesos')
+    const pesos = await this.knex('scoring_weights')
       .where({ config_version_id: configVersionId })
       .select('*');
     
@@ -118,7 +118,7 @@ export class ScoringV2Service {
     const puntuacionBase = pesos.exhibicion[nombreExhibicion] ? Number(pesos.exhibicion[nombreExhibicion]) : 0;
 
     if (nivelRaw > 1) {
-      console.warn(`[ScoringV2] Factor nivel "${nombreNivel}" > 1: ${nivelRaw}. Revisar scoring_pesos.`);
+      console.warn(`[ScoringV2] Factor nivel "${nombreNivel}" > 1: ${nivelRaw}. Revisar scoring_weights.`);
     }
 
     // Fórmula canónica compartida con el frontend
@@ -225,18 +225,26 @@ export class ScoringV2Service {
   }
 
   /**
-   * Valida si una combinación posición × exhibición es válida
+   * Valida si una combinación posición × exhibición es válida.
+   * `combinaciones_validas` no existe en el schema multi-tenant — el método
+   * mantiene la firma para no romper imports, pero ahora siempre permite
+   * (return true) salvo que la tabla exista (rollback path).
    */
   async validarCombinacion(configVersionId: string, posicionId: string, exhibicionId: string) {
-    const combinacion = await this.knex('combinaciones_validas')
-      .where({
-        config_version_id: configVersionId,
-        posicion_id: posicionId,
-        exhibicion_id: exhibicionId,
-        activo: true
-      })
-      .first();
+    try {
+      const combinacion = await this.knex('combinaciones_validas')
+        .where({
+          config_version_id: configVersionId,
+          posicion_id: posicionId,
+          exhibicion_id: exhibicionId,
+          activo: true
+        })
+        .first();
 
-    return !!combinacion;
+      return !!combinacion;
+    } catch (err: any) {
+      if (err?.code === '42P01') return true;
+      throw err;
+    }
   }
 }

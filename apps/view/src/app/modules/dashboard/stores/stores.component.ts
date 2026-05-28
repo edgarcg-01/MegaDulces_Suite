@@ -30,6 +30,7 @@ import { environment } from '../../../../environments/environment';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 interface ZoneOption {
   label: string;
@@ -101,6 +102,7 @@ export class StoresComponent implements OnInit {
 
   loading = signal(false);
   deletingId = signal<string | null>(null);
+  promotingId = signal<string | null>(null);
   saving = signal(false);
   stores = signal<Store[]>([]);
   zones = signal<ZoneOption[]>([]);
@@ -127,6 +129,15 @@ export class StoresComponent implements OnInit {
     const zonaId = this.editZonaId();
     if (!zonaId) return [];
     return this.allRoutes().filter((r) => r.parent_id === zonaId);
+  });
+
+  /**
+   * J.6.2 — botón "Promover a cliente B2B" visible solo si user tiene
+   * COMMERCIAL_CUSTOMERS_GESTIONAR (puede crear customers).
+   */
+  readonly canPromoteToCustomer = computed(() => {
+    const perms = this.authService.user()?.permissions || {};
+    return perms[Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] === true;
   });
 
   readonly canSeeAllZones = computed(
@@ -313,6 +324,55 @@ export class StoresComponent implements OnInit {
           });
         },
       });
+  }
+
+  /**
+   * J.6.2 — Promueve la tienda a cliente comercial (commercial.customers).
+   * Llama al endpoint idempotente POST /commercial/customers/from-store.
+   * Si el customer ya existía, lo informa amigablemente.
+   */
+  promoteToCustomer(store: Store): void {
+    if (this.promotingId() === store.id) return;
+    this.confirmationService.confirm({
+      message: `¿Habilitar la tienda "${store.nombre}" como cliente B2B? Podrá recibir pedidos del Portal y aparecer en /comercial/customers.`,
+      header: 'Promover a cliente comercial',
+      icon: 'pi pi-shopping-cart',
+      acceptLabel: 'Sí, habilitar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-success',
+      accept: () => {
+        this.promotingId.set(store.id);
+        this.http
+          .post<{ customer: any; created: boolean; message: string }>(
+            `${environment.apiUrl}/commercial/customers/from-store`,
+            { store_id: store.id },
+          )
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (res) => {
+              this.promotingId.set(null);
+              this.messageService.add({
+                severity: res.created ? 'success' : 'info',
+                summary: res.created ? 'Cliente B2B creado' : 'Ya era cliente B2B',
+                detail: `${res.customer.code} — ${res.customer.name}`,
+                life: 5000,
+              });
+            },
+            error: (err) => {
+              this.promotingId.set(null);
+              const detail =
+                err?.error?.message ||
+                'No se pudo promover. Verificá que exista una lista de precios default en /comercial/pricing.';
+              this.messageService.add({
+                severity: 'error',
+                summary: 'Error al promover',
+                detail,
+                life: 8000,
+              });
+            },
+          });
+      },
+    });
   }
 
   openEditDialog(store: Store): void {

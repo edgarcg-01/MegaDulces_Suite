@@ -7,3 +7,7 @@ scripts/*.js
 scripts/*.ts
 !scripts/generate-openapi.ts
 !scripts/update-scoring.ts
+# Snapshot del repo Megadulces-Logistica importado en Fase J — solo lectura,
+# NO debe ser parte del workspace Nx (tiene su propio project.json para
+# shared-auth que colisiona con el nuestro).
+_imported

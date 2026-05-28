@@ -1,0 +1,158 @@
+<p-toast position="top-center"></p-toast>
+
+<div class="flex flex-col h-full">
+  <!-- Header -->
+  <header class="space-y-1 mb-5">
+    <h2 class="text-base font-semibold text-content-main flex items-center gap-2">
+      <i class="pi pi-sparkles text-brand-orange" aria-hidden="true"></i>
+      Reconocer con AI
+    </h2>
+    <p class="text-xs text-content-muted leading-relaxed">
+      Escribí o pegá una lista — separá con comas o saltos de línea. Identificamos cada producto del catálogo automáticamente.
+    </p>
+  </header>
+
+  <!-- ── State: idle / error → input view ──────────────────────────────── -->
+  <ng-container *ngIf="state() === 'idle' || state() === 'error'">
+    <div class="flex flex-col gap-2 mb-4">
+      <label for="ai-raw-text" class="text-xs font-medium text-content-muted">Lista de productos</label>
+      <textarea id="ai-raw-text"
+                [ngModel]="rawText()"
+                (ngModelChange)="rawText.set($event)"
+                placeholder="mazapán rosa, pulparindo 20pz, paleta payaso, vero mango chamoy..."
+                rows="6"
+                maxlength="5000"
+                class="w-full p-3 bg-surface-card border border-surface-border rounded-xl text-sm leading-relaxed focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors resize-none"></textarea>
+      <p class="text-[11px] text-content-muted text-right tabular-nums">{{ rawText().length }} / 5000</p>
+    </div>
+
+    <div *ngIf="state() === 'error'"
+         role="alert"
+         class="flex items-start gap-3 p-3 bg-bad-soft-bg border border-bad-border rounded-xl mb-4">
+      <i class="pi pi-exclamation-triangle text-bad-fg shrink-0 mt-0.5" aria-hidden="true"></i>
+      <p class="text-xs text-content-main leading-relaxed">{{ errorMsg() }}</p>
+    </div>
+
+    <div class="flex gap-2 justify-end mt-auto">
+      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onCancel()"></p-button>
+      <p-button label="Reconocer"
+                icon="pi pi-sparkles"
+                [disabled]="!rawText().trim()"
+                (onClick)="onSubmit()"></p-button>
+    </div>
+  </ng-container>
+
+  <!-- ── State: loading ────────────────────────────────────────────────── -->
+  <div *ngIf="state() === 'loading'"
+       role="status"
+       aria-live="polite"
+       class="flex flex-col items-center justify-center py-12 gap-3">
+    <i class="pi pi-spin pi-spinner text-2xl text-brand-orange" aria-hidden="true"></i>
+    <p class="text-sm text-content-main">Analizando lista...</p>
+    <p class="text-xs text-content-muted">Identificando productos del catálogo</p>
+  </div>
+
+  <!-- ── State: preview ────────────────────────────────────────────────── -->
+  <ng-container *ngIf="state() === 'preview'">
+    <!-- Summary inline (sin cards de colores) -->
+    <div class="flex items-center gap-4 px-1 py-2 mb-3 text-xs" aria-label="Resumen del análisis">
+      <div class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-brand-orange" aria-hidden="true"></span>
+        <span class="text-content-main"><span class="font-semibold tabular-nums">{{ summary().confirmed }}</span> confirmados</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-content-muted" aria-hidden="true"></span>
+        <span class="text-content-main"><span class="font-semibold tabular-nums">{{ summary().total - summary().confirmed - summary().notFound }}</span> revisar</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-bad" aria-hidden="true"></span>
+        <span class="text-content-main"><span class="font-semibold tabular-nums">{{ summary().notFound }}</span> sin match</span>
+      </div>
+    </div>
+
+    <p class="text-[11px] text-content-muted mb-3 tabular-nums">
+      {{ meta()?.items_count }} items detectados en {{ meta()?.elapsed_ms }} ms
+    </p>
+
+    <!-- Items list -->
+    <div class="flex-1 overflow-y-auto space-y-2 -mx-1 px-1 pb-3" role="list">
+      <div *ngFor="let it of items(); let i = index; trackBy: trackByRawIndex"
+           role="listitem"
+           class="p-3 bg-surface-card rounded-xl border motion-safe:transition-colors"
+           [ngClass]="severity(it) === 'success' && it.confirmed
+             ? 'border-brand-orange'
+             : severity(it) === 'danger'
+               ? 'border-bad-border'
+               : 'border-surface-border'">
+
+        <!-- Header row: checkbox + raw + suggested -->
+        <label class="flex items-start gap-3 cursor-pointer"
+               [class.cursor-not-allowed]="!it.suggested"
+               [class.opacity-60]="!it.suggested">
+          <input type="checkbox"
+                 [checked]="it.confirmed"
+                 (change)="onToggleConfirm(i)"
+                 [disabled]="!it.suggested"
+                 [attr.aria-label]="'Confirmar ' + (it.suggested?.product_name || it.raw)"
+                 class="mt-1 w-5 h-5 cursor-pointer accent-brand-orange disabled:cursor-not-allowed shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2 rounded">
+          <div class="flex-1 min-w-0">
+            <p class="text-[11px] text-content-muted truncate">"{{ it.raw }}"</p>
+
+            <!-- Suggested match -->
+            <ng-container *ngIf="it.suggested; else noMatch">
+              <p class="text-sm text-content-main leading-snug mt-0.5">
+                <span *ngIf="it.suggested.brand_name" class="text-content-muted">{{ it.suggested.brand_name }} —</span>
+                <span class="font-medium">{{ it.suggested.product_name }}</span>
+              </p>
+              <div class="flex items-center gap-2 mt-1.5">
+                <span class="inline-flex items-center gap-1 text-[10px] font-medium tabular-nums px-1.5 py-0.5 rounded"
+                      [ngClass]="severity(it) === 'success'
+                        ? 'text-brand-orange bg-brand-orange/10'
+                        : severity(it) === 'warn'
+                          ? 'text-content-muted bg-surface-ground'
+                          : 'text-bad-fg bg-bad-soft-bg'">
+                  {{ (it.suggested.score * 100 | number:'1.0-0') }}% match
+                </span>
+                <span *ngIf="alreadyInList(it.suggested.product_id)" class="text-[10px] text-content-muted">
+                  ya seleccionado
+                </span>
+              </div>
+            </ng-container>
+            <ng-template #noMatch>
+              <p class="text-sm text-bad-fg mt-0.5 font-medium">No encontrado en el catálogo</p>
+              <p class="text-[11px] text-content-muted">Agregalo desde la búsqueda clásica.</p>
+            </ng-template>
+          </div>
+        </label>
+
+        <!-- Alternatives -->
+        <div *ngIf="it.alternatives.length > 0" class="ml-8 mt-2 space-y-1" role="group" [attr.aria-label]="'Alternativas para ' + it.raw">
+          <p class="text-[10px] text-content-muted uppercase tracking-wide font-medium">Alternativas</p>
+          <button *ngFor="let alt of it.alternatives; trackBy: trackByProductId"
+                  type="button"
+                  (click)="onSelectAlternative(i, alt.product_id)"
+                  [attr.aria-pressed]="it.selectedProductId === alt.product_id"
+                  class="w-full text-left p-2 rounded-lg border text-xs motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-1"
+                  [ngClass]="it.selectedProductId === alt.product_id
+                    ? 'border-brand-orange bg-brand-orange/5'
+                    : 'border-surface-border hover:bg-surface-ground'">
+            <span class="text-content-muted">{{ alt.brand_name }} —</span>
+            <span class="text-content-main">{{ alt.product_name }}</span>
+            <span class="ml-1 text-content-muted tabular-nums">({{ (alt.score * 100 | number:'1.0-0') }}%)</span>
+            <span *ngIf="alreadyInList(alt.product_id)" class="ml-1 text-content-muted">· ya seleccionado</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action bar -->
+    <div class="flex gap-2 justify-end pt-4 border-t border-surface-border mt-auto">
+      <p-button label="Otra lista" severity="secondary" [text]="true" icon="pi pi-refresh" (onClick)="onReset()"></p-button>
+      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onCancel()"></p-button>
+      <p-button [label]="'Agregar ' + summary().confirmed"
+                icon="pi pi-check"
+                [disabled]="!canApply()"
+                (onClick)="onApply()"></p-button>
+    </div>
+  </ng-container>
+</div>

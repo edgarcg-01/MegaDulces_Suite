@@ -1,0 +1,4 @@
+[
+  { "code": "MD-NORTE", "name": "Almacén Zona Norte", "address": "Carretera Norte km 12", "is_default": false, "active": true },
+  { "code": "MD-SUR", "name": "Almacén Zona Sur", "address": "Av. Sur 456", "is_default": false, "active": true }
+]

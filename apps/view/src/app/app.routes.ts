@@ -5,6 +5,9 @@ import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, colaboradorGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
+import { customerB2bGuard } from './modules/portal/portal.guard';
+import { vendorGuard } from './modules/vendor/vendor.guard';
+import { televentaGuard } from './modules/televenta/televenta.guard';
 
 export const routes: Routes = [
   {
@@ -16,6 +19,8 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: ProjectsComponent
   },
+  // ── Proyecto Trade Marketing / Exhibidores ──────────────────────────
+  // Captura PdV, scoring, reportes, seguimiento, planograma, catálogos.
   {
     path: 'dashboard',
     canActivate: [authGuard, colaboradorGuard],
@@ -29,37 +34,301 @@ export const routes: Routes = [
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
       { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
-      { 
-        path: 'admin/users', 
-        loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
-      },
-      { 
-        path: 'admin/catalogs/roles', 
-        loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
-        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
-      },
-      { 
-        path: 'admin/catalogs/:type', 
+      {
+        // Catálogos de captura (conceptos, ubicaciones, niveles, zonas) — siguen en Trade Marketing.
+        path: 'admin/catalogs/:type',
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
       },
-      { 
-        path: 'admin/roles/:role_name/permissions', 
-        loadComponent: () => import('./modules/dashboard/admin-roles/admin-roles-permissions.component').then(m => m.AdminRolesPermissionsComponent),
-        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
-      },
-      { 
-        path: 'admin/planograma', 
+      {
+        path: 'admin/planograma',
         loadComponent: () => import('./modules/dashboard/admin-planograma/admin-planograma.component').then(m => m.AdminPlanogramaComponent),
         canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)]
       },
-      { 
-        path: 'daily-assignments', 
+      {
+        path: 'daily-assignments',
         loadComponent: () => import('./modules/dashboard/daily-assignments/daily-assignments.component').then(m => m.DailyAssignmentsComponent),
         canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
       },
     ]
+  },
+  // ── Proyecto Comercial / Venta ──────────────────────────────────────
+  // B2B, pedidos, clientes, almacenes, pricing, inventario, analytics commercial.
+  // Reusa LayoutComponent (mismo shell) — el nav se ajusta vía URL prefix.
+  {
+    path: 'comercial',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'command-center', pathMatch: 'full' },
+      {
+        path: 'command-center',
+        loadComponent: () => import('./modules/dashboard/command-center/command-center.component').then(m => m.CommandCenterComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
+        path: 'customers',
+        loadComponent: () => import('./modules/comercial/pages/comercial-customers.component').then(m => m.ComercialCustomersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS_VER)]
+      },
+      {
+        path: 'orders',
+        loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
+        path: 'orders/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-order-detail.component').then(m => m.ComercialOrderDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
+        path: 'inventory',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        path: 'warehouses',
+        loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]
+      },
+      {
+        path: 'pricing',
+        loadComponent: () => import('./modules/comercial/pages/comercial-pricing.component').then(m => m.ComercialPricingComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
+      },
+      {
+        path: 'promotions',
+        loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
+      },
+    ]
+  },
+  // ── Proyecto Logística (Fase J) ─────────────────────────────────────
+  // Embarques, flotilla, costos, liquidaciones. Reusa LayoutComponent.
+  {
+    path: 'logistica',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./modules/logistica/pages/logistica-dashboard.component').then(m => m.LogisticaDashboardComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'shipments',
+        loadComponent: () => import('./modules/logistica/pages/logistica-shipments.component').then(m => m.LogisticaShipmentsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'guides',
+        loadComponent: () => import('./modules/logistica/pages/logistica-guides.component').then(m => m.LogisticaGuidesComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_GUIDES_VER)]
+      },
+      {
+        path: 'staff',
+        loadComponent: () => import('./modules/logistica/pages/logistica-staff.component').then(m => m.LogisticaStaffComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      {
+        path: 'costs',
+        loadComponent: () => import('./modules/logistica/pages/logistica-costs.component').then(m => m.LogisticaCostsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_EXPENSES_VER)]
+      },
+      {
+        path: 'shipments/:id',
+        loadComponent: () => import('./modules/logistica/pages/logistica-shipment-detail.component').then(m => m.LogisticaShipmentDetailComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      // J.8 — checklists, fotos, reports
+      {
+        path: 'shipments/:shipmentId/checklists',
+        loadComponent: () => import('./modules/logistica/pages/logistica-checklist.component').then(m => m.LogisticaChecklistComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'shipments/:shipmentId/photos',
+        loadComponent: () => import('./modules/logistica/pages/logistica-photos.component').then(m => m.LogisticaPhotosComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'reports',
+        loadComponent: () => import('./modules/logistica/pages/logistica-reports.component').then(m => m.LogisticaReportsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      // J.9.7 — Driver Assignments (mobile-first "mis entregas" del chofer)
+      {
+        path: 'my-assignments',
+        loadComponent: () => import('./modules/logistica/pages/logistica-driver-assignments.component').then(m => m.LogisticaDriverAssignmentsComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
+      {
+        path: 'fleet',
+        loadComponent: () => import('./modules/logistica/pages/logistica-fleet.component').then(m => m.LogisticaFleetComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      {
+        path: 'payroll',
+        loadComponent: () => import('./modules/logistica/pages/logistica-payroll.component').then(m => m.LogisticaPayrollComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_PAYROLL_VER)]
+      },
+      {
+        path: 'config',
+        loadComponent: () => import('./modules/logistica/pages/logistica-config.component').then(m => m.LogisticaConfigComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR)]
+      },
+    ]
+  },
+  // ── Proyecto Administración (cross-cutting) ─────────────────────────
+  // Gestión de usuarios + roles + permisos. No pertenece a un proyecto operativo.
+  {
+    path: 'admin',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'users', pathMatch: 'full' },
+      {
+        path: 'users',
+        loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
+        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+      },
+      {
+        path: 'roles',
+        loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
+        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
+      },
+      {
+        path: 'roles/:role_name/permissions',
+        loadComponent: () => import('./modules/dashboard/admin-roles/admin-roles-permissions.component').then(m => m.AdminRolesPermissionsComponent),
+        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
+      },
+    ]
+  },
+  {
+    path: 'portal/login',
+    loadComponent: () =>
+      import('./modules/portal/pages/portal-login.component').then((m) => m.PortalLoginComponent),
+  },
+  {
+    path: 'portal',
+    canActivate: [customerB2bGuard],
+    loadComponent: () =>
+      import('./modules/portal/portal-shell.component').then((m) => m.PortalShellComponent),
+    children: [
+      { path: '', redirectTo: 'catalog', pathMatch: 'full' },
+      {
+        path: 'catalog',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-catalog.component').then(
+            (m) => m.PortalCatalogComponent,
+          ),
+      },
+      {
+        path: 'cart',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-cart.component').then(
+            (m) => m.PortalCartComponent,
+          ),
+      },
+      {
+        path: 'recommendations',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-recommendations.component').then(
+            (m) => m.PortalRecommendationsComponent,
+          ),
+      },
+      {
+        path: 'orders',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-orders.component').then(
+            (m) => m.PortalOrdersComponent,
+          ),
+      },
+      {
+        path: 'orders/:id',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-order-detail.component').then(
+            (m) => m.PortalOrderDetailComponent,
+          ),
+      },
+    ],
+  },
+  {
+    path: 'vendor',
+    canActivate: [vendorGuard],
+    loadComponent: () =>
+      import('./modules/vendor/vendor-shell.component').then((m) => m.VendorShellComponent),
+    children: [
+      { path: '', redirectTo: 'customers', pathMatch: 'full' },
+      {
+        path: 'customers',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-customers.component').then(
+            (m) => m.VendorCustomersComponent,
+          ),
+      },
+      {
+        path: 'take-order/:id',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-take-order.component').then(
+            (m) => m.VendorTakeOrderComponent,
+          ),
+      },
+      {
+        path: 'today',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-today.component').then(
+            (m) => m.VendorTodayComponent,
+          ),
+      },
+    ],
+  },
+  {
+    path: 'televenta',
+    canActivate: [televentaGuard],
+    loadComponent: () =>
+      import('./modules/televenta/televenta-shell.component').then((m) => m.TeleventaShellComponent),
+    children: [
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      // E.4 — Dashboard métricas
+      {
+        path: 'dashboard',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-dashboard.component').then(
+            (m) => m.TeleventaDashboardComponent,
+          ),
+      },
+      {
+        path: 'queue',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-queue.component').then(
+            (m) => m.TeleventaQueueComponent,
+          ),
+      },
+      {
+        path: 'my',
+        // Reusa el mismo queue component (muestra Mis reservas activas arriba).
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-queue.component').then(
+            (m) => m.TeleventaQueueComponent,
+          ),
+      },
+      {
+        path: 'lead/:customer_id',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-lead.component').then(
+            (m) => m.TeleventaLeadComponent,
+          ),
+      },
+      {
+        path: 'lead/:customer_id/take-order',
+        loadComponent: () =>
+          import('./modules/televenta/pages/televenta-take-order.component').then(
+            (m) => m.TeleventaTakeOrderComponent,
+          ),
+      },
+    ],
   },
   {
     path: '',

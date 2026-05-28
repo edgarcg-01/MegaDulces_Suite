@@ -1,0 +1,221 @@
+/* Design system tokens — single source of truth. Ver docs/UX_TOKENS.md */
+
+:root {
+  /* Brand (warm — Mega Dulces). 400=primary, 600=secondary, 700=tertiary.
+     brand-400 NUNCA con texto blanco encima (AA 1.07 — usar neutral-950). */
+  --brand-50:  #FFFEF0;
+  --brand-100: #FFF8BC;
+  --brand-200: #FEEC7C;
+  --brand-300: #FDE044;
+  --brand-400: #FDE707; /* PRIMARY — sello de marca */
+  --brand-500: #F8B400;
+  --brand-600: #F68F1E; /* SECONDARY — naranja */
+  --brand-700: #F05A28; /* TERTIARY — sunset */
+  --brand-800: #C53E15;
+  --brand-900: #8C2308;
+  --brand-950: #4B1300;
+
+  /* Neutral (cool gray, zinc-aligned) */
+  --neutral-50:  #FAFAFA;
+  --neutral-100: #F4F4F5;
+  --neutral-200: #E4E4E7;
+  --neutral-300: #D4D4D8;
+  --neutral-400: #A1A1AA;
+  --neutral-500: #71717A;
+  --neutral-600: #52525B;
+  --neutral-700: #3F3F46;
+  --neutral-800: #27272A;
+  --neutral-900: #18181B;
+  --neutral-950: #09090B;
+
+  /* Semantic — ok/warn/bad/info. fg=sólido, soft-bg=chip, soft-fg=texto sobre soft-bg, border=sutil. */
+  --ok-fg:        #16A34A;
+  --ok-soft-bg:   #DCFCE7;
+  --ok-soft-fg:   #166534;
+  --ok-border:    #BBF7D0;
+
+  --warn-fg:      #F59E0B;
+  --warn-soft-bg: #FEF3C7;
+  --warn-soft-fg: #92400E;
+  --warn-border:  #FDE68A;
+
+  --bad-fg:       #DC2626;
+  --bad-soft-bg:  #FEE2E2;
+  --bad-soft-fg:  #991B1B;
+  --bad-border:   #FECACA;
+
+  --info-fg:      #2563EB;
+  --info-soft-bg: #DBEAFE;
+  --info-soft-fg: #1E40AF;
+  --info-border:  #BFDBFE;
+
+  /* Charts — 8 series. Anchor brand-orange; brand-400 yellow no se usa (ilegible chico). */
+  --chart-1: #F68F1E; /* brand orange */
+  --chart-2: #185FA5; /* corporate blue */
+  --chart-3: #9333EA; /* purple */
+  --chart-4: #0EA5E9; /* cyan */
+  --chart-5: #EC4899; /* pink */
+  --chart-6: #14B8A6; /* teal */
+  --chart-7: #F59E0B; /* amber */
+  --chart-8: #71717A; /* neutral (baseline / "otros") */
+
+  --chart-grid:      rgba(0, 0, 0, 0.05);
+  --chart-axis-text: #71717A;
+  --chart-meta-line: #9CA3AF;
+
+  /* Avatars — 8 colores estables, AA ≥ 4.5 con texto blanco. */
+  --avatar-1: #C53E15; /* brand-800 (warm anchor) */
+  --avatar-2: #185FA5;
+  --avatar-3: #15803D; /* green-700 */
+  --avatar-4: #7E22CE; /* purple-700 */
+  --avatar-5: #0F766E; /* teal-700 */
+  --avatar-6: #B91C1C; /* red-700 */
+  --avatar-7: #BE185D; /* pink-700 */
+  --avatar-8: #52525B; /* neutral-600 */
+
+  /* Surfaces / text / borders — LIGHT (dark override abajo). */
+  --layout-bg:     var(--neutral-100);
+  --sidebar-bg:    #FFFFFF;
+  --card-bg:       #FFFFFF;
+  --surface-ground:#F8FAFC;
+  --hover-bg:      var(--neutral-100);
+  --active-bg:     var(--neutral-950);
+  --active-text:   #FFFFFF;
+
+  --border-color:  var(--neutral-200);
+  --table-border:  #F8FAFC;
+  --table-hover:   rgba(248, 250, 252, 0.5);
+
+  --text-main:     var(--neutral-950);
+  --text-muted:    var(--neutral-600);
+  --text-faint:    var(--neutral-400);
+  --text-disabled: rgba(9, 9, 11, 0.5);
+
+  --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-hover:  0 10px 30px -10px rgba(0, 0, 0, 0.1);
+  --skeleton-bg:   #E2E8F0;
+
+  /* Form controls */
+  --checkbox-accent:       var(--info-fg);
+  --checkbox-accent-hover: #1D4ED8; /* blue-700 */
+  --focus-ring:            rgba(37, 99, 235, 0.4);
+
+  /* Aliases legacy (codemod posterior los limpia) */
+  --brand-primary:        var(--brand-400);
+  --brand-orange:         var(--brand-600);
+  --brand-sunset:         var(--brand-700);
+  --brand-light:          var(--brand-100);
+  --accent-brand:         var(--brand-400);
+  --accent-brand-light:   rgba(253, 231, 7, 0.15);
+  --accent-brand-orange:  var(--brand-600);
+  --accent-brand-sunset:  var(--brand-700);
+
+  --status-ok-fg:         var(--ok-fg);
+  --status-ok-soft-bg:    var(--ok-soft-bg);
+  --status-ok-soft-fg:    var(--ok-soft-fg);
+  --status-ok-border:     var(--ok-border);
+
+  --status-warn-fg:       var(--warn-fg);
+  --status-warn-soft-bg:  var(--warn-soft-bg);
+  --status-warn-soft-fg:  var(--warn-soft-fg);
+  --status-warn-border:   var(--warn-border);
+
+  --status-bad-fg:        var(--bad-fg);
+  --status-bad-soft-bg:   var(--bad-soft-bg);
+  --status-bad-soft-fg:   var(--bad-soft-fg);
+  --status-bad-border:    var(--bad-border);
+
+  --chip-info-bg:         var(--info-soft-bg);
+  --chip-info-fg:         var(--info-soft-fg);
+  --chip-info-border:     var(--info-border);
+  --chip-warn-soft-bg:    var(--warn-soft-bg);
+  --chip-warn-soft-fg:    var(--warn-soft-fg);
+  --chip-warn-soft-border:var(--warn-border);
+  --chip-brand-bg:        var(--brand-100);
+  --chip-brand-fg:        var(--brand-900);
+  --chip-brand-border:    var(--brand-200);
+
+  --chart-fill-low:       #C8C8D0;
+  --chart-fill-mid:       #6B6B75;
+  --chart-fill-high:      #1E1E22;
+}
+
+/* Dark mode — body.theme-monochrome */
+body.theme-monochrome {
+  --layout-bg:     #000000;
+  --sidebar-bg:    #111111;
+  --card-bg:       #111111;
+  --surface-ground:#111111;
+  --hover-bg:      #222222;
+  --active-bg:     #FFFFFF;
+  --active-text:   #000000;
+
+  --border-color:  #333333;
+  --table-border:  #222222;
+  --table-hover:   rgba(255, 255, 255, 0.05);
+
+  --text-main:     #FFFFFF;
+  --text-muted:    var(--neutral-400);
+  --text-faint:    var(--neutral-600);
+  --text-disabled: rgba(255, 255, 255, 0.5);
+
+  --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-hover:  0 0 20px rgba(255, 255, 255, 0.1);
+  --skeleton-bg:   #333333;
+
+  --accent-brand-light: rgba(253, 231, 7, 0.2);
+
+  --ok-fg:        #22C55E;
+  --ok-soft-bg:   rgba(34, 197, 94, 0.15);
+  --ok-soft-fg:   #86EFAC;
+  --ok-border:    rgba(34, 197, 94, 0.35);
+
+  --warn-fg:      #FBBF24;
+  --warn-soft-bg: rgba(251, 191, 36, 0.15);
+  --warn-soft-fg: #FCD34D;
+  --warn-border:  rgba(251, 191, 36, 0.35);
+
+  --bad-fg:       #F87171;
+  --bad-soft-bg:  rgba(248, 113, 113, 0.15);
+  --bad-soft-fg:  #FCA5A5;
+  --bad-border:   rgba(248, 113, 113, 0.35);
+
+  --info-fg:      #60A5FA;
+  --info-soft-bg: rgba(96, 165, 250, 0.15);
+  --info-soft-fg: #93C5FD;
+  --info-border:  rgba(96, 165, 250, 0.35);
+
+  --checkbox-accent:       var(--info-fg);
+  --checkbox-accent-hover: #93C5FD;
+  --focus-ring:            rgba(96, 165, 250, 0.55);
+
+  --chart-1: #FBA94E;
+  --chart-2: #60A5FA;
+  --chart-3: #C084FC;
+  --chart-4: #38BDF8;
+  --chart-5: #F472B6;
+  --chart-6: #2DD4BF;
+  --chart-7: #FCD34D;
+  --chart-8: #A1A1AA;
+
+  --chart-grid:      rgba(255, 255, 255, 0.06);
+  --chart-axis-text: var(--neutral-400);
+  --chart-meta-line: var(--neutral-500);
+
+  --avatar-1: #FB923C;
+  --avatar-2: #60A5FA;
+  --avatar-3: #4ADE80;
+  --avatar-4: #C084FC;
+  --avatar-5: #5EEAD4;
+  --avatar-6: #FCA5A5;
+  --avatar-7: #F9A8D4;
+  --avatar-8: #A1A1AA;
+
+  --chart-fill-low:  #3F3F46;
+  --chart-fill-mid:  #A1A1AA;
+  --chart-fill-high: #FAFAFA;
+
+  --chip-brand-bg:     rgba(253, 231, 7, 0.15);
+  --chip-brand-fg:     #FDE047;
+  --chip-brand-border: rgba(253, 231, 7, 0.35);
+}

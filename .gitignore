@@ -12,3 +12,12 @@ build_view_err.log
 .angular/
 .vercel
 .env*.local
+.env.cloudinary
+.env.production
+.env.staging
+
+# Build artifacts compilados que NO deben commitearse en source
+apps/api/src/**/*.js
+apps/api/src/**/*.js.map
+apps/api/src/**/*.d.ts
+apps/view/src/**/*.js.map

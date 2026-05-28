@@ -1,6 +1,6 @@
-<div class="p-6 space-y-6">
+<div class="p-4 sm:p-6 space-y-5 sm:space-y-6">
   <!-- Toast for notifications -->
-  <p-toast position="top-right"></p-toast>
+  <p-toast position="bottom-right" [breakpoints]="{'640px': {width: '100%', right: '0', left: '0'}}"></p-toast>
 
   <!-- Confirm Dialog -->
   <p-confirmDialog
@@ -12,27 +12,76 @@
   </p-confirmDialog>
 
   <!-- Encabezado -->
-  <div class="flex justify-between items-center mb-6">
-    <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
-        <i class="pi pi-cog text-content-main"></i> {{ title() }}
-      </h1>
-      <p class="text-sm text-content-dim">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>
+  <div class="flex flex-col gap-4">
+    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+          <i class="pi pi-cog text-content-main"></i> {{ title() }}
+          <span class="text-sm font-normal text-content-muted">
+            · {{ activeCountInfo().active }} activos
+            @if (activeCountInfo().inactive > 0) {
+              <span class="text-content-faint">· {{ activeCountInfo().inactive }} inactivos</span>
+            }
+          </span>
+        </h1>
+        <p class="text-sm text-content-muted">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>
+      </div>
+      @if (canManageCurrent()) {
+        <p-button label="Nuevo Ítem" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
+      }
     </div>
-    <div class="flex items-center gap-3">
+
+    <!-- Selector de catálogo: tabs visibles para cambiar entre conceptos/zonas/etc. -->
+    <div class="flex flex-wrap gap-1.5 p-1 bg-surface-ground rounded-xl border border-divider w-fit">
+      @for (cat of availableCatalogTypes(); track cat.type) {
+        <button type="button"
+                (click)="selectCatalogType(cat.type)"
+                class="inline-flex items-center gap-2 px-3 py-2 min-h-[40px] rounded-lg text-sm font-medium motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange"
+                [ngClass]="selectedType() === cat.type
+                  ? 'bg-surface-card text-content-main shadow-sm'
+                  : 'text-content-muted hover:text-content-main hover:bg-surface-hover'"
+                [attr.aria-current]="selectedType() === cat.type ? 'page' : null">
+          <i [class]="cat.icon" class="text-xs" aria-hidden="true"></i>
+          {{ cat.label }}
+        </button>
+      }
+    </div>
+
+    <!-- Search + toggle inactivos -->
+    <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
+      <div class="relative flex-1 max-w-md">
+        <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-sm pointer-events-none" aria-hidden="true"></i>
+        <input
+          type="search"
+          inputmode="search"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          placeholder="Buscar por nombre..."
+          [ngModel]="searchQuery()"
+          (ngModelChange)="onSearchChange($event)"
+          class="w-full min-h-[40px] pl-9 pr-9 py-2 bg-surface-card border border-divider rounded-lg text-sm text-content-main focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
+        />
+        @if (searchQuery()) {
+          <button type="button"
+                  (click)="clearSearch()"
+                  aria-label="Limpiar búsqueda"
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md flex items-center justify-center text-content-muted hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange motion-safe:transition-colors">
+            <i class="pi pi-times text-xs" aria-hidden="true"></i>
+          </button>
+        }
+      </div>
       @if (supportsInactive()) {
-        <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer">
+        <label class="flex items-center gap-2 text-sm text-content-muted cursor-pointer select-none">
           <input
             type="checkbox"
             [checked]="showInactive()"
             (change)="toggleShowInactive($any($event.target).checked)"
-            class="accent-brand"
+            class="w-4 h-4 cursor-pointer"
+            style="accent-color: var(--info-fg);"
           />
           Mostrar inactivos
         </label>
-      }
-      @if (canManageCurrent()) {
-        <p-button label="Nuevo Ítem" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
       }
     </div>
   </div>
@@ -40,10 +89,29 @@
   <!-- Vista Especial para ZONAS con Rutas expandibles -->
   @if (selectedType() === 'zonas') {
     <div class="hidden lg:block space-y-4">
-      @for (zone of items(); track zone.id) {
-        <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden" [class.opacity-60]="zone.activo === false">
+      @if (filteredItems().length === 0 && !loading()) {
+        <div class="bg-surface-card border border-divider rounded-xl py-12 px-4 flex flex-col items-center gap-2 text-content-muted">
+          <i class="pi pi-inbox text-3xl text-content-faint" aria-hidden="true"></i>
+          <p class="text-sm">
+            @if (searchQuery()) {
+              Sin resultados para <span class="font-semibold">"{{ searchQuery() }}"</span>
+            } @else {
+              No hay zonas creadas todavía.
+            }
+          </p>
+          @if (searchQuery()) {
+            <button type="button" (click)="clearSearch()" class="btn-ghost btn-ghost-brand text-xs mt-1">Limpiar búsqueda</button>
+          } @else if (canManageCurrent()) {
+            <button type="button" (click)="openAddDialog()" class="btn-ghost btn-ghost-brand text-xs mt-1">
+              <i class="pi pi-plus"></i> Crear primera zona
+            </button>
+          }
+        </div>
+      }
+      @for (zone of filteredItems(); track zone.id) {
+        <div class="bg-surface-card border border-divider rounded-xl overflow-hidden" [class.opacity-60]="zone.activo === false">
           <!-- Header de Zona -->
-          <div class="flex items-center justify-between p-4 bg-surface-ground border-b border-surface-border">
+          <div class="flex items-center justify-between gap-3 p-3 sm:p-4 bg-surface-ground border-b border-divider">
             <div class="flex items-center gap-3">
               <button
                 type="button"
@@ -53,25 +121,31 @@
                 <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>
               </button>
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-mono text-content-dim bg-surface-card px-2 py-1 rounded">#{{ zone.orden }}</span>
+                <span class="text-xs font-mono text-content-muted bg-surface-card px-2 py-1 rounded">#{{ zone.orden }}</span>
                 <span class="font-bold text-content-main">{{ zone.value }}</span>
                 @if (zone.is_system) {
-                  <span class="text-[10px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5" pTooltip="Zona del sistema, protegida">Sistema</span>
+                  <span class="text-[11px] uppercase tracking-wider text-content-faint border border-divider rounded px-1.5 py-0.5" pTooltip="Zona del sistema, protegida">Sistema</span>
                 }
                 @if (zone.activo === false) {
-                  <span class="text-[10px] uppercase tracking-wider text-red-500 border border-red-200 rounded px-1.5 py-0.5" pTooltip="Zona inactiva — referenciada por users/stores/rutas">Inactiva</span>
+                  <span class="text-[11px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5" pTooltip="Zona inactiva — referenciada por users/stores/rutas">Inactiva</span>
                 }
               </div>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-xs text-content-muted">{{ getRoutesOf(zone.id).length }} rutas</span>
               @if (canManageCurrent() && zone.activo === false) {
-                <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateItem(zone)" pTooltip="Reactivar"></p-button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateItem(zone)" pTooltip="Reactivar" aria-label="Reactivar zona"><i class="pi pi-replay text-sm"></i></button>
               }
               @if (canManageCurrent()) {
-                <p-button icon="pi pi-plus" label="Agregar Ruta" size="small" [text]="true" (onClick)="openAddRouteDialog(zone)" [disabled]="zone.activo === false" [pTooltip]="zone.activo === false ? 'Zona inactiva' : 'Agregar ruta'"></p-button>
-                <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)" [disabled]="zone.is_system === true" [pTooltip]="zone.is_system ? 'Zona del sistema (protegida)' : 'Editar'"></p-button>
-                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id, zone.value)" [disabled]="zone.is_system === true || zone.activo === false" [pTooltip]="zone.is_system ? 'Zona del sistema (protegida)' : (zone.activo === false ? 'Ya está inactiva' : 'Eliminar')"></p-button>
+                <button type="button" class="btn-ghost btn-ghost-brand text-xs" (click)="openAddRouteDialog(zone)" [disabled]="zone.activo === false" [pTooltip]="zone.activo === false ? 'Zona inactiva' : 'Agregar ruta'" aria-label="Agregar ruta">
+                  <i class="pi pi-plus text-xs"></i> Ruta
+                </button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openEditDialog(zone)" [disabled]="zone.is_system === true" [pTooltip]="zone.is_system ? 'Zona del sistema (protegida)' : 'Editar'" aria-label="Editar zona">
+                  <i class="pi pi-pencil text-sm"></i>
+                </button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteItem(zone.id, zone.value)" [disabled]="zone.is_system === true || zone.activo === false" [pTooltip]="zone.is_system ? 'Zona del sistema (protegida)' : (zone.activo === false ? 'Ya está inactiva' : 'Eliminar')" aria-label="Eliminar zona">
+                  <i class="pi pi-trash text-sm"></i>
+                </button>
               }
             </div>
           </div>
@@ -82,22 +156,22 @@
               @if (getRoutesOf(zone.id).length > 0) {
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   @for (route of getRoutesOf(zone.id); track route.id) {
-                    <div class="flex items-center justify-between p-3 bg-surface-ground border border-surface-border rounded-lg">
+                    <div class="flex items-center justify-between p-3 bg-surface-ground border border-divider rounded-lg">
                       <div class="flex items-center gap-2">
-                        <span class="text-xs font-mono text-content-dim">#{{ route.orden }}</span>
+                        <span class="text-xs font-mono text-content-muted">#{{ route.orden }}</span>
                         <span class="text-sm font-medium text-content-main">{{ route.value }}</span>
                       </div>
                       @if (canManageCurrent()) {
                         <div class="flex gap-1">
-                          <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditRouteDialog(route, zone)"></p-button>
-                          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteRoute(route.id, zone.id)"></p-button>
+                          <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openEditRouteDialog(route, zone)" aria-label="Editar ruta"><i class="pi pi-pencil text-sm"></i></button>
+                          <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteRoute(route.id, zone.id)" aria-label="Eliminar ruta"><i class="pi pi-trash text-sm"></i></button>
                         </div>
                       }
                     </div>
                   }
                 </div>
               } @else {
-                <div class="text-center py-4 text-content-dim text-sm">
+                <div class="text-center py-4 text-content-muted text-sm">
                   No hay rutas asignadas a esta zona. @if (canManageCurrent()) { Haz clic en "Agregar Ruta" para crear una. }
                 </div>
               }
@@ -108,10 +182,12 @@
     </div>
   } @else {
     <!-- Tabla normal para otros catálogos -->
-    <div class="bg-surface-card border border-surface-border shadow-sm rounded-xl overflow-hidden hidden lg:block">
-      <p-table [value]="items()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+    <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden hidden lg:block">
+      <p-table [value]="filteredItems()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped"
+               [paginator]="filteredItems().length > 20" [rows]="20" [rowsPerPageOptions]="[10,20,50,100]"
+               [sortField]="'orden'" [sortOrder]="1">
         <ng-template pTemplate="header">
-          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-surface-border">
+          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
             <th style="width: 10%">Orden</th>
             <th>Valor / Nombre</th>
             <th *ngIf="hasScoring()">Puntuación</th>
@@ -121,17 +197,17 @@
         </ng-template>
         <ng-template pTemplate="body" let-item>
           <tr
-            class="text-sm border-b border-surface-border hover:bg-surface-hover"
+            class="text-sm border-b border-divider hover:bg-surface-hover"
             [class.opacity-50]="hasScoring() && item.activo === false"
           >
-            <td class="font-mono text-content-dim">{{ item.orden }}</td>
+            <td class="font-mono text-content-muted">{{ item.orden }}</td>
             <td class="font-bold text-content-main">
               {{ item.value }}
               @if (selectedType() === 'roles' && item.is_system) {
-                <span class="ml-2 text-[10px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5" pTooltip="Rol del sistema, no se puede renombrar ni eliminar">Sistema</span>
+                <span class="ml-2 text-[11px] uppercase tracking-wider text-content-faint border border-divider rounded px-1.5 py-0.5" pTooltip="Rol del sistema, no se puede renombrar ni eliminar">Sistema</span>
               }
               @if (hasScoring() && item.activo === false) {
-                <span class="ml-2 text-[10px] uppercase tracking-wider text-red-500 border border-red-200 rounded px-1.5 py-0.5" pTooltip="Soft-deleted: referenciado por capturas históricas">Inactivo</span>
+                <span class="ml-2 text-[11px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5" pTooltip="Soft-deleted: referenciado por capturas históricas">Inactivo</span>
               }
             </td>
             <td *ngIf="hasScoring()" class="text-brand-orange font-bold">
@@ -145,14 +221,22 @@
             <td class="text-center">
               <div class="flex justify-center gap-1">
                 @if (selectedType() === 'roles' && canManageCurrent()) {
-                  <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+                  <button type="button" class="icon-btn-ghost icon-btn-ghost-brand" (click)="goToPermissions(item.value)" pTooltip="Editar Funciones" aria-label="Editar funciones">
+                    <i class="pi pi-shield text-sm"></i>
+                  </button>
                 }
                 @if (canManageCurrent() && hasScoring() && item.activo === false) {
-                  <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateItem(item)" pTooltip="Reactivar"></p-button>
+                  <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateItem(item)" pTooltip="Reactivar" aria-label="Reactivar">
+                    <i class="pi pi-replay text-sm"></i>
+                  </button>
                 }
                 @if (canManageCurrent()) {
-                  <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)" [disabled]="selectedType() === 'roles' && item.is_system" [pTooltip]="selectedType() === 'roles' && item.is_system ? 'Rol del sistema (protegido)' : 'Editar'"></p-button>
-                  <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)" [disabled]="(selectedType() === 'roles' && item.is_system) || (hasScoring() && item.activo === false)" [pTooltip]="selectedType() === 'roles' && item.is_system ? 'Rol del sistema (protegido)' : (hasScoring() && item.activo === false ? 'Ya está inactivo' : 'Eliminar')"></p-button>
+                  <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openEditDialog(item)" [disabled]="selectedType() === 'roles' && item.is_system" [pTooltip]="selectedType() === 'roles' && item.is_system ? 'Rol del sistema (protegido)' : 'Editar'" aria-label="Editar">
+                    <i class="pi pi-pencil text-sm"></i>
+                  </button>
+                  <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteItem(item.id, item.value)" [disabled]="(selectedType() === 'roles' && item.is_system) || (hasScoring() && item.activo === false)" [pTooltip]="selectedType() === 'roles' && item.is_system ? 'Rol del sistema (protegido)' : (hasScoring() && item.activo === false ? 'Ya está inactivo' : 'Eliminar')" aria-label="Eliminar">
+                    <i class="pi pi-trash text-sm"></i>
+                  </button>
                 }
               </div>
             </td>
@@ -160,8 +244,24 @@
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr>
-            <td colspan="5" class="text-center p-8 text-content-dim">
-              No hay registros para este catálogo.
+            <td colspan="5" class="text-center py-12 text-content-muted">
+              <div class="flex flex-col items-center gap-2">
+                <i class="pi pi-inbox text-3xl text-content-faint" aria-hidden="true"></i>
+                <p class="text-sm">
+                  @if (searchQuery()) {
+                    Sin resultados para <span class="font-semibold">"{{ searchQuery() }}"</span>
+                  } @else {
+                    No hay registros para este catálogo.
+                  }
+                </p>
+                @if (searchQuery()) {
+                  <button type="button" (click)="clearSearch()" class="btn-ghost btn-ghost-brand text-xs mt-1">Limpiar búsqueda</button>
+                } @else if (canManageCurrent()) {
+                  <button type="button" (click)="openAddDialog()" class="btn-ghost btn-ghost-brand text-xs mt-1">
+                    <i class="pi pi-plus"></i> Crear el primero
+                  </button>
+                }
+              </div>
             </td>
           </tr>
         </ng-template>
@@ -172,9 +272,28 @@
   <!-- Mobile Card View -->
   @if (selectedType() === 'zonas') {
     <!-- Vista Mobile para Zonas -->
-    <div class="lg:hidden space-y-4">
-      @for (zone of items(); track zone.id) {
-        <div class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm" [class.opacity-60]="zone.activo === false">
+    <div class="lg:hidden space-y-3">
+      @if (filteredItems().length === 0 && !loading()) {
+        <div class="bg-surface-card border border-divider rounded-xl py-10 px-4 flex flex-col items-center gap-2 text-content-muted">
+          <i class="pi pi-inbox text-3xl text-content-faint" aria-hidden="true"></i>
+          <p class="text-sm text-center">
+            @if (searchQuery()) {
+              Sin resultados para <span class="font-semibold">"{{ searchQuery() }}"</span>
+            } @else {
+              No hay zonas creadas todavía.
+            }
+          </p>
+          @if (searchQuery()) {
+            <button type="button" (click)="clearSearch()" class="btn-ghost btn-ghost-brand text-xs mt-1">Limpiar búsqueda</button>
+          } @else if (canManageCurrent()) {
+            <button type="button" (click)="openAddDialog()" class="btn-ghost btn-ghost-brand text-xs mt-1">
+              <i class="pi pi-plus"></i> Crear primera zona
+            </button>
+          }
+        </div>
+      }
+      @for (zone of filteredItems(); track zone.id) {
+        <div class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm" [class.opacity-60]="zone.activo === false">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-3">
               <button
@@ -185,48 +304,48 @@
                 <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>
               </button>
               <div>
-                <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{ zone.orden }}</span>
+                <span class="text-xs font-mono text-content-muted bg-surface-ground px-2 py-1 rounded">#{{ zone.orden }}</span>
                 <h3 class="text-sm font-bold text-content-main ml-2 inline">{{ zone.value }}</h3>
                 @if (zone.is_system) {
-                  <span class="ml-1 text-[9px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5">Sistema</span>
+                  <span class="ml-1 text-[11px] uppercase tracking-wider text-content-faint border border-divider rounded px-1.5 py-0.5">Sistema</span>
                 }
                 @if (zone.activo === false) {
-                  <span class="ml-1 text-[9px] uppercase tracking-wider text-red-500 border border-red-200 rounded px-1.5 py-0.5">Inactiva</span>
+                  <span class="ml-1 text-[11px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactiva</span>
                 }
               </div>
             </div>
             <div class="flex gap-1">
               @if (canManageCurrent() && zone.activo === false) {
-                <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateItem(zone)"></p-button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateItem(zone)" aria-label="Reactivar zona"><i class="pi pi-replay text-sm"></i></button>
               }
               @if (canManageCurrent()) {
-                <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddRouteDialog(zone)" [disabled]="zone.activo === false"></p-button>
-                <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(zone)" [disabled]="zone.is_system === true"></p-button>
-                <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(zone.id, zone.value)" [disabled]="zone.is_system === true || zone.activo === false"></p-button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-brand" (click)="openAddRouteDialog(zone)" [disabled]="zone.activo === false" aria-label="Agregar ruta"><i class="pi pi-plus text-sm"></i></button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openEditDialog(zone)" [disabled]="zone.is_system === true" aria-label="Editar zona"><i class="pi pi-pencil text-sm"></i></button>
+                <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteItem(zone.id, zone.value)" [disabled]="zone.is_system === true || zone.activo === false" aria-label="Eliminar zona"><i class="pi pi-trash text-sm"></i></button>
               }
             </div>
           </div>
 
           <!-- Rutas expandibles en mobile -->
           @if (isZoneExpanded(zone.id)) {
-            <div class="mt-3 pt-3 border-t border-surface-border">
+            <div class="mt-3 pt-3 border-t border-divider">
               <div class="text-xs text-content-muted mb-2">Rutas ({{ getRoutesOf(zone.id).length }}):</div>
               @if (getRoutesOf(zone.id).length > 0) {
                 <div class="space-y-2">
                   @for (route of getRoutesOf(zone.id); track route.id) {
-                    <div class="flex items-center justify-between p-2 bg-surface-ground border border-surface-border rounded">
+                    <div class="flex items-center justify-between p-2 bg-surface-ground border border-divider rounded">
                       <span class="text-sm text-content-main">{{ route.value }}</span>
                       @if (canManageCurrent()) {
                         <div class="flex gap-1">
-                          <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditRouteDialog(route, zone)"></p-button>
-                          <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteRoute(route.id, zone.id)"></p-button>
+                          <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openEditRouteDialog(route, zone)" aria-label="Editar ruta"><i class="pi pi-pencil text-sm"></i></button>
+                          <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteRoute(route.id, zone.id)" aria-label="Eliminar ruta"><i class="pi pi-trash text-sm"></i></button>
                         </div>
                       }
                     </div>
                   }
                 </div>
               } @else {
-                <div class="text-xs text-content-dim">No hay rutas asignadas</div>
+                <div class="text-xs text-content-muted">No hay rutas asignadas</div>
               }
             </div>
           }
@@ -235,31 +354,50 @@
     </div>
   } @else {
     <!-- Vista Mobile para otros catálogos -->
-    <div class="lg:hidden space-y-4">
-      <div *ngFor="let item of items()" class="bg-surface-card border border-surface-border rounded-xl p-4 shadow-sm" [class.opacity-60]="hasScoring() && item.activo === false">
+    <div class="lg:hidden space-y-3">
+      @if (filteredItems().length === 0 && !loading()) {
+        <div class="bg-surface-card border border-divider rounded-xl py-10 px-4 flex flex-col items-center gap-2 text-content-muted">
+          <i class="pi pi-inbox text-3xl text-content-faint" aria-hidden="true"></i>
+          <p class="text-sm text-center">
+            @if (searchQuery()) {
+              Sin resultados para <span class="font-semibold">"{{ searchQuery() }}"</span>
+            } @else {
+              No hay registros para este catálogo.
+            }
+          </p>
+          @if (searchQuery()) {
+            <button type="button" (click)="clearSearch()" class="btn-ghost btn-ghost-brand text-xs mt-1">Limpiar búsqueda</button>
+          } @else if (canManageCurrent()) {
+            <button type="button" (click)="openAddDialog()" class="btn-ghost btn-ghost-brand text-xs mt-1">
+              <i class="pi pi-plus"></i> Crear el primero
+            </button>
+          }
+        </div>
+      }
+      <div *ngFor="let item of filteredItems()" class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm" [class.opacity-60]="hasScoring() && item.activo === false">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-3">
-            <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>
+            <span class="text-xs font-mono text-content-muted bg-surface-ground px-2 py-1 rounded">{{ item.orden }}</span>
             <h3 class="text-sm font-bold text-content-main">
               {{ item.value }}
               @if (selectedType() === 'roles' && item.is_system) {
-                <span class="ml-1 text-[9px] uppercase tracking-wider text-content-faint border border-surface-border rounded px-1.5 py-0.5">Sistema</span>
+                <span class="ml-1 text-[11px] uppercase tracking-wider text-content-faint border border-divider rounded px-1.5 py-0.5">Sistema</span>
               }
               @if (hasScoring() && item.activo === false) {
-                <span class="ml-1 text-[9px] uppercase tracking-wider text-red-500 border border-red-200 rounded px-1.5 py-0.5">Inactivo</span>
+                <span class="ml-1 text-[11px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactivo</span>
               }
             </h3>
           </div>
           <div class="flex gap-1">
             @if (selectedType() === 'roles' && canManageCurrent()) {
-              <p-button icon="pi pi-shield" [text]="true" severity="help" size="small" (onClick)="goToPermissions(item.value)" pTooltip="Editar Funciones"></p-button>
+              <button type="button" class="icon-btn-ghost icon-btn-ghost-brand" (click)="goToPermissions(item.value)" pTooltip="Editar Funciones" aria-label="Editar funciones"><i class="pi pi-shield text-sm"></i></button>
             }
             @if (canManageCurrent() && hasScoring() && item.activo === false) {
-              <p-button icon="pi pi-replay" [text]="true" severity="success" size="small" (onClick)="reactivateItem(item)" pTooltip="Reactivar"></p-button>
+              <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateItem(item)" pTooltip="Reactivar" aria-label="Reactivar"><i class="pi pi-replay text-sm"></i></button>
             }
             @if (canManageCurrent()) {
-              <p-button icon="pi pi-pencil" [text]="true" severity="info" size="small" (onClick)="openEditDialog(item)" [disabled]="selectedType() === 'roles' && item.is_system"></p-button>
-              <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="deleteItem(item.id, item.value)" [disabled]="(selectedType() === 'roles' && item.is_system) || (hasScoring() && item.activo === false)"></p-button>
+              <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openEditDialog(item)" [disabled]="selectedType() === 'roles' && item.is_system" aria-label="Editar"><i class="pi pi-pencil text-sm"></i></button>
+              <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteItem(item.id, item.value)" [disabled]="(selectedType() === 'roles' && item.is_system) || (hasScoring() && item.activo === false)" aria-label="Eliminar"><i class="pi pi-trash text-sm"></i></button>
             }
           </div>
         </div>
@@ -287,11 +425,16 @@
   (visibleChange)="showAddDialog.set($event)"
   [modal]="true"
   [style]="{width: '400px'}"
+  [breakpoints]="{'640px': '95vw'}"
+  [blockScroll]="true"
+  [draggable]="false"
+  [resizable]="false"
+  [focusOnShow]="true"
   styleClass="p-dialog surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main p-4'">
-  <div class="flex flex-col gap-4">
+  <div class="flex flex-col gap-4" (keydown.enter)="$event.preventDefault(); saveItem()">
     @if (isEditMode() && hasScoring()) {
-      <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed">
+      <div class="p-3 bg-warn-soft-bg border border-warn-border rounded-lg text-xs text-warn-soft-fg leading-relaxed">
         <i class="pi pi-info-circle mr-1"></i>
         Los cambios solo afectan capturas <strong>futuras</strong>. Las capturas guardadas mantienen su puntuación original.
         @if (selectedType() === 'niveles') {
@@ -300,18 +443,28 @@
       </div>
     }
     <div class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted">Nombre / Valor</label>
-      <input pInputText [(ngModel)]="newItemValue" [placeholder]="selectedType() === 'roles' ? 'Ej: supervisor' : selectedType() === 'niveles' ? 'Ej: Alto' : selectedType() === 'conceptos' ? 'Ej: Exhibidor' : selectedType() === 'ubicaciones' ? 'Ej: Caja' : 'Ej: Zona Norte'" class="w-full bg-surface-ground border-surface-border text-content-main" />
+      <label for="catalog-item-name" class="text-xs font-bold text-content-muted">Nombre / Valor</label>
+      <input id="catalog-item-name"
+             pInputText
+             [(ngModel)]="newItemValue"
+             [placeholder]="selectedType() === 'roles' ? 'Ej: supervisor' : selectedType() === 'niveles' ? 'Ej: Alto' : selectedType() === 'conceptos' ? 'Ej: Exhibidor' : selectedType() === 'ubicaciones' ? 'Ej: Caja' : 'Ej: Zona Norte'"
+             autocomplete="off"
+             autocorrect="off"
+             [autocapitalize]="selectedType() === 'roles' ? 'off' : 'words'"
+             autofocus
+             enterkeyhint="done"
+             class="w-full bg-surface-ground border-divider text-content-main" />
     </div>
 
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
       <div class="flex flex-col gap-2">
-        <label class="text-xs font-bold text-content-muted">Orden</label>
-        <p-inputNumber [(ngModel)]="newItemOrder" class="w-full"></p-inputNumber>
+        <label for="catalog-item-order" class="text-xs font-bold text-content-muted">Orden</label>
+        <p-inputNumber inputId="catalog-item-order" [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputNumber>
       </div>
       <div *ngIf="hasScoring()" class="flex flex-col gap-2">
-        <label class="text-xs font-bold text-content-muted">Puntuación</label>
+        <label for="catalog-item-score" class="text-xs font-bold text-content-muted">Puntuación</label>
         <p-inputNumber
+          inputId="catalog-item-score"
           [(ngModel)]="newItemScore"
           [step]="0.1"
           mode="decimal"
@@ -324,8 +477,8 @@
     </div>
 
     <div *ngIf="hasIcon()" class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted font-mono">Icono (PrimeIcon)</label>
-      <input pInputText [(ngModel)]="newItemIcon" placeholder="Ej: pi pi-star" class="w-full bg-surface-ground border-surface-border text-content-main" />
+      <label class="text-xs font-bold text-content-muted">Icono (PrimeIcon)</label>
+      <input pInputText [(ngModel)]="newItemIcon" placeholder="Ej: pi pi-star" class="w-full bg-surface-ground border-divider text-content-main" />
       <div class="mt-1 flex items-center gap-2 px-3 py-2 bg-surface-ground border border-divider rounded-lg">
         <span class="text-xs text-content-faint uppercase font-bold">Vista previa:</span>
         <i [class]="newItemIcon || 'pi pi-question-circle'" class="text-brand"></i>
@@ -334,7 +487,7 @@
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddDialog()" [disabled]="saving()"></p-button>
-    <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveItem()" [disabled]="saving()" [loading]="saving()" styleClass="p-button-brand"></p-button>
+    <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveItem()" [disabled]="saving() || !newItemValue.trim()" [loading]="saving()" styleClass="p-button-brand"></p-button>
   </ng-template>
 </p-dialog>
 
@@ -345,21 +498,35 @@
   (visibleChange)="showRouteDialog.set($event)"
   [modal]="true"
   [style]="{width: '400px'}"
+  [breakpoints]="{'640px': '95vw'}"
+  [blockScroll]="true"
+  [draggable]="false"
+  [resizable]="false"
+  [focusOnShow]="true"
   styleClass="p-dialog surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main p-4'">
-  <div class="flex flex-col gap-4">
+  <div class="flex flex-col gap-4" (keydown.enter)="$event.preventDefault(); saveRoute()">
     <div class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted">Nombre de la Ruta</label>
-      <input pInputText [(ngModel)]="newItemValue" placeholder="Ej: Ruta 1 - Centro" class="w-full bg-surface-ground border-surface-border text-content-main" />
+      <label for="route-name" class="text-xs font-bold text-content-muted">Nombre de la Ruta</label>
+      <input id="route-name"
+             pInputText
+             [(ngModel)]="newItemValue"
+             placeholder="Ej: Ruta 1 - Centro"
+             autocomplete="off"
+             autocorrect="off"
+             autocapitalize="words"
+             autofocus
+             enterkeyhint="done"
+             class="w-full bg-surface-ground border-divider text-content-main" />
     </div>
 
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted">Orden</label>
-      <p-inputNumber [(ngModel)]="newItemOrder" class="w-full"></p-inputNumber>
+      <p-inputNumber [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputNumber>
     </div>
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeRouteDialog()" [disabled]="saving()"></p-button>
-    <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveRoute()" [disabled]="saving()" [loading]="saving()" styleClass="p-button-brand"></p-button>
+    <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveRoute()" [disabled]="saving() || !newItemValue.trim()" [loading]="saving()" styleClass="p-button-brand"></p-button>
   </ng-template>
 </p-dialog>

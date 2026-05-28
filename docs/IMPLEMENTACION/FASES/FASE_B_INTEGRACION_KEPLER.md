@@ -1,4 +1,10 @@
-# Fase B — Integración con ERP Kepler (Postgres)
+# Fase B — Integración con ERP Kepler (Postgres) — ⚠️ DEFERRED
+
+> **Pivot 2026-05-26:** Kepler no existe todavía. La Fase B actual se construye desde cero en `commercial.*` — ver [`FASE_B_COMERCIAL_CORE.md`](FASE_B_COMERCIAL_CORE.md). Este documento queda como referencia para cuando aparezca un ERP externo y se requiera integrar vía FDW / sync.
+
+---
+
+
 
 **Duración estimada:** 3-5 semanas (1 dev) — **reducida desde 4-6** por simplificación con Postgres.
 **Objetivo:** sincronizar catálogo de productos, precios, stock y clientes desde Kepler (Postgres) a nuestra plataforma.

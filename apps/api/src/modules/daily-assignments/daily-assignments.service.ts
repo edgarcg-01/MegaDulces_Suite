@@ -59,10 +59,10 @@ export class DailyAssignmentsService {
   ): Promise<void> {
     const route = await this.knex('catalogs')
       .where({ id: routeId, catalog_id: 'rutas' })
-      .select('id', 'parent_id', 'activo')
+      .select('id', 'parent_id', 'deleted_at')
       .first();
     if (!route) throw new NotFoundException('Ruta no encontrada');
-    if (route.activo === false) {
+    if (route.deleted_at !== null) {
       throw new BadRequestException('La ruta seleccionada está inactiva');
     }
     if (userZonaId && route.parent_id && route.parent_id !== userZonaId) {

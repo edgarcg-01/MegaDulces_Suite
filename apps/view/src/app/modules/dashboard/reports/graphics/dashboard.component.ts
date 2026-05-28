@@ -5,8 +5,10 @@ import {
   OnInit,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -29,6 +31,8 @@ import {
 } from '../graphics/metas-config.service';
 import { GlobalFiltersComponent } from '../graphics/global-filters.component';
 import { WebSocketService } from '../../../../core/services/websocket.service';
+import { ThemeService } from '../../../../core/services/theme.service';
+import { getChartTokens } from '../../../../shared/theme/chart-theme';
 
 interface KpiCard {
   id: string;
@@ -129,9 +133,9 @@ interface KpiCard {
             class="card-premium flex flex-col justify-between group elevation-hover"
             [class.border-l-4]="true"
             [ngClass]="{
-              'border-l-green-500': k.status === 'ok',
-              'border-l-amber-400': k.status === 'warn',
-              'border-l-red-500': k.status === 'bad',
+              'border-l-ok': k.status === 'ok',
+              'border-l-warn': k.status === 'warn',
+              'border-l-bad': k.status === 'bad',
             }"
           >
             <div class="flex items-start justify-between mb-4">
@@ -140,9 +144,9 @@ interface KpiCard {
               <span
                 class="text-[9px] font-black tracking-widest uppercase px-2 py-0.5 rounded-full"
                 [ngClass]="{
-                  'bg-green-100 text-green-800': k.status === 'ok',
-                  'bg-amber-100 text-amber-800': k.status === 'warn',
-                  'bg-red-100 text-red-800': k.status === 'bad',
+                  'bg-ok-soft-bg text-ok-fg': k.status === 'ok',
+                  'bg-warn-soft-bg text-warn-fg': k.status === 'warn',
+                  'bg-bad-soft-bg text-bad-fg': k.status === 'bad',
                 }"
               >
                 {{ statusLabel(k.status) }}
@@ -155,8 +159,8 @@ interface KpiCard {
                 <div
                   class="text-[10px] mt-1 font-medium"
                   [ngClass]="{
-                    'text-green-600': k.deltaDir === 'up',
-                    'text-red-500': k.deltaDir === 'down',
+                    'text-ok-fg': k.deltaDir === 'up',
+                    'text-bad-fg': k.deltaDir === 'down',
                     'text-content-faint': k.deltaDir === 'flat',
                   }"
                 >
@@ -179,9 +183,9 @@ interface KpiCard {
                 class="h-full rounded-full transition-all duration-500"
                 [style.width.%]="k.pct"
                 [ngClass]="{
-                  'bg-green-500': k.status === 'ok',
-                  'bg-amber-400': k.status === 'warn',
-                  'bg-red-500': k.status === 'bad',
+                  'bg-ok': k.status === 'ok',
+                  'bg-warn': k.status === 'warn',
+                  'bg-bad': k.status === 'bad',
                 }"
               ></div>
             </div>
@@ -204,15 +208,15 @@ interface KpiCard {
                 </span>
                 <span class="flex items-center gap-1.5">
                   <span
-                    class="w-3 h-0.5 bg-amber-400 inline-block"
-                    style="border-top:2px dashed #EF9F27"
+                    class="w-3 h-0.5 bg-warn inline-block"
+                    style="border-top:2px dashed var(--warn-fg)"
                   ></span
                   >Score
                 </span>
                 <span class="flex items-center gap-1.5">
                   <span
-                    class="w-3 h-0.5 bg-red-400 inline-block"
-                    style="border-top:2px dashed #E24B4A"
+                    class="w-3 h-0.5 bg-bad inline-block"
+                    style="border-top:2px dashed var(--bad-fg)"
                   ></span
                   >Meta
                 </span>
@@ -279,9 +283,9 @@ interface KpiCard {
                       <span
                         class="px-2 py-0.5 rounded-full text-[10px] font-bold"
                         [ngClass]="{
-                          'bg-green-100 text-green-800': row.status === 'ok',
-                          'bg-amber-100 text-amber-800': row.status === 'warn',
-                          'bg-red-100 text-red-800': row.status === 'bad',
+                          'bg-ok-soft-bg text-ok-fg': row.status === 'ok',
+                          'bg-warn-soft-bg text-warn-fg': row.status === 'warn',
+                          'bg-bad-soft-bg text-bad-fg': row.status === 'bad',
                         }"
                       >
                         {{ statusLabel(row.status) }}
@@ -296,9 +300,9 @@ interface KpiCard {
                             class="h-full rounded-full"
                             [style.width.%]="row.pct"
                             [ngClass]="{
-                              'bg-green-500': row.status === 'ok',
-                              'bg-amber-400': row.status === 'warn',
-                              'bg-red-500': row.status === 'bad',
+                              'bg-ok': row.status === 'ok',
+                              'bg-warn': row.status === 'warn',
+                              'bg-bad': row.status === 'bad',
                             }"
                           ></div>
                         </div>
@@ -319,7 +323,7 @@ interface KpiCard {
           <!-- Insight card (tu diseño original mejorado) -->
           <div class="card-premium monochrome-highlight shadow-2xl">
             <div class="flex items-center justify-between mb-6">
-              <div class="stat-label !text-zinc-400 tracking-widest text-xs">
+              <div class="stat-label !text-content-faint tracking-widest text-xs">
                 Ejecución crítica
               </div>
               <div class="h-2 w-2 rounded-full bg-white animate-pulse"></div>
@@ -327,7 +331,7 @@ interface KpiCard {
             <div class="space-y-4">
               <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
                 <p
-                  class="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-1"
+                  class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1"
                 >
                   Mejor ejecutivo
                 </p>
@@ -337,7 +341,7 @@ interface KpiCard {
               </div>
               <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
                 <p
-                  class="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-1"
+                  class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1"
                 >
                   Evidencias verificadas
                 </p>
@@ -345,17 +349,17 @@ interface KpiCard {
                   <span class="text-4xl font-extrabold tracking-tighter">{{
                     summary()?.total_fotos ?? 0
                   }}</span>
-                  <span class="text-xs text-zinc-500 mb-1">fotos</span>
+                  <span class="text-xs text-content-faint mb-1">fotos</span>
                 </div>
               </div>
             </div>
             <div
               class="mt-8 pt-4 border-t border-white/10 flex justify-between items-center"
             >
-              <span class="text-[10px] font-mono text-zinc-500 uppercase"
+              <span class="text-[10px] font-mono text-content-faint uppercase"
                 >Sync v2.5</span
               >
-              <i class="pi pi-shield text-zinc-500"></i>
+              <i class="pi pi-shield text-content-faint"></i>
             </div>
           </div>
 
@@ -402,17 +406,17 @@ interface KpiCard {
                     <span
                       class="text-xs font-black"
                       [ngClass]="{
-                        'text-green-600':
+                        'text-ok-fg':
                           metasConfig.statusFor(
                             'score',
                             cap.stats?.puntuacionTotal ?? 0
                           ) === 'ok',
-                        'text-amber-500':
+                        'text-warn-fg':
                           metasConfig.statusFor(
                             'score',
                             cap.stats?.puntuacionTotal ?? 0
                           ) === 'warn',
-                        'text-red-500':
+                        'text-bad-fg':
                           metasConfig.statusFor(
                             'score',
                             cap.stats?.puntuacionTotal ?? 0
@@ -485,16 +489,16 @@ interface KpiCard {
         <!-- Leyenda -->
         <div class="flex gap-4 flex-wrap text-[11px]">
           <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded bg-red-200 inline-block"></span>
-            <span class="text-red-700">Por debajo del mínimo</span>
+            <span class="w-3 h-3 rounded bg-bad-soft-bg inline-block"></span>
+            <span class="text-bad-fg">Por debajo del mínimo</span>
           </span>
           <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded bg-amber-200 inline-block"></span>
-            <span class="text-amber-700">Entre mínimo y óptimo</span>
+            <span class="w-3 h-3 rounded bg-warn-soft-bg inline-block"></span>
+            <span class="text-warn-fg">Entre mínimo y óptimo</span>
           </span>
           <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded bg-green-200 inline-block"></span>
-            <span class="text-green-700">Óptimo o superior</span>
+            <span class="w-3 h-3 rounded bg-ok-soft-bg inline-block"></span>
+            <span class="text-ok-fg">Óptimo o superior</span>
           </span>
         </div>
 
@@ -514,12 +518,12 @@ interface KpiCard {
                 <span class="font-bold text-sm">{{ r.label }}</span>
                 <div class="flex gap-2 text-[10px]">
                   <span
-                    class="px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+                    class="px-2 py-0.5 rounded-full bg-bad-soft-bg text-bad-fg"
                   >
                     &lt; {{ r.min }}{{ r.unit }} = bajo
                   </span>
                   <span
-                    class="px-2 py-0.5 rounded-full bg-green-100 text-green-700"
+                    class="px-2 py-0.5 rounded-full bg-ok-soft-bg text-ok-fg"
                   >
                     ≥ {{ r.opt }}{{ r.unit }} = óptimo
                   </span>
@@ -562,9 +566,9 @@ interface KpiCard {
               </div>
               <!-- Barra visual de rango -->
               <div class="mt-3 h-2 rounded-full overflow-hidden flex">
-                <div class="bg-red-300" [style.flex]="r.min"></div>
-                <div class="bg-amber-300" [style.flex]="r.opt - r.min"></div>
-                <div class="bg-green-300" [style.flex]="r.opt * 0.5"></div>
+                <div class="bg-bad-soft-bg" [style.flex]="r.min"></div>
+                <div class="bg-warn-soft-bg" [style.flex]="r.opt - r.min"></div>
+                <div class="bg-ok-soft-bg" [style.flex]="r.opt * 0.5"></div>
               </div>
             </div>
           </div>
@@ -633,6 +637,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private messageService = inject(MessageService);
   private ws = inject(WebSocketService);
   private destroyRef = inject(DestroyRef);
+  public themeService = inject(ThemeService);
+
+  constructor() {
+    // Re-render chart options + data al cambiar tema (NG0600: writes vía
+    // untracked). Tokens se resuelven al construir cada chart config.
+    effect(() => {
+      this.themeService.isMonochrome();
+      untracked(() => {
+        this.initChartOptions();
+        const data = this.rawData();
+        if (data) this.buildChart(data);
+      });
+    });
+  }
 
   loading = signal(false);
   summary = signal<any>(null);
@@ -845,6 +863,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   // ── Gráfica con línea de meta ──────────────────────────────────
   buildChart(data: any) {
+    const t = getChartTokens();
     const visitasMeta = this.metasConfig.getRange('visitas')?.opt ?? 50;
     const trend = data.trendData ?? [];
     this.chartData = {
@@ -853,8 +872,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
         {
           label: 'Visitas',
           data: trend.map((d: any) => d.visits),
-          borderColor: '#185FA5',
-          backgroundColor: 'rgba(24,95,165,.06)',
+          borderColor: t.okFg,
+          backgroundColor: t.okFg,
           tension: 0.4,
           pointRadius: 0,
           yAxisID: 'y',
@@ -862,8 +881,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
         {
           label: 'Score (pts)',
           data: trend.map((d: any) => d.avgScore),
-          borderColor: '#EF9F27',
-          backgroundColor: 'rgba(239,159,39,.04)',
+          borderColor: t.warnFg,
+          backgroundColor: t.warnFg,
           tension: 0.4,
           pointRadius: 0,
           borderDash: [4, 3],
@@ -872,7 +891,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         {
           label: 'Meta visitas',
           data: trend.map(() => visitasMeta),
-          borderColor: '#E24B4A',
+          borderColor: t.badFg,
           borderDash: [6, 4],
           borderWidth: 1.5,
           pointRadius: 0,
@@ -884,22 +903,23 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   initChartOptions() {
+    const t = getChartTokens();
     this.chartOptions = {
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, color: t.chartAxis } },
         y: {
           beginAtZero: false,
-          grid: { color: 'rgba(0,0,0,.05)' },
-          ticks: { font: { size: 11 } },
+          grid: { color: t.chartGrid },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
         },
         y2: {
           beginAtZero: true,
           position: 'right',
           grid: { display: false },
-          ticks: { font: { size: 11 } },
+          ticks: { font: { size: 11 }, color: t.chartAxis },
         },
       },
     };

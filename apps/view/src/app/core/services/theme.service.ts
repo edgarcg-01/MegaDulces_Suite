@@ -44,10 +44,18 @@ export class ThemeService {
   }
 
   private updateBodyClass(isMonochrome: boolean) {
+    // PrimeNG v18 Aura aplica dark mode buscando `darkModeSelector` en el
+    // documentElement (html). El resto del CSS custom del proyecto usa
+    // `body.theme-monochrome`. Para que ambos funcionen, ponemos la clase
+    // en los DOS. Sin html, las p-card / p-dialog / p-table de PrimeNG
+    // quedan blancas sobre fondo negro (vivido 2026-05-27).
+    const root = document.documentElement;
     if (isMonochrome) {
       document.body.classList.add('theme-monochrome');
+      root.classList.add('theme-monochrome');
     } else {
       document.body.classList.remove('theme-monochrome');
+      root.classList.remove('theme-monochrome');
     }
   }
 }

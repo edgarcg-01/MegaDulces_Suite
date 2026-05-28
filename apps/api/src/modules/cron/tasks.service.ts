@@ -68,7 +68,14 @@ export class TasksService {
             typeof dc.exhibiciones === 'string'
               ? JSON.parse(dc.exhibiciones)
               : dc.exhibiciones;
-        } catch (e) {}
+        } catch (e) {
+          // Si el JSONB es inválido, loguear y skip esta captura (no abortar
+          // el cron entero). Investigar el registro corrupto manualmente.
+          this.logger.warn(
+            `daily_captures.exhibiciones inválido para id=${dc.id}: ${(e as Error).message}. Skip.`,
+          );
+          continue;
+        }
 
         let modified = false;
         for (const ex of exhibiciones) {

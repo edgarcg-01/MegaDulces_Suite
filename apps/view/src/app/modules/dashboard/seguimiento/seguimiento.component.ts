@@ -33,6 +33,8 @@ import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-i
 import { Chart } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { getChartTokens } from '../../../shared/theme/chart-theme';
+import { ThemeService } from '../../../core/services/theme.service';
 import { MetasConfigService, KpiRange } from '../../../modules/dashboard/reports/graphics/metas-config.service';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ReportsService, ReportsData } from '../../../modules/dashboard/reports/reports.service';
@@ -98,26 +100,14 @@ interface Visit {
  * resuelven en runtime para que respondan al cambio light/dark sin
  * hardcodear hex. Las variables están definidas en styles.css:
  *   --chart-fill-low / -mid / -high / --chart-meta-line
- *
- * Si el browser no soporta CSS vars o el theme no se ha cargado, devuelve
- * un fallback razonable (los hex originales) para que el chart no se vea
- * en blanco.
  */
 function readChartColors() {
-  const fallback = {
-    low: '#b4b4b4',
-    mid: '#6b6b6b',
-    high: '#1e1e1e',
-    goalLine: '#9ca3af',
-  };
-  if (typeof getComputedStyle === 'undefined') return fallback;
-  const cs = getComputedStyle(document.body);
-  const read = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb;
+  const t = getChartTokens();
   return {
-    low: read('--chart-fill-low', fallback.low),
-    mid: read('--chart-fill-mid', fallback.mid),
-    high: read('--chart-fill-high', fallback.high),
-    goalLine: read('--chart-meta-line', fallback.goalLine),
+    low: t.chartFillLow,
+    mid: t.chartFillMid,
+    high: t.chartFillHigh,
+    goalLine: t.chartMetaLine,
   };
 }
 
@@ -191,6 +181,11 @@ export class SeguimientoComponent implements OnInit {
   readonly filtersState = inject(FiltersStateService);
   private ws = inject(WebSocketService);
   private injector = inject(Injector);
+  private themeService = inject(ThemeService);
+
+  /** Última respuesta de scores cacheada para poder reconstruir el chart
+   *  cuando cambia el tema sin volver a hacer fetch al backend. */
+  private lastScores: DailyScoresResponse | null = null;
 
   // Signals \u2014 estado UI
   loadingChart = signal(false);
@@ -254,7 +249,7 @@ export class SeguimientoComponent implements OnInit {
         const bar = meta.data[i];
         if (bar && bar.active !== false) {
           ctx.font = 'bold 12px sans-serif';
-          ctx.fillStyle = '#ffffff';
+          ctx.fillStyle = getChartTokens().cardBg;
           ctx.textAlign = 'right';
           ctx.textBaseline = 'middle';
           const text = `${value} pts`;
@@ -342,19 +337,37 @@ export class SeguimientoComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reloadTabla());
 
-    // ── Filtros: reacciona a cambios debounceados del state global ──
-    // effect() requiere injection context; lo creamos aquí (fuera del
-    // constructor) pasando el injector explícitamente.
+    // ── Filtros: reacciona al state RAW (no al debounceado del service).
+    // El service.filtersDebounced tiene un timing fragil con OnPush + signals;
+    // hacemos debouncing local con setTimeout para garantizar que el effect
+    // SIEMPRE dispare al cambiar cualquier filtro (zona / período / vendedor).
     let firstFilterRun = true;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     effect(() => {
-      this.filtersState.filtersDebounced();
+      this.filtersState.filters();
       if (firstFilterRun) {
         firstFilterRun = false;
-        return; // evitar doble fetch en la carga inicial (lo hacemos abajo)
+        return;
       }
-      this.searchText.set('');
-      this.showComparison.set(false);
-      this.reloadAll();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        this.searchText.set('');
+        this.showComparison.set(false);
+        this.reloadAll();
+        debounceTimer = null;
+      }, 300);
+    }, { injector: this.injector });
+    this.destroyRef.onDestroy(() => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+    });
+
+    // Re-render del chart cuando cambia el tema (light ↔ dark). Sin esto los
+    // colores de las barras quedan stale y en dark mode se vuelven ilegibles.
+    effect(() => {
+      this.themeService.isMonochrome();
+      if (this.lastScores) {
+        this.buildChart(this.lastScores);
+      }
     }, { injector: this.injector });
 
     // Carga inicial: ambos
@@ -367,6 +380,9 @@ export class SeguimientoComponent implements OnInit {
     const params: SeguimientoFilters = { startDate: f.startDate, endDate: f.endDate };
     if (f.zone && f.zone !== 'null') params.zone = f.zone;
     if (f.supervisorId && f.supervisorId !== 'null') params.supervisorId = f.supervisorId;
+    // Backend espera `userIds` (el state usa `sellerIds`). Sin esto, el chart
+    // ignora el multiselect de Vendedor mientras la tabla sí lo aplica.
+    if (f.sellerIds?.length) params.userIds = f.sellerIds;
 
     this.service.getDailyScores(params).pipe(
       takeUntilDestroyed(this.destroyRef),
@@ -511,6 +527,7 @@ export class SeguimientoComponent implements OnInit {
   }
 
   private buildChart(res: DailyScoresResponse): void {
+    this.lastScores = res;
     const range = this.metasConfig.getRange('score');
     const scoreOpt = range?.opt ?? 80;
     const scoreMin = range?.min ?? 50;
@@ -576,6 +593,7 @@ export class SeguimientoComponent implements OnInit {
       ],
     });
 
+    const t = getChartTokens();
     this.chartOptions.set({
       indexAxis: 'y',
       responsive: true,
@@ -609,7 +627,7 @@ export class SeguimientoComponent implements OnInit {
                 content: 'Meta ' + scoreOpt + ' pts',
                 position: 'end',
                 backgroundColor: 'rgba(156,163,175,0.15)',
-                color: '#4b5563',
+                color: t.textMuted,
                 font: { weight: 'bold', size: 11 },
               },
             },
@@ -620,14 +638,14 @@ export class SeguimientoComponent implements OnInit {
       scales: {
         x: {
           beginAtZero: true,
-          title: { display: true, text: 'Puntos acumulados', color: '#9ca3af' },
-          grid: { color: 'rgba(0,0,0,0.06)' },
-          ticks: { color: '#6b7280' },
+          title: { display: true, text: 'Puntos acumulados', color: t.chartMetaLine },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
         },
         y: {
           title: { display: false },
           grid: { display: false },
-          ticks: { color: '#374151', font: { weight: 'bold', size: 12 } },
+          ticks: { color: t.textMain, font: { weight: 'bold', size: 12 } },
         },
       },
     });

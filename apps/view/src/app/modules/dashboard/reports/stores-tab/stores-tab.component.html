@@ -14,12 +14,12 @@
     </div>
     <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Stockout</div>
-      <div class="text-lg font-black text-red-500 mt-1">{{ kg.stockoutPromedio }}%</div>
+      <div class="text-lg font-black text-bad-fg mt-1">{{ kg.stockoutPromedio }}%</div>
       <div class="text-[9px] text-content-muted">Promedio general</div>
     </div>
     <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Sin visita 7d+</div>
-      <div class="text-lg font-black text-amber-500 mt-1">{{ kg.tiendasSinVisita7d }}</div>
+      <div class="text-lg font-black text-warn-fg mt-1">{{ kg.tiendasSinVisita7d }}</div>
       <div class="text-[9px] text-content-muted">Tiendas en riesgo</div>
     </div>
     <div class="bg-surface-card border border-surface-border rounded-xl p-3 text-center">
@@ -55,10 +55,10 @@
         <tr class="hover:bg-surface-hover text-xs">
           <td class="font-medium text-content-main">{{ store.nombre }}</td>
           <td><p-tag [value]="store.zona" severity="info" [rounded]="true" styleClass="text-[9px]" /></td>
-          <td class="text-center font-black" [ngClass]="{'text-green-600': store.score >= 80, 'text-amber-500': store.score >= 50 && store.score < 80, 'text-red-500': store.score < 50}">{{ store.score }}</td>
+          <td class="text-center font-black" [ngClass]="{'text-ok-fg': store.score >= 80, 'text-warn-fg': store.score >= 50 && store.score < 80, 'text-bad-fg': store.score < 50}">{{ store.score }}</td>
           <td class="text-center text-content-muted">{{ store.totalVisitas }}</td>
           <td class="text-center"><span class="text-[10px] font-bold text-brand-orange">{{ store.rangoCompraPromedio || '—' }}</span></td>
-          <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-green-600': store.stockoutRate <= 10, 'text-amber-500': store.stockoutRate > 10 && store.stockoutRate <= 30, 'text-red-500': store.stockoutRate > 30}">{{ store.stockoutRate }}%</span></td>
+          <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-ok-fg': store.stockoutRate <= 10, 'text-warn-fg': store.stockoutRate > 10 && store.stockoutRate <= 30, 'text-bad-fg': store.stockoutRate > 30}">{{ store.stockoutRate }}%</span></td>
           <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
         </tr>
       </ng-template>

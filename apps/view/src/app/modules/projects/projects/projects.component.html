@@ -39,7 +39,7 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
       <div
-        *ngFor="let project of projects"
+        *ngFor="let project of projects()"
         (click)="navigateTo(project.route)"
         class="group bg-surface-card rounded-xl border border-surface-border p-6 cursor-pointer transition-all duration-200 hover:border-content-muted hover:shadow-lg">
 
