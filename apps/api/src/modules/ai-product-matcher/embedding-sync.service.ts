@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_NEW_DB } from '../../shared/database/new-database.module';
 import { EmbeddingsService } from '../../shared/ai/embeddings.service';
 
 /**
@@ -40,7 +40,7 @@ export class EmbeddingSyncService implements OnModuleInit {
   private readonly batchSize = 50;
 
   constructor(
-    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly embeddings: EmbeddingsService,
   ) {}
 

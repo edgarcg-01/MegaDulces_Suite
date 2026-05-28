@@ -32,6 +32,13 @@ export interface JwtPayloadMt {
   role_name: string;
   zona_id?: string;
   /**
+   * Nombre de la zona (denormalizado). Necesario porque varios componentes
+   * del frontend (daily-assignments, captures, seguimiento) leen `user.zona`
+   * para hacer match contra el catálogo de zonas. Sin este campo, el frontend
+   * trata al user como "sin zona asignada" aunque tenga zona_id válida.
+   */
+  zona?: string;
+  /**
    * Snapshot de permisos para gating de UI (no source-of-truth de autorización).
    * El backend ignora estos campos en autorización — vuelve a leer
    * `role_permissions` fresco en cada request. Mismo enfoque que auth.service
@@ -63,19 +70,24 @@ export class AuthMtService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // 2. Buscar usuario + role_permissions CON tenant context (RLS aplica).
-    // role_permissions es tenant-scoped en la nueva DB, así que se lee en la
-    // misma trx para que RLS no oculte la fila.
-    const { user, rolePermissions } = await this.knex.transaction(async (trx) => {
+    // 2. Buscar usuario + role_permissions + zona CON tenant context (RLS aplica).
+    // role_permissions y zones son tenant-scoped en la nueva DB, así que se
+    // leen en la misma trx para que RLS no oculte las filas.
+    const { user, rolePermissions, zonaName } = await this.knex.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
       const u = await trx('users')
         .where({ username: dto.username, activo: true })
         .first();
-      if (!u) return { user: null, rolePermissions: null };
+      if (!u) return { user: null, rolePermissions: null, zonaName: null };
       const rp = await trx('role_permissions')
         .where({ role_name: u.role_name })
         .first();
-      return { user: u, rolePermissions: rp };
+      let zn: string | null = null;
+      if (u.zona_id) {
+        const z = await trx('zones').where({ id: u.zona_id }).first();
+        zn = z?.name ?? null;
+      }
+      return { user: u, rolePermissions: rp, zonaName: zn };
     });
 
     if (!user) {
@@ -100,6 +112,7 @@ export class AuthMtService {
       username: user.username,
       role_name: user.role_name,
       zona_id: user.zona_id || undefined,
+      zona: zonaName || undefined,
       permissions,
       rules: ability.rules,
     };
@@ -115,6 +128,7 @@ export class AuthMtService {
         nombre: user.nombre,
         role_name: user.role_name,
         zona_id: user.zona_id,
+        zona: zonaName ?? null,
         meta_puntos: user.meta_puntos,
         permissions,
         rules: ability.rules,

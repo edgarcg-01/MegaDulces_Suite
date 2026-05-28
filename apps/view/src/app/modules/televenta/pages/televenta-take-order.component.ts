@@ -161,7 +161,8 @@ interface CartRow {
       .sticky-footer {
         position: sticky; bottom: 0; left: 0; right: 0;
         background: var(--surface-card); border-top: 1px solid var(--surface-border);
-        padding: 0.85rem 1rem; margin: 0 -1rem -1rem;
+        padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
+        margin: 0 -1rem -1rem;
         display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
         box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
       }

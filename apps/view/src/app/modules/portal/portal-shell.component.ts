@@ -67,7 +67,7 @@ import { AuthService } from '../../core/services/auth.service';
   styles: [
     `
       .portal-shell {
-        min-height: 100vh;
+        min-height: 100dvh;
         display: flex;
         flex-direction: column;
         background: var(--surface-100, #f3f4f6);
@@ -76,7 +76,7 @@ import { AuthService } from '../../core/services/auth.service';
         display: flex;
         align-items: center;
         gap: 2rem;
-        padding: 0.75rem 1.5rem;
+        padding: max(0.75rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-right)) 0.75rem max(1.5rem, env(safe-area-inset-left));
         background: var(--surface-card, white);
         border-bottom: 1px solid var(--surface-border, #e5e7eb);
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -120,10 +120,11 @@ import { AuthService } from '../../core/services/auth.service';
       }
       .portal-main {
         flex: 1;
-        padding: 1.5rem;
+        padding: 1.5rem max(1.5rem, env(safe-area-inset-right)) calc(1.5rem + env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
         max-width: 1280px;
         width: 100%;
         margin: 0 auto;
+        box-sizing: border-box;
       }
     `,
   ],

@@ -1,4 +1,4 @@
-<div class="min-h-screen w-full bg-surface-layout text-content-main font-sans transition-colors duration-300" [class.theme-monochrome]="themeService.isMonochrome()">
+<div class="min-h-[100dvh] w-full bg-surface-layout text-content-main font-sans transition-colors duration-300" [class.theme-monochrome]="themeService.isMonochrome()">
 
   <!-- Background Typography Layer - Changes with Theme -->
   <div class="absolute inset-0 overflow-hidden pointer-events-none opacity-10 select-none hidden sm:block">
@@ -10,8 +10,13 @@
     </h2>
   </div>
 
-  <!-- Theme Toggle -->
-  <div class="fixed top-4 sm:top-6 right-4 sm:right-6 z-20">
+  <!--
+    Theme toggle. `safe-fixed-top` ancla a la línea inferior del safe-area
+    (justo debajo del notch / Dynamic Island), luego `mt-4 sm:mt-6` agrega
+    el aire visual. Sin esto en iPhone 14+ el botón quedaba tapado por la
+    Dynamic Island.
+  -->
+  <div class="fixed safe-fixed-top right-0 z-20 mt-4 sm:mt-6 mr-4 sm:mr-6 safe-right">
     <button
       (click)="toggleTheme()"
       class="flex items-center gap-2 text-content-muted hover:text-content-main transition-colors group p-2">
@@ -22,8 +27,13 @@
     </button>
   </div>
 
-  <!-- Main Content -->
-  <div class="relative z-10 w-full h-full flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-12">
+  <!--
+    Main content. `safe-y` agrega padding-y según safe-area-inset (notch arriba
+    + home indicator abajo). `safe-x` cubre landscape de devices notched donde
+    el notch puede estar a la izquierda/derecha. `min-h-[100dvh]` mantiene
+    centrado vertical real con dynamic viewport (URL bar de iOS Safari).
+  -->
+  <div class="relative z-10 w-full min-h-[100dvh] flex flex-col items-center justify-center px-4 sm:px-6 py-8 sm:py-12 safe-y safe-x">
 
     <!-- Brand Section -->
     <div class="w-full max-w-md text-center mb-8 sm:mb-12">

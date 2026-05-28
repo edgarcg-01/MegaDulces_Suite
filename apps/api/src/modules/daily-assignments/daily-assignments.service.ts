@@ -76,6 +76,11 @@ export class DailyAssignmentsService {
     const target = await this.assertCanAssignTo(data.user_id, requester);
     await this.assertRouteValidForUser(data.route_id, target.zona_id);
 
+    // El UNIQUE en DB es (tenant_id, user_id, day_of_week). Postgres exige
+    // que el ON CONFLICT matchee exactamente las columnas del índice unique;
+    // antes pasábamos solo (user_id, day_of_week) y el INSERT fallaba con
+    // "no unique or exclusion constraint matching" → frontend recibía 500
+    // "No se pudo guardar la asignación".
     const [assignment] = await this.knex('daily_assignments')
       .insert({
         user_id: data.user_id,
@@ -84,7 +89,7 @@ export class DailyAssignmentsService {
         day_of_week: data.day_of_week,
         status: data.status || 'pendiente',
       })
-      .onConflict(['user_id', 'day_of_week'])
+      .onConflict(['tenant_id', 'user_id', 'day_of_week'])
       .merge({
         route_id: data.route_id,
         status: data.status || 'pendiente',

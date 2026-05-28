@@ -55,7 +55,7 @@ import { AuthService } from '../../core/services/auth.service';
   styles: [
     `
       .vendor-shell {
-        min-height: 100vh;
+        min-height: 100dvh;
         display: flex;
         flex-direction: column;
         background: var(--surface-100, #f3f4f6);
@@ -64,7 +64,7 @@ import { AuthService } from '../../core/services/auth.service';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.75rem 1rem;
+        padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
         background: var(--surface-card, white);
         border-bottom: 1px solid var(--surface-border, #e5e7eb);
         position: sticky;
@@ -87,7 +87,7 @@ import { AuthService } from '../../core/services/auth.service';
       .vendor-main {
         flex: 1;
         padding: 1rem;
-        padding-bottom: 5rem; /* espacio para bottom nav */
+        padding-bottom: calc(5rem + env(safe-area-inset-bottom));
         max-width: 800px;
         width: 100%;
         margin: 0 auto;
@@ -102,7 +102,7 @@ import { AuthService } from '../../core/services/auth.service';
         border-top: 1px solid var(--surface-border, #e5e7eb);
         display: flex;
         justify-content: space-around;
-        padding: 0.5rem 0;
+        padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
         z-index: 10;
         box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
       }

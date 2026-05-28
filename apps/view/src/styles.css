@@ -11,6 +11,48 @@
 @tailwind utilities;
 
 /*
+ * PWA safe areas — iOS notch / Dynamic Island, Android punch-hole, iPad
+ * home indicator. Activos cuando el meta viewport tiene `viewport-fit=cover`
+ * (ver index.html). Sin estas utilities, elementos fixed/sticky o edge-anchored
+ * quedan tapados por el notch o el home indicator.
+ *
+ * Reglas:
+ *   - Cualquier topbar/header fixed o sticky usa `safe-top` (o `pt-safe`).
+ *   - Cualquier toolbar/footer fixed sticky abajo usa `safe-bottom`.
+ *   - Drawers/modals full-height usan `safe-y`.
+ *   - En landscape de devices notched, el notch puede estar a la izquierda
+ *     o derecha — `safe-x` cubre ese caso.
+ *   - Cuando el elemento YA tiene padding propio, usar las variantes `min-*`
+ *     que aplican `max(padding-actual, safe-area-inset)` y nunca achican.
+ */
+.safe-top    { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-left   { padding-left: env(safe-area-inset-left); }
+.safe-right  { padding-right: env(safe-area-inset-right); }
+.safe-x      { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.safe-y      { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+.safe-all    {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/* Margins (cuando el padding propio del elemento no se puede usar). */
+.safe-mt { margin-top: env(safe-area-inset-top); }
+.safe-mb { margin-bottom: env(safe-area-inset-bottom); }
+
+/* Insets para fixed positioning (theme toggle, FAB, install prompt). */
+.safe-fixed-top    { top: env(safe-area-inset-top); }
+.safe-fixed-bottom { bottom: env(safe-area-inset-bottom); }
+
+/* Altura segura: descuenta safe-area-top + safe-area-bottom del 100dvh,
+   útil para containers full-screen que tienen header + footer sticky. */
+.min-h-screen-safe {
+  min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/*
  * ROOT LAYOUT — sólo geometría base. Los tokens viven en tokens.css.
  */
 html, body {
