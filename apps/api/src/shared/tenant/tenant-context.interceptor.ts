@@ -66,7 +66,9 @@ export class TenantContextInterceptor implements NestInterceptor {
           // commit/rollback se hace según el outcome del Observable.
           this.legacyRawKnex
             .transaction(async (tx) => {
-              await tx.raw(`SET LOCAL app.tenant_id = ?`, [tenantId]);
+              // set_config(name, value, is_local=true) equivale a SET LOCAL pero
+              // sí acepta bind params (SET LOCAL es DDL y los rechaza con $1).
+              await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
 
               await new Promise<void>((resolve, reject) => {
                 legacyTxStorage.run({ tx, tenantId }, () => {
