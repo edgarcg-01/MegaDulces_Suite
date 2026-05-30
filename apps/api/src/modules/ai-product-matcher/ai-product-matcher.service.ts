@@ -22,6 +22,8 @@ export type MatchConfidence = 'high' | 'medium' | 'low' | 'no_match';
 export interface MatchedItem {
   raw: string;
   normalized: string;
+  /** Cantidad solicitada por el usuario en el query crudo. Default 1. */
+  quantity: number;
   suggested:
     | (MatchedProduct & { autoConfirm: boolean; confidence: MatchConfidence })
     | null;
@@ -54,16 +56,19 @@ export interface MatchResponse {
  * Conservador a propósito — false negatives son OK (UX espera revisión),
  * false positives ROMPEN data.
  */
-const THRESHOLD_HIGH_BONUS = 0.35;
-const THRESHOLD_MID_BONUS = 0.5;
-const THRESHOLD_NO_BONUS = 0.65;
+// Fix 2 (2026-05-29): subimos thresholds para autoConfirm. Antes
+// THRESHOLD_HIGH_BONUS=0.35 dejaba pasar matches puramente por marca a "high".
+const THRESHOLD_HIGH_BONUS = 0.55;
+const THRESHOLD_MID_BONUS = 0.6;
+const THRESHOLD_NO_BONUS = 0.7;
 const BONUS_HIGH_CUTOFF = 0.3;
 const BONUS_MID_CUTOFF = 0.1;
 
 /**
  * Confidence cutoffs sobre el score final (post-bonus).
+ * Fix 2: HIGH subido de 0.6 → 0.65 para reducir false positives.
  */
-const CONFIDENCE_HIGH = 0.6;
+const CONFIDENCE_HIGH = 0.65;
 const CONFIDENCE_MEDIUM = 0.45;
 const CONFIDENCE_LOW = 0.3;
 
@@ -91,6 +96,27 @@ const BONUS_TOKEN_OVERLAP_MAX = 0.2;
 const BONUS_HIGH_COVERAGE = 0.15;
 const HIGH_COVERAGE_FRACTION = 0.5;
 const RETURN_TOP_N = 3;
+
+/**
+ * Fixes 2026-05-29 (post-ticket OCR real):
+ *
+ * 1. **Variant mismatch cap**: si el query tiene ≥2 tokens distintivos (no brand,
+ *    >=3 chars, no stopword) y NINGUNO matchea el candidato → es match "brand-only".
+ *    Capamos el score combinado al techo de "medium" para que no llegue a "high"
+ *    (caso VERO MIX DULCE CLUB ≠ VERO SANDIBROCHAS).
+ *
+ * 2. **Thresholds estrictos**: HIGH ahora exige score ≥ 0.65 (era 0.6), y para
+ *    autoConfirm bajo "high bonus" exigimos score ≥ 0.55 (era 0.35). Reduce
+ *    falsos positivos en tickets ruidosos.
+ *
+ * 3. **No catálogo**: si el cosine BRUTO (pre-bonus) es < 0.25, forzamos
+ *    `no_match` aunque la marca coincida. Atrapa items que no existen
+ *    en el catálogo (caso POPOTIX → ORBIT).
+ */
+const VARIANT_MISMATCH_CAP = 0.55; // techo cuando brand-only y variant no aparece
+const MIN_DISTINCTIVE_TOKEN_LEN = 3;
+const MIN_DISTINCTIVE_QUERY_TOKENS_FOR_PENALTY = 2;
+const NO_CATALOG_RAW_THRESHOLD = 0.25;
 
 @Injectable()
 export class AiProductMatcherService {
@@ -122,6 +148,18 @@ export class AiProductMatcherService {
 
     // 1) Extract items via Claude (con fallback heurístico interno).
     const extracted = await this.extractor.extractProductItems(trimmed);
+    return this.matchExtractedItems(extracted, t0);
+  }
+
+  /**
+   * Variante para Fase V (ticket OCR): el caller ya tiene items extraídos
+   * (vision Claude leyó el ticket) y solo necesita la fase de matching contra
+   * el catálogo (embed + KNN + rerank). Reutiliza todo el pipeline post-extract.
+   */
+  async matchExtractedItems(
+    extracted: { raw: string; normalized: string; quantity: number }[],
+    t0: number = Date.now(),
+  ): Promise<MatchResponse> {
     if (extracted.length === 0) {
       return {
         items: [],
@@ -184,8 +222,11 @@ export class AiProductMatcherService {
 
           const decision = this.classifyMatch(top, topBonus);
 
-          // Strip `bonus` antes de mandar al wire (es solo intermediate state).
-          const cleanRest = rest.map(({ bonus: _b, ...r }) => r);
+          // Strip intermediates antes de mandar al wire (bonus / rawScore /
+          // variantMismatch son solo señales internas del rerank+classifier).
+          const cleanRest = rest.map(
+            ({ bonus: _b, rawScore: _r, variantMismatch: _v, ...r }) => r,
+          );
 
           const suggested =
             top && decision.confidence !== 'no_match'
@@ -203,6 +244,7 @@ export class AiProductMatcherService {
           return {
             raw: it.raw,
             normalized: it.normalized,
+            quantity: it.quantity,
             suggested,
             alternatives: cleanRest,
             confidence: decision.confidence,
@@ -215,6 +257,7 @@ export class AiProductMatcherService {
           return {
             raw: it.raw,
             normalized: it.normalized,
+            quantity: it.quantity,
             suggested: null,
             alternatives: [],
             confidence: 'no_match' as MatchConfidence,
@@ -261,22 +304,34 @@ export class AiProductMatcherService {
   private rerankCandidates(
     query: string,
     candidates: MatchedProduct[],
-  ): (MatchedProduct & { bonus: number })[] {
+  ): (MatchedProduct & {
+    bonus: number;
+    rawScore: number;
+    variantMismatch: boolean;
+  })[] {
     const queryNorm = this.normalizeForMatch(query);
     const queryTokens = this.tokenize(queryNorm);
     const queryTokenSet = new Set(queryTokens);
 
     const scored = candidates.map((c) => {
       let bonus = 0;
+      const rawScore = c.score;
 
       const productTokens = this.tokenize(
         this.normalizeForMatch(c.product_name),
       );
+      const productTokenSet = new Set(productTokens);
+
+      // Tokens de la marca del candidato (para fix 1: excluirlos al medir
+      // "distintividad" del query).
+      const brandTokens = c.brand_name
+        ? this.tokenize(this.normalizeForMatch(c.brand_name))
+        : [];
+      const brandTokenSet = new Set(brandTokens);
 
       // 1) Brand token match: si query contiene algún token significativo
       //    de la marca registrada (brand_name). Catches "lucas X" → marca LUCAS.
       if (c.brand_name) {
-        const brandTokens = this.tokenize(this.normalizeForMatch(c.brand_name));
         const queryHasBrand = brandTokens.some((bt) => queryTokenSet.has(bt));
         if (queryHasBrand) bonus += BONUS_BRAND_TOKEN_MATCH;
       }
@@ -303,7 +358,6 @@ export class AiProductMatcherService {
       //    product_names son más largos.
       let fraction = 0;
       if (queryTokens.length > 0) {
-        const productTokenSet = new Set(productTokens);
         const matches = queryTokens.filter((qt) => productTokenSet.has(qt))
           .length;
         fraction = matches / queryTokens.length;
@@ -317,11 +371,32 @@ export class AiProductMatcherService {
         bonus += BONUS_HIGH_COVERAGE;
       }
 
-      const combined = Math.min(1.0, c.score + bonus);
+      // ── Fix 1 (2026-05-29): variant mismatch detector ───────────────────
+      // Tokens "distintivos" del query = no brand, no muy cortos, no stopwords.
+      // Si el query tiene 2+ tokens distintivos y NINGUNO matchea el candidato,
+      // el match es solo por marca → sospechoso. Marcamos para capar el score
+      // en classifyMatch.
+      const distinctiveQueryTokens = queryTokens.filter(
+        (qt) => qt.length >= MIN_DISTINCTIVE_TOKEN_LEN && !brandTokenSet.has(qt),
+      );
+      const distinctiveMatched = distinctiveQueryTokens.filter((qt) =>
+        productTokenSet.has(qt),
+      );
+      const variantMismatch =
+        distinctiveQueryTokens.length >= MIN_DISTINCTIVE_QUERY_TOKENS_FOR_PENALTY &&
+        distinctiveMatched.length === 0;
+
+      let combined = Math.min(1.0, rawScore + bonus);
+      if (variantMismatch && combined > VARIANT_MISMATCH_CAP) {
+        combined = VARIANT_MISMATCH_CAP;
+      }
+
       return {
         ...c,
         score: Number(combined.toFixed(4)),
+        rawScore: Number(rawScore.toFixed(4)),
         bonus: Number(bonus.toFixed(4)),
+        variantMismatch,
       };
     });
 
@@ -341,10 +416,21 @@ export class AiProductMatcherService {
    * usuario a buscar manual). Esto previene "borrachito" → SOPA MARUCHAN.
    */
   private classifyMatch(
-    top: MatchedProduct | undefined,
+    top:
+      | (MatchedProduct & { bonus?: number; rawScore?: number; variantMismatch?: boolean })
+      | undefined,
     bonus: number,
   ): { confidence: MatchConfidence; autoConfirm: boolean } {
     if (!top) return { confidence: 'no_match', autoConfirm: false };
+
+    // ── Fix 3 (2026-05-29): "no catálogo" detector ──────────────────────
+    // Si el cosine BRUTO (pre-bonus) está muy bajo, el item probablemente NO
+    // existe en el catálogo. La marca puede coincidir por azar, pero el
+    // embedding no se parece. Forzamos no_match.
+    const rawScore = top.rawScore ?? top.score;
+    if (rawScore < NO_CATALOG_RAW_THRESHOLD) {
+      return { confidence: 'no_match', autoConfirm: false };
+    }
 
     const threshold =
       bonus >= BONUS_HIGH_CUTOFF
@@ -365,10 +451,12 @@ export class AiProductMatcherService {
     else if (score >= CONFIDENCE_LOW) confidence = 'low';
     else confidence = 'no_match';
 
-    return {
-      confidence,
-      autoConfirm: score >= threshold && confidence !== 'low',
-    };
+    // Fix 1 (2026-05-29): si rerank detectó variant mismatch, NUNCA auto-confirmar.
+    // El usuario debe revisar la línea manualmente.
+    const autoConfirm =
+      !top.variantMismatch && score >= threshold && confidence !== 'low';
+
+    return { confidence, autoConfirm };
   }
 
   /**

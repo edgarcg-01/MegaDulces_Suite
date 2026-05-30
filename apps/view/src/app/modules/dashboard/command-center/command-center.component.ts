@@ -9,14 +9,9 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
-import { TableModule } from 'primeng/table';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { TagModule } from 'primeng/tag';
-import { ProgressBarModule } from 'primeng/progressbar';
-import { BadgeModule } from 'primeng/badge';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
 
@@ -37,13 +32,8 @@ import { AlertsSocketService, CommercialAlert } from './alerts-socket.service';
   imports: [
     CommonModule,
     ButtonModule,
-    CardModule,
-    TableModule,
     SkeletonModule,
     ToastModule,
-    TagModule,
-    ProgressBarModule,
-    BadgeModule,
   ],
   providers: [MessageService],
   templateUrl: './command-center.component.html',
@@ -172,6 +162,15 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
     }).format(Number(n));
   }
 
+  /** Formato MXN compact ($706.42K, $5.76M) para headlines tipográficos. */
+  fmtMoneyShort(n: number | undefined | null): string {
+    if (n === null || n === undefined) return '—';
+    const v = Number(n);
+    if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+    if (Math.abs(v) >= 1e3) return '$' + (v / 1e3).toFixed(2) + 'K';
+    return '$' + v.toFixed(0);
+  }
+
   fmtNumber(n: number | undefined | null, decimals = 0): string {
     if (n === null || n === undefined) return '—';
     return new Intl.NumberFormat('es-MX', {
@@ -192,6 +191,13 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
     if (qty < 50) return 'danger';
     if (qty < 200) return 'warn';
     return 'success';
+  }
+
+  /** Clase de comm-pill según disponibilidad. */
+  stockPillClass(qty: number): string {
+    if (qty < 50) return 'is-bad';
+    if (qty < 200) return 'is-warn';
+    return 'is-active';
   }
 
   alertSeverityTag(s: 'info' | 'warn' | 'critical'): 'info' | 'warn' | 'danger' {

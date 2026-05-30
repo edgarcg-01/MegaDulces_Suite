@@ -7,6 +7,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 import {
   AddressJsonbSchema,
   AddressJsonb,
@@ -24,6 +25,7 @@ export interface CreateCustomerDto {
   shipping_address?: AddressJsonb;
   store_id?: string;
   default_price_list_id?: string;
+  route_id?: string | null;
   credit_limit?: number;
   payment_terms_days?: number;
   active?: boolean;
@@ -45,7 +47,33 @@ const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 
 @Injectable()
 export class CommercialCustomersService {
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * Devuelve el customer linkeado al user del JWT actual via `users.customer_id`.
+   * Usado por el Portal B2B (`/customers/me`) para resolver "mi customer" sin
+   * depender del orden del listado. Si el user no tiene `customer_id` linkeado,
+   * retorna null (ej. superadmin viendo el portal en modo admin).
+   */
+  async findMine() {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) return null;
+    return this.tk.run(async (trx) => {
+      const userRow = await trx('public.users')
+        .where({ id: userId })
+        .select('customer_id')
+        .first();
+      if (!userRow?.customer_id) return null;
+      const customer = await trx('commercial.customers')
+        .where({ id: userRow.customer_id })
+        .whereNull('deleted_at')
+        .first();
+      return customer || null;
+    });
+  }
 
   async create(dto: CreateCustomerDto) {
     this.validateCreate(dto);
@@ -75,6 +103,7 @@ export class CommercialCustomersService {
             : null,
           store_id: dto.store_id || null,
           default_price_list_id: dto.default_price_list_id || null,
+          route_id: dto.route_id || null,
           credit_limit: dto.credit_limit ?? 0,
           payment_terms_days: dto.payment_terms_days ?? 0,
           active: dto.active ?? true,
@@ -92,33 +121,39 @@ export class CommercialCustomersService {
     const offset = (page - 1) * pageSize;
 
     return this.tk.run(async (trx) => {
-      let q = trx('commercial.customers').whereNull('deleted_at');
+      let q = trx('commercial.customers as c')
+        .leftJoin('logistics.routes as r', 'r.id', 'c.route_id')
+        .whereNull('c.deleted_at');
 
       if (typeof query.active === 'boolean') {
-        q = q.where({ active: query.active });
+        q = q.where('c.active', query.active);
       }
       if (query.search?.trim()) {
         const term = `%${query.search.trim()}%`;
         q = q.where((b) =>
           b
-            .where('name', 'ilike', term)
-            .orWhere('code', 'ilike', term)
-            .orWhere('rfc', 'ilike', term)
-            .orWhere('email', 'ilike', term),
+            .where('c.name', 'ilike', term)
+            .orWhere('c.code', 'ilike', term)
+            .orWhere('c.rfc', 'ilike', term)
+            .orWhere('c.email', 'ilike', term),
         );
       }
 
-      const [{ count }] = await q.clone().count<{ count: string }[]>('* as count');
+      const [{ count }] = await q.clone().count<{ count: string }[]>('c.id as count');
+      const total = Number(count) || 0;
+
       const data = await q
-        .orderBy('name', 'asc')
+        .orderBy('c.name', 'asc')
         .limit(pageSize)
-        .offset(offset);
+        .offset(offset)
+        .select('c.*', 'r.name as route_name');
 
       return {
         data,
         page,
         pageSize,
-        total: Number(count),
+        total,
+        pagination: { page, pageSize, total, pageCount: Math.ceil(total / pageSize) || 0 },
       };
     });
   }
@@ -127,10 +162,11 @@ export class CommercialCustomersService {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
 
     return this.tk.run(async (trx) => {
-      const row = await trx('commercial.customers')
-        .where({ id })
-        .whereNull('deleted_at')
-        .first();
+      const row = await trx('commercial.customers as c')
+        .leftJoin('logistics.routes as r', 'r.id', 'c.route_id')
+        .where('c.id', id)
+        .whereNull('c.deleted_at')
+        .first('c.*', 'r.name as route_name');
       if (!row) throw new NotFoundException(`Customer ${id} no encontrado`);
       return row;
     });
@@ -174,6 +210,7 @@ export class CommercialCustomersService {
       if (dto.store_id !== undefined) patch.store_id = dto.store_id || null;
       if (dto.default_price_list_id !== undefined)
         patch.default_price_list_id = dto.default_price_list_id || null;
+      if (dto.route_id !== undefined) patch.route_id = dto.route_id || null;
       if (dto.credit_limit !== undefined) patch.credit_limit = dto.credit_limit;
       if (dto.payment_terms_days !== undefined)
         patch.payment_terms_days = dto.payment_terms_days;
@@ -404,6 +441,9 @@ export class CommercialCustomersService {
     }
     if (dto.default_price_list_id && !UUID_REGEX.test(dto.default_price_list_id)) {
       throw new BadRequestException('default_price_list_id inválido (UUID)');
+    }
+    if (dto.route_id && !UUID_REGEX.test(dto.route_id)) {
+      throw new BadRequestException('route_id inválido (UUID)');
     }
     if (
       dto.credit_limit !== undefined &&

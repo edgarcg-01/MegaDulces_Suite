@@ -11,7 +11,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { CheckboxModule } from 'primeng/checkbox';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
-import { TabsModule } from 'primeng/tabs';
+import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
@@ -28,164 +28,298 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     CommonModule, RouterLink, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule,
-    TagModule, TabsModule, ToastModule, ConfirmDialogModule,
+    TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <div class="surf-page shd">
+      <p-toast></p-toast>
+      <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row" *ngIf="shipment() as s">
-      <div>
-        <a routerLink="/logistica/shipments" class="back"><i class="pi pi-arrow-left"></i> Volver</a>
-        <h2>Embarque <code>{{ s.folio }}</code></h2>
-        <p class="muted">{{ s.shipment_date | date:'mediumDate' }} · {{ s.origin || '—' }} → {{ s.destination || '—' }}</p>
-      </div>
-      <div class="header-actions">
-        <p-tag [severity]="severityStatus(s.status)" [value]="s.status" class="big-tag"></p-tag>
-        <a pButton icon="pi pi-check-square" label="Checklists" severity="secondary" size="small" [routerLink]="['/logistica/shipments', s.id, 'checklists']"></a>
-        <a pButton icon="pi pi-camera" label="Fotos" severity="secondary" size="small" [routerLink]="['/logistica/shipments', s.id, 'photos']"></a>
-        <button pButton icon="pi pi-file-pdf" label="PDF" severity="secondary" size="small" (click)="downloadPdf(s.id)"></button>
-      </div>
-    </div>
+      <ng-container *ngIf="shipment() as s">
+        <!-- BACK LINK -->
+        <a routerLink="/logistica/shipments" class="shd-back">
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a embarques
+        </a>
 
-    <p-tabs value="info">
-      <p-tablist>
-        <p-tab value="info"><i class="pi pi-info-circle"></i> Información</p-tab>
-        <p-tab value="guides"><i class="pi pi-file-edit"></i> Guías ({{ guides().length }})</p-tab>
-        <p-tab value="expenses"><i class="pi pi-money-bill"></i> Costos</p-tab>
-      </p-tablist>
-      <p-tabpanels>
-        <!-- INFO -->
-        <p-tabpanel value="info">
-          <p-card *ngIf="shipment() as s">
-            <div class="info-grid">
-              <div><span class="label">Tipo</span><span>{{ s.type }}</span></div>
-              <div><span class="label">Cajas</span><span class="num">{{ s.boxes_count }}</span></div>
-              <div><span class="label">Peso (kg)</span><span class="num">{{ s.total_weight_kg }}</span></div>
-              <div><span class="label">Km recorridos</span><span class="num">{{ s.actual_km || '—' }}</span></div>
-              <div><span class="label">Valor carga</span><span class="num">\${{ s.cargo_value | number:'1.2-2' }}</span></div>
-              <div><span class="label">Flete cobrado</span><span class="num">\${{ s.freight_revenue | number:'1.2-2' }}</span></div>
-              <div><span class="label">Salida</span><span>{{ s.departure_at ? (s.departure_at | date:'short') : '—' }}</span></div>
-              <div><span class="label">Llegada</span><span>{{ s.arrival_at ? (s.arrival_at | date:'short') : '—' }}</span></div>
-            </div>
-            <div *ngIf="s.notes" class="notes-row"><span class="label">Notas</span><p>{{ s.notes }}</p></div>
-            <div class="info-actions">
-              <button pButton icon="pi pi-pencil" label="Editar km / flete" size="small" severity="secondary"
-                      [disabled]="s.status === 'cerrado' || s.status === 'cancelado'"
-                      (click)="openEditMetrics()"></button>
-            </div>
-          </p-card>
-        </p-tabpanel>
-
-        <!-- GUIDES -->
-        <p-tabpanel value="guides">
-          <div class="tab-actions" *ngIf="canAddGuide()">
-            <button pButton icon="pi pi-plus" label="Nueva guía" (click)="openCreateGuide()"></button>
+        <!-- PAGE HEAD -->
+        <header class="surf-page-head">
+          <div class="surf-page-head-text">
+            <span class="shd-eyebrow">
+              <i class="pi pi-truck" aria-hidden="true"></i>
+              Embarque
+            </span>
+            <h1><code class="comm-code">{{ s.folio }}</code></h1>
+            <p class="surf-page-sub">
+              {{ s.shipment_date | date:'dd MMM yyyy' }}
+              <span class="shd-divider" aria-hidden="true">·</span>
+              {{ s.origin || '—' }} → {{ s.destination || '—' }}
+            </p>
           </div>
-          <p-card>
-            <p-table [value]="guides()" responsiveLayout="scroll" styleClass="p-datatable-sm">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th>Número</th><th>Chofer</th>
-                  <th class="num">Comisiones</th><th class="num">Viáticos</th>
-                  <th>Estado</th><th></th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-g>
-                <tr>
-                  <td><code>{{ g.number }}</code></td>
-                  <td>{{ driverName(g.driver_id) || '—' }}</td>
-                  <td class="num">\${{ (g.driver_commission + g.helper1_commission + g.helper2_commission) | number:'1.2-2' }}</td>
-                  <td class="num">\${{ g.per_diem_total | number:'1.2-2' }}</td>
-                  <td><p-tag [severity]="severityGuide(g.status)" [value]="g.status"></p-tag></td>
-                  <td class="actions">
-                    <button pButton icon="pi pi-eye" size="small" [text]="true" (click)="openGuideDetail(g)"></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="6" class="muted">Sin guías. Agregar una para asignar chofer y destinatarios.</td></tr>
-              </ng-template>
-            </p-table>
-          </p-card>
-        </p-tabpanel>
+          <div class="shd-head-actions">
+            <span class="comm-pill" [class]="statusPillClass(s.status)">
+              {{ statusLabel(s.status) }}
+            </span>
+            <a pButton icon="pi pi-check-square" label="Checklists" severity="secondary" size="small"
+               [routerLink]="['/logistica/shipments', s.id, 'checklists']"></a>
+            <a pButton icon="pi pi-camera" label="Fotos" severity="secondary" size="small"
+               [routerLink]="['/logistica/shipments', s.id, 'photos']"></a>
+            <button pButton icon="pi pi-file-pdf" label="PDF" severity="secondary" size="small"
+                    (click)="downloadPdf(s.id)"></button>
+          </div>
+        </header>
 
-        <!-- EXPENSES -->
-        <p-tabpanel value="expenses">
-          <p-card>
-            <form [formGroup]="expForm" class="exp-form">
-              <div class="exp-row">
-                <label><span>Combustible</span><p-inputNumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label><span>Casetas</span><p-inputNumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label><span>Hospedaje</span><p-inputNumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-              </div>
-              <div class="exp-row">
-                <label><span>Pensiones</span><p-inputNumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label><span>Permisos</span><p-inputNumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label><span>Talachas</span><p-inputNumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-              </div>
-              <div class="exp-row">
-                <label><span>Ayudantes ext.</span><p-inputNumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label><span>Maniobras</span><p-inputNumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label><span>Viáticos guía</span><p-inputNumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-              </div>
-              <div class="exp-row">
-                <label><span>Otros</span><p-inputNumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                <label class="check-line">
-                  <p-checkbox formControlName="apply_config_km" [binary]="true" inputId="apply_km"></p-checkbox>
-                  <span>Aplicar costo km de configuración (recalcula total)</span>
+        <!-- MODE TABS -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush shd-tabs-cell">
+            <nav class="shd-mode-tabs" role="tablist" aria-label="Secciones del embarque">
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'info'"
+                role="tab"
+                [attr.aria-selected]="tab() === 'info'"
+                (click)="setTab('info')"
+              >
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>Información</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'guides'"
+                role="tab"
+                [attr.aria-selected]="tab() === 'guides'"
+                (click)="setTab('guides')"
+              >
+                <i class="pi pi-file-edit" aria-hidden="true"></i>
+                <span>Guías</span>
+                <span class="shd-tab-count">{{ guides().length }}</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'expenses'"
+                role="tab"
+                [attr.aria-selected]="tab() === 'expenses'"
+                (click)="setTab('expenses')"
+              >
+                <i class="pi pi-money-bill" aria-hidden="true"></i>
+                <span>Costos</span>
+              </button>
+            </nav>
+          </article>
+        </div>
+
+        <!-- ── TAB INFO ── -->
+        <ng-container *ngIf="tab() === 'info'">
+          <div class="sheet cols-12">
+            <article class="cell cell-span-3">
+              <span class="cell-label">Tipo</span>
+              <span class="cell-value is-small">{{ s.type }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Cajas</span>
+              <span class="cell-value is-medium">{{ s.boxes_count }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Peso (kg)</span>
+              <span class="cell-value is-medium">{{ s.total_weight_kg }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Km recorridos</span>
+              <span class="cell-value is-medium">{{ s.actual_km || '—' }}</span>
+            </article>
+
+            <article class="cell cell-span-3">
+              <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-dollar"></i></span>
+              <span class="cell-label">Valor carga</span>
+              <span class="cell-value is-medium">{{ s.cargo_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-icon is-ok" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+              <span class="cell-label">Flete cobrado</span>
+              <span class="cell-value is-medium">{{ s.freight_revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Salida</span>
+              <span class="cell-value is-small">{{ s.departure_at ? (s.departure_at | date:'short') : '—' }}</span>
+            </article>
+            <article class="cell cell-span-3">
+              <span class="cell-label">Llegada</span>
+              <span class="cell-value is-small">{{ s.arrival_at ? (s.arrival_at | date:'short') : '—' }}</span>
+            </article>
+          </div>
+
+          <!-- Notas (conditional) -->
+          <div *ngIf="s.notes" class="sheet cols-12">
+            <article class="cell cell-span-12">
+              <span class="cell-label">Notas</span>
+              <p class="shd-notes">{{ s.notes }}</p>
+            </article>
+          </div>
+
+          <!-- Action: editar metrics -->
+          <div class="shd-info-actions" *ngIf="s.status !== 'cerrado' && s.status !== 'cancelado'">
+            <button pButton icon="pi pi-pencil" label="Editar km / flete"
+                    size="small" severity="secondary" [outlined]="true"
+                    (click)="openEditMetrics()"></button>
+          </div>
+        </ng-container>
+
+        <!-- ── TAB GUÍAS ── -->
+        <ng-container *ngIf="tab() === 'guides'">
+          <div class="sheet cols-12" *ngIf="canAddGuide()">
+            <article class="cell cell-span-12 is-flush shd-cta-cell">
+              <span class="comm-muted is-small">
+                Asigná chofer + ayudantes + destinatarios por cada guía de reparto.
+              </span>
+              <button pButton icon="pi pi-plus" label="Nueva guía" size="small"
+                      (click)="openCreateGuide()"></button>
+            </article>
+          </div>
+
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12 is-flush">
+              <p-table [value]="guides()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+                <ng-template pTemplate="header">
+                  <tr>
+                    <th>Número</th>
+                    <th>Chofer</th>
+                    <th class="comm-num">Comisiones</th>
+                    <th class="comm-num">Viáticos</th>
+                    <th>Estado</th>
+                    <th></th>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-g>
+                  <tr>
+                    <td><code class="comm-code">{{ g.number }}</code></td>
+                    <td class="comm-cell-strong">{{ driverName(g.driver_id) || '—' }}</td>
+                    <td class="comm-num">
+                      {{ (g.driver_commission + g.helper1_commission + g.helper2_commission) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                    </td>
+                    <td class="comm-num">{{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td>
+                      <span class="comm-pill" [class]="guidePillClass(g.status)">
+                        {{ guideLabel(g.status) }}
+                      </span>
+                    </td>
+                    <td class="comm-actions">
+                      <button pButton icon="pi pi-eye" size="small" severity="secondary"
+                              [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"></button>
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr>
+                    <td colspan="6" class="shd-empty-cell">
+                      <div class="shd-empty">
+                        <div class="shd-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div>
+                        <h3>Sin guías</h3>
+                        <p>Agregá una guía para asignar chofer + destinatarios.</p>
+                        <button *ngIf="canAddGuide()" type="button" pButton
+                                icon="pi pi-plus" severity="primary" size="small"
+                                label="Nueva guía" (click)="openCreateGuide()"></button>
+                      </div>
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </article>
+          </div>
+        </ng-container>
+
+        <!-- ── TAB COSTOS ── -->
+        <ng-container *ngIf="tab() === 'expenses'">
+          <!-- Form de inputs -->
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12">
+              <span class="cell-label">Conceptos de gasto operativo</span>
+              <form [formGroup]="expForm" class="shd-exp-form">
+                <div class="shd-exp-row">
+                  <label><span>Combustible</span><p-inputNumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Casetas</span><p-inputNumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Hospedaje</span><p-inputNumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                </div>
+                <div class="shd-exp-row">
+                  <label><span>Pensiones</span><p-inputNumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Permisos</span><p-inputNumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Talachas</span><p-inputNumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                </div>
+                <div class="shd-exp-row">
+                  <label><span>Ayudantes ext.</span><p-inputNumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Maniobras</span><p-inputNumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Viáticos guía</span><p-inputNumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                </div>
+                <div class="shd-exp-row">
+                  <label><span>Otros</span><p-inputNumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label class="shd-check-line shd-check-span-2">
+                    <p-checkbox formControlName="apply_config_km" [binary]="true" inputId="apply_km"></p-checkbox>
+                    <span>Aplicar costo km de configuración (recalcula total)</span>
+                  </label>
+                </div>
+                <label class="shd-notes-field">
+                  <span>Notas</span>
+                  <input pInputText formControlName="notes" />
                 </label>
-              </div>
-              <label>
-                <span>Notas</span>
-                <input pInputText formControlName="notes" />
-              </label>
+              </form>
+            </article>
+          </div>
 
-              <div class="exp-totals" *ngIf="expense() as e">
-                <div><span class="label">Operativo</span><strong class="num">\${{ e.operating_subtotal | number:'1.2-2' }}</strong></div>
-                <div><span class="label">Km × {{ e.fixed_cost_per_km | number:'1.2-4' }}</span>
-                     <strong class="num">\${{ (e.total_cost - e.operating_subtotal) | number:'1.2-2' }}</strong></div>
-                <div class="grand"><span class="label">Total</span><strong class="num">\${{ e.total_cost | number:'1.2-2' }}</strong></div>
-              </div>
+          <!-- Totales -->
+          <div *ngIf="expense() as e" class="sheet cols-12">
+            <article class="cell cell-span-4">
+              <span class="cell-label">Subtotal operativo</span>
+              <span class="cell-value is-medium">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              <span class="cell-sub">suma de conceptos</span>
+            </article>
+            <article class="cell cell-span-4">
+              <span class="cell-label">Costo por km</span>
+              <span class="cell-value is-medium">{{ (e.total_cost - e.operating_subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
+            </article>
+            <article class="cell cell-span-4">
+              <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+              <span class="cell-label">Total</span>
+              <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            </article>
+          </div>
 
-              <div class="exp-actions">
-                <button pButton icon="pi pi-save" label="Guardar costos"
-                        [loading]="savingExp()" (click)="saveExpense()"></button>
-              </div>
-            </form>
-          </p-card>
-        </p-tabpanel>
-      </p-tabpanels>
-    </p-tabs>
+          <!-- Save action -->
+          <div class="shd-info-actions">
+            <button pButton icon="pi pi-save" label="Guardar costos"
+                    [loading]="savingExp()" (click)="saveExpense()"></button>
+          </div>
+        </ng-container>
+      </ng-container>
 
-    <!-- Edit metrics dialog -->
-    <p-dialog [(visible)]="metricsDialog" [modal]="true" [draggable]="false" [style]="{ width: '420px' }" header="Editar km / flete">
-      <form [formGroup]="metricsForm" class="form">
-        <label>
-          <span>Km recorridos</span>
-          <p-inputNumber formControlName="actual_km"></p-inputNumber>
-        </label>
-        <label>
-          <span>Flete cobrado</span>
-          <p-inputNumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
-        </label>
-      </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="metricsDialog = false"></button>
-        <button pButton label="Guardar" icon="pi pi-check" (click)="saveMetrics()"></button>
-      </ng-template>
-    </p-dialog>
+      <!-- Edit metrics dialog -->
+      <p-dialog [(visible)]="metricsDialog" [modal]="true" [draggable]="false" [style]="{ width: '420px' }" header="Editar km / flete">
+        <form [formGroup]="metricsForm" class="comm-form">
+          <label>
+            <span>Km recorridos</span>
+            <p-inputNumber formControlName="actual_km"></p-inputNumber>
+          </label>
+          <label>
+            <span>Flete cobrado</span>
+            <p-inputNumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+          </label>
+        </form>
+        <ng-template pTemplate="footer">
+          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="metricsDialog = false"></button>
+          <button pButton label="Guardar" icon="pi pi-check" (click)="saveMetrics()"></button>
+        </ng-template>
+      </p-dialog>
 
-    <!-- Create guide dialog -->
-    <p-dialog [(visible)]="guideDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }" header="Nueva guía">
-      <form [formGroup]="guideForm" class="form">
-        <label>
-          <span>Chofer principal</span>
-          <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
-                    placeholder="Seleccionar" [showClear]="true" appendTo="body"></p-select>
-        </label>
-        <div class="row">
+      <!-- Create guide dialog -->
+      <p-dialog [(visible)]="guideDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }" header="Nueva guía">
+        <form [formGroup]="guideForm" class="comm-form-grid">
+          <label class="full">
+            <span>Chofer principal</span>
+            <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
+                      placeholder="Seleccionar" [showClear]="true" appendTo="body"></p-select>
+          </label>
           <label>
             <span>Ayudante 1</span>
             <p-select formControlName="helper1_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
@@ -196,8 +330,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <p-select formControlName="helper2_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
                       placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
           </label>
-        </div>
-        <div class="row">
           <label>
             <span>Comisión chofer</span>
             <p-inputNumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
@@ -210,100 +342,299 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <span>Comisión ayudante 2</span>
             <p-inputNumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
           </label>
-        </div>
-        <div class="row">
-          <label class="check-line">
-            <p-checkbox formControlName="overnight" [binary]="true" inputId="ov"></p-checkbox>
-            <span>El chofer duerme fuera (overnight)</span>
-          </label>
           <label>
             <span>Viáticos totales</span>
             <p-inputNumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
           </label>
-        </div>
-      </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="guideDialog = false"></button>
-        <button pButton label="Crear guía" icon="pi pi-check" [loading]="savingGuide()" (click)="createGuide()"></button>
-      </ng-template>
-    </p-dialog>
-
-    <!-- Guide detail dialog: recipients -->
-    <p-dialog [(visible)]="guideDetailDialog" [modal]="true" [draggable]="false" [style]="{ width: '720px' }"
-              [header]="'Guía ' + (selectedGuide()?.number || '')">
-      <div *ngIf="selectedGuide() as g">
-        <h4>Destinatarios ({{ (g.recipients || []).length }})</h4>
-        <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="p-datatable-sm">
-          <ng-template pTemplate="header">
-            <tr><th>Cliente</th><th>Dirección</th><th class="num">Cajas</th><th class="num">Valor</th><th>Estado</th><th></th></tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-r>
-            <tr>
-              <td class="strong">{{ r.customer_name }}</td>
-              <td class="muted">{{ r.address || '—' }}</td>
-              <td class="num">{{ r.boxes_count }}</td>
-              <td class="num">\${{ r.value | number:'1.2-2' }}</td>
-              <td><p-tag [severity]="severityRecip(r.status)" [value]="r.status"></p-tag></td>
-              <td class="actions">
-                <button pButton *ngIf="r.status === 'pendiente'" icon="pi pi-check" size="small" severity="success" [text]="true"
-                        pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"></button>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="muted">Sin destinatarios.</td></tr>
-          </ng-template>
-        </p-table>
-
-        <form [formGroup]="recipientForm" class="form add-recipient" *ngIf="g.status !== 'entregada' && g.status !== 'cancelada'">
-          <h5>Agregar destinatario</h5>
-          <div class="row three">
-            <label><span>Nombre <em>*</em></span><input pInputText formControlName="customer_name" /></label>
-            <label><span>Cajas</span><p-inputNumber formControlName="boxes_count"></p-inputNumber></label>
-            <label><span>Valor</span><p-inputNumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-          </div>
-          <label><span>Dirección</span><input pInputText formControlName="address" /></label>
-          <div class="exp-actions">
-            <button pButton icon="pi pi-plus" label="Agregar" [disabled]="recipientForm.invalid" (click)="addRecipient(g)"></button>
-          </div>
+          <label class="checkbox-line full">
+            <p-checkbox formControlName="overnight" [binary]="true" inputId="ov"></p-checkbox>
+            <span>El chofer duerme fuera (overnight)</span>
+          </label>
         </form>
-      </div>
-    </p-dialog>
+        <ng-template pTemplate="footer">
+          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="guideDialog = false"></button>
+          <button pButton label="Crear guía" icon="pi pi-check" [loading]="savingGuide()" (click)="createGuide()"></button>
+        </ng-template>
+      </p-dialog>
+
+      <!-- Guide detail dialog: recipients -->
+      <p-dialog [(visible)]="guideDetailDialog" [modal]="true" [draggable]="false" [style]="{ width: '720px' }"
+                [header]="'Guía ' + (selectedGuide()?.number || '')">
+        <div *ngIf="selectedGuide() as g">
+          <div class="shd-recipients-head">
+            <span class="cell-label">Destinatarios</span>
+            <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
+          </div>
+          <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Cliente</th>
+                <th>Dirección</th>
+                <th class="comm-num">Cajas</th>
+                <th class="comm-num">Valor</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-r>
+              <tr>
+                <td class="comm-cell-strong">{{ r.customer_name }}</td>
+                <td class="comm-muted">{{ r.address || '—' }}</td>
+                <td class="comm-num">{{ r.boxes_count }}</td>
+                <td class="comm-num">{{ r.value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td>
+                  <span class="comm-pill" [class]="recipientPillClass(r.status)">
+                    {{ recipientLabel(r.status) }}
+                  </span>
+                </td>
+                <td class="comm-actions">
+                  <button pButton *ngIf="r.status === 'pendiente'" icon="pi pi-check" size="small" severity="success" [text]="true"
+                          pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"></button>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr><td colspan="6" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
+            </ng-template>
+          </p-table>
+
+          <form [formGroup]="recipientForm" class="comm-form-grid shd-add-recipient"
+                *ngIf="g.status !== 'entregada' && g.status !== 'cancelada'">
+            <div class="full shd-add-head">
+              <span class="cell-label">Agregar destinatario</span>
+            </div>
+            <label class="full">
+              <span>Nombre <em>*</em></span>
+              <input pInputText formControlName="customer_name" />
+            </label>
+            <label>
+              <span>Cajas</span>
+              <p-inputNumber formControlName="boxes_count"></p-inputNumber>
+            </label>
+            <label>
+              <span>Valor</span>
+              <p-inputNumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            </label>
+            <label class="full">
+              <span>Dirección</span>
+              <input pInputText formControlName="address" />
+            </label>
+            <div class="full shd-add-actions">
+              <button pButton icon="pi pi-plus" label="Agregar" size="small"
+                      [disabled]="recipientForm.invalid" (click)="addRecipient(g)"></button>
+            </div>
+          </form>
+        </div>
+      </p-dialog>
+    </div>
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1rem; gap:1rem; }
-    .header-row h2 { margin:.25rem 0; font-size:1.35rem; }
-    .back { display:inline-flex; align-items:center; gap:.25rem; font-size:.8rem; color:var(--text-color-secondary); text-decoration: none; }
-    .back:hover { color: var(--primary-color); }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .big-tag { transform: scale(1.3); }
-    .strong { font-weight: 600; }
-    .num { font-variant-numeric: tabular-nums; text-align:right; }
-    .label { display:block; font-size:.75rem; color: var(--text-color-secondary); margin-bottom:.15rem; }
-    .info-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:1rem; }
-    .info-grid > div { display:flex; flex-direction:column; }
-    .info-actions { display:flex; justify-content:flex-end; margin-top:1rem; }
-    .notes-row { margin-top:1rem; padding-top: .75rem; border-top:1px solid var(--surface-border); }
-    .notes-row p { margin: .15rem 0 0; }
-    code { background: var(--surface-100); padding:.15rem .4rem; border-radius:4px; font-weight: 600; }
-    .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }
-    .exp-form { display:flex; flex-direction:column; gap: .85rem; }
-    .exp-form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .exp-row { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
-    .check-line { flex-direction: row !important; align-items:center; gap:.5rem !important; color: var(--text-color-primary, inherit) !important; }
-    .exp-totals { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; padding: 1rem; background: var(--surface-100); border-radius: 6px; margin-top: .5rem; }
-    .exp-totals > div { display:flex; flex-direction:column; gap:.15rem; }
-    .exp-totals .grand strong { color: var(--primary-color); font-size: 1.15rem; }
-    .exp-actions { display:flex; justify-content:flex-end; margin-top: .5rem; }
-    .form { display:flex; flex-direction:column; gap:.85rem; }
-    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .form em { color: var(--bad-fg); font-style:normal; }
-    .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .row.three { grid-template-columns: 2fr 1fr 1fr; }
-    .add-recipient { padding-top:1rem; border-top:1px solid var(--surface-border); margin-top:1rem; }
-    .add-recipient h5 { margin: 0 0 .5rem; }
+
+    /* ── BACK link + eyebrow + head ── */
+    .shd-back {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      text-decoration: none;
+      padding: .375rem .625rem;
+      border-radius: 6px;
+      margin-bottom: .25rem;
+      transition: all 120ms var(--ease-standard);
+      width: max-content;
+    }
+    .shd-back:hover { color: var(--c-text-1); background: var(--c-surface-2); }
+    .shd-back i { font-size: var(--fs-xs); }
+
+    .shd-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: var(--fs-micro);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--c-text-2);
+      margin-bottom: .35rem;
+    }
+    .shd-eyebrow i { font-size: var(--fs-xs); }
+    .shd-divider { opacity: 0.4; }
+
+    .shd-head-actions {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* ── TABS CELL ── */
+    .shd-tabs-cell { padding: .5rem .75rem; }
+    .shd-mode-tabs {
+      display: inline-flex;
+      gap: .25rem;
+      padding: 3px;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 10px;
+    }
+    .shd-mode-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: transparent;
+      border: none;
+      padding: .4rem .75rem;
+      font-size: var(--fs-sm);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      cursor: pointer;
+      border-radius: 7px;
+      transition: all 120ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .shd-mode-tab:hover { color: var(--c-text-1); }
+    .shd-mode-tab.active {
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      font-weight: var(--fw-bold);
+    }
+    .shd-mode-tab i { font-size: var(--fs-sm); }
+    .shd-tab-count {
+      background: var(--c-surface-1);
+      color: var(--c-text-2);
+      border: 1px solid var(--c-divider);
+      font-size: var(--fs-micro);
+      font-weight: var(--fw-bold);
+      padding: .05rem .4rem;
+      border-radius: 999px;
+      font-variant-numeric: tabular-nums;
+      min-width: 18px;
+      text-align: center;
+    }
+    .shd-mode-tab.active .shd-tab-count { background: var(--c-surface-2); }
+
+    /* ── NOTES paragraph ── */
+    .shd-notes {
+      margin: .375rem 0 0;
+      color: var(--c-text-1);
+      font-size: var(--fs-sm);
+      line-height: 1.5;
+    }
+
+    /* ── INFO actions row ── */
+    .shd-info-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: .5rem;
+      padding: 0 .5rem;
+    }
+
+    /* ── CTA cell (Guías) ── */
+    .shd-cta-cell {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: .75rem 1rem;
+    }
+
+    /* ── EXP FORM (Costos) ── */
+    .shd-exp-form { display: flex; flex-direction: column; gap: .875rem; }
+    .shd-exp-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: .75rem;
+    }
+    @media (max-width: 720px) {
+      .shd-exp-row { grid-template-columns: 1fr; }
+    }
+    .shd-exp-form label {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+      font-size: var(--fs-micro);
+      color: var(--c-text-2);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .shd-check-line {
+      flex-direction: row !important;
+      align-items: center;
+      gap: .5rem !important;
+      text-transform: none !important;
+      letter-spacing: 0 !important;
+      font-size: var(--fs-sm) !important;
+      color: var(--c-text-1) !important;
+      font-weight: var(--fw-regular) !important;
+    }
+    .shd-check-span-2 { grid-column: span 2; }
+    .shd-notes-field {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+      font-size: var(--fs-micro);
+      color: var(--c-text-2);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    /* ── EMPTY STATE ── */
+    .shd-empty-cell { padding: 0 !important; }
+    .shd-empty {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+    .shd-empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      border-radius: 14px;
+      background: var(--c-surface-2);
+      color: var(--c-text-2);
+      display: grid;
+      place-items: center;
+      font-size: 1.5rem;
+    }
+    .shd-empty h3 {
+      margin: 0 0 .375rem;
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+    }
+    .shd-empty p {
+      margin: 0 0 1rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+      line-height: 1.4;
+    }
+
+    /* ── DIALOG: recipients ── */
+    .shd-recipients-head {
+      display: flex;
+      align-items: baseline;
+      gap: .5rem;
+      margin-bottom: .75rem;
+    }
+    .shd-recip-empty { padding: 1.5rem !important; text-align: center !important; }
+    .shd-add-recipient {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--c-divider);
+    }
+    .shd-add-head { margin-bottom: .25rem; }
+    .shd-add-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -326,6 +657,9 @@ export class LogisticaShipmentDetailComponent {
   readonly savingExp = signal(false);
   readonly savingGuide = signal(false);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
+  readonly tab = signal<'info' | 'guides' | 'expenses'>('info');
+
+  setTab(t: 'info' | 'guides' | 'expenses') { this.tab.set(t); }
 
   metricsDialog = false;
   guideDialog = false;
@@ -398,6 +732,61 @@ export class LogisticaShipmentDetailComponent {
     if (s === 'entregado' || s === 'checklist_llegada') return 'success';
     if (s === 'cerrado') return 'secondary';
     return 'danger';
+  }
+
+  /** Clase de comm-pill semántica por estado de embarque. */
+  statusPillClass(s: string): string {
+    if (s === 'programado' || s === 'checklist_salida') return 'is-info';
+    if (s === 'en_ruta' || s === 'costos_pendientes') return 'is-warn';
+    if (s === 'entregado' || s === 'checklist_llegada') return 'is-ok';
+    if (s === 'cerrado') return 'is-neutral';
+    return 'is-bad';
+  }
+
+  statusLabel(s: string): string {
+    const map: Record<string, string> = {
+      programado: 'Programado',
+      checklist_salida: 'Checklist salida',
+      en_ruta: 'En ruta',
+      entregado: 'Entregado',
+      checklist_llegada: 'Checklist llegada',
+      costos_pendientes: 'Costos pendientes',
+      cerrado: 'Cerrado',
+      cancelado: 'Cancelado',
+    };
+    return map[s] || s;
+  }
+
+  guidePillClass(s: string): string {
+    if (s === 'pendiente') return 'is-info';
+    if (s === 'en_ruta') return 'is-warn';
+    if (s === 'entregada') return 'is-ok';
+    return 'is-bad';
+  }
+
+  guideLabel(s: string): string {
+    const map: Record<string, string> = {
+      pendiente: 'Pendiente',
+      en_ruta: 'En ruta',
+      entregada: 'Entregada',
+      cancelada: 'Cancelada',
+    };
+    return map[s] || s;
+  }
+
+  recipientPillClass(s: string): string {
+    if (s === 'pendiente') return 'is-info';
+    if (s === 'entregado') return 'is-ok';
+    return 'is-bad';
+  }
+
+  recipientLabel(s: string): string {
+    const map: Record<string, string> = {
+      pendiente: 'Pendiente',
+      entregado: 'Entregado',
+      cancelado: 'Cancelado',
+    };
+    return map[s] || s;
   }
 
   // J.8 — descarga PDF reporte del shipment (jspdf backend)

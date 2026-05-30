@@ -12,6 +12,7 @@ import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
+import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { LogisticaService, Shipment, ShipmentStatus } from '../logistica.service';
@@ -35,146 +36,370 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   standalone: true,
   imports: [
     CommonModule, FormsModule,
-    ButtonModule, CardModule, TableModule, TagModule, SelectModule, ToastModule,
+    ButtonModule, CardModule, TableModule, TagModule, SelectModule, TooltipModule, ToastModule,
     DeliveryWizardComponent,
   ],
   providers: [MessageService],
   template: `
-    <p-toast></p-toast>
+    <div class="surf-page da">
+      <p-toast></p-toast>
 
-    <div class="header-row">
-      <div>
-        <h2>Mis entregas</h2>
-        <p class="muted">Shipments asignados a vos como chofer o ayudante.</p>
+      <!-- PAGE HEAD -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Mis entregas</h1>
+          <p class="surf-page-sub">
+            <b>{{ shipments().length }}</b> shipment{{ shipments().length === 1 ? '' : 's' }} asignado{{ shipments().length === 1 ? '' : 's' }}
+            <span class="da-divider" aria-hidden="true">·</span>
+            como chofer o ayudante
+          </p>
+        </div>
+        <div class="da-head-actions">
+          <button
+            pButton
+            icon="pi pi-refresh"
+            [text]="true"
+            severity="secondary"
+            size="small"
+            (click)="reload()"
+            [loading]="loading()"
+            pTooltip="Refrescar"
+          ></button>
+        </div>
+      </header>
+
+      <!-- FILTERS toolbar -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush da-filters-cell">
+          <div class="da-toolbar">
+            <div class="da-field">
+              <i class="pi pi-filter da-field-icon" aria-hidden="true"></i>
+              <p-select
+                [(ngModel)]="statusFilter"
+                [options]="filterOptions"
+                optionLabel="label"
+                optionValue="value"
+                (onChange)="reload()"
+                [showClear]="true"
+                placeholder="Todos los estados"
+                styleClass="da-status-select"
+                appendTo="body"
+              ></p-select>
+            </div>
+
+            <div class="da-toolbar-spacer"></div>
+
+            <button
+              *ngIf="statusFilter"
+              type="button"
+              class="da-reset"
+              (click)="clearFilter()"
+            >
+              <i class="pi pi-refresh" aria-hidden="true"></i>
+              <span>Reset</span>
+            </button>
+          </div>
+        </article>
       </div>
-      <div class="filter-bar">
-        <p-select
-          [(ngModel)]="statusFilter"
-          [options]="filterOptions"
-          optionLabel="label"
-          optionValue="value"
-          (onChange)="reload()"
-          [showClear]="true"
-          placeholder="Estado"
-          styleClass="filter-select"
-        ></p-select>
-        <button pButton icon="pi pi-refresh" label="Refrescar" severity="secondary" (click)="reload()" [loading]="loading()"></button>
+
+      <!-- ──────────── MOBILE: cards (visible <=600px) ──────────── -->
+      <div class="da-cards-mobile" *ngIf="shipments().length > 0">
+        <article
+          *ngFor="let s of shipments()"
+          class="da-card"
+          [class]="'is-' + statusPillClass(s.status).replace('is-', '')"
+          (click)="openWizard(s)"
+          role="button"
+          tabindex="0"
+        >
+          <header class="da-card-head">
+            <code class="comm-code">{{ s.folio }}</code>
+            <span class="comm-pill" [class]="statusPillClass(s.status)">
+              {{ statusLabel(s.status) }}
+            </span>
+          </header>
+          <div class="da-card-customer">
+            <span class="da-card-name">{{ s.customer_name || s.order_code || '—' }}</span>
+            <span class="comm-muted is-small">{{ s.shipment_date | date:'dd MMM' }}</span>
+          </div>
+          <div class="da-card-row">
+            <i class="pi pi-map-marker" aria-hidden="true"></i>
+            <span>{{ s.origin || '—' }} → {{ s.destination || '—' }}</span>
+          </div>
+          <div class="da-card-row" *ngIf="s.vehicle_plate">
+            <i class="pi pi-truck" aria-hidden="true"></i>
+            <span>{{ s.vehicle_plate }}{{ s.vehicle_model ? ' · ' + s.vehicle_model : '' }}</span>
+          </div>
+          <button
+            pButton
+            class="da-card-action"
+            [label]="actionLabel(s.status)"
+            [icon]="actionIcon(s.status)"
+            size="small"
+            (click)="$event.stopPropagation(); openWizard(s)"
+          ></button>
+        </article>
       </div>
+
+      <!-- ──────────── DESKTOP: tabla flush ──────────── -->
+      <div class="sheet cols-12 da-table-desktop" *ngIf="shipments().length > 0">
+        <article class="cell cell-span-12 is-flush">
+          <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm"
+                   [paginator]="true" [rows]="10">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Cliente / Pedido</th>
+                <th>Ruta</th>
+                <th>Vehículo</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-s>
+              <tr (click)="openWizard(s)" class="comm-row-clickable">
+                <td><code class="comm-code">{{ s.folio }}</code></td>
+                <td>{{ s.shipment_date | date:'dd MMM' }}</td>
+                <td class="comm-cell-strong">{{ s.customer_name || s.order_code || '—' }}</td>
+                <td class="comm-muted is-small">{{ s.origin || '—' }} → {{ s.destination || '—' }}</td>
+                <td>
+                  <span *ngIf="s.vehicle_plate">{{ s.vehicle_plate }}</span>
+                  <span *ngIf="!s.vehicle_plate" class="comm-muted">—</span>
+                </td>
+                <td>
+                  <span class="comm-pill" [class]="statusPillClass(s.status)">
+                    {{ statusLabel(s.status) }}
+                  </span>
+                </td>
+                <td class="comm-actions" (click)="$event.stopPropagation()">
+                  <button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
+                          size="small" (click)="openWizard(s)"></button>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </article>
+      </div>
+
+      <!-- Empty state -->
+      <div *ngIf="!loading() && shipments().length === 0" class="da-empty-wrap">
+        <div class="da-empty">
+          <div class="da-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
+          <h3>Sin entregas pendientes</h3>
+          <p>{{ statusFilter ? 'No hay shipments en este estado.' : 'No tenés shipments asignados todavía.' }}</p>
+          <button
+            *ngIf="statusFilter"
+            type="button"
+            pButton
+            icon="pi pi-refresh"
+            severity="secondary"
+            [outlined]="true"
+            size="small"
+            label="Limpiar filtro"
+            (click)="clearFilter()"
+          ></button>
+        </div>
+      </div>
+
+      <!-- Wizard -->
+      <app-delivery-wizard
+        [visible]="wizardOpen()"
+        [shipmentId]="selectedId()"
+        (visibleChange)="onWizardVisibleChange($event)"
+        (completed)="onDeliveryCompleted()"
+        (statusChanged)="onStatusChanged($event)"
+      ></app-delivery-wizard>
     </div>
-
-    <!-- Empty state -->
-    <p-card *ngIf="!loading() && shipments().length === 0">
-      <div class="empty-state">
-        <i class="pi pi-truck"></i>
-        <h3>Sin entregas pendientes</h3>
-        <p class="muted">No tenés shipments asignados con los filtros actuales.</p>
-      </div>
-    </p-card>
-
-    <!-- ──────────── MOBILE: cards (visible <=600px) ──────────── -->
-    <div class="cards-mobile" *ngIf="shipments().length > 0">
-      <div *ngFor="let s of shipments()" class="ship-card" (click)="openWizard(s)">
-        <div class="ship-row1">
-          <div class="ship-folio"><code>{{ s.folio }}</code></div>
-          <p-tag [severity]="statusSeverity(s.status)" [value]="statusLabel(s.status)"></p-tag>
-        </div>
-        <div class="ship-row2">
-          <strong>{{ s.customer_name || s.order_code || '—' }}</strong>
-          <span class="muted small">{{ s.shipment_date | date:'mediumDate' }}</span>
-        </div>
-        <div class="ship-row3 muted small">
-          <span><i class="pi pi-arrow-right-arrow-left"></i> {{ s.origin || '—' }} → {{ s.destination || '—' }}</span>
-        </div>
-        <div class="ship-row4 muted small" *ngIf="s.vehicle_plate">
-          <i class="pi pi-truck"></i> {{ s.vehicle_plate }} {{ s.vehicle_model ? '· ' + s.vehicle_model : '' }}
-        </div>
-        <button pButton class="ship-action" [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)" (click)="$event.stopPropagation(); openWizard(s)"></button>
-      </div>
-    </div>
-
-    <!-- ──────────── DESKTOP: table (visible >600px) ──────────── -->
-    <p-card class="table-desktop" *ngIf="shipments().length > 0">
-      <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="10">
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Folio</th>
-            <th>Fecha</th>
-            <th>Cliente / Pedido</th>
-            <th>Ruta</th>
-            <th>Vehículo</th>
-            <th>Estado</th>
-            <th></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-s>
-          <tr>
-            <td><code>{{ s.folio }}</code></td>
-            <td>{{ s.shipment_date | date:'mediumDate' }}</td>
-            <td><strong>{{ s.customer_name || s.order_code || '—' }}</strong></td>
-            <td class="small">{{ s.origin || '—' }} → {{ s.destination || '—' }}</td>
-            <td>
-              <span *ngIf="s.vehicle_plate">{{ s.vehicle_plate }}</span>
-              <span *ngIf="!s.vehicle_plate" class="muted">—</span>
-            </td>
-            <td><p-tag [severity]="statusSeverity(s.status)" [value]="statusLabel(s.status)"></p-tag></td>
-            <td class="actions">
-              <button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)" size="small" (click)="openWizard(s)"></button>
-            </td>
-          </tr>
-        </ng-template>
-      </p-table>
-    </p-card>
-
-    <!-- Wizard -->
-    <app-delivery-wizard
-      [visible]="wizardOpen()"
-      [shipmentId]="selectedId()"
-      (visibleChange)="onWizardVisibleChange($event)"
-      (completed)="onDeliveryCompleted()"
-      (statusChanged)="onStatusChanged($event)"
-    ></app-delivery-wizard>
   `,
   styles: [`
     :host { display:block; }
 
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .small { font-size:.75rem; }
-    .filter-bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
-    :host ::ng-deep .filter-select { min-width: 180px; }
-    .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
+    .da-head-actions { display:flex; gap:.5rem; align-items:center; }
+    .da-divider { opacity: 0.4; }
+    .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
 
-    .empty-state { text-align:center; padding: 3rem 1rem; }
-    .empty-state i { font-size: 3rem; color: var(--text-color-secondary); margin-bottom:1rem; display:block; }
-    .empty-state h3 { margin: 0 0 .5rem; font-weight: 600; }
-
-    /* Mobile cards */
-    .cards-mobile { display:none; flex-direction:column; gap:.75rem; }
-    .ship-card {
-      background: var(--surface-card, var(--surface-50));
-      border-left: 4px solid var(--primary-color);
-      border-radius: 10px;
-      padding: 1rem;
-      cursor: pointer;
-      transition: transform .15s, box-shadow .15s;
+    /* ── FILTERS TOOLBAR ── */
+    .da-filters-cell { display: flex; flex-direction: column; }
+    .da-toolbar {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .625rem .875rem;
+      flex-wrap: wrap;
     }
-    .ship-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
-    .ship-row1 { display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem; }
-    .ship-folio code { background: transparent; padding: 0; font-weight: 700; font-size:.95rem; }
-    .ship-row2 { display:flex; justify-content:space-between; align-items:center; margin-bottom:.25rem; }
-    .ship-row3, .ship-row4 { margin-bottom:.25rem; }
-    .ship-action { margin-top:.75rem; width: 100%; }
+    .da-toolbar-spacer { flex: 1; min-width: 0; }
 
-    /* Responsive: mobile <=600px = cards, >600px = table */
+    .da-field {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      min-width: 220px;
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      padding: 0 .5rem;
+      gap: .35rem;
+      transition: border-color 120ms var(--ease-standard);
+    }
+    .da-field:focus-within {
+      border-color: var(--c-text-1);
+      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+    }
+    .da-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
+    :host ::ng-deep .da-status-select.p-select {
+      flex: 1;
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    :host ::ng-deep .da-status-select.p-select .p-select-label {
+      padding: 0 !important;
+      height: 28px !important;
+      font-size: var(--fs-sm) !important;
+      color: var(--c-text-1) !important;
+      display: flex;
+      align-items: center;
+    }
+
+    .da-reset {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      height: 32px;
+      padding: 0 .75rem;
+      background: transparent;
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      color: var(--c-text-2);
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      cursor: pointer;
+      transition: all 120ms var(--ease-standard);
+    }
+    .da-reset:hover {
+      color: var(--c-bad);
+      border-color: var(--c-bad);
+      background: rgba(220, 38, 38, 0.06);
+    }
+
+    /* ── MOBILE CARDS — stripe semántico izquierdo por status ── */
+    .da-cards-mobile { display: none; flex-direction: column; gap: .625rem; }
+    .da-card {
+      position: relative;
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
+      border-radius: 10px;
+      padding: .875rem 1rem;
+      cursor: pointer;
+      transition: border-color 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard), transform 180ms var(--ease-standard);
+    }
+    .da-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 12px;
+      bottom: 12px;
+      width: 3px;
+      border-radius: 2px;
+      background: var(--c-text-3);
+    }
+    .da-card.is-info::before    { background: var(--c-info); }
+    .da-card.is-warn::before    { background: var(--c-warn); }
+    .da-card.is-ok::before      { background: var(--c-ok); }
+    .da-card.is-bad::before     { background: var(--c-bad); }
+    .da-card.is-neutral::before { background: var(--c-text-3); }
+    .da-card:hover {
+      border-color: var(--c-text-3);
+      box-shadow: 0 4px 12px rgba(0,0,0,.06);
+      transform: translateY(-1px);
+    }
+    .da-card:focus-visible {
+      outline: 2px solid var(--c-accent);
+      outline-offset: 2px;
+    }
+
+    .da-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .5rem;
+      margin-bottom: .5rem;
+    }
+    .da-card-customer {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: .5rem;
+      margin-bottom: .4rem;
+    }
+    .da-card-name {
+      font-size: var(--fs-body);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+    }
+    .da-card-row {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-xs);
+      color: var(--c-text-2);
+      margin-bottom: .25rem;
+    }
+    .da-card-row i {
+      color: var(--c-text-3);
+      font-size: var(--fs-xs);
+    }
+    .da-card-action {
+      margin-top: .75rem;
+      width: 100%;
+    }
+
+    /* ── EMPTY STATE ── */
+    .da-empty-wrap {
+      display: flex;
+      justify-content: center;
+    }
+    .da-empty {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      max-width: 420px;
+      background: var(--c-surface-1);
+      border: 1px dashed var(--c-divider);
+      border-radius: 14px;
+      width: 100%;
+    }
+    .da-empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      border-radius: 14px;
+      background: var(--c-surface-2);
+      color: var(--c-text-2);
+      display: grid;
+      place-items: center;
+      font-size: 1.5rem;
+    }
+    .da-empty h3 {
+      margin: 0 0 .375rem;
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+    }
+    .da-empty p {
+      margin: 0 0 1rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+      line-height: 1.4;
+    }
+
+    /* ── RESPONSIVE: mobile <=600px cards, >600px tabla ── */
     @media (max-width: 600px) {
-      .cards-mobile { display: flex; }
-      .table-desktop { display: none; }
+      .da-cards-mobile { display: flex; }
+      .da-table-desktop { display: none; }
     }
     @media (min-width: 601px) {
-      .cards-mobile { display: none; }
-      .table-desktop { display: block; }
+      .da-cards-mobile { display: none; }
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -213,6 +438,20 @@ export class LogisticaDriverAssignmentsComponent {
         this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se cargaron las entregas' });
       },
     });
+  }
+
+  clearFilter(): void {
+    this.statusFilter = null;
+    this.reload();
+  }
+
+  /** Clase de comm-pill semántica por estado de embarque. */
+  statusPillClass(s: ShipmentStatus): string {
+    if (s === 'programado' || s === 'checklist_salida') return 'is-info';
+    if (s === 'en_ruta' || s === 'costos_pendientes') return 'is-warn';
+    if (s === 'entregado' || s === 'checklist_llegada') return 'is-ok';
+    if (s === 'cerrado') return 'is-neutral';
+    return 'is-bad';
   }
 
   openWizard(s: Shipment): void {

@@ -1,10 +1,15 @@
-import { Component, OnInit, OnDestroy, effect } from '@angular/core';
+import { Component, OnInit, OnDestroy, effect, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
+import { ButtonModule } from 'primeng/button';
+import { MessageService } from 'primeng/api';
 import { OfflineDailyCaptureService } from '../../../core/services/offline-daily-capture.service';
 import { OfflineSyncService } from '../../../core/services/offline-sync.service';
 
 @Component({
   selector: 'app-offline-status',
+  standalone: true,
+  imports: [CommonModule, ButtonModule],
   templateUrl: './offline-status.component.html',
   styleUrls: ['./offline-status.component.scss']
 })
@@ -96,6 +101,9 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
   }
 
   async limpiarDatosOffline(): Promise<void> {
+    // Confirmación inline via toast no aplica — usamos confirm() nativo del browser
+    // solo para acciones destructivas. UX mejor que un dialog modal aquí porque
+    // es opcional y el usuario rara vez la dispara.
     if (!confirm('¿Está seguro de que desea limpiar los datos antiguos offline?')) {
       return;
     }
@@ -178,18 +186,30 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * MessageService es optional: si el padre no lo provee (componente standalone
+   * fuera de captures), caemos a console silencioso. Antes esto usaba `alert()`
+   * que bloqueaba el thread y era horrible UX en mobile.
+   */
+  private toast = inject(MessageService, { optional: true });
+
   private showNotification(message: string, type: 'success' | 'error' | 'info'): void {
-    // Aquí podrías integrar un servicio de notificaciones
-    // Por ahora, usamos console.log
-    console.log(`[OfflineStatus] ${type.toUpperCase()}: ${message}`);
-    
-    // O mostrar un toast simple
-    if (type === 'success') {
-      alert(`✅ ${message}`);
-    } else if (type === 'error') {
-      alert(`❌ ${message}`);
+    if (this.toast) {
+      const severityMap: Record<typeof type, 'success' | 'error' | 'info'> = {
+        success: 'success',
+        error: 'error',
+        info: 'info',
+      };
+      this.toast.add({
+        severity: severityMap[type],
+        summary:
+          type === 'success' ? 'Listo' :
+          type === 'error' ? 'Error' : 'Info',
+        detail: message,
+        life: type === 'error' ? 5000 : 3000,
+      });
     } else {
-      alert(`ℹ️ ${message}`);
+      console.log(`[OfflineStatus] ${type.toUpperCase()}: ${message}`);
     }
   }
 }

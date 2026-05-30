@@ -4,6 +4,9 @@
 -->
 <div class="px-6 pt-6 pb-24 md:pb-6 space-y-6">
 
+  <!-- Offline status sticky en top: comunica estado de conexión + visitas pendientes -->
+  <app-offline-status></app-offline-status>
+
   <!-- Encabezado y Toolbar - Responsive Stack -->
 
   <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
@@ -802,7 +805,27 @@
   <ng-container *ngIf="showWizard">
 
     <!-- Progress Indicator -->
-    <div class="mb-6 mt-2 px-2">
+    <!-- Vendedor: solo 2 dots (foto exhibidor + foto ticket). Mapeo: wizardStep 6→1, 7→2 -->
+    <div class="mb-6 mt-2 px-2" *ngIf="isVendedor()">
+      <div class="flex justify-between items-center relative max-w-[180px] mx-auto" role="progressbar"
+           [attr.aria-valuenow]="wizardStep === 6 ? 1 : 2" aria-valuemin="1" aria-valuemax="2"
+           [attr.aria-label]="'Paso ' + (wizardStep === 6 ? 1 : 2) + ' de 2'">
+        <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
+        <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300"
+             [style.width]="wizardStep === 7 ? '100%' : '0%'" aria-hidden="true"></div>
+
+        <div *ngFor="let s of [1, 2]"
+             class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold bg-surface-card motion-safe:transition-colors z-10 border"
+             [ngClass]="(s === 1 && wizardStep === 7) ? 'border-brand-orange bg-brand-orange text-white'
+                       : (s === 1 && wizardStep === 6) || (s === 2 && wizardStep === 7) ? 'border-brand-orange text-brand-orange'
+                       : 'border-divider text-content-muted'">
+          {{s}}
+        </div>
+      </div>
+    </div>
+
+    <!-- Trade marketing: 6 dots originales -->
+    <div class="mb-6 mt-2 px-2" *ngIf="!isVendedor()">
       <div class="flex justify-between items-center relative" role="progressbar" [attr.aria-valuenow]="wizardStep" aria-valuemin="1" aria-valuemax="6" [attr.aria-label]="'Paso ' + wizardStep + ' de 6'">
         <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
         <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'" aria-hidden="true"></div>
@@ -822,8 +845,8 @@
 
     <div class="py-2 px-1" style="min-height: 360px;">
 
-      <!-- Step 1: Ubicación -->
-      <div *ngIf="wizardStep === 1" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+      <!-- Step 1: Ubicación (oculto para vendedor — defaults silentes) -->
+      <div *ngIf="wizardStep === 1 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
 
         <!-- Heading + hint -->
         <header class="space-y-1">
@@ -867,8 +890,8 @@
 
 
 
-      <!-- Step 2: Formato del mueble -->
-      <div *ngIf="wizardStep === 2" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+      <!-- Step 2: Formato del mueble (oculto para vendedor) -->
+      <div *ngIf="wizardStep === 2 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
 
         <header class="space-y-1">
           <h2 class="text-base font-semibold text-content-main">Formato del mueble</h2>
@@ -901,8 +924,8 @@
 
 
 
-      <!-- Step 3: Pertenece a Mega Dulces -->
-      <div *ngIf="wizardStep === 3" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+      <!-- Step 3: Pertenece a Mega Dulces (oculto para vendedor) -->
+      <div *ngIf="wizardStep === 3 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
 
         <header class="space-y-1">
           <h2 class="text-base font-semibold text-content-main">¿Pertenece a Mega Dulces?</h2>
@@ -948,8 +971,8 @@
 
 
 
-      <!-- Step 4: Nivel de ejecución -->
-      <div *ngIf="wizardStep === 4" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+      <!-- Step 4: Nivel de ejecución (oculto para vendedor) -->
+      <div *ngIf="wizardStep === 4 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
 
         <header class="space-y-1">
           <h2 class="text-base font-semibold text-content-main">Calidad de la ejecución</h2>
@@ -982,8 +1005,8 @@
 
 
 
-      <!-- Step 5: Productos -->
-      <div *ngIf="wizardStep === 5" class="flex flex-col h-full -mx-2 px-2" id="step-5-container">
+      <!-- Step 5: Productos (oculto para vendedor — los marca el OCR del ticket en step 7) -->
+      <div *ngIf="wizardStep === 5 && !isVendedor()" class="flex flex-col h-full -mx-2 px-2" id="step-5-container">
 
         <header class="space-y-1 mb-4">
           <h2 class="text-base font-semibold text-content-main">Productos en el exhibidor</h2>
@@ -1165,6 +1188,86 @@
         </div>
       </div>
 
+      <!-- Step 7: Foto del ticket + AI extraction (solo vendedor) -->
+      <div *ngIf="wizardStep === 7 && isVendedor()" class="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+
+        <header class="space-y-1">
+          <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
+          <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Vos confirmás cuáles van al exhibidor.</p>
+        </header>
+
+        <!-- Upload state -->
+        <label *ngIf="!ticketPreview()"
+               class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
+          <input type="file"
+                 accept="image/*"
+                 capture="environment"
+                 (change)="onTicketSelected($event)"
+                 class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                 aria-label="Tomar fotografía del ticket">
+          <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
+            <i class="pi pi-receipt text-2xl" aria-hidden="true"></i>
+          </div>
+          <p class="text-sm font-medium text-content-main">Tomar foto del ticket</p>
+          <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
+        </label>
+
+        <!-- Preview + extracting -->
+        <div *ngIf="ticketPreview()" class="space-y-3">
+          <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
+            <img [src]="ticketPreview()" alt="Ticket" class="w-full max-h-64 object-cover">
+          </div>
+          <div class="flex justify-center gap-2">
+            <p-button icon="pi pi-refresh" label="Otro ticket" severity="secondary" [outlined]="true" size="small"
+                      [disabled]="ticketExtracting()"
+                      (onClick)="clearTicket()"></p-button>
+          </div>
+        </div>
+
+        <!-- Loading state -->
+        <div *ngIf="ticketExtracting()" class="flex items-center gap-3 p-4 bg-surface-ground rounded-xl">
+          <i class="pi pi-spin pi-spinner text-brand-orange text-xl"></i>
+          <span class="text-sm text-content-muted">Leyendo ticket...</span>
+        </div>
+
+        <!-- AI Results -->
+        <div *ngIf="ticketResult() && !ticketExtracting()" class="space-y-2">
+          <div class="flex items-center justify-between text-sm">
+            <span><strong>{{ ticketConfirmed().size }}</strong> de {{ ticketResult().match.items.length }} confirmados</span>
+            <span class="text-xs text-content-muted">{{ ticketResult().match.meta.elapsed_ms }}ms</span>
+          </div>
+
+          <ul class="flex flex-col gap-1.5 list-none p-0 m-0 max-h-80 overflow-y-auto">
+            <li *ngFor="let it of ticketResult().match.items; let i = index"
+                class="rounded-lg p-2.5 border"
+                [ngClass]="isTicketConfirmed(i)
+                  ? 'border-brand-orange/40 bg-brand-orange/5'
+                  : it.confidence === 'no_match' ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
+              <label class="flex gap-3 items-start cursor-pointer">
+                <input type="checkbox"
+                       [checked]="isTicketConfirmed(i)"
+                       [disabled]="!it.suggested"
+                       (change)="toggleTicketItem(i, $any($event.target).checked)"
+                       class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-content-main truncate">
+                    {{ it.suggested?.product_name || '— sin match —' }}
+                  </div>
+                  <div class="text-xs text-content-muted mt-0.5" *ngIf="it.suggested?.brand_name">
+                    {{ it.suggested?.brand_name }}
+                  </div>
+                  <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
+                    <p-tag [severity]="ticketSev(it.confidence)" [value]="ticketConfLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
+                    <span *ngIf="it.quantity > 1" class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
+                  </div>
+                </div>
+              </label>
+            </li>
+          </ul>
+        </div>
+      </div>
+
 
 
     </div>
@@ -1178,31 +1281,50 @@
                 severity="secondary"
                 [text]="true"
                 (onClick)="prevStep()"
-                [disabled]="wizardStep === 1"></p-button>
+                [disabled]="wizardStep === 1 || (isVendedor() && wizardStep === 6)"></p-button>
 
-      <p-button *ngIf="wizardStep < 5"
-                label="Continuar"
-                icon="pi pi-arrow-right"
-                iconPos="right"
-                (onClick)="nextStep()"></p-button>
+      <!-- Trade marketing: 1-4 → Continuar, 5 → Evidencia, 6 → Finalizar/Otro -->
+      <ng-container *ngIf="!isVendedor()">
+        <p-button *ngIf="wizardStep < 5"
+                  label="Continuar"
+                  icon="pi pi-arrow-right"
+                  iconPos="right"
+                  (onClick)="nextStep()"></p-button>
 
-      <p-button *ngIf="wizardStep === 5"
-                label="Evidencia"
-                icon="pi pi-arrow-right"
-                iconPos="right"
-                (onClick)="nextStep()"></p-button>
+        <p-button *ngIf="wizardStep === 5"
+                  label="Evidencia"
+                  icon="pi pi-arrow-right"
+                  iconPos="right"
+                  (onClick)="nextStep()"></p-button>
 
-      <div *ngIf="wizardStep === 6" class="flex gap-2 flex-wrap justify-end">
-        <p-button label="Otro exhibidor"
-                  icon="pi pi-plus"
-                  severity="secondary"
-                  [outlined]="true"
-                  size="small"
-                  (onClick)="finishWizard(true)"></p-button>
-        <p-button label="Finalizar"
+        <div *ngIf="wizardStep === 6" class="flex gap-2 flex-wrap justify-end">
+          <p-button label="Otro exhibidor"
+                    icon="pi pi-plus"
+                    severity="secondary"
+                    [outlined]="true"
+                    size="small"
+                    (onClick)="finishWizard(true)"></p-button>
+          <p-button label="Finalizar"
+                    icon="pi pi-check"
+                    (onClick)="finishWizard(false)"></p-button>
+        </div>
+      </ng-container>
+
+      <!-- Vendedor: 6 → Continuar al ticket, 7 → Finalizar -->
+      <ng-container *ngIf="isVendedor()">
+        <p-button *ngIf="wizardStep === 6"
+                  label="Continuar"
+                  icon="pi pi-arrow-right"
+                  iconPos="right"
+                  [disabled]="!currentExhibicion().fotoBase64"
+                  (onClick)="nextStep()"></p-button>
+
+        <p-button *ngIf="wizardStep === 7"
+                  label="Finalizar"
                   icon="pi pi-check"
+                  [disabled]="!ticketResult() || ticketExtracting()"
                   (onClick)="finishWizard(false)"></p-button>
-      </div>
+      </ng-container>
     </nav>
 
   </ng-container>

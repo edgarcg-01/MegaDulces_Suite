@@ -13,9 +13,11 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, Customer, Store } from '../comercial.service';
+import { LogisticaService, Route } from '../../logistica/logistica.service';
 import { debounceTime, Subject } from 'rxjs';
 
 @Component({
@@ -37,37 +39,100 @@ import { debounceTime, Subject } from 'rxjs';
     InputIconModule,
     SelectModule,
     ToastModule,
+    TooltipModule,
     ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <div class="surf-page cu">
+      <p-toast></p-toast>
+      <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Clientes B2B</h2>
-        <p class="muted">Gestión de cuentas comerciales. {{ total() }} registros.</p>
-      </div>
-      <button pButton icon="pi pi-plus" label="Nuevo cliente" (click)="openCreate()"></button>
-    </div>
-
-    <p-card>
-      <div class="filters">
-        <p-iconField iconPosition="left">
-          <p-inputIcon styleClass="pi pi-search" />
-          <input pInputText type="search" placeholder="Buscar por nombre, código, RFC, email…"
-                 [value]="searchTerm()"
-                 (input)="onSearchChange($any($event.target).value)"
-                 inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-        </p-iconField>
-        <div class="active-toggle">
-          <label>Solo activos</label>
-          <p-inputSwitch [(ngModel)]="onlyActiveValue" [ngModelOptions]="{ standalone: true }" (onChange)="onToggleActive()"></p-inputSwitch>
+      <!-- PAGE HEAD edge-to-edge -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Clientes B2B</h1>
+          <p class="surf-page-sub">
+            <b>{{ total() }}</b> cliente{{ total() === 1 ? '' : 's' }} registrado{{ total() === 1 ? '' : 's' }}
+          </p>
         </div>
+        <div class="cu-head-actions">
+          <button
+            pButton
+            icon="pi pi-refresh"
+            [text]="true"
+            severity="secondary"
+            size="small"
+            (click)="load()"
+            [loading]="loading()"
+            pTooltip="Refrescar"
+          ></button>
+          <button
+            pButton
+            icon="pi pi-plus"
+            label="Nuevo cliente"
+            size="small"
+            (click)="openCreate()"
+          ></button>
+        </div>
+      </header>
+
+      <!-- FILTERS toolbar densa -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush cu-filters-cell">
+          <div class="cu-toolbar">
+            <!-- Search -->
+            <div class="cu-search">
+              <i class="pi pi-search cu-search-icon" aria-hidden="true"></i>
+              <input
+                type="search"
+                [value]="searchTerm()"
+                (input)="onSearchChange($any($event.target).value)"
+                placeholder="Buscar por nombre, código, RFC o email…"
+                inputmode="search"
+                enterkeyhint="search"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                aria-label="Buscar clientes"
+              />
+              <button
+                *ngIf="searchTerm()"
+                type="button"
+                class="cu-search-clear"
+                (click)="clearSearch()"
+                aria-label="Limpiar búsqueda"
+              >
+                <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            </div>
+
+            <!-- Spacer -->
+            <div class="cu-toolbar-spacer"></div>
+
+            <!-- Active toggle: segmented Activos / Todos -->
+            <div class="cu-segment" role="group" aria-label="Filtro de estado">
+              <button
+                type="button"
+                class="cu-seg-btn"
+                [class.active]="onlyActiveValue"
+                (click)="setActive(true)"
+              >Activos</button>
+              <button
+                type="button"
+                class="cu-seg-btn"
+                [class.active]="!onlyActiveValue"
+                (click)="setActive(false)"
+              >Todos</button>
+            </div>
+          </div>
+        </article>
       </div>
 
-      <p-table
+      <!-- TABLA flush -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush">
+          <p-table
         [value]="rows()"
         [loading]="loading()"
         [lazy]="true"
@@ -84,20 +149,21 @@ import { debounceTime, Subject } from 'rxjs';
             <th>Código</th>
             <th>Nombre</th>
             <th>Tienda enlazada</th>
+            <th>Ruta</th>
             <th>RFC</th>
             <th>Email / Teléfono</th>
-            <th class="num">Crédito</th>
-            <th class="num">Días pago</th>
+            <th class="comm-num">Crédito</th>
+            <th class="comm-num">Días pago</th>
             <th>Estado</th>
             <th></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-c>
           <tr>
-            <td><code>{{ c.code }}</code></td>
+            <td><code class="comm-code">{{ c.code }}</code></td>
             <td>
-              <div class="cell-strong">{{ c.name }}</div>
-              <div class="muted" *ngIf="c.legal_name">{{ c.legal_name }}</div>
+              <div class="comm-cell-strong">{{ c.name }}</div>
+              <div class="comm-muted is-small" *ngIf="c.legal_name">{{ c.legal_name }}</div>
             </td>
             <td class="store-cell">
               <p-select
@@ -126,26 +192,57 @@ import { debounceTime, Subject } from 'rxjs';
                     <i class="pi pi-map-marker"></i>
                     <div>
                       <div>{{ s.nombre }}</div>
-                      <div class="muted small" *ngIf="s.direccion">{{ s.direccion }}</div>
+                      <div class="comm-muted is-small" *ngIf="s.direccion">{{ s.direccion }}</div>
                     </div>
                   </div>
                 </ng-template>
               </p-select>
               <i *ngIf="linkingId() === c.id" class="pi pi-spin pi-spinner saving-spinner" aria-label="Guardando…"></i>
             </td>
+            <td class="route-cell">
+              <p-select
+                [options]="routes()"
+                [ngModel]="c.route_id"
+                [ngModelOptions]="{ standalone: true }"
+                (onChange)="linkRoute(c, $event.value)"
+                optionLabel="name"
+                optionValue="id"
+                placeholder="— Sin ruta —"
+                [filter]="true"
+                filterBy="name"
+                [showClear]="true"
+                appendTo="body"
+                styleClass="row-route-select"
+                [disabled]="linkingRouteId() === c.id"
+              >
+                <ng-template let-r pTemplate="selectedItem">
+                  <div class="route-link">
+                    <i class="pi pi-directions"></i>
+                    <span>{{ r.name }}</span>
+                  </div>
+                </ng-template>
+                <ng-template let-r pTemplate="item">
+                  <div class="route-option">
+                    <i class="pi pi-directions"></i>
+                    <span>{{ r.name }}</span>
+                  </div>
+                </ng-template>
+              </p-select>
+              <i *ngIf="linkingRouteId() === c.id" class="pi pi-spin pi-spinner saving-spinner" aria-label="Guardando…"></i>
+            </td>
             <td>{{ c.rfc || '—' }}</td>
             <td>
               <div *ngIf="c.email">{{ c.email }}</div>
-              <div class="muted" *ngIf="c.phone">{{ c.phone }}</div>
-              <span *ngIf="!c.email && !c.phone" class="muted">—</span>
+              <div class="comm-muted is-small" *ngIf="c.phone">{{ c.phone }}</div>
+              <span *ngIf="!c.email && !c.phone" class="comm-muted">—</span>
             </td>
-            <td class="num">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
-            <td class="num">{{ c.payment_terms_days ?? 0 }}</td>
+            <td class="comm-num">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+            <td class="comm-num">{{ c.payment_terms_days ?? 0 }}</td>
             <td>
-              <p-tag *ngIf="c.active !== false" severity="success" value="Activo"></p-tag>
-              <p-tag *ngIf="c.active === false" severity="danger" value="Inactivo"></p-tag>
+              <span *ngIf="c.active !== false" class="comm-pill is-active">Activo</span>
+              <span *ngIf="c.active === false" class="comm-pill is-inactive">Inactivo</span>
             </td>
-            <td class="actions">
+            <td class="comm-actions">
               <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
               <button pButton icon="pi pi-key" size="small" severity="success" [text]="true"
                       *ngIf="c.active !== false"
@@ -157,10 +254,31 @@ import { debounceTime, Subject } from 'rxjs';
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="9" class="muted">Sin clientes que mostrar.</td></tr>
+          <tr>
+            <td colspan="10" class="cu-empty-cell">
+              <div class="cu-empty">
+                <div class="cu-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
+                <h3>Sin clientes</h3>
+                <p>{{ searchTerm() ? 'No encontramos clientes con esa búsqueda.' : 'Aún no hay clientes registrados.' }}</p>
+                <button
+                  *ngIf="searchTerm()"
+                  type="button"
+                  pButton
+                  icon="pi pi-refresh"
+                  severity="secondary"
+                  [outlined]="true"
+                  size="small"
+                  label="Limpiar búsqueda"
+                  (click)="clearSearch()"
+                ></button>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
-    </p-card>
+        </article>
+      </div>
+    </div>
 
     <p-dialog
       [(visible)]="dialogVisible"
@@ -169,7 +287,7 @@ import { debounceTime, Subject } from 'rxjs';
       [style]="{ width: '560px' }"
       [header]="editing() ? 'Editar cliente' : 'Nuevo cliente'"
     >
-      <form [formGroup]="form" class="form-grid" *ngIf="form">
+      <form [formGroup]="form" class="comm-form-grid" *ngIf="form">
         <label>
           <span>Código <em>*</em></span>
           <input pInputText formControlName="code" placeholder="ej: ABARROTES-001" />
@@ -203,6 +321,25 @@ import { debounceTime, Subject } from 'rxjs';
           <p-inputNumber formControlName="payment_terms_days" [min]="0" [max]="180" />
         </label>
         <label class="full">
+          <span>Ruta de reparto</span>
+          <p-select
+            formControlName="route_id"
+            [options]="routes()"
+            optionLabel="name"
+            optionValue="id"
+            placeholder="— Sin ruta asignada —"
+            [filter]="true"
+            filterBy="name"
+            [showClear]="true"
+            appendTo="body"
+            styleClass="store-select"
+          ></p-select>
+          <span class="comm-muted is-small">
+            La ruta se hereda automáticamente a cada pedido del cliente,
+            así logística puede armar embarques agrupados por ruta.
+          </span>
+        </label>
+        <label class="full">
           <span>Tienda enlazada (Trade Marketing)</span>
           <p-select
             formControlName="store_id"
@@ -221,12 +358,12 @@ import { debounceTime, Subject } from 'rxjs';
                 <i class="pi pi-map-marker"></i>
                 <div>
                   <div>{{ s.nombre }}</div>
-                  <div class="muted small" *ngIf="s.direccion">{{ s.direccion }}</div>
+                  <div class="comm-muted is-small" *ngIf="s.direccion">{{ s.direccion }}</div>
                 </div>
               </div>
             </ng-template>
           </p-select>
-          <span class="muted small">
+          <span class="comm-muted is-small">
             Vincula este cliente al PdV físico que auditás en Trade Marketing.
             Mismo lugar, dos vistas: ejecución (exhibiciones) + venta (pedidos).
           </span>
@@ -263,7 +400,7 @@ import { debounceTime, Subject } from 'rxjs';
         <div class="access-field">
           <label>Usuario</label>
           <div class="access-value">
-            <code>{{ a.username }}</code>
+            <code class="comm-code">{{ a.username }}</code>
             <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
                     (click)="copyToClipboard(a.username, 'Usuario copiado')"></button>
           </div>
@@ -271,13 +408,13 @@ import { debounceTime, Subject } from 'rxjs';
         <div class="access-field">
           <label>Password temporal</label>
           <div class="access-value">
-            <code class="pwd">{{ a.temporary_password }}</code>
+            <code class="comm-code pwd">{{ a.temporary_password }}</code>
             <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
                     (click)="copyToClipboard(a.temporary_password, 'Password copiado')"></button>
           </div>
         </div>
-        <p class="muted small">
-          El cliente entra en <code>/portal/login</code> con tenant_slug <code>mega_dulces</code>.
+        <p class="comm-muted is-small">
+          El cliente entra en <code class="comm-code">/portal/login</code> con tenant_slug <code class="comm-code">mega_dulces</code>.
           Cuando se loguee, debería cambiar el password desde su perfil.
         </p>
       </div>
@@ -288,44 +425,222 @@ import { debounceTime, Subject } from 'rxjs';
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .filters { display:flex; gap:1rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
-    .active-toggle { display:flex; align-items:center; gap:.5rem; font-size:.875rem; color:var(--text-color-secondary); }
-    .num { text-align:right; }
-    .cell-strong { font-weight:600; }
-    .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    code { background: var(--surface-100); padding:.15rem .4rem; border-radius:4px; font-size:.85rem; }
-    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:.875rem; }
-    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .form-grid label.full { grid-column: span 2; }
-    .form-grid em { color: var(--bad-fg); font-style: normal; }
-    .muted.small { font-size:.75rem; }
-    .store-link { display:inline-flex; align-items:center; gap:.35rem; }
-    .store-link i { color: var(--primary-color); font-size:.85rem; }
-    .store-option { display:flex; gap:.5rem; align-items:flex-start; }
-    .store-option i { color: var(--primary-color); margin-top: .15rem; }
+
+    .cu-head-actions { display:flex; gap:.5rem; align-items:center; }
+    .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
+
+    /* ── FILTERS TOOLBAR — densa, 32px alturas alineadas ── */
+    .cu-filters-cell { display: flex; flex-direction: column; }
+    .cu-toolbar {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .625rem .875rem;
+      flex-wrap: wrap;
+    }
+    .cu-toolbar-spacer { flex: 1; min-width: 0; }
+
+    .cu-search {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      width: 320px;
+      max-width: 100%;
+      flex: 1;
+      min-width: 220px;
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      padding: 0 .5rem;
+      gap: .35rem;
+      transition: border-color 120ms var(--ease-standard);
+    }
+    .cu-search:focus-within {
+      border-color: var(--c-text-1);
+      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+    }
+    .cu-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
+    .cu-search input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: var(--fs-sm);
+      color: var(--c-text-1);
+      min-width: 0;
+      padding: 0;
+      height: 28px;
+    }
+    .cu-search input::placeholder { color: var(--c-text-3); }
+    .cu-search-clear {
+      background: transparent;
+      border: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      color: var(--c-text-3);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      font-size: var(--fs-xs);
+    }
+    .cu-search-clear:hover { color: var(--c-text-1); background: var(--c-surface-2); }
+
+    .cu-segment {
+      display: inline-flex;
+      align-items: stretch;
+      height: 32px;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .cu-seg-btn {
+      background: transparent;
+      border: none;
+      padding: 0 .75rem;
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 100ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .cu-seg-btn:hover { color: var(--c-text-1); }
+    .cu-seg-btn.active {
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      font-weight: var(--fw-bold);
+    }
+
+    /* ── INLINE SELECTS dentro de tabla — compactos, sin chrome de PrimeNG ── */
+    .store-cell { min-width: 220px; display: flex; align-items: center; gap: .5rem; }
+    .route-cell { min-width: 180px; display: flex; align-items: center; gap: .5rem; }
+
+    .store-link, .route-link {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: var(--fs-sm);
+      color: var(--c-text-1);
+    }
+    .store-link i, .route-link i {
+      color: var(--c-text-3);
+      font-size: var(--fs-xs);
+    }
+    .store-option, .route-option {
+      display: flex;
+      gap: .5rem;
+      align-items: flex-start;
+    }
+    .store-option i, .route-option i {
+      color: var(--c-text-3);
+      margin-top: .15rem;
+    }
     :host ::ng-deep .p-select.store-select { width: 100%; }
-    /* Inline editor en la columna "Tienda enlazada" — compacto */
-    .store-cell { min-width: 240px; display:flex; align-items:center; gap:.5rem; }
-    :host ::ng-deep .p-select.row-store-select { width: 100%; font-size: .85rem; }
-    :host ::ng-deep .p-select.row-store-select .p-select-label { padding: .35rem .65rem; }
-    .saving-spinner { color: var(--primary-color); font-size: .9rem; }
-    /* J.6.3 — dialog acceso B2B */
-    .access-result { display:flex; flex-direction:column; gap: 1rem; }
-    .warn-banner { display:flex; align-items:flex-start; gap:.5rem; background: var(--warn-soft-bg); color: var(--warn-soft-fg); padding:.6rem .8rem; border-radius:6px; font-size:.85rem; }
-    .warn-banner i { margin-top:.15rem; }
-    .access-field { display:flex; flex-direction:column; gap:.25rem; }
-    .access-field label { font-size:.75rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing:.05em; }
-    .access-value { display:flex; align-items:center; gap:.5rem; background: var(--surface-100); padding:.4rem .65rem; border-radius:6px; }
-    .access-value code { font-size:.95rem; padding:0; background:transparent; flex:1; }
-    .access-value code.pwd { font-family: 'Courier New', monospace; font-weight:700; letter-spacing:.05em; color: var(--primary-color); }
+    :host ::ng-deep .p-select.row-store-select,
+    :host ::ng-deep .p-select.row-route-select {
+      width: 100%;
+      font-size: var(--fs-sm);
+      background: transparent;
+      border-color: transparent;
+    }
+    :host ::ng-deep .p-select.row-store-select:hover,
+    :host ::ng-deep .p-select.row-route-select:hover {
+      background: var(--c-surface-2);
+      border-color: var(--c-divider);
+    }
+    :host ::ng-deep .p-select.row-store-select .p-select-label,
+    :host ::ng-deep .p-select.row-route-select .p-select-label {
+      padding: .35rem .55rem;
+    }
+    .saving-spinner { color: var(--c-accent-fg); font-size: var(--fs-sm); }
+
+    /* ── EMPTY STATE inline en tabla ── */
+    .cu-empty-cell { padding: 0 !important; }
+    .cu-empty {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+    .cu-empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      border-radius: 14px;
+      background: var(--c-surface-2);
+      color: var(--c-text-2);
+      display: grid;
+      place-items: center;
+      font-size: 1.5rem;
+    }
+    .cu-empty h3 {
+      margin: 0 0 .375rem;
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+    }
+    .cu-empty p {
+      margin: 0 0 1rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+      line-height: 1.4;
+    }
+
+    /* ── DIALOG B2B access ── */
+    .access-result { display: flex; flex-direction: column; gap: 1rem; }
+    .warn-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: .5rem;
+      background: var(--warn-soft-bg);
+      color: var(--warn-soft-fg, var(--c-warn));
+      padding: .6rem .8rem;
+      border-radius: 8px;
+      font-size: var(--fs-sm);
+      border: 1px solid var(--warn-border, var(--c-divider));
+    }
+    .warn-banner i { margin-top: .15rem; }
+    .access-field { display: flex; flex-direction: column; gap: .35rem; }
+    .access-field label {
+      font-size: var(--fs-micro);
+      color: var(--c-text-2);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: var(--fw-bold);
+    }
+    .access-value {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      background: var(--c-surface-2);
+      padding: .4rem .65rem;
+      border-radius: 8px;
+      border: 1px solid var(--c-divider);
+    }
+    .access-value code {
+      font-size: var(--fs-body);
+      padding: 0;
+      background: transparent;
+      flex: 1;
+    }
+    .access-value code.pwd {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-weight: var(--fw-bold);
+      letter-spacing: .05em;
+      color: var(--c-accent-fg);
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialCustomersComponent {
   private readonly api = inject(ComercialService);
+  private readonly logistica = inject(LogisticaService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
@@ -357,6 +672,13 @@ export class ComercialCustomersComponent {
   readonly stores = signal<Store[]>([]);
   private readonly storesById = new Map<string, Store>();
 
+  // Rutas logísticas — cache compartido para dropdown + lookup inline.
+  // Asignar la ruta al cliente hace que los pedidos nuevos hereden esa ruta
+  // automáticamente (snapshot a commercial.orders.route_id).
+  readonly routes = signal<Route[]>([]);
+  private readonly routesById = new Map<string, Route>();
+  readonly linkingRouteId = signal<string | null>(null);
+
   form: FormGroup = this.fb.group({
     code: ['', [Validators.required, Validators.pattern(/^[A-Z0-9_-]{2,50}$/)]],
     name: ['', Validators.required],
@@ -367,6 +689,7 @@ export class ComercialCustomersComponent {
     credit_limit: [0],
     payment_terms_days: [0],
     store_id: [null],
+    route_id: [null],
     notes: [''],
   });
 
@@ -379,7 +702,39 @@ export class ComercialCustomersComponent {
       this.load();
     });
     this.loadStores();
+    this.loadRoutes();
     this.load();
+  }
+
+  clearSearch(): void {
+    this.searchTerm.set('');
+    this.page.set(1);
+    this.load();
+  }
+
+  setActive(active: boolean): void {
+    if (this.onlyActiveValue === active) return;
+    this.onlyActiveValue = active;
+    this.onlyActive.set(active);
+    this.page.set(1);
+    this.load();
+  }
+
+  private loadRoutes(): void {
+    this.logistica.listRoutes({ active: true }).subscribe({
+      next: (list) => {
+        const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+        this.routes.set(sorted);
+        this.routesById.clear();
+        for (const r of sorted) this.routesById.set(r.id, r);
+      },
+      error: () => this.routes.set([]),
+    });
+  }
+
+  routeName(id: string | null | undefined): string {
+    if (!id) return '—';
+    return this.routesById.get(id)?.name || '—';
   }
 
   private loadStores(): void {
@@ -407,6 +762,41 @@ export class ComercialCustomersComponent {
    * dialog completo. Optimista — actualiza la fila en memoria al instante;
    * si la API falla, revierte y muestra el toast.
    */
+  /**
+   * Asigna o desasigna la ruta logística del customer desde la tabla.
+   * Optimista: aplica al instante; revierte y avisa si la API falla.
+   * Cada pedido nuevo del cliente hereda `route_id` al crear el draft.
+   */
+  linkRoute(c: Customer, routeId: string | null): void {
+    const prevId = c.route_id || null;
+    const nextId = routeId || null;
+    if (prevId === nextId) return;
+
+    this.linkingRouteId.set(c.id);
+    const next = this.rows().map((r) => (r.id === c.id ? { ...r, route_id: nextId } : r));
+    this.rows.set(next);
+
+    this.api.updateCustomer(c.id, { route_id: nextId } as any).subscribe({
+      next: () => {
+        this.linkingRouteId.set(null);
+        const label = nextId ? this.routeName(nextId) : null;
+        this.toast.add({
+          severity: 'success',
+          summary: label ? `Ruta: ${label}` : 'Ruta removida',
+          detail: c.name,
+          life: 2500,
+        });
+      },
+      error: (err) => {
+        this.linkingRouteId.set(null);
+        const reverted = this.rows().map((r) => (r.id === c.id ? { ...r, route_id: prevId } : r));
+        this.rows.set(reverted);
+        const detail = err?.error?.message || 'No se pudo guardar la ruta';
+        this.toast.add({ severity: 'error', summary: 'Error', detail });
+      },
+    });
+  }
+
   linkStore(c: Customer, storeId: string | null): void {
     const prevId = c.store_id || null;
     const nextId = storeId || null;
@@ -483,7 +873,7 @@ export class ComercialCustomersComponent {
     this.editing.set(null);
     this.form.reset({
       code: '', name: '', legal_name: '', rfc: '', email: '', phone: '',
-      credit_limit: 0, payment_terms_days: 0, store_id: null, notes: '',
+      credit_limit: 0, payment_terms_days: 0, store_id: null, route_id: null, notes: '',
     });
     this.form.get('code')?.enable();
     this.dialogVisible = true;
@@ -501,6 +891,7 @@ export class ComercialCustomersComponent {
       credit_limit: c.credit_limit || 0,
       payment_terms_days: c.payment_terms_days ?? 0,
       store_id: c.store_id || null,
+      route_id: c.route_id || null,
       notes: c.notes || '',
     });
     this.form.get('code')?.disable();
@@ -522,6 +913,7 @@ export class ComercialCustomersComponent {
       // store_id: enviar undefined si no se seleccionó (backend lo trata como
       // "sin cambio" en update y "sin link" en create).
       store_id: raw.store_id || undefined,
+      route_id: raw.route_id || null,
     };
     const editing = this.editing();
     const obs = editing

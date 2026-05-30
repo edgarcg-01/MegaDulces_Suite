@@ -22,10 +22,14 @@ export class ThemeService {
   private _isMonochrome = signal<boolean>(false);
   readonly isMonochrome = this._isMonochrome.asReadonly();
 
+  private _followingSystem = signal<boolean>(true);
+  readonly followingSystem = this._followingSystem.asReadonly();
+
   private userOverride = false;
 
   constructor() {
     this.userOverride = this.getUserChoice();
+    this._followingSystem.set(!this.userOverride);
     const initial = this.userOverride
       ? this.getSavedTheme() ?? this.systemPrefersDark()
       : this.systemPrefersDark();
@@ -39,6 +43,7 @@ export class ThemeService {
     this._isMonochrome.update(v => {
       const next = !v;
       this.userOverride = true;
+      this._followingSystem.set(false);
       this.saveUserChoice();
       this.saveTheme(next);
       this.updateBodyClass(next);
@@ -46,9 +51,20 @@ export class ThemeService {
     });
   }
 
+  /** Forzar un modo específico (light/dark) — siempre marca override. */
+  setMonochrome(value: boolean) {
+    this.userOverride = true;
+    this._followingSystem.set(false);
+    this.saveUserChoice();
+    this.saveTheme(value);
+    this._isMonochrome.set(value);
+    this.updateBodyClass(value);
+  }
+
   /** Resetea la elección manual: vuelve a seguir el sistema. */
   resetToSystem() {
     this.userOverride = false;
+    this._followingSystem.set(true);
     try { localStorage.removeItem(THEME_USER_CHOICE_KEY); } catch {}
     try { localStorage.removeItem(THEME_STORAGE_KEY); } catch {}
     const sys = this.systemPrefersDark();

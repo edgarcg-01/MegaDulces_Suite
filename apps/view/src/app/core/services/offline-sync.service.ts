@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { fromEvent, merge, of, BehaviorSubject, interval } from 'rxjs';
+import { fromEvent, merge, of, BehaviorSubject, interval, Subject } from 'rxjs';
 import { map, distinctUntilChanged, tap, filter } from 'rxjs/operators';
 import { OfflineDatabaseService, VisitaPendiente, TiendaOffline } from './offline-database.service';
 import { GeoValidationService, Coordenada } from './geo-validation.service';
@@ -50,6 +50,15 @@ export class OfflineSyncService {
   });
 
   readonly syncStatus$ = this._syncStatus.asObservable();
+
+  /**
+   * Emite cuando los catálogos en Dexie fueron actualizados por el sync.
+   * Subscríbelo en DailyCaptureService (o cualquier consumer) para re-leer
+   * desde Dexie cuando el server publicó cambios de admin sin tener que
+   * recargar la página.
+   */
+  private _catalogsRefreshed$ = new Subject<void>();
+  readonly catalogsRefreshed$ = this._catalogsRefreshed$.asObservable();
 
   // Configuración
   private readonly SYNC_INTERVAL_MS = 60000; // 1 minuto
@@ -154,6 +163,21 @@ export class OfflineSyncService {
         );
       }
 
+      // CRÍTICO: sincronizar tiendas pendientes ANTES de visitas. Las visitas
+      // que se crearon offline con tiendaId temporal local quedan ligadas a
+      // la fila local de `tiendas`. Si la tienda aún no existe en backend, su
+      // FK rechazaría la visita. Aquí POSTeamos las tiendas pendientes y
+      // remappeamos los tiendaId locales en las visitas pendientes hacia el
+      // serverId real.
+      try {
+        await this.sincronizarTiendasPendientes();
+      } catch (storeErr) {
+        console.warn(
+          '[OfflineSync] Tiendas pendientes fallaron, continuando con visitas:',
+          storeErr,
+        );
+      }
+
       // Sincronizar visitas — fuente real de verdad del trabajo del usuario.
       const resultadoVisitas = await this.sincronizarVisitas();
       
@@ -213,9 +237,75 @@ export class OfflineSyncService {
       ]);
 
       console.log('[OfflineSync] Catálogos sincronizados correctamente');
+      // Notificar a los consumers (DailyCaptureService recarga signals desde
+      // Dexie) — antes los catálogos nuevos solo aparecían al recargar la
+      // página, generando confusión con admins que editaban en runtime.
+      this._catalogsRefreshed$.next();
     } catch (error) {
       console.error('[OfflineSync] Error sincronizando catálogos:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Sincroniza tiendas creadas offline. POST /stores por cada una, captura
+   * el serverId, marca como sincronizada y remappea visitas pendientes que
+   * apuntaban al ID local hacia el serverId. Defense in depth: si el server
+   * rechaza por validation (no transient), incrementamos intentos_fallidos
+   * y eventualmente la descartamos (max 5 intentos como visitas).
+   */
+  private async sincronizarTiendasPendientes(): Promise<void> {
+    const tiendasPendientes = await this.db.getTiendasPendientes();
+    if (tiendasPendientes.length === 0) return;
+    console.log(`[OfflineSync] Encontradas ${tiendasPendientes.length} tiendas pendientes`);
+
+    for (const tienda of tiendasPendientes) {
+      if (tienda.intentos_fallidos >= this.MAX_RETRY_ATTEMPTS) {
+        console.warn(`[OfflineSync] Tienda ${tienda.id} alcanzó max intentos, skip.`);
+        continue;
+      }
+
+      try {
+        const response = await this.http
+          .post<{ id: string; nombre: string }>(`${this.apiUrl}/stores`, {
+            nombre: tienda.nombre,
+            latitud: tienda.latitud,
+            longitud: tienda.longitud,
+          })
+          .toPromise();
+
+        if (!response?.id) throw new Error('Respuesta sin id de tienda');
+
+        await this.db.marcarTiendaSincronizada(tienda.id, response.id);
+
+        // Remappear visitas pendientes que apuntaban al tiendaId local.
+        const visitasARemappear = (await this.db.getVisitasPendientes()).filter(
+          (v) => v.tiendaId === tienda.id,
+        );
+        for (const v of visitasARemappear) {
+          await this.db.actualizarTiendaIdVisita(v.id, response.id);
+        }
+        if (visitasARemappear.length > 0) {
+          console.log(
+            `[OfflineSync] Remappeadas ${visitasARemappear.length} visitas: tiendaId ${tienda.id} → ${response.id}`,
+          );
+        }
+      } catch (error: any) {
+        const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
+        const status = error?.status;
+        const isTransient = status === undefined || TRANSIENT_STATUSES.has(status);
+        if (!isTransient) {
+          await this.db.incrementarIntentoTiendaFallido(
+            tienda.id,
+            (error?.error?.message || error?.message || 'unknown') as string,
+          );
+        } else {
+          console.warn(
+            `[OfflineSync] Tienda ${tienda.id}: error transitorio (${status}), no cuenta como intento.`,
+          );
+        }
+        // No throw — continuar con la siguiente tienda.
+      }
     }
   }
 
@@ -336,13 +426,34 @@ export class OfflineSyncService {
     const storeId = await this.resolveStoreIdForSync(visita);
 
     try {
-      // Preparar payload para el backend (mismo formato que daily-captures)
+      // Hidratar fotos: si la exhibición tiene `_photoBlobId` (Dexie v2),
+      // levantamos el Blob de la tabla `photos` y lo pasamos a buildVisitFormData
+      // vía `_photoBlob`. Si tiene fotoBase64 (Dexie v1 legacy), va por ese path.
+      const exhibicionesHidratadas = await Promise.all(
+        (visita.exhibiciones || []).map(async (ex: any) => {
+          if (!ex?._photoBlobId) return ex;
+          const photo = await this.db.getPhoto(ex._photoBlobId);
+          if (!photo) {
+            console.warn(`[OfflineSync] Photo blob ${ex._photoBlobId} no encontrada en Dexie; exhibición sin foto.`);
+            return ex;
+          }
+          return { ...ex, _photoBlob: photo.blob };
+        }),
+      );
+
+      // Preparar payload para el backend (mismo formato que daily-captures).
+      //
+      // IDEMPOTENCIA: enviamos visita.id (UUID v4 generado en el cliente al
+      // crear la visita) como sync_uuid. Si el backend ya tiene una fila con
+      // ese sync_uuid (porque un POST anterior contestó 504 pero sí escribió),
+      // retorna la fila existente sin re-procesar — eliminando duplicados.
       const payload = {
         folio: visita.id.substring(0, 8), // Usar parte del UUID como folio
+        sync_uuid: visita.id,
         fechaCaptura: visita.fecha,
         horaInicio: visita.horaInicio,
         horaFin: visita.horaFin,
-        exhibiciones: visita.exhibiciones,
+        exhibiciones: exhibicionesHidratadas,
         stats: visita.stats,
         latitud: visita.latitud,
         longitud: visita.longitud,
@@ -356,9 +467,15 @@ export class OfflineSyncService {
       const formData = buildVisitFormData(payload);
       const response = await this.http.post<any>(`${this.apiUrl}/daily-captures`, formData).toPromise();
       console.log('[OfflineSync] Respuesta del backend:', response);
-      
-      // Marcar como sincronizada
+
+      // Marcar como sincronizada + limpiar fotos Blob asociadas (post-éxito).
       await this.db.marcarVisitaSincronizada(visita.id);
+      try {
+        const deleted = await this.db.deletePhotosByVisita(visita.id);
+        if (deleted > 0) console.log(`[OfflineSync] ${deleted} fotos liberadas para visita ${visita.id}`);
+      } catch (cleanErr) {
+        console.warn('[OfflineSync] Error limpiando fotos de visita sincronizada:', cleanErr);
+      }
       
       // Log exitoso
       await this.db.addSyncLog({
@@ -437,6 +554,25 @@ export class OfflineSyncService {
         stats: datosVisita.stats,
         flag_fraude
       });
+
+      // Migrar fotos base64 → Blob en tabla `photos` (Dexie v2).
+      // Resulta en ~25% menos storage + evita serializar binarios al leer.
+      // Después actualizamos la visita reemplazando fotoBase64 por _photoBlobId.
+      try {
+        const exhibicionesProcesadas = await Promise.all(
+          (datosVisita.exhibiciones || []).map(async (ex: any) => {
+            if (!ex?.fotoBase64) return ex;
+            const photoId = await this.db.savePhoto(visitaId, ex.fotoBase64);
+            const { fotoBase64, ...rest } = ex;
+            return { ...rest, _photoBlobId: photoId };
+          }),
+        );
+        await this.db.visitas.update(visitaId, { exhibiciones: exhibicionesProcesadas });
+      } catch (photoErr) {
+        // Si falla la migración, dejamos las fotos en base64 (fallback v1).
+        // No bloqueamos el guardado offline porque la visita ya está persistida.
+        console.warn('[OfflineSync] Fallback a fotoBase64 (no se pudo mover a Blob):', photoErr);
+      }
 
       // Actualizar contador de pendientes
       const estadoActual = this._syncStatus.value;

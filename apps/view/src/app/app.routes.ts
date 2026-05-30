@@ -74,7 +74,14 @@ export const routes: Routes = [
       {
         path: 'orders',
         loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)],
+        data: { mode: 'pending' }
+      },
+      {
+        path: 'orders/history',
+        loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)],
+        data: { mode: 'history' }
       },
       {
         path: 'orders/:id',
@@ -216,7 +223,14 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./modules/portal/portal-shell.component').then((m) => m.PortalShellComponent),
     children: [
-      { path: '', redirectTo: 'catalog', pathMatch: 'full' },
+      { path: '', redirectTo: 'home', pathMatch: 'full' },
+      {
+        path: 'home',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-home.component').then(
+            (m) => m.PortalHomeComponent,
+          ),
+      },
       {
         path: 'catalog',
         loadComponent: () =>
@@ -229,6 +243,14 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./modules/portal/pages/portal-cart.component').then(
             (m) => m.PortalCartComponent,
+          ),
+      },
+      { path: 'ai-order', redirectTo: 'recommendations', pathMatch: 'full' },
+      {
+        path: 'promotions',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-promotions.component').then(
+            (m) => m.PortalPromotionsComponent,
           ),
       },
       {

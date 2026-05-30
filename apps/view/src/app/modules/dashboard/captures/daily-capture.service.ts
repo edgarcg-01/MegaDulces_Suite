@@ -11,6 +11,7 @@ import {
 import { AuthService } from '../../../core/services/auth.service';
 import { OfflineDailyCaptureService } from '../../../core/services/offline-daily-capture.service';
 import { OfflineDatabaseService, TiendaOffline } from '../../../core/services/offline-database.service';
+import { OfflineSyncService } from '../../../core/services/offline-sync.service';
 import { buildVisitFormData } from '../../../core/http/visit-form-data';
 import { todayMx } from '../../../core/utils/mx-date';
 import { haversineMeters } from '../../../core/utils/geo';
@@ -18,6 +19,20 @@ import { environment } from '../../../../environments/environment';
 import { calcularPuntosExhibicion } from '@megadulces/shared-scoring';
 
 const SIMULATED_GPS_COORDS = { lat: 19.7033, lng: -101.1949 }; // Morelia, Michoacán
+const ALLOW_SIMULATED_GPS_KEY = 'captures.allowSimulatedGps';
+/**
+ * Lee del localStorage si el usuario activó manualmente "permitir guardar sin
+ * GPS". Por defecto NO se permite — guardar con coordenadas simuladas (Morelia)
+ * contamina mapas/reports en silencio. Solo casos legítimos (campo sin señal
+ * pero la tienda está validada) deben opt-in via Settings.
+ */
+function isSimulatedGpsAllowed(): boolean {
+  try {
+    return localStorage.getItem(ALLOW_SIMULATED_GPS_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 export type CaptureUserNotification =
   | { kind: 'simulated-coords'; source: string }
@@ -34,6 +49,7 @@ export class DailyCaptureService {
   private http = inject(HttpClient);
   private offlineService = inject(OfflineDailyCaptureService);
   private offlineDb = inject(OfflineDatabaseService);
+  private syncService = inject(OfflineSyncService);
   private apiUrl = environment.apiUrl;
 
   /**
@@ -166,6 +182,14 @@ export class DailyCaptureService {
         this.loadMasterData();
       }
     });
+
+    // Cuando el sync background actualiza catálogos en Dexie, re-hidratamos
+    // los signals (sin esperar refresh de página). Antes el usuario podía
+    // ver el catálogo viejo hasta que recargara la página captures.
+    this.syncService.catalogsRefreshed$.subscribe(() => {
+      this._masterDataLoaded = false;
+      void this.applyMasterDataFromCache();
+    });
   }
 
   // --- Visit Lifecycle Actions ---
@@ -207,15 +231,21 @@ export class DailyCaptureService {
       if (ultimaPosicion) {
         this._latitud.set(ultimaPosicion.lat);
         this._longitud.set(ultimaPosicion.lng);
-      } else if (!navigator.onLine) {
+      } else if (!navigator.onLine && isSimulatedGpsAllowed()) {
+        // Solo si el usuario opt-in explícito (Settings → "Permitir guardar
+        // sin GPS"). Default: rechazar para evitar contaminar mapas con
+        // coords de Morelia silenciosamente.
         this.notifySimulatedCoords('iniciarVisita-offline');
         this._latitud.set(SIMULATED_GPS_COORDS.lat);
         this._longitud.set(SIMULATED_GPS_COORDS.lng);
       } else {
         this._horaInicio.set(null);
         this._activeExhibiciones.set([]);
+        const offlineHint = !navigator.onLine
+          ? ' Si estás sin señal y no podés esperar, activá "Permitir guardar sin GPS" en ajustes (la captura quedará marcada para revisión).'
+          : '';
         throw new Error(
-          'No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.',
+          'No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.' + offlineHint,
         );
       }
     }
@@ -513,10 +543,12 @@ export class DailyCaptureService {
       rangoCompra: rangoCompraVisita,
     }));
 
-    const isOffline = !navigator.onLine;
-    const puntuacionTotal = isOffline
-      ? this.calculateVisitScoreOffline()
-      : s.puntuacionTotal;
+    // SIEMPRE recalculamos local con la fórmula offline para construir el
+    // payload — el server hará su propio recálculo autoritativo en `daily-
+    // captures.service.ts` con la versión activa de scoring_config. Antes
+    // dependíamos de `navigator.onLine`, lo cual fallaba con captive portals
+    // (onLine=true sin conexión real) → bug edge resuelto.
+    const puntuacionTotal = this.calculateVisitScoreOffline();
 
     const statsForPayload = {
       ...s,
@@ -525,8 +557,17 @@ export class DailyCaptureService {
       rangoCompra: rangoCompraVisita,
     };
 
+    // sync_uuid generado per intento de guardado — si el POST falla y el
+    // usuario reintenta sin querer (o un retry HTTP transparente lo duplica),
+    // el backend hace deduplicación silenciosa via UNIQUE INDEX en sync_uuid.
+    const syncUuid =
+      typeof crypto !== 'undefined' && (crypto as any).randomUUID
+        ? (crypto as any).randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
     const payload: any = {
       folio: customFolio,
+      sync_uuid: syncUuid,
       fechaCaptura: localDateStr,
       horaInicio: this._horaInicio()!,
       horaFin: d.toISOString(),
@@ -602,10 +643,19 @@ export class DailyCaptureService {
             if (ultimaPosicion) {
               lat = ultimaPosicion.lat;
               lng = ultimaPosicion.lng;
-            } else {
+            } else if (isSimulatedGpsAllowed()) {
+              // Opt-in explícito requerido — sin esto, rechazamos para no
+              // contaminar reportes con coords de Morelia hardcoded.
               this.notifySimulatedCoords('saveCapturaTotal');
               lat = SIMULATED_GPS_COORDS.lat;
               lng = SIMULATED_GPS_COORDS.lng;
+            } else {
+              return throwError(
+                () =>
+                  new Error(
+                    'Sin GPS válido y sin posición conocida. Activá "Permitir guardar sin GPS" en ajustes si necesitás guardar igual.',
+                  ),
+              );
             }
           }
 
@@ -681,8 +731,13 @@ export class DailyCaptureService {
     // evalúa DATE() en MX. Antes (UTC) el filtro se "movía" al día siguiente
     // a partir de las 18:00 MX y la lista quedaba vacía.
     const today = todayMx();
+
+    // OFFLINE-FIRST: aplicamos cache Dexie + visitas pendientes locales
+    // ANTES de hacer la request. La lista nunca aparece vacía aunque no haya red.
+    void this.applyTodayCapturesFromCacheAndPending(today);
+
     this.http.get<any[]>(`${this.apiUrl}/daily-captures?fecha=${today}`).subscribe({
-      next: (data: any[]) => {
+      next: async (data: any[]) => {
         try {
           const parsedData = data.map((item) => ({
             folio: item.folio,
@@ -701,7 +756,16 @@ export class DailyCaptureService {
                 ? JSON.parse(item.stats)
                 : item.stats || {},
           }));
-          this._captures.set(parsedData);
+          // Persistir snapshot del server para fallback offline.
+          try {
+            await this.offlineDb.guardarCatalogo(
+              'daily-captures-today' as any,
+              parsedData,
+              today,
+            );
+          } catch { /* cache best-effort */ }
+          // Merge con visitas pendientes en Dexie (offline saves de hoy).
+          await this.mergeTodayCapturesWithPending(parsedData);
         } catch {
           /* corrupt JSON en JSONB — ignorar para no romper la vista */
         } finally {
@@ -710,13 +774,101 @@ export class DailyCaptureService {
       },
       error: () => {
         this._todayCapturesInFlight = false;
-        this._notifications$.next({
-          kind: 'load-error',
-          summary: 'No se pudieron cargar las visitas de hoy',
-          detail: 'Verifica tu conexión e intenta refrescar la página.',
-        });
+        // Silencioso si hay cache aplicado (no spameamos toast cuando el
+        // usuario sabe que está offline). El badge `app-offline-status`
+        // ya comunica el estado.
       },
     });
+  }
+
+  /**
+   * Hidrata la lista de visitas de hoy desde Dexie (cache del server) y
+   * fusiona las visitas pendientes locales (offline-saves todavía no
+   * sincronizadas). Garantiza que el usuario NUNCA ve la lista vacía
+   * cuando ya capturó visitas en esta sesión, aunque estemos offline.
+   */
+  private async applyTodayCapturesFromCacheAndPending(today: string): Promise<void> {
+    try {
+      const [cached, pendientes] = await Promise.all([
+        this.offlineDb.getCatalogo('daily-captures-today' as any),
+        this.offlineDb.getVisitasPendientes(),
+      ]);
+
+      const userId = this.auth.user()?.sub;
+      const fromCache: VisitaSnapshot[] =
+        cached?.version === today && Array.isArray(cached.datos) ? cached.datos : [];
+      const fromPending: VisitaSnapshot[] = (pendientes || [])
+        .filter((v) => v.fecha === today && (!userId || v.userId === userId))
+        .map((v) => this.pendingToSnapshot(v));
+
+      // Dedup por folio o sync_uuid prefix.
+      const merged = this.mergeCapturesUnique(fromCache, fromPending);
+      if (merged.length > 0) this._captures.set(merged);
+    } catch (err) {
+      console.warn('[DailyCapture] Error aplicando cache/pendientes de hoy:', err);
+    }
+  }
+
+  private async mergeTodayCapturesWithPending(serverList: VisitaSnapshot[]): Promise<void> {
+    try {
+      const pendientes = await this.offlineDb.getVisitasPendientes();
+      const today = todayMx();
+      const userId = this.auth.user()?.sub;
+      const fromPending: VisitaSnapshot[] = (pendientes || [])
+        .filter((v) => v.fecha === today && (!userId || v.userId === userId))
+        .map((v) => this.pendingToSnapshot(v));
+      this._captures.set(this.mergeCapturesUnique(serverList, fromPending));
+    } catch {
+      this._captures.set(serverList);
+    }
+  }
+
+  /** Convierte una VisitaPendiente (Dexie) en VisitaSnapshot para la UI. */
+  private pendingToSnapshot(v: any): VisitaSnapshot {
+    return {
+      folio: `${(v.id || '').substring(0, 8)}-PEND`,
+      userId: v.userId,
+      fechaCaptura: this.formatDate(v.fecha),
+      horaInicio: v.horaInicio,
+      horaFin: v.horaFin,
+      capturedBy: this.auth.user()?.username || 'Sistema',
+      zona: '',
+      exhibiciones: v.exhibiciones || [],
+      stats: v.stats || {},
+      _offline: true,
+    } as any;
+  }
+
+  /** Dedup por folio (server y pending no se solapan porque pending no tiene
+   *  folio real hasta sincronizar — el `-PEND` es siempre único). */
+  private mergeCapturesUnique(a: VisitaSnapshot[], b: VisitaSnapshot[]): VisitaSnapshot[] {
+    const seen = new Set<string>();
+    const out: VisitaSnapshot[] = [];
+    for (const v of [...b, ...a]) {
+      const key = v.folio || `${v.userId}-${v.horaInicio}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(v);
+    }
+    return out;
+  }
+
+  /**
+   * Crea una tienda offline. Devuelve el ID local temporal — la tienda
+   * queda en Dexie `tiendas` (para Haversine inmediato) + `tiendasPendientes`
+   * (queue de sync). El OfflineSyncService POSTea cuando hay red y remappea
+   * el `tiendaId` en visitas pendientes hacia el serverId real.
+   */
+  async crearTiendaOffline(nombre: string, lat: number, lng: number): Promise<string> {
+    const localId = await this.offlineDb.guardarTiendaPendiente(nombre, lat, lng);
+    // Trigger sync inmediato si está online (no debería estarlo aquí, pero
+    // defensa por si volvió la red entre el check y este punto).
+    if (navigator.onLine) {
+      setTimeout(() => {
+        void this.offlineService.forzarSincronizacionManual().catch(() => {});
+      }, 500);
+    }
+    return localId;
   }
 
   loadTodayAssignment() {
@@ -724,18 +876,42 @@ export class DailyCaptureService {
     if (!user) return;
     const day = new Date().getDay();
     const dayOfWeek = day === 0 ? 7 : day; // 1=Lun, 7=Dom
+
+    // OFFLINE-FIRST: aplicamos cache antes de pedir.
+    void this.applyAssignmentFromCache(user.sub, dayOfWeek);
+
     this.http
       .get<any[]>(
         `${this.apiUrl}/daily-assignments?user_id=${user.sub}&day_of_week=${dayOfWeek}`,
       )
       .subscribe({
-        next: (data) => {
-          this._currentAssignment.set(data && data.length > 0 ? data[0] : null);
+        next: async (data) => {
+          const assignment = data && data.length > 0 ? data[0] : null;
+          this._currentAssignment.set(assignment);
+          // Persistir para cold-start offline.
+          try {
+            await this.offlineDb.guardarCatalogo(
+              'daily-assignment-today' as any,
+              { assignment, userId: user.sub, dayOfWeek },
+              new Date().toISOString().slice(0, 10),
+            );
+          } catch { /* cache best-effort */ }
         },
         error: () => {
-          /* sin asignación visible si falla — no es crítico */
+          /* sin asignación visible si falla — no es crítico (el cache ya se aplicó) */
         },
       });
+  }
+
+  private async applyAssignmentFromCache(userId: string, dayOfWeek: number): Promise<void> {
+    try {
+      const cached = await this.offlineDb.getCatalogo('daily-assignment-today' as any);
+      if (!cached?.datos) return;
+      const { assignment, userId: cachedUser, dayOfWeek: cachedDay } = cached.datos as any;
+      if (cachedUser === userId && cachedDay === dayOfWeek) {
+        this._currentAssignment.set(assignment);
+      }
+    } catch { /* silent — no crítico */ }
   }
 
   private _masterDataInFlight = false;
@@ -750,13 +926,18 @@ export class DailyCaptureService {
     if (this._masterDataLoaded || this._masterDataInFlight) return;
     this._masterDataInFlight = true;
 
+    // OFFLINE-FIRST: aplicamos PRIMERO el cache Dexie (instant render del wizard),
+    // luego en paralelo pedimos network. Si network OK → reescribimos Dexie + UI.
+    // Si network falla → seguimos con lo cargado del cache.
+    void this.applyMasterDataFromCache();
+
     forkJoin({
       conceptos: this.http.get<any[]>(`${this.apiUrl}/catalogs/conceptos`),
       ubicaciones: this.http.get<any[]>(`${this.apiUrl}/catalogs/ubicaciones`),
       niveles: this.http.get<any[]>(`${this.apiUrl}/catalogs/niveles`),
       scoring: this.http.get<any>(`${this.apiUrl}/scoring/config`),
     }).subscribe({
-      next: (res) => {
+      next: async (res) => {
         this._scoringConfig.set(res.scoring);
         this._niveles.set(res.niveles);
         this._conceptos.set(
@@ -776,15 +957,74 @@ export class DailyCaptureService {
         );
         this._masterDataInFlight = false;
         this._masterDataLoaded = true;
+        // Persistir cache para cold-start offline.
+        try {
+          const version = new Date().toISOString();
+          await Promise.all([
+            this.offlineDb.guardarCatalogo('conceptos', res.conceptos, version),
+            this.offlineDb.guardarCatalogo('ubicaciones', res.ubicaciones, version),
+            this.offlineDb.guardarCatalogo('niveles', res.niveles, version),
+            this.offlineDb.guardarCatalogo('scoring', res.scoring, version),
+          ]);
+        } catch (cacheErr) {
+          console.warn('[DailyCapture] Error cacheando catálogos en Dexie:', cacheErr);
+        }
       },
       error: () => {
         this._masterDataInFlight = false;
-        // No marcamos loaded=true en error: que el siguiente refreshAll lo reintente.
+        // Si network falla pero hubo cache Dexie aplicado, ya tenemos data
+        // suficiente para arrancar. _masterDataLoaded queda true SI cache lo logró.
+        // (applyMasterDataFromCache lo setea cuando los 4 catálogos están en Dexie).
       },
     });
 
     this.loadPlanogramData();
     this.loadStoresData();
+  }
+
+  /**
+   * Hidrata signals de master data desde Dexie. Devuelve true si los 4
+   * catálogos fundamentales estaban en cache. Usado como fallback cuando
+   * la red está caída o aún no respondió en el cold-start.
+   */
+  private async applyMasterDataFromCache(): Promise<boolean> {
+    try {
+      const [conceptos, ubicaciones, niveles, scoring] = await Promise.all([
+        this.offlineDb.getCatalogo('conceptos' as any),
+        this.offlineDb.getCatalogo('ubicaciones' as any),
+        this.offlineDb.getCatalogo('niveles' as any),
+        this.offlineDb.getCatalogo('scoring' as any),
+      ]);
+
+      const hasAll = !!(conceptos?.datos && ubicaciones?.datos && niveles?.datos && scoring?.datos);
+      if (!hasAll) return false;
+
+      this._scoringConfig.set(scoring!.datos);
+      this._niveles.set(niveles!.datos);
+      this._conceptos.set(
+        (conceptos!.datos as any[]).map((c) => ({
+          id: c.id,
+          nombre: c.value,
+          puntuacion: c.puntuacion,
+          icono: c.icono,
+        })),
+      );
+      this._ubicaciones.set(
+        (ubicaciones!.datos as any[]).map((u) => ({
+          id: u.id,
+          nombre: u.value,
+          puntuacion: u.puntuacion,
+        })),
+      );
+      // Marcamos loaded para que la UI pueda arrancar el wizard sin esperar red.
+      // El network response llegando después puede REEMPLAZAR estos signals si
+      // hay versión más nueva, sin bloquear la experiencia.
+      this._masterDataLoaded = true;
+      return true;
+    } catch (err) {
+      console.warn('[DailyCapture] Error leyendo cache de catálogos:', err);
+      return false;
+    }
   }
 
   /**

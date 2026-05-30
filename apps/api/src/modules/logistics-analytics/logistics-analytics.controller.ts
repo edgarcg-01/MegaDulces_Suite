@@ -34,6 +34,15 @@ export class LogisticsAnalyticsController {
     return this.service.fleetUtilization({ from, to });
   }
 
+  @Get('pending-by-route')
+  @ApiOperation({
+    summary:
+      'Pipeline: pedidos confirmed/pending_approval sin shipment activo, agrupados por ruta. Cola "lista para embarcar".',
+  })
+  pendingByRoute() {
+    return this.service.pendingByRoute();
+  }
+
   @Get('payroll-totals')
   @ApiOperation({ summary: 'Totales liquidados por período (commissions, per_diem, load/unload, bonuses, neto, pagado)' })
   payroll(@Query('year') year?: string) {

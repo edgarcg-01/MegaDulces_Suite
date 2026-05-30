@@ -213,6 +213,53 @@ export class LogisticsAnalyticsService {
    * Totales liquidados por período. Filtra por year opcional.
    * Cuenta solo liquidaciones NO anuladas.
    */
+  /**
+   * Pipeline operacional: pedidos confirmados o por aprobar que **todavía no
+   * tienen un embarque programado o en ruta**, agrupados por ruta logística.
+   * Es la cola "lista para embarcar" que el operador de logística debe atacar.
+   *
+   * Criterios:
+   *   - `commercial.orders` en `confirmed` o `pending_approval` (stock reservado).
+   *   - Sin shipment activo asociado (NOT EXISTS row en `logistics.shipments`
+   *     que apunte a esa orden y no esté en estado `entregado`/`cerrado`/`cancelado`).
+   */
+  async pendingByRoute() {
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.orders as o')
+        .leftJoin('logistics.routes as r', 'r.id', 'o.route_id')
+        .whereIn('o.status', ['confirmed', 'pending_approval'])
+        .whereNull('o.deleted_at')
+        .whereNotExists(function (this: any) {
+          this.select(trx.raw('1'))
+            .from('logistics.shipments as sh')
+            .whereRaw('sh.order_id = o.id')
+            .whereNull('sh.deleted_at')
+            .whereNotIn('sh.status', ['cancelado']);
+        })
+        .groupBy('o.route_id', 'r.name')
+        .select([
+          'o.route_id',
+          trx.raw(`COALESCE(r.name, '— Sin ruta asignada —') as route_name`),
+          trx.raw('COUNT(*)::int as orders_count'),
+          trx.raw(`COUNT(*) FILTER (WHERE o.status = 'confirmed')::int as orders_confirmed`),
+          trx.raw(`COUNT(*) FILTER (WHERE o.status = 'pending_approval')::int as orders_pending_approval`),
+          trx.raw('COALESCE(SUM(o.total), 0)::numeric as total_value'),
+          trx.raw('MIN(o.created_at) as oldest_order_at'),
+        ])
+        .orderBy([{ column: 'orders_count', order: 'desc' }, { column: 'route_name', order: 'asc' }]);
+
+      return rows.map((r) => ({
+        route_id: r.route_id,
+        route_name: r.route_name,
+        orders_count: Number(r.orders_count),
+        orders_confirmed: Number(r.orders_confirmed),
+        orders_pending_approval: Number(r.orders_pending_approval),
+        total_value: +Number(r.total_value).toFixed(2),
+        oldest_order_at: r.oldest_order_at,
+      }));
+    });
+  }
+
   async payrollTotals(year?: number) {
     return this.tk.run(async (trx) => {
       let qry = trx('logistics.payroll_periods as p')

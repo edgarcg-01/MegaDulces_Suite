@@ -53,109 +53,179 @@ interface ProductOption {
   ],
   providers: [MessageService, ConfirmationService],
   template: `
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <div class="surf-page pm">
+      <p-toast></p-toast>
+      <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Promociones</h2>
-        <p class="muted">
-          {{ activeCount() }} activas · {{ total() }} totales · 6 tipos de mecánica soportados.
-        </p>
+      <!-- PAGE HEAD -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Promociones</h1>
+          <p class="surf-page-sub">
+            <b>{{ activeCount() }}</b> activa{{ activeCount() === 1 ? '' : 's' }}
+            <span class="pm-divider" aria-hidden="true">·</span>
+            {{ total() }} totales
+            <span class="pm-divider" aria-hidden="true">·</span>
+            6 tipos de mecánica
+          </p>
+        </div>
+        <div class="pm-head-actions">
+          <button
+            pButton
+            icon="pi pi-refresh"
+            [text]="true"
+            severity="secondary"
+            size="small"
+            (click)="load()"
+            [loading]="loading()"
+            pTooltip="Refrescar"
+          ></button>
+          <button
+            pButton
+            icon="pi pi-plus"
+            label="Nueva promoción"
+            size="small"
+            (click)="openCreate()"
+          ></button>
+        </div>
+      </header>
+
+      <!-- FILTERS toolbar -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush pm-filters-cell">
+          <div class="pm-toolbar">
+            <div class="pm-field">
+              <i class="pi pi-filter pm-field-icon" aria-hidden="true"></i>
+              <p-select
+                [options]="typeFilterOptions"
+                [(ngModel)]="typeFilter"
+                (onChange)="reload()"
+                optionLabel="label"
+                optionValue="value"
+                [showClear]="true"
+                placeholder="Todos los tipos"
+                styleClass="pm-type-select"
+                appendTo="body"
+              ></p-select>
+            </div>
+
+            <div class="pm-segment" role="group" aria-label="Estado de vigencia">
+              <button
+                type="button"
+                class="pm-seg-btn"
+                [class.active]="onlyActiveValue"
+                (click)="setActive(true)"
+              >Vigentes</button>
+              <button
+                type="button"
+                class="pm-seg-btn"
+                [class.active]="!onlyActiveValue"
+                (click)="setActive(false)"
+              >Todas</button>
+            </div>
+
+            <div class="pm-toolbar-spacer"></div>
+
+            <button
+              *ngIf="typeFilter"
+              type="button"
+              class="pm-reset"
+              (click)="clearFilters()"
+            >
+              <i class="pi pi-refresh" aria-hidden="true"></i>
+              <span>Reset</span>
+            </button>
+          </div>
+        </article>
       </div>
-      <button pButton icon="pi pi-plus" label="Nueva promoción" (click)="openCreate()"></button>
+
+      <!-- TABLA flush -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush">
+          <p-table
+            [value]="rows()"
+            [loading]="loading()"
+            [lazy]="true"
+            [paginator]="true"
+            [rows]="pageSize()"
+            [totalRecords]="total()"
+            [first]="(page() - 1) * pageSize()"
+            (onLazyLoad)="onLazyLoad($event)"
+            styleClass="p-datatable-sm"
+          >
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Código</th>
+                <th>Nombre</th>
+                <th>Tipo</th>
+                <th>Mecánica</th>
+                <th>Vigencia</th>
+                <th class="comm-num">Prioridad</th>
+                <th>Activa</th>
+                <th></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-p>
+              <tr>
+                <td><code class="comm-code">{{ p.code }}</code></td>
+                <td>
+                  <div class="comm-cell-strong">{{ p.name }}</div>
+                  <div class="comm-muted is-small" *ngIf="p.description">{{ p.description }}</div>
+                </td>
+                <td>
+                  <span class="pm-type-chip">
+                    <i [class]="meta(p.promotion_type).icon" aria-hidden="true"></i>
+                    {{ meta(p.promotion_type).shortLabel }}
+                  </span>
+                </td>
+                <td class="pm-mechanic">{{ summarize(p) }}</td>
+                <td>
+                  <div *ngIf="p.starts_at || p.ends_at; else noWindow" class="pm-window">
+                    <span class="pm-window-from">{{ p.starts_at ? (p.starts_at | date:'dd MMM') : '∞' }}</span>
+                    <span class="pm-window-sep" aria-hidden="true">→</span>
+                    <span class="pm-window-to">{{ p.ends_at ? (p.ends_at | date:'dd MMM') : '∞' }}</span>
+                  </div>
+                  <ng-template #noWindow><span class="comm-muted">Siempre</span></ng-template>
+                </td>
+                <td class="comm-num">{{ p.priority }}</td>
+                <td>
+                  <p-inputSwitch
+                    [ngModel]="p.active"
+                    [ngModelOptions]="{ standalone: true }"
+                    (onChange)="toggleActive(p, $event.checked)"
+                    [disabled]="togglingId() === p.id"
+                  ></p-inputSwitch>
+                </td>
+                <td class="comm-actions">
+                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"></button>
+                  <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"></button>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr>
+                <td colspan="8" class="pm-empty-cell">
+                  <div class="pm-empty">
+                    <div class="pm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
+                    <h3>Sin promociones</h3>
+                    <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Creá tu primera promoción para incentivar pedidos.' }}</p>
+                    <button
+                      type="button"
+                      pButton
+                      icon="pi pi-plus"
+                      severity="primary"
+                      size="small"
+                      label="Nueva promoción"
+                      (click)="openCreate()"
+                    ></button>
+                  </div>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </article>
+      </div>
     </div>
-
-    <p-card>
-      <div class="filters">
-        <label>
-          Tipo
-          <p-select
-            [options]="typeFilterOptions"
-            [(ngModel)]="typeFilter"
-            (onChange)="reload()"
-            optionLabel="label"
-            optionValue="value"
-            [showClear]="true"
-            placeholder="Todos"
-            styleClass="filter-select"
-          ></p-select>
-        </label>
-        <label class="inline-toggle">
-          <p-inputSwitch [(ngModel)]="onlyActiveValue" (onChange)="reload()"></p-inputSwitch>
-          <span>Solo vigentes</span>
-        </label>
-      </div>
-
-      <p-table
-        [value]="rows()"
-        [loading]="loading()"
-        [lazy]="true"
-        [paginator]="true"
-        [rows]="pageSize()"
-        [totalRecords]="total()"
-        [first]="(page() - 1) * pageSize()"
-        (onLazyLoad)="onLazyLoad($event)"
-        styleClass="p-datatable-sm"
-      >
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Código</th>
-            <th>Nombre</th>
-            <th>Tipo</th>
-            <th>Mecánica</th>
-            <th>Vigencia</th>
-            <th>Prioridad</th>
-            <th>Activa</th>
-            <th></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-p>
-          <tr>
-            <td><code>{{ p.code }}</code></td>
-            <td>
-              <div class="strong">{{ p.name }}</div>
-              <div class="muted small" *ngIf="p.description">{{ p.description }}</div>
-            </td>
-            <td>
-              <p-tag
-                [value]="meta(p.promotion_type).shortLabel"
-                [style]="{ background: meta(p.promotion_type).color, color: 'white', border: 'none' }"
-              >
-                <ng-template pTemplate>
-                  <i [class]="meta(p.promotion_type).icon" style="margin-right:.3rem"></i>
-                  {{ meta(p.promotion_type).shortLabel }}
-                </ng-template>
-              </p-tag>
-            </td>
-            <td class="mechanic-cell">{{ summarize(p) }}</td>
-            <td>
-              <div *ngIf="p.starts_at || p.ends_at; else noWindow">
-                <div class="small">{{ p.starts_at ? (p.starts_at | date:'shortDate') : 'Desde siempre' }}</div>
-                <div class="small">→ {{ p.ends_at ? (p.ends_at | date:'shortDate') : 'sin fin' }}</div>
-              </div>
-              <ng-template #noWindow><span class="muted">Siempre</span></ng-template>
-            </td>
-            <td class="num">{{ p.priority }}</td>
-            <td>
-              <p-inputSwitch
-                [ngModel]="p.active"
-                [ngModelOptions]="{ standalone: true }"
-                (onChange)="toggleActive(p, $event.checked)"
-                [disabled]="togglingId() === p.id"
-              ></p-inputSwitch>
-            </td>
-            <td class="actions">
-              <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"></button>
-              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"></button>
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="muted">Sin promociones creadas. Hacé click en "Nueva promoción".</td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
 
     <!-- Dialog: Step 1 (type selector) + Step 2 (config) -->
     <p-dialog
@@ -198,7 +268,7 @@ interface ProductOption {
           ></p-tag>
         </div>
 
-        <form [formGroup]="form" class="form-grid">
+        <form [formGroup]="form" class="comm-form-grid">
           <!-- Comunes -->
           <label>
             <span>Código <em>*</em></span>
@@ -262,7 +332,7 @@ interface ProductOption {
                 <span>Paga (M) <em>*</em></span>
                 <p-inputNumber formControlName="m_pay" [min]="1" [showButtons]="true" />
               </label>
-              <div class="hint full" *ngIf="form.value.n_buy && form.value.m_pay">
+              <div class="comm-form-hint full" *ngIf="form.value.n_buy && form.value.m_pay">
                 <i class="pi pi-info-circle"></i>
                 Cliente lleva <b>{{ form.value.n_buy }}</b> unidades, paga sólo <b>{{ form.value.m_pay }}</b>.
                 Ahorro = {{ form.value.n_buy - form.value.m_pay }} unidad(es) gratis.
@@ -389,84 +459,293 @@ interface ProductOption {
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .muted.small { font-size:.75rem; }
-    .strong { font-weight:600; }
-    .small { font-size:.8rem; }
-    .filters { display:flex; gap:1.5rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
-    .filters > label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color:var(--text-color-secondary); }
-    .filters .inline-toggle { flex-direction:row; align-items:center; gap:.5rem; }
-    :host ::ng-deep .p-select.filter-select { min-width: 220px; }
-    .num { text-align:right; }
-    .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    code { background: var(--surface-100); padding:.15rem .4rem; border-radius:4px; font-size:.85rem; }
-    .mechanic-cell { font-size:.85rem; }
 
-    /* Dialog: type-selector grid */
-    .step-intro { margin: 0 0 1rem; color: var(--text-color-secondary); }
-    .type-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; }
+    .pm-head-actions { display:flex; gap:.5rem; align-items:center; }
+    .pm-divider { opacity: 0.4; }
+    .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
+
+    /* ── TOOLBAR ── */
+    .pm-filters-cell { display: flex; flex-direction: column; }
+    .pm-toolbar {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .625rem .875rem;
+      flex-wrap: wrap;
+    }
+    .pm-toolbar-spacer { flex: 1; min-width: 0; }
+
+    .pm-field {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      min-width: 220px;
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      padding: 0 .5rem;
+      gap: .35rem;
+      transition: border-color 120ms var(--ease-standard);
+    }
+    .pm-field:focus-within {
+      border-color: var(--c-text-1);
+      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+    }
+    .pm-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
+    :host ::ng-deep .pm-type-select.p-select {
+      flex: 1;
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+    }
+    :host ::ng-deep .pm-type-select.p-select .p-select-label {
+      padding: 0 !important;
+      height: 28px !important;
+      font-size: var(--fs-sm) !important;
+      color: var(--c-text-1) !important;
+      display: flex;
+      align-items: center;
+    }
+
+    .pm-segment {
+      display: inline-flex;
+      align-items: stretch;
+      height: 32px;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .pm-seg-btn {
+      background: transparent;
+      border: none;
+      padding: 0 .75rem;
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 100ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .pm-seg-btn:hover { color: var(--c-text-1); }
+    .pm-seg-btn.active {
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      font-weight: var(--fw-bold);
+    }
+
+    .pm-reset {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      height: 32px;
+      padding: 0 .75rem;
+      background: transparent;
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      color: var(--c-text-2);
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      cursor: pointer;
+      transition: all 120ms var(--ease-standard);
+    }
+    .pm-reset:hover {
+      color: var(--c-bad);
+      border-color: var(--c-bad);
+      background: rgba(220, 38, 38, 0.06);
+    }
+
+    /* ── TABLA: type chip monocromo + window inline + mechanic ── */
+    .pm-type-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .2rem .55rem;
+      border-radius: 6px;
+      background: var(--c-surface-2);
+      color: var(--c-text-1);
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-medium);
+      white-space: nowrap;
+      border: 1px solid var(--c-divider);
+    }
+    .pm-type-chip i {
+      color: var(--c-text-2);
+      font-size: var(--fs-xs);
+    }
+    .pm-mechanic {
+      font-size: var(--fs-sm);
+      color: var(--c-text-1);
+    }
+    .pm-window {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-size: var(--fs-xs);
+      color: var(--c-text-1);
+      font-variant-numeric: tabular-nums;
+    }
+    .pm-window-sep { color: var(--c-text-3); }
+
+    /* ── EMPTY STATE ── */
+    .pm-empty-cell { padding: 0 !important; }
+    .pm-empty {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+    .pm-empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      border-radius: 14px;
+      background: var(--c-surface-2);
+      color: var(--c-text-2);
+      display: grid;
+      place-items: center;
+      font-size: 1.5rem;
+    }
+    .pm-empty h3 {
+      margin: 0 0 .375rem;
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+    }
+    .pm-empty p {
+      margin: 0 0 1rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+      line-height: 1.4;
+    }
+
+    /* ── DIALOG: wizard step 1 (type selector cards) ── */
+    .step-intro {
+      margin: 0 0 1rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+    }
+    .type-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: .625rem;
+    }
     .type-card {
-      display:flex; gap: .75rem; padding: 1rem;
-      /* Usamos las vars que PrimeNG v18 expone Y el theme-monochrome del proyecto
-         redefine — así funciona en ambos temas sin fallback hardcoded. */
-      border: 1px solid var(--p-content-border-color, var(--surface-border, #e5e7eb));
+      display: flex;
+      gap: .75rem;
+      padding: .875rem;
+      border: 1px solid var(--c-divider);
       border-radius: 10px;
-      background: var(--p-card-background, var(--card-bg, #ffffff));
-      color: var(--p-text-color, var(--text-color, inherit));
-      cursor: pointer; text-align: left;
-      transition: border-color .15s, transform .05s, box-shadow .15s;
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
       font-family: inherit;
     }
     .type-card:hover {
-      border-color: var(--p-primary-color, var(--primary-color));
-      box-shadow: 0 4px 10px rgba(0,0,0,.08);
+      border-color: var(--c-text-1);
+      box-shadow: 0 4px 12px rgba(0,0,0,.06);
     }
     .type-card:active { transform: scale(.99); }
     .type-icon {
-      width: 44px; height: 44px; border-radius: 8px;
-      display:flex; align-items:center; justify-content:center;
-      color: white; flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      flex-shrink: 0;
     }
-    .type-icon i { font-size: 1.25rem; }
-    .type-body { flex:1; min-width:0; }
-    .type-title { font-weight: 600; margin-bottom: .25rem; color: var(--p-text-color, inherit); }
-    .type-desc { font-size:.8rem; color: var(--p-text-muted-color, var(--text-color-secondary)); margin-bottom: .35rem; }
-    .type-example { font-size:.75rem; color: var(--p-text-muted-color, var(--text-color-secondary)); font-style: italic; }
+    .type-icon i { font-size: 1.15rem; }
+    .type-body { flex: 1; min-width: 0; }
+    .type-title {
+      font-weight: var(--fw-bold);
+      font-size: var(--fs-sm);
+      margin-bottom: .2rem;
+      color: var(--c-text-1);
+    }
+    .type-desc {
+      font-size: var(--fs-xs);
+      color: var(--c-text-2);
+      margin-bottom: .3rem;
+      line-height: 1.35;
+    }
+    .type-example {
+      font-size: var(--fs-micro);
+      color: var(--c-text-3);
+      font-style: italic;
+    }
     .type-example i { margin-right: .25rem; }
-    /* Fallback explícito para el tema monochrome del proyecto */
-    :host-context(body.theme-monochrome) .type-card {
-      background: var(--card-bg);
-      border-color: var(--border-color);
-      color: var(--text-main);
-    }
-    :host-context(body.theme-monochrome) .type-card:hover {
-      border-color: var(--brand-400);
-      box-shadow: 0 4px 12px rgba(0,0,0,.5);
-    }
-    :host-context(body.theme-monochrome) .type-desc,
-    :host-context(body.theme-monochrome) .type-example { color: var(--text-muted); }
 
-    /* Step 2: config form */
-    .step-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border-color); }
-    .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap: .875rem; }
-    .form-grid > label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .form-grid > label.full { grid-column: span 2; }
-    .form-grid em { color: var(--bad-fg); font-style:normal; }
-    .checkbox-line { flex-direction: row !important; align-items: center; gap:.5rem !important; }
-    .divider { grid-column: span 2; display:flex; align-items:center; gap:.75rem; margin: .5rem 0 .25rem; color: var(--text-color-secondary); font-size:.8rem; text-transform: uppercase; letter-spacing:.05em; }
-    .divider::after { content:''; flex:1; height:1px; background: var(--border-color); }
-    .hint { background: var(--info-soft-bg); color: var(--info-soft-fg); padding: .5rem .75rem; border-radius:4px; font-size:.8rem; display:flex; gap:.5rem; }
-    .tiers-section { display:flex; flex-direction:column; gap:.5rem; }
-    .tiers-header { display:flex; justify-content:space-between; align-items:center; }
-    .tiers-header span { font-size:.85rem; color:var(--text-color-secondary); }
-    .tiers-list { display:flex; flex-direction:column; gap:.5rem; padding: .5rem; background: var(--surface-100); border-radius: 6px; }
-    .tier-row, .bundle-row { display:flex; align-items:center; gap:.5rem; }
-    .tier-row .tier-from { font-size:.85rem; color:var(--text-color-secondary); min-width: 50px; }
-    .tier-row .tier-arrow { color:var(--text-color-secondary); }
-    :host ::ng-deep .p-select.bundle-product { flex:1; }
-    :host ::ng-deep .row-store-select .p-select-label { padding: .35rem .65rem; }
+    /* ── DIALOG: wizard step 2 (config form) ── */
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: .75rem;
+      border-bottom: 1px solid var(--c-divider);
+    }
+    .divider {
+      grid-column: span 2;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin: .5rem 0 .25rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-micro);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: var(--fw-bold);
+    }
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--c-divider);
+    }
+    .tiers-section {
+      display: flex;
+      flex-direction: column;
+      gap: .5rem;
+    }
+    .tiers-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tiers-header span {
+      font-size: var(--fs-micro);
+      color: var(--c-text-2);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-weight: var(--fw-bold);
+    }
+    .tiers-list {
+      display: flex;
+      flex-direction: column;
+      gap: .5rem;
+      padding: .625rem;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+    }
+    .tier-row, .bundle-row {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .tier-row .tier-from {
+      font-size: var(--fs-xs);
+      color: var(--c-text-2);
+      min-width: 50px;
+    }
+    .tier-row .tier-arrow { color: var(--c-text-3); }
+    :host ::ng-deep .p-select.bundle-product { flex: 1; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -568,6 +847,17 @@ export class ComercialPromotionsComponent {
   reload(): void {
     this.page.set(1);
     this.load();
+  }
+
+  setActive(active: boolean): void {
+    if (this.onlyActiveValue === active) return;
+    this.onlyActiveValue = active;
+    this.reload();
+  }
+
+  clearFilters(): void {
+    this.typeFilter = null;
+    this.reload();
   }
 
   onLazyLoad(e: { first?: number | null; rows?: number | null }): void {

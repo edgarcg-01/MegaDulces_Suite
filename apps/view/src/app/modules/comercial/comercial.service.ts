@@ -25,6 +25,8 @@ export interface Customer {
   shipping_address?: AddressJsonb | null;
   store_id?: string | null;
   default_price_list_id?: string | null;
+  route_id?: string | null;
+  route_name?: string | null;
   credit_limit?: number;
   payment_terms_days?: number;
   active?: boolean;
@@ -83,7 +85,7 @@ export interface ProductPrice {
   min_quantity?: number;
 }
 
-export type OrderStatus = 'draft' | 'confirmed' | 'fulfilled' | 'cancelled';
+export type OrderStatus = 'draft' | 'pending_approval' | 'confirmed' | 'fulfilled' | 'cancelled';
 export type DeliveryType = 'route' | 'long_trip';
 
 export interface Order {
@@ -103,6 +105,8 @@ export interface Order {
   notes?: string | null;
   user_id?: string;
   user_username?: string;
+  route_id?: string | null;
+  route_name?: string | null;
   created_at: string;
   confirmed_at?: string | null;
   fulfilled_at?: string | null;
@@ -116,10 +120,18 @@ export interface OrderLine {
   product_name?: string;
   brand_name?: string;
   quantity: number;
+  /** Cantidad original que pidió el cliente (snapshot al confirmar). */
+  requested_quantity?: number | string | null;
   unit_price: number;
   discount_percent: number;
   line_total: number;
   notes?: string | null;
+  /** Stock total en el almacén del pedido (no descontado por reservas). */
+  stock_quantity?: number | string;
+  /** Stock reservado por TODOS los pedidos en pending_approval/confirmed (incluye éste). */
+  stock_reserved?: number | string;
+  /** Máximo al que se puede subir esta línea sin exceder stock disponible. */
+  stock_available?: number | string;
 }
 
 export interface OrderDetail extends Order {
@@ -360,11 +372,20 @@ export class ComercialService {
   confirmOrder(id: string) {
     return this.http.post<Order>(`${this.base}/orders/${id}/confirm`, {});
   }
+  approveOrder(id: string) {
+    return this.http.post<Order>(`${this.base}/orders/${id}/approve`, {});
+  }
   fulfillOrder(id: string) {
     return this.http.post<Order>(`${this.base}/orders/${id}/fulfill`, {});
   }
   cancelOrder(id: string, reason?: string) {
     return this.http.post<Order>(`${this.base}/orders/${id}/cancel`, { reason });
+  }
+  updateOrderLine(orderId: string, lineId: string, body: { quantity?: number; discount_percent?: number; notes?: string }) {
+    return this.http.patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, body);
+  }
+  removeOrderLine(orderId: string, lineId: string) {
+    return this.http.delete<{ deleted: boolean; id: string }>(`${this.base}/orders/${orderId}/lines/${lineId}`);
   }
 
   // ── Promotions ─────────────────────────────────────────────────────

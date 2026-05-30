@@ -1,279 +1,300 @@
-<div class="cc-page">
+<div class="surf-page cc">
   <p-toast></p-toast>
 
-  <header class="cc-header">
-    <div>
-      <h1 class="cc-title">Centro de Control</h1>
-      <p class="cc-subtitle" *ngIf="overview() as ov">
-        Últimos 30 días &middot; datos {{ ov.source === 'mv' ? 'en caché' : 'en vivo' }}
-        <span *ngIf="ov.refreshed_at">&middot; actualizado {{ fmtDate(ov.refreshed_at) }}</span>
+  <!-- PAGE HEAD edge-to-edge -->
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <h1>Centro de control</h1>
+      <p class="surf-page-sub">
+        <span class="cc-ws" [class.is-on]="wsConnected()">
+          <span class="cc-ws-dot" aria-hidden="true"></span>
+          {{ wsConnected() ? 'En vivo' : 'Sin conexión' }}
+        </span>
+        <span class="cc-divider" aria-hidden="true">·</span>
+        <span *ngIf="overview() as ov">
+          Últimos 30 días · datos {{ ov.source === 'mv' ? 'en caché' : 'en vivo' }}
+          <span *ngIf="ov.refreshed_at" class="comm-muted is-small">· {{ fmtDate(ov.refreshed_at) }}</span>
+        </span>
       </p>
     </div>
-    <div class="cc-actions">
-      <p-tag
-        [value]="wsConnected() ? '● en vivo' : '○ sin conexión'"
-        [severity]="wsConnected() ? 'success' : 'secondary'"
-        styleClass="cc-ws-tag"
-      ></p-tag>
+    <div class="cc-head-actions">
       <button
         pButton
         type="button"
-        [label]="refreshing() ? 'Actualizando…' : 'Actualizar datos'"
         icon="pi pi-refresh"
+        [label]="refreshing() ? 'Actualizando' : 'Refrescar'"
         severity="secondary"
+        size="small"
         [disabled]="refreshing() || loading()"
+        [loading]="refreshing()"
         (click)="refreshMvs()"
       ></button>
     </div>
   </header>
 
-  <!-- KPI cards -->
-  <section class="cc-kpis">
-    <ng-container *ngIf="loading(); else kpiContent">
-      <p-skeleton height="100px" *ngFor="let _ of [1,2,3,4]"></p-skeleton>
-    </ng-container>
-    <ng-template #kpiContent>
-      <p-card class="cc-kpi">
-        <div class="cc-kpi-label">Ventas (brutas)</div>
-        <div class="cc-kpi-value cc-kpi-money">{{ fmtMoney(overview()?.revenue?.gross) }}</div>
-        <div class="cc-kpi-foot">
-          Neto {{ fmtMoney(overview()?.revenue?.net) }} &middot; IVA {{ fmtMoney(overview()?.revenue?.tax) }}
-        </div>
-      </p-card>
-      <p-card class="cc-kpi">
-        <div class="cc-kpi-label">Pedidos entregados</div>
-        <div class="cc-kpi-value">{{ fmtNumber(overview()?.orders?.fulfilled) }}</div>
-        <div class="cc-kpi-foot">
-          Ticket promedio {{ fmtMoney(overview()?.orders?.avg_order_value) }}
-        </div>
-      </p-card>
-      <p-card class="cc-kpi">
-        <div class="cc-kpi-label">En curso</div>
-        <div class="cc-kpi-value">{{ fmtNumber(overview()?.orders?.confirmed) }}</div>
-        <div class="cc-kpi-foot">
-          {{ fmtNumber(overview()?.orders?.draft) }} en borrador &middot;
-          {{ fmtNumber(overview()?.orders?.cancelled) }} cancelados
-        </div>
-      </p-card>
-      <p-card class="cc-kpi">
-        <div class="cc-kpi-label">Clientes únicos</div>
-        <div class="cc-kpi-value">{{ fmtNumber(overview()?.unique_customers) }}</div>
-        <div class="cc-kpi-foot">Compraron en los últimos 30 días</div>
-      </p-card>
-    </ng-template>
-  </section>
+  <!-- SHEET 1: KPIs 2x2 (cols 1-6) + Mix marca (cols 7-12, 2 rows) -->
+  <p-skeleton *ngIf="loading()" height="280px"></p-skeleton>
 
-  <!-- Grid 2-cols: Top customers + Top products -->
-  <section class="cc-grid">
-    <p-card header="Top clientes (ventas 30d)">
-      <p-skeleton *ngIf="loading()" height="220px"></p-skeleton>
-      <p-table
-        *ngIf="!loading()"
-        [value]="topCustomers()"
-        styleClass="p-datatable-sm"
-        [scrollable]="true"
-        scrollHeight="280px"
-      >
-        <ng-template pTemplate="header">
-          <tr>
-            <th>#</th>
-            <th>Cliente</th>
-            <th class="cc-tr">Pedidos</th>
-            <th class="cc-tr">Ventas</th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-r>
-          <tr>
-            <td>{{ r.rank || '—' }}</td>
-            <td>
-              <div class="cc-name">{{ r.name }}</div>
-              <div class="cc-code">{{ r.code }}</div>
-            </td>
-            <td class="cc-tr">{{ fmtNumber(r.orders_count) }}</td>
-            <td class="cc-tr cc-money">{{ fmtMoney(r.revenue) }}</td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="4" class="cc-empty">Sin ventas en el período</td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
+  <div *ngIf="!loading()" class="sheet cols-12">
+    <!-- ROW 1: KPI Ventas headline + Pedidos + Brand mix (rowspan 2) -->
+    <article class="cell cell-span-3">
+      <span class="cell-icon is-accent" aria-hidden="true">
+        <i class="pi pi-dollar"></i>
+      </span>
+      <span class="cell-label">Ventas brutas · 30d</span>
+      <span class="cell-value is-headline">{{ fmtMoneyShort(overview()?.revenue?.gross) }}</span>
+      <span class="cell-sub">
+        Neto {{ fmtMoneyShort(overview()?.revenue?.net) }}<br>
+        IVA {{ fmtMoneyShort(overview()?.revenue?.tax) }}
+      </span>
+    </article>
 
-    <p-card header="Top productos (ventas 30d)">
-      <p-skeleton *ngIf="loading()" height="220px"></p-skeleton>
-      <p-table
-        *ngIf="!loading()"
-        [value]="topProducts()"
-        styleClass="p-datatable-sm"
-        [scrollable]="true"
-        scrollHeight="280px"
-      >
-        <ng-template pTemplate="header">
-          <tr>
-            <th>#</th>
-            <th>Producto</th>
-            <th class="cc-tr">Unidades</th>
-            <th class="cc-tr">Ventas</th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-r>
-          <tr>
-            <td>{{ r.rank_by_revenue || '—' }}</td>
-            <td>
-              <div class="cc-name">{{ r.product_name }}</div>
-              <div class="cc-code">{{ r.brand_name }}</div>
-            </td>
-            <td class="cc-tr">{{ fmtNumber(r.units_sold, 0) }}</td>
-            <td class="cc-tr cc-money">{{ fmtMoney(r.revenue) }}</td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="4" class="cc-empty">Sin ventas en el período</td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
-  </section>
+    <article class="cell cell-span-3">
+      <span class="cell-icon is-ok" aria-hidden="true">
+        <i class="pi pi-check-circle"></i>
+      </span>
+      <span class="cell-label">Pedidos entregados</span>
+      <span class="cell-value">{{ fmtNumber(overview()?.orders?.fulfilled) }}</span>
+      <span class="cell-sub">
+        Ticket prom<br>
+        {{ fmtMoneyShort(overview()?.orders?.avg_order_value) }}
+      </span>
+    </article>
 
-  <!-- Sales by brand -->
-  <section class="cc-section">
-    <p-card header="Mix por marca (% de ventas)">
-      <p-skeleton *ngIf="loading()" height="160px"></p-skeleton>
-      <div *ngIf="!loading()" class="cc-brand-list">
-        <div *ngFor="let b of salesByBrand()" class="cc-brand-row">
+    <!-- Brand mix ocupa 6 cols × 2 rows -->
+    <article class="cell cell-span-6 cell-row-2 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Mix por marca · % de ventas</span>
+        <span class="comm-muted is-small">{{ salesByBrand().length }} marcas</span>
+      </div>
+      <div class="cc-brand-list">
+        <div *ngFor="let b of salesByBrand(); let i = index" class="cc-brand-row">
           <div class="cc-brand-head">
-            <span class="cc-brand-name">{{ b.brand_name }}</span>
+            <span class="cc-brand-name">
+              <span class="cc-rank-badge is-sm">{{ i + 1 }}</span>
+              {{ b.brand_name }}
+            </span>
             <span class="cc-brand-share">
-              {{ fmtMoney(b.revenue) }} &middot; {{ fmtNumber(b.share_pct, 1) }}%
+              <b>{{ fmtNumber(b.share_pct, 1) }}%</b>
+              <span class="comm-muted is-small">{{ fmtMoneyShort(b.revenue) }}</span>
             </span>
           </div>
-          <p-progressBar [value]="b.share_pct" [showValue]="false"></p-progressBar>
+          <div class="cc-bar" [style.--pct]="b.share_pct + '%'">
+            <div class="cc-bar-fill"></div>
+          </div>
         </div>
-        <div *ngIf="salesByBrand().length === 0" class="cc-empty">Sin ventas por marca todavía</div>
+        <div *ngIf="salesByBrand().length === 0" class="cc-table-empty">
+          <i class="pi pi-chart-pie"></i>Sin ventas por marca
+        </div>
       </div>
-    </p-card>
-  </section>
+    </article>
 
-  <!-- Alerts feed realtime -->
-  <section *ngIf="alertFeed().length > 0" class="cc-section">
-    <p-card>
-      <ng-template pTemplate="header">
-        <div class="cc-card-header">
-          <span>Alertas en tiempo real</span>
-          <p-badge [value]="alertFeed().length + ''" severity="info"></p-badge>
-        </div>
-      </ng-template>
+    <!-- ROW 2: En curso + Clientes únicos (junto a brand mix) -->
+    <article class="cell cell-span-3">
+      <span class="cell-icon is-info" aria-hidden="true">
+        <i class="pi pi-sync"></i>
+      </span>
+      <span class="cell-label">En curso</span>
+      <span class="cell-value">{{ fmtNumber(overview()?.orders?.confirmed) }}</span>
+      <span class="cell-sub">
+        {{ fmtNumber(overview()?.orders?.draft) }} borradores<br>
+        {{ fmtNumber(overview()?.orders?.cancelled) }} cancelados
+      </span>
+    </article>
+
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true">
+        <i class="pi pi-users"></i>
+      </span>
+      <span class="cell-label">Clientes únicos</span>
+      <span class="cell-value">{{ fmtNumber(overview()?.unique_customers) }}</span>
+      <span class="cell-sub">Compraron en 30 días</span>
+    </article>
+  </div>
+
+  <!-- SHEET 2: Top customers + Top productos -->
+  <div *ngIf="!loading()" class="sheet cols-12">
+    <article class="cell cell-span-6 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Top clientes · 30d</span>
+        <span class="comm-muted is-small">{{ topCustomers().length }}</span>
+      </div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:36px">#</th>
+              <th>Cliente</th>
+              <th class="num">Pedidos</th>
+              <th class="num">Ventas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let r of topCustomers()">
+              <td><span class="cc-rank-badge">{{ r.rank || '—' }}</span></td>
+              <td>
+                <div class="strong">{{ r.name }}</div>
+                <div class="muted small">{{ r.code }}</div>
+              </td>
+              <td class="num">{{ fmtNumber(r.orders_count) }}</td>
+              <td class="num strong">{{ fmtMoney(r.revenue) }}</td>
+            </tr>
+            <tr *ngIf="topCustomers().length === 0">
+              <td colspan="4" class="cc-table-empty">
+                <i class="pi pi-users"></i>Sin ventas en el período
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="cell cell-span-6 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Top productos · 30d</span>
+        <span class="comm-muted is-small">{{ topProducts().length }}</span>
+      </div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:36px">#</th>
+              <th>Producto</th>
+              <th class="num">Unidades</th>
+              <th class="num">Ventas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let r of topProducts()">
+              <td><span class="cc-rank-badge">{{ r.rank_by_revenue || '—' }}</span></td>
+              <td>
+                <div class="strong">{{ r.product_name }}</div>
+                <div class="muted small">{{ r.brand_name }}</div>
+              </td>
+              <td class="num">{{ fmtNumber(r.units_sold, 0) }}</td>
+              <td class="num strong">{{ fmtMoney(r.revenue) }}</td>
+            </tr>
+            <tr *ngIf="topProducts().length === 0">
+              <td colspan="4" class="cc-table-empty">
+                <i class="pi pi-box"></i>Sin ventas en el período
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <!-- SHEET 3 (condicional): Alerts realtime, fullwidth -->
+  <div *ngIf="alertFeed().length > 0" class="sheet cols-12">
+    <article class="cell cell-span-12 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">
+          <i class="pi pi-bell" aria-hidden="true" style="margin-right:0.35rem"></i>
+          Alertas en tiempo real
+        </span>
+        <span class="comm-pill is-brand no-dot">{{ alertFeed().length }}</span>
+      </div>
       <ul class="cc-feed">
-        <li *ngFor="let a of alertFeed()" class="cc-feed-item">
-          <p-tag
-            [value]="a.severity"
-            [severity]="alertSeverityTag(a.severity)"
-            styleClass="cc-feed-tag"
-          ></p-tag>
+        <li
+          *ngFor="let a of alertFeed()"
+          class="cc-feed-item"
+          [class]="'is-' + a.severity"
+        >
+          <span class="cc-feed-icon" aria-hidden="true">
+            <i [class]="a.severity === 'critical' ? 'pi pi-exclamation-triangle' :
+                        a.severity === 'warn' ? 'pi pi-exclamation-circle' : 'pi pi-info-circle'"></i>
+          </span>
           <div class="cc-feed-body">
             <div class="cc-feed-title">{{ a.title }}</div>
             <div class="cc-feed-msg">{{ a.message }}</div>
           </div>
-          <div class="cc-feed-time">{{ fmtTime(a.emitted_at) }}</div>
+          <time class="cc-feed-time">{{ fmtTime(a.emitted_at) }}</time>
         </li>
       </ul>
-    </p-card>
-  </section>
+    </article>
+  </div>
 
-  <!-- Low stock + Inactive customers -->
-  <section class="cc-grid">
-    <p-card>
-      <ng-template pTemplate="header">
-        <div class="cc-card-header">
-          <span>Stock bajo (disponible &lt; 200)</span>
-          <p-tag
-            *ngIf="lowStock()"
-            [value]="(lowStock()!.items.length || 0) + ' productos'"
-            severity="warn"
-          ></p-tag>
-        </div>
-      </ng-template>
-      <p-skeleton *ngIf="loading()" height="220px"></p-skeleton>
-      <p-table
-        *ngIf="!loading() && lowStock()"
-        [value]="lowStock()!.items"
-        styleClass="p-datatable-sm"
-        [scrollable]="true"
-        scrollHeight="280px"
-      >
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Producto</th>
-            <th class="cc-tr">Disponible</th>
-            <th class="cc-tr">Reservado</th>
-            <th>Almacén</th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-i>
-          <tr>
-            <td>
-              <div class="cc-name">{{ i.product_name }}</div>
-              <div class="cc-code">{{ i.brand_name }}</div>
-            </td>
-            <td class="cc-tr">
-              <p-tag
-                [value]="fmtNumber(i.available_quantity)"
-                [severity]="stockSeverity(i.available_quantity)"
-              ></p-tag>
-            </td>
-            <td class="cc-tr">{{ fmtNumber(i.reserved_quantity) }}</td>
-            <td>{{ i.warehouse_code }}</td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="4" class="cc-empty">Sin alertas</td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
+  <!-- SHEET 4: Stock bajo + Inactivos -->
+  <div *ngIf="!loading()" class="sheet cols-12">
+    <article class="cell cell-span-6 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Stock bajo · disponible &lt; 200</span>
+        <span class="comm-pill is-warn no-dot" *ngIf="lowStock()">
+          {{ lowStock()!.items.length }}
+        </span>
+      </div>
+      <div *ngIf="lowStock()" class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="num">Disp.</th>
+              <th class="num">Reserv.</th>
+              <th>Almacén</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let i of lowStock()!.items">
+              <td>
+                <div class="strong">{{ i.product_name }}</div>
+                <div class="muted small">{{ i.brand_name }}</div>
+              </td>
+              <td class="num">
+                <span class="comm-pill no-dot" [class]="stockPillClass(i.available_quantity)">
+                  {{ fmtNumber(i.available_quantity) }}
+                </span>
+              </td>
+              <td class="num">{{ fmtNumber(i.reserved_quantity) }}</td>
+              <td><code class="comm-code">{{ i.warehouse_code }}</code></td>
+            </tr>
+            <tr *ngIf="lowStock()!.items.length === 0">
+              <td colspan="4" class="cc-table-empty">
+                <i class="pi pi-check"></i>Sin alertas
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
 
-    <p-card>
-      <ng-template pTemplate="header">
-        <div class="cc-card-header">
-          <span>Clientes inactivos (&gt; 30 días)</span>
-          <p-tag
-            *ngIf="inactiveCustomers()"
-            [value]="(inactiveCustomers()!.customers.length || 0) + ' clientes'"
-            severity="info"
-          ></p-tag>
-        </div>
-      </ng-template>
-      <p-skeleton *ngIf="loading()" height="220px"></p-skeleton>
-      <p-table
-        *ngIf="!loading() && inactiveCustomers()"
-        [value]="inactiveCustomers()!.customers"
-        styleClass="p-datatable-sm"
-        [scrollable]="true"
-        scrollHeight="280px"
-      >
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Cliente</th>
-            <th>Teléfono</th>
-            <th class="cc-tr">Crédito</th>
-            <th class="cc-tr">Días inactivo</th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-c>
-          <tr>
-            <td>
-              <div class="cc-name">{{ c.name }}</div>
-              <div class="cc-code">{{ c.code }}</div>
-            </td>
-            <td>{{ c.phone || '—' }}</td>
-            <td class="cc-tr">{{ fmtMoney(c.credit_limit) }}</td>
-            <td class="cc-tr">
-              {{ c.days_since_last_order !== null ? fmtNumber(c.days_since_last_order) + 'd' : 'Nunca' }}
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="4" class="cc-empty">Todos los clientes están activos</td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
-  </section>
+    <article class="cell cell-span-6 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Clientes inactivos · &gt; 30 días</span>
+        <span class="comm-pill is-info no-dot" *ngIf="inactiveCustomers()">
+          {{ inactiveCustomers()!.customers.length }}
+        </span>
+      </div>
+      <div *ngIf="inactiveCustomers()" class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Teléfono</th>
+              <th class="num">Crédito</th>
+              <th class="num">Días</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let c of inactiveCustomers()!.customers">
+              <td>
+                <div class="strong">{{ c.name }}</div>
+                <div class="muted small">{{ c.code }}</div>
+              </td>
+              <td>{{ c.phone || '—' }}</td>
+              <td class="num">{{ fmtMoney(c.credit_limit) }}</td>
+              <td class="num strong">
+                {{ c.days_since_last_order !== null ? fmtNumber(c.days_since_last_order) + 'd' : 'Nunca' }}
+              </td>
+            </tr>
+            <tr *ngIf="inactiveCustomers()!.customers.length === 0">
+              <td colspan="4" class="cc-table-empty">
+                <i class="pi pi-check"></i>Todos activos
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
 </div>

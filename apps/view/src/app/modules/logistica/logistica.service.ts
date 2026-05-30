@@ -307,6 +307,16 @@ export interface FleetUtilizationRow {
   revenue_per_km?: number;
 }
 
+export interface PendingByRouteRow {
+  route_id: string | null;
+  route_name: string;
+  orders_count: number;
+  orders_confirmed: number;
+  orders_pending_approval: number;
+  total_value: number;
+  oldest_order_at: string;
+}
+
 export interface ExpenseRow {
   id: string;
   shipment_id: string;
@@ -677,6 +687,9 @@ export class LogisticaService {
     if (from) p = p.set('from', from);
     if (to) p = p.set('to', to);
     return this.http.get<FleetUtilizationRow[]>(`${this.base}/analytics/fleet-utilization`, { params: p });
+  }
+  pendingByRoute(): Observable<PendingByRouteRow[]> {
+    return this.http.get<PendingByRouteRow[]>(`${this.base}/analytics/pending-by-route`);
   }
 
   // ── J.9 Expenses summary (Costs page KPI) ────────────────────────────────

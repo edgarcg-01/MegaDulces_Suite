@@ -66,6 +66,15 @@ export class CommercialCustomersController {
     });
   }
 
+  @Get('me')
+  @ApiOperation({
+    summary:
+      'Portal B2B: devuelve el customer linkeado al JWT (users.customer_id). Null si el user no es customer_b2b.',
+  })
+  findMine() {
+    return this.service.findMine();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener customer por id' })
   findOne(@Param('id') id: string) {

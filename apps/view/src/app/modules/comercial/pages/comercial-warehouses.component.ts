@@ -9,6 +9,7 @@ import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../comercial.service';
@@ -28,57 +29,105 @@ import { ComercialService, Warehouse } from '../comercial.service';
     InputTextModule,
     CheckboxModule,
     ToastModule,
+    TooltipModule,
     ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <div class="surf-page wh">
+      <p-toast></p-toast>
+      <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Almacenes</h2>
-        <p class="muted">Puntos de stock del tenant. {{ rows().length }} registros.</p>
+      <!-- PAGE HEAD -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Almacenes</h1>
+          <p class="surf-page-sub">
+            <b>{{ rows().length }}</b> almacén{{ rows().length === 1 ? '' : 'es' }}
+            <span class="wh-divider" aria-hidden="true">·</span>
+            puntos de stock del tenant
+          </p>
+        </div>
+        <div class="wh-head-actions">
+          <button
+            pButton
+            icon="pi pi-refresh"
+            [text]="true"
+            severity="secondary"
+            size="small"
+            (click)="load()"
+            [loading]="loading()"
+            pTooltip="Refrescar"
+          ></button>
+          <button
+            pButton
+            icon="pi pi-plus"
+            label="Nuevo almacén"
+            size="small"
+            (click)="openCreate()"
+          ></button>
+        </div>
+      </header>
+
+      <!-- TABLA flush -->
+      <div class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush">
+          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Código</th>
+                <th>Nombre</th>
+                <th>Dirección</th>
+                <th>Default</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-w>
+              <tr>
+                <td><code class="comm-code">{{ w.code }}</code></td>
+                <td class="comm-cell-strong">{{ w.name }}</td>
+                <td>{{ w.address || '—' }}</td>
+                <td>
+                  <span *ngIf="w.is_default" class="comm-pill is-default">Default</span>
+                  <span *ngIf="!w.is_default" class="comm-muted">—</span>
+                </td>
+                <td>
+                  <span *ngIf="w.active !== false" class="comm-pill is-active">Activo</span>
+                  <span *ngIf="w.active === false" class="comm-pill is-inactive">Inactivo</span>
+                </td>
+                <td class="comm-actions">
+                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
+                          (click)="openEdit(w)" pTooltip="Editar"></button>
+                  <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
+                          (click)="confirmDelete(w)" *ngIf="w.active !== false" pTooltip="Desactivar"></button>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr>
+                <td colspan="6" class="wh-empty-cell">
+                  <div class="wh-empty">
+                    <div class="wh-empty-icon"><i class="pi pi-warehouse" aria-hidden="true"></i></div>
+                    <h3>Sin almacenes</h3>
+                    <p>Creá un almacén para empezar a registrar stock y procesar pedidos.</p>
+                    <button
+                      type="button"
+                      pButton
+                      icon="pi pi-plus"
+                      severity="primary"
+                      size="small"
+                      label="Nuevo almacén"
+                      (click)="openCreate()"
+                    ></button>
+                  </div>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </article>
       </div>
-      <button pButton icon="pi pi-plus" label="Nuevo almacén" (click)="openCreate()"></button>
     </div>
-
-    <p-card>
-      <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Código</th>
-            <th>Nombre</th>
-            <th>Dirección</th>
-            <th>Default</th>
-            <th>Estado</th>
-            <th></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-w>
-          <tr>
-            <td><code>{{ w.code }}</code></td>
-            <td class="strong">{{ w.name }}</td>
-            <td>{{ w.address || '—' }}</td>
-            <td>
-              <p-tag *ngIf="w.is_default" severity="info" value="Default"></p-tag>
-              <span *ngIf="!w.is_default" class="muted">—</span>
-            </td>
-            <td>
-              <p-tag *ngIf="w.active !== false" severity="success" value="Activo"></p-tag>
-              <p-tag *ngIf="w.active === false" severity="danger" value="Inactivo"></p-tag>
-            </td>
-            <td class="actions">
-              <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(w)"></button>
-              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(w)" *ngIf="w.active !== false"></button>
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="6" class="muted">Sin almacenes registrados.</td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
 
     <p-dialog
       [(visible)]="dialogVisible"
@@ -87,7 +136,7 @@ import { ComercialService, Warehouse } from '../comercial.service';
       [style]="{ width: '480px' }"
       [header]="editing() ? 'Editar almacén' : 'Nuevo almacén'"
     >
-      <form [formGroup]="form" class="form" *ngIf="form">
+      <form [formGroup]="form" class="comm-form" *ngIf="form">
         <label>
           <span>Código <em>*</em></span>
           <input pInputText formControlName="code" placeholder="ej: MD-CENTRAL" />
@@ -104,7 +153,7 @@ import { ComercialService, Warehouse } from '../comercial.service';
           <p-checkbox formControlName="is_default" [binary]="true" inputId="is_default"></p-checkbox>
           <span>Almacén por defecto del tenant</span>
         </label>
-        <div class="hint" *ngIf="form.value.is_default">
+        <div class="comm-form-hint" *ngIf="form.value.is_default">
           <i class="pi pi-info-circle"></i>
           Solo puede haber 1 default; al activar éste, el anterior se desactivará automáticamente.
         </div>
@@ -120,17 +169,42 @@ import { ComercialService, Warehouse } from '../comercial.service';
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .strong { font-weight: 600; }
-    .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    code { background: var(--surface-100); padding:.15rem .4rem; border-radius:4px; font-size:.85rem; }
-    .form { display:flex; flex-direction:column; gap: 1rem; }
-    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .form em { color: var(--bad-fg); font-style: normal; }
-    .checkbox-line { flex-direction: row !important; align-items: center; gap:.5rem !important; color: var(--text-color-primary, inherit) !important; }
-    .hint { background: var(--info-soft-bg); color: var(--info-soft-fg); padding:.5rem .75rem; border-radius:4px; font-size:.8rem; display:flex; gap:.5rem; align-items:flex-start; }
+
+    .wh-head-actions { display:flex; gap:.5rem; align-items:center; }
+    .wh-divider { opacity: 0.4; }
+    .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
+
+    /* ── EMPTY STATE ── */
+    .wh-empty-cell { padding: 0 !important; }
+    .wh-empty {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+    .wh-empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 1rem;
+      border-radius: 14px;
+      background: var(--c-surface-2);
+      color: var(--c-text-2);
+      display: grid;
+      place-items: center;
+      font-size: 1.5rem;
+    }
+    .wh-empty h3 {
+      margin: 0 0 .375rem;
+      font-size: var(--fs-h3);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+    }
+    .wh-empty p {
+      margin: 0 0 1rem;
+      color: var(--c-text-2);
+      font-size: var(--fs-sm);
+      line-height: 1.4;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -25,6 +25,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { ThemeService } from '../../../core/services/theme.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { HapticService } from '../../../core/services/haptic.service';
+import { Permission } from '../../../core/constants/permissions';
 
 // Spartan
 import { HlmBadgeDirective } from '@spartan-ng/helm/badge';
@@ -41,6 +42,8 @@ import {
 } from './daily-capture.models';
 // Fase K — AI product picker
 import { AiProductPickerComponent } from './ai-product-picker.component';
+// Offline status badge — comunica modo offline + visitas pendientes
+import { OfflineStatusComponent } from '../../../shared/components/offline-status/offline-status.component';
 
 @Component({
   selector: 'app-daily-capture',
@@ -71,6 +74,8 @@ import { AiProductPickerComponent } from './ai-product-picker.component';
     HlmLabelDirective,
     // Fase K
     AiProductPickerComponent,
+    // Offline status
+    OfflineStatusComponent,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './captures.component.html',
@@ -125,6 +130,25 @@ export class CapturesComponent implements OnInit, OnDestroy {
   // ── Auth ──────────────────────────────────────────────────────────
   /** Usuario autenticado actual */
   user = this.authService.user;
+
+  // ── Fase V — Vendedor con OCR de ticket ─────────────────────────────────
+  /**
+   * Modo recortado: el usuario tiene `CAPTURE_TICKET_USE` y NO ve los pasos
+   * 1-5 (ubicación, formato, propiedad, nivel, productos). El wizard arranca
+   * directo en paso 6 (foto exhibidor) y agrega un paso 7 (foto ticket + AI).
+   * Los campos omitidos se llenan con defaults silentes del catálogo.
+   */
+  readonly isVendedor = computed(() => {
+    const perms = this.user()?.permissions || {};
+    return perms[Permission.CAPTURE_TICKET_USE] === true;
+  });
+
+  /** Step 7 (solo vendedor): estado de la foto del ticket + extracción AI. */
+  readonly ticketFile = signal<File | null>(null);
+  readonly ticketPreview = signal<string | null>(null);
+  readonly ticketExtracting = signal(false);
+  readonly ticketResult = signal<any | null>(null);
+  readonly ticketConfirmed = signal<Set<number>>(new Set());
 
   // ── Initialization ───────────────────────────────────────────────────────
   /**
@@ -508,6 +532,24 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
     this.creatingStore.set(true);
     try {
+      // OFFLINE-FIRST: si no hay red, creamos local en Dexie con UUID temporal.
+      // El sync background hace POST /stores cuando vuelva la conexión y
+      // remappea visitas que apuntaban al ID local hacia el serverId real.
+      // Antes esto bloqueaba al usuario en zonas sin señal cuando intentaba
+      // dar de alta un PDV nuevo.
+      if (!navigator.onLine) {
+        const localId = await this.svc.crearTiendaOffline(name, lat, lng);
+        this.svc.selectStore({ id: localId, nombre: name, distance: 0 });
+        this.detectionStatus.set('found');
+        this.toast.add({
+          severity: 'info',
+          summary: 'Tienda Pendiente',
+          detail: `"${name}" guardada localmente. Se creará en el servidor cuando vuelva la conexión.`,
+          life: 6000,
+        });
+        return;
+      }
+
       const store = await firstValueFrom(
         this.http.post<any>(`${this.apiUrl}/stores`, {
           nombre: name,
@@ -523,6 +565,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
         detail: `Nueva tienda "${name}" creada y vinculada a la visita.`,
       });
     } catch (err: any) {
+      // Si el POST online falló por error de red, intentar fallback offline
+      // (en lugar de bloquear al usuario).
+      const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
+      const status = err?.status;
+      if (status === undefined || TRANSIENT_STATUSES.has(status)) {
+        try {
+          const localId = await this.svc.crearTiendaOffline(name, lat, lng);
+          this.svc.selectStore({ id: localId, nombre: name, distance: 0 });
+          this.detectionStatus.set('found');
+          this.toast.add({
+            severity: 'info',
+            summary: 'Tienda Pendiente',
+            detail: `"${name}" guardada localmente (sin red). Se sincronizará automáticamente.`,
+            life: 6000,
+          });
+          return;
+        } catch (offErr) {
+          /* swallow — caemos al toast genérico abajo */
+        }
+      }
       this.toast.add({
         severity: 'error',
         summary: 'Error',
@@ -705,12 +767,36 @@ export class CapturesComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.currentExhibicion.set({
-      productosMarcados: [],
-      rangoCompra: '',
-      ventaAdicional: 0,
-    });
-    this.wizardStep = 1;
+    // Vendedor: pre-llenamos los campos del wizard que no se le muestran y
+    // arrancamos directo en el paso de la foto del exhibidor.
+    if (this.isVendedor()) {
+      const ubi = this.configPosiciones()[0];
+      const tip = this.configTipos()[0];
+      const niv = this.configNiveles()[0];
+      this.currentExhibicion.set({
+        productosMarcados: [],
+        rangoCompra: '',
+        ventaAdicional: 0,
+        ubicacionId: ubi?.id || '',
+        conceptoId: tip?.id || '',
+        perteneceMegaDulces: true,
+        nivelEjecucion: niv?.value?.toLowerCase() || '',
+        nivelEjecucionId: niv?.id || '',
+      });
+      // Reset estado del ticket en cada apertura del wizard.
+      this.ticketFile.set(null);
+      this.ticketPreview.set(null);
+      this.ticketResult.set(null);
+      this.ticketConfirmed.set(new Set());
+      this.wizardStep = 6;
+    } else {
+      this.currentExhibicion.set({
+        productosMarcados: [],
+        rangoCompra: '',
+        ventaAdicional: 0,
+      });
+      this.wizardStep = 1;
+    }
     this.showWizard = true;
     this.expandedBrands.set(new Set());
     this.productsShownByBrand.set(new Map());
@@ -780,6 +866,19 @@ export class CapturesComponent implements OnInit, OnDestroy {
         return;
       }
     }
+    // Vendedor: del paso 6 (foto exhibidor) avanza al paso 7 (foto ticket).
+    if (this.isVendedor() && this.wizardStep === 6) {
+      if (!curr.fotoBase64) {
+        this.toast.add({
+          severity: 'warn',
+          summary: 'Foto requerida',
+          detail: 'Tomá la foto del exhibidor antes de continuar.',
+        });
+        return;
+      }
+      this.wizardStep = 7;
+      return;
+    }
     if (this.wizardStep < 6) {
       this.wizardStep++;
       // Al entrar al paso 5, expandir marcas que tienen productos seleccionados
@@ -790,6 +889,11 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   prevStep() {
+    // Vendedor: del paso 7 vuelve al paso 6. Del 6 cierra (no hay pasos previos visibles).
+    if (this.isVendedor()) {
+      if (this.wizardStep === 7) this.wizardStep = 6;
+      return;
+    }
     if (this.wizardStep > 1) {
       this.wizardStep--;
     }
@@ -1172,6 +1276,105 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Fase V — Selecciona la foto del ticket y dispara el extractor AI.
+   */
+  async onTicketSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!this.ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      this.toast.add({ severity: 'warn', summary: 'Formato no soportado', detail: file.type });
+      return;
+    }
+    this.ticketFile.set(file);
+    const reader = new FileReader();
+    reader.onload = () => this.ticketPreview.set(reader.result as string);
+    reader.readAsDataURL(file);
+    await this.extractTicket(file);
+  }
+
+  /** Sube el ticket al endpoint Fase V y marca productos auto-confirmados. */
+  private async extractTicket(file: File): Promise<void> {
+    this.ticketExtracting.set(true);
+    this.ticketResult.set(null);
+    this.ticketConfirmed.set(new Set());
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name || 'ticket.jpg');
+      const res = await firstValueFrom(
+        this.http.post<any>(`${environment.apiUrl}/ai/ticket/extract`, fd),
+      );
+      this.ticketResult.set(res);
+      // Pre-confirmar items con autoConfirm=true del backend.
+      const auto = new Set<number>();
+      const items = res?.match?.items || [];
+      items.forEach((it: any, i: number) => {
+        if (it.suggested?.autoConfirm) auto.add(i);
+      });
+      this.ticketConfirmed.set(auto);
+      this.applyTicketProductsToExhibicion();
+      this.toast.add({
+        severity: items.length ? 'success' : 'warn',
+        summary: items.length ? `${items.length} líneas detectadas` : 'Ticket ilegible',
+        detail: items.length
+          ? `${auto.size} listas para confirmar`
+          : 'No se reconocieron productos. Tomá la foto con mejor luz.',
+        life: 2500,
+      });
+    } catch (err: any) {
+      const detail = err?.error?.message || 'No se pudo procesar el ticket';
+      this.toast.add({ severity: 'error', summary: 'Error', detail });
+    } finally {
+      this.ticketExtracting.set(false);
+    }
+  }
+
+  /** Toggle de un item del ticket — recalcula productosMarcados de la exhibición. */
+  toggleTicketItem(idx: number, checked: boolean): void {
+    const set = new Set(this.ticketConfirmed());
+    if (checked) set.add(idx);
+    else set.delete(idx);
+    this.ticketConfirmed.set(set);
+    this.applyTicketProductsToExhibicion();
+  }
+
+  isTicketConfirmed(idx: number): boolean {
+    return this.ticketConfirmed().has(idx);
+  }
+
+  /** Aplica la selección actual del ticket al campo `productosMarcados` de la exhibición. */
+  private applyTicketProductsToExhibicion(): void {
+    const res = this.ticketResult();
+    if (!res) return;
+    const set = this.ticketConfirmed();
+    const pids: string[] = (res.match?.items || [])
+      .map((it: any, i: number) =>
+        set.has(i) && it.suggested?.product_id ? (it.suggested.product_id as string) : null,
+      )
+      .filter((x: string | null): x is string => !!x);
+    this.currentExhibicion.update((curr) => ({ ...curr, productosMarcados: pids }));
+  }
+
+  clearTicket(): void {
+    this.ticketFile.set(null);
+    this.ticketPreview.set(null);
+    this.ticketResult.set(null);
+    this.ticketConfirmed.set(new Set());
+    this.currentExhibicion.update((curr) => ({ ...curr, productosMarcados: [] }));
+  }
+
+  ticketSev(c: string): 'success' | 'info' | 'warn' | 'danger' {
+    if (c === 'high') return 'success';
+    if (c === 'medium') return 'info';
+    if (c === 'low') return 'warn';
+    return 'danger';
+  }
+
+  ticketConfLabel(c: string): string {
+    return c === 'high' ? 'Alta' : c === 'medium' ? 'Media' : c === 'low' ? 'Baja' : 'Sin match';
+  }
+
+  /**
    * Actualiza el rango de compra de la exhibición actual
    * @param val Rango de compra seleccionado
    */
@@ -1349,6 +1552,24 @@ export class CapturesComponent implements OnInit, OnDestroy {
           'Debe adjuntar una fotografía del exhibidor antes de guardarlo.',
       });
       return;
+    }
+
+    // Vendedor: exige también el ticket procesado (al menos 1 producto confirmado
+    // o el ticket procesado con 0 matches válidos pero foto del ticket subida).
+    if (this.isVendedor()) {
+      if (!this.ticketResult()) {
+        this.toast.add({
+          severity: 'warn',
+          summary: 'Falta el ticket',
+          detail: 'Tomá la foto del ticket antes de finalizar.',
+        });
+        this.wizardStep = 7;
+        return;
+      }
+      // Persistir URL del ticket dentro del JSONB de la exhibición.
+      const tr = this.ticketResult();
+      (ex as any).ticket_foto_url = tr?.ticket_url || null;
+      (ex as any).ticket_foto_public_id = tr?.ticket_public_id || null;
     }
 
     try {

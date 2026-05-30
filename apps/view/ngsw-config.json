@@ -34,7 +34,11 @@
       "urls": [
         "/api/commercial/analytics/**",
         "/api/reports/**",
-        "/api/dashboard/**"
+        "/api/dashboard/**",
+        "/api/daily-captures",
+        "/api/daily-captures?**",
+        "/api/daily-assignments",
+        "/api/daily-assignments?**"
       ],
       "cacheConfig": {
         "strategy": "freshness",
@@ -48,8 +52,11 @@
       "urls": [
         "/api/catalogs/**",
         "/api/stores/**",
+        "/api/planograms/**",
         "/api/zones/**",
         "/api/users/**",
+        "/api/scoring/active-version",
+        "/api/scoring/config-versions/**",
         "/api/commercial/customers/**",
         "/api/commercial/warehouses/**",
         "/api/commercial/pricing/**"

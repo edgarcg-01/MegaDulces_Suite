@@ -114,9 +114,21 @@ export class CommercialOrdersController {
   }
 
   @Post(':id/confirm')
-  @ApiOperation({ summary: 'Confirmar pedido (draft → confirmed). Reserva stock.' })
+  @ApiOperation({
+    summary:
+      'Confirmar pedido por el CLIENTE (draft → pending_approval). Reserva stock; espera aprobación del vendedor.',
+  })
   confirm(@Param('id') id: string) {
     return this.service.confirm(id);
+  }
+
+  @Post(':id/approve')
+  @ApiOperation({
+    summary:
+      'Aprobar pedido por el VENDEDOR (pending_approval → confirmed). Sin cambio de inventario.',
+  })
+  approve(@Param('id') id: string) {
+    return this.service.approve(id);
   }
 
   @Post(':id/fulfill')

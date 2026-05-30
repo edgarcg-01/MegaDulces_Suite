@@ -72,6 +72,8 @@ exports.seed = async function (knex) {
     LOGISTICS_PAYROLL_VER: true,
     LOGISTICS_PAYROLL_GESTIONAR: true,
     LOGISTICS_CONFIG_GESTIONAR: true,
+    // Fase V — Vendedor con OCR de ticket
+    CAPTURE_TICKET_USE: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -173,6 +175,31 @@ exports.seed = async function (knex) {
         COMMERCIAL_ORDERS_CREAR: true,
         COMMERCIAL_ORDERS_CONFIRMAR: true,
         COMMERCIAL_PROMOTIONS_VER: true,
+      },
+    },
+    {
+      // Rol nuevo Fase V — Vendedor de campo con OCR de ticket.
+      // Igual que `colaborador` pero con CAPTURE_TICKET_USE: en su flujo de
+      // captura toma foto del exhibidor + foto del ticket, y los productos
+      // del ticket se autorellenan en la sección "Productos del exhibidor"
+      // vía Claude Haiku vision + AI product matcher (Voyage embeddings).
+      role_name: 'vendedor',
+      permissions: {
+        ...NO_PERMS,
+        REPORTES_VER_PROPIO: true,
+        VISITAS_REGISTRAR: true,
+        VISITAS_VER: true,
+        TIENDAS_VER: true,
+        TIENDAS_CREAR: true,
+        SCORING_CONFIG_VER: true,
+        VER_SEGUIMIENTO: true,
+        CAPTURE_TICKET_USE: true,
+        COMMERCIAL_CUSTOMERS_VER: true,
+        COMMERCIAL_PRICING_VER: true,
+        COMMERCIAL_INVENTORY_VER: true,
+        COMMERCIAL_ORDERS_VER: true,
+        COMMERCIAL_ORDERS_CREAR: true,
+        COMMERCIAL_PAYMENTS_REGISTRAR: true,
       },
     },
     {

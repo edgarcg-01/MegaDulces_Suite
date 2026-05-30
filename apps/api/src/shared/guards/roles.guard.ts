@@ -6,32 +6,12 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
-import type { AppSubject } from '../ability/ability.types';
-import { Permission } from '../constants/permissions';
 import { PermissionsCacheService } from '../ability/permissions-cache.service';
-import { buildAbility } from '../ability/ability.factory';
-
-const subjectMap: Record<string, AppSubject> = {
-  [Permission.USUARIOS_VER]: 'users',
-  [Permission.USUARIOS_GESTIONAR]: 'users',
-  [Permission.USUARIOS_PASSWORDS]: 'users_passwords',
-  [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
-  [Permission.REPORTES_VER_PROPIO]: 'reports_own',
-  [Permission.REPORTES_VER_EQUIPO]: 'reports_team',
-  [Permission.REPORTES_VER_GLOBAL]: 'reports_global',
-  [Permission.REPORTES_EXPORTAR]: 'reports_export',
-  [Permission.REPORTES_GESTIONAR]: 'reports_manage',
-  [Permission.VISITAS_REGISTRAR]: 'visits',
-  [Permission.VISITAS_VER]: 'visits',
-  [Permission.VISITAS_AUDITAR]: 'visits_audit',
-  [Permission.CATALOGO_GESTIONAR]: 'catalogs',
-  [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
-  [Permission.TIENDAS_CREAR]: 'stores_create',
-  [Permission.ROLES_CONFIGURAR]: 'roles_config',
-  [Permission.SCORING_CONFIG_VER]: 'scoring_config',
-  [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
-  [Permission.VER_SEGUIMIENTO]: 'seguimiento',
-};
+// Fuente única de verdad para el mapeo Permission → subject. Antes había una
+// copia local desactualizada acá que omitía TIENDAS_VER y todos los
+// COMMERCIAL_*/LOGISTICS_* nuevos → el guard tiraba 403 aunque el rol tuviera
+// la permission en DB. Importamos directo del ability.factory.
+import { buildAbility, permissionToSubject } from '../ability/ability.factory';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -75,7 +55,7 @@ export class RolesGuard implements CanActivate {
 
     if (requiredPermissions && requiredPermissions.length > 0) {
       const allGranted = requiredPermissions.every((perm) => {
-        const subject = subjectMap[perm];
+        const subject = permissionToSubject[perm];
         if (!subject) return false;
         return ability.can('read', subject) || ability.can('manage', subject);
       });

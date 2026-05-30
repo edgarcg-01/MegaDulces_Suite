@@ -2,7 +2,7 @@ import { AbilityBuilder, createMongoAbility } from '@casl/ability';
 import { Permission } from '../constants/permissions';
 import type { Action, AppAbility, AppSubject } from './ability.types';
 
-const permissionToSubject: Record<string, AppSubject> = {
+export const permissionToSubject: Record<string, AppSubject> = {
   [Permission.USUARIOS_VER]: 'users',
   [Permission.USUARIOS_GESTIONAR]: 'users',
   [Permission.USUARIOS_PASSWORDS]: 'users_passwords',

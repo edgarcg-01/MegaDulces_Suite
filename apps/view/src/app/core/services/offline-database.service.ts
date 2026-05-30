@@ -32,7 +32,7 @@ export interface VisitaPendiente {
 
 export interface CatalogoOffline {
   id: string;
-  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'planograma' | 'stores';
+  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today';
   datos: any;
   version: string;
   ultima_sincronizacion: string;
@@ -47,21 +47,82 @@ export interface SyncLog {
   fecha: string;
 }
 
+/**
+ * v2: tabla `photos` separada. Las fotos se guardan como Blob (binario crudo)
+ * en lugar de base64 dentro de `visitas.exhibiciones[].fotoBase64`. Beneficios:
+ *
+ * - **~25% menos storage** (base64 expande binario ~33%; Blob no).
+ * - **Menos memory pressure**: no serializamos el blob al leer la visita.
+ * - **Quota-safe**: Dexie maneja blobs grandes mejor que cadenas largas.
+ *
+ * Cada exhibición ahora referencia su foto con `_photoBlobId` (UUID).
+ * Backward-compat: si una visita legacy todavía tiene `fotoBase64`, el sync
+ * code la procesa igual (fallback path en `offline-sync.service.ts`).
+ */
+export interface PhotoBlob {
+  id: string;       // UUID v4
+  visitaId: string; // FK lógica a visitas.id (para limpieza en cascada)
+  blob: Blob;
+  mime: string;
+  createdAt: string;
+}
+
+/**
+ * v3: tiendas creadas offline pendientes de sincronización.
+ * Al volver online, el sync POST /stores las crea en backend, recibe el ID
+ * real, lo guarda en `serverId`, y vuelve a procesar visitas pendientes
+ * que apuntaban al `id` local para remappearlas al serverId.
+ */
+export interface TiendaPendiente {
+  id: string;           // UUID v4 generado localmente
+  nombre: string;
+  latitud: number;
+  longitud: number;
+  serverId?: string;    // Asignado tras POST exitoso
+  sincronizado: boolean;
+  intentos_fallidos: number;
+  ultimo_intento: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OfflineDatabaseService extends Dexie {
   tiendas!: Table<TiendaOffline, string>;
   visitas!: Table<VisitaPendiente, string>;
   catalogos!: Table<CatalogoOffline, string>;
   syncLogs!: Table<SyncLog, string>;
+  photos!: Table<PhotoBlob, string>;
+  tiendasPendientes!: Table<TiendaPendiente, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
-    
+
     this.version(1).stores({
       tiendas: 'id, nombre, zona, ultima_sincronizacion',
       visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
       catalogos: 'id, tipo, version, ultima_sincronizacion',
       syncLogs: 'id, tipo, entidad_id, estado, fecha'
+    });
+
+    // v2: tabla photos separada para Blobs. Migración no-destructiva: las
+    // visitas v1 con fotoBase64 siguen funcionando vía fallback en el sync.
+    this.version(2).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+    });
+
+    // v3: tabla tiendasPendientes para crear tiendas offline.
+    // El sync las POSTea primero y luego remappea visitas pendientes que
+    // apuntaban al ID local hacia el serverId recibido.
+    this.version(3).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
     });
 
     // Hooks para auditoría
@@ -259,8 +320,156 @@ export class OfflineDatabaseService extends Dexie {
   async limpiarDatosAntiguos(): Promise<void> {
     await Promise.all([
       this.limpiarVisitasSincronizadas(7),
-      this.limpiarLogsAntiguos(30)
+      this.limpiarLogsAntiguos(30),
+      this.limpiarPhotosHuerfanas(),
     ]);
     console.log('[OfflineDB] Limpieza de datos antiguos completada');
+  }
+
+  // --- Photos (Blob storage) ---
+
+  /**
+   * Guarda una foto como Blob asociada a una visita. Devuelve el photoId
+   * que la exhibición debe almacenar como `_photoBlobId` para luego
+   * recuperar el Blob al sincronizar.
+   *
+   * @param visitaId ID de la visita dueña (para limpieza en cascada).
+   * @param input Puede ser un Blob directo o un data URL base64.
+   */
+  async savePhoto(visitaId: string, input: Blob | string, mime = 'image/jpeg'): Promise<string> {
+    const id = crypto.randomUUID();
+    let blob: Blob;
+    if (input instanceof Blob) {
+      blob = input;
+    } else {
+      // base64 / data URL — decodificar a binario para evitar overhead.
+      const cleaned = (input as string).replace(/^data:image\/\w+;base64,/, '');
+      const byteString = atob(cleaned);
+      const bytes = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+      blob = new Blob([bytes], { type: mime });
+    }
+    await this.photos.add({
+      id,
+      visitaId,
+      blob,
+      mime: blob.type || mime,
+      createdAt: new Date().toISOString(),
+    });
+    return id;
+  }
+
+  async getPhoto(photoId: string): Promise<PhotoBlob | undefined> {
+    return this.photos.get(photoId);
+  }
+
+  async getPhotosByVisita(visitaId: string): Promise<PhotoBlob[]> {
+    return this.photos.where('visitaId').equals(visitaId).toArray();
+  }
+
+  /** Borra todas las fotos asociadas a una visita (post-sync exitoso). */
+  async deletePhotosByVisita(visitaId: string): Promise<number> {
+    return this.photos.where('visitaId').equals(visitaId).delete();
+  }
+
+  // --- Tiendas Pendientes (offline create queue) ---
+
+  /**
+   * Crea una tienda local con ID temporal y la encola para sync.
+   * También la agrega a la tabla `tiendas` para que detectarTiendaCercana
+   * (Haversine) la encuentre inmediatamente, sin esperar al POST.
+   */
+  async guardarTiendaPendiente(nombre: string, latitud: number, longitud: number): Promise<string> {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    await this.transaction('rw', this.tiendasPendientes, this.tiendas, async () => {
+      await this.tiendasPendientes.add({
+        id,
+        nombre,
+        latitud,
+        longitud,
+        sincronizado: false,
+        intentos_fallidos: 0,
+        ultimo_intento: now,
+      });
+      // También insertar en tabla `tiendas` para que detectarTiendaCercana
+      // la encuentre durante la captura actual y futuras antes del sync.
+      await this.tiendas.put({
+        id,
+        nombre,
+        lat: latitud,
+        lng: longitud,
+        ultima_sincronizacion: now,
+      });
+    });
+
+    console.log(`[OfflineDB] Tienda pendiente creada localmente: ${id} - "${nombre}"`);
+    return id;
+  }
+
+  async getTiendasPendientes(): Promise<TiendaPendiente[]> {
+    const todas = await this.tiendasPendientes.toArray();
+    return todas.filter((t) => !t.sincronizado);
+  }
+
+  /**
+   * Marca tienda pendiente como sincronizada y guarda el `serverId`
+   * recibido. Atómica con el remap de la fila en `tiendas` (cambia su id
+   * local por el del server) — pero como Dexie no permite cambiar PK,
+   * insertamos la fila con server id y eliminamos la antigua.
+   */
+  async marcarTiendaSincronizada(localId: string, serverId: string): Promise<void> {
+    await this.transaction('rw', this.tiendasPendientes, this.tiendas, async () => {
+      const pending = await this.tiendasPendientes.get(localId);
+      if (!pending) return;
+      await this.tiendasPendientes.update(localId, {
+        sincronizado: true,
+        serverId,
+        ultimo_intento: new Date().toISOString(),
+      });
+
+      // Reemplazar en la tabla `tiendas`: insertar fila con serverId, borrar antigua.
+      const localRow = await this.tiendas.get(localId);
+      if (localRow) {
+        await this.tiendas.put({
+          ...localRow,
+          id: serverId,
+          ultima_sincronizacion: new Date().toISOString(),
+        });
+        await this.tiendas.delete(localId);
+      }
+    });
+    console.log(`[OfflineDB] Tienda pendiente ${localId} sincronizada → server ${serverId}`);
+  }
+
+  async incrementarIntentoTiendaFallido(localId: string, error: string): Promise<void> {
+    const tienda = await this.tiendasPendientes.get(localId);
+    if (!tienda) return;
+    await this.tiendasPendientes.update(localId, {
+      intentos_fallidos: tienda.intentos_fallidos + 1,
+      ultimo_intento: new Date().toISOString(),
+    });
+    await this.addSyncLog({
+      tipo: 'visita',
+      entidad_id: localId,
+      estado: 'error',
+      mensaje: `tienda pending: ${error}`,
+      fecha: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Limpieza de fotos cuyas visitas ya no existen (defensa contra leaks
+   * por crashes mid-flow). Se corre como parte de limpiarDatosAntiguos.
+   */
+  async limpiarPhotosHuerfanas(): Promise<number> {
+    const todasFotos = await this.photos.toArray();
+    const visitaIdsPresentes = new Set((await this.visitas.toArray()).map(v => v.id));
+    const huerfanas = todasFotos.filter(p => !visitaIdsPresentes.has(p.visitaId));
+    if (huerfanas.length === 0) return 0;
+    await this.photos.bulkDelete(huerfanas.map(p => p.id));
+    console.log(`[OfflineDB] Eliminadas ${huerfanas.length} fotos huérfanas`);
+    return huerfanas.length;
   }
 }

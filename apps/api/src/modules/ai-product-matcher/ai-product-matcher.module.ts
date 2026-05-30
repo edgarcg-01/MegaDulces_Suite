@@ -26,6 +26,6 @@ import { LlmExtractorService } from '../../shared/ai/llm-extractor.service';
     LlmExtractorService,
     EmbeddingSyncService,
   ],
-  exports: [EmbeddingsService],
+  exports: [EmbeddingsService, AiProductMatcherService, LlmExtractorService],
 })
 export class AiProductMatcherModule {}

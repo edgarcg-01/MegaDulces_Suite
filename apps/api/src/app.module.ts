@@ -15,6 +15,8 @@ import { PlanogramsModule } from './modules/planograms/planograms.module';
 import { CatalogsModule } from './modules/catalogs/catalogs.module';
 // Fase K — AI product match en captures wizard paso 5.
 import { AiProductMatcherModule } from './modules/ai-product-matcher/ai-product-matcher.module';
+// Fase V — OCR del ticket del vendedor (Claude Haiku vision + matcher).
+import { TicketExtractorModule } from './modules/ticket-extractor/ticket-extractor.module';
 import { ScoringModule } from './modules/scoring/scoring.module';
 import { ScoringV2Module } from './modules/scoring/scoring-v2.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -44,6 +46,8 @@ import { CommercialAnalyticsModule } from './modules/commercial-analytics/commer
 import { CommercialAlertsModule } from './modules/commercial-alerts/commercial-alerts.module';
 import { CommercialRecommendationsModule } from './modules/commercial-recommendations/commercial-recommendations.module';
 import { CommercialPromotionsModule } from './modules/commercial-promotions/commercial-promotions.module';
+import { PortalAiOrderModule } from './modules/portal-ai-order/portal-ai-order.module';
+import { CommercialCatalogSearchModule } from './modules/commercial-catalog-search/commercial-catalog-search.module';
 // Fase E — Remote Manager / Televenta
 import { CommercialTeleventaModule } from './modules/commercial-televenta/commercial-televenta.module';
 // Fase J — Logística
@@ -76,6 +80,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialAlertsModule,
       CommercialRecommendationsModule,
       CommercialPromotionsModule,
+      PortalAiOrderModule,
+      CommercialCatalogSearchModule,
       CommercialTeleventaModule,
       LogisticsFleetModule,
       LogisticsConfigModule,
@@ -117,6 +123,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     DailyCapturesModule,
     PlanogramsModule,
     AiProductMatcherModule,
+    TicketExtractorModule,
     CatalogsModule,
     ScoringModule,
     ScoringV2Module,

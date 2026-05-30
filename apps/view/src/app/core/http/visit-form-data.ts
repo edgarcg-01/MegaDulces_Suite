@@ -24,10 +24,14 @@ export function base64ToBlob(b64: string, mime = 'image/jpeg'): Blob {
 }
 
 /**
- * Convierte un payload con `exhibiciones[].fotoBase64` a un `FormData`:
- *   - field `payload` → JSON sin `fotoBase64`, cada exhibición con foto
+ * Convierte un payload con fotos en exhibiciones a un `FormData`:
+ *   - field `payload` → JSON sin fotos inline, cada exhibición con foto
  *     gana un campo `_photoField: 'photo_<i>'`.
  *   - file parts `photo_<i>` con la imagen como Blob.
+ *
+ * Fuentes aceptadas (en orden de preferencia):
+ *   1. `_photoBlob: Blob` — el caller ya tiene el Blob (path Dexie v2)
+ *   2. `fotoBase64: string` — legacy data URL / base64 (path online o Dexie v1)
  *
  * Exhibiciones sin foto se pasan tal cual (sin `_photoField`).
  */
@@ -37,15 +41,18 @@ export function buildVisitFormData(payload: {
 }): FormData {
   const fd = new FormData();
   const exhibicionesForJson = payload.exhibiciones.map((ex, i) => {
+    const directBlob = ex['_photoBlob'] as Blob | undefined;
     const b64 = ex['fotoBase64'] as string | undefined;
-    if (!b64) return ex;
+    if (!directBlob && !b64) return ex;
+
     const field = `photo_${i}`;
-    const blob = base64ToBlob(b64);
+    const blob = directBlob ?? base64ToBlob(b64!);
     fd.append(field, blob, `${field}.jpg`);
-    // Descartar fotoBase64 del JSON; el _photoField permite al backend
+
+    // Limpiar campos transient del JSON; `_photoField` permite al backend
     // mapear la file part de vuelta a la exhibición.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { fotoBase64, ...rest } = ex as any;
+    const { fotoBase64, _photoBlob, _photoBlobId, ...rest } = ex as any;
     return { ...rest, _photoField: field };
   });
   const jsonPayload = { ...payload, exhibiciones: exhibicionesForJson };

@@ -1,18 +1,21 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { forkJoin } from 'rxjs';
 import {
   AnalyticsOverview,
   FleetUtilizationRow,
   LogisticaService,
+  PendingByRouteRow,
   ShipmentProfitabilityRow,
 } from '../logistica.service';
 
@@ -27,8 +30,8 @@ import {
   selector: 'app-logistica-dashboard',
   standalone: true,
   imports: [
-    CommonModule, FormsModule,
-    ButtonModule, CardModule, TableModule, DatePickerModule, TagModule, ToastModule,
+    CommonModule, FormsModule, RouterLink,
+    ButtonModule, CardModule, TableModule, DatePickerModule, TagModule, ToastModule, TooltipModule,
   ],
   providers: [MessageService],
   template: `
@@ -92,6 +95,75 @@ import {
         </div>
       </div>
     </div>
+
+    <!-- Pipeline: pedidos confirmados/por aprobar sin embarque, agrupados por ruta -->
+    <p-card styleClass="pipeline-card">
+      <div class="pipeline-head">
+        <div>
+          <h3>Pedidos por embarcar</h3>
+          <p class="muted">
+            Pedidos en <code>confirmed</code>/<code>pending_approval</code> sin shipment activo. Atacá la ruta con más cola primero.
+          </p>
+        </div>
+        <div class="pipeline-totals" *ngIf="!loading()">
+          <div class="pt-block">
+            <span class="pt-label">Pedidos</span>
+            <span class="pt-value">{{ pipelineTotals().count }}</span>
+          </div>
+          <div class="pt-block">
+            <span class="pt-label">Valor</span>
+            <span class="pt-value">\${{ pipelineTotals().value | number:'1.2-2' }}</span>
+          </div>
+        </div>
+      </div>
+      <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+        <ng-template pTemplate="header">
+          <tr>
+            <th>Ruta</th>
+            <th class="num">Pedidos</th>
+            <th class="num">Confirmados</th>
+            <th class="num">Por aprobar</th>
+            <th class="num">Valor total</th>
+            <th>Más antiguo</th>
+            <th></th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-r>
+          <tr>
+            <td>
+              <strong *ngIf="r.route_id">{{ r.route_name }}</strong>
+              <span class="muted" *ngIf="!r.route_id">{{ r.route_name }}</span>
+            </td>
+            <td class="num strong">{{ r.orders_count }}</td>
+            <td class="num">{{ r.orders_confirmed }}</td>
+            <td class="num">
+              <span *ngIf="r.orders_pending_approval > 0" class="badge-warn">
+                {{ r.orders_pending_approval }}
+              </span>
+              <span *ngIf="r.orders_pending_approval === 0" class="muted">0</span>
+            </td>
+            <td class="num">\${{ r.total_value | number:'1.2-2' }}</td>
+            <td>
+              <span [pTooltip]="(r.oldest_order_at | date:'medium') || ''">
+                {{ ageOf(r.oldest_order_at) }}
+              </span>
+            </td>
+            <td class="num">
+              <a *ngIf="r.route_id" pButton
+                 icon="pi pi-plus" label="Embarque"
+                 size="small"
+                 [routerLink]="['/logistica/shipments']"
+                 [queryParams]="{ route_id: r.route_id }"
+                 pTooltip="Crear embarque para esta ruta"></a>
+              <span *ngIf="!r.route_id" class="muted is-small">Asigná ruta al cliente</span>
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr><td colspan="7" class="muted">Nada esperando embarque. Pipeline limpio. </td></tr>
+        </ng-template>
+      </p-table>
+    </p-card>
 
     <!-- Two-column section -->
     <div class="two-col">
@@ -209,6 +281,18 @@ import {
       100% { background-position: -200% 0; }
     }
 
+    :host ::ng-deep .p-card.pipeline-card { margin-bottom: 1rem; }
+    .pipeline-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:.75rem; flex-wrap:wrap; }
+    .pipeline-head h3 { margin:0 0 .25rem; font-size:1rem; }
+    .pipeline-head .muted code { background: var(--surface-100); padding:0 .3rem; border-radius:3px; font-size:.78rem; }
+    .pipeline-totals { display:flex; gap:1.25rem; }
+    .pt-block { display:flex; flex-direction:column; align-items:flex-end; }
+    .pt-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
+    .pt-value { font-size:1.1rem; font-weight:700; }
+    .badge-warn { background: var(--warn-soft-bg, rgba(245,158,11,.15)); color: var(--warn-fg, #b45309); font-weight:600; padding:.1rem .55rem; border-radius:999px; font-size:.82rem; }
+    .strong { font-weight:600; }
+    .is-small { font-size:.78rem; }
+
     .two-col {
       display:grid;
       grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
@@ -230,7 +314,28 @@ export class LogisticaDashboardComponent {
   readonly overview = signal<AnalyticsOverview | null>(null);
   readonly topShipments = signal<ShipmentProfitabilityRow[]>([]);
   readonly fleetRows = signal<FleetUtilizationRow[]>([]);
+  readonly pendingRows = signal<PendingByRouteRow[]>([]);
   readonly loading = signal(false);
+
+  readonly pipelineTotals = computed(() => {
+    const rows = this.pendingRows();
+    return {
+      count: rows.reduce((acc, r) => acc + r.orders_count, 0),
+      value: rows.reduce((acc, r) => acc + (Number(r.total_value) || 0), 0),
+    };
+  });
+
+  /** Antigüedad humana del pedido más viejo de una ruta (para alertar colas frías). */
+  ageOf(iso: string): string {
+    if (!iso) return '—';
+    const ms = Date.now() - new Date(iso).getTime();
+    const days = Math.floor(ms / 86400000);
+    if (days >= 1) return `${days}d`;
+    const hours = Math.floor(ms / 3600000);
+    if (hours >= 1) return `${hours}h`;
+    const mins = Math.max(1, Math.floor(ms / 60000));
+    return `${mins}m`;
+  }
 
   constructor() {
     this.reload();
@@ -249,11 +354,15 @@ export class LogisticaDashboardComponent {
       ov: this.api.analyticsOverview(f, t),
       top: this.api.shipmentProfitability({ from: f, to: t, limit: 10 }),
       fleet: this.api.fleetUtilization(f, t),
+      // El pipeline (pedidos sin embarque) NO depende del rango — es el snapshot
+      // actual de la cola operacional, así el operador siempre lo ve completo.
+      pending: this.api.pendingByRoute(),
     }).subscribe({
-      next: ({ ov, top, fleet }) => {
+      next: ({ ov, top, fleet, pending }) => {
         this.overview.set(ov);
         this.topShipments.set(top || []);
         this.fleetRows.set(fleet || []);
+        this.pendingRows.set(pending || []);
         this.loading.set(false);
       },
       error: () => {

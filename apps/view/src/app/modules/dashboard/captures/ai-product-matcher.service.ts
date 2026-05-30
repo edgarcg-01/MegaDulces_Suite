@@ -14,6 +14,8 @@ export interface MatchedProduct {
 export interface MatchedItem {
   raw: string;
   normalized: string;
+  /** Cantidad solicitada por el usuario (extraída por Claude). Default 1. */
+  quantity: number;
   suggested: (MatchedProduct & { autoConfirm: boolean }) | null;
   alternatives: MatchedProduct[];
 }

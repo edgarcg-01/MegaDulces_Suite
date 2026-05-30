@@ -3,12 +3,9 @@ import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 
 /**
- * Guard del Portal B2B. Requiere:
- *   - Sesión autenticada (token válido)
- *   - role_name === 'customer_b2b'
- *
- * Si no autenticado → redirect a /portal/login.
- * Si autenticado pero rol distinto → redirect a /dashboard (admin view).
+ * Guard del Portal B2B. Permite entrar a:
+ *   - customer_b2b (uso normal)
+ *   - superadmin (vista admin/QA desde /projects)
  */
 export const customerB2bGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
@@ -20,7 +17,7 @@ export const customerB2bGuard: CanActivateFn = () => {
   }
 
   const role = auth.user()?.role_name;
-  if (role !== 'customer_b2b') {
+  if (role !== 'customer_b2b' && role !== 'superadmin') {
     router.navigateByUrl('/dashboard');
     return false;
   }

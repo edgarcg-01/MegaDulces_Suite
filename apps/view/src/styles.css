@@ -13,17 +13,29 @@
 /*
  * PWA safe areas — iOS notch / Dynamic Island, Android punch-hole, iPad
  * home indicator. Activos cuando el meta viewport tiene `viewport-fit=cover`
- * (ver index.html). Sin estas utilities, elementos fixed/sticky o edge-anchored
- * quedan tapados por el notch o el home indicator.
+ * (ver index.html).
  *
- * Reglas:
- *   - Cualquier topbar/header fixed o sticky usa `safe-top` (o `pt-safe`).
- *   - Cualquier toolbar/footer fixed sticky abajo usa `safe-bottom`.
- *   - Drawers/modals full-height usan `safe-y`.
- *   - En landscape de devices notched, el notch puede estar a la izquierda
- *     o derecha — `safe-x` cubre ese caso.
- *   - Cuando el elemento YA tiene padding propio, usar las variantes `min-*`
- *     que aplican `max(padding-actual, safe-area-inset)` y nunca achican.
+ * IMPORTANTE — gotcha de cascade:
+ *   Estas clases SETEAN `padding-top/bottom/left/right` directamente. Si
+ *   las combinás con `py-4`, `px-6` u otro padding utility de Tailwind,
+ *   la última declaración gana — ESTAS clases reemplazan el padding, NO
+ *   suman al base. En navegador regular `env(safe-area-inset-*)` retorna
+ *   0, por lo que el elemento queda SIN padding ese eje.
+ *
+ *   Para SUMAR safe-area al padding base, usar Tailwind arbitrary value:
+ *     pt-[calc(1rem+env(safe-area-inset-top))]
+ *     pb-[calc(3rem+env(safe-area-inset-bottom))]
+ *
+ *   Estas clases (`safe-top`, etc.) son apropiadas cuando el elemento NO
+ *   tiene padding base (usa flex centering / min-h) o querés que el padding
+ *   sea exactamente el inset sin más.
+ *
+ * Reglas de uso:
+ *   - Topbar/sticky header con `min-h-X` + items flex-centered → `safe-top` OK.
+ *   - Header con `py-X` y contenido que necesita breathing room → calc() inline.
+ *   - Bottom nav fixed/sticky abajo → `safe-bottom` OK.
+ *   - Drawers/modals full-height sin padding propio → `safe-y` OK.
+ *   - Landscape notched devices → `safe-x` para edges laterales.
  */
 .safe-top    { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
@@ -102,6 +114,64 @@ button, [role="button"], [role="tab"] {
   --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1);
   --ease-spring:      cubic-bezier(0.34, 1.4, 0.5, 1);
   --ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);
+
+  /* ─────────────────────────────────────────────────────────────
+   * TYPE SCALE — escala estricta major-third (1.25 ratio).
+   * Solo estos tamaños se usan en /comercial y /portal.
+   * Cualquier font-size que NO sea uno de estos es un bug.
+   * ───────────────────────────────────────────────────────────── */
+  --fs-display: 2.5rem;   /* 40px — headline metric ONE per view */
+  --fs-h1:      1.875rem; /* 30px — page hero title */
+  --fs-h2:      1.25rem;  /* 20px — page standard title */
+  --fs-h3:      1rem;     /* 16px — panel title (cuando es necesario) */
+  --fs-body:    0.875rem; /* 14px — body default */
+  --fs-sm:      0.8125rem;/* 13px — cell body / table cell */
+  --fs-xs:      0.75rem;  /* 12px — small text / sub */
+  --fs-micro:   0.6875rem;/* 11px — uppercase label / chip */
+  --fs-nano:    0.625rem; /* 10px — micro label (último recurso) */
+
+  /* ─────────────────────────────────────────────────────────────
+   * WEIGHT — solo 4 pesos. No mezclar.
+   * ───────────────────────────────────────────────────────────── */
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-bold:    700;
+  --fw-black:   800;  /* solo en headline metric */
+
+  /* ─────────────────────────────────────────────────────────────
+   * COLOR ROLES — disciplina 3 capas + 1 acento + semánticos.
+   * Alias unificados sobre los tokens existentes del proyecto
+   * (--text-main, --brand-*, --ok-fg, etc.). Usar SIEMPRE estos
+   * aliases en nuevo código; reemplazan a:
+   *  - text-color-secondary (PrimeNG)
+   *  - text-color-primary (PrimeNG)
+   *  - primary-color (PrimeNG, azul leak)
+   *  - text-faint (legado)
+   * ───────────────────────────────────────────────────────────── */
+  --c-text-1: var(--text-main);                     /* fuerte: negro casi puro */
+  --c-text-2: var(--text-color-secondary, #6b7280); /* secundario: gris medio */
+  --c-text-3: var(--text-faint, #9ca3af);           /* muted: gris claro */
+
+  --c-surface-0: var(--layout-bg, #fafafa);         /* fondo de página */
+  --c-surface-1: var(--card-bg, #fff);              /* fondo de celda/panel */
+  --c-surface-2: var(--neutral-100, #f4f4f5);       /* hover, subtle bg */
+
+  --c-divider:   var(--border-color, #e4e4e7);      /* hairline 1px */
+
+  /* ÚNICO acento de marca — uso restricto:
+   *   1. Headline metric (1 por vista)
+   *   2. Active tab/chip
+   *   3. Hover row left-stripe
+   *   4. Focus ring
+   * Nunca en backgrounds amplios ni text body. */
+  --c-accent:    var(--brand-500, #F8B400);
+  --c-accent-fg: var(--brand-700, #B7860E);
+
+  /* SEMÁNTICOS — solo en pills, deltas, status dots, chart bars. */
+  --c-ok:    var(--ok-fg,   #16A34A);
+  --c-warn:  var(--warn-fg, #F59E0B);
+  --c-bad:   var(--bad-fg,  #DC2626);
+  --c-info:  var(--info-fg, #2563EB);
 }
 
 /*
@@ -1671,4 +1741,917 @@ input:focus, textarea:focus, select:focus {
   .liquid-tab {
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ============================================================
+ * PORTAL UI PRIMITIVES — clases utilitarias globales para
+ * mantener consistencia visual entre las 7 páginas del portal.
+ * Cualquier página de /portal/* DEBE usar estos building blocks
+ * antes de crear estilos custom.
+ *
+ * Jerarquía de radii:
+ *   xs (8px): pill / chip / tag pequeño
+ *   sm (10px): botón / input / qty stepper
+ *   md (14px): card estándar (tarjeta de pedido, línea, item)
+ *   lg (18px): hero / surface destacado (banner promo, modal)
+ *
+ * Jerarquía de spacing entre bloques:
+ *   compact: 0.75rem (dentro de cards)
+ *   default: 1.25rem (entre secciones del mismo nivel)
+ *   loose:   2rem    (entre secciones de distinta jerarquía)
+ * ============================================================ */
+
+/* ─── PAGE HEADER ──────────────────────────────────────────── */
+.portal-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.portal-page-head-text { min-width: 0; flex: 1; }
+.portal-page-head h1 {
+  margin: 0 0 0.25rem;
+  font-size: clamp(1.375rem, 3.5vw, 1.75rem);
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.portal-page-head .portal-page-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ─── EYEBROW (chip mini sobre H1) ─────────────────────────── */
+.portal-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: var(--neutral-100);
+  border: 1px solid var(--border-color);
+  padding: 0.2rem 0.625rem;
+  border-radius: 999px;
+  margin-bottom: 0.5rem;
+}
+.portal-eyebrow i { font-size: 0.65rem; opacity: 0.85; }
+
+/* ─── PRIMARY CTA (botón negro estandarizado) ──────────────── */
+.portal-btn-primary {
+  background: var(--neutral-900);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.625rem 1rem;
+  font-weight: 700;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 38px;
+  transition: filter 150ms var(--ease-standard), transform 120ms var(--ease-standard);
+}
+.portal-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+.portal-btn-primary:active:not(:disabled) { transform: translateY(0); }
+.portal-btn-primary:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.portal-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Variante grande: confirmaciones críticas (carrito, etc.) */
+.portal-btn-primary-lg {
+  width: 100%;
+  border-radius: 12px;
+  padding: 0.875rem 1.125rem;
+  font-size: 0.9375rem;
+  min-height: 48px;
+  box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.2);
+}
+
+/* Variante outline: acción secundaria neutra */
+.portal-btn-ghost {
+  background: transparent;
+  color: var(--text-main);
+  border: 1.5px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.5rem 0.875rem;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 38px;
+  transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard);
+}
+.portal-btn-ghost:hover:not(:disabled) {
+  background: var(--neutral-100);
+  border-color: var(--neutral-300);
+}
+.portal-btn-ghost:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+/* ─── SECTION HEAD (entre subsecciones de una página) ──────── */
+.portal-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+.portal-section-head h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-main);
+  letter-spacing: -0.005em;
+}
+.portal-section-head h2 i { color: var(--text-muted); font-size: 0.95rem; }
+.portal-section-link {
+  font-size: 0.8125rem;
+  color: var(--text-main);
+  text-decoration: underline;
+  text-decoration-color: var(--brand-500);
+  text-underline-offset: 3px;
+  font-weight: 600;
+  text-decoration-thickness: 2px;
+}
+.portal-section-count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── SURFACE CARD (radius 14, hover lift sutil) ───────────── */
+.portal-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  transition: border-color 150ms var(--ease-standard), box-shadow 200ms var(--ease-standard), transform 180ms var(--ease-standard);
+}
+.portal-card-hoverable:hover {
+  border-color: var(--neutral-300);
+  box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.10);
+  transform: translateY(-2px);
+}
+
+/* ─── EMPTY STATE consistente entre páginas ────────────────── */
+.portal-empty {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  background: var(--card-bg);
+  border: 1px dashed var(--border-color);
+  border-radius: 16px;
+  max-width: 480px;
+  margin: 2rem auto;
+}
+.portal-empty-icon {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 1rem;
+  border-radius: 18px;
+  background: var(--neutral-100);
+  color: var(--text-main);
+  display: grid;
+  place-items: center;
+  font-size: 1.875rem;
+}
+.portal-empty h2 {
+  margin: 0 0 0.375rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+.portal-empty p {
+  margin: 0 0 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+.portal-empty-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ─── STATUS PILL (estados de pedido en cualquier página) ──── */
+.portal-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--neutral-100);
+  color: var(--text-main);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.portal-status-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.portal-status-pill.is-draft     { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
+.portal-status-pill.is-pending   { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
+.portal-status-pill.is-confirmed { background: rgba(37, 99, 235, 0.12);  color: var(--info-fg); }
+.portal-status-pill.is-fulfilled { background: rgba(22, 163, 74, 0.12);  color: var(--ok-fg); }
+.portal-status-pill.is-cancelled { background: rgba(220, 38, 38, 0.12);  color: var(--bad-fg); }
+
+/* ─── INFO BANNER (admin warning, hint, etc.) ──────────────── */
+.portal-banner {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 12px;
+  background: var(--warn-soft-bg);
+  border: 1px solid var(--warn-border, var(--border-color));
+  color: var(--warn-soft-fg, var(--warn-fg));
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.portal-banner i { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-card,
+  .portal-card-hoverable,
+  .portal-btn-primary,
+  .portal-btn-ghost {
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+ * COMMERCIAL UI PRIMITIVES — utilidades globales para las páginas
+ * admin de /comercial/*. Layout más denso que /portal (table-heavy,
+ * form-heavy, dialog-heavy). Comparten:
+ *
+ *   .comm-page-head    — header con título + sub + acción
+ *   .comm-page-sub     — subtítulo gris debajo del H2
+ *   .comm-filters      — barra de filtros sobre p-table
+ *   .comm-form         — form vertical dentro de p-dialog
+ *   .comm-form-grid    — form 2 columnas
+ *   .comm-num          — celdas numéricas right-aligned, tabular
+ *   .comm-actions      — celda de acciones (pencil/trash/eye)
+ *   .comm-strong       — celda con peso 600
+ *   .comm-muted        — texto secundario gris
+ *   .comm-code         — chip <code> en celda de tabla
+ *
+ * Si /comercial/foo necesita estilos custom propios, agregarlos
+ * a su archivo local. Pero **no** redefinir estas utilidades.
+ * ============================================================ */
+
+/* ── PAGE WRAPPER spacing scale ──
+ * Aplicar en host wrapper si la página quiere max-width consistente. */
+.comm-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.comm-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.comm-page-head-text { min-width: 0; flex: 1; }
+.comm-page-head h1,
+.comm-page-head h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.comm-page-sub {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-color-secondary);
+  line-height: 1.45;
+}
+
+.comm-filters {
+  display: flex;
+  gap: 0.875rem 1.25rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.comm-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-secondary);
+}
+
+.comm-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.comm-num.is-strong { font-weight: 600; }
+
+.comm-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+.comm-strong { font-weight: 600; }
+.comm-cell-strong { font-weight: 600; color: var(--text-main); }
+
+.comm-muted {
+  color: var(--text-color-secondary);
+  font-size: 0.8125rem;
+  margin: 0;
+}
+.comm-muted.is-small { font-size: 0.7rem; line-height: 1.35; }
+
+/* ── STATUS PILLS extendidos para celdas (Active/Inactive/Default) ──
+ * Estilo monocromo con accent. Reemplaza <p-tag severity="success/danger/info">
+ * para Activo/Inactivo/Default en tablas de comercial. */
+.comm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.comm-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.comm-pill.is-active     { background: rgba(22, 163, 74, 0.10);  color: var(--ok-fg); }
+.comm-pill.is-inactive   { background: var(--neutral-100);        color: var(--text-color-secondary); }
+.comm-pill.is-default    { background: rgba(37, 99, 235, 0.10);  color: var(--info-fg); }
+.comm-pill.is-warn       { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
+.comm-pill.is-bad        { background: rgba(220, 38, 38, 0.12);  color: var(--bad-fg); }
+.comm-pill.is-neutral    { background: var(--neutral-100);        color: var(--text-main); }
+.comm-pill.is-brand      { background: rgba(248, 180, 0, 0.16);   color: var(--brand-700, var(--text-main)); }
+/* Pill sin punto (para chips de tipo de promoción, etc.) */
+.comm-pill.no-dot::before { display: none; }
+
+/* ── STAT CARD (info-card en order-detail u otros 3-cols) ─── */
+.comm-stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.comm-stat-card .comm-stat-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-secondary);
+}
+.comm-stat-card .comm-stat-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.25;
+  word-break: break-word;
+}
+.comm-stat-card .comm-stat-value.is-big {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+.comm-stat-card .comm-stat-sub {
+  font-size: 0.7rem;
+  color: var(--text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── TABLE refinos globales ──
+ * Aplica a TODA p-table dentro de páginas /comercial via descendant selectors.
+ * Tipografía de header más densa, hover sutil, sticky header opcional. */
+:where(.comm-page, app-comercial-orders, app-comercial-customers,
+       app-comercial-inventory, app-comercial-warehouses, app-comercial-pricing,
+       app-comercial-promotions, app-comercial-order-detail) .p-datatable thead th {
+  font-size: 0.7rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--text-color-secondary) !important;
+  padding: 0.6rem 0.75rem !important;
+}
+:where(.comm-page, app-comercial-orders, app-comercial-customers,
+       app-comercial-inventory, app-comercial-warehouses, app-comercial-pricing,
+       app-comercial-promotions, app-comercial-order-detail) .p-datatable tbody td {
+  padding: 0.55rem 0.75rem !important;
+  font-size: 0.8125rem !important;
+  vertical-align: middle;
+}
+:where(app-comercial-orders, app-comercial-customers) .p-datatable tbody tr:hover {
+  background: var(--neutral-100) !important;
+}
+
+.comm-row-clickable { cursor: pointer; }
+
+code.comm-code,
+.comm-code {
+  background: var(--surface-100);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.comm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.comm-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-color-secondary);
+}
+.comm-form em {
+  color: var(--bad-fg);
+  font-style: normal;
+}
+.comm-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+}
+.comm-form-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-color-secondary);
+}
+.comm-form-grid > label.full { grid-column: span 2; }
+.comm-form-grid em {
+  color: var(--bad-fg);
+  font-style: normal;
+}
+.comm-form .checkbox-line,
+.comm-form-grid .checkbox-line {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+.comm-form-hint {
+  background: var(--info-soft-bg);
+  color: var(--info-soft-fg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.comm-form-grid > .comm-form-hint.full,
+.comm-form-grid > .full {
+  grid-column: span 2;
+}
+
+/* ============================================================
+ * SURFACE / PANEL / METRIC — sistema nuevo data-first para
+ * dashboards densos (command-center, analytics). Diseñado para
+ * REEMPLAZAR <p-card> en /comercial y maximizar uso de pantalla.
+ *
+ * Reglas:
+ *  - Chrome mínimo: 1px hairline border, 0 shadow base, radius 10px.
+ *  - Edge-to-edge: page padding solo lateral, no max-width artificial.
+ *  - Tipografía dramática: numbers 3x el tamaño del label.
+ *  - Color discipline: brand-500 solo en activo/primario; neutrals
+ *    para todo lo demás.
+ * ============================================================ */
+
+/* PAGE wrapper sin max-width (aprovecha 100% viewport).
+   Padding solo horizontal, top y bottom controlados por
+   gap entre paneles. */
+.surf-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0 1.5rem 2rem;
+  width: 100%;
+}
+@media (max-width: 768px) {
+  .surf-page { padding: 0 1rem 1.5rem; }
+}
+
+/* PAGE HEAD edge-to-edge */
+.surf-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  padding: 1rem 0 0.5rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+.surf-page-head-text { min-width: 0; flex: 1; }
+/* TITLE ROLES — un único H1 por página (page-head).
+ * Tamaño: --fs-h1 standard, --fs-display si es página tipo "centro de control" hero. */
+.surf-page-head h1,
+.surf-page-head h2 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-bold);
+  color: var(--c-text-1);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+.surf-page-sub {
+  margin: 0.375rem 0 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* GRID 12 cols sistema panel */
+.surf-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 0.75rem;
+}
+.panel-col-3  { grid-column: span 12; }
+.panel-col-4  { grid-column: span 12; }
+.panel-col-6  { grid-column: span 12; }
+.panel-col-8  { grid-column: span 12; }
+.panel-col-12 { grid-column: span 12; }
+@media (min-width: 720px) {
+  .panel-col-3 { grid-column: span 6; }
+  .panel-col-4 { grid-column: span 6; }
+  .panel-col-6 { grid-column: span 12; }
+  .panel-col-8 { grid-column: span 12; }
+}
+@media (min-width: 1080px) {
+  .panel-col-3 { grid-column: span 3; }
+  .panel-col-4 { grid-column: span 4; }
+  .panel-col-6 { grid-column: span 6; }
+  .panel-col-8 { grid-column: span 8; }
+}
+
+/* PANEL: superficie base sin chrome de framework */
+.surf-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.surf-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--card-bg);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.surf-panel-head h3 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-secondary);
+}
+.surf-panel-head h3 i {
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+}
+.surf-panel-body { padding: 1rem; }
+.surf-panel-body.is-flush { padding: 0; }
+
+/* METRIC TILE: número grande dramatico, label muy pequeño */
+.metric-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.125rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  min-height: 110px;
+  overflow: hidden;
+}
+.metric-tile::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--neutral-300, var(--border-color));
+}
+.metric-tile.is-brand::before { background: var(--brand-500); }
+.metric-tile.is-ok::before    { background: var(--ok-fg); }
+.metric-tile.is-warn::before  { background: var(--warn-fg); }
+.metric-tile.is-bad::before   { background: var(--bad-fg); }
+.metric-tile.is-info::before  { background: var(--info-fg); }
+
+.metric-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-color-secondary);
+  line-height: 1;
+}
+.metric-value {
+  font-size: 1.875rem;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.025em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.metric-sub {
+  font-size: 0.7rem;
+  color: var(--text-color-secondary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  margin-top: auto;
+}
+
+/* DATA TABLE: chrome-free, hairlines, sticky header, row hover lateral */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--c-surface-1);
+  z-index: 1;
+  text-align: left;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-2);
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--c-divider);
+  white-space: nowrap;
+}
+.data-table tbody td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--c-divider);
+  color: var(--c-text-1);
+  vertical-align: middle;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr {
+  position: relative;
+  transition: background-color 80ms ease;
+}
+.data-table tbody tr:hover {
+  background: var(--neutral-100, var(--surface-100));
+}
+.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--brand-500);
+}
+.data-table .num { text-align: right; }
+.data-table .strong { font-weight: 600; color: var(--text-main); }
+.data-table .muted { color: var(--text-color-secondary); }
+.data-table .small { font-size: 0.7rem; }
+
+/* DATA TABLE scroll container con sticky header funcional */
+.data-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-table tbody tr { transition: none; }
+}
+
+/* ============================================================
+ * SHEET / CELL — dashboard BI clásico estilo Salesforce/Tableau.
+ * Celdas pegadas, divididas por hairlines 1px (NO gap visual,
+ * NO radius interior). Un único panel grande dividido.
+ *
+ * Trick: parent bg = border-color, children bg = card-bg,
+ * gap: 1px → el gap "revela" el bg parent = hairline divider.
+ * ============================================================ */
+
+.sheet {
+  display: grid;
+  gap: 1px;
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sheet.cols-2  { grid-template-columns: repeat(2, 1fr); }
+.sheet.cols-3  { grid-template-columns: repeat(3, 1fr); }
+.sheet.cols-4  { grid-template-columns: repeat(4, 1fr); }
+.sheet.cols-12 { grid-template-columns: repeat(12, 1fr); }
+
+/* Span helpers para sheets de 12 cols */
+.cell-span-2  { grid-column: span 12; }
+.cell-span-3  { grid-column: span 12; }
+.cell-span-4  { grid-column: span 12; }
+.cell-span-5  { grid-column: span 12; }
+.cell-span-6  { grid-column: span 12; }
+.cell-span-7  { grid-column: span 12; }
+.cell-span-8  { grid-column: span 12; }
+.cell-span-12 { grid-column: span 12; }
+.cell-row-2   { grid-row: span 1; }
+@media (min-width: 720px) {
+  .cell-span-2  { grid-column: span 6; }
+  .cell-span-3  { grid-column: span 6; }
+  .cell-span-4  { grid-column: span 6; }
+  .cell-span-5  { grid-column: span 12; }
+  .cell-span-6  { grid-column: span 12; }
+  .cell-span-7  { grid-column: span 12; }
+  .cell-span-8  { grid-column: span 12; }
+}
+@media (min-width: 1080px) {
+  .cell-span-2  { grid-column: span 2; }
+  .cell-span-3  { grid-column: span 3; }
+  .cell-span-4  { grid-column: span 4; }
+  .cell-span-5  { grid-column: span 5; }
+  .cell-span-6  { grid-column: span 6; }
+  .cell-span-7  { grid-column: span 7; }
+  .cell-span-8  { grid-column: span 8; }
+  .cell-row-2   { grid-row: span 2; }
+}
+
+.cell {
+  position: relative;
+  background: var(--card-bg);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-width: 0;
+  min-height: 100%;
+}
+.cell.is-flush { padding: 0; }
+.cell.is-tight { padding: 1rem 1.125rem; }
+
+/* CELL ICON: badge cuadrado top-right, semántico opcional.
+ * Comunica el tipo de métrica de un vistazo sin saturar visualmente. */
+.cell-icon {
+  position: absolute;
+  top: 1.125rem;
+  right: 1.25rem;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+.cell-icon.is-accent { background: rgba(248, 180, 0, 0.15); color: var(--c-accent-fg); }
+.cell-icon.is-ok     { background: rgba(22, 163, 74, 0.12); color: var(--c-ok); }
+.cell-icon.is-warn   { background: rgba(245, 158, 11, 0.14); color: var(--c-warn); }
+.cell-icon.is-bad    { background: rgba(220, 38, 38, 0.12); color: var(--c-bad); }
+.cell-icon.is-info   { background: rgba(37, 99, 235, 0.12); color: var(--c-info); }
+
+/* Reservar espacio para el icono en el header label */
+.cell-icon ~ .cell-label,
+.cell:has(.cell-icon) .cell-label { padding-right: 2.5rem; }
+
+/* CELL LABEL: el "header" inline — micro caps. */
+.cell-label {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-2);
+  line-height: 1.2;
+  margin: 0;
+}
+
+/* CELL VALUE: número grande, escala estricta.
+ *   - default:    --fs-h1   (1.875rem) bold neutro
+ *   - is-headline:--fs-display (2.5rem) black + accent (1 por vista)
+ *   - is-medium:  --fs-h2   (1.25rem) bold
+ *   - is-small:   --fs-h3   (1rem) bold
+ */
+.cell-value {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.025em;
+  color: var(--c-text-1);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+.cell-value.is-headline {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-black);
+  color: var(--c-accent-fg);
+  letter-spacing: -0.03em;
+}
+.cell-value.is-medium { font-size: var(--fs-h2); }
+.cell-value.is-small  { font-size: var(--fs-h3); }
+
+/* CELL SUB: subtítulo bajo el valor */
+.cell-sub {
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  line-height: 1.4;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* CELL HEAD: variante para celdas con encabezado + table inside */
+.cell-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.cell-head .cell-label { margin: 0; }
+
+/* Tables dentro de celdas (sin chrome adicional) */
+.cell .data-table { font-size: 0.8125rem; }
+.cell .data-table thead th {
+  background: var(--card-bg);
+  padding: 0.5rem 1.25rem;
+}
+.cell .data-table tbody td {
+  padding: 0.6rem 1.25rem;
 }

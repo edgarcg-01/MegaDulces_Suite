@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -8,8 +9,10 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TimelineModule } from 'primeng/timeline';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { ComercialService, OrderDetail, OrderHistoryEntry, OrderStatus } from '../comercial.service';
+import { ComercialService, OrderDetail, OrderHistoryEntry, OrderLine, OrderStatus } from '../comercial.service';
 import { LogisticaService, Shipment, ShipmentStatus } from '../../logistica/logistica.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -19,6 +22,7 @@ import { Permission } from '../../../core/constants/permissions';
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     RouterLink,
     ButtonModule,
     CardModule,
@@ -27,6 +31,8 @@ import { Permission } from '../../../core/constants/permissions';
     ToastModule,
     ConfirmDialogModule,
     TimelineModule,
+    InputNumberModule,
+    TooltipModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -38,12 +44,19 @@ import { Permission } from '../../../core/constants/permissions';
     </div>
 
     <ng-container *ngIf="order() as o">
-      <div class="hero">
-        <div>
-          <h2><code>{{ o.folio }}</code></h2>
-          <p class="muted">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
+      <div class="comm-page-head">
+        <div class="comm-page-head-text">
+          <h2><code class="comm-code">{{ o.folio }}</code></h2>
+          <p class="comm-page-sub">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
         </div>
         <div class="hero-tags">
+          <p-tag
+            *ngIf="o.route_name"
+            severity="info"
+            [value]="o.route_name"
+            icon="pi pi-directions"
+            pTooltip="Ruta de reparto asignada al cliente"
+          ></p-tag>
           <p-tag
             [severity]="o.delivery_type === 'long_trip' ? 'warn' : 'info'"
             [value]="o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta'"
@@ -54,51 +67,107 @@ import { Permission } from '../../../core/constants/permissions';
       </div>
 
       <div class="grid">
-        <p-card header="Cliente" styleClass="info-card">
-          <div class="strong">{{ o.customer_name || o.customer_id }}</div>
-        </p-card>
-        <p-card header="Almacén" styleClass="info-card">
-          <div class="strong">{{ o.warehouse_name || '—' }}</div>
-        </p-card>
-        <p-card header="Total" styleClass="info-card">
-          <div class="strong big">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</div>
-          <div class="muted small" *ngIf="o.discount_total">Descuento: {{ o.discount_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</div>
-        </p-card>
+        <article class="comm-stat-card">
+          <span class="comm-stat-label">Cliente</span>
+          <span class="comm-stat-value">{{ o.customer_name || o.customer_id }}</span>
+        </article>
+        <article class="comm-stat-card">
+          <span class="comm-stat-label">Almacén</span>
+          <span class="comm-stat-value">{{ o.warehouse_name || '—' }}</span>
+        </article>
+        <article class="comm-stat-card">
+          <span class="comm-stat-label">Total</span>
+          <span class="comm-stat-value is-big">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          <span class="comm-stat-sub" *ngIf="o.discount_total">Descuento: {{ o.discount_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+        </article>
       </div>
 
       <p-card header="Líneas">
+        <div class="lines-banner" *ngIf="o.status === 'pending_approval'">
+          <i class="pi pi-info-circle"></i>
+          <span>
+            Revisá producto por producto. Ajustá la cantidad según stock disponible,
+            o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
+          </span>
+        </div>
         <p-table [value]="o.lines" responsiveLayout="scroll" styleClass="p-datatable-sm">
           <ng-template pTemplate="header">
             <tr>
               <th>Producto</th>
-              <th class="num">Cantidad</th>
-              <th class="num">Precio unit</th>
-              <th class="num">Desc%</th>
-              <th class="num">Total línea</th>
+              <th class="comm-num">Cantidad pedida</th>
+              <th class="comm-num">Stock disponible</th>
+              <th class="comm-num" *ngIf="o.status === 'pending_approval'">Cantidad a aprobar</th>
+              <th class="comm-num">Precio unit</th>
+              <th class="comm-num">Desc%</th>
+              <th class="comm-num">Total línea</th>
+              <th *ngIf="o.status === 'pending_approval'"></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
-            <tr>
+            <tr [class.line-shortfall]="lineShortfall(l, o)">
               <td>
-                <div class="strong">{{ l.product_name || l.product_id }}</div>
-                <div class="muted small" *ngIf="l.brand_name">{{ l.brand_name }}</div>
+                <div class="comm-cell-strong">{{ l.product_name || l.product_id }}</div>
+                <div class="comm-muted is-small" *ngIf="l.brand_name">{{ l.brand_name }}</div>
               </td>
-              <td class="num">{{ l.quantity }}</td>
-              <td class="num">{{ l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num">{{ (l.discount_percent * 100) | number:'1.0-1' }}%</td>
-              <td class="num strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="comm-num">
+                <strong>{{ requestedQty(l) }}</strong>
+                <div class="comm-muted is-small" *ngIf="o.status === 'pending_approval' && Number(l.quantity) < requestedQty(l)">
+                  recortado a {{ l.quantity }}
+                </div>
+              </td>
+              <td class="comm-num">
+                <span class="stock-chip" [class.is-short]="lineShortfall(l, o)">
+                  {{ stockAvailableNum(l) }}
+                </span>
+              </td>
+              <td class="comm-num" *ngIf="o.status === 'pending_approval'">
+                <div class="qty-edit">
+                  <p-inputNumber
+                    [ngModel]="l.quantity"
+                    (onBlur)="onLineQtyBlur(l, $any($event).target?.value, o)"
+                    (onKeyDown)="$any($event).key === 'Enter' && $any($event).target.blur()"
+                    [min]="1"
+                    [max]="approvableMax(l)"
+                    [showButtons]="true"
+                    buttonLayout="horizontal"
+                    spinnerMode="horizontal"
+                    incrementButtonIcon="pi pi-plus"
+                    decrementButtonIcon="pi pi-minus"
+                    inputStyleClass="qty-input"
+                    [disabled]="savingLineId() === l.id"
+                  ></p-inputNumber>
+                  <i *ngIf="savingLineId() === l.id" class="pi pi-spin pi-spinner saving-spinner"></i>
+                </div>
+                <div class="comm-muted is-small">
+                  tope: {{ approvableMax(l) }} / {{ requestedQty(l) }}
+                </div>
+              </td>
+              <td class="comm-num">{{ l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td class="comm-num">{{ (l.discount_percent * 100) | number:'1.0-1' }}%</td>
+              <td class="comm-num is-strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+              <td *ngIf="o.status === 'pending_approval'" class="comm-actions">
+                <button pButton icon="pi pi-trash"
+                        size="small" severity="danger" [text]="true"
+                        [disabled]="savingLineId() === l.id"
+                        (click)="confirmRemoveLine(l, o)"
+                        pTooltip="Quitar línea (libera reserva)"></button>
+              </td>
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="5" class="muted">Sin líneas en este pedido.</td></tr>
+            <tr><td [attr.colspan]="o.status === 'pending_approval' ? 8 : 6" class="comm-muted">Sin líneas en este pedido.</td></tr>
           </ng-template>
         </p-table>
       </p-card>
 
-      <div class="action-bar" *ngIf="o.status === 'draft' || o.status === 'confirmed'">
+      <div class="action-bar" *ngIf="o.status === 'draft' || o.status === 'pending_approval' || o.status === 'confirmed'">
         <button pButton *ngIf="o.status === 'draft'" label="Confirmar pedido" icon="pi pi-check"
                 [loading]="actioning()"
                 (click)="confirmTransition('confirm', o)"></button>
+        <button pButton *ngIf="o.status === 'pending_approval'" label="Aprobar pedido" icon="pi pi-check-circle"
+                [loading]="actioning()"
+                severity="info"
+                (click)="confirmTransition('approve', o)"></button>
         <button pButton *ngIf="o.status === 'confirmed'" label="Marcar entregado" icon="pi pi-truck"
                 [loading]="actioning()"
                 severity="success"
@@ -116,7 +185,7 @@ import { Permission } from '../../../core/constants/permissions';
             <div>
               <i class="pi pi-truck"></i>
               <strong>Embarques de logística</strong>
-              <span class="muted small" *ngIf="shipments().length"> · {{ shipments().length }} asociados</span>
+              <span class="comm-muted is-small" *ngIf="shipments().length"> · {{ shipments().length }} asociados</span>
             </div>
             <button pButton *ngIf="canCreateShipment(o)" icon="pi pi-plus" label="Crear embarque"
                     size="small"
@@ -137,19 +206,19 @@ import { Permission } from '../../../core/constants/permissions';
           </ng-template>
           <ng-template pTemplate="body" let-s>
             <tr>
-              <td><code>{{ s.folio }}</code></td>
+              <td><code class="comm-code">{{ s.folio }}</code></td>
               <td>{{ s.shipment_date | date:'shortDate' }}</td>
               <td>{{ s.type }}</td>
-              <td class="muted">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
+              <td class="comm-muted">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
               <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
-              <td class="actions">
+              <td class="comm-actions">
                 <a pButton icon="pi pi-arrow-right" size="small" [text]="true"
                    [routerLink]="['/logistica/shipments', s.id]" pTooltip="Ver embarque"></a>
               </td>
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="muted">
+            <tr><td colspan="6" class="comm-muted">
               {{ canCreateShipment(o) ? 'Sin embarques. Crear uno para enviar este pedido.' : 'Sin embarques registrados.' }}
             </td></tr>
           </ng-template>
@@ -162,8 +231,8 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="event">
               <div class="event-headline">
                 <p-tag [severity]="severity(event.to_status)" [value]="statusLabel(event.to_status)"></p-tag>
-                <span class="muted small" *ngIf="event.from_status">desde {{ statusLabel(event.from_status) }}</span>
-                <span class="muted small" *ngIf="!event.from_status">creación</span>
+                <span class="comm-muted is-small" *ngIf="event.from_status">desde {{ statusLabel(event.from_status) }}</span>
+                <span class="comm-muted is-small" *ngIf="!event.from_status">creación</span>
               </div>
               <div class="event-meta">
                 <span><i class="pi pi-user"></i> {{ event.changed_by_username }}</span>
@@ -173,7 +242,7 @@ import { Permission } from '../../../core/constants/permissions';
             </div>
           </ng-template>
         </p-timeline>
-        <div *ngIf="history().length === 0" class="muted">Sin historial registrado.</div>
+        <div *ngIf="history().length === 0" class="comm-muted">Sin historial registrado.</div>
       </p-card>
     </ng-container>
 
@@ -188,17 +257,10 @@ import { Permission } from '../../../core/constants/permissions';
   styles: [`
     :host { display:block; }
     .topbar { margin-bottom: .5rem; }
-    .hero { display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; }
-    .hero h2 { margin:0 0 .25rem; font-size:1.5rem; }
-    .muted { color: var(--text-color-secondary); }
-    .muted.small { font-size:.8rem; }
-    .strong { font-weight: 600; }
+    .comm-page-head h2 { font-size: 1.5rem; }
     .big { font-size: 1.5rem; }
-    .grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:1rem; margin-bottom:1.25rem; }
-    /* styleClass aplica la clase AL .p-card, no a un descendiente. */
-    :host ::ng-deep .p-card.info-card .p-card-body { padding: 1rem 1.25rem; }
-    .num { text-align: right; }
-    code { background: var(--surface-100); padding:.2rem .5rem; border-radius:4px; }
+    .grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.75rem; margin-bottom:1.25rem; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
     .action-bar { display:flex; gap:.75rem; margin: 1rem 0 1.25rem; }
     :host ::ng-deep .status-timeline { padding: .25rem 0; }
     .event { padding:.5rem 0; }
@@ -212,7 +274,14 @@ import { Permission } from '../../../core/constants/permissions';
     :host ::ng-deep .p-card.logistics-card { margin-top: 1.25rem; }
     .logistics-header { display:flex; justify-content:space-between; align-items:center; padding: 0 1rem; }
     .logistics-header i { margin-right: .35rem; color: var(--primary-color); }
-    .actions { display:flex; justify-content:flex-end; gap:.25rem; }
+    .lines-banner { display:flex; gap:.5rem; align-items:flex-start; background: var(--info-soft-bg, rgba(59,130,246,.08)); color: var(--info-soft-fg, #1e40af); padding:.6rem .8rem; border-radius:6px; font-size:.85rem; margin-bottom:.75rem; }
+    .lines-banner i { margin-top:.15rem; }
+    .qty-edit { display:inline-flex; align-items:center; gap:.4rem; justify-content:flex-end; }
+    :host ::ng-deep .qty-edit .qty-input { width: 4.5rem; text-align:right; }
+    .saving-spinner { color: var(--primary-color); font-size:.85rem; }
+    .stock-chip { display:inline-block; padding:.15rem .55rem; border-radius:999px; background: var(--surface-100); font-weight:500; font-size:.82rem; }
+    .stock-chip.is-short { background: var(--danger-soft-bg, rgba(239,68,68,.12)); color: var(--danger-fg, #b91c1c); font-weight:600; }
+    tr.line-shortfall { background: var(--danger-soft-bg, rgba(239,68,68,.06)); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -231,6 +300,82 @@ export class ComercialOrderDetailComponent {
   readonly actioning = signal(false);
   readonly shipments = signal<Shipment[]>([]);
   readonly loadingShipments = signal(false);
+  readonly savingLineId = signal<string | null>(null);
+
+  /** Helper para usar Number() en el template. */
+  readonly Number = Number;
+
+  stockAvailableNum(l: OrderLine): number {
+    return Number(l.stock_available ?? 0);
+  }
+
+  /** Cantidad original que pidió el cliente (snapshot al confirmar). */
+  requestedQty(l: OrderLine): number {
+    return Number(l.requested_quantity ?? l.quantity ?? 0);
+  }
+
+  /**
+   * Tope al que se puede aprobar la línea: nunca más de lo que pidió el cliente
+   * ni más de lo que hay disponible. Si la línea ya está por encima de uno de
+   * los dos (data legacy), se mantiene el valor actual como piso para no
+   * bloquear el input.
+   */
+  approvableMax(l: OrderLine): number {
+    const cap = Math.min(this.requestedQty(l), this.stockAvailableNum(l));
+    const qty = Number(l.quantity) || 0;
+    return Math.max(cap, qty);
+  }
+
+  /** True si la cantidad aprobada excede el stock disponible (alerta visual). */
+  lineShortfall(l: OrderLine, o: OrderDetail): boolean {
+    if (o.status !== 'pending_approval') return false;
+    return Number(l.quantity) > this.stockAvailableNum(l);
+  }
+
+  onLineQtyBlur(l: OrderLine, raw: any, o: OrderDetail): void {
+    const next = Math.max(1, Number(raw) || 0);
+    if (next === Number(l.quantity)) return;
+    this.savingLineId.set(l.id);
+    this.api.updateOrderLine(o.id, l.id, { quantity: next }).subscribe({
+      next: () => {
+        this.savingLineId.set(null);
+        this.toast.add({ severity: 'success', summary: 'Cantidad actualizada', life: 1800 });
+        this.load(o.id);
+      },
+      error: (err) => {
+        this.savingLineId.set(null);
+        const detail = err?.error?.message || 'No se pudo actualizar la línea';
+        this.toast.add({ severity: 'error', summary: 'Error', detail, life: 6000 });
+        this.load(o.id);
+      },
+    });
+  }
+
+  confirmRemoveLine(l: OrderLine, o: OrderDetail): void {
+    this.confirm.confirm({
+      message: `¿Quitar "${l.product_name || l.product_id}" del pedido? Libera la reserva de stock.`,
+      header: 'Quitar línea',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, quitar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => {
+        this.savingLineId.set(l.id);
+        this.api.removeOrderLine(o.id, l.id).subscribe({
+          next: () => {
+            this.savingLineId.set(null);
+            this.toast.add({ severity: 'success', summary: 'Línea quitada' });
+            this.load(o.id);
+          },
+          error: (err) => {
+            this.savingLineId.set(null);
+            const detail = err?.error?.message || 'No se pudo quitar la línea';
+            this.toast.add({ severity: 'error', summary: 'Error', detail });
+          },
+        });
+      },
+    });
+  }
 
   readonly canSeeLogistics = computed(() => {
     const perms = this.auth.user()?.permissions || {};
@@ -292,9 +437,10 @@ export class ComercialOrderDetailComponent {
     this.router.navigate(['/comercial/orders']);
   }
 
-  confirmTransition(action: 'confirm' | 'fulfill' | 'cancel', o: OrderDetail): void {
+  confirmTransition(action: 'confirm' | 'approve' | 'fulfill' | 'cancel', o: OrderDetail): void {
     const msg = {
       confirm: `¿Confirmar pedido ${o.folio}? Esto reserva el stock.`,
+      approve: `¿Aprobar pedido ${o.folio}? Pasa a 'confirmed' y notifica al cliente.`,
       fulfill: `¿Marcar pedido ${o.folio} como entregado? Esto consume el stock reservado.`,
       cancel: `¿Cancelar pedido ${o.folio}? Esta acción libera reservas.`,
     }[action];
@@ -310,11 +456,13 @@ export class ComercialOrderDetailComponent {
     });
   }
 
-  private runTransition(action: 'confirm' | 'fulfill' | 'cancel', id: string): void {
+  private runTransition(action: 'confirm' | 'approve' | 'fulfill' | 'cancel', id: string): void {
     this.actioning.set(true);
     const obs =
       action === 'confirm'
         ? this.api.confirmOrder(id)
+        : action === 'approve'
+        ? this.api.approveOrder(id)
         : action === 'fulfill'
         ? this.api.fulfillOrder(id)
         : this.api.cancelOrder(id);
@@ -335,11 +483,18 @@ export class ComercialOrderDetailComponent {
   severity(s: OrderStatus | null): 'info' | 'success' | 'warn' | 'danger' {
     if (s === 'fulfilled') return 'success';
     if (s === 'confirmed') return 'info';
+    if (s === 'pending_approval') return 'warn';
     if (s === 'cancelled') return 'danger';
     return 'warn';
   }
   statusLabel(s: OrderStatus | null): string {
     if (!s) return 'inicial';
-    return { draft: 'Borrador', confirmed: 'Confirmado', fulfilled: 'Entregado', cancelled: 'Cancelado' }[s];
+    return {
+      draft: 'Borrador',
+      pending_approval: 'Pendiente',
+      confirmed: 'Confirmado',
+      fulfilled: 'Entregado',
+      cancelled: 'Cancelado',
+    }[s];
   }
 }

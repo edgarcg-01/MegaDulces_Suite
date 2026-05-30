@@ -186,6 +186,9 @@ export class CommercialPricingService {
             'pp.tenant_id',
           );
         })
+        .leftJoin('public.brands as b', function () {
+          this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
+        })
         .whereNull('pp.deleted_at')
         .where('pp.price_list_id', priceListId);
 
@@ -201,6 +204,8 @@ export class CommercialPricingService {
         'pp.id',
         'pp.product_id',
         'p.nombre as product_name',
+        'p.brand_id as brand_id',
+        'b.nombre as brand_name',
         'pp.price',
         'pp.tax_rate',
         'pp.min_qty',
@@ -209,7 +214,7 @@ export class CommercialPricingService {
         // stock_available = quantity - reserved. Si no hay row en stock → null.
         selects.push(
           trx.raw(
-            'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved, 0), 0) END AS stock_available',
+            'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
           ),
         );
       } else {

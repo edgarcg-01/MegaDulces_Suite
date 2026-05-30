@@ -1,11 +1,15 @@
 <div class="min-h-[100dvh] bg-surface-layout">
 
   <!--
-    Top Bar. `safe-top` + `safe-x` para que el header pinte detrás del notch
-    pero el contenido (saludo + botón logout) quede debajo de él. En landscape
-    de iPhones notched, `safe-x` agrega el padding lateral del notch.
+    Top Bar. Padding-top y laterales con `calc(base + env(...))` para que
+    SUMEN al padding base — la clase `safe-top` por sí sola REEMPLAZA el
+    padding-top de `py-4`, así que en browser regular (env=0) el título
+    pegaba contra el borde, y en PWA standalone con notch quedaba sin
+    breathing room. Con calc() el padding crece sumando el inset.
   -->
-  <header class="bg-surface-card border-b border-divider px-6 py-4 safe-top safe-x">
+  <header
+    class="bg-surface-card border-b border-divider pb-4 pt-[calc(1rem+env(safe-area-inset-top))] pl-[calc(1.5rem+env(safe-area-inset-left))] pr-[calc(1.5rem+env(safe-area-inset-right))]"
+  >
     <div class="max-w-6xl mx-auto flex items-center justify-between">
       <div>
         <h1 class="text-headline text-content-main">Plataforma Operativa</h1>
@@ -29,11 +33,12 @@
   </header>
 
   <!--
-    Main content. `safe-x` evita que las cards queden tapadas por el notch
-    en landscape; `safe-bottom` mantiene la última card visible sobre el
-    home indicator si el grid llega al borde inferior.
+    Main content. Mismo patrón `calc(base + env(...))` para sumar safe-area
+    al padding base sin que se reemplacen entre sí.
   -->
-  <main class="max-w-6xl mx-auto px-6 py-12 safe-x safe-bottom">
+  <main
+    class="max-w-6xl mx-auto pt-12 pb-[calc(3rem+env(safe-area-inset-bottom))] pl-[calc(1.5rem+env(safe-area-inset-left))] pr-[calc(1.5rem+env(safe-area-inset-right))]"
+  >
 
     <!-- Greeting -->
     <div class="mb-10">

@@ -15,6 +15,8 @@ interface ProjectCard {
   status: string;
   /** Si el usuario tiene CUALQUIERA de estas perms, ve el proyecto. */
   anyOf: Permission[];
+  /** Si está set, además del anyOf el rol debe estar en esta lista. */
+  roleOnly?: string[];
 }
 
 @Component({
@@ -103,6 +105,16 @@ export class ProjectsComponent implements OnInit {
       status: 'Activo',
       anyOf: [Permission.USUARIOS_GESTIONAR, Permission.ROLES_CONFIGURAR],
     },
+    {
+      id: 'portal-b2b',
+      name: 'Portal B2B (vista cliente)',
+      description: 'Vista del cliente final: catálogo con sus precios, carrito, pedidos y recomendaciones. Solo para super-admins (administración/QA).',
+      icon: 'pi pi-shop',
+      route: '/portal',
+      status: 'Super-admin',
+      anyOf: [Permission.USUARIOS_GESTIONAR, Permission.ROLES_CONFIGURAR],
+      roleOnly: ['superadmin'],
+    },
   ];
 
   /**
@@ -110,10 +122,13 @@ export class ProjectsComponent implements OnInit {
    * Usa el JWT legacy permissions record (más completo que CASL para perms commercial).
    */
   readonly projects = computed(() => {
-    const legacyPerms = this.user()?.permissions || {};
-    return this.allProjects.filter((p) =>
-      p.anyOf.some((perm) => legacyPerms[perm] === true),
-    );
+    const u = this.user();
+    const legacyPerms = u?.permissions || {};
+    const role = u?.role_name;
+    return this.allProjects.filter((p) => {
+      if (p.roleOnly && (!role || !p.roleOnly.includes(role))) return false;
+      return p.anyOf.some((perm) => legacyPerms[perm] === true);
+    });
   });
 
   ngOnInit(): void {

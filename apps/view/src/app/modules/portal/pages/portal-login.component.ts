@@ -4,7 +4,6 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { CardModule } from 'primeng/card';
 import { MessageModule } from 'primeng/message';
 import { AuthService } from '../../../core/services/auth.service';
 
@@ -16,21 +15,54 @@ import { AuthService } from '../../../core/services/auth.service';
     ReactiveFormsModule,
     ButtonModule,
     InputTextModule,
-    CardModule,
     MessageModule,
   ],
   template: `
-    <div class="login-wrap">
-      <p-card styleClass="login-card">
-        <ng-template pTemplate="header">
-          <div class="login-header">
-            <i class="pi pi-shopping-cart"></i>
-            <h2>Portal B2B</h2>
-            <p>Mega Dulces — Acceso clientes</p>
-          </div>
-        </ng-template>
-        <form [formGroup]="form" (ngSubmit)="submit()" class="login-form">
-          <div class="form-field">
+    <div class="pl-wrap">
+      <!-- Hero side (desktop) -->
+      <aside class="pl-hero" aria-hidden="true">
+        <div class="pl-hero-deco pl-hero-deco-1"></div>
+        <div class="pl-hero-deco pl-hero-deco-2"></div>
+        <div class="pl-hero-deco pl-hero-deco-3"></div>
+
+        <div class="pl-hero-content">
+          <img
+            src="/assets/logos/mega-dulces-logo.webp"
+            alt="Mega Dulces"
+            class="pl-hero-logo"
+          />
+          <h1 class="pl-hero-title">
+            Tu dulcería,<br />
+            <span class="pl-hero-accent">surtida en minutos.</span>
+          </h1>
+          <p class="pl-hero-subtitle">
+            Catálogo completo, tus precios, pedidos con IA y entrega coordinada.
+          </p>
+
+          <ul class="pl-hero-bullets">
+            <li><i class="pi pi-check-circle"></i> Tu lista de precios personalizada</li>
+            <li><i class="pi pi-check-circle"></i> Pedido conversacional con IA</li>
+            <li><i class="pi pi-check-circle"></i> Promociones activas en tiempo real</li>
+            <li><i class="pi pi-check-circle"></i> Historial completo de compras</li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Form side -->
+      <section class="pl-form-side">
+        <header class="pl-form-head">
+          <img
+            src="/assets/logos/mega-dulces-logo.webp"
+            alt="Mega Dulces"
+            class="pl-form-logo"
+          />
+          <span class="pl-form-eyebrow">Portal B2B</span>
+          <h2 class="pl-form-title">Bienvenido de vuelta</h2>
+          <p class="pl-form-sub">Ingresa con tu cuenta de cliente para hacer tu pedido.</p>
+        </header>
+
+        <form [formGroup]="form" (ngSubmit)="submit()" class="pl-form" novalidate>
+          <div class="pl-field">
             <label for="tenant">Empresa</label>
             <input
               pInputText
@@ -45,12 +77,14 @@ import { AuthService } from '../../../core/services/auth.service';
               enterkeyhint="next"
             />
           </div>
-          <div class="form-field">
+
+          <div class="pl-field">
             <label for="user">Usuario</label>
             <input
               pInputText
               id="user"
               formControlName="username"
+              placeholder="Tu nombre de usuario"
               autocomplete="username"
               autocapitalize="none"
               autocorrect="off"
@@ -59,85 +93,340 @@ import { AuthService } from '../../../core/services/auth.service';
               enterkeyhint="next"
             />
           </div>
-          <div class="form-field">
-            <label for="pass">Contraseña</label>
+
+          <div class="pl-field">
+            <div class="pl-label-row">
+              <label for="pass">Contraseña</label>
+              <button type="button" class="pl-show-pass" (click)="togglePass()">
+                {{ showPass() ? 'Ocultar' : 'Mostrar' }}
+              </button>
+            </div>
             <input
               pInputText
               id="pass"
-              type="password"
+              [type]="showPass() ? 'text' : 'password'"
               formControlName="password"
+              placeholder="Mínimo 4 caracteres"
               autocomplete="current-password"
               enterkeyhint="go"
             />
           </div>
+
           <p-message
             *ngIf="error()"
             severity="error"
             [text]="error()!"
-            styleClass="login-error"
+            styleClass="pl-error"
           ></p-message>
+
           <button
             pButton
             type="submit"
-            [label]="loading() ? 'Ingresando…' : 'Ingresar'"
-            icon="pi pi-sign-in"
+            [label]="loading() ? 'Ingresando…' : 'Ingresar al portal'"
+            [icon]="loading() ? 'pi pi-spin pi-spinner' : 'pi pi-arrow-right'"
             [disabled]="loading() || form.invalid"
-            class="login-submit"
+            class="pl-submit"
           ></button>
+
+          <p class="pl-foot">
+            ¿No tienes acceso?
+            <a href="mailto:soporte@megadulces.com.mx">Solicita tu cuenta</a>
+          </p>
         </form>
-      </p-card>
+      </section>
     </div>
   `,
   styles: [
     `
-      .login-wrap {
-        min-height: 100vh;
+      :host { display: block; }
+
+      .pl-wrap {
+        min-height: 100dvh;
         display: grid;
-        place-items: center;
-        background: linear-gradient(135deg, #f0f4ff 0%, #fef3f2 100%);
-        padding: 1rem;
+        grid-template-columns: 1fr;
+        background: var(--surface-ground);
+        color: var(--text-main);
       }
-      .login-card {
-        width: 100%;
+      @media (min-width: 960px) {
+        .pl-wrap { grid-template-columns: 1.05fr 1fr; }
+      }
+
+      /* ── HERO SIDE ──────────────────────────────────────────────── */
+      .pl-hero {
+        display: none;
+        position: relative;
+        overflow: hidden;
+        background:
+          radial-gradient(120% 80% at 0% 0%, rgba(253, 231, 7, 0.08) 0%, transparent 55%),
+          linear-gradient(160deg, var(--neutral-900) 0%, var(--neutral-950) 100%);
+        color: #fff;
+        padding: clamp(2rem, 5vw, 4rem);
+        align-items: center;
+        justify-content: center;
+      }
+      @media (min-width: 960px) {
+        .pl-hero { display: flex; }
+      }
+
+      .pl-hero-deco {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(0.5px);
+        opacity: 0.6;
+        pointer-events: none;
+      }
+      .pl-hero-deco-1 {
+        width: 320px; height: 320px;
+        top: -120px; right: -80px;
+        background: radial-gradient(circle, rgba(255,255,255,0.04), transparent 70%);
+      }
+      .pl-hero-deco-2 {
+        width: 240px; height: 240px;
+        bottom: -80px; left: -60px;
+        background: radial-gradient(circle, rgba(253, 231, 7, 0.06), transparent 70%);
+      }
+      .pl-hero-deco-3 { display: none; }
+
+      .pl-hero-content {
+        position: relative;
+        z-index: 1;
+        max-width: 460px;
+        animation: fadeInUp 0.6s var(--ease-decelerate) both;
+      }
+      @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      .pl-hero-logo {
+        width: 88px;
+        height: 88px;
+        object-fit: contain;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.95);
+        padding: 10px;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 12px 40px -8px rgba(0,0,0,0.35);
+      }
+
+      .pl-hero-title {
+        font-size: clamp(2rem, 3.5vw, 2.75rem);
+        font-weight: 800;
+        line-height: 1.1;
+        margin: 0 0 0.875rem 0;
+        letter-spacing: -0.02em;
+      }
+      .pl-hero-accent {
+        color: #fff;
+        position: relative;
+      }
+      .pl-hero-accent::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        bottom: -4px;
+        width: 64px;
+        height: 3px;
+        background: var(--brand-500);
+        border-radius: 2px;
+      }
+
+      .pl-hero-subtitle {
+        font-size: 1.0625rem;
+        line-height: 1.5;
+        opacity: 0.92;
+        margin: 0 0 2rem 0;
         max-width: 380px;
       }
-      .login-header {
-        text-align: center;
-        padding: 1.5rem 1rem 0;
-      }
-      .login-header i {
-        font-size: 2.5rem;
-        color: var(--primary-color, #2563eb);
-      }
-      .login-header h2 {
-        margin: 0.5rem 0 0.25rem;
-        font-size: 1.5rem;
-      }
-      .login-header p {
+
+      .pl-hero-bullets {
+        list-style: none;
+        padding: 0;
         margin: 0;
-        color: var(--text-color-secondary);
-        font-size: 0.875rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
       }
-      .login-form {
+      .pl-hero-bullets li {
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        font-size: 0.9375rem;
+        opacity: 0.95;
+      }
+      .pl-hero-bullets i {
+        color: var(--brand-400);
+        font-size: 1rem;
+      }
+
+      /* ── FORM SIDE ──────────────────────────────────────────────── */
+      .pl-form-side {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: clamp(1.5rem, 5vw, 3rem)
+          max(1.25rem, env(safe-area-inset-right))
+          calc(clamp(1.5rem, 5vw, 3rem) + env(safe-area-inset-bottom))
+          max(1.25rem, env(safe-area-inset-left));
+        background: var(--card-bg);
+      }
+
+      .pl-form-head {
+        max-width: 380px;
+        width: 100%;
+        margin: 0 auto 1.75rem;
+        text-align: left;
+      }
+      .pl-form-logo {
+        width: 56px;
+        height: 56px;
+        object-fit: contain;
+        border-radius: 14px;
+        background: var(--neutral-100);
+        padding: 6px;
+        margin-bottom: 1rem;
+      }
+      @media (min-width: 960px) {
+        /* En desktop, el hero ya muestra el logo grande — el del form es redundante */
+        .pl-form-logo { display: none; }
+      }
+      .pl-form-eyebrow {
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        background: var(--neutral-100);
+        border: 1px solid var(--border-color);
+        padding: 0.25rem 0.625rem;
+        border-radius: 999px;
+        margin-bottom: 0.875rem;
+      }
+      .pl-form-title {
+        font-size: 1.75rem;
+        font-weight: 800;
+        line-height: 1.15;
+        margin: 0 0 0.375rem 0;
+        letter-spacing: -0.015em;
+        color: var(--text-main);
+      }
+      .pl-form-sub {
+        margin: 0;
+        font-size: 0.9375rem;
+        color: var(--text-muted);
+        line-height: 1.45;
+      }
+
+      .pl-form {
+        max-width: 380px;
+        width: 100%;
+        margin: 0 auto;
         display: flex;
         flex-direction: column;
         gap: 1rem;
       }
-      .form-field {
+      .pl-field {
         display: flex;
         flex-direction: column;
         gap: 0.375rem;
       }
-      .form-field label {
-        font-size: 0.875rem;
-        color: var(--text-color-secondary);
+      .pl-field label {
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-main);
       }
-      .login-error {
+      .pl-field :deep(input.p-inputtext) {
+        width: 100%;
+        padding: 0.75rem 0.875rem;
+        font-size: 0.9375rem;
+        border-radius: 10px;
+        border: 1.5px solid var(--border-color);
+        background: var(--card-bg);
+        color: var(--text-main);
+        transition: border-color 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard);
+      }
+      .pl-field :deep(input.p-inputtext:hover) {
+        border-color: var(--neutral-300);
+      }
+      .pl-field :deep(input.p-inputtext:focus) {
+        border-color: var(--neutral-700);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(253, 231, 7, 0.18);
+      }
+
+      .pl-label-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .pl-show-pass {
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0.5rem 0.75rem;
+        min-width: 44px;
+        min-height: 32px;
+        border-radius: 8px;
+      }
+      .pl-show-pass:hover {
+        background: var(--neutral-100);
+        color: var(--text-main);
+      }
+      .pl-show-pass:focus-visible {
+        outline: 2px solid var(--brand-500);
+        outline-offset: 2px;
+      }
+
+      .pl-error { width: 100%; }
+
+      .pl-submit {
+        margin-top: 0.5rem;
         width: 100%;
       }
-      .login-submit {
-        margin-top: 0.5rem;
+      .pl-submit :deep(.p-button) {
+        width: 100%;
+        background: var(--neutral-900) !important;
+        border: none !important;
+        color: #fff !important;
+        font-weight: 700 !important;
+        padding: 0.875rem 1.25rem !important;
+        font-size: 0.9375rem !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.25) !important;
+        transition: transform 150ms var(--ease-standard), box-shadow 200ms var(--ease-standard), filter 150ms var(--ease-standard) !important;
       }
+      .pl-submit :deep(.p-button:not(:disabled):hover) {
+        filter: brightness(1.18);
+        box-shadow: 0 6px 18px -4px rgba(0, 0, 0, 0.3) !important;
+        transform: translateY(-1px);
+      }
+      .pl-submit :deep(.p-button:not(:disabled):active) {
+        transform: translateY(0);
+      }
+      .pl-submit :deep(.p-button:disabled) {
+        opacity: 0.55;
+        box-shadow: none !important;
+        cursor: not-allowed;
+      }
+
+      .pl-foot {
+        margin: 1.25rem 0 0;
+        text-align: center;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+      }
+      .pl-foot a {
+        color: var(--text-main);
+        font-weight: 600;
+        text-decoration: underline;
+        text-decoration-color: var(--brand-500);
+        text-underline-offset: 3px;
+      }
+      .pl-foot a:hover { text-decoration: underline; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -149,12 +438,17 @@ export class PortalLoginComponent {
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly showPass = signal(false);
 
   form = this.fb.group({
     tenant_slug: ['mega_dulces', Validators.required],
     username: ['', Validators.required],
     password: ['', [Validators.required, Validators.minLength(4)]],
   });
+
+  togglePass(): void {
+    this.showPass.update((v) => !v);
+  }
 
   submit(): void {
     if (this.form.invalid) return;
@@ -175,7 +469,7 @@ export class PortalLoginComponent {
             this.auth.logout();
             return;
           }
-          this.router.navigateByUrl('/portal/catalog');
+          this.router.navigateByUrl('/portal/home');
         },
         error: (err) => {
           this.loading.set(false);

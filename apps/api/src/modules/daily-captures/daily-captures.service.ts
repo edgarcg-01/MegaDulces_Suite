@@ -31,9 +31,26 @@ export class DailyCapturesService {
     zona: string,
   ) {
     this.logger.log(
-      `create folio=${dto.folio} user=${username} zona=${zona} exh=${dto.exhibiciones?.length}`,
+      `create folio=${dto.folio} user=${username} zona=${zona} exh=${dto.exhibiciones?.length} sync_uuid=${dto.sync_uuid || '-'}`,
     );
     this.logger.debug(`stats=${JSON.stringify(dto.stats)}`);
+
+    // ── IDEMPOTENCIA OFFLINE→SERVER ──────────────────────────────────
+    // Si el cliente envió sync_uuid (típico de visitas offline), buscamos
+    // antes de hacer cualquier trabajo costoso (Cloudinary, scoring) si ya
+    // existe una fila con ese UUID. Esto evita duplicados cuando un POST
+    // contestó 504/timeout pero sí escribió en DB, y el cliente reintenta.
+    if (dto.sync_uuid) {
+      const existing = await this.knex('daily_captures')
+        .where({ sync_uuid: dto.sync_uuid })
+        .first();
+      if (existing) {
+        this.logger.warn(
+          `Idempotency hit: sync_uuid=${dto.sync_uuid} ya existe (id=${existing.id}, folio=${existing.folio}). Retornando fila existente sin re-procesar.`,
+        );
+        return existing;
+      }
+    }
 
     // Validar coordenadas GPS
     const latitud = Number(dto.latitud);
@@ -230,22 +247,48 @@ export class DailyCapturesService {
       ? toMxDateKey(new Date(dto.horaInicio))
       : toMxDateKey(new Date());
 
-    const [dailyCapture] = await this.knex('daily_captures')
-      .insert({
-        folio: dto.folio,
-        user_id: userId,
-        captured_by_username: username,
-        zona_captura: zona || 'No Asignada',
-        fecha: fecha,
-        hora_inicio: dto.horaInicio,
-        hora_fin: dto.horaFin,
-        exhibiciones: JSON.stringify(processedExhibiciones),
-        stats: JSON.stringify(statsWithPct),
-        latitud: latitud || 0,
-        longitud: longitud || 0,
-        store_id: dto.store_id || null,
-      })
-      .returning('*');
+    // INSERT con ON CONFLICT por sync_uuid (defense in depth).
+    // Si dos requests concurrentes pasaron el lookup pero llegan a INSERT al
+    // mismo tiempo, el UNIQUE constraint resuelve. Postgres devuelve la fila
+    // existente vía DO NOTHING + segundo SELECT.
+    const insertPayload: any = {
+      folio: dto.folio,
+      user_id: userId,
+      captured_by_username: username,
+      zona_captura: zona || 'No Asignada',
+      fecha: fecha,
+      hora_inicio: dto.horaInicio,
+      hora_fin: dto.horaFin,
+      exhibiciones: JSON.stringify(processedExhibiciones),
+      stats: JSON.stringify(statsWithPct),
+      latitud: latitud || 0,
+      longitud: longitud || 0,
+      store_id: dto.store_id || null,
+      sync_uuid: dto.sync_uuid || null,
+    };
+
+    let dailyCapture;
+    if (dto.sync_uuid) {
+      const inserted = await this.knex('daily_captures')
+        .insert(insertPayload)
+        .onConflict('sync_uuid')
+        .ignore()
+        .returning('*');
+      dailyCapture = inserted[0];
+      if (!dailyCapture) {
+        // Concurrent insert ganó; releer fila existente.
+        dailyCapture = await this.knex('daily_captures')
+          .where({ sync_uuid: dto.sync_uuid })
+          .first();
+        this.logger.warn(
+          `Race condition resolved: sync_uuid=${dto.sync_uuid} insertó otro request, retornando fila existente.`,
+        );
+      }
+    } else {
+      [dailyCapture] = await this.knex('daily_captures')
+        .insert(insertPayload)
+        .returning('*');
+    }
 
     this.logger.log(
       `Captura guardada id=${dailyCapture.id} folio=${dailyCapture.folio} fecha=${dailyCapture.fecha}`,
