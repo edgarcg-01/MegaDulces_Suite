@@ -24,6 +24,33 @@ export class DailyCapturesService {
     private readonly eventsService: EventsService,
   ) {}
 
+  /**
+   * Cache booleano: si la migration `add_sync_uuid_to_daily_captures` corrió,
+   * la columna existe. Evita pegarle a `information_schema` por cada INSERT.
+   * Asumimos que la columna no se borra en runtime (no es manejado por DDL
+   * live), por eso una sola query inicial es suficiente.
+   */
+  private _hasSyncUuidColumn: boolean | null = null;
+  private async hasSyncUuidColumn(): Promise<boolean> {
+    if (this._hasSyncUuidColumn !== null) return this._hasSyncUuidColumn;
+    try {
+      this._hasSyncUuidColumn = await this.knex.schema.hasColumn(
+        'daily_captures',
+        'sync_uuid',
+      );
+      if (!this._hasSyncUuidColumn) {
+        this.logger.warn(
+          'Columna `sync_uuid` no existe en daily_captures. Sin idempotencia offline-sync hasta correr la migration.',
+        );
+      }
+      return this._hasSyncUuidColumn;
+    } catch (err) {
+      this.logger.error(`Error verificando columna sync_uuid: ${err}`);
+      this._hasSyncUuidColumn = false;
+      return false;
+    }
+  }
+
   async create(
     dto: CreateDailyCaptureDto,
     userId: string,
@@ -40,7 +67,13 @@ export class DailyCapturesService {
     // antes de hacer cualquier trabajo costoso (Cloudinary, scoring) si ya
     // existe una fila con ese UUID. Esto evita duplicados cuando un POST
     // contestó 504/timeout pero sí escribió en DB, y el cliente reintenta.
-    if (dto.sync_uuid) {
+    //
+    // DEFENSIVE: detectamos si la columna `sync_uuid` existe. Si la migración
+    // 20260529_add_sync_uuid_to_daily_captures NO se corrió todavía en este
+    // entorno, ignoramos sync_uuid (cae al INSERT normal sin la columna) en
+    // lugar de tirar 500 que mataría todos los sync_uuid retries del cliente.
+    const hasSyncUuid = await this.hasSyncUuidColumn();
+    if (dto.sync_uuid && hasSyncUuid) {
       const existing = await this.knex('daily_captures')
         .where({ sync_uuid: dto.sync_uuid })
         .first();
@@ -50,6 +83,10 @@ export class DailyCapturesService {
         );
         return existing;
       }
+    } else if (dto.sync_uuid && !hasSyncUuid) {
+      this.logger.warn(
+        `sync_uuid recibido pero la columna no existe en daily_captures. Corré la migration 20260529_add_sync_uuid_to_daily_captures. Procesando sin idempotencia.`,
+      );
     }
 
     // Validar coordenadas GPS
@@ -264,11 +301,15 @@ export class DailyCapturesService {
       latitud: latitud || 0,
       longitud: longitud || 0,
       store_id: dto.store_id || null,
-      sync_uuid: dto.sync_uuid || null,
     };
+    // Solo incluir sync_uuid si la columna existe — protege contra entornos
+    // donde la migration aún no se corrió.
+    if (hasSyncUuid) {
+      insertPayload.sync_uuid = dto.sync_uuid || null;
+    }
 
     let dailyCapture;
-    if (dto.sync_uuid) {
+    if (dto.sync_uuid && hasSyncUuid) {
       const inserted = await this.knex('daily_captures')
         .insert(insertPayload)
         .onConflict('sync_uuid')

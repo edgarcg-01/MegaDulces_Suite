@@ -519,10 +519,11 @@ export class OfflineSyncService {
       console.log(`[OfflineSync] Visita ${visita.id} sincronizada exitosamente`);
 
     } catch (error: any) {
-      // Timeouts del proxy/edge (502/503/504/408/522/524) y network errors (0)
-      // NO consumen el contador de retries — el problema es transitorio del
-      // servidor, no de la visita. Reintentamos en el próximo ciclo (60s).
-      const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
+      // Timeouts del proxy/edge (502/503/504/408/522/524), network errors (0)
+      // y 500 (server bug transitorio: migration faltante, deploy en curso,
+      // DB lock) NO consumen el contador de retries — son transitorios.
+      // Reintentamos en el próximo ciclo (60s).
+      const TRANSIENT_STATUSES = new Set([0, 408, 500, 502, 503, 504, 522, 524]);
       const status = error?.status;
       // Mensajes específicos que no son del backend sino del flujo offline
       // mismo (tienda pendiente esperando POST). También transient.
@@ -532,12 +533,17 @@ export class OfflineSyncService {
         msg.includes('Reintentar en próximo ciclo');
       const isTransient = isLocalTransient || status === undefined || TRANSIENT_STATUSES.has(status);
 
+      // Surface DETALLE del error para debugging — antes solo se logueaba
+      // [OfflineSync] error transitorio (status=500) sin más info, lo que
+      // hacía imposible diagnosticar por qué una visita no sincronizaba.
+      const detail = error?.error?.message || error?.message || JSON.stringify(error);
+      const fullLog = `[OfflineSync] Visita ${visita.id} sync FAIL · status=${status ?? '?'} · transient=${isTransient} · localTransient=${isLocalTransient} · detalle="${detail}"`;
+
       if (!isTransient) {
-        await this.db.incrementarIntentoFallido(visita.id, error as string);
+        console.error(fullLog + ` · ⚠️ intentos_fallidos++`);
+        await this.db.incrementarIntentoFallido(visita.id, detail);
       } else {
-        console.warn(
-          `[OfflineSync] Visita ${visita.id}: error transitorio (status=${status ?? 'unknown'}, local=${isLocalTransient}), no se cuenta como intento fallido`,
-        );
+        console.warn(fullLog + ` · reintentando en próximo ciclo`);
       }
       throw error;
     }

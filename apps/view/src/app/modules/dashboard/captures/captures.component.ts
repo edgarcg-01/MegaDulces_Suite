@@ -133,15 +133,16 @@ export class CapturesComponent implements OnInit, OnDestroy {
 
   // ── Fase V — Vendedor con OCR de ticket ─────────────────────────────────
   /**
-   * Modo recortado: el usuario tiene `CAPTURE_TICKET_USE` y NO ve los pasos
-   * 1-5 (ubicación, formato, propiedad, nivel, productos). El wizard arranca
-   * directo en paso 6 (foto exhibidor) y agrega un paso 7 (foto ticket + AI).
-   * Los campos omitidos se llenan con defaults silentes del catálogo.
+   * Modo recortado: SOLO el rol `vendedor` ve los 2 pasos (foto + ticket).
+   *
+   * IMPORTANTE: NO usar `CAPTURE_TICKET_USE` como gate del modo recortado.
+   * Esa permission está en ALL_PERMS → admin/superadmin la heredan, y si
+   * gateamos por la perm, superoot/admin entran al captures y solo ven los
+   * 2 pasos del vendedor en vez del wizard completo de trade marketing
+   * (bug observado 2026-05-29). La perm sigue gateando el ENDPOINT del
+   * extractor, pero el MODO de la UI es role-based.
    */
-  readonly isVendedor = computed(() => {
-    const perms = this.user()?.permissions || {};
-    return perms[Permission.CAPTURE_TICKET_USE] === true;
-  });
+  readonly isVendedor = computed(() => this.user()?.role_name === 'vendedor');
 
   /** Step 7 (solo vendedor): estado de la foto del ticket + extracción AI. */
   readonly ticketFile = signal<File | null>(null);
