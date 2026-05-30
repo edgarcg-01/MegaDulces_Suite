@@ -367,6 +367,36 @@ export class OfflineSyncService {
    */
   private async resolveStoreIdForSync(visita: VisitaPendiente): Promise<string> {
     if (UUID_REGEX.test(visita.tiendaId)) {
+      // SELF-HEALING: la visita guarda un UUID local de una tienda creada
+      // offline; revisamos si esa tienda ya fue sincronizada con el server
+      // y tiene serverId asignado. Si sí, lo usamos en lugar del local.
+      // Esto cubre la race condition donde `marcarTiendaSincronizada` corrió
+      // pero `actualizarTiendaIdVisita` no alcanzó a ejecutar (crash o cierre
+      // de pestaña entre los dos pasos del sync).
+      try {
+        const pendingTienda = await this.db.tiendasPendientes.get(visita.tiendaId);
+        if (pendingTienda?.sincronizado && pendingTienda.serverId) {
+          console.log(
+            `[OfflineSync] Self-heal: visita ${visita.id} tiendaId local ${visita.tiendaId} → server ${pendingTienda.serverId}`,
+          );
+          // Persistir el fix para no recalcular en cada intento.
+          await this.db.actualizarTiendaIdVisita(visita.id, pendingTienda.serverId);
+          return pendingTienda.serverId;
+        }
+        // Si la tienda local es pendiente pero aún no sincronizada, no podemos
+        // postear la visita todavía — el FK del backend la rechazaría. Lanzar
+        // error transitorio para que el siguiente ciclo de sync la procese
+        // después de que sincronizarTiendasPendientes la haya creado.
+        if (pendingTienda && !pendingTienda.sincronizado) {
+          throw new Error(
+            `Visita ${visita.id}: tienda local ${visita.tiendaId} aún no sincronizada al server. Reintentar en próximo ciclo.`,
+          );
+        }
+      } catch (lookupErr) {
+        // Si el lookup falla (ej. tabla no existe en Dexie v1), seguir con el
+        // UUID tal cual — la mayoría de visitas usan tiendas reales del catálogo.
+        if ((lookupErr as Error).message?.includes('aún no sincronizada')) throw lookupErr;
+      }
       return visita.tiendaId;
     }
 
@@ -494,13 +524,19 @@ export class OfflineSyncService {
       // servidor, no de la visita. Reintentamos en el próximo ciclo (60s).
       const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
       const status = error?.status;
-      const isTransient = status === undefined || TRANSIENT_STATUSES.has(status);
+      // Mensajes específicos que no son del backend sino del flujo offline
+      // mismo (tienda pendiente esperando POST). También transient.
+      const msg = (error?.message || '') as string;
+      const isLocalTransient =
+        msg.includes('aún no sincronizada') ||
+        msg.includes('Reintentar en próximo ciclo');
+      const isTransient = isLocalTransient || status === undefined || TRANSIENT_STATUSES.has(status);
 
       if (!isTransient) {
         await this.db.incrementarIntentoFallido(visita.id, error as string);
       } else {
         console.warn(
-          `[OfflineSync] Visita ${visita.id}: error transitorio (status=${status ?? 'unknown'}), no se cuenta como intento fallido`,
+          `[OfflineSync] Visita ${visita.id}: error transitorio (status=${status ?? 'unknown'}, local=${isLocalTransient}), no se cuenta como intento fallido`,
         );
       }
       throw error;
@@ -541,6 +577,12 @@ export class OfflineSyncService {
       // `fecha` debe ser el día calendario MX, no UTC — antes una visita
       // capturada offline a las 19:00 MX se persistía con la fecha del día
       // siguiente y al sincronizar terminaba mal agrupada en los reportes.
+      //
+      // IDEMPOTENCIA: si `datosVisita.syncUuid` viene seteado (caso típico:
+      // catchError de un POST online que falló con 504), lo usamos como
+      // visita.id. Así el sync_uuid sigue siendo el MISMO valor que el server
+      // pudo haber recibido en el POST fallido → backend dedup correcta vs
+      // crear duplicado con UUID nuevo.
       const visitaId = await this.db.guardarVisitaPendiente({
         tiendaId: tiendaId ?? '',
         userId,
@@ -553,7 +595,7 @@ export class OfflineSyncService {
         exhibiciones: datosVisita.exhibiciones,
         stats: datosVisita.stats,
         flag_fraude
-      });
+      }, datosVisita.syncUuid);
 
       // Migrar fotos base64 → Blob en tabla `photos` (Dexie v2).
       // Resulta en ~25% menos storage + evita serializar binarios al leer.

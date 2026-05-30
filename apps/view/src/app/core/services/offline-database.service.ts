@@ -157,8 +157,18 @@ export class OfflineDatabaseService extends Dexie {
   }
 
   // --- Visitas Pendientes ---
-  async guardarVisitaPendiente(visita: Omit<VisitaPendiente, 'id' | 'sincronizado' | 'intentos_fallidos' | 'ultimo_intento'>): Promise<string> {
-    const id = crypto.randomUUID();
+  /**
+   * @param idOverride si se pasa, se usa como `visita.id` en lugar de generar
+   *   un UUID v4 nuevo. CRÍTICO para idempotencia: cuando el online falla
+   *   tras commit en server, el catchError debe pasar el mismo syncUuid que
+   *   se envió en el POST para que el sync background dedup contra ese mismo
+   *   valor en lugar de crear duplicado con UUID nuevo.
+   */
+  async guardarVisitaPendiente(
+    visita: Omit<VisitaPendiente, 'id' | 'sincronizado' | 'intentos_fallidos' | 'ultimo_intento'>,
+    idOverride?: string,
+  ): Promise<string> {
+    const id = idOverride || crypto.randomUUID();
     const visitaCompleta: VisitaPendiente = {
       ...visita,
       id,
@@ -167,8 +177,15 @@ export class OfflineDatabaseService extends Dexie {
       ultimo_intento: new Date().toISOString()
     };
 
-    await this.visitas.add(visitaCompleta);
-    console.log(`[OfflineDB] Visita guardada localmente: ${id}`);
+    // ON CONFLICT defensa: si por alguna razón llega 2 veces el mismo
+    // idOverride (ej. user hace doble click + 2 catchErrors), no creamos
+    // duplicado en Dexie. Usar `put` en vez de `add` cuando hay override.
+    if (idOverride) {
+      await this.visitas.put(visitaCompleta);
+    } else {
+      await this.visitas.add(visitaCompleta);
+    }
+    console.log(`[OfflineDB] Visita guardada localmente: ${id} (override=${!!idOverride})`);
     return id;
   }
 

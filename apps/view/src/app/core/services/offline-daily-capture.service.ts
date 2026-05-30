@@ -86,6 +86,12 @@ export class OfflineDailyCaptureService {
       latitud: number | null;
       longitud: number | null;
       precision?: number;
+      /**
+       * UUID generado en el intento online que falló. Si se pasa, se usa
+       * como `visita.id` (y por ende como `sync_uuid` al sincronizar). Esto
+       * garantiza que un 504-tras-commit en el server no produzca duplicado.
+       */
+      syncUuid?: string;
     }
   ): Promise<{
     exito: boolean;
@@ -120,7 +126,10 @@ export class OfflineDailyCaptureService {
         horaInicio: datosVisita.horaInicio,
         horaFin: datosVisita.horaFin,
         exhibiciones: datosVisita.exhibiciones,
-        stats: datosVisita.stats
+        stats: datosVisita.stats,
+        // Propagado desde saveCapturaTotal catchError para mantener
+        // sync_uuid estable entre intento online y fallback offline.
+        syncUuid: datosVisita.syncUuid,
       };
 
       // Guardar usando el servicio de sincronización

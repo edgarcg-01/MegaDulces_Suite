@@ -671,6 +671,11 @@ export class DailyCaptureService {
                 latitud: lat,
                 longitud: lng,
                 precision: 20,
+                // CRÍTICO: propagar el sync_uuid del intento online que falló.
+                // Si el server escribió la visita pero no respondió (504),
+                // el siguiente POST con el mismo sync_uuid hace dedup en lugar
+                // de crear duplicado.
+                syncUuid,
               },
             ),
           ).pipe(
@@ -732,9 +737,13 @@ export class DailyCaptureService {
     // a partir de las 18:00 MX y la lista quedaba vacía.
     const today = todayMx();
 
-    // OFFLINE-FIRST: aplicamos cache Dexie + visitas pendientes locales
-    // ANTES de hacer la request. La lista nunca aparece vacía aunque no haya red.
-    void this.applyTodayCapturesFromCacheAndPending(today);
+    // NETWORK-FIRST: si offline detectado, usar cache + pendientes locales.
+    // Si online, pedir directo al server (datos frescos) — el cache es respaldo.
+    if (!navigator.onLine) {
+      void this.applyTodayCapturesFromCacheAndPending(today);
+      this._todayCapturesInFlight = false;
+      return;
+    }
 
     this.http.get<any[]>(`${this.apiUrl}/daily-captures?fecha=${today}`).subscribe({
       next: async (data: any[]) => {
@@ -772,11 +781,12 @@ export class DailyCaptureService {
           this._todayCapturesInFlight = false;
         }
       },
-      error: () => {
+      error: async () => {
+        // Network falló online: fallback a cache + pendientes para no
+        // dejar la lista vacía. Silencioso porque el badge offline-status
+        // ya comunica el problema.
+        await this.applyTodayCapturesFromCacheAndPending(today);
         this._todayCapturesInFlight = false;
-        // Silencioso si hay cache aplicado (no spameamos toast cuando el
-        // usuario sabe que está offline). El badge `app-offline-status`
-        // ya comunica el estado.
       },
     });
   }
@@ -877,8 +887,11 @@ export class DailyCaptureService {
     const day = new Date().getDay();
     const dayOfWeek = day === 0 ? 7 : day; // 1=Lun, 7=Dom
 
-    // OFFLINE-FIRST: aplicamos cache antes de pedir.
-    void this.applyAssignmentFromCache(user.sub, dayOfWeek);
+    // NETWORK-FIRST: si offline, usar cache directo. Si online, pedir server.
+    if (!navigator.onLine) {
+      void this.applyAssignmentFromCache(user.sub, dayOfWeek);
+      return;
+    }
 
     this.http
       .get<any[]>(
@@ -888,7 +901,7 @@ export class DailyCaptureService {
         next: async (data) => {
           const assignment = data && data.length > 0 ? data[0] : null;
           this._currentAssignment.set(assignment);
-          // Persistir para cold-start offline.
+          // Persistir para el próximo fallback offline.
           try {
             await this.offlineDb.guardarCatalogo(
               'daily-assignment-today' as any,
@@ -897,8 +910,9 @@ export class DailyCaptureService {
             );
           } catch { /* cache best-effort */ }
         },
-        error: () => {
-          /* sin asignación visible si falla — no es crítico (el cache ya se aplicó) */
+        error: async () => {
+          // Fallback a cache si el server no respondió.
+          await this.applyAssignmentFromCache(user.sub, dayOfWeek);
         },
       });
   }
@@ -926,10 +940,23 @@ export class DailyCaptureService {
     if (this._masterDataLoaded || this._masterDataInFlight) return;
     this._masterDataInFlight = true;
 
-    // OFFLINE-FIRST: aplicamos PRIMERO el cache Dexie (instant render del wizard),
-    // luego en paralelo pedimos network. Si network OK → reescribimos Dexie + UI.
-    // Si network falla → seguimos con lo cargado del cache.
-    void this.applyMasterDataFromCache();
+    // NETWORK-FIRST: si estamos online, vamos directo al server (datos
+    // frescos). El cache Dexie es respaldo SOLO si:
+    //   a) `navigator.onLine === false` (offline detectado)
+    //   b) la request falla (network error / timeout)
+    // Persistimos cada respuesta exitosa en Dexie para tener fallback fresco
+    // la próxima vez que falle la red.
+    if (!navigator.onLine) {
+      void this.applyMasterDataFromCache().then((hit) => {
+        this._masterDataInFlight = false;
+        if (!hit) {
+          console.warn('[DailyCapture] Offline + sin cache de catálogos: wizard limitado');
+        }
+      });
+      this.loadPlanogramData();
+      this.loadStoresData();
+      return;
+    }
 
     forkJoin({
       conceptos: this.http.get<any[]>(`${this.apiUrl}/catalogs/conceptos`),
@@ -957,7 +984,7 @@ export class DailyCaptureService {
         );
         this._masterDataInFlight = false;
         this._masterDataLoaded = true;
-        // Persistir cache para cold-start offline.
+        // Persistir cache para el próximo fallback offline.
         try {
           const version = new Date().toISOString();
           await Promise.all([
@@ -970,11 +997,12 @@ export class DailyCaptureService {
           console.warn('[DailyCapture] Error cacheando catálogos en Dexie:', cacheErr);
         }
       },
-      error: () => {
+      error: async () => {
+        // Network falló (online según navigator pero el server no respondió):
+        // fallback a cache Dexie si existe.
+        console.warn('[DailyCapture] loadMasterData falló online, cayendo a cache');
+        await this.applyMasterDataFromCache();
         this._masterDataInFlight = false;
-        // Si network falla pero hubo cache Dexie aplicado, ya tenemos data
-        // suficiente para arrancar. _masterDataLoaded queda true SI cache lo logró.
-        // (applyMasterDataFromCache lo setea cuando los 4 catálogos están en Dexie).
       },
     });
 
