@@ -1,8 +1,9 @@
 <!--
-  pb-24 en mobile da espacio para el FAB sticky al final, evitando que se
-  solape con los botones Cancelar/Terminar Visita al hacer scroll al fondo.
+  pb mobile = bottom nav (56px) + safe-area-bottom + FAB clearance (5rem).
+  Sin este cálculo el FAB sticky tapa el contenido al hacer scroll al fondo
+  Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 -->
-<div class="px-6 pt-6 pb-24 md:pb-6 space-y-6">
+<div class="px-6 pt-6 pb-[calc(56px+env(safe-area-inset-bottom)+5rem)] md:pb-6 space-y-6">
 
   <!-- Offline status sticky en top: comunica estado de conexión + visitas pendientes -->
   <app-offline-status></app-offline-status>
@@ -56,12 +57,14 @@
         Se deshabilita mientras `needsStore()` sea true (visita activa SIN
         tienda vinculada). El tooltip explica por qué.
       -->
-      <p-button *ngIf="svc.hasActiveVisit()" label="Auditar Exhibidor" icon="pi pi-plus"
-                (onClick)="startWizard()"
-                [disabled]="needsStore()"
-                [pTooltip]="needsStore() ? 'Primero confirma la tienda donde estás' : ''"
-                tooltipPosition="bottom"
-                styleClass="p-button-brand hidden md:inline-flex"></p-button>
+      <div *ngIf="svc.hasActiveVisit()" class="hidden md:inline-flex">
+        <p-button label="Auditar Exhibidor" icon="pi pi-plus"
+                  (onClick)="startWizard()"
+                  [disabled]="needsStore()"
+                  [pTooltip]="needsStore() ? 'Primero confirma la tienda donde estás' : ''"
+                  tooltipPosition="bottom"
+                  styleClass="p-button-brand"></p-button>
+      </div>
 
     </div>
 
@@ -103,7 +106,7 @@
 
         <div class="w-2 h-6 sm:h-8 bg-brand/20 rounded-full overflow-hidden">
 
-            <div class="w-full bg-brand transition-all duration-1000" [style.height]="(visitaNumero() * 10) + '%'"></div>
+            <div class="w-full bg-brand motion-safe:transition-[height] motion-safe:duration-700" [style.height]="(visitaNumero() * 10) + '%'"></div>
 
         </div>
 
@@ -781,11 +784,10 @@
   (click)="startWizard()"
   [attr.aria-disabled]="needsStore() ? 'true' : null"
   [attr.aria-label]="needsStore() ? 'Auditar exhibidor (primero confirma la tienda)' : 'Auditar nuevo exhibidor'"
-  class="md:hidden fixed right-4 z-30 inline-flex items-center gap-2 px-5 py-4 rounded-full shadow-2xl font-bold text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-4"
+  class="md:hidden fab-bottom inline-flex items-center gap-2 px-5 py-4 rounded-full shadow-2xl font-bold text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-4"
   [ngClass]="needsStore()
     ? 'bg-surface-layout text-content-faint shadow-lg cursor-not-allowed opacity-70 focus-visible:ring-content-faint/30'
-    : 'bg-brand text-black shadow-lg focus-visible:ring-brand-300'"
-  style="bottom: calc(1rem + env(safe-area-inset-bottom));">
+    : 'bg-brand text-black shadow-lg focus-visible:ring-brand-300'">
   <i class="pi text-base" aria-hidden="true" [ngClass]="needsStore() ? 'pi-lock' : 'pi-plus'"></i>
   <span>{{ needsStore() ? 'Falta tienda' : 'Auditar exhibidor' }}</span>
 </button>
@@ -1439,46 +1441,47 @@
 
 <!-- RESULT DIALOG -->
 
-<p-dialog [(visible)]="showResultDialog" [modal]="true" appendTo="body" [style]="{width: '90vw', maxWidth: '450px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'" ariaLabel="Confirmación de visita registrada">
+<p-dialog
+  [(visible)]="showResultDialog"
+  [modal]="true"
+  appendTo="body"
+  [style]="{width: '90vw', maxWidth: '450px'}"
+  [breakpoints]="{'640px': '100vw'}"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  [draggable]="false"
+  [resizable]="false"
+  styleClass="surface-card border-divider rounded-2xl"
+  [contentStyleClass]="'bg-surface-card text-content-main'"
+  ariaLabel="Confirmación de visita registrada">
 
   <div class="py-6 text-center" *ngIf="lastResult">
 
-    <div class="w-20 h-20 bg-brand-light text-brand-sunset rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-orange/20 animate-bounce">
-
+    <!-- Icon success: tokens ok-* (verde semántico), no brand-light/sunset que daba bajo contraste y semántica equivocada (sunset = warn). -->
+    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 motion-safe:animate-bounce"
+         style="background: var(--ok-soft-bg); color: var(--ok-fg); box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--ok-fg) 25%, transparent);">
        <i class="pi pi-check text-4xl"></i>
-
     </div>
 
     <h3 class="text-2xl font-black text-content-main mb-2">¡Visita Registrada!</h3>
+    <p class="text-sm text-content-muted mb-8">Los datos se sincronizaron con la central de Trade Marketing.</p>
 
-    <p class="text-sm text-content-muted mb-8 italic">Los datos se han sincronizado con la central de Trade Marketing.</p>
+    <div class="p-6 bg-surface-ground border border-divider rounded-3xl">
 
-    
+       <div class="text-[11px] text-content-muted uppercase font-bold tracking-wider mb-3">Folio de Operación</div>
 
-    <div class="p-6 bg-surface-ground border border-divider rounded-3xl relative overflow-hidden">
-
-       <div class="absolute top-0 right-0 p-2 opacity-5 italic text-[8px] font-black uppercase tracking-widest rotate-6">Verified Operations</div>
-
-       <div class="text-xs text-content-muted uppercase font-black tracking-[0.2em] mb-4">Folio de Operación</div>
-
-       <div class="text-4xl font-black font-mono text-brand-sunset my-2 tracking-tighter">#{{lastResult.folio}}</div>
+       <div class="text-4xl font-black font-mono text-content-main my-2 tracking-tighter">#{{lastResult.folio}}</div>
 
        <div class="mt-6 flex justify-center gap-4">
 
-          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider">
-
-             <div class="text-[8px] uppercase text-content-dim font-bold">Items</div>
-
-             <div class="text-sm font-black">{{lastResult.exhibiciones.length}}</div>
-
+          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider min-w-[80px]">
+             <div class="text-[11px] uppercase text-content-muted font-semibold tracking-wider">Items</div>
+             <div class="text-lg font-bold text-content-main mt-0.5">{{lastResult.exhibiciones.length}}</div>
           </div>
 
-          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider">
-
-             <div class="text-[8px] uppercase text-content-dim font-bold">Score</div>
-
-             <div class="text-sm font-black text-brand-orange">{{ fmtScore(lastResult.stats.puntuacionTotal) }}</div>
-
+          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider min-w-[80px]">
+             <div class="text-[11px] uppercase text-content-muted font-semibold tracking-wider">Score</div>
+             <div class="text-lg font-bold text-brand-orange mt-0.5">{{ fmtScore(lastResult.stats.puntuacionTotal) }}</div>
           </div>
 
        </div>

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -23,6 +24,26 @@ export class DailyCapturesService {
     private readonly scoringV2Service: ScoringV2Service,
     private readonly eventsService: EventsService,
   ) {}
+
+  /**
+   * Cache de la `scoring_config_versions` activa para no pegarle a DB en cada
+   * insert. TTL 5 min — la versión cambia muy rara vez (admins la editan).
+   * Si necesitan forzar refresh, restart del API basta.
+   */
+  private _activeVersion: any = null;
+  private _activeVersionAt = 0;
+  private readonly ACTIVE_VERSION_TTL_MS = 5 * 60_000;
+  private async getActiveVersionCached(): Promise<any> {
+    if (
+      this._activeVersion &&
+      Date.now() - this._activeVersionAt < this.ACTIVE_VERSION_TTL_MS
+    ) {
+      return this._activeVersion;
+    }
+    this._activeVersion = await this.scoringV2Service.getActiveVersion();
+    this._activeVersionAt = Date.now();
+    return this._activeVersion;
+  }
 
   /**
    * Cache de la existencia de la columna `sync_uuid`:
@@ -104,16 +125,32 @@ export class DailyCapturesService {
       );
     }
 
-    // Validar coordenadas GPS
+    // Validar coordenadas GPS — antes solo se logueaba warning y se insertaba
+    // con (0, 0) (Golfo de Guinea) → contaminaba mapas/reportes. Ahora rechazamos.
     const latitud = Number(dto.latitud);
     const longitud = Number(dto.longitud);
-    if (!latitud || !longitud || latitud === 0 || longitud === 0) {
-      this.logger.warn(`GPS inválido o no proporcionado: lat=${latitud} lng=${longitud}`);
+    const gpsInvalido =
+      !Number.isFinite(latitud) ||
+      !Number.isFinite(longitud) ||
+      latitud === 0 ||
+      longitud === 0 ||
+      Math.abs(latitud) > 90 ||
+      Math.abs(longitud) > 180;
+    if (gpsInvalido) {
+      this.logger.warn(
+        `Rechazada captura folio=${dto.folio} por GPS inválido lat=${latitud} lng=${longitud}`,
+      );
+      throw new BadRequestException(
+        'Captura sin GPS válido. Reactivá la ubicación en el dispositivo e inténtalo de nuevo.',
+      );
     }
 
-    // Procesar fotos Base64 con concurrencia limitada (máx 3) y timeout por foto.
+    // Track de fotos por exhibición: cuántas REQUERÍAN upload vs cuántas
+    // efectivamente subieron. Antes solo contábamos `fallidas` global sin
+    // saber si era contra 0 o contra N requeridas → se devolvía 200 silente.
     let fotosSubidas = 0;
     let fotosFallidas = 0;
+    let fotosRequeridas = 0;
     const UPLOAD_CONCURRENCY = 3;
     const UPLOAD_TIMEOUT_MS = 30_000;
 
@@ -121,6 +158,7 @@ export class DailyCapturesService {
       // Path preferido: multipart attaches `_file` (Express.Multer.File con buffer).
       // Ahorra ~25% en wire vs base64 + evita el costo de re-codificar.
       if (ex._file) {
+        fotosRequeridas++;
         try {
           const cloudinaryResult = await Promise.race([
             this.cloudinaryService.uploadImage(
@@ -145,6 +183,9 @@ export class DailyCapturesService {
           );
           ex.fotoUrl = null;
           ex.fotoPublicId = null;
+          // Marca consumida por la UI: ícono de alerta sobre la exhibición.
+          ex.fotoUploadFailed = true;
+          ex.fotoUploadError = String(error?.message || error).slice(0, 200);
         }
         delete ex._file;
         delete ex.fotoBase64; // safety
@@ -153,6 +194,7 @@ export class DailyCapturesService {
 
       // Legacy path: base64 dentro del JSON (offline cache antigua).
       if (!ex.fotoBase64) return ex;
+      fotosRequeridas++;
       try {
         const cloudinaryResult = await Promise.race([
           this.cloudinaryService.uploadImageBase64(
@@ -177,6 +219,8 @@ export class DailyCapturesService {
         );
         ex.fotoUrl = null;
         ex.fotoPublicId = null;
+        ex.fotoUploadFailed = true;
+        ex.fotoUploadError = String(error?.message || error).slice(0, 200);
       }
       delete ex.fotoBase64;
       return ex;
@@ -230,9 +274,10 @@ export class DailyCapturesService {
       }
     }
 
-    // Consultar score_maximo dinámico desde scoring_config_versions (para meta local opcional)
-    const activeVersion = await this.scoringV2Service.getActiveVersion();
+    // Versión vigente del scoring (cacheada 5min para ahorrar la query en hot path).
+    const activeVersion = await this.getActiveVersionCached();
     const configVersionId = activeVersion?.id;
+    const scoreMaximoVersion = Number(activeVersion?.score_maximo) || 0;
 
     // Recalcular los puntos puros con el Backend Engine y no de la app móvil
     let puntosBackendTotales = dto.stats.puntuacionTotal || 0;
@@ -295,14 +340,35 @@ export class DailyCapturesService {
     // entre 18:00–23:59 MX rolaban al día siguiente en UTC y la fila se
     // insertaba con `fecha` del día equivocado, contaminando TODOS los
     // reportes downstream (trend semanal, CSV, heatmap, etc.).
-    const fecha = dto.horaInicio
-      ? toMxDateKey(new Date(dto.horaInicio))
-      : toMxDateKey(new Date());
+    //
+    // Defense: si dto.horaInicio es un string mal formado, `new Date(s)` da
+    // Invalid Date → toMxDateKey() podría devolver "NaN-NaN-NaN" y romper
+    // queries downstream. Fallback a la hora actual del servidor.
+    const horaInicioDate = dto.horaInicio ? new Date(dto.horaInicio) : null;
+    const horaInicioValid =
+      horaInicioDate && !Number.isNaN(horaInicioDate.getTime());
+    if (dto.horaInicio && !horaInicioValid) {
+      this.logger.warn(
+        `dto.horaInicio inválido (${dto.horaInicio}). Fallback a Date.now() para 'fecha'.`,
+      );
+    }
+    const fecha = toMxDateKey(horaInicioValid ? horaInicioDate! : new Date());
 
     // INSERT con ON CONFLICT por sync_uuid (defense in depth).
     // Si dos requests concurrentes pasaron el lookup pero llegan a INSERT al
     // mismo tiempo, el UNIQUE constraint resuelve. Postgres devuelve la fila
     // existente vía DO NOTHING + segundo SELECT.
+    // Score maximo total del visita = max por exhibición × cantidad. Permite
+    // que reports calculen `score_final_pct` sin recomputar la versión.
+    const scoreMaximoVisita =
+      scoreMaximoVersion && processedExhibiciones.length > 0
+        ? scoreMaximoVersion * processedExhibiciones.length
+        : null;
+    const scoreFinalPct =
+      scoreMaximoVisita && scoreMaximoVisita > 0
+        ? Number(((puntosBackendTotales / scoreMaximoVisita) * 100).toFixed(2))
+        : null;
+
     const insertPayload: any = {
       folio: dto.folio,
       user_id: userId,
@@ -313,9 +379,14 @@ export class DailyCapturesService {
       hora_fin: dto.horaFin,
       exhibiciones: JSON.stringify(processedExhibiciones),
       stats: JSON.stringify(statsWithPct),
-      latitud: latitud || 0,
-      longitud: longitud || 0,
+      latitud: latitud,
+      longitud: longitud,
       store_id: dto.store_id || null,
+      // Persistencia del scoring backend — antes solo iba a `stats` JSONB y
+      // los reports que leían `score_*` columns siempre veían NULL.
+      config_version_id: configVersionId || null,
+      score_maximo: scoreMaximoVisita,
+      score_final_pct: scoreFinalPct,
     };
     // Solo incluir sync_uuid si la columna existe — protege contra entornos
     // donde la migration aún no se corrió.
@@ -323,51 +394,49 @@ export class DailyCapturesService {
       insertPayload.sync_uuid = dto.sync_uuid || null;
     }
 
+    // INSERT con manejo unificado de colisiones por race condition.
+    //
+    // Antes usábamos `.onConflict('sync_uuid').ignore()` pero Postgres rechaza
+    // el ON CONFLICT cuando el UNIQUE es un índice PARCIAL (`WHERE sync_uuid
+    // IS NOT NULL`), ya que la inferencia exige incluir la misma predicate
+    // en el ON CONFLICT y Knex no lo expone limpiamente. Solución: hacemos
+    // INSERT normal y atrapamos `23505` por unique violation, sea por
+    // (tenant_id, folio) o por sync_uuid. La pre-validación arriba ya cubre
+    // el happy path; este try/catch es solo defensa contra la race window
+    // entre el SELECT idempotente y este INSERT.
     let dailyCapture;
-    if (dto.sync_uuid && hasSyncUuid) {
-      const inserted = await this.knex('daily_captures')
+    try {
+      [dailyCapture] = await this.knex('daily_captures')
         .insert(insertPayload)
-        .onConflict('sync_uuid')
-        .ignore()
         .returning('*');
-      dailyCapture = inserted[0];
-      if (!dailyCapture) {
-        // Concurrent insert ganó; releer fila existente.
+    } catch (err: any) {
+      if (err?.code !== '23505') throw err;
+
+      // Determinar por qué constraint falló y releer la fila.
+      const isSyncUuidCollision =
+        err?.constraint === 'uniq_daily_captures_sync_uuid';
+      const isFolioCollision =
+        err?.constraint === 'daily_captures_tenant_folio_unique';
+
+      if (isSyncUuidCollision && dto.sync_uuid) {
         dailyCapture = await this.knex('daily_captures')
           .where({ sync_uuid: dto.sync_uuid })
           .first();
+        if (!dailyCapture) throw err;
         this.logger.warn(
-          `Race condition resolved: sync_uuid=${dto.sync_uuid} insertó otro request, retornando fila existente.`,
+          `Race condition resolved: sync_uuid=${dto.sync_uuid} insertó otro request, retornando fila existente id=${dailyCapture.id}.`,
         );
-      }
-    } else {
-      // Defense in depth: si por algún motivo NO hay sync_uuid (cliente legacy,
-      // columna recién creada y cache aún en false), igual puede haber colisión
-      // por (tenant_id, folio) cuando el cliente reintenta. Capturamos el
-      // duplicate-key como "ya guardado" y retornamos la fila existente.
-      try {
-        [dailyCapture] = await this.knex('daily_captures')
-          .insert(insertPayload)
-          .returning('*');
-      } catch (err: any) {
-        if (
-          err?.code === '23505' &&
-          err?.constraint === 'daily_captures_tenant_folio_unique'
-        ) {
-          dailyCapture = await this.knex('daily_captures')
-            .where({ folio: dto.folio })
-            .first();
-          if (!dailyCapture) {
-            // Tenant context lost / RLS bloqueó la re-lectura. Re-throw para
-            // que el cliente reintente; mejor que devolver null silencioso.
-            throw err;
-          }
-          this.logger.warn(
-            `Folio ${dto.folio} ya existía (sin sync_uuid disponible). Retornando fila existente id=${dailyCapture.id}. Considera deploy + restart para activar idempotencia con sync_uuid.`,
-          );
-        } else {
-          throw err;
-        }
+      } else if (isFolioCollision) {
+        dailyCapture = await this.knex('daily_captures')
+          .where({ folio: dto.folio })
+          .first();
+        if (!dailyCapture) throw err;
+        this.logger.warn(
+          `Folio ${dto.folio} ya existía. Retornando fila existente id=${dailyCapture.id}.`,
+        );
+      } else {
+        // Otra unique no contemplada — re-throw para que el cliente sepa.
+        throw err;
       }
     }
 
@@ -385,7 +454,17 @@ export class DailyCapturesService {
       stats: dailyCapture.stats,
     });
 
-    return dailyCapture;
+    // Surfacear resultado de upload de fotos al cliente. Permite que la UI
+    // muestre un warning explícito si alguna foto no llegó a Cloudinary, en
+    // lugar de dejar al usuario asumiendo "todo se guardó OK".
+    return {
+      ...dailyCapture,
+      fotos: {
+        requeridas: fotosRequeridas,
+        subidas: fotosSubidas,
+        fallidas: fotosFallidas,
+      },
+    };
   }
 
   async findAll(

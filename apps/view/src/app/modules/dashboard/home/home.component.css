@@ -4,22 +4,18 @@
 }
 
 .dashboard-container {
-  min-height: 100vh;
-  min-height: 100dvh;
-  padding: 1.5rem;
+  /* min-height + pb mobile/desktop ya los maneja el wrapper via Tailwind
+     (`min-h-[100dvh]` + `pb-[calc(56px+env(...))]`). Acá solo flex chain. */
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   font-family: 'Inter', sans-serif;
-  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.4s var(--ease-standard), color 0.4s var(--ease-standard);
   overflow-x: hidden;
 }
 
 @media (max-width: 640px) {
-  .dashboard-container {
-    padding: 1rem;
-    gap: 1rem;
-  }
+  .dashboard-container { gap: 1rem; }
 }
 
 /* Header */
@@ -47,25 +43,32 @@
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: var(--shadow-light);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.card-premium:hover {
-  box-shadow: var(--shadow-hover);
-  transform: translateY(-2px);
+  /*
+   * Antes `transition: all` animaba layout props (problema en mobile + costo
+   * de paint). Solo transicionamos lo que cambia en hover: box-shadow + transform.
+   */
+  transition:
+    box-shadow 0.3s var(--ease-standard),
+    transform 0.3s var(--ease-standard);
 }
 
 /*
- * Modifier para cards informativos sin acción de click. Anula el "lift"
- * hover heredado de .card-premium para no crear affordance falsa.
+ * Hover lift gateado por `@media (hover: hover)`: en touch devices el "hover"
+ * se dispara al tap y deja la card flotando hasta scrollear — efecto bouncy
+ * raro. Apple/Google los suprimen en touch.
  */
-.card-premium.card-flat:hover {
-  box-shadow: var(--shadow-light);
-  transform: none;
-}
-
-:host-context(.theme-monochrome) .card-premium:hover {
-  border-color: var(--border-color);
+@media (hover: hover) {
+  .card-premium:hover {
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-2px);
+  }
+  .card-premium.card-flat:hover {
+    box-shadow: var(--shadow-light);
+    transform: none;
+  }
+  :host-context(.theme-monochrome) .card-premium:hover {
+    border-color: var(--border-color);
+  }
 }
 
 /* Scores */

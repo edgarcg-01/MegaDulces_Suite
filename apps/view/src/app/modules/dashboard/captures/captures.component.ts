@@ -686,6 +686,23 @@ export class CapturesComponent implements OnInit, OnDestroy {
             detail: `Se ha registrado el folio ${result.folio}.`,
           });
         }
+
+        // Backend devuelve `fotos: { requeridas, subidas, fallidas }`. Si
+        // alguna foto no llegó a Cloudinary, avisamos al user — antes la
+        // captura se guardaba con foto null y nadie se enteraba hasta abrir
+        // reports y ver el ícono vacío.
+        const fotos = result?.fotos;
+        if (fotos?.fallidas > 0) {
+          this.haptic.notification('warning');
+          this.toast.add({
+            severity: 'warn',
+            summary: 'Fotos no subidas',
+            detail:
+              `${fotos.fallidas} de ${fotos.requeridas} fotos fallaron al subir. ` +
+              `La visita quedó guardada sin esa evidencia. Revisá tu conexión.`,
+            life: 8000,
+          });
+        }
       },
       error: (err) => {
         this.isSaving.set(false);

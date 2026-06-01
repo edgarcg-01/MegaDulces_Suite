@@ -1,11 +1,12 @@
-<div class="dashboard-container w-full min-h-screen text-content-main px-6 pt-8">
+<div class="dashboard-container w-full min-h-[100dvh] text-content-main px-6 pt-8 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-8">
 
   <header class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-th-large text-content-main"></i> Dashboard Estratégico</h1>
+      <h1 class="title-premium flex items-center gap-3"><i class="pi pi-th-large text-content-main"></i> Dashboard Estratégico</h1>
       <div class="flex items-center gap-3 mt-2 flex-wrap">
         @if (lastUpdatedAt(); as t) {
-          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent-brand-light text-[10px] font-black text-brand tracking-widest uppercase">
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase"
+                style="background: var(--accent-brand-light); color: var(--neutral-950);">
             <span class="status-dot status-ok"></span>
             <span>Actualizado {{ t | date:'shortTime' }}</span>
           </span>
@@ -14,13 +15,20 @@
       </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
-      <p-button icon="pi pi-refresh" [text]="true" severity="secondary" [rounded]="true"
-        (click)="loadDashboardData()" [loading]="anyLoading()"
-        pTooltip="Refrescar" ariaLabel="Refrescar datos del dashboard" />
+      <button type="button"
+              class="icon-btn-ghost icon-btn-ghost-info"
+              (click)="loadDashboardData()"
+              [disabled]="anyLoading()"
+              pTooltip="Refrescar"
+              aria-label="Refrescar datos del dashboard">
+        <i class="pi" [class.pi-refresh]="!anyLoading()" [class.pi-spin]="anyLoading()" [class.pi-spinner]="anyLoading()" aria-hidden="true"></i>
+      </button>
       <p-button label="Metas" icon="pi pi-sliders-h" styleClass="p-button-brand" size="small"
         (click)="openMetasDialog()" />
-      <p-button label="Imprimir" icon="pi pi-print" severity="secondary" size="small"
-        (click)="printPage()" styleClass="hidden md:inline-flex" />
+      <div class="hidden md:inline-flex">
+        <p-button label="Imprimir" icon="pi pi-print" severity="secondary" size="small"
+          (click)="printPage()" />
+      </div>
     </div>
   </header>
 
@@ -84,7 +92,7 @@
       <div class="space-y-2">
         @for (a of quickActions(); track a.route) {
           <a [routerLink]="a.route"
-             class="flex items-center justify-between p-3 rounded-xl bg-surface-layout hover:bg-surface-hover transition-all no-underline group border border-transparent hover:border-divider">
+             class="flex items-center justify-between p-3 min-h-11 rounded-xl bg-surface-layout hover:bg-surface-hover motion-safe:transition-colors no-underline group border border-transparent hover:border-divider">
             <div class="flex items-center gap-3">
               <div class="w-9 h-9 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors">
                 <i [class]="a.icon"></i>
@@ -129,7 +137,7 @@
     <!-- Tabla cumplimiento diario: mobile order 3 / desktop col 1-8 row 2 -->
     <div class="card-premium card-flat order-3 lg:order-none lg:col-span-8 lg:col-start-1 lg:row-start-2">
       <div class="flex items-center justify-between mb-6 pb-3 border-b border-divider">
-        <h3 class="stat-label">Cumplimiento diario <span class="text-[8px] text-content-faint">* datos del día</span></h3>
+        <h3 class="stat-label">Cumplimiento diario <span class="text-[10px] text-content-faint font-normal normal-case tracking-normal ml-1">· datos del día</span></h3>
         <span class="text-[10px] text-content-faint uppercase tracking-widest">Vs metas configuradas</span>
       </div>
       <div class="overflow-x-auto">
@@ -145,7 +153,7 @@
             </thead>
             <tbody>
               @for (row of furnitureRows(); track row.label) {
-                <tr class="border-b border-divider/50 hover:bg-surface-layout transition-colors"
+                <tr class="border-b border-divider hover:bg-surface-layout motion-safe:transition-colors"
                     [class]="'status-' + row.status">
                   <td class="py-4">
                     <div class="flex items-center gap-3">
@@ -316,7 +324,8 @@
             </div>
             <div class="shrink-0 w-20 sm:w-16">
               <input type="number" [(ngModel)]="f.target" [min]="0"
-                class="w-full px-2 py-1 border border-divider rounded text-sm bg-surface-card text-content-main focus:outline-none focus:ring-2 focus:ring-brand" />
+                inputmode="numeric" enterkeyhint="done"
+                class="w-full min-h-11 px-2 py-1 border border-divider rounded text-sm bg-surface-card text-content-main focus:outline-none focus:ring-2 focus:ring-brand" />
             </div>
           </div>
         }

@@ -5,21 +5,25 @@
 # Pipeline:
 #   1. deps      → instala TODAS las deps (con devDeps) para compilar
 #   2. builder   → reutiliza node_modules de `deps`, compila view + api
-#   3. prod-deps → instala SOLO deps de producción (slim, sin scripts)
-#   4. runner    → imagen final: nginx + node + dist + node_modules de prod
+#   3. prod-deps → reusa node_modules y le aplica npm prune (sin re-descargar)
+#   4. runner    → imagen final: nginx-light + node + dist + node_modules de prod
+#                  Corre como user `node` (UID 1000), NO root.
 #
 # BuildKit es requerido por los `--mount=type=cache`. Railway exige que el
 # `id` esté hardcodeado (no acepta interpolación de ARGs) y siga el formato
 # `s/<service-id>-<target>`. Service ID actual: 69f64078-1678-40f4-a266-a18b61a20cde.
-# Si se migra a otro servicio de Railway, reemplazar el UUID en ambos RUN.
-# Local: el id es solo la clave del cache, así que el literal funciona igual
-# en BuildKit estándar (no comparte cache entre máquinas).
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Dependencias completas (capa cacheable) ────────────────────────
-FROM node:20-bookworm AS deps
+# slim ahorra ~700MB de pull en builds frescos vs `bookworm` completo.
+# Angular 18 + esbuild + nx no necesitan los extras (git, python build tools)
+# que trae el bookworm full.
+FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 
+# ENV (no ARG) porque npm los lee como env vars en el process. ARG no se
+# expone automáticamente al RUN — el cambio a ARG hacía que npm ignorara
+# loglevel/fund/audit. Persisten en la imagen del stage, no en `runner`.
 ENV NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false \
@@ -33,11 +37,11 @@ COPY package*.json .npmrc ./
 # en Railway la cache de BuildKit no se reusa entre builds (por el formato
 # custom de id) y prefer-offline solo añade lógica extra para decidir entre
 # cache parcial y registry. Las opciones de retry vienen de .npmrc.
-RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm,target=/root/.npm \
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/root/.npm \
     npm ci
 
 # ── Stage 2: Compilación de view + api ──────────────────────────────────────
-FROM node:20-bookworm AS builder
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 
 ENV NX_DAEMON=false \
@@ -49,19 +53,30 @@ ENV NX_DAEMON=false \
 # Reutilizamos node_modules ya resuelto en `deps` — evita reinstalar.
 COPY --from=deps /app/node_modules ./node_modules
 
-# Resto del código fuente (filtrado por .dockerignore).
-COPY . .
+# COPY granular: cualquier archivo que NO sea código fuente o build config no
+# debe invalidar el cache del bundle. Antes `COPY . .` rebuildeaba el bundle
+# completo de Angular (~1 min) por un cambio en README o tests.
+COPY nx.json package.json package-lock.json tsconfig*.json .npmrc load-compiler.mjs ./
+COPY apps ./apps
+COPY libs ./libs
+COPY database ./database
 
 # Angular v18 con esbuild requiere @angular/compiler cargado en el proceso de
 # Node (load-compiler.mjs). El `--max-old-space-size=4096` da margen al heap
-# del compilador en builds grandes.
+# del compilador en builds grandes. `--configuration=production` reemplaza el
+# alias deprecated `--prod` (deja warning en Angular 18, error en futuros).
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
-    npx nx build view --prod && \
+    npx nx build view --configuration=production && \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
-    npx nx build api --prod
+    npx nx build api --configuration=production
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────
-FROM node:20-bookworm AS prod-deps
+# Antes este stage hacía un segundo `npm ci --omit=dev` desde cero (~30s
+# bajando los mismos paquetes que ya bajó `deps`). Ahora reusamos el
+# node_modules ya armado y le quitamos las devDependencies con `npm prune`.
+# Toma ~3-5s en lugar de ~30s y consume cero red. `npm dedupe` post-prune
+# elimina duplicados que pudieran quedar tras el resolve original.
+FROM node:20-bookworm-slim AS prod-deps
 WORKDIR /app
 
 ENV NPM_CONFIG_LOGLEVEL=warn \
@@ -70,32 +85,45 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
     CI=true
 
 COPY package*.json .npmrc ./
+COPY --from=deps /app/node_modules ./node_modules
 
-# `--ignore-scripts` evita husky/postinstall en imagen final (no aplican en
-# runtime). No usamos `npm cache clean` porque el cache mount no escribe a la
-# capa final (BuildKit lo mantiene fuera), así que limpiar es redundante
-# y además falla con ENOTEMPTY al ser un mount externo.
-RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-/root/.npm,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts
+RUN npm prune --omit=dev --ignore-scripts && \
+    npm dedupe --omit=dev --ignore-scripts
 
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
 
-# tini    → PID 1 que reapeha zombies y propaga SIGTERM al script (graceful
-#           shutdown cuando Railway/Render reinician).
-# nginx   → sirve el SPA + reverse proxy a la API.
-# gettext → envsubst para inyectar $PORT en nginx.conf en runtime.
-# tzdata  → fija la TZ del contenedor a MX (alinea con `mx-date.ts` del API).
-RUN apt-get update && \
+# nginx-light → SPA serving + reverse proxy, ~30MB menos que nginx full.
+# tini        → PID 1 que reapeha zombies y propaga SIGTERM al script.
+# gettext     → envsubst para inyectar $PORT en nginx.conf en runtime.
+# tzdata      → fija la TZ del contenedor a MX (alinea con `mx-date.ts` del API).
+#
+# Cache mounts: BuildKit preserva /var/cache/apt y /var/lib/apt entre builds.
+# NO borrar `/var/lib/apt/lists` con `rm -rf` con cache mount activo —
+# el mount mismo ya queda fuera de la capa final.
+# `docker-clean` borrado para que apt no auto-elimine del cache.
+#
+# Permisos para non-root nginx:
+#   - pid → /tmp/nginx.pid (sed del default `/run/nginx.pid`).
+#   - logs → /var/log/nginx (chown a `node`).
+#   - cache/temp dirs → /var/lib/nginx (chown a `node`).
+#   - sites-available/default → chown porque start.sh lo reescribe con envsubst.
+#   - /usr/share/nginx/html → chown (nginx leerá los assets como node).
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-apt-lists,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-        nginx \
+        nginx-light \
         gettext-base \
         tini \
         tzdata && \
     ln -sf /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
-    rm -rf /var/lib/apt/lists/*
+    sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
+    chown -R node:node /var/log/nginx /var/lib/nginx /usr/share/nginx/html /etc/nginx/sites-available
 
 WORKDIR /app
+RUN chown node:node /app
 
 # PORT lo inyecta Railway (≈10000); API_PORT es interno fijo. NO deben coincidir.
 ENV NODE_ENV=production \
@@ -105,28 +133,40 @@ ENV NODE_ENV=production \
     TZ=America/Mexico_City
 
 # Artefactos de los stages previos.
-COPY --from=builder  /app/database     ./database
-COPY --from=builder  /app/dist         ./dist
-COPY --from=prod-deps /app/node_modules ./node_modules
+#   - dist/apps/api → corre con node (start.sh).
+#   - database/    → knex migrate:latest en boot lo lee.
+#   - node_modules → solo prod, ya prune-eado.
+#   - dist/apps/view → directo a /usr/share/nginx/html (un layer menos vs
+#     el `RUN mkdir + cp -r` previo).
+# `--chown=node:node` para que el user non-root pueda leerlo todo sin
+# necesidad de un `chown -R` post-copy (que duplicaría todos los inodes).
+COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
+COPY --from=builder  --chown=node:node /app/database     ./database
+COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder  --chown=node:node /app/dist/apps/view /usr/share/nginx/html
 
 # Config de nginx + script de arranque.
-COPY nginx.conf /etc/nginx/sites-available/default
-COPY start.sh   ./start.sh
-RUN chmod +x ./start.sh
+# `--chmod=755` evita una layer extra de `chmod +x`.
+COPY --chown=node:node              nginx.conf /etc/nginx/sites-available/default
+COPY --chown=node:node --chmod=755  start.sh   ./start.sh
 
-# El executor `@nx/angular:browser-esbuild` emite directamente en
-# `dist/apps/view/` (sin subcarpeta `browser/`). Si en el futuro se migra al
-# builder application-builder de Angular, este path cambiará a `.../browser/`.
-RUN mkdir -p /usr/share/nginx/html && \
-    cp -r dist/apps/view/. /usr/share/nginx/html/
+# OCI labels — facilitan tracking en el registry.
+LABEL org.opencontainers.image.title="Trade Marketing" \
+      org.opencontainers.image.description="Mega Dulces B2B + trade marketing platform" \
+      org.opencontainers.image.licenses="UNLICENSED" \
+      org.opencontainers.image.vendor="Mega Dulces"
 
 EXPOSE 10000
 
 # Sin HEALTHCHECK explícito. Railway monitorea el container vía el proxy
-# edge (si nginx no responde, marca down). Tener un HEALTHCHECK custom
-# contra un endpoint específico solo añadía falsos negativos sin beneficio
-# real — el endpoint /api/health se eliminó por las mismas razones.
+# edge (si nginx no responde, marca down).
 
-# tini como PID 1 → señales se entregan al script y de ahí a node/nginx.
+# tini envía SIGTERM al script y de ahí a node/nginx → graceful shutdown.
+STOPSIGNAL SIGTERM
+
+# Non-root. UID 1000 viene en la imagen `node:*`. Vital para defense-in-depth:
+# si una RCE llega via la API o nginx, el atacante no tiene root en el container.
+USER node
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["sh", "./start.sh"]

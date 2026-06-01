@@ -37,6 +37,44 @@
  *   - Drawers/modals full-height sin padding propio → `safe-y` OK.
  *   - Landscape notched devices → `safe-x` para edges laterales.
  */
+/*
+ * PrimeNG Toast — override global de safe-area. p-toast por default usa
+ * `top: 0` (o `bottom: 0`) sin saber del notch / home indicator. Sin esto,
+ * en PWA standalone iPhone los toasts top tapan la status bar (vivido
+ * 2026-05-30 en /dashboard/captures cuando aparece "Visita Iniciada").
+ */
+.p-toast.p-toast-top-center,
+.p-toast.p-toast-top-right,
+.p-toast.p-toast-top-left {
+  top: calc(env(safe-area-inset-top) + 0.75rem) !important;
+}
+.p-toast.p-toast-bottom-center,
+.p-toast.p-toast-bottom-right,
+.p-toast.p-toast-bottom-left {
+  bottom: calc(env(safe-area-inset-bottom) + 0.75rem) !important;
+}
+
+/*
+ * FAB consciente del bottom nav. Cuando la página vive dentro del layout
+ * shell que tiene bottom nav (mobile only), un FAB con `bottom: 1rem` tapa
+ * los items del nav. Esta utility suma 56px del nav + safe-bottom + gap.
+ *
+ * Si la página NO tiene bottom nav (modales fullscreen, vendor, portal),
+ * override con `.fab-bottom-nonav` que NO suma los 56px.
+ */
+.fab-bottom {
+  position: fixed;
+  right: calc(1rem + env(safe-area-inset-right));
+  bottom: calc(56px + env(safe-area-inset-bottom) + 1rem);
+  z-index: 30;
+}
+.fab-bottom-nonav {
+  position: fixed;
+  right: calc(1rem + env(safe-area-inset-right));
+  bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  z-index: 30;
+}
+
 .safe-top    { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 .safe-left   { padding-left: env(safe-area-inset-left); }
