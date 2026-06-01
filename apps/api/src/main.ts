@@ -121,9 +121,20 @@ async function bootstrap() {
   // al recibir SIGTERM/SIGINT en producción.
   app.enableShutdownHooks();
 
-  const port = process.env.API_PORT || process.env.PORT || 3334;
-  await app.listen(port);
-  console.log(`Application running on port ${port}`);
+  // NestJS bindea a API_PORT (interno, fijo) → 127.0.0.1 SOLAMENTE.
+  // Nginx (mismo container) le hace proxy desde $PORT (público de Railway).
+  // No exponemos NestJS al edge porque:
+  //   1. Si Railway por error routea al puerto del API, se exponen las JSON
+  //      raw responses (incluyendo el "Cannot GET /" 404 que aterró al user).
+  //   2. nginx ya impone headers de seguridad + sirve el SPA estático.
+  //   3. WS pasa por el proxy de nginx (location /reports/socket.io/) que
+  //      maneja el upgrade correctamente.
+  //
+  // NO usar fallback a process.env.PORT (Railway lo asigna al edge). Si
+  // alguien lo configura como API_PORT por accidente, choca con nginx.
+  const port = Number(process.env.API_PORT) || 3334;
+  await app.listen(port, '127.0.0.1');
+  console.log(`Application running on 127.0.0.1:${port}`);
   console.log(`WebSocket gateway available at /reports namespace`);
 }
 
