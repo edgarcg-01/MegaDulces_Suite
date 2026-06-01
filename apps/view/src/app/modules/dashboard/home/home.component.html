@@ -33,25 +33,100 @@
   </header>
 
 
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 w-full">
+  <!--
+    Bento grid asimétrico (lg+): Score Global ocupa 6 cols × 2 rows (HERO),
+    Tiempo y Evidencia 3 cols × 1 row arriba derecha, Meta Diaria 6 cols ×
+    1 row abajo derecha. En sm: 2 cols planas. En mobile: stack.
+    Las clases lg:col-span / lg:row-span están en cada card por su índice.
+  -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 lg:grid-rows-2 gap-4 mb-8 w-full">
     @if (summaryMonthlyLoading()) {
-      @for (i of [1,2,3,4]; track i) {
-        <!-- h-[180px] exacto (no min-h-) para que el reemplazo skeleton→card
-             no provoque shift. Antes min-h-[180px] permitía que la card real
-             creciera y empujara el resto del layout, contribuyendo al CLS. -->
-        <div class="card-premium card-flat animate-pulse h-[180px] flex items-center justify-center p-5">
-          <p-skeleton width="80%" height="4rem"></p-skeleton>
-        </div>
-      }
+      <div class="card-premium card-flat animate-pulse lg:col-span-6 lg:row-span-2 h-[180px] lg:h-auto flex items-center justify-center p-5">
+        <p-skeleton width="80%" height="6rem"></p-skeleton>
+      </div>
+      <div class="card-premium card-flat animate-pulse lg:col-span-3 h-[180px] flex items-center justify-center p-5">
+        <p-skeleton width="80%" height="4rem"></p-skeleton>
+      </div>
+      <div class="card-premium card-flat animate-pulse lg:col-span-3 h-[180px] flex items-center justify-center p-5">
+        <p-skeleton width="80%" height="4rem"></p-skeleton>
+      </div>
+      <div class="card-premium card-flat animate-pulse lg:col-span-6 h-[180px] flex items-center justify-center p-5">
+        <p-skeleton width="90%" height="4rem"></p-skeleton>
+      </div>
     } @else {
-      @for (k of kpiCards(); track k.label) {
-        <div class="card-premium card-flat status-border-left flex flex-col gap-3 h-[180px] p-5 w-full"
-             [class]="'status-' + k.status">
+      @for (k of kpiCards(); track k.label; let i = $index) {
+        <div class="card-premium card-flat status-border-left flex flex-col gap-3 p-5 w-full
+                    motion-safe:transition-shadow hover:shadow-md"
+             [class]="'status-' + k.status"
+             [class.lg:col-span-6]="i === 0 || i === 3"
+             [class.lg:col-span-3]="i === 1 || i === 2"
+             [class.lg:row-span-2]="i === 0"
+             [class.h-\[180px\]]="i !== 0"
+             [class.lg:h-auto]="i === 0"
+             [class.min-h-\[180px\]]="i === 0">
+
           <div class="flex items-baseline justify-between gap-2">
-            <span class="text-[10px] uppercase tracking-widest font-bold text-content-muted truncate">{{ k.label }}</span>
-            <span class="text-[9px] text-content-faint shrink-0">Meta {{ k.meta }}</span>
+            <span class="font-bold text-content-muted truncate uppercase tracking-widest"
+                  [class.text-xs]="k.size === 'hero'"
+                  [class.text-[10px]]="k.size !== 'hero'">{{ k.label }}</span>
+            <span class="text-[10px] text-content-faint shrink-0 font-medium">Meta {{ k.meta }}</span>
           </div>
 
+          <!-- GAUGE variant -->
+          @if (k.kind === 'gauge' && k.gauge; as g) {
+            <div class="flex-1 flex flex-col items-center justify-center gap-2 py-1">
+              <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
+                <svg viewBox="0 0 40 40"
+                     class="-rotate-90 motion-safe:transition-transform"
+                     [class.w-44]="g.size === 'hero'"
+                     [class.h-44]="g.size === 'hero'"
+                     [class.w-20]="g.size !== 'hero'"
+                     [class.h-20]="g.size !== 'hero'">
+                  <circle cx="20" cy="20" r="15.5" fill="none"
+                          stroke="var(--surface-layout)"
+                          [attr.stroke-width]="g.size === 'hero' ? 3.5 : 3"></circle>
+                  <circle cx="20" cy="20" r="15.5" fill="none"
+                          [attr.stroke]="g.color"
+                          [attr.stroke-width]="g.size === 'hero' ? 3.5 : 3"
+                          stroke-linecap="round"
+                          [attr.stroke-dasharray]="g.circumference"
+                          [attr.stroke-dashoffset]="g.dashoffset"
+                          class="motion-safe:transition-all duration-700">
+                    <title>{{ g.ariaLabel }}</title>
+                  </circle>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span class="font-extrabold tabular-nums leading-none text-content-main"
+                        [class.text-5xl]="g.size === 'hero'"
+                        [class.text-xl]="g.size !== 'hero'">{{ g.centerValue }}</span>
+                  @if (g.centerUnit) {
+                    <span class="text-content-muted uppercase tracking-wider"
+                          [class.text-xs]="g.size === 'hero'"
+                          [class.text-[9px]]="g.size !== 'hero'"
+                          [class.mt-1]="g.size === 'hero'"
+                          [class.mt-0.5]="g.size !== 'hero'">{{ g.centerUnit }}</span>
+                  }
+                </div>
+              </div>
+              @if (k.delta) {
+                <span class="font-semibold inline-flex items-center gap-1"
+                      [class.text-sm]="g.size === 'hero'"
+                      [class.text-[11px]]="g.size !== 'hero'"
+                      [class.text-ok-fg]="k.deltaDir === 'up'"
+                      [class.text-bad-fg]="k.deltaDir === 'down'"
+                      [class.text-content-faint]="k.deltaDir === 'flat'">
+                  <i class="pi text-[10px]"
+                     [class.pi-arrow-up]="k.deltaDir === 'up'"
+                     [class.pi-arrow-down]="k.deltaDir === 'down'"
+                     [class.pi-minus]="k.deltaDir === 'flat'"
+                     aria-hidden="true"></i>
+                  {{ k.delta }}
+                </span>
+              }
+            </div>
+          }
+
+          <!-- SPARK variant: bars o area -->
           @if (k.kind === 'spark') {
             <div class="flex items-baseline gap-2 flex-wrap">
               <span class="text-3xl font-extrabold tabular-nums leading-none text-content-main">{{ k.value }}</span>
@@ -72,26 +147,64 @@
 
             @if (k.spark; as s) {
               <svg [attr.viewBox]="s.viewBox" preserveAspectRatio="none"
-                   class="w-full h-10 mt-auto"
+                   class="w-full mt-auto"
+                   [class.h-12]="s.style === 'area'"
+                   [class.h-10]="s.style === 'bars'"
                    [attr.aria-label]="s.ariaLabel" role="img">
-                @if (s.metaY >= 0) {
-                  <line x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
-                        stroke="var(--text-faint)" stroke-width="0.3"
-                        stroke-dasharray="1.5 1.5" opacity="0.55"></line>
+
+                @if (s.style === 'bars') {
+                  @if (s.metaY >= 0) {
+                    <line x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                          stroke="var(--text-faint)" stroke-width="0.3"
+                          stroke-dasharray="1.5 1.5" opacity="0.6"></line>
+                  }
+                  @for (b of s.bars; track $index) {
+                    <g>
+                      <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
+                            [attr.fill]="b.color" rx="0.3"
+                            [attr.opacity]="b.isToday ? 1 : 0.7"
+                            class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
+                        <title>{{ b.tooltip }}</title>
+                      </rect>
+                      @if (b.isToday) {
+                        <circle [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
+                                [attr.fill]="b.color"></circle>
+                      }
+                    </g>
+                  }
                 }
-                @for (b of s.bars; track $index) {
-                  <g>
-                    <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
-                          [attr.fill]="b.color" rx="0.4"
-                          [attr.opacity]="b.isToday ? 1 : 0.65"
-                          class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
-                      <title>{{ b.tooltip }}</title>
-                    </rect>
-                    @if (b.isToday) {
-                      <circle [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
-                              [attr.fill]="b.color"></circle>
+
+                @if (s.style === 'area') {
+                  <defs>
+                    <linearGradient [attr.id]="s.gradientId" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" [attr.stop-color]="s.color" stop-opacity="0.45"></stop>
+                      <stop offset="100%" [attr.stop-color]="s.color" stop-opacity="0"></stop>
+                    </linearGradient>
+                  </defs>
+                  @if (s.metaY >= 0) {
+                    <line x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                          stroke="var(--text-faint)" stroke-width="0.3"
+                          stroke-dasharray="1.5 1.5" opacity="0.6"></line>
+                  }
+                  <path [attr.d]="s.areaPath" [attr.fill]="'url(#' + s.gradientId + ')'"></path>
+                  <path [attr.d]="s.linePath" fill="none"
+                        [attr.stroke]="s.color" stroke-width="0.8"
+                        stroke-linecap="round" stroke-linejoin="round"></path>
+                  @for (p of s.points; track $index) {
+                    @if (p.isToday) {
+                      <circle [attr.cx]="p.x" [attr.cy]="p.y" r="1.2"
+                              [attr.fill]="s.color" stroke="var(--card-bg)" stroke-width="0.5">
+                        <title>{{ p.tooltip }}</title>
+                      </circle>
                     }
-                  </g>
+                  }
+                  <!-- Hit areas invisibles para tooltip en cada punto -->
+                  @for (p of s.points; track $index) {
+                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="2"
+                            fill="transparent" class="cursor-help">
+                      <title>{{ p.tooltip }}</title>
+                    </circle>
+                  }
                 }
               </svg>
             } @else {
@@ -100,43 +213,6 @@
                      [style.width.%]="k.pct"></div>
               </div>
             }
-          }
-
-          @if (k.kind === 'gauge' && k.gauge; as g) {
-            <div class="flex-1 flex flex-col items-center justify-center gap-1.5 py-1">
-              <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
-                <svg viewBox="0 0 40 40" class="w-20 h-20 -rotate-90">
-                  <circle cx="20" cy="20" r="15.5" fill="none"
-                          stroke="var(--surface-layout)" stroke-width="3"></circle>
-                  <circle cx="20" cy="20" r="15.5" fill="none"
-                          [attr.stroke]="g.color" stroke-width="3" stroke-linecap="round"
-                          [attr.stroke-dasharray]="g.circumference"
-                          [attr.stroke-dashoffset]="g.dashoffset"
-                          class="motion-safe:transition-all duration-700">
-                    <title>{{ g.ariaLabel }}</title>
-                  </circle>
-                </svg>
-                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span class="text-xl font-extrabold tabular-nums leading-none text-content-main">{{ g.centerValue }}</span>
-                  @if (g.centerUnit) {
-                    <span class="text-[9px] text-content-muted uppercase tracking-wider mt-0.5">{{ g.centerUnit }}</span>
-                  }
-                </div>
-              </div>
-              @if (k.delta) {
-                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
-                      [class.text-ok-fg]="k.deltaDir === 'up'"
-                      [class.text-bad-fg]="k.deltaDir === 'down'"
-                      [class.text-content-faint]="k.deltaDir === 'flat'">
-                  <i class="pi text-[9px]"
-                     [class.pi-arrow-up]="k.deltaDir === 'up'"
-                     [class.pi-arrow-down]="k.deltaDir === 'down'"
-                     [class.pi-minus]="k.deltaDir === 'flat'"
-                     aria-hidden="true"></i>
-                  {{ k.delta }}
-                </span>
-              }
-            </div>
           }
         </div>
       }

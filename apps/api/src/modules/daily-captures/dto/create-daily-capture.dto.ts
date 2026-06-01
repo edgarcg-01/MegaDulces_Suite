@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsNotEmpty,
   IsNumber,
   IsObject,
@@ -26,6 +27,16 @@ export class ExhibicionDto {
   @IsOptional() @IsString() fotoPublicId?: string | null;
   @IsOptional() @IsNumber() puntuacionCalculada?: number;
   @IsOptional() @IsString() horaRegistro?: string;
+
+  // ── Fase V: vendedor sube ticket (separado del exhibidor) ──────────────
+  // Estos campos se persisten en el JSONB de la exhibición. Antes vivían
+  // como casts `as any` en el frontend — formalizados acá para validation
+  // y para que `whitelist: true` no los descarte si en el futuro se endurece
+  // el ValidationPipe. `ticket_skipped:true` señala que el vendedor saltó
+  // el paso por red mala — útil para reporting de cobertura.
+  @IsOptional() @IsString() ticket_foto_url?: string | null;
+  @IsOptional() @IsString() ticket_foto_public_id?: string | null;
+  @IsOptional() @IsBoolean() ticket_skipped?: boolean;
 }
 
 export class StatsDto {

@@ -145,6 +145,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly isVendedor = computed(() => this.user()?.role_name === 'vendedor');
 
   /** Step 7 (solo vendedor): estado de la foto del ticket + extracción AI. */
+  /**
+   * Vendedor saltó intencionalmente el paso del ticket (red mala / OCR fallido).
+   * Permite finalizar la visita con la foto del exhibidor + bandera explícita
+   * en el JSONB para reporting (`ticket_skipped: true`). Sin esto, una visita
+   * sin red en zona muerta se pierde al cerrar el wizard.
+   */
+  readonly ticketSkipped = signal(false);
   readonly ticketFile = signal<File | null>(null);
   readonly ticketPreview = signal<string | null>(null);
   readonly ticketExtracting = signal(false);
@@ -806,6 +813,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       this.ticketPreview.set(null);
       this.ticketResult.set(null);
       this.ticketConfirmed.set(new Set());
+      this.ticketSkipped.set(false);
       this.wizardStep = 6;
     } else {
       this.currentExhibicion.set({
@@ -1412,7 +1420,33 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.ticketPreview.set(null);
     this.ticketResult.set(null);
     this.ticketConfirmed.set(new Set());
+    this.ticketSkipped.set(false);
     this.currentExhibicion.update((curr) => ({ ...curr, productosMarcados: [] }));
+  }
+
+  /**
+   * Saltar el paso del ticket explícitamente. Se usa cuando:
+   *  - El vendedor no tiene red (Cloudinary/OCR fallan).
+   *  - El ticket no es legible / no aplica.
+   * Marca `ticketSkipped=true` para que finishWizard acepte la visita sin
+   * ticketResult. El JSONB de la exhibición lleva `ticket_skipped:true`
+   * para análisis posterior.
+   */
+  skipTicket(): void {
+    if (!confirm('¿Saltar el paso del ticket? La visita se guardará solo con la foto del exhibidor. Asegurate de que la foto sea clara.')) {
+      return;
+    }
+    this.ticketSkipped.set(true);
+    this.ticketFile.set(null);
+    this.ticketPreview.set(null);
+    this.ticketResult.set(null);
+    this.ticketConfirmed.set(new Set());
+    this.toast.add({
+      severity: 'info',
+      summary: 'Ticket saltado',
+      detail: 'Tocá Finalizar para guardar la visita con la foto del exhibidor.',
+      life: 4000,
+    });
   }
 
   ticketSev(c: string): 'success' | 'info' | 'warn' | 'danger' {
@@ -1646,11 +1680,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
     // Vendedor: exige también el ticket procesado (al menos 1 producto confirmado
     // o el ticket procesado con 0 matches válidos pero foto del ticket subida).
     if (this.isVendedor()) {
-      if (!this.ticketResult()) {
+      // Aceptar la visita si: hay ticket procesado, O el vendedor lo saltó
+      // explícitamente (con confirmación). Cualquier otro caso = falta foto.
+      if (!this.ticketResult() && !this.ticketSkipped()) {
         this.toast.add({
           severity: 'warn',
           summary: 'Falta el ticket',
-          detail: 'Tomá la foto del ticket antes de finalizar.',
+          detail: 'Tomá la foto del ticket o tocá "Saltar ticket" antes de finalizar.',
         });
         this.wizardStep = 7;
         return;
@@ -1659,6 +1695,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       const tr = this.ticketResult();
       (ex as any).ticket_foto_url = tr?.ticket_url || null;
       (ex as any).ticket_foto_public_id = tr?.ticket_public_id || null;
+      (ex as any).ticket_skipped = this.ticketSkipped();
     }
 
     try {

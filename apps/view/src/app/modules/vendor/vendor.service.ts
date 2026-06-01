@@ -8,6 +8,7 @@ import {
   Order,
   OrderLine,
 } from '../portal/portal.service';
+import { AuthService } from '../../core/services/auth.service';
 
 export interface VendorCustomer {
   id: string;
@@ -38,7 +39,13 @@ export interface VendorCustomer {
 export class VendorService {
   private readonly http = inject(HttpClient);
   private readonly portal = inject(PortalService);
+  private readonly auth = inject(AuthService);
   private readonly base = environment.apiUrl + '/commercial';
+
+  /** sub del JWT del vendedor logueado. Lo usamos para scoping de drafts / "Mi día". */
+  private get vendorUserId(): string | null {
+    return this.auth.user()?.sub || null;
+  }
 
   // ─── Customers ───
 
@@ -88,14 +95,18 @@ export class VendorService {
   // ─── Take order (find-or-create draft scoped al customer) ───
 
   /**
-   * Obtiene draft activo del vendedor para ESTE customer, si existe.
-   * Filtra por status=draft + customer_id en el endpoint admin (no usa /my
-   * porque el vendedor no es customer_b2b).
+   * Obtiene draft activo DE ESTE vendedor para ESTE customer, si existe.
+   * Scope obligatorio por `user_id` — sin esto, dos vendedores pueden tomar
+   * drafts uno del otro al elegir el mismo cliente (bug encontrado en
+   * audit 2026-06-01).
    */
   draftForCustomer(customerId: string): Observable<Order | null> {
+    const userId = this.vendorUserId;
+    if (!userId) return of(null);
     const params = new HttpParams()
       .set('status', 'draft')
       .set('customer_id', customerId)
+      .set('user_id', userId)
       .set('pageSize', '5');
     return this.http
       .get<{ data: Order[] }>(`${this.base}/orders`, { params })
@@ -156,10 +167,13 @@ export class VendorService {
   // ─── My day: pedidos tomados HOY por este vendedor ───
 
   myOrdersToday(): Observable<Order[]> {
+    const userId = this.vendorUserId;
+    if (!userId) return of([]);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const params = new HttpParams()
       .set('from', today.toISOString())
+      .set('user_id', userId)
       .set('pageSize', '50');
     return this.http
       .get<{ data: Order[] }>(`${this.base}/orders`, { params })

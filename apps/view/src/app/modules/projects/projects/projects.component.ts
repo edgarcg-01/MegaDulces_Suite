@@ -17,6 +17,8 @@ interface ProjectCard {
   anyOf: Permission[];
   /** Si está set, además del anyOf el rol debe estar en esta lista. */
   roleOnly?: string[];
+  /** Si está set, el rol NO debe estar en esta lista para ver el proyecto. */
+  hideForRoles?: string[];
 }
 
 @Component({
@@ -69,6 +71,22 @@ export class ProjectsComponent implements OnInit {
         Permission.COMMERCIAL_PRICING_VER,
         Permission.COMMERCIAL_INVENTORY_VER,
       ],
+      // Vendedor tiene COMMERCIAL_ORDERS_* pero no debe ver el admin de
+      // Comercial (mostraría pedidos de toda la tenant) — tiene su propio
+      // proyecto "Modo Vendedor" abajo.
+      hideForRoles: ['vendedor'],
+    },
+    {
+      id: 'vendedor',
+      name: 'Modo Vendedor',
+      description: 'Tomá pedidos en campo: lista de clientes, catálogo con precio por cliente, y "Mi día" con tus pedidos del día.',
+      icon: 'pi pi-briefcase',
+      route: '/vendor/customers',
+      status: 'Activo',
+      anyOf: [Permission.COMMERCIAL_ORDERS_CREAR],
+      // Restringido a roles que realmente toman pedidos en campo. Admins/
+      // superadmins lo ven también (testing). tele_operator usa /televenta.
+      roleOnly: ['vendedor', 'admin', 'superadmin', 'jefe_marketing', 'supervisor'],
     },
     {
       id: 'televenta',
@@ -127,6 +145,7 @@ export class ProjectsComponent implements OnInit {
     const role = u?.role_name;
     return this.allProjects.filter((p) => {
       if (p.roleOnly && (!role || !p.roleOnly.includes(role))) return false;
+      if (p.hideForRoles && role && p.hideForRoles.includes(role)) return false;
       return p.anyOf.some((perm) => legacyPerms[perm] === true);
     });
   });

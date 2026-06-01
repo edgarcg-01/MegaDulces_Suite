@@ -25,18 +25,34 @@ import { getChartTokens, colorForScore } from '../../../shared/theme/chart-theme
 import { forkJoin } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-// Sparkbars + gauge SVG configs para los KPI cards (4 cards · 2 estilos).
+// Visualizaciones SVG para KPI cards. 3 estilos: bars (sparkbars), area
+// (sparkline rellena), gauge (donut).
 interface SparkBar {
   x: number; y: number; w: number; h: number;
   color: string; tooltip: string; isToday: boolean;
 }
-interface SparkConfig {
-  bars: SparkBar[]; metaY: number; viewBox: string; ariaLabel: string;
+interface SparkBarsConfig {
+  style: 'bars';
+  bars: SparkBar[];
+  metaY: number; viewBox: string; ariaLabel: string;
 }
+interface SparkAreaPoint {
+  x: number; y: number; tooltip: string; isToday: boolean;
+}
+interface SparkAreaConfig {
+  style: 'area';
+  linePath: string; areaPath: string;
+  points: SparkAreaPoint[];
+  metaY: number; viewBox: string; ariaLabel: string;
+  color: string; gradientId: string;
+}
+type SparkConfig = SparkBarsConfig | SparkAreaConfig;
+
 interface GaugeConfig {
   pct: number; color: string;
   centerValue: string; centerUnit: string; ariaLabel: string;
   circumference: number; dashoffset: number;
+  size: 'hero' | 'normal';
 }
 
 // Servicios
@@ -172,7 +188,8 @@ export class HomeComponent implements OnInit {
         delta: '',
         deltaDir: 'flat' as 'up' | 'down' | 'flat',
         kind: 'gauge' as 'gauge' | 'spark',
-        gauge: this.buildGauge(scoreVal, scoreStatus, `${Math.round(scoreVal)} pts`, scoreRange?.opt ?? 0, 'pts'),
+        size: 'hero' as 'hero' | 'normal',
+        gauge: this.buildGauge(scoreVal, scoreStatus, `${Math.round(scoreVal)} pts`, scoreRange?.opt ?? 0, 'pts', 'hero'),
         spark: undefined as SparkConfig | undefined,
       },
       {
@@ -186,7 +203,8 @@ export class HomeComponent implements OnInit {
         delta: '',
         deltaDir: 'flat' as 'up' | 'down' | 'flat',
         kind: 'gauge' as 'gauge' | 'spark',
-        gauge: this.buildGauge(avgDurationVal, avgDurationStatus, `${avgDurationVal} m`, avgDurationRange?.opt ?? 0, 'min'),
+        size: 'normal' as 'hero' | 'normal',
+        gauge: this.buildGauge(avgDurationVal, avgDurationStatus, `${avgDurationVal} m`, avgDurationRange?.opt ?? 0, 'min', 'normal'),
         spark: undefined as SparkConfig | undefined,
       },
       {
@@ -200,8 +218,9 @@ export class HomeComponent implements OnInit {
         delta: '',
         deltaDir: 'flat' as 'up' | 'down' | 'flat',
         kind: 'spark' as 'gauge' | 'spark',
+        size: 'normal' as 'hero' | 'normal',
         gauge: undefined as GaugeConfig | undefined,
-        spark: this.buildSpark(evidenciaSeries, 'evidenciaVisual', (v) => `${Math.round(v)} fotos`),
+        spark: this.buildSparkArea(evidenciaSeries, 'evidenciaVisual', (v) => `${Math.round(v)} fotos`),
       },
       {
         label: 'Meta Diaria',
@@ -214,68 +233,143 @@ export class HomeComponent implements OnInit {
         deltaDir: (pending > 0 ? 'down' : 'up') as 'up' | 'down' | 'flat',
         pct: metaDiaria > 0 ? Math.round((cierresHoy / metaDiaria) * 100) : 0,
         kind: 'spark' as 'gauge' | 'spark',
+        size: 'normal' as 'hero' | 'normal',
         gauge: undefined as GaugeConfig | undefined,
-        spark: this.buildSpark(visitsSeries, 'metaDiaria', (v) => `${Math.round(v)} visitas`),
+        spark: this.buildSparkBars(visitsSeries, 'metaDiaria', (v) => `${Math.round(v)} visitas`),
       },
     ];
   });
 
-  /**
-   * Sparkbars SVG normalizadas a viewBox 100×24. Cada barra coloreada por
-   * el semáforo del KPI según ESE día. Línea de meta dashed. Today marcado
-   * con dot. <title> = tooltip nativo.
-   */
-  private buildSpark(
+  /** Padded series: rellena ceros hacia atrás hasta llegar a 14 días. Evita
+      el render roto cuando solo hay 1 día de actividad real en el mes. */
+  private padSeries(
+    series: { date: string; value: number }[],
+    minLength = 14,
+  ): { date: string; value: number; isReal: boolean }[] {
+    const real = series.map((s) => ({ ...s, isReal: true }));
+    if (real.length >= minLength) return real.slice(-minLength);
+    if (!real.length) return [];
+    const earliest = new Date(real[0].date);
+    const pad: { date: string; value: number; isReal: boolean }[] = [];
+    for (let i = minLength - real.length; i > 0; i--) {
+      const d = new Date(earliest);
+      d.setDate(d.getDate() - i);
+      pad.push({ date: d.toISOString().split('T')[0], value: 0, isReal: false });
+    }
+    return [...pad, ...real];
+  }
+
+  /** Sparkbars: barras verticales coloreadas por semáforo de cada día. */
+  private buildSparkBars(
     series: { date: string; value: number }[],
     kpiId: string,
     fmt: (v: number) => string,
-  ): SparkConfig | undefined {
-    if (!series.length) return undefined;
+  ): SparkBarsConfig | undefined {
+    const padded = this.padSeries(series);
+    if (!padded.length) return undefined;
     const range = this.metasConfig.getRange(kpiId);
     const opt = range?.opt ?? 0;
     const min = range?.min ?? 0;
-    const values = series.map((s) => s.value);
+    const values = padded.map((s) => s.value);
     const maxVal = Math.max(...values, opt, 1);
     const W = 100;
     const H = 24;
-    const gap = 1.5;
-    const barW = (W - gap * Math.max(series.length - 1, 0)) / series.length;
+    const gap = 1.2;
+    const barW = (W - gap * Math.max(padded.length - 1, 0)) / padded.length;
     const metaY = opt > 0 ? H - 2 - (opt / maxVal) * (H - 4) : -1;
-    const todayIdx = series.length - 1;
+    const todayIdx = padded.length - 1;
 
-    const bars: SparkBar[] = series.map((s, i) => {
+    const bars: SparkBar[] = padded.map((s, i) => {
       const rawH = (s.value / maxVal) * (H - 4);
-      const h = Math.max(rawH, 0.5);
+      const h = Math.max(rawH, 0.4);
       const y = H - 2 - h;
       let color: string;
-      if (opt && s.value >= opt) color = 'var(--ok-fg)';
+      if (!s.isReal) color = 'var(--text-faint)';
+      else if (opt && s.value >= opt) color = 'var(--ok-fg)';
       else if (min && s.value >= min) color = 'var(--warn-fg)';
       else if (opt) color = 'var(--bad-fg)';
       else color = 'var(--info-fg)';
       return {
         x: i * (barW + gap), y, w: barW, h,
         color,
-        tooltip: `${this.formatShortDate(s.date)} · ${fmt(s.value)}`,
+        tooltip: s.isReal
+          ? `${this.formatShortDate(s.date)} · ${fmt(s.value)}`
+          : `${this.formatShortDate(s.date)} · sin actividad`,
         isToday: i === todayIdx,
       };
     });
 
     return {
+      style: 'bars',
       bars, metaY, viewBox: `0 0 ${W} ${H}`,
-      ariaLabel: `Tendencia ${series.length} ${series.length === 1 ? 'día' : 'días'}. ${opt ? 'Meta ' + fmt(opt) + '.' : ''}`,
+      ariaLabel: `Tendencia ${padded.length} días. ${opt ? 'Meta ' + fmt(opt) + '.' : ''}`,
     };
   }
 
-  /**
-   * Donut gauge. Foreground arc = pct vs meta óptima, color por status.
-   * Center: valor + unidad pequeña debajo.
-   */
+  /** Sparkline area: línea suave + gradiente bajo. Mucho más vistoso que
+   * bars para flujo continuo (fotos, ventas). */
+  private buildSparkArea(
+    series: { date: string; value: number }[],
+    kpiId: string,
+    fmt: (v: number) => string,
+  ): SparkAreaConfig | undefined {
+    const padded = this.padSeries(series);
+    if (!padded.length) return undefined;
+    const range = this.metasConfig.getRange(kpiId);
+    const opt = range?.opt ?? 0;
+    const status = this.metasConfig.statusFor(kpiId, padded[padded.length - 1].value);
+    const values = padded.map((s) => s.value);
+    const maxVal = Math.max(...values, opt, 1);
+    const W = 100;
+    const H = 24;
+    const pad = 2;
+    const stepX = padded.length > 1 ? W / (padded.length - 1) : W;
+    const metaY = opt > 0 ? H - pad - (opt / maxVal) * (H - pad * 2) : -1;
+    const todayIdx = padded.length - 1;
+
+    let color = 'var(--info-fg)';
+    if (opt) {
+      if (status === 'ok') color = 'var(--ok-fg)';
+      else if (status === 'warn') color = 'var(--warn-fg)';
+      else color = 'var(--bad-fg)';
+    }
+
+    const points: SparkAreaPoint[] = padded.map((s, i) => {
+      const x = padded.length > 1 ? i * stepX : W / 2;
+      const y = H - pad - (s.value / maxVal) * (H - pad * 2);
+      return {
+        x, y,
+        tooltip: s.isReal
+          ? `${this.formatShortDate(s.date)} · ${fmt(s.value)}`
+          : `${this.formatShortDate(s.date)} · sin actividad`,
+        isToday: i === todayIdx,
+      };
+    });
+
+    const linePath = points
+      .map((p, i) => (i === 0 ? 'M' : 'L') + ` ${p.x.toFixed(2)},${p.y.toFixed(2)}`)
+      .join(' ');
+    const last = points[points.length - 1];
+    const areaPath = `${linePath} L ${last.x.toFixed(2)},${H} L 0,${H} Z`;
+
+    return {
+      style: 'area',
+      linePath, areaPath, points,
+      metaY, viewBox: `0 0 ${W} ${H}`,
+      ariaLabel: `Tendencia ${padded.length} días. ${opt ? 'Meta ' + fmt(opt) + '.' : ''}`,
+      color,
+      gradientId: `spark-grad-${kpiId}`,
+    };
+  }
+
+  /** Donut gauge. Hero variant: stroke más grueso, números grandes. */
   private buildGauge(
     rawValue: number,
     status: KpiStatus,
     formattedValue: string,
     metaOpt: number,
     unit: string,
+    size: 'hero' | 'normal' = 'normal',
   ): GaugeConfig {
     const pct = metaOpt > 0 ? Math.min(100, Math.round((rawValue / metaOpt) * 100)) : 0;
     const r = 15.5;
@@ -296,6 +390,7 @@ export class HomeComponent implements OnInit {
       ariaLabel: `${formattedValue} de meta ${metaOpt}${unit}. ${pct}% alcanzado.`,
       circumference: C,
       dashoffset,
+      size,
     };
   }
 
