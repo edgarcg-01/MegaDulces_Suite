@@ -41,11 +41,28 @@
         <i class="pi pi-exclamation-triangle text-warn-fg"></i>
         <span>Visitas pendientes: {{ visitasPendientes }}</span>
       </div>
+      <div class="detail-item" *ngIf="visitasMuertas > 0">
+        <i class="pi pi-times-circle text-bad-fg"></i>
+        <span>Visitas atascadas (revisión manual): <strong>{{ visitasMuertas }}</strong></span>
+      </div>
+    </div>
+
+    <!-- Watchdog visual: si sync lleva >30s, mostrar duración + acción -->
+    <div class="detail-section" *ngIf="isSynchronizing && syncStuckMs > 5000">
+      <h4>Sincronizando…</h4>
+      <div class="detail-item">
+        <i class="pi pi-spin pi-spinner text-info-fg"></i>
+        <span>Tiempo transcurrido: {{ (syncStuckMs / 1000) | number:'1.0-0' }}s</span>
+      </div>
+      <div class="detail-item" *ngIf="isSyncStuck">
+        <i class="pi pi-exclamation-triangle text-warn-fg"></i>
+        <span>Parece colgada. Podés reiniciar y reintentar en el próximo ciclo.</span>
+      </div>
     </div>
 
     <div class="actions-section">
-      <button 
-        pButton 
+      <button
+        pButton
         type="button"
         class="p-button-sm p-button-outlined mr-2"
         [disabled]="isSynchronizing || !isOnline"
@@ -53,9 +70,20 @@
         <i class="pi" [class]="isSynchronizing ? 'pi-spin pi-spinner' : 'pi-refresh'"></i>
         <span class="ml-2">{{ isSynchronizing ? 'Sincronizando...' : 'Forzar Sincronización' }}</span>
       </button>
-      
-      <button 
-        pButton 
+
+      <!-- Reset manual cuando el sync lleva >30s — desbloquea al usuario -->
+      <button
+        pButton
+        *ngIf="isSyncStuck"
+        type="button"
+        class="p-button-sm p-button-outlined p-button-warning mr-2"
+        (click)="reiniciarSincronizacion()">
+        <i class="pi pi-undo"></i>
+        <span class="ml-2">Reiniciar sincronización</span>
+      </button>
+
+      <button
+        pButton
         type="button"
         class="p-button-sm p-button-outlined p-button-danger"
         (click)="limpiarDatosOffline()">

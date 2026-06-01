@@ -25,28 +25,43 @@ export class DailyCapturesService {
   ) {}
 
   /**
-   * Cache booleano: si la migration `add_sync_uuid_to_daily_captures` corrió,
-   * la columna existe. Evita pegarle a `information_schema` por cada INSERT.
-   * Asumimos que la columna no se borra en runtime (no es manejado por DDL
-   * live), por eso una sola query inicial es suficiente.
+   * Cache de la existencia de la columna `sync_uuid`:
+   *   - Una vez detectada como `true`, se cachea por la vida del proceso
+   *     (la columna no se borra en runtime).
+   *   - Si está `false`, re-verifica cada 60s. Esto cubre el caso real:
+   *     el API arrancó ANTES de aplicar la migration → el cache se quedó
+   *     en `false` para SIEMPRE aunque después se haya creado la columna,
+   *     causando regresión del UNIQUE (tenant_id, folio) en cada sync
+   *     offline. Re-checkear permite picking up la migration sin reiniciar.
    */
   private _hasSyncUuidColumn: boolean | null = null;
+  private _hasSyncUuidCheckedAt = 0;
+  private readonly NEGATIVE_TTL_MS = 60_000;
   private async hasSyncUuidColumn(): Promise<boolean> {
-    if (this._hasSyncUuidColumn !== null) return this._hasSyncUuidColumn;
+    if (this._hasSyncUuidColumn === true) return true;
+    const stale =
+      this._hasSyncUuidColumn === false &&
+      Date.now() - this._hasSyncUuidCheckedAt < this.NEGATIVE_TTL_MS;
+    if (stale) return false;
     try {
-      this._hasSyncUuidColumn = await this.knex.schema.hasColumn(
+      const exists = await this.knex.schema.hasColumn(
         'daily_captures',
         'sync_uuid',
       );
-      if (!this._hasSyncUuidColumn) {
+      this._hasSyncUuidColumn = exists;
+      this._hasSyncUuidCheckedAt = Date.now();
+      if (!exists) {
         this.logger.warn(
-          'Columna `sync_uuid` no existe en daily_captures. Sin idempotencia offline-sync hasta correr la migration.',
+          'Columna `sync_uuid` no existe en daily_captures. Re-checkeo en 60s. Sin idempotencia offline-sync hasta entonces.',
         );
+      } else {
+        this.logger.log('Columna `sync_uuid` detectada — idempotencia offline-sync activa.');
       }
-      return this._hasSyncUuidColumn;
+      return exists;
     } catch (err) {
       this.logger.error(`Error verificando columna sync_uuid: ${err}`);
       this._hasSyncUuidColumn = false;
+      this._hasSyncUuidCheckedAt = Date.now();
       return false;
     }
   }
@@ -326,9 +341,34 @@ export class DailyCapturesService {
         );
       }
     } else {
-      [dailyCapture] = await this.knex('daily_captures')
-        .insert(insertPayload)
-        .returning('*');
+      // Defense in depth: si por algún motivo NO hay sync_uuid (cliente legacy,
+      // columna recién creada y cache aún en false), igual puede haber colisión
+      // por (tenant_id, folio) cuando el cliente reintenta. Capturamos el
+      // duplicate-key como "ya guardado" y retornamos la fila existente.
+      try {
+        [dailyCapture] = await this.knex('daily_captures')
+          .insert(insertPayload)
+          .returning('*');
+      } catch (err: any) {
+        if (
+          err?.code === '23505' &&
+          err?.constraint === 'daily_captures_tenant_folio_unique'
+        ) {
+          dailyCapture = await this.knex('daily_captures')
+            .where({ folio: dto.folio })
+            .first();
+          if (!dailyCapture) {
+            // Tenant context lost / RLS bloqueó la re-lectura. Re-throw para
+            // que el cliente reintente; mejor que devolver null silencioso.
+            throw err;
+          }
+          this.logger.warn(
+            `Folio ${dto.folio} ya existía (sin sync_uuid disponible). Retornando fila existente id=${dailyCapture.id}. Considera deploy + restart para activar idempotencia con sync_uuid.`,
+          );
+        } else {
+          throw err;
+        }
+      }
     }
 
     this.logger.log(

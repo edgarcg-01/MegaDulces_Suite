@@ -309,17 +309,31 @@ export class OfflineDatabaseService extends Dexie {
   }
 
   // --- Utilidades ---
+  /**
+   * Estadísticas para la UI:
+   *   - `visitasPendientes` = ACTIVAS (intentos < MAX_RETRY_ATTEMPTS=5). Estas
+   *     sí se reintentan en cada ciclo de sync.
+   *   - `visitasMuertas` = visitas que llegaron al cap de reintentos y NO se
+   *     sincronizan más. Antes se mezclaban en `pendientes` → la UI decía
+   *     "5 visitas pendientes" eternamente sin que el usuario supiera que
+   *     ninguna era recuperable. Ahora separadas para acción manual.
+   */
   async getEstadisticasOffline(): Promise<{
     visitasPendientes: number;
+    visitasMuertas: number;
     tiendasOffline: number;
     catalogosActualizados: number;
     ultimoSync: string | null;
   }> {
-    const [visitasPendientes, tiendas, catalogos] = await Promise.all([
+    const MAX_RETRIES = 5;
+    const [todas, tiendas, catalogos] = await Promise.all([
       this.getVisitasPendientes(),
       this.getTiendas(),
-      this.getCatalogos()
+      this.getCatalogos(),
     ]);
+
+    const activas = todas.filter((v) => (v.intentos_fallidos || 0) < MAX_RETRIES).length;
+    const muertas = todas.length - activas;
 
     const ultimoSync = await this.syncLogs
       .orderBy('fecha')
@@ -327,11 +341,28 @@ export class OfflineDatabaseService extends Dexie {
       .first();
 
     return {
-      visitasPendientes: visitasPendientes.length,
+      visitasPendientes: activas,
+      visitasMuertas: muertas,
       tiendasOffline: tiendas.length,
       catalogosActualizados: catalogos.length,
-      ultimoSync: ultimoSync?.fecha || null
+      ultimoSync: ultimoSync?.fecha || null,
     };
+  }
+
+  /** Visitas pendientes que llegaron al cap de reintentos (necesitan acción manual). */
+  async getVisitasMuertas(maxRetries = 5): Promise<VisitaPendiente[]> {
+    const todas = await this.visitas.toArray();
+    return todas.filter(
+      (v) => v.sincronizado === false && (v.intentos_fallidos || 0) >= maxRetries,
+    );
+  }
+
+  /** Resetea el contador de intentos de una visita muerta → vuelve a la cola activa. */
+  async reintentarVisitaMuerta(visitaId: string): Promise<void> {
+    await this.visitas.update(visitaId, {
+      intentos_fallidos: 0,
+    });
+    console.log(`[OfflineDB] Visita ${visitaId} reseteada para nuevo intento`);
   }
 
   async limpiarDatosAntiguos(): Promise<void> {

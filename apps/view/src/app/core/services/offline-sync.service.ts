@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { fromEvent, merge, of, BehaviorSubject, interval, Subject } from 'rxjs';
-import { map, distinctUntilChanged, tap, filter } from 'rxjs/operators';
+import { fromEvent, merge, of, BehaviorSubject, interval, Subject, firstValueFrom, throwError, TimeoutError } from 'rxjs';
+import { map, distinctUntilChanged, tap, filter, timeout, catchError } from 'rxjs/operators';
 import { OfflineDatabaseService, VisitaPendiente, TiendaOffline } from './offline-database.service';
 import { GeoValidationService, Coordenada } from './geo-validation.service';
 import { buildVisitFormData } from '../http/visit-form-data';
@@ -22,7 +22,10 @@ const RETROFIT_RADIUS_M = 50;
 export interface SyncStatus {
   online: boolean;
   sincronizando: boolean;
+  /** Visitas que SÍ se reintentan (intentos < MAX). */
   visitasPendientes: number;
+  /** Visitas en cap de reintentos: requieren acción manual del usuario. */
+  visitasMuertas: number;
   ultimoSync: string | null;
   errores: string[];
 }
@@ -45,8 +48,9 @@ export class OfflineSyncService {
     online: navigator.onLine,
     sincronizando: false,
     visitasPendientes: 0,
+    visitasMuertas: 0,
     ultimoSync: null,
-    errores: []
+    errores: [],
   });
 
   readonly syncStatus$ = this._syncStatus.asObservable();
@@ -65,11 +69,65 @@ export class OfflineSyncService {
   private readonly MAX_RETRY_ATTEMPTS = 5;
   private readonly RETRY_DELAY_MS = 5000; // 5 segundos
   private readonly BATCH_SIZE = 10; // Procesar en lotes
+  /** Timeout por visita en el POST a /daily-captures (fotos + cloudinary). */
+  private readonly VISIT_POST_TIMEOUT_MS = 60_000;
+  /** Watchdog: máximo tiempo razonable para una sincronización completa. */
+  private readonly SYNC_WATCHDOG_MS = 120_000; // 2 minutos
+
+  /** Inicio del último ciclo de sync (epoch ms). 0 si no hay activo. */
+  private _syncStartedAt = 0;
+  private _watchdogTimer: any = null;
 
   constructor() {
     this.iniciarListenersConexion();
     this.iniciarSincronizacionPeriodica();
     this.actualizarEstadoInicial();
+  }
+
+  /**
+   * Libera el flag `sincronizando` de forma atómica + cancela watchdog.
+   * Helper único que TODO path de salida de `sincronizarTodo` debe usar.
+   */
+  private liberarSincronizando(opts: {
+    errores?: string[];
+    ultimoSync?: string | null;
+    visitasPendientes?: number;
+    visitasMuertas?: number;
+  } = {}): void {
+    if (this._watchdogTimer) {
+      clearTimeout(this._watchdogTimer);
+      this._watchdogTimer = null;
+    }
+    this._syncStartedAt = 0;
+    const curr = this._syncStatus.value;
+    this._syncStatus.next({
+      ...curr,
+      sincronizando: false,
+      errores: opts.errores ?? curr.errores,
+      ultimoSync: opts.ultimoSync !== undefined ? opts.ultimoSync : curr.ultimoSync,
+      visitasPendientes:
+        opts.visitasPendientes !== undefined ? opts.visitasPendientes : curr.visitasPendientes,
+      visitasMuertas:
+        opts.visitasMuertas !== undefined ? opts.visitasMuertas : curr.visitasMuertas,
+    });
+  }
+
+  /**
+   * Reset manual: para cuando la UI detecta que `sincronizando` quedó stuck
+   * (>30s, ver `offline-status.component`). El usuario lo dispara con el
+   * botón "Reiniciar sincronización".
+   */
+  resetEstadoSincronizacion(): void {
+    if (!this._syncStatus.value.sincronizando) return;
+    console.warn('[OfflineSync] reset manual del estado de sincronización (flag stuck)');
+    this.liberarSincronizando({
+      errores: ['Sincronización reiniciada manualmente (estaba colgada)'],
+    });
+  }
+
+  /** Tiempo transcurrido desde que arrancó el ciclo de sync actual (ms). 0 si no hay activo. */
+  getSyncElapsedMs(): number {
+    return this._syncStartedAt ? Date.now() - this._syncStartedAt : 0;
   }
 
   /**
@@ -122,7 +180,8 @@ export class OfflineSyncService {
       this._syncStatus.next({
         ...this._syncStatus.value,
         visitasPendientes: estadisticas.visitasPendientes,
-        ultimoSync: estadisticas.ultimoSync
+        visitasMuertas: estadisticas.visitasMuertas,
+        ultimoSync: estadisticas.ultimoSync,
       });
     } catch (error) {
       console.error('[OfflineSync] Error al obtener estado inicial:', error);
@@ -141,12 +200,28 @@ export class OfflineSyncService {
       throw new Error('Sincronización ya en progreso');
     }
 
+    // Marcar inicio + arrancar watchdog. Si el flow no termina en
+    // SYNC_WATCHDOG_MS, forzamos reset para que el usuario no quede stuck.
+    this._syncStartedAt = Date.now();
     this._syncStatus.next({
       ...this._syncStatus.value,
       sincronizando: true,
-      errores: []
+      errores: [],
     });
+    this._watchdogTimer = setTimeout(() => {
+      if (this._syncStatus.value.sincronizando) {
+        console.error(
+          `[OfflineSync] WATCHDOG: sync excedió ${this.SYNC_WATCHDOG_MS}ms — forzando reset`,
+        );
+        this.liberarSincronizando({
+          errores: [
+            `Sincronización abortada por watchdog (${this.SYNC_WATCHDOG_MS / 1000}s). Reintentando en próximo ciclo.`,
+          ],
+        });
+      }
+    }, this.SYNC_WATCHDOG_MS);
 
+    let resultadoVisitas: SyncResult = { exitosas: 0, fallidas: 0, errores: [] };
     try {
       console.log('[OfflineSync] Iniciando sincronización completa');
 
@@ -179,31 +254,35 @@ export class OfflineSyncService {
       }
 
       // Sincronizar visitas — fuente real de verdad del trabajo del usuario.
-      const resultadoVisitas = await this.sincronizarVisitas();
-      
-      // Actualizar estado
-      const estadisticas = await this.db.getEstadisticasOffline();
-      this._syncStatus.next({
-        ...this._syncStatus.value,
-        sincronizando: false,
-        visitasPendientes: estadisticas.visitasPendientes,
-        ultimoSync: new Date().toISOString(),
-        errores: resultadoVisitas.errores
-      });
+      resultadoVisitas = await this.sincronizarVisitas();
 
       console.log('[OfflineSync] Sincronización completada:', resultadoVisitas);
       return resultadoVisitas;
-
     } catch (error) {
       console.error('[OfflineSync] Error en sincronización:', error);
-      
-      this._syncStatus.next({
-        ...this._syncStatus.value,
-        sincronizando: false,
-        errores: [error as string]
-      });
-
+      resultadoVisitas.errores.push(
+        (error as Error)?.message || String(error),
+      );
       throw error;
+    } finally {
+      // Garantizado: cualquier path de salida (happy, error, return, throw)
+      // libera el flag + cancela watchdog. Antes esto vivía en happy+catch
+      // por separado y podía quedar stuck si algo lanzaba entre medio.
+      let pendientes = this._syncStatus.value.visitasPendientes;
+      let muertas = this._syncStatus.value.visitasMuertas;
+      try {
+        const estadisticas = await this.db.getEstadisticasOffline();
+        pendientes = estadisticas.visitasPendientes;
+        muertas = estadisticas.visitasMuertas;
+      } catch {
+        /* si el estado falla, mantenemos los contadores anteriores */
+      }
+      this.liberarSincronizando({
+        errores: resultadoVisitas.errores,
+        ultimoSync: new Date().toISOString(),
+        visitasPendientes: pendientes,
+        visitasMuertas: muertas,
+      });
     }
   }
 
@@ -494,8 +573,30 @@ export class OfflineSyncService {
       // Multipart en lugar de JSON+base64: el endpoint acepta ambos pero
       // multipart ahorra ~25% de wire (relevante en sync con muchas visitas
       // pendientes tras varias horas sin conexión).
+      //
+      // Timeout duro de VISIT_POST_TIMEOUT_MS para no quedar colgado por
+      // cloudinary lento o network suspendido (browser mobile en background).
+      // Si timeoutea, se lanza TimeoutError que el catch de abajo trata como
+      // transient → reintenta en próximo ciclo.
       const formData = buildVisitFormData(payload);
-      const response = await this.http.post<any>(`${this.apiUrl}/daily-captures`, formData).toPromise();
+      const response = await firstValueFrom(
+        this.http
+          .post<any>(`${this.apiUrl}/daily-captures`, formData)
+          .pipe(
+            timeout(this.VISIT_POST_TIMEOUT_MS),
+            catchError((err) => {
+              if (err instanceof TimeoutError) {
+                return throwError(() =>
+                  Object.assign(new Error('Timeout esperando respuesta del backend'), {
+                    status: 0,
+                    isTimeout: true,
+                  }),
+                );
+              }
+              return throwError(() => err);
+            }),
+          ),
+      );
       console.log('[OfflineSync] Respuesta del backend:', response);
 
       // Marcar como sincronizada + limpiar fotos Blob asociadas (post-éxito).
@@ -649,6 +750,29 @@ export class OfflineSyncService {
   async forzarSincronizacion(): Promise<SyncResult> {
     console.log('[OfflineSync] Forzando sincronización manual');
     return await this.sincronizarTodo();
+  }
+
+  /** Lista visitas atascadas (cap de reintentos) para la UI de revisión manual. */
+  async getVisitasMuertas() {
+    return this.db.getVisitasMuertas(this.MAX_RETRY_ATTEMPTS);
+  }
+
+  /** Resetea el contador de intentos de una visita y dispara sync inmediato. */
+  async reintentarVisitaMuerta(visitaId: string): Promise<void> {
+    await this.db.reintentarVisitaMuerta(visitaId);
+    // Refrescar contadores y forzar sync si online.
+    const estadisticas = await this.db.getEstadisticasOffline();
+    const curr = this._syncStatus.value;
+    this._syncStatus.next({
+      ...curr,
+      visitasPendientes: estadisticas.visitasPendientes,
+      visitasMuertas: estadisticas.visitasMuertas,
+    });
+    if (curr.online && !curr.sincronizando) {
+      this.sincronizarTodo().catch(() => {
+        /* el error ya queda en _syncStatus.errores */
+      });
+    }
   }
 
   /**

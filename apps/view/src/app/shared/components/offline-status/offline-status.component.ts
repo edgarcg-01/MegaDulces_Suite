@@ -15,14 +15,20 @@ import { OfflineSyncService } from '../../../core/services/offline-sync.service'
 })
 export class OfflineStatusComponent implements OnInit, OnDestroy {
   private subscriptions: Subscription[] = [];
-  
+
   isOnline = true;
   isOffline = false;
   isSynchronizing = false;
   visitasPendientes = 0;
+  visitasMuertas = 0;
   ultimaSincronizacion: string | null = null;
   showDetails = false;
-  
+
+  // Watchdog visual: si lleva >30s sincronizando, mostrar botón "Reiniciar".
+  syncStuckMs = 0;
+  private stuckTicker: any = null;
+  private readonly STUCK_THRESHOLD_MS = 30_000;
+
   // Estado detallado
   tiendasOffline = 0;
   catalogosActualizados = false;
@@ -40,6 +46,7 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.stopStuckTicker();
   }
 
   private async loadInitialStatus(): Promise<void> {
@@ -58,10 +65,49 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
       this.isOffline = !status.online;
       this.isSynchronizing = status.sincronizando;
       this.visitasPendientes = status.visitasPendientes;
+      this.visitasMuertas = status.visitasMuertas;
       this.ultimaSincronizacion = status.ultimoSync;
+
+      // Tick para mostrar duración de la sincronización en vivo y activar
+      // el botón "Reiniciar" si lleva >30s. Sin ticker, la UI no avisa al
+      // usuario que algo está colgado hasta el watchdog del servicio (2 min).
+      if (status.sincronizando) {
+        this.startStuckTicker();
+      } else {
+        this.stopStuckTicker();
+      }
     });
 
     this.subscriptions.push(syncSub);
+  }
+
+  private startStuckTicker(): void {
+    if (this.stuckTicker) return;
+    this.stuckTicker = setInterval(() => {
+      this.syncStuckMs = this.syncService.getSyncElapsedMs();
+    }, 1000);
+  }
+
+  private stopStuckTicker(): void {
+    if (this.stuckTicker) {
+      clearInterval(this.stuckTicker);
+      this.stuckTicker = null;
+    }
+    this.syncStuckMs = 0;
+  }
+
+  /** Habilita el botón "Reiniciar" en la UI cuando el sync lleva mucho tiempo. */
+  get isSyncStuck(): boolean {
+    return this.isSynchronizing && this.syncStuckMs >= this.STUCK_THRESHOLD_MS;
+  }
+
+  /** Reset manual cuando la sincronización quedó colgada. */
+  reiniciarSincronizacion(): void {
+    if (!confirm('¿Reiniciar la sincronización? Esto descarta el intento actual; las visitas se reintentarán en el próximo ciclo.')) {
+      return;
+    }
+    this.syncService.resetEstadoSincronizacion();
+    this.showNotification('Sincronización reiniciada', 'info');
   }
 
   // Efecto para escuchar cambios de conexión
@@ -83,6 +129,21 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
 
   async forzarSincronizacion(): Promise<void> {
     if (this.isSynchronizing) {
+      // Antes este path retornaba silencioso → el usuario clickeaba y nada
+      // pasaba. Ahora le avisamos qué está pasando + sugerimos reset si
+      // lleva mucho tiempo.
+      const elapsed = Math.round(this.syncService.getSyncElapsedMs() / 1000);
+      this.showNotification(
+        this.isSyncStuck
+          ? `Sincronización lleva ${elapsed}s. Usá "Reiniciar" si crees que está colgada.`
+          : `Sincronización en progreso (${elapsed}s)…`,
+        'info',
+      );
+      return;
+    }
+
+    if (!this.isOnline) {
+      this.showNotification('Sin conexión a internet — no se puede sincronizar.', 'error');
       return;
     }
 
