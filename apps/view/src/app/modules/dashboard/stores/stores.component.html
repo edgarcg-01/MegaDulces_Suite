@@ -6,15 +6,21 @@
       <p class="text-sm text-content-muted">Consulta de puntos de venta filtrados por zona y ruta.</p>
     </div>
     @if (showAllStoresTag()) {
-      <p-tag value="Mostrando todas las zonas" severity="info" [rounded]="true" />
+      <p-tag value="Mostrando todas las zonas" severity="contrast" [rounded]="true" />
     }
   </div>
 
   <div class="bg-surface-card border border-divider rounded-xl shadow-sm p-4 mb-6">
     <div class="flex gap-4 items-end flex-wrap">
       <div class="flex flex-col gap-1 min-w-48">
-        <label class="text-xs font-medium text-content-dim" for="zone-select">
-          Zona @if (userHasFixedZone()) { <span class="text-brand-orange">(Mi Zona)</span> }
+        <label class="text-xs font-medium text-content-muted flex items-center gap-1.5" for="zone-select">
+          <span>Zona</span>
+          @if (userHasFixedZone()) {
+            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-surface-layout border border-divider text-content-muted">
+              <i class="pi pi-lock text-[9px]" aria-hidden="true"></i>
+              Mi zona
+            </span>
+          }
         </label>
         <p-select
           id="zone-select"
@@ -30,7 +36,7 @@
         />
       </div>
       <div class="flex flex-col gap-1 min-w-48">
-        <label class="text-xs font-medium text-content-dim" for="route-select">Filtrar por Ruta</label>
+        <label class="text-xs font-medium text-content-muted" for="route-select">Filtrar por Ruta</label>
         <p-select
           id="route-select"
           [options]="routes()"
@@ -44,7 +50,7 @@
         />
       </div>
       <div class="flex flex-col gap-1 min-w-48">
-        <label class="text-xs font-medium text-content-dim" for="search-input">Buscar</label>
+        <label class="text-xs font-medium text-content-muted" for="search-input">Buscar</label>
         <span class="p-input-icon-left w-full">
           <i class="pi pi-search"></i>
           <input
@@ -68,18 +74,27 @@
 
   @if (!selectedZoneId() && !showAllStoresTag()) {
     <div class="bg-surface-card border border-divider rounded-xl shadow-sm p-12 text-center text-content-muted">
-      <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-brand-orange">
-        <i class="pi pi-map text-2xl"></i>
+      <div class="w-16 h-16 rounded-full bg-brand-50 border border-brand-200 flex items-center justify-center mx-auto mb-4 text-brand-700">
+        <i class="pi pi-map text-2xl" aria-hidden="true"></i>
       </div>
       <h3 class="font-bold text-lg text-content-main mb-2">Selecciona una Zona</h3>
       <p class="text-sm">Elige una zona del listado para ver sus puntos de venta.</p>
     </div>
   } @else if (loading()) {
     <div class="bg-surface-card border border-divider rounded-xl shadow-sm p-12 text-center text-content-muted">
-      <i class="pi pi-spin pi-spinner text-3xl text-brand-orange"></i>
+      <i class="pi pi-spin pi-spinner text-3xl text-content-muted" aria-hidden="true"></i>
       <p class="mt-2 text-sm">Cargando tiendas...</p>
     </div>
   } @else {
+    <div class="flex items-baseline justify-between mb-3 px-1">
+      <span class="text-xs text-content-muted">
+        <span class="font-semibold text-content-main tabular-nums">{{ filteredStores().length }}</span>
+        {{ filteredStores().length === 1 ? 'tienda' : 'tiendas' }}
+        @if (filteredStores().length !== stores().length) {
+          <span class="text-content-faint">de {{ stores().length }}</span>
+        }
+      </span>
+    </div>
     <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden">
       <p-table
         [value]="filteredStores()"
@@ -104,13 +119,13 @@
         <ng-template pTemplate="body" let-store>
           <tr>
             <td class="font-medium">{{ store.nombre }}</td>
-            <td class="text-content-dim">
+            <td class="text-content-muted">
               @if (store.latitud && store.longitud) {
                 <a
                   [href]="'https://www.google.com/maps?q=' + store.latitud + ',' + store.longitud"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-brand-orange hover:underline inline-flex items-center gap-1"
+                  class="text-brand-700 underline decoration-1 underline-offset-2 hover:decoration-2 inline-flex items-center gap-1 font-medium"
                 >
                   <i class="pi pi-map-marker text-sm"></i>
                   Ver en mapa
@@ -120,7 +135,7 @@
               }
             </td>
             <td>
-              <p-tag [value]="store.zona || 'Sin zona'" severity="info" [rounded]="true" />
+              <p-tag [value]="store.zona || 'Sin zona'" severity="contrast" [rounded]="true" />
             </td>
             <td>
               <p-tag [value]="store.ruta_nombre || 'Sin ruta'" severity="secondary" [rounded]="true" />

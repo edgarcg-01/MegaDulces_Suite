@@ -124,6 +124,7 @@ O alternativamente: cutover a Railway (operacional, A.0mt.5.3-7), JwtAuthGuard f
 
 ### Convenciones técnicas
 - Naming snake_case en DB y `role_name`.
+- **URLs, query params, DTO fields y columnas DB nuevas: English snake_case.** Spanish solo para domain terms sin traducción limpia (`exhibicion`, `folio`). Legacy ES queda como alias hasta que se complete la migración. Ejemplos canónicos: `zone_id`, `route_id`, `date_from`, `date_to`, `user_id`. Migración inicial 2026-06-01: `/visitas/*` → `/visits-sync/*`, `/stores?zona_id` → `?zone_id`, `/daily-captures?fecha` → `?date`.
 - TZ del backend: `America/Mexico_City` (helpers en `apps/api/src/shared/date/mx-date.ts`).
 - Schemas Postgres: `commercial.*` (Fase B+), `analytics.*` (Fase C+).
 - Para diffs de role_permissions JSONB: usar `permissions -> 'KEY' IS NULL` NO el operador `?` de JSONB (knex no lo escapa correctamente).

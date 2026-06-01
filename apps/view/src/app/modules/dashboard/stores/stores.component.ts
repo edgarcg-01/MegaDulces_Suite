@@ -481,8 +481,10 @@ export class StoresComponent implements OnInit {
   private loadStores(zoneId: string, rutaId?: string): void {
     if (!zoneId) return;
     this.loading.set(true);
-    let params = new HttpParams().set('zona_id', zoneId);
-    if (rutaId) params = params.set('ruta_id', rutaId);
+    // Query params en inglés (canonical post 2026-06-01). Backend acepta
+    // `zona_id`/`ruta_id` como alias por compat, pero código nuevo usa EN.
+    let params = new HttpParams().set('zone_id', zoneId);
+    if (rutaId) params = params.set('route_id', rutaId);
 
     this.http
       .get<Store[]>(`${environment.apiUrl}/stores`, { params })

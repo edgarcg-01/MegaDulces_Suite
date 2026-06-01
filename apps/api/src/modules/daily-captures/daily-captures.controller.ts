@@ -125,10 +125,18 @@ export class DailyCapturesController {
   @RequirePermissions(Permission.VISITAS_VER)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: false }))
   @ApiOperation({ summary: 'Consultar Cierres de Auditoría/Visitas' })
-  @ApiQuery({ name: 'fecha', required: false })
-  @ApiQuery({ name: 'zona', required: false })
-  @ApiQuery({ name: 'ejecutivo', required: false })
+  @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD (alias: fecha)' })
+  @ApiQuery({ name: 'zone', required: false, description: 'Nombre de zona (alias: zona)' })
+  @ApiQuery({ name: 'user', required: false, description: 'Username capturista (alias: ejecutivo)' })
+  @ApiQuery({ name: 'fecha', required: false, deprecated: true })
+  @ApiQuery({ name: 'zona', required: false, deprecated: true })
+  @ApiQuery({ name: 'ejecutivo', required: false, deprecated: true })
   findAll(
+    // Params canónicos en inglés. ES kept como alias por compat con clientes
+    // viejos. EN tiene prioridad cuando vienen ambos.
+    @Query('date') dateEn?: string,
+    @Query('zone') zoneEn?: string,
+    @Query('user') userEn?: string,
     @Query('fecha') fecha?: string,
     @Query('zona') zona?: string,
     @Query('ejecutivo') ejecutivo?: string,
@@ -139,9 +147,9 @@ export class DailyCapturesController {
     // superadmin solo ve sus propias visitas en esta vista. Las vistas globales
     // (admin/reports) consumen otros endpoints en /reports.
     return this.dailyCapturesService.findAll(
-      fecha,
-      zona,
-      ejecutivo,
+      dateEn ?? fecha,
+      zoneEn ?? zona,
+      userEn ?? ejecutivo,
       user.sub,
     );
   }

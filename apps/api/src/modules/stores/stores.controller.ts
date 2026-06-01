@@ -80,10 +80,19 @@ export class StoresController {
   })
   findAll(
     @ReqUser() user: AuthUser,
+    // Params canónicos en inglés. Mantenemos `zona_id`/`ruta_id` como alias
+    // por compat con cualquier consumer no migrado (scripts, integraciones).
+    // El EN tiene prioridad si vienen ambos.
+    @Query('zone_id') zone_id?: string,
+    @Query('route_id') route_id?: string,
     @Query('zona_id') zona_id?: string,
     @Query('ruta_id') ruta_id?: string,
   ) {
-    return this.storesService.findAll(zona_id, ruta_id, user);
+    return this.storesService.findAll(
+      zone_id ?? zona_id,
+      route_id ?? ruta_id,
+      user,
+    );
   }
 
   @Post()

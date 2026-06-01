@@ -361,9 +361,16 @@ export class ReportsService {
     );
 
     // Paginación obligatoria: capamos a MAX_PAGE_SIZE para evitar cargar 10k+
-    // filas en una sola respuesta (cada fila puede traer JSONB pesado).
+    // filas con JSONB pesado en la response. NOTA: las agregaciones se hacen
+    // sobre el set COMPLETO filtrado (no paginado) — antes había bug donde
+    // métricas se calculaban solo sobre la página, mintiendo cuando había
+    // total > pageSize.
     const MAX_PAGE_SIZE = 500;
     const DEFAULT_PAGE_SIZE = 200;
+    // Cap defensivo para el query de agregación. Más de 20k visitas en un
+    // solo filtro es un caso raro; si llega, loguea + cap. Si se vuelve
+    // común, mover a agregación SQL pura.
+    const MAX_AGG_ROWS = 20000;
     const page = filters.page ? parseInt(filters.page, 10) : 1;
     const rawPageSize = filters.pageSize ? parseInt(filters.pageSize, 10) : DEFAULT_PAGE_SIZE;
     const safePage = page > 0 ? page : 1;
@@ -371,9 +378,19 @@ export class ReportsService {
     const safePageSize = Math.min(rawPageSize > 0 ? rawPageSize : DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
     const include = filters.include || '';
 
+    // Tenant filter explícito (defense in depth — además del RLS que ya
+    // aplica vía TenantKnexService). El user del JWT trae `tenant_id` desde
+    // auth-mt; si no viene (JWT legacy) caemos al context CLS.
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+
     const query = this.knex('daily_captures as dc')
       .leftJoin('stores as s', 's.id', 'dc.store_id')
       .select('dc.*', 's.nombre as cliente_nombre', 's.direccion as cliente_direccion');
+
+    if (tenantId) {
+      query.where('dc.tenant_id', tenantId);
+    }
 
     const scope = getDataScope(user);
     if (scope.type === 'own') {
@@ -418,13 +435,35 @@ export class ReportsService {
     }
 
     const [{ total }] = await query.clone().clearSelect().clearOrder().count('* as total');
+    const totalNum = Number(total) || 0;
     const orderedQuery = query.clone().orderBy('hora_inicio', 'desc');
-    // Siempre paginar — `safePageSize` ya está capado a MAX_PAGE_SIZE
+    // Página para devolver al cliente (tabla).
     const rows = await orderedQuery
       .limit(safePageSize)
       .offset((safePage - 1) * safePageSize);
+
+    // Set COMPLETO para agregaciones — solo columnas necesarias (stats +
+    // exhibiciones + fecha + user_id) para no traer toda la fila con joins.
+    // Si total > MAX_AGG_ROWS, cap + warn (las métricas serán aproximación).
+    let aggRows: any[];
+    if (totalNum > MAX_AGG_ROWS) {
+      this.logger.warn(
+        `getFilteredData: total=${totalNum} > MAX_AGG_ROWS=${MAX_AGG_ROWS} — métricas calculadas sobre primeros ${MAX_AGG_ROWS}`,
+      );
+      aggRows = await query
+        .clone()
+        .clearSelect()
+        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by')
+        .orderBy('hora_inicio', 'desc')
+        .limit(MAX_AGG_ROWS);
+    } else {
+      aggRows = await query
+        .clone()
+        .clearSelect()
+        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by');
+    }
     this.logger.debug(
-      `getFilteredData total=${Number(total)} returned=${rows.length} page=${safePage} pageSize=${safePageSize}`,
+      `getFilteredData total=${totalNum} pageReturned=${rows.length} aggRows=${aggRows.length} page=${safePage} pageSize=${safePageSize} tenant=${tenantId ?? 'none'}`,
     );
 
     // Get conceptos catalog for mapping IDs to names contextually faster
@@ -455,7 +494,7 @@ export class ReportsService {
       this.logger.debug(`productMap size=${Object.keys(productMap).length}`);
     }
 
-    // Parse and normalize stats for each row
+    // Parse y normaliza la PÁGINA que se devuelve al cliente (tabla).
     const normalizedRows = rows.map((row) => {
       const rawStats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
       const normalizedStats = {
@@ -469,25 +508,37 @@ export class ReportsService {
       };
     });
 
-    // Calculate aggregated metrics for the filtered set using normalized stats
+    // Calcular métricas agregadas sobre el SET COMPLETO (no paginado).
+    // Antes esto se hacía sobre `normalizedRows` (solo 200-500 filas) y
+    // mentía cuando total > pageSize. Ahora usamos `aggRows` que trae todo
+    // el filtro (capado a MAX_AGG_ROWS con warn).
     let totalVisitas = 0;
     let totalScore = 0;
     let totalVentas = 0;
     let totalUniqueProducts = 0;
     let totalExhibiciones = 0;
+    let totalCapturesAgg = 0;
     let avgProductsPerVisit = '0.00';
     const dailyTrend: Record<string, any> = {};
     const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
     const exhibidoresHealth = { optimo: 0, regular: 0, critico: 0 };
     const sellerProductStats: Record<string, Record<string, number>> = {};
 
-    normalizedRows.forEach((row) => {
-      const stats = row.stats;
+    aggRows.forEach((row) => {
+      const rawStats = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+      const stats = {
+        ...rawStats,
+        ventaTotal: (rawStats.ventaTotal || 0) > 0 ? rawStats.ventaTotal : (rawStats.ventaAdicional || 0),
+      };
+      const exhibiciones =
+        typeof row.exhibiciones === 'string'
+          ? JSON.parse(row.exhibiciones)
+          : row.exhibiciones || [];
       const numVisitas = stats.totalExhibiciones || 1;
       const score = stats.puntuacionTotal || 0;
       const ventas = stats.ventaTotal || 0;
-      const exhibiciones = row.exhibiciones;
 
+      totalCapturesAgg += 1;
       totalVisitas += numVisitas;
       totalScore += score;
       totalVentas += ventas;
@@ -582,14 +633,17 @@ export class ReportsService {
     }
     
     const totalExhibidores = exhibidoresHealth.optimo + exhibidoresHealth.regular + exhibidoresHealth.critico;
-    const healthRate = totalExhibidores > 0 ? ((exhibidoresHealth.optimo / totalExhibidores) * 100).toFixed(2) : 0;
+    const healthRate = totalExhibidores > 0 ? +((exhibidoresHealth.optimo / totalExhibidores) * 100).toFixed(2) : 0;
 
+    // `count` = capturas totales del rango filtrado (NO el largo de la página).
+    // `avgScore` = score promedio sobre el set completo, no sobre los 200 visibles.
+    // Antes ambos venían de `normalizedRows.length` y mentían si total > pageSize.
     const metrics = {
       totalVisitas,
-      avgScore: normalizedRows.length > 0 ? Math.round(totalScore / normalizedRows.length) : 0,
+      avgScore: totalCapturesAgg > 0 ? Math.round(totalScore / totalCapturesAgg) : 0,
       totalVentas,
-      avgVentaPorVisita: totalVisitas > 0 ? (totalVentas / totalVisitas).toFixed(2) : 0,
-      count: normalizedRows.length,
+      avgVentaPorVisita: totalVisitas > 0 ? +(totalVentas / totalVisitas).toFixed(2) : 0,
+      count: totalCapturesAgg,
       totalExhibiciones,
       stockoutRate: avgProductsPerVisit,
       healthRate,
