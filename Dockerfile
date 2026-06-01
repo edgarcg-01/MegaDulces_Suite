@@ -71,11 +71,13 @@ RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.m
     npx nx build api --configuration=production
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────
-# Antes este stage hacía un segundo `npm ci --omit=dev` desde cero (~30s
-# bajando los mismos paquetes que ya bajó `deps`). Ahora reusamos el
-# node_modules ya armado y le quitamos las devDependencies con `npm prune`.
-# Toma ~3-5s en lugar de ~30s y consume cero red. `npm dedupe` post-prune
-# elimina duplicados que pudieran quedar tras el resolve original.
+# Reusamos el node_modules ya resuelto en `deps` y solo quitamos las
+# devDependencies con `npm prune`. Sin red, ~3-5s.
+#
+# OJO: NO usar `npm dedupe` acá. En monorepos Nx el árbol ya viene plano
+# (npm hoistea por default desde v7) y dedupe NO encuentra qué eliminar →
+# se la pasa caminando el árbol completo y toma 5-7 minutos para ahorrar
+# <1MB. Ya nos pasó en CI de Railway (build 6m59s casi todo en dedupe).
 FROM node:20-bookworm-slim AS prod-deps
 WORKDIR /app
 
@@ -87,8 +89,7 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
 COPY package*.json .npmrc ./
 COPY --from=deps /app/node_modules ./node_modules
 
-RUN npm prune --omit=dev --ignore-scripts && \
-    npm dedupe --omit=dev --ignore-scripts
+RUN npm prune --omit=dev --ignore-scripts
 
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
