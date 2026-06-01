@@ -453,14 +453,14 @@ export class ReportsService {
       aggRows = await query
         .clone()
         .clearSelect()
-        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by')
+        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username')
         .orderBy('hora_inicio', 'desc')
         .limit(MAX_AGG_ROWS);
     } else {
       aggRows = await query
         .clone()
         .clearSelect()
-        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by');
+        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username');
     }
     this.logger.debug(
       `getFilteredData total=${totalNum} pageReturned=${rows.length} aggRows=${aggRows.length} page=${safePage} pageSize=${safePageSize} tenant=${tenantId ?? 'none'}`,
@@ -578,8 +578,8 @@ export class ReportsService {
             }
             productStats[pid].exhibidores[conceptoName] += 1;
 
-            // Agregar productos por usuario
-            const userId = row.user_id || row.captured_by;
+            // Agregar productos por usuario (fallback a username si user_id viene null).
+            const userId = row.user_id || row.captured_by_username;
             if (!sellerProductStats[userId]) {
               sellerProductStats[userId] = {};
             }
