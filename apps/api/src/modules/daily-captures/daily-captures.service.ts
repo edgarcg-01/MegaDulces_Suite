@@ -616,6 +616,53 @@ export class DailyCapturesService {
     return query;
   }
 
+  /**
+   * Productos más marcados por el usuario en los últimos `days` días.
+   * Devuelve top-N IDs con su frecuencia. Usado en captures step 5 para
+   * mostrar una sección "Frecuentes" antes de la lista completa de marcas,
+   * acortando dramáticamente el flujo cuando el usuario captura las mismas
+   * tiendas/exhibidores repetidamente.
+   *
+   * Soporta scoping por tienda (`storeId`) para "frecuentes en esta tienda"
+   * cuando hay tienda detectada — más relevante que el promedio del usuario.
+   */
+  async findFrequentProducts(
+    userId: string,
+    opts: { days?: number; limit?: number; storeId?: string } = {},
+  ): Promise<{ product_id: string; marks: number }[]> {
+    const days = opts.days ?? 30;
+    const limit = Math.min(opts.limit ?? 20, 50);
+    const tenantId = this.tenantCtx.get()?.tenantId;
+
+    const rows = await this.knex.raw(
+      `
+      SELECT pid::text AS product_id, COUNT(*)::int AS marks
+      FROM daily_captures dc,
+           jsonb_array_elements(dc.exhibiciones) ex,
+           jsonb_array_elements_text(ex->'productosMarcados') pid
+      WHERE dc.user_id = ?
+        AND dc.created_at >= NOW() - (? || ' days')::interval
+        ${tenantId ? 'AND dc.tenant_id = ?' : ''}
+        ${opts.storeId ? "AND ex->>'tiendaId' = ?" : ''}
+      GROUP BY pid
+      ORDER BY marks DESC
+      LIMIT ?
+      `,
+      [
+        userId,
+        days,
+        ...(tenantId ? [tenantId] : []),
+        ...(opts.storeId ? [opts.storeId] : []),
+        limit,
+      ],
+    );
+
+    return rows.rows.map((r: any) => ({
+      product_id: r.product_id,
+      marks: Number(r.marks),
+    }));
+  }
+
   async findOne(id: string) {
     const dailyCapture = await this.knex('daily_captures').where({ id }).first();
     if (!dailyCapture) {

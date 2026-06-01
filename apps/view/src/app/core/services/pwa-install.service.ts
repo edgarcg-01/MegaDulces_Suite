@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Subject } from 'rxjs';
+import { BehaviorSubject } from 'rxjs';
 
 export interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -11,12 +11,16 @@ export interface BeforeInstallPromptEvent extends Event {
 }
 
 const DISMISS_STORAGE_KEY = 'pwa-install-dismissed-at';
+const IOS_HINT_STORAGE_KEY = 'pwa-ios-hint-dismissed-at';
 const DISMISS_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 
 @Injectable({ providedIn: 'root' })
 export class PwaInstallService {
   private deferredPrompt: BeforeInstallPromptEvent | null = null;
-  private installPromptSource = new Subject<boolean>();
+  // BehaviorSubject (no Subject): late subscribers reciben estado actual.
+  // Antes un component que se montaba tarde se perdía el "can install" emit
+  // y nunca mostraba el prompt aunque estuviera disponible.
+  private installPromptSource = new BehaviorSubject<boolean>(false);
   public installPrompt$ = this.installPromptSource.asObservable();
 
   constructor() {
@@ -36,6 +40,65 @@ export class PwaInstallService {
       this.installPromptSource.next(false);
       try { localStorage.removeItem(DISMISS_STORAGE_KEY); } catch {}
     });
+
+    // iOS Safari NO dispara `beforeinstallprompt`. Para usuarios iPhone
+    // mostramos un hint manual con instrucciones "Compartir → Agregar a Inicio"
+    // si no están ya en modo standalone.
+    this.scheduleIosHint();
+  }
+
+  /** iOS Safari workaround: en iPhone/iPad sin app instalada, mostrar guía manual. */
+  private scheduleIosHint(): void {
+    const ua = navigator.userAgent.toLowerCase();
+    const isIos = /iphone|ipad|ipod/.test(ua);
+    const isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/.test(ua);
+    if (!isIos || !isSafari || this.isStandalone()) return;
+    if (this.isIosHintDismissedRecently()) return;
+    // Pequeño delay para no atosigar al primer load.
+    setTimeout(() => this.showIosInstallHint(), 8000);
+  }
+
+  private isIosHintDismissedRecently(): boolean {
+    try {
+      const ts = parseInt(localStorage.getItem(IOS_HINT_STORAGE_KEY) || '0', 10);
+      return ts > 0 && Date.now() - ts < DISMISS_COOLDOWN_MS;
+    } catch {
+      return false;
+    }
+  }
+
+  private showIosInstallHint(): void {
+    const existing = document.querySelector('.pwa-install-prompt');
+    if (existing) return;
+    const el = document.createElement('div');
+    el.className = 'pwa-install-prompt';
+    const content = document.createElement('div');
+    content.className = 'pwa-install-prompt-content';
+    const title = document.createElement('div');
+    title.className = 'pwa-install-prompt-title';
+    title.textContent = 'Instalar Mega Dulces';
+    const text = document.createElement('div');
+    text.className = 'pwa-install-prompt-text';
+    text.innerHTML =
+      'Tocá <strong>Compartir</strong> en Safari y luego <strong>Agregar a inicio</strong>.';
+    content.appendChild(title);
+    content.appendChild(text);
+    const buttons = document.createElement('div');
+    buttons.className = 'pwa-install-prompt-buttons';
+    const dismiss = document.createElement('button');
+    dismiss.className = 'dismiss-btn';
+    dismiss.textContent = 'OK';
+    dismiss.addEventListener('click', () => {
+      try {
+        localStorage.setItem(IOS_HINT_STORAGE_KEY, Date.now().toString());
+      } catch {}
+      el.classList.add('hide');
+      setTimeout(() => el.remove(), 300);
+    });
+    buttons.appendChild(dismiss);
+    el.appendChild(content);
+    el.appendChild(buttons);
+    document.body.appendChild(el);
   }
 
   private isDismissedRecently(): boolean {
@@ -262,32 +325,34 @@ export class PwaInstallService {
     subscription?: PushSubscription;
     message: string;
   }> {
+    // Guard: VAPID key NO configurada (push notifs aún no implementadas).
+    // Antes este método tenía `'TU_PUBLIC_VAPID_KEY'` literal → atob crasheaba
+    // si alguien lo llamaba. Aquí explícitamente respondemos "no soportado".
+    const vapidKey = (typeof window !== 'undefined' &&
+      (window as any).__VAPID_PUBLIC_KEY__) as string | undefined;
+    if (!vapidKey) {
+      return {
+        success: false,
+        message: 'Push notifications no configuradas en este entorno (falta VAPID key).',
+      };
+    }
     try {
       const registration = await navigator.serviceWorker.ready;
-      
       if (!registration.pushManager) {
-        return {
-          success: false,
-          message: 'Push notifications no soportadas'
-        };
+        return { success: false, message: 'Push notifications no soportadas' };
       }
-
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: this.urlBase64ToUint8Array('TU_PUBLIC_VAPID_KEY')
+        applicationServerKey: this.urlBase64ToUint8Array(vapidKey),
       });
-
       return {
         success: true,
         subscription,
-        message: 'Suscrito a notificaciones push exitosamente'
+        message: 'Suscrito a notificaciones push exitosamente',
       };
     } catch (error) {
       console.error('[PWA] Error suscribiendo a push notifications:', error);
-      return {
-        success: false,
-        message: 'Error al suscribirse a notificaciones push'
-      };
+      return { success: false, message: 'Error al suscribirse a notificaciones push' };
     }
   }
 

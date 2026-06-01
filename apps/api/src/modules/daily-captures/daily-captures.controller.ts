@@ -146,6 +146,27 @@ export class DailyCapturesController {
     );
   }
 
+  @Get('frequent-products')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @ApiOperation({
+    summary: 'Top productos marcados por el usuario (últ. 30d). Para "Frecuentes" en step 5 del wizard.',
+  })
+  @ApiQuery({ name: 'days', required: false, description: 'Default 30, max 90.' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Default 20, max 50.' })
+  @ApiQuery({ name: 'storeId', required: false, description: 'Scope a una tienda específica.' })
+  frequentProducts(
+    @ReqUser() user: any,
+    @Query('days') days?: string,
+    @Query('limit') limit?: string,
+    @Query('storeId') storeId?: string,
+  ) {
+    return this.dailyCapturesService.findFrequentProducts(user.sub, {
+      days: days ? Math.min(Math.max(parseInt(days, 10) || 30, 1), 90) : 30,
+      limit: limit ? Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50) : 20,
+      storeId: storeId || undefined,
+    });
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.VISITAS_VER)
   @ApiOperation({ summary: 'Obtener visita por Folio o ID' })

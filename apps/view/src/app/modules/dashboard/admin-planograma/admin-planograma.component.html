@@ -1,11 +1,11 @@
-<div class="p-6 space-y-6">
+<div class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 min-h-[100dvh] space-y-6">
   <!-- Encabezado -->
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4 mb-6">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-sitemap text-content-main"></i> Jerarquía de Planograma</h1>
-      <p class="text-sm text-content-dim">Administra las marcas y sus productos por cada punto de venta.</p>
+      <h1 class="title-premium flex items-center gap-3"><i class="pi pi-sitemap text-content-main"></i> Jerarquía de Planograma</h1>
+      <p class="text-sm text-content-muted">Administra las marcas y sus productos por cada punto de venta.</p>
     </div>
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-4 flex-wrap">
       <p-iconfield>
         <p-inputicon class="pi pi-search"></p-inputicon>
         <input
@@ -99,7 +99,7 @@
                <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>
                <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">
                   <ng-template pTemplate="header">
-                    <tr class="text-[9px] uppercase text-content-dim border-b">
+                    <tr class="text-[11px] uppercase tracking-wider text-content-muted border-b">
                        <th>Nombre del Producto</th>
                        <th class="text-center w-20">Estado</th>
                        <th class="text-center w-28">Acciones</th>
@@ -134,7 +134,7 @@
                     </tr>
                   </ng-template>
                   <ng-template pTemplate="emptymessage">
-                    <tr><td colspan="3" class="text-center p-4 text-xs text-content-dim italic">No hay productos en esta marca.</td></tr>
+                    <tr><td colspan="3" class="text-center p-4 text-xs text-content-muted italic">No hay productos en esta marca.</td></tr>
                   </ng-template>
                </p-table>
             </div>
@@ -143,7 +143,7 @@
       </ng-template>
       <ng-template pTemplate="emptymessage">
         <tr>
-          <td colspan="5" class="text-center p-8 text-content-dim">
+          <td colspan="5" class="text-center p-8 text-content-muted">
             No hay marcas configuradas.
           </td>
         </tr>
@@ -158,7 +158,7 @@
         <div class="flex items-center gap-3">
           <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>
           @if (brand.activo === false) {
-            <span class="text-[9px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactiva</span>
+            <span class="text-[10px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactiva</span>
           }
         </div>
         <div class="flex gap-1">
@@ -196,7 +196,7 @@
                 <span class="text-xs font-medium text-content-main">
                   {{ product.nombre }}
                   @if (product.activo === false) {
-                    <span class="ml-1 text-[8px] uppercase text-bad-fg">Inactivo</span>
+                    <span class="ml-1 text-[10px] uppercase text-bad-fg">Inactivo</span>
                   }
                 </span>
                 <div class="flex gap-1">
@@ -217,7 +217,7 @@
               </div>
             </div>
           </div>
-          <div *ngIf="!brand.productos || brand.productos.length === 0" class="text-xs text-content-dim italic p-3 bg-surface-ground rounded-lg">
+          <div *ngIf="!brand.productos || brand.productos.length === 0" class="text-xs text-content-muted italic p-3 bg-surface-ground rounded-lg">
             No hay productos en esta marca.
           </div>
         </div>
@@ -250,7 +250,7 @@
   <div class="flex flex-col gap-4 py-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted uppercase">Nombre de Marca</label>
-      <input pInputText [(ngModel)]="newBrandName" class="uppercase" />
+      <input pInputText [(ngModel)]="newBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
     </div>
   </div>
   <ng-template pTemplate="footer">
@@ -276,7 +276,7 @@
   <div class="flex flex-col gap-4 py-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted uppercase">Actualizar Nombre</label>
-      <input pInputText [(ngModel)]="editBrandName" class="uppercase" />
+      <input pInputText [(ngModel)]="editBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
     </div>
   </div>
   <ng-template pTemplate="footer">
@@ -303,7 +303,7 @@
   <div class="flex flex-col gap-4 py-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted uppercase">Nombre SKU</label>
-      <input pInputText [(ngModel)]="newProductName" />
+      <input pInputText [(ngModel)]="newProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
     </div>
   </div>
   <ng-template pTemplate="footer">
@@ -329,7 +329,7 @@
   <div class="flex flex-col gap-4 py-4">
     <div class="flex flex-col gap-2">
       <label class="text-xs font-bold text-content-muted uppercase">Nombre del Producto</label>
-      <input pInputText [(ngModel)]="editProductName" />
+      <input pInputText [(ngModel)]="editProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
     </div>
   </div>
   <ng-template pTemplate="footer">

@@ -819,7 +819,41 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.expandedBrands.set(new Set());
     this.productsShownByBrand.set(new Map());
     this.lockBodyScroll();
+    this.loadFrequentProducts();
   }
+
+  /**
+   * Top productos marcados por el usuario en los últimos 30 días. Atajo en
+   * step 5 (chips arriba de la lista de marcas) — cuando el vendedor captura
+   * tiendas similares, el 80% de los productos cae acá y evita expandir marcas.
+   *
+   * Best-effort: si falla la red el step 5 sigue funcionando con la lista
+   * completa de marcas.
+   */
+  private loadFrequentProducts(): void {
+    if (this.isVendedor()) return; // Vendedor no usa step 5
+    const storeId = this.svc.detectedStore()?.id;
+    this.svc.getFrequentProducts({ days: 30, limit: 20, storeId }).subscribe({
+      next: (rows) => this.frequentProducts.set(rows),
+      error: () => this.frequentProducts.set([]),
+    });
+  }
+
+  /** Productos frecuentes con su nombre resuelto desde groupedProducts (para mostrar). */
+  readonly frequentProducts = signal<{ product_id: string; marks: number }[]>([]);
+
+  readonly frequentDisplay = computed(() => {
+    const pids = this.frequentProducts();
+    if (pids.length === 0) return [];
+    const allBrands = this.svc.groupedProducts();
+    const byPid = new Map<string, { name: string; brand: string }>();
+    for (const b of allBrands) {
+      for (const p of b.items || []) byPid.set(p.pid, { name: p.name, brand: b.marca });
+    }
+    return pids
+      .map((r) => ({ ...r, ...(byPid.get(r.product_id) || { name: '', brand: '' }) }))
+      .filter((r) => r.name); // descartar productos que ya no están en catálogo
+  });
 
   /**
    * Hace scroll suave al primer banner de tienda visible. Útil cuando el

@@ -1,14 +1,21 @@
 .offline-status-container {
+  /*
+   * Antes `top: 10px` sin descontar topbar — la chip "Conectado" se plantaba
+   * encima del avatar/info del usuario. Ahora baja: 56px (h-14 topbar) +
+   * safe-area-inset-top + gap. z-index 20 < dialogs (≥1000) pero > content.
+   */
   position: fixed;
-  top: 10px;
-  right: 10px;
-  z-index: 1000;
+  top: calc(56px + env(safe-area-inset-top) + 0.5rem);
+  right: calc(0.75rem + env(safe-area-inset-right));
+  z-index: 20;
   max-width: 350px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: var(--card-bg);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-hover);
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: transform 0.2s var(--ease-standard), opacity 0.2s var(--ease-standard);
 
   .status-bar {
     display: flex;
@@ -178,11 +185,12 @@
 // Responsive design
 @media (max-width: 768px) {
   .offline-status-container {
-    position: relative;
-    top: auto;
-    right: auto;
-    max-width: 100%;
-    margin: 10px;
+    // Mobile: mantener fixed pero respetando topbar + safe-area, ancho casi
+    // pleno con márgenes laterales. Antes `position:relative` rompía la
+    // intención de "indicador flotante" — quedaba como un bloque más.
+    left: calc(0.75rem + env(safe-area-inset-left));
+    right: calc(0.75rem + env(safe-area-inset-right));
+    max-width: none;
   }
 
   .status-bar {

@@ -512,6 +512,22 @@ export class DailyCaptureService {
   }
 
   /**
+   * Productos más marcados por este usuario en los últimos `days` días.
+   * Para la sección "Frecuentes" en step 5 — atajo cuando captura la misma
+   * tienda repetidamente. Si `storeId` se pasa, scope a esa tienda.
+   */
+  getFrequentProducts(opts: { days?: number; limit?: number; storeId?: string } = {}): Observable<{ product_id: string; marks: number }[]> {
+    const params: string[] = [];
+    if (opts.days)    params.push(`days=${opts.days}`);
+    if (opts.limit)   params.push(`limit=${opts.limit}`);
+    if (opts.storeId) params.push(`storeId=${encodeURIComponent(opts.storeId)}`);
+    const qs = params.length ? `?${params.join('&')}` : '';
+    return this.http.get<{ product_id: string; marks: number }[]>(
+      `${this.apiUrl}/daily-captures/frequent-products${qs}`,
+    );
+  }
+
+  /**
    * Guarda la captura total de la visita en el backend o offline
    * @returns Observable con el resultado de la operación
    */

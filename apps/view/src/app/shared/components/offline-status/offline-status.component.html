@@ -1,4 +1,4 @@
-<div class="offline-status-container">
+<div class="offline-status-container" *ngIf="isOffline || isSynchronizing || visitasPendientes > 0 || visitasMuertas > 0 || showDetails">
   <!-- Estado principal -->
   <div class="status-bar" [class]="getStatusColor()" (click)="toggleDetails()">
     <i [class]="getStatusIcon()"></i>

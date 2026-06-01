@@ -1026,6 +1026,35 @@
           <span class="text-xs text-content-muted font-normal hidden sm:inline">— pegá tu lista</span>
         </button>
 
+        <!--
+          Frecuentes — atajo del top-N productos marcados por el usuario en
+          últ. 30d (scope a tienda detectada cuando aplica). Reduce 20+ clicks
+          del flujo "expandir marca → tap producto" a 1 tap por chip. Solo
+          aparece si hay frecuentes disponibles.
+        -->
+        <div *ngIf="frequentDisplay().length > 0" class="mb-3" aria-label="Productos frecuentes">
+          <div class="flex items-center gap-2 mb-2 px-1">
+            <i class="pi pi-star-fill text-brand-orange text-xs" aria-hidden="true"></i>
+            <h3 class="text-[11px] font-semibold uppercase tracking-wider text-content-muted">Tus frecuentes</h3>
+            <span class="text-[11px] text-content-faint">· toca para agregar</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            @for (f of frequentDisplay(); track f.product_id) {
+              <button type="button"
+                      (click)="toggleProducto(f.product_id)"
+                      [attr.aria-pressed]="isProductSelected(f.product_id)"
+                      [attr.aria-label]="(isProductSelected(f.product_id) ? 'Quitar ' : 'Agregar ') + f.brand + ' ' + f.name"
+                      class="inline-flex items-center gap-1.5 min-h-[36px] pl-3 pr-2 py-1.5 rounded-full text-xs font-medium motion-safe:transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange"
+                      [ngClass]="isProductSelected(f.product_id)
+                        ? 'bg-brand-orange text-white border border-brand-orange'
+                        : 'bg-surface-card border border-divider text-content-main hover:border-brand-orange/50 hover:bg-brand-orange/5'">
+                <span class="truncate max-w-[140px]">{{ f.name }}</span>
+                <i class="pi text-[10px]" [class.pi-check]="isProductSelected(f.product_id)" [class.pi-plus]="!isProductSelected(f.product_id)" aria-hidden="true"></i>
+              </button>
+            }
+          </div>
+        </div>
+
         <!-- Search Bar -->
         <div class="relative mb-3">
           <label for="capture-search" class="sr-only">Buscar producto o marca</label>
