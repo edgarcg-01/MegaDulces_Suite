@@ -8,11 +8,24 @@ export interface CaptureEventPayload {
   type: 'capture:created' | 'capture:synced' | 'capture:deleted';
   captureId: string;
   userId: string;
+  /**
+   * tenant_id snapshot del JWT del usuario que generó el evento. CRÍTICO
+   * para multi-tenant: las rooms WS se prefijan con tenant para que un
+   * admin con `scope='all'` SOLO reciba eventos de su propio tenant.
+   */
+  tenantId: string;
   capturedByUsername: string;
   zonaCaptura: string;
   fecha: string;
   stats: any;
   scoreFinalPct?: number;
+}
+
+export interface CaptureDeletedPayload {
+  type: 'capture:deleted';
+  captureId: string;
+  userId: string;
+  tenantId: string;
 }
 
 export interface MetricsUpdatePayload {
@@ -24,8 +37,15 @@ export interface MetricsUpdatePayload {
 
 interface BatchedEvent {
   eventType: 'capture:created' | 'capture:synced' | 'capture:deleted';
-  payload: CaptureEventPayload | { type: 'capture:deleted'; captureId: string; userId: string };
+  payload: CaptureEventPayload | CaptureDeletedPayload;
 }
+
+/** Builders centralizados para los nombres de rooms (single source of truth). */
+export const reportsRooms = {
+  own: (tenantId: string, userId: string) => `reports:t:${tenantId}:own:${userId}`,
+  team: (tenantId: string, userId: string) => `reports:t:${tenantId}:team:${userId}`,
+  global: (tenantId: string) => `reports:t:${tenantId}:global`,
+};
 
 @WebSocketGateway({
   namespace: '/reports',
@@ -41,8 +61,22 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
   @WebSocketServer()
   server: Server;
 
-  private userSockets: Map<string, Set<string>> = new Map();
-  private userScopes: Map<string, { type: 'own' | 'team' | 'all'; userId: string; username: string }> = new Map();
+  /**
+   * Snapshot por socket conectado. Keyed por `socket.id` (no por `user.sub`)
+   * para evitar el leak de stale-reconnect: cuando un usuario se reconecta
+   * con un id nuevo antes del disconnect del viejo, el id viejo se queda en
+   * el map del Map<userSub, Set<socketId>> y nunca se libera. Llevamos un
+   * snapshot por socket y derivamos los stats per-user de ahí.
+   */
+  private sessions: Map<
+    string,
+    {
+      sub: string;
+      username: string;
+      tenantId: string;
+      scope: 'own' | 'team' | 'all';
+    }
+  > = new Map();
 
   constructor(private readonly jwtService: JwtService) {}
 
@@ -62,15 +96,28 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
       if (!token) {
         this.logger.warn('Connection rejected: no token');
+        client.emit('auth_error', { reason: 'no_token' });
         client.disconnect(true);
         return;
       }
 
       const payload = this.jwtService.verify(token);
+
+      // tenant_id es OBLIGATORIO desde el cutover multi-tenant. Sin él no
+      // podemos prefixar rooms y un admin con scope='all' vería capturas
+      // de otros tenants.
+      if (!payload.tenant_id) {
+        this.logger.warn(`Connection rejected: JWT sin tenant_id (sub=${payload.sub})`);
+        client.emit('auth_error', { reason: 'missing_tenant' });
+        client.disconnect(true);
+        return;
+      }
+
       const user = {
         sub: payload.sub,
         username: payload.username,
         role_name: payload.role_name,
+        tenant_id: payload.tenant_id,
         permissions: payload.permissions || {},
         rules: payload.rules || [],
       };
@@ -82,71 +129,67 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
       rooms.forEach((room) => client.join(room));
 
-      if (!this.userSockets.has(user.sub)) {
-        this.userSockets.set(user.sub, new Set());
-      }
-      this.userSockets.get(user.sub)!.add(client.id);
-
-      this.userScopes.set(user.sub, {
-        type: scope.type,
-        userId: user.sub,
+      this.sessions.set(client.id, {
+        sub: user.sub,
         username: user.username,
+        tenantId: user.tenant_id,
+        scope: scope.type,
       });
 
-      this.logger.log(`Client connected: ${user.username} (${user.sub}) scope=${scope.type} rooms=${rooms.join(',')}`);
+      this.logger.log(
+        `Client connected: ${user.username} (${user.sub}) tenant=${user.tenant_id} scope=${scope.type} rooms=${rooms.join(',')}`,
+      );
     } catch (error) {
       this.logger.warn(`Connection rejected: invalid token (${error.message})`);
+      client.emit('auth_error', { reason: 'invalid_token' });
       client.disconnect(true);
     }
   }
 
   handleDisconnect(client: Socket) {
-    const user = (client as any).user;
-    if (user) {
-      const sockets = this.userSockets.get(user.sub);
-      if (sockets) {
-        sockets.delete(client.id);
-        if (sockets.size === 0) {
-          this.userSockets.delete(user.sub);
-          this.userScopes.delete(user.sub);
-        }
-      }
-    }
+    this.sessions.delete(client.id);
   }
 
   @SubscribeMessage('join')
-  handleJoin(@ConnectedSocket() client: Socket, @MessageBody() room: string) {
-    // Solo permitir unirse a rooms para los que el usuario tiene scope.
-    // Sin esta validación cualquier cliente podría suscribirse a `reports:global`
-    // y recibir métricas de toda la organización.
+  handleJoin(@ConnectedSocket() client: Socket, @MessageBody() room: unknown) {
+    // Validación de tipo: el body llega via socket.io, podría ser cualquier cosa.
+    if (typeof room !== 'string' || room.length === 0 || room.length > 200) {
+      return { ok: false, reason: 'invalid_room' };
+    }
     const user = (client as any).user;
     if (!user || !this.canJoinRoom(user, room)) {
       this.logger.warn(`Join rejected: user ${user?.username ?? '?'} → room ${room}`);
-      return;
+      return { ok: false, reason: 'forbidden' };
     }
     client.join(room);
+    return { ok: true };
   }
 
   @SubscribeMessage('leave')
-  handleLeave(@ConnectedSocket() client: Socket, @MessageBody() room: string) {
+  handleLeave(@ConnectedSocket() client: Socket, @MessageBody() room: unknown) {
+    if (typeof room !== 'string' || room.length === 0 || room.length > 200) {
+      return { ok: false, reason: 'invalid_room' };
+    }
     client.leave(room);
+    return { ok: true };
   }
 
   /**
    * Decide qué rooms se asignan automáticamente al usuario al conectar.
-   * - `reports:global` SOLO si el scope es 'all' (REPORTES_VER_GLOBAL).
-   * - `reports:team:<sub>` solo si el scope es 'team' (supervisor).
-   * - `reports:own:<sub>` para todos los usuarios autenticados.
+   * Todas prefijadas con `reports:t:<tenantId>:` para aislamiento multi-tenant.
+   * - `reports:t:<tenant>:global` SOLO si scope='all' (REPORTES_VER_GLOBAL).
+   * - `reports:t:<tenant>:team:<sub>` solo si scope='team' (supervisor).
+   * - `reports:t:<tenant>:own:<sub>` para todos los usuarios autenticados.
    */
-  private getRoomsForScope(scope: { type: string; userId: string }, user: any): string[] {
-    const rooms: string[] = [`reports:own:${user.sub}`];
+  private getRoomsForScope(scope: { type: string }, user: { sub: string; tenant_id: string }): string[] {
+    const rooms: string[] = [reportsRooms.own(user.tenant_id, user.sub)];
 
     if (scope.type === 'team') {
-      rooms.push(`reports:team:${user.sub}`);
+      rooms.push(reportsRooms.team(user.tenant_id, user.sub));
     }
 
     if (scope.type === 'all') {
-      rooms.push('reports:global');
+      rooms.push(reportsRooms.global(user.tenant_id));
     }
 
     return rooms;
@@ -154,16 +197,41 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   /**
    * Valida si un usuario puede unirse a un room arbitrario vía `join` event.
-   * Solo se aceptan rooms que el usuario tendría asignados automáticamente.
+   * El nombre del room DEBE incluir el tenant del usuario — no se aceptan
+   * rooms de otro tenant aunque coincidan el formato.
    */
-  private canJoinRoom(user: { sub: string; rules?: any[] }, room: string): boolean {
+  private canJoinRoom(user: { sub: string; tenant_id: string; rules?: any[] }, room: string): boolean {
     const scope = getDataScope(user);
     const allowed = this.getRoomsForScope(scope, user);
     return allowed.includes(room);
   }
 
-  getConnectedUserScopes(): Array<{ type: 'own' | 'team' | 'all'; userId: string }> {
-    return Array.from(this.userScopes.values());
+  /**
+   * Devuelve un snapshot dedup por (tenantId, type, userId) de las sesiones
+   * activas. Lo usa `ReportsService.runMetricsBroadcast` para iterar y emitir
+   * métricas per-tenant + per-scope.
+   */
+  getConnectedUserScopes(): Array<{
+    type: 'own' | 'team' | 'all';
+    userId: string;
+    tenantId: string;
+    username: string;
+  }> {
+    const dedup = new Map<
+      string,
+      { type: 'own' | 'team' | 'all'; userId: string; tenantId: string; username: string }
+    >();
+    for (const s of this.sessions.values()) {
+      const key = `${s.tenantId}:${s.scope}:${s.sub}`;
+      if (dedup.has(key)) continue;
+      dedup.set(key, {
+        type: s.scope,
+        userId: s.sub,
+        tenantId: s.tenantId,
+        username: s.username,
+      });
+    }
+    return Array.from(dedup.values());
   }
 }
 
@@ -182,7 +250,12 @@ export class EventsService {
     return !!this.gateway.server;
   }
 
-  getConnectedUserScopes(): Array<{ type: 'own' | 'team' | 'all'; userId: string }> {
+  getConnectedUserScopes(): Array<{
+    type: 'own' | 'team' | 'all';
+    userId: string;
+    tenantId: string;
+    username: string;
+  }> {
     return this.gateway.getConnectedUserScopes();
   }
 
@@ -212,44 +285,64 @@ export class EventsService {
     const synced = events.filter(e => e.eventType === 'capture:synced');
     const deleted = events.filter(e => e.eventType === 'capture:deleted');
 
-    // Los eventos de captura se emiten SOLO a:
-    //  - `reports:global` (admins con scope 'all')
-    //  - `reports:own:<userId>` (el capturista dueño)
-    // NUNCA con server.emit (que iría a todo el namespace y leakearía
-    // actividad de un colaborador a todos los demás colaboradores).
+    // Multi-tenant: los eventos van SOLO a rooms scoped por tenant del payload.
+    //  - `reports:t:<tenant>:global` (admins scope='all' DE ESE tenant)
+    //  - `reports:t:<tenant>:own:<userId>` (el capturista dueño)
+    // Nunca cross-tenant: un evento con tenantId=A jamás llega a sockets de tenant B.
     const emitToScoped = (
       eventName: 'capture:created' | 'capture:synced' | 'capture:deleted',
       list: BatchedEvent[],
     ) => {
       if (list.length === 0) return;
 
-      if (list.length === 1) {
-        const p = list[0].payload as any;
-        this.gateway.server.to('reports:global').emit(eventName, p);
-        if (p?.userId) {
-          this.gateway.server.to(`reports:own:${p.userId}`).emit(eventName, p);
+      // Agrupar por tenantId para emitir a las rooms de cada tenant por separado.
+      const byTenant = new Map<string, BatchedEvent[]>();
+      for (const ev of list) {
+        const tenantId = (ev.payload as any)?.tenantId;
+        if (!tenantId) {
+          this.logger.warn(
+            `Dropping ${eventName} sin tenantId — posible bug en el caller (captureId=${(ev.payload as any)?.captureId})`,
+          );
+          continue;
         }
-      } else {
-        const batchPayload = {
-          type: eventName,
-          batch: true,
-          count: list.length,
-          events: list.map((e) => e.payload),
-        };
-        // Globals reciben el batch completo
-        this.gateway.server.to('reports:global').emit(eventName, batchPayload);
-        // Cada owner solo recibe los eventos propios
-        const byOwner = new Map<string, any[]>();
-        for (const ev of list) {
-          const ownerId = (ev.payload as any)?.userId;
-          if (!ownerId) continue;
-          if (!byOwner.has(ownerId)) byOwner.set(ownerId, []);
-          byOwner.get(ownerId)!.push(ev.payload);
-        }
-        for (const [ownerId, ownEvents] of byOwner) {
-          this.gateway.server
-            .to(`reports:own:${ownerId}`)
-            .emit(eventName, { type: eventName, batch: true, count: ownEvents.length, events: ownEvents });
+        if (!byTenant.has(tenantId)) byTenant.set(tenantId, []);
+        byTenant.get(tenantId)!.push(ev);
+      }
+
+      for (const [tenantId, tenantEvents] of byTenant) {
+        const globalRoom = reportsRooms.global(tenantId);
+
+        if (tenantEvents.length === 1) {
+          const p = tenantEvents[0].payload as any;
+          this.gateway.server.to(globalRoom).emit(eventName, p);
+          if (p?.userId) {
+            this.gateway.server.to(reportsRooms.own(tenantId, p.userId)).emit(eventName, p);
+          }
+        } else {
+          const batchPayload = {
+            type: eventName,
+            batch: true,
+            count: tenantEvents.length,
+            events: tenantEvents.map((e) => e.payload),
+          };
+          this.gateway.server.to(globalRoom).emit(eventName, batchPayload);
+          const byOwner = new Map<string, any[]>();
+          for (const ev of tenantEvents) {
+            const ownerId = (ev.payload as any)?.userId;
+            if (!ownerId) continue;
+            if (!byOwner.has(ownerId)) byOwner.set(ownerId, []);
+            byOwner.get(ownerId)!.push(ev.payload);
+          }
+          for (const [ownerId, ownEvents] of byOwner) {
+            this.gateway.server
+              .to(reportsRooms.own(tenantId, ownerId))
+              .emit(eventName, {
+                type: eventName,
+                batch: true,
+                count: ownEvents.length,
+                events: ownEvents,
+              });
+          }
         }
       }
     };
@@ -287,39 +380,41 @@ export class EventsService {
     this.scheduleBatchFlush();
   }
 
-  emitCaptureDeleted(payload: { type: 'capture:deleted'; captureId: string; userId: string }): void {
+  emitCaptureDeleted(payload: CaptureDeletedPayload): void {
     if (!this.hasConnectedClients()) return;
 
     this.batchBuffer.push({ eventType: 'capture:deleted', payload });
     this.scheduleBatchFlush();
   }
 
-  emitMetricsUpdate(payload: MetricsUpdatePayload): void {
+  /**
+   * Emite métricas a la room global de UN tenant (admins scope='all' de ese tenant).
+   * Multi-tenant: el tenantId del caller delimita estrictamente la audiencia.
+   */
+  emitMetricsToGlobal(tenantId: string, payload: MetricsUpdatePayload): void {
     if (!this.hasConnectedClients()) return;
     if (!this.gateway.server) return;
-
-    // Solo emitir a quienes tienen el scope correspondiente — antes era
-    // `server.emit(...)` que iba a todo el namespace.
-    const room =
-      payload.scope === 'global'
-        ? 'reports:global'
-        : payload.scope === 'team'
-          ? null // los emits por team van por emitMetricsUpdateToRoom con userId
-          : null;
-    if (!room) {
-      this.logger.warn(`emitMetricsUpdate sin room para scope=${payload.scope}; ignorado`);
-      return;
-    }
+    const room = reportsRooms.global(tenantId);
     this.gateway.server.to(room).emit('metrics:updated', payload);
-    this.logger.debug(`Emitted metrics:updated to ${room} with scope ${payload.scope}`);
+    this.logger.debug(`Emitted metrics:updated to ${room}`);
   }
 
-  emitMetricsUpdateToRoom(room: string, payload: MetricsUpdatePayload): void {
+  /**
+   * Emite métricas a un usuario específico (scope='own' o 'team') dentro de
+   * SU tenant. La combinación (tenantId, scope, userId) determina la room.
+   */
+  emitMetricsToUser(
+    tenantId: string,
+    scope: 'own' | 'team',
+    userId: string,
+    payload: MetricsUpdatePayload,
+  ): void {
     if (!this.hasConnectedClients()) return;
     if (!this.gateway.server) return;
-
+    const room = scope === 'team'
+      ? reportsRooms.team(tenantId, userId)
+      : reportsRooms.own(tenantId, userId);
     this.gateway.server.to(room).emit('metrics:updated', payload);
-
-    this.logger.debug(`Emitted metrics:updated to room ${room} with scope ${payload.scope}`);
+    this.logger.debug(`Emitted metrics:updated to ${room}`);
   }
 }

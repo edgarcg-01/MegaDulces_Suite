@@ -133,6 +133,34 @@ export class OfflineDatabaseService extends Dexie {
     this.visitas.hook('updating', (modifications, primKey, obj, trans) => {
       console.log(`[OfflineDB] Actualizando visita: ${primKey}`, modifications);
     });
+
+    this.requestPersistentStorage();
+  }
+
+  /**
+   * Pide al browser que marque este origen como "persistente" — sin esto
+   * Chrome/Safari pueden evictar IndexedDB bajo presión de almacenamiento
+   * (visitas pendientes desaparecen silenciosamente). Idempotente:
+   * llamarlo varias veces es seguro. Best-effort: si el browser no lo
+   * soporta o el usuario lo rechaza, seguimos funcionando igual.
+   */
+  private async requestPersistentStorage(): Promise<void> {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.storage?.persist) return;
+      const already = await navigator.storage.persisted?.().catch(() => false);
+      if (already) return;
+      const granted = await navigator.storage.persist();
+      console.log(`[OfflineDB] storage.persist() → ${granted ? 'concedido' : 'denegado'}`);
+      if (navigator.storage.estimate) {
+        const est = await navigator.storage.estimate().catch(() => null);
+        if (est?.quota && est?.usage) {
+          const pct = Math.round((est.usage / est.quota) * 100);
+          console.log(`[OfflineDB] Storage: ${(est.usage / 1024 / 1024).toFixed(1)}MB / ${(est.quota / 1024 / 1024).toFixed(0)}MB (${pct}%)`);
+        }
+      }
+    } catch (err) {
+      console.warn('[OfflineDB] requestPersistentStorage falló (no crítico):', err);
+    }
   }
 
   // --- Tiendas ---

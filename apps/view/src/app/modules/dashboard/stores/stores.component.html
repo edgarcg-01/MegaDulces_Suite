@@ -231,7 +231,7 @@
   <ng-template pTemplate="footer">
     <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 p-2">
       <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="saving()" (click)="closeEditDialog()" class="w-full sm:w-auto" />
-      <p-button label="Guardar" severity="success" [disabled]="saving()" [loading]="saving()" (click)="saveStore()" class="w-full sm:w-auto" />
+      <p-button label="Guardar" severity="contrast" [disabled]="saving()" [loading]="saving()" (click)="saveStore()" class="w-full sm:w-auto" />
     </div>
   </ng-template>
 </p-dialog>

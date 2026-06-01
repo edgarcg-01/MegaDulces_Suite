@@ -45,34 +45,99 @@
       }
     } @else {
       @for (k of kpiCards(); track k.label) {
-        <div class="card-premium card-flat status-border-left flex flex-col justify-between items-center text-center h-[180px] p-5 w-full"
+        <div class="card-premium card-flat status-border-left flex flex-col gap-3 h-[180px] p-5 w-full"
              [class]="'status-' + k.status">
-          <div class="flex items-center justify-center gap-2 mb-5">
-            <span class="stat-label text-sm">{{ k.label }}</span>
-            <span class="status-chip uppercase">{{ statusLabel(k.status) }}</span>
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-[10px] uppercase tracking-widest font-bold text-content-muted truncate">{{ k.label }}</span>
+            <span class="text-[9px] text-content-faint shrink-0">Meta {{ k.meta }}</span>
           </div>
-          <div class="flex flex-col items-center gap-2">
-            <div>
-              <div class="stat-value text-3xl leading-none">{{ k.value }}</div>
+
+          @if (k.kind === 'spark') {
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-3xl font-extrabold tabular-nums leading-none text-content-main">{{ k.value }}</span>
               @if (k.delta) {
-                <div class="text-xs mt-2 font-medium text-center"
-                  [class.status-text]="k.deltaDir === 'up' || k.deltaDir === 'down'"
-                  [class.status-ok]="k.deltaDir === 'up'"
-                  [class.status-bad]="k.deltaDir === 'down'"
-                  [class.text-content-faint]="k.deltaDir === 'flat'">
+                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [class.text-ok-fg]="k.deltaDir === 'up'"
+                      [class.text-bad-fg]="k.deltaDir === 'down'"
+                      [class.text-content-faint]="k.deltaDir === 'flat'">
+                  <i class="pi text-[9px]"
+                     [class.pi-arrow-up]="k.deltaDir === 'up'"
+                     [class.pi-arrow-down]="k.deltaDir === 'down'"
+                     [class.pi-minus]="k.deltaDir === 'flat'"
+                     aria-hidden="true"></i>
                   {{ k.delta }}
-                </div>
+                </span>
               }
             </div>
-            <div class="text-center">
-              <div class="text-[10px] text-content-faint uppercase">Meta</div>
-              <div class="text-sm font-bold text-content-muted">{{ k.meta }}</div>
+
+            @if (k.spark; as s) {
+              <svg [attr.viewBox]="s.viewBox" preserveAspectRatio="none"
+                   class="w-full h-10 mt-auto"
+                   [attr.aria-label]="s.ariaLabel" role="img">
+                @if (s.metaY >= 0) {
+                  <line x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                        stroke="var(--text-faint)" stroke-width="0.3"
+                        stroke-dasharray="1.5 1.5" opacity="0.55"></line>
+                }
+                @for (b of s.bars; track $index) {
+                  <g>
+                    <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
+                          [attr.fill]="b.color" rx="0.4"
+                          [attr.opacity]="b.isToday ? 1 : 0.65"
+                          class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
+                      <title>{{ b.tooltip }}</title>
+                    </rect>
+                    @if (b.isToday) {
+                      <circle [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
+                              [attr.fill]="b.color"></circle>
+                    }
+                  </g>
+                }
+              </svg>
+            } @else {
+              <div class="mt-auto h-1.5 rounded-full bg-surface-layout overflow-hidden">
+                <div class="h-full rounded-full status-fill motion-safe:transition-all duration-500"
+                     [style.width.%]="k.pct"></div>
+              </div>
+            }
+          }
+
+          @if (k.kind === 'gauge' && k.gauge; as g) {
+            <div class="flex-1 flex flex-col items-center justify-center gap-1.5 py-1">
+              <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
+                <svg viewBox="0 0 40 40" class="w-20 h-20 -rotate-90">
+                  <circle cx="20" cy="20" r="15.5" fill="none"
+                          stroke="var(--surface-layout)" stroke-width="3"></circle>
+                  <circle cx="20" cy="20" r="15.5" fill="none"
+                          [attr.stroke]="g.color" stroke-width="3" stroke-linecap="round"
+                          [attr.stroke-dasharray]="g.circumference"
+                          [attr.stroke-dashoffset]="g.dashoffset"
+                          class="motion-safe:transition-all duration-700">
+                    <title>{{ g.ariaLabel }}</title>
+                  </circle>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span class="text-xl font-extrabold tabular-nums leading-none text-content-main">{{ g.centerValue }}</span>
+                  @if (g.centerUnit) {
+                    <span class="text-[9px] text-content-muted uppercase tracking-wider mt-0.5">{{ g.centerUnit }}</span>
+                  }
+                </div>
+              </div>
+              @if (k.delta) {
+                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [class.text-ok-fg]="k.deltaDir === 'up'"
+                      [class.text-bad-fg]="k.deltaDir === 'down'"
+                      [class.text-content-faint]="k.deltaDir === 'flat'">
+                  <i class="pi text-[9px]"
+                     [class.pi-arrow-up]="k.deltaDir === 'up'"
+                     [class.pi-arrow-down]="k.deltaDir === 'down'"
+                     [class.pi-minus]="k.deltaDir === 'flat'"
+                     aria-hidden="true"></i>
+                  {{ k.delta }}
+                </span>
+              }
             </div>
-          </div>
-          <div class="mt-4 h-2 rounded-full bg-surface-layout overflow-hidden w-full">
-            <div class="h-full rounded-full status-fill transition-all duration-500"
-              [style.width.%]="k.pct"></div>
-          </div>
+          }
         </div>
       }
     }

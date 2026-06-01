@@ -135,6 +135,12 @@
   --chip-brand-fg:        var(--brand-900);
   --chip-brand-border:    var(--brand-200);
 
+  /* Competencia — neutral informacional. No es error (no rojo), no es alerta (no ámbar),
+     no es marca (no amarillo). Diferencia "exhibidor ajeno" sin estigma cromático. */
+  --chip-competition-bg:     var(--neutral-100);
+  --chip-competition-fg:     var(--neutral-700);
+  --chip-competition-border: var(--neutral-300);
+
   --chart-fill-low:       #C8C8D0;
   --chart-fill-mid:       #6B6B75;
   --chart-fill-high:      #1E1E22;
@@ -218,4 +224,8 @@ body.theme-monochrome {
   --chip-brand-bg:     rgba(253, 231, 7, 0.15);
   --chip-brand-fg:     #FDE047;
   --chip-brand-border: rgba(253, 231, 7, 0.35);
+
+  --chip-competition-bg:     rgba(255, 255, 255, 0.06);
+  --chip-competition-fg:     var(--neutral-300);
+  --chip-competition-border: rgba(255, 255, 255, 0.15);
 }

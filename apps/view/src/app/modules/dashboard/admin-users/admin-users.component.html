@@ -1,205 +1,260 @@
-<div class="p-6 space-y-6">
-  <!-- Toast for notifications -->
+<div class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 space-y-6 min-h-[100dvh]">
   <p-toast position="top-right"></p-toast>
 
-  <!-- Confirm Dialog -->
   <p-confirmDialog
     header="Confirmar"
     icon="pi pi-exclamation-triangle"
     [style]="{width: '450px'}"
     acceptButtonStyleClass="p-button-danger"
-    rejectButtonStyleClass="p-button-secondary">
-  </p-confirmDialog>
+    rejectButtonStyleClass="p-button-secondary"
+  ></p-confirmDialog>
 
-  <div class="flex justify-between items-center mb-6">
+  <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-users text-content-main"></i> Administración de Usuarios</h1>
-      <p class="text-sm text-content-dim">Crea, edita y administra los accesos al sistema Trade Marketing.</p>
+      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+        <i class="pi pi-users text-content-main" aria-hidden="true"></i>
+        Administración de Usuarios
+      </h1>
+      <p class="text-sm text-content-muted mt-1">
+        Crea, edita y administra los accesos al sistema.
+      </p>
     </div>
-    <div class="flex items-center gap-4">
-      <p-iconfield>
-        <p-inputicon class="pi pi-search"></p-inputicon>
-        <input
-          pInputText
-          type="search"
-          [ngModel]="searchText()"
-          (ngModelChange)="onSearchChange($event)"
-          placeholder="Buscar por nombre, usuario, rol o zona..."
-          inputmode="search"
-          enterkeyhint="search"
-          autocapitalize="none"
-          autocorrect="off"
-          spellcheck="false"
-          class="w-full sm:w-80" />
-      </p-iconfield>
-      @if (canManageUsers()) {
-        <p-button label="Nuevo Usuario" icon="pi pi-plus" (onClick)="openNewDialog()" styleClass="p-button-brand"></p-button>
-      }
-    </div>
+    @if (canManageUsers()) {
+      <p-button
+        label="Nuevo Usuario"
+        icon="pi pi-plus"
+        styleClass="p-button-brand"
+        (onClick)="openNewDialog()"
+      ></p-button>
+    }
+  </header>
+
+  <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+    <p-iconfield class="flex-1 max-w-md">
+      <p-inputicon class="pi pi-search"></p-inputicon>
+      <input
+        pInputText
+        type="search"
+        [ngModel]="searchText()"
+        (ngModelChange)="onSearchChange($event)"
+        placeholder="Buscar por nombre, usuario, rol o zona..."
+        class="w-full"
+        inputmode="search"
+        enterkeyhint="search"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
+      />
+    </p-iconfield>
+    <span class="text-xs text-content-muted">
+      {{ filteredUsers().length }} de {{ users().length }}
+    </span>
   </div>
 
-  <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
-    <!-- Tabla de Usuarios -->
-    <p-table [value]="filteredUsers()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+  <div class="hidden lg:block bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
+    <p-table
+      [value]="filteredUsers()"
+      [loading]="loading()"
+      responsiveLayout="scroll"
+      styleClass="p-datatable-sm"
+    >
       <ng-template pTemplate="header">
-        <tr class="table-header text-content-muted bg-surface-ground border-b border-divider">
-          <th pSortableColumn="nombre" class="pl-4">Vendedor / Empleado <p-sortIcon field="nombre"></p-sortIcon></th>
-          <th pSortableColumn="username">Acceso (Usuario) <p-sortIcon field="username"></p-sortIcon></th>
-          <th pSortableColumn="role_name">Puesto / Rol <p-sortIcon field="role_name"></p-sortIcon></th>
-          <th pSortableColumn="zona">Zona <p-sortIcon field="zona"></p-sortIcon></th>
-          <th class="table-header">Jefe Directo</th>
-          <th class="text-center table-header">Estado</th>
-          <th class="text-center table-header">Ruta hoy</th>
-          <th class="text-center w-28 table-header">Acciones</th>
+        <tr class="text-xs uppercase tracking-wider text-content-faint bg-surface-ground border-b border-divider">
+          <th pSortableColumn="nombre" class="pl-4 py-3 text-left">Usuario <p-sortIcon field="nombre"></p-sortIcon></th>
+          <th pSortableColumn="role_name" class="py-3 text-left">Rol · Zona <p-sortIcon field="role_name"></p-sortIcon></th>
+          <th pSortableColumn="last_login_at" class="py-3 text-left">Actividad · Ruta <p-sortIcon field="last_login_at"></p-sortIcon></th>
+          <th class="text-center w-24 py-3">Acciones</th>
         </tr>
       </ng-template>
+
       <ng-template pTemplate="body" let-user>
-        <tr class="text-sm border-b border-divider hover:bg-surface-hover transition-colors">
-          <td class="pl-4">
-            <div class="flex flex-col">
-              <span class="font-bold text-content-main">{{ user.nombre || 'SIN NOMBRE' }}</span>
-              <span class="text-[10px] text-content-faint uppercase tracking-tighter">{{ user.id.split('-')[0] }}</span>
-            </div>
-          </td>
-          <td>
-            <div class="flex items-center gap-2">
-              <div class="w-6 h-6 rounded bg-surface-ground border border-divider flex items-center justify-center">
-                <i class="pi pi-user text-[10px] text-content-faint"></i>
+        <tr class="text-sm border-b border-divider hover:bg-surface-hover motion-safe:transition-colors">
+          <td class="pl-4 py-3">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                   [style.background-color]="avatarColorFor(user.username || user.id || '?')"
+                   [attr.aria-label]="'Avatar de ' + (user.nombre || user.username)">
+                {{ getInitials(user.nombre || user.username) }}
               </div>
-              <span class="font-mono text-xs text-content-dim bg-surface-layout px-1.5 py-0.5 rounded border border-divider">{{ user.username }}</span>
+              <div class="min-w-0">
+                <div class="font-semibold text-content-main truncate">{{ user.nombre || 'Sin nombre' }}</div>
+                <div class="text-xs text-content-muted font-mono truncate">{{ '@' + user.username }}</div>
+                @if (user.role_name === 'colaborador' && user.supervisor_id) {
+                  <div class="text-xs text-content-muted font-medium mt-0.5 truncate flex items-center gap-1">
+                    <i class="pi pi-arrow-up-right text-[9px]" aria-hidden="true"></i>
+                    {{ getSupervisorName(user.supervisor_id) }}
+                  </div>
+                }
+              </div>
             </div>
           </td>
-          <td>
-            <p-tag [severity]="user.role_name === 'superadmin' ? 'contrast' : user.role_name === 'ejecutivo' ? 'info' : 'secondary'"
-                   [value]="user.role_name | uppercase" [rounded]="true" styleClass="text-[9px] font-bold"></p-tag>
+
+          <td class="py-3">
+            <div class="text-[11px] font-semibold uppercase tracking-wider text-content-muted">{{ user.role_name }}</div>
+            <div class="text-sm font-semibold text-content-main mt-0.5">{{ user.zona || '—' }}</div>
           </td>
-          <td>
-             <span class="text-label bg-surface-ground border border-divider px-2 py-1 rounded text-content-main">{{ user.zona }}</span>
+
+          <td class="py-3" [title]="formatLastLoginAbs(user.last_login_at)">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full shrink-0"
+                    [style.background-color]="activityDotColor(user)"
+                    aria-hidden="true"></span>
+              <span class="text-xs text-content-main">
+                {{ user.activo ? formatLastLogin(user.last_login_at) : 'Inactivo' }}
+              </span>
+            </div>
+            <div class="text-sm font-semibold mt-0.5 pl-4 truncate"
+                 [class.text-content-main]="user.has_route_today"
+                 [class.text-content-faint]="!user.has_route_today">
+              @if (user.has_route_today) {
+                {{ user.route_name_today }}
+              } @else {
+                <span class="italic font-normal">Sin ruta</span>
+              }
+            </div>
           </td>
-          <td class="text-content-dim">
-            {{ user.role_name === 'colaborador' ? getSupervisorName(user.supervisor_id) : '-' }}
-          </td>
-          <td class="text-center">
-            <p-tag
-              [value]="user.activo ? 'Activo' : 'Inactivo'"
-              [severity]="user.activo ? 'success' : 'danger'"
-              [rounded]="true" />
-          </td>
-          <td class="text-center">
-            @if (user.has_route_today) {
-              <p-tag [value]="user.route_name_today" severity="success" [rounded]="true" />
-            } @else {
-              <p-tag value="Sin ruta" severity="danger" [rounded]="true" />
-            }
-          </td>
-          <td class="text-center">
+
+          <td class="text-center py-3">
             <div class="flex justify-center gap-1">
               @if (canManageUsers()) {
-                <button
-                  (click)="openEditDialog(user)"
-                  class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
-                  title="Editar">
-                  <i class="pi pi-pencil text-sm"></i>
+                <button (click)="openEditDialog(user)"
+                        class="icon-btn-ghost icon-btn-ghost-info"
+                        aria-label="Editar usuario"
+                        title="Editar">
+                  <i class="pi pi-pencil text-sm" aria-hidden="true"></i>
                 </button>
-                <button
-                  (click)="deleteUser(user)"
-                  class="icon-btn-ghost icon-btn-ghost-bad"
-                  title="Eliminar"
-                  aria-label="Eliminar usuario">
-                  <i class="pi pi-trash text-sm"></i>
+                <button (click)="deleteUser(user)"
+                        class="icon-btn-ghost icon-btn-ghost-bad"
+                        aria-label="Eliminar usuario"
+                        title="Eliminar">
+                  <i class="pi pi-trash text-sm" aria-hidden="true"></i>
                 </button>
               }
             </div>
           </td>
         </tr>
       </ng-template>
+
       <ng-template pTemplate="emptymessage">
         <tr>
-          <td colspan="8" class="text-center p-8 text-content-dim">
-             No hay usuarios configurados. Intenta recargar la página.
+          <td colspan="4" class="text-center p-10 text-content-muted">
+            <i class="pi pi-inbox text-3xl text-content-faint mb-2 block" aria-hidden="true"></i>
+            @if (searchText()) {
+              No hay usuarios que coincidan con la búsqueda.
+            } @else {
+              No hay usuarios configurados.
+            }
           </td>
         </tr>
       </ng-template>
     </p-table>
   </div>
 
-  <!-- Mobile Card View -->
-  <div class="lg:hidden space-y-4">
+  <div class="lg:hidden space-y-3">
     @for (user of filteredUsers(); track user.id) {
-    <div class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm relative overflow-hidden">
-      <!-- Decorator for Role -->
-      <div class="absolute top-0 right-0 w-16 h-1 bg-surface-ground"
-           [class.!bg-brand-sunset]="user.role_name === 'superadmin'"></div>
-
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex flex-col gap-1">
-          <h3 class="font-bold text-content-main leading-tight">{{ user.nombre || 'SIN NOMBRE' }}</h3>
-          <span class="text-[10px] font-mono text-content-faint bg-surface-ground w-fit px-1.5 py-0.5 rounded border border-divider uppercase">ID: {{ user.username }}</span>
-        </div>
-        @if (canManageUsers()) {
-          <div class="flex gap-1">
-            <button
-              (click)="openEditDialog(user)"
-              class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all duration-200"
-              title="Editar">
-              <i class="pi pi-pencil text-sm"></i>
-            </button>
+      <article class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
+               [style.background-color]="avatarColorFor(user.username || user.id || '?')"
+               [attr.aria-label]="'Avatar de ' + (user.nombre || user.username)">
+            {{ getInitials(user.nombre || user.username) }}
           </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <h3 class="font-bold text-content-main leading-tight truncate">{{ user.nombre || 'Sin nombre' }}</h3>
+                <div class="text-xs text-content-muted font-mono truncate">{{ '@' + user.username }}</div>
+              </div>
+              @if (canManageUsers()) {
+                <div class="flex gap-1 shrink-0">
+                  <button (click)="openEditDialog(user)"
+                          class="icon-btn-ghost icon-btn-ghost-info"
+                          aria-label="Editar">
+                    <i class="pi pi-pencil text-sm" aria-hidden="true"></i>
+                  </button>
+                  <button (click)="deleteUser(user)"
+                          class="icon-btn-ghost icon-btn-ghost-bad"
+                          aria-label="Eliminar">
+                    <i class="pi pi-trash text-sm" aria-hidden="true"></i>
+                  </button>
+                </div>
+              }
+            </div>
+
+            <dl class="grid grid-cols-2 gap-x-3 gap-y-2 mt-3 pt-3 border-t border-divider/50 text-xs">
+              <div>
+                <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Rol</dt>
+                <dd class="text-[11px] font-semibold uppercase tracking-wider text-content-muted mt-0.5">{{ user.role_name }}</dd>
+              </div>
+              <div>
+                <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Zona</dt>
+                <dd class="text-sm font-semibold text-content-main mt-0.5">{{ user.zona || '—' }}</dd>
+              </div>
+              <div class="col-span-2">
+                <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Actividad · Ruta</dt>
+                <dd class="flex items-center gap-2 mt-0.5 flex-wrap" [title]="formatLastLoginAbs(user.last_login_at)">
+                  <span class="w-2 h-2 rounded-full"
+                        [style.background-color]="activityDotColor(user)"
+                        aria-hidden="true"></span>
+                  <span class="text-content-main">
+                    {{ user.activo ? formatLastLogin(user.last_login_at) : 'Inactivo' }}
+                  </span>
+                  <span class="text-content-faint">·</span>
+                  @if (user.has_route_today) {
+                    <span class="font-semibold text-content-main">{{ user.route_name_today }}</span>
+                  } @else {
+                    <span class="text-content-faint italic">Sin ruta</span>
+                  }
+                </dd>
+              </div>
+              @if (user.role_name === 'colaborador' && user.supervisor_id) {
+                <div class="col-span-2">
+                  <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Jefe directo</dt>
+                  <dd class="text-sm font-medium text-content-main mt-0.5 flex items-center gap-1">
+                    <i class="pi pi-arrow-up-right text-[9px] text-content-muted" aria-hidden="true"></i>
+                    {{ getSupervisorName(user.supervisor_id) }}
+                  </dd>
+                </div>
+              }
+            </dl>
+          </div>
+        </div>
+      </article>
+    } @empty {
+      <div class="text-center py-12 text-content-muted">
+        <i class="pi pi-inbox text-3xl text-content-faint mb-2 block" aria-hidden="true"></i>
+        @if (searchText()) {
+          No hay usuarios que coincidan con la búsqueda.
+        } @else {
+          No hay usuarios configurados.
         }
       </div>
-
-      <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-divider/50">
-        <div class="flex flex-col">
-          <span class="text-[9px] font-black text-content-muted uppercase tracking-widest">Puesto</span>
-          <span class="text-xs font-bold text-content-main truncate">{{ user.role_name | uppercase }}</span>
-        </div>
-        <div class="flex flex-col items-end">
-          <span class="text-[9px] font-black text-content-muted uppercase tracking-widest">Zona</span>
-          <span class="text-xs font-bold text-content-main">{{ user.zona }}</span>
-        </div>
-      </div>
-
-      <div class="mt-4 flex items-center justify-between bg-surface-ground/50 -mx-4 -mb-4 p-3 border-t border-divider/30">
-        <div class="flex items-center gap-2">
-          <p-tag
-            [value]="user.activo ? 'Activo' : 'Inactivo'"
-            [severity]="user.activo ? 'success' : 'danger'"
-            [rounded]="true" />
-          @if (user.has_route_today) {
-            <p-tag [value]="user.route_name_today" severity="success" [rounded]="true" />
-          } @else {
-            <p-tag value="Sin ruta" severity="danger" [rounded]="true" />
-          }
-        </div>
-        @if (canManageUsers()) {
-          <button (click)="deleteUser(user)" class="btn-ghost btn-ghost-bad text-xs font-bold uppercase tracking-tighter">Eliminar</button>
-        }
-      </div>
-    </div>
     }
   </div>
 </div>
 
-<!-- Diálogo Creación/Edición -->
 <p-dialog [header]="isEditing() ? 'Editar Usuario' : 'Nuevo Usuario'"
           [visible]="displayDialog()"
           (visibleChange)="displayDialog.set($event)"
           [modal]="true"
           appendTo="body"
           [style]="{width: '500px', maxWidth: '90vw'}"
+          [breakpoints]="{'640px': '100vw'}"
+          [blockScroll]="true"
+          [focusOnShow]="false"
+          [draggable]="false"
+          [resizable]="false"
           styleClass="surface-card border-divider rounded-2xl"
           [contentStyleClass]="'bg-surface-card text-content-main p-6'">
 
   <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="mt-4 flex flex-col gap-5">
 
-    <div class="grid grid-cols-2 gap-4">
-       <!-- Nombres -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
        <div class="flex flex-col gap-2">
          <label for="nombre" class="text-label text-content-muted">Nombre del Empleado</label>
          <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" class="w-full" />
        </div>
 
-       <!-- Zona -->
        <div class="flex flex-col gap-2">
          <label for="zona" class="text-label text-content-muted">Zona</label>
          <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"
@@ -207,7 +262,6 @@
        </div>
     </div>
 
-    <!-- Usuario -->
     <div class="flex flex-col gap-2">
       <label for="username" class="text-label text-content-muted">Nombre de Usuario (Login)</label>
       <div class="p-inputgroup border-divider">
@@ -223,14 +277,12 @@
       }
     </div>
 
-    <!-- Rol -->
     <div class="flex flex-col gap-2">
       <label for="role_name" class="text-label text-content-muted">Nivel de Acceso</label>
       <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name" placeholder="Selecciona el rol"
                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
     </div>
 
-    <!-- Supervisor (Solo para Colaborador) -->
     @if (userForm.get('role_name')?.value === 'colaborador') {
       <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
         <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
@@ -244,7 +296,6 @@
       </div>
     }
 
-    <!-- Contraseña -->
     <div class="flex flex-col gap-2 p-4 bg-surface-ground border border-divider rounded-lg">
       <label for="password" class="text-label text-content-main">{{ isEditing() ? 'Actualizar Contraseña (Opcional)' : 'Contraseña Segura' }}</label>
       <input pInputText id="password" type="password" formControlName="password"
@@ -256,7 +307,6 @@
       }
     </div>
 
-    <!-- Activo -->
     <div class="flex items-center justify-between p-4 bg-surface-ground border border-divider rounded-lg">
       <div>
          <div class="text-body font-bold text-content-main">Estado Activo</div>

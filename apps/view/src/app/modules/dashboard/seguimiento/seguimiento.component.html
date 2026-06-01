@@ -176,8 +176,8 @@
                     </span>
                   }
                   @if (countCompetition(visit.exhibiciones) > 0) {
-                    <span class="status-chip status-bad" pTooltip="Exhibiciones de competencia">
-                      <i class="pi pi-times-circle"></i>
+                    <span class="chip-competition" pTooltip="Exhibiciones de competencia">
+                      <i class="pi pi-flag"></i>
                       {{ countCompetition(visit.exhibiciones) }} Competencia
                     </span>
                   }
@@ -447,7 +447,7 @@
                           @if (ex.perteneceMegaDulces === true) {
                             <span class="chip-brand shrink-0">Mega Dulces</span>
                           } @else if (ex.perteneceMegaDulces === false) {
-                            <span class="chip-warn-soft shrink-0">Competencia</span>
+                            <span class="chip-competition shrink-0">Competencia</span>
                           }
                         </div>
                         <div class="flex flex-wrap items-center gap-1.5 mt-2">

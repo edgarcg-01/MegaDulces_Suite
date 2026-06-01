@@ -49,6 +49,7 @@
       <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onCancel()"></p-button>
       <p-button label="Reconocer"
                 icon="pi pi-sparkles"
+                styleClass="p-button-brand"
                 [disabled]="!rawText().trim()"
                 (onClick)="onSubmit()"></p-button>
     </div>
@@ -163,6 +164,7 @@
       <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onCancel()"></p-button>
       <p-button [label]="'Agregar ' + summary().confirmed"
                 icon="pi pi-check"
+                styleClass="p-button-brand"
                 [disabled]="!canApply()"
                 (onClick)="onApply()"></p-button>
     </div>

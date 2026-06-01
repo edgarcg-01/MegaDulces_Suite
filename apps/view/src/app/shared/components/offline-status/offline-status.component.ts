@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, effect, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -109,13 +109,6 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
     this.syncService.resetEstadoSincronizacion();
     this.showNotification('Sincronización reiniciada', 'info');
   }
-
-  // Efecto para escuchar cambios de conexión
-  private offlineEffect = effect(() => {
-    const status = this.syncService.getEstadoActual();
-    this.isOffline = !status.online;
-    this.isOnline = status.online;
-  });
 
   private updateStatus(estado: any): void {
     this.isOnline = estado.online;

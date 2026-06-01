@@ -700,7 +700,7 @@
                 <div class="text-2xl font-black status-text">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
                 <div class="text-xs font-bold uppercase opacity-70">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
               </div>
-              <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="success" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
+              <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="contrast" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
             </div>
           </div>
         </div>
@@ -726,7 +726,7 @@
               </div>
             </div>
             @if (selectedRow.latitud) {
-              <p-button label="Ver mapa" icon="pi pi-external-link" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
+              <p-button label="Ver mapa" icon="pi pi-external-link" severity="secondary" [text]="true" size="small" (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"></p-button>
             }
           </div>
         </div>

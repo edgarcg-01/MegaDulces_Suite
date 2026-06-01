@@ -1492,10 +1492,18 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
 
     try {
-      const compressed = await this.compressImage(file);
+      const { blob, previewUrl } = await this.compressImage(file);
+      // Revocar la previewUrl previa si existía (memory leak guard).
+      this.revokeFotoPreview();
       this.currentExhibicion.update((curr) => ({
         ...curr,
-        fotoBase64: compressed,
+        // `_photoBlob` se usa en buildVisitFormData (online) y en
+        // OfflineSyncService.guardarVisitaOffline (offline). `fotoBase64`
+        // queda solo como referencia para `<img [src]>` — para no romper
+        // el template ni el resto de chequeos `*ngIf="ex.fotoBase64"`,
+        // guardamos la objectURL ahí (también es válida para <img>).
+        _photoBlob: blob,
+        fotoBase64: previewUrl,
       }));
     } catch (err) {
       const isHeic = /heic|heif/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
@@ -1513,17 +1521,18 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Comprime una imagen a `maxDim` (lado mayor) y la devuelve como data URL
-   * JPEG con la calidad dada. Reduce el tamaño base64 de la foto del
-   * exhibidor de varios MB a típicamente <500 KB sin pérdida visible para
-   * el caso de uso (foto de tienda en móvil).
+   * Comprime una imagen a `maxDim` (lado mayor) y la devuelve como Blob JPEG
+   * + una objectURL para preview. Antes devolvía data URL (`toDataURL`):
+   * eso forzaba ~700KB de string en memoria y un atob() lineal al persistir
+   * en Dexie (~30ms × N exhibidores de jank). Ahora el Blob viaja crudo a
+   * upload y a IndexedDB; el preview usa `URL.createObjectURL`.
    */
   private compressImage(
     file: File,
     maxDim = 1920,
     quality = 0.8,
-  ): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
+  ): Promise<{ blob: Blob; previewUrl: string }> {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () =>
         reject(reader.error || new Error('No se pudo leer el archivo'));
@@ -1545,7 +1554,17 @@ export class CapturesComponent implements OnInit, OnDestroy {
               return;
             }
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', quality));
+            canvas.toBlob(
+              (blob) => {
+                if (!blob) {
+                  reject(new Error('canvas.toBlob devolvió null'));
+                  return;
+                }
+                resolve({ blob, previewUrl: URL.createObjectURL(blob) });
+              },
+              'image/jpeg',
+              quality,
+            );
           } catch (err) {
             reject(err);
           }
@@ -1557,13 +1576,31 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Revoca la objectURL de preview si la actual es `blob:`. Llamar antes de
+   * sobrescribir / borrar la foto para evitar memory leak.
+   */
+  private revokeFotoPreview(): void {
+    const curr = this.currentExhibicion();
+    const url = (curr as any)?.fotoBase64;
+    if (typeof url === 'string' && url.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* no-op */
+      }
+    }
+  }
+
+  /**
    * Elimina la foto del exhibidor
    */
   removeFoto() {
+    this.revokeFotoPreview();
     this.currentExhibicion.update((curr) => ({
       ...curr,
       fotoBase64: undefined,
-    }));
+      _photoBlob: undefined,
+    } as any));
   }
 
   /**

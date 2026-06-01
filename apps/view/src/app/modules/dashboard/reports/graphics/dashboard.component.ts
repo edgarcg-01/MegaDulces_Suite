@@ -34,6 +34,35 @@ import { WebSocketService } from '../../../../core/services/websocket.service';
 import { ThemeService } from '../../../../core/services/theme.service';
 import { getChartTokens } from '../../../../shared/theme/chart-theme';
 
+interface SparkBar {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  tooltip: string;
+  isToday: boolean;
+}
+
+interface SparkConfig {
+  bars: SparkBar[];
+  metaY: number;
+  viewBox: string;
+  ariaLabel: string;
+}
+
+interface GaugeConfig {
+  pct: number;
+  color: string;
+  centerValue: string;
+  centerUnit: string;
+  ariaLabel: string;
+  circumference: number;
+  dashoffset: number;
+}
+
+type KpiKind = 'spark' | 'gauge';
+
 interface KpiCard {
   id: string;
   label: string;
@@ -46,6 +75,9 @@ interface KpiCard {
   deltaDir: 'up' | 'down' | 'flat';
   icon: string;
   meta: string;
+  kind: KpiKind;
+  spark?: SparkConfig;
+  gauge?: GaugeConfig;
 }
 
 @Component({
@@ -117,78 +149,110 @@ interface KpiCard {
       />
 
       <!-- ── KPI Cards ──────────────────────────────────────────────── -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <ng-container *ngIf="loading()">
           <div
-            *ngFor="let i of [1, 2, 3, 4, 5]"
-            class="card-premium animate-pulse h-32"
+            *ngFor="let i of [1, 2, 3, 4]"
+            class="card-premium animate-pulse h-40"
           >
-            <p-skeleton width="100%" height="4rem" />
+            <p-skeleton width="100%" height="100%" />
           </div>
         </ng-container>
 
         <ng-container *ngIf="!loading()">
           <div
             *ngFor="let k of kpiCards()"
-            class="card-premium flex flex-col justify-between group elevation-hover"
-            [class.border-l-4]="true"
+            class="card-premium flex flex-col gap-3 group elevation-hover border-l-4 motion-safe:transition-shadow"
             [ngClass]="{
-              'border-l-ok': k.status === 'ok',
-              'border-l-warn': k.status === 'warn',
-              'border-l-bad': k.status === 'bad',
+              'border-l-ok-fg': k.status === 'ok',
+              'border-l-warn-fg': k.status === 'warn',
+              'border-l-bad-fg': k.status === 'bad',
             }"
           >
-            <div class="flex items-start justify-between mb-4">
-              <span class="stat-label text-xs">{{ k.label }}</span>
-              <!-- Semáforo pill -->
-              <span
-                class="text-[9px] font-black tracking-widest uppercase px-2 py-0.5 rounded-full"
-                [ngClass]="{
-                  'bg-ok-soft-bg text-ok-fg': k.status === 'ok',
-                  'bg-warn-soft-bg text-warn-fg': k.status === 'warn',
-                  'bg-bad-soft-bg text-bad-fg': k.status === 'bad',
-                }"
-              >
-                {{ statusLabel(k.status) }}
-              </span>
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="text-[10px] uppercase tracking-widest font-bold text-content-muted truncate">{{ k.label }}</span>
+              <span class="text-[9px] text-content-faint shrink-0">Meta {{ k.meta }}</span>
             </div>
 
-            <div class="flex items-end justify-between">
-              <div>
-                <div class="stat-value leading-none">{{ k.value }}</div>
-                <div
-                  class="text-[10px] mt-1 font-medium"
-                  [ngClass]="{
-                    'text-ok-fg': k.deltaDir === 'up',
-                    'text-bad-fg': k.deltaDir === 'down',
-                    'text-content-faint': k.deltaDir === 'flat',
-                  }"
-                >
+            <!-- Variante SPARK: valor grande + delta + sparkbars debajo -->
+            <ng-container *ngIf="k.kind === 'spark'">
+              <div class="flex items-baseline gap-2 flex-wrap">
+                <span class="text-3xl font-extrabold tabular-nums leading-none text-content-main">{{ k.value }}</span>
+                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [ngClass]="{
+                        'text-ok-fg':         k.deltaDir === 'up',
+                        'text-bad-fg':        k.deltaDir === 'down',
+                        'text-content-faint': k.deltaDir === 'flat',
+                      }">
+                  <i class="pi text-[9px]"
+                     [ngClass]="{
+                       'pi-arrow-up':   k.deltaDir === 'up',
+                       'pi-arrow-down': k.deltaDir === 'down',
+                       'pi-minus':      k.deltaDir === 'flat',
+                     }"
+                     aria-hidden="true"></i>
                   {{ k.delta }}
-                </div>
+                </span>
               </div>
-              <div class="text-right">
-                <div class="text-[9px] text-content-faint uppercase">Meta</div>
-                <div class="text-xs font-bold text-content-muted">
-                  {{ k.meta }}
-                </div>
-              </div>
-            </div>
 
-            <!-- Mini progress bar con color semáforo -->
-            <div
-              class="mt-3 h-1 rounded-full bg-surface-layout overflow-hidden"
-            >
-              <div
-                class="h-full rounded-full transition-all duration-500"
-                [style.width.%]="k.pct"
-                [ngClass]="{
-                  'bg-ok': k.status === 'ok',
-                  'bg-warn': k.status === 'warn',
-                  'bg-bad': k.status === 'bad',
-                }"
-              ></div>
-            </div>
+              <svg *ngIf="k.spark as s" [attr.viewBox]="s.viewBox" preserveAspectRatio="none"
+                   class="w-full h-10 mt-auto kpi-spark"
+                   [attr.aria-label]="s.ariaLabel" role="img">
+                <line *ngIf="s.metaY >= 0"
+                      x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                      stroke="var(--text-faint)" stroke-width="0.3"
+                      stroke-dasharray="1.5 1.5" opacity="0.55"></line>
+                <g *ngFor="let b of s.bars; let i = index">
+                  <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
+                        [attr.fill]="b.color" rx="0.4"
+                        [attr.opacity]="b.isToday ? 1 : 0.65"
+                        class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
+                    <title>{{ b.tooltip }}</title>
+                  </rect>
+                  <circle *ngIf="b.isToday"
+                          [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
+                          [attr.fill]="b.color"></circle>
+                </g>
+              </svg>
+            </ng-container>
+
+            <!-- Variante GAUGE: donut con valor centrado + delta debajo -->
+            <ng-container *ngIf="k.kind === 'gauge' && k.gauge as g">
+              <div class="flex-1 flex flex-col items-center justify-center gap-1.5 py-1">
+                <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
+                  <svg viewBox="0 0 40 40" class="w-20 h-20 -rotate-90 motion-safe:transition-transform">
+                    <circle cx="20" cy="20" r="15.5" fill="none"
+                            stroke="var(--surface-layout)" stroke-width="3"></circle>
+                    <circle cx="20" cy="20" r="15.5" fill="none"
+                            [attr.stroke]="g.color" stroke-width="3" stroke-linecap="round"
+                            [attr.stroke-dasharray]="g.circumference"
+                            [attr.stroke-dashoffset]="g.dashoffset"
+                            class="motion-safe:transition-all duration-700">
+                      <title>{{ g.ariaLabel }}</title>
+                    </circle>
+                  </svg>
+                  <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span class="text-xl font-extrabold tabular-nums leading-none text-content-main">{{ g.centerValue }}</span>
+                    <span *ngIf="g.centerUnit" class="text-[9px] text-content-muted uppercase tracking-wider mt-0.5">{{ g.centerUnit }}</span>
+                  </div>
+                </div>
+                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [ngClass]="{
+                        'text-ok-fg':         k.deltaDir === 'up',
+                        'text-bad-fg':        k.deltaDir === 'down',
+                        'text-content-faint': k.deltaDir === 'flat',
+                      }">
+                  <i class="pi text-[9px]"
+                     [ngClass]="{
+                       'pi-arrow-up':   k.deltaDir === 'up',
+                       'pi-arrow-down': k.deltaDir === 'down',
+                       'pi-minus':      k.deltaDir === 'flat',
+                     }"
+                     aria-hidden="true"></i>
+                  {{ k.delta }}
+                </span>
+              </div>
+            </ng-container>
           </div>
         </ng-container>
       </div>
@@ -684,15 +748,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
     const data = this.rawData();
     if (!data) return [];
     const m = data.metrics ?? {};
+    const trend: Array<{ date: string; visits: number; avgScore: number }> = data.trendData ?? [];
+
+    // Ratios para proyectar series diarias en KPIs que solo tienen totales
+    // agregados. Aproximación: distribuye totalVentas/Exhibiciones por las
+    // visitas reales del día. Bueno para forma de tendencia, no para cifras.
+    const visitsTotal = m.totalVisitas || 0;
+    const ventasPerVisit = visitsTotal ? (m.totalVentas ?? 0) / visitsTotal : 0;
+    const exhPerVisit = visitsTotal ? (m.totalExhibiciones ?? visitsTotal) / visitsTotal : 1;
 
     const defs = [
       {
         id: 'visitas',
         label: 'Visitas',
         raw: m.totalVisitas ?? 0,
-        fmt: (v: number) => v.toLocaleString(),
+        fmt: (v: number) => Math.round(v).toLocaleString(),
         unit: '',
         icon: 'pi pi-map-marker',
+        kind: 'spark' as KpiKind,
+        series: trend.map((t) => ({ date: t.date, value: t.visits })),
       },
       {
         id: 'score',
@@ -701,30 +775,28 @@ export class DashboardComponent implements OnInit, OnDestroy {
         fmt: (v: number) => Math.round(v) + ' pts',
         unit: 'pts',
         icon: 'pi pi-star',
+        kind: 'gauge' as KpiKind,
+        series: [] as { date: string; value: number }[],
       },
       {
         id: 'venta',
         label: 'Impacto venta',
         raw: m.totalVentas ?? 0,
-        fmt: (v: number) => '$' + v.toLocaleString(),
+        fmt: (v: number) => '$' + Math.round(v).toLocaleString(),
         unit: '',
         icon: 'pi pi-dollar',
+        kind: 'spark' as KpiKind,
+        series: trend.map((t) => ({ date: t.date, value: ventasPerVisit * t.visits })),
       },
       {
         id: 'exhibiciones',
         label: 'Exhibiciones',
         raw: m.totalExhibiciones ?? 0,
-        fmt: (v: number) => v.toLocaleString(),
+        fmt: (v: number) => Math.round(v).toLocaleString(),
         unit: '',
         icon: 'pi pi-images',
-      },
-      {
-        id: 'gps',
-        label: 'GPS cobertura',
-        raw: m.gpsPct ?? 0,
-        fmt: (v: number) => v + '%',
-        unit: '%',
-        icon: 'pi pi-map',
+        kind: 'gauge' as KpiKind,
+        series: [] as { date: string; value: number }[],
       },
     ];
 
@@ -746,12 +818,108 @@ export class DashboardComponent implements OnInit, OnDestroy {
           diff === 0
             ? 'Sin variación'
             : (diff > 0 ? `+${diff}%` : `${diff}%`) + ' vs anterior',
-        deltaDir: diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat',
+        deltaDir: (diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat') as 'up' | 'down' | 'flat',
         icon: d.icon,
         meta: range ? `${range.opt}${d.unit}` : '—',
+        kind: d.kind,
+        spark: d.kind === 'spark' ? this.buildSpark(d.series, d.id, d.fmt) : undefined,
+        gauge: d.kind === 'gauge' ? this.buildGauge(d.raw, status, d.fmt(d.raw), range?.opt ?? 0, d.unit) : undefined,
       };
     });
   });
+
+  /**
+   * Gauge donut full-circle (rotada -90° en CSS). Background ring + foreground
+   * arc cuya longitud = pct vs meta óptima. Color por status. Center muestra
+   * el valor numérico + unidad pequeña debajo.
+   */
+  private buildGauge(
+    rawValue: number,
+    status: KpiStatus,
+    formattedValue: string,
+    metaOpt: number,
+    unit: string,
+  ): GaugeConfig {
+    const pct = metaOpt > 0 ? Math.min(100, Math.round((rawValue / metaOpt) * 100)) : 0;
+    const r = 15.5;
+    const C = 2 * Math.PI * r;
+    const dashoffset = C * (1 - pct / 100);
+    let color = 'var(--bad-fg)';
+    if (status === 'ok') color = 'var(--ok-fg)';
+    else if (status === 'warn') color = 'var(--warn-fg)';
+
+    const parts = formattedValue.split(' ');
+    const num = parts[0];
+    const subUnit = parts.slice(1).join(' ');
+
+    return {
+      pct,
+      color,
+      centerValue: num,
+      centerUnit: subUnit || unit,
+      ariaLabel: `${formattedValue} de meta ${metaOpt}${unit}. ${pct}% alcanzado.`,
+      circumference: C,
+      dashoffset,
+    };
+  }
+
+  /**
+   * Genera sparkbars SVG normalizados a viewBox 0 0 100 24. Cada barra
+   * coloreada por el semáforo (ok/warn/bad) según el valor de ESE día vs
+   * el rango del KPI — no por el status global. Línea de meta dashed.
+   * `today` marcado con dot sobre la barra. `<title>` provee tooltip nativo.
+   */
+  private buildSpark(
+    series: { date: string; value: number }[],
+    kpiId: string,
+    fmt: (v: number) => string,
+  ): SparkConfig | undefined {
+    if (!series.length) return undefined;
+    const range = this.metasConfig.getRange(kpiId);
+    const opt = range?.opt ?? 0;
+    const min = range?.min ?? 0;
+    const values = series.map((s) => s.value);
+    const maxVal = Math.max(...values, opt, 1);
+    const W = 100;
+    const H = 24;
+    const gap = 1.5;
+    const barW = (W - gap * Math.max(series.length - 1, 0)) / series.length;
+    const metaY = opt > 0 ? H - 2 - (opt / maxVal) * (H - 4) : -1;
+    const todayIdx = series.length - 1;
+
+    const bars: SparkBar[] = series.map((s, i) => {
+      const rawH = (s.value / maxVal) * (H - 4);
+      const h = Math.max(rawH, 0.5);
+      const y = H - 2 - h;
+      let color: string;
+      if (opt && s.value >= opt) color = 'var(--ok-fg)';
+      else if (min && s.value >= min) color = 'var(--warn-fg)';
+      else if (opt) color = 'var(--bad-fg)';
+      else color = 'var(--info-fg)';
+      return {
+        x: i * (barW + gap),
+        y,
+        w: barW,
+        h,
+        color,
+        tooltip: `${this.formatShortDate(s.date)} · ${fmt(s.value)}`,
+        isToday: i === todayIdx,
+      };
+    });
+
+    return {
+      bars,
+      metaY,
+      viewBox: `0 0 ${W} ${H}`,
+      ariaLabel: `Tendencia ${series.length} ${series.length === 1 ? 'día' : 'días'}. ${opt ? 'Meta ' + fmt(opt) + '.' : ''}`,
+    };
+  }
+
+  private formatShortDate(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric' });
+  }
 
   // ── Filas de mobiliario ────────────────────────────────────────
   furnitureRows = computed(() => {

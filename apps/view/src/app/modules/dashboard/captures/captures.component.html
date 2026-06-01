@@ -183,6 +183,7 @@
                [ngModel]="newStoreName()" (ngModelChange)="newStoreName.set($event)"
                (keydown.enter)="newStoreName().trim() && onCreateStore()" />
         <p-button label="Registrar" icon="pi pi-save" size="small"
+                  styleClass="p-button-brand"
                   [disabled]="!newStoreName().trim() || creatingStore()"
                   [loading]="creatingStore()"
                   (onClick)="onCreateStore()"></p-button>
@@ -519,7 +520,7 @@
 
             <td>
 
-              <p-button type="button" [pRowToggler]="visita" [text]="true" [rounded]="true" 
+              <p-button type="button" [pRowToggler]="visita" [text]="true" [rounded]="true" severity="secondary"
 
                         [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
 
@@ -741,7 +742,7 @@
 
         <div class="mt-3 pt-3 border-t border-divider flex justify-center">
 
-          <p-button type="button" [text]="true" [rounded]="true" 
+          <p-button type="button" [text]="true" [rounded]="true" severity="secondary"
 
                     [icon]="expandedRows[visita.folio] ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
 
@@ -886,7 +887,7 @@
              aria-live="polite">
           <i class="pi pi-spin pi-spinner text-xl mb-3 text-content-muted block" aria-hidden="true"></i>
           <p class="text-xs text-content-muted mb-4">Cargando ubicaciones disponibles...</p>
-          <p-button label="Reintentar" icon="pi pi-refresh" [text]="true" size="small" (onClick)="svc.refreshAll()"></p-button>
+          <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" size="small" (onClick)="svc.refreshAll()"></p-button>
         </div>
       </div>
 
@@ -1176,7 +1177,7 @@
             <span class="text-2xl font-semibold text-content-main tabular-nums">{{exhibicion.productosMarcados?.length || 0}}</span>
             <span class="text-xs text-content-muted">seleccionados</span>
           </div>
-          <p-button label="Continuar" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()" size="small"></p-button>
+          <p-button label="Continuar" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()" size="small" styleClass="p-button-brand"></p-button>
         </div>
       </div>
 
@@ -1320,12 +1321,14 @@
                   label="Continuar"
                   icon="pi pi-arrow-right"
                   iconPos="right"
+                  styleClass="p-button-brand"
                   (onClick)="nextStep()"></p-button>
 
         <p-button *ngIf="wizardStep === 5"
                   label="Evidencia"
                   icon="pi pi-arrow-right"
                   iconPos="right"
+                  styleClass="p-button-brand"
                   (onClick)="nextStep()"></p-button>
 
         <div *ngIf="wizardStep === 6" class="flex gap-2 flex-wrap justify-end">
@@ -1337,6 +1340,7 @@
                     (onClick)="finishWizard(true)"></p-button>
           <p-button label="Finalizar"
                     icon="pi pi-check"
+                    styleClass="p-button-brand"
                     (onClick)="finishWizard(false)"></p-button>
         </div>
       </ng-container>
@@ -1347,12 +1351,14 @@
                   label="Continuar"
                   icon="pi pi-arrow-right"
                   iconPos="right"
+                  styleClass="p-button-brand"
                   [disabled]="!currentExhibicion().fotoBase64"
                   (onClick)="nextStep()"></p-button>
 
         <p-button *ngIf="wizardStep === 7"
                   label="Finalizar"
                   icon="pi pi-check"
+                  styleClass="p-button-brand"
                   [disabled]="!ticketResult() || ticketExtracting()"
                   (onClick)="finishWizard(false)"></p-button>
       </ng-container>

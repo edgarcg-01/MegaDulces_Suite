@@ -15,6 +15,10 @@ export interface User {
   created_at?: string;
   has_route_today?: boolean;
   route_name_today?: string;
+  /** ISO timestamp del último login exitoso. NULL si nunca se logueó. */
+  last_login_at?: string | null;
+  /** IP del último login (truncada a 45 chars). */
+  last_login_ip?: string | null;
 }
 
 export interface UserCreatePayload {

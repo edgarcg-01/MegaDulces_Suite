@@ -223,7 +223,7 @@
         </div>
       }
       <div class="mt-3 pt-3 border-t border-divider">
-        <p-button type="button" [text]="true" [rounded]="true"
+        <p-button type="button" [text]="true" [rounded]="true" severity="secondary"
                   [icon]="isRowExpanded(brand.id) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
                   (onClick)="toggleRowExpansion(brand)"
                   label="Ver Productos"></p-button>
@@ -255,7 +255,7 @@
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddBrand()" [disabled]="saving()"></p-button>
-    <p-button label="Guardar" (onClick)="createBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
+    <p-button label="Guardar" styleClass="p-button-brand" (onClick)="createBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
   </ng-template>
 </p-dialog>
 
@@ -281,7 +281,7 @@
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditBrand()" [disabled]="saving()"></p-button>
-    <p-button label="Actualizar" (onClick)="updateBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
+    <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
   </ng-template>
 </p-dialog>
 
@@ -308,7 +308,7 @@
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddProduct()" [disabled]="saving()"></p-button>
-    <p-button label="Guardar" (onClick)="addProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
+    <p-button label="Guardar" styleClass="p-button-brand" (onClick)="addProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
   </ng-template>
 </p-dialog>
 
@@ -334,7 +334,7 @@
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditProduct()" [disabled]="saving()"></p-button>
-    <p-button label="Actualizar" (onClick)="updateProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
+    <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
   </ng-template>
 </p-dialog>
 

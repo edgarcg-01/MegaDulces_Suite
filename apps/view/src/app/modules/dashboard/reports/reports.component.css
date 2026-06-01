@@ -53,9 +53,9 @@
 }
 
 :host ::ng-deep .p-datatable-modern .p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
-  background: var(--accent-brand) !important;
-  color: white !important;
-  border-color: var(--accent-brand) !important;
+  background: var(--brand-400) !important;
+  color: var(--neutral-950) !important;
+  border-color: var(--brand-400) !important;
 }
 
 /* Modern button styles */
@@ -64,42 +64,40 @@
   font-weight: 600 !important;
   font-size: 0.875rem !important;
   padding: 0.625rem 1rem !important;
-  transition: all 0.2s ease !important;
-  border: 1px solid var(--border-color, #e5e7eb) !important;
-  background: var(--card-bg, #ffffff) !important;
-  color: var(--text-main, #111827) !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
+  border: 1px solid var(--border-color) !important;
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
 }
 
 :host ::ng-deep .p-button-modern:hover {
-  background: var(--hover-bg, #f9fafb) !important;
-  border-color: var(--accent-brand, #3b82f6) !important;
-  color: var(--accent-brand, #3b82f6) !important;
-  transform: translateY(-1px) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  background: var(--hover-bg) !important;
+  border-color: var(--brand-700) !important;
+  color: var(--brand-700) !important;
 }
 
 :host ::ng-deep .p-button-modern.p-button-brand {
-  background: var(--accent-brand, #3b82f6) !important;
-  color: white !important;
-  border-color: var(--accent-brand, #3b82f6) !important;
+  background: var(--brand-400) !important;
+  color: var(--neutral-950) !important;
+  border-color: var(--brand-400) !important;
 }
 
 :host ::ng-deep .p-button-modern.p-button-brand:hover {
-  background: var(--accent-brand-hover, #2563eb) !important;
-  border-color: var(--accent-brand-hover, #2563eb) !important;
-  color: white !important;
+  background: var(--brand-500) !important;
+  border-color: var(--brand-500) !important;
+  color: var(--neutral-950) !important;
 }
 
 :host ::ng-deep .p-button-ghost {
   background: transparent !important;
   border: 1px solid transparent !important;
-  color: var(--text-muted, #6b7280) !important;
+  color: var(--text-muted) !important;
 }
 
 :host ::ng-deep .p-button-ghost:hover {
-  background: var(--hover-bg, #f9fafb) !important;
-  border-color: var(--border-color, #e5e7eb) !important;
-  color: var(--text-main, #111827) !important;
+  background: var(--hover-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
   box-shadow: none !important;
   transform: none !important;
 }
@@ -136,7 +134,7 @@
 :host ::ng-deep .p-tablist.p-component {
   background: transparent !important;
   border: none !important;
-  border-bottom: 2px solid var(--border-color, #e5e7eb) !important;
+  border-bottom: 2px solid var(--border-color) !important;
   padding: 0 !important;
   margin-bottom: 1.5rem !important;
   box-shadow: none !important;
@@ -161,10 +159,10 @@
   padding: 0.75rem 1.5rem !important;
   margin: 0 !important;
   position: relative !important;
-  transition: all 0.2s ease !important;
+  transition: color 0.2s ease, border-color 0.2s ease !important;
   font-weight: 600 !important;
   font-size: 0.875rem !important;
-  color: var(--text-muted, #6b7280) !important;
+  color: var(--text-muted) !important;
   cursor: pointer !important;
   box-shadow: none !important;
   outline: none !important;
@@ -175,16 +173,17 @@
 :host ::ng-deep .p-tab.p-component:hover,
 :host ::ng-deep .p-tab.p-ripple:hover {
   background: transparent !important;
-  color: var(--text-main, #111827) !important;
+  color: var(--text-main) !important;
   box-shadow: none !important;
 }
 
+/* Active tab: brand-700 sunset cumple AA Large + WCAG 1.4.11 (3:1 contraste UI). brand-400 amarillo fallaba (1.07). */
 :host ::ng-deep .p-tab.p-tab-active,
 :host ::ng-deep .p-tab.p-component.p-tab-active,
 :host ::ng-deep .p-tab.p-ripple.p-tab-active {
   background: transparent !important;
-  color: var(--accent-brand, #3b82f6) !important;
-  border-bottom: 3px solid var(--accent-brand, #3b82f6) !important;
+  color: var(--brand-700) !important;
+  border-bottom: 3px solid var(--brand-700) !important;
   margin-bottom: -2px !important;
   box-shadow: none !important;
 }
@@ -219,8 +218,8 @@
 }
 
 .theme-monochrome :host ::ng-deep .p-tab.p-tab-active {
-  color: var(--accent-brand) !important;
-  border-bottom-color: var(--accent-brand) !important;
+  color: var(--brand-400) !important;
+  border-bottom-color: var(--brand-400) !important;
 }
 
 /*

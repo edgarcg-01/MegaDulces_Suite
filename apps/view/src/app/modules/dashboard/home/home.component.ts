@@ -25,6 +25,20 @@ import { getChartTokens, colorForScore } from '../../../shared/theme/chart-theme
 import { forkJoin } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+// Sparkbars + gauge SVG configs para los KPI cards (4 cards · 2 estilos).
+interface SparkBar {
+  x: number; y: number; w: number; h: number;
+  color: string; tooltip: string; isToday: boolean;
+}
+interface SparkConfig {
+  bars: SparkBar[]; metaY: number; viewBox: string; ariaLabel: string;
+}
+interface GaugeConfig {
+  pct: number; color: string;
+  centerValue: string; centerUnit: string; ariaLabel: string;
+  circumference: number; dashoffset: number;
+}
+
 // Servicios
 import { ReportsService } from '../reports/reports.service';
 import { ThemeService } from '../../../core/services/theme.service';
@@ -116,10 +130,14 @@ export class HomeComponent implements OnInit {
       this.reportsDataLoading(),
   );
 
-  // 1. Tarjetas KPI - usando datos MENSUALES
+  // 1. Tarjetas KPI - usando datos MENSUALES.
+  // 4 cards · 2 estilos: gauge para "achievement vs meta", spark para flujo
+  // diario. Score/Tiempo = gauge. Evidencia/Meta-diaria = spark.
   kpiCards = computed(() => {
     const metrics = this.summaryMonthly() || {};
     const cierresHoy = metrics.cierres_hoy || 0;
+    const trend: Array<{ date: string; visits: number; avgScore: number }> =
+      this.reportsData()?.trendData ?? [];
 
     const metaDiariaRange = this.metasConfig.getRange('metaDiaria');
     const metaDiaria = metaDiariaRange?.opt || 5;
@@ -137,43 +155,155 @@ export class HomeComponent implements OnInit {
     const evidenciaStatus = this.metasConfig.statusFor('evidenciaVisual', evidenciaVal);
     const evidenciaRange = this.metasConfig.getRange('evidenciaVisual');
 
+    const visitsTotal = metrics.visitas_totales || 0;
+    const fotosPerVisit = visitsTotal ? evidenciaVal / visitsTotal : 0;
+    const evidenciaSeries = trend.map((t) => ({ date: t.date, value: fotosPerVisit * t.visits }));
+    const visitsSeries = trend.map((t) => ({ date: t.date, value: t.visits }));
+
     return [
       {
         label: 'Score Global',
         value: `${Math.round(scoreVal || 0)} pts`,
+        rawValue: scoreVal,
         icon: 'pi pi-chart-line',
         status: scoreStatus,
         meta: scoreRange ? `${scoreRange.opt} pts` : '—',
         pct: this.metasConfig.progressPct('score', scoreVal),
+        delta: '',
+        deltaDir: 'flat' as 'up' | 'down' | 'flat',
+        kind: 'gauge' as 'gauge' | 'spark',
+        gauge: this.buildGauge(scoreVal, scoreStatus, `${Math.round(scoreVal)} pts`, scoreRange?.opt ?? 0, 'pts'),
+        spark: undefined as SparkConfig | undefined,
       },
       {
         label: 'Tiempo Prom/Visita',
         value: `${metrics.avg_duration_min || 0}m`,
+        rawValue: avgDurationVal,
         icon: 'pi pi-clock',
         status: avgDurationStatus,
         meta: avgDurationRange ? `≥ ${avgDurationRange.opt} min` : '—',
         pct: this.metasConfig.progressPct('avgDuration', avgDurationVal),
+        delta: '',
+        deltaDir: 'flat' as 'up' | 'down' | 'flat',
+        kind: 'gauge' as 'gauge' | 'spark',
+        gauge: this.buildGauge(avgDurationVal, avgDurationStatus, `${avgDurationVal} m`, avgDurationRange?.opt ?? 0, 'min'),
+        spark: undefined as SparkConfig | undefined,
       },
       {
         label: 'Evidencia Visual',
-        value: (metrics.total_fotos || 0).toString(),
+        value: evidenciaVal.toString(),
+        rawValue: evidenciaVal,
         icon: 'pi pi-camera',
         status: evidenciaStatus,
         meta: evidenciaRange ? `≥ ${evidenciaRange.opt} fotos` : '—',
         pct: this.metasConfig.progressPct('evidenciaVisual', evidenciaVal),
+        delta: '',
+        deltaDir: 'flat' as 'up' | 'down' | 'flat',
+        kind: 'spark' as 'gauge' | 'spark',
+        gauge: undefined as GaugeConfig | undefined,
+        spark: this.buildSpark(evidenciaSeries, 'evidenciaVisual', (v) => `${Math.round(v)} fotos`),
       },
       {
         label: 'Meta Diaria',
         value: `${cierresHoy}/${metaDiaria}`,
+        rawValue: cierresHoy,
         icon: 'pi pi-bullseye',
-        status: pending > 0 ? 'warn' : 'ok',
+        status: (pending > 0 ? 'warn' : 'ok') as KpiStatus,
         meta: `${metaDiaria} visitas`,
         delta: pending > 0 ? `${pending} restantes` : 'Completado',
-        deltaDir: pending > 0 ? 'down' : 'up',
+        deltaDir: (pending > 0 ? 'down' : 'up') as 'up' | 'down' | 'flat',
         pct: metaDiaria > 0 ? Math.round((cierresHoy / metaDiaria) * 100) : 0,
+        kind: 'spark' as 'gauge' | 'spark',
+        gauge: undefined as GaugeConfig | undefined,
+        spark: this.buildSpark(visitsSeries, 'metaDiaria', (v) => `${Math.round(v)} visitas`),
       },
     ];
   });
+
+  /**
+   * Sparkbars SVG normalizadas a viewBox 100×24. Cada barra coloreada por
+   * el semáforo del KPI según ESE día. Línea de meta dashed. Today marcado
+   * con dot. <title> = tooltip nativo.
+   */
+  private buildSpark(
+    series: { date: string; value: number }[],
+    kpiId: string,
+    fmt: (v: number) => string,
+  ): SparkConfig | undefined {
+    if (!series.length) return undefined;
+    const range = this.metasConfig.getRange(kpiId);
+    const opt = range?.opt ?? 0;
+    const min = range?.min ?? 0;
+    const values = series.map((s) => s.value);
+    const maxVal = Math.max(...values, opt, 1);
+    const W = 100;
+    const H = 24;
+    const gap = 1.5;
+    const barW = (W - gap * Math.max(series.length - 1, 0)) / series.length;
+    const metaY = opt > 0 ? H - 2 - (opt / maxVal) * (H - 4) : -1;
+    const todayIdx = series.length - 1;
+
+    const bars: SparkBar[] = series.map((s, i) => {
+      const rawH = (s.value / maxVal) * (H - 4);
+      const h = Math.max(rawH, 0.5);
+      const y = H - 2 - h;
+      let color: string;
+      if (opt && s.value >= opt) color = 'var(--ok-fg)';
+      else if (min && s.value >= min) color = 'var(--warn-fg)';
+      else if (opt) color = 'var(--bad-fg)';
+      else color = 'var(--info-fg)';
+      return {
+        x: i * (barW + gap), y, w: barW, h,
+        color,
+        tooltip: `${this.formatShortDate(s.date)} · ${fmt(s.value)}`,
+        isToday: i === todayIdx,
+      };
+    });
+
+    return {
+      bars, metaY, viewBox: `0 0 ${W} ${H}`,
+      ariaLabel: `Tendencia ${series.length} ${series.length === 1 ? 'día' : 'días'}. ${opt ? 'Meta ' + fmt(opt) + '.' : ''}`,
+    };
+  }
+
+  /**
+   * Donut gauge. Foreground arc = pct vs meta óptima, color por status.
+   * Center: valor + unidad pequeña debajo.
+   */
+  private buildGauge(
+    rawValue: number,
+    status: KpiStatus,
+    formattedValue: string,
+    metaOpt: number,
+    unit: string,
+  ): GaugeConfig {
+    const pct = metaOpt > 0 ? Math.min(100, Math.round((rawValue / metaOpt) * 100)) : 0;
+    const r = 15.5;
+    const C = 2 * Math.PI * r;
+    const dashoffset = C * (1 - pct / 100);
+    let color = 'var(--bad-fg)';
+    if (status === 'ok') color = 'var(--ok-fg)';
+    else if (status === 'warn') color = 'var(--warn-fg)';
+
+    const parts = formattedValue.split(' ');
+    const num = parts[0];
+    const subUnit = parts.slice(1).join(' ');
+
+    return {
+      pct, color,
+      centerValue: num,
+      centerUnit: subUnit || unit,
+      ariaLabel: `${formattedValue} de meta ${metaOpt}${unit}. ${pct}% alcanzado.`,
+      circumference: C,
+      dashoffset,
+    };
+  }
+
+  private formatShortDate(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric' });
+  }
 
   // 2. Desglose de Mobiliario - usando datos DIARIOS
   furnitureRows = computed(() => {

@@ -18,7 +18,7 @@
       <p class="text-sm text-content-dim">Ajusta los pesos y factores para el cálculo automático del índice de ejecución.</p>
     </div>
     <div class="flex gap-2">
-      <p-button label="Guardar Configuración" icon="pi pi-save" (onClick)="saveConfig()" [loading]="saving()"></p-button>
+      <p-button label="Guardar Configuración" icon="pi pi-save" styleClass="p-button-brand" (onClick)="saveConfig()" [loading]="saving()"></p-button>
     </div>
   </div>
 
@@ -28,7 +28,7 @@
     <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden h-fit">
       <div class="p-4 bg-surface-ground border-b border-divider flex justify-between items-center">
         <h3 class="text-xs font-bold text-content-muted uppercase">1. Pesos por Posición (Base)</h3>
-        <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('pesos_posicion')"></p-button>
+        <p-button icon="pi pi-plus" severity="secondary" [text]="true" size="small" (onClick)="openAddKeyDialog('pesos_posicion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
         <p class="text-xs text-content-dim italic mb-2">Define el valor base según la visibilidad de la ubicación en la tienda.</p>
@@ -46,7 +46,7 @@
     <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden h-fit">
       <div class="p-4 bg-surface-ground border-b border-divider flex justify-between items-center">
         <h3 class="text-xs font-bold text-content-muted uppercase">2. Factores de Complejidad</h3>
-        <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('tipos_exhibicion')"></p-button>
+        <p-button icon="pi pi-plus" severity="secondary" [text]="true" size="small" (onClick)="openAddKeyDialog('tipos_exhibicion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
         <p class="text-xs text-content-dim italic mb-2">Multiplicador basado en el tipo de mueble o material instalado.</p>
@@ -64,7 +64,7 @@
     <div class="bg-surface-card border border-divider rounded-xl shadow-sm overflow-hidden h-fit">
       <div class="p-4 bg-surface-ground border-b border-divider flex justify-between items-center">
         <h3 class="text-xs font-bold text-content-muted uppercase">3. Calidad de Ejecución</h3>
-        <p-button icon="pi pi-plus" [text]="true" size="small" (onClick)="openAddKeyDialog('niveles_ejecucion')"></p-button>
+        <p-button icon="pi pi-plus" severity="secondary" [text]="true" size="small" (onClick)="openAddKeyDialog('niveles_ejecucion')"></p-button>
       </div>
       <div class="p-4 space-y-4">
         <p class="text-[10px] text-content-dim italic mb-2">Factor de ajuste según la calidad del armado y limpieza.</p>
@@ -96,7 +96,7 @@
   </div>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddKeyDialog = false"></p-button>
-    <p-button label="Agregar" (onClick)="addKey()"></p-button>
+    <p-button label="Agregar" styleClass="p-button-brand" (onClick)="addKey()"></p-button>
   </ng-template>
 </p-dialog>
 

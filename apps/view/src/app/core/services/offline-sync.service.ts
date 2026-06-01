@@ -101,6 +101,34 @@ export class OfflineSyncService {
     this.iniciarListenersConexion();
     this.iniciarSincronizacionPeriodica();
     this.actualizarEstadoInicial();
+    this.iniciarListenersCapacitor();
+  }
+
+  /**
+   * En builds nativos (Capacitor), el evento `online` rara vez se dispara
+   * al reanudar la app — la conexión a menudo estuvo siempre presente
+   * mientras la app estaba en background. Sin este listener, una visita
+   * pendiente queda esperando hasta el próximo poll (60s) tras resume.
+   * En web, `@capacitor/app` resuelve a un shim no-op y no pasa nada.
+   */
+  private async iniciarListenersCapacitor(): Promise<void> {
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (!Capacitor.isNativePlatform()) return;
+      const { App } = await import('@capacitor/app');
+      App.addListener('appStateChange', (state) => {
+        if (!state.isActive) return;
+        if (!this._syncStatus.value.online || this._syncStatus.value.sincronizando) return;
+        console.log('[OfflineSync] App.resume → sync inmediato');
+        void this.sincronizarTodo().catch(() => {
+          /* errores ya quedan en _syncStatus.errores */
+        });
+      });
+    } catch (err) {
+      // En entornos donde @capacitor/* no está disponible (SSR/test), no
+      // bloqueamos el boot del servicio.
+      console.warn('[OfflineSync] @capacitor/app no disponible (web build OK):', err);
+    }
   }
 
   /**
@@ -235,9 +263,42 @@ export class OfflineSyncService {
   }
 
   /**
-   * Sincroniza todos los datos pendientes
+   * Lock cross-tab: si el browser soporta Web Locks (Chrome/Edge/Safari 16+),
+   * envolvemos `sincronizarTodo` en un lock exclusivo. Sin esto, dos pestañas
+   * abiertas (común en tablet de oficina + móvil) ejecutan el sync en
+   * paralelo y compiten por las visitas pendientes en Dexie.
+   *
+   * `ifAvailable: true` → si otra tab ya lo tiene, no espera; retorna null.
+   * El periodic interval lo recoge en el próximo ciclo desde la tab que sí
+   * tiene el lock.
    */
+  private readonly SYNC_LOCK_KEY = 'trademkt-offline-sync';
+
   async sincronizarTodo(): Promise<SyncResult> {
+    if (typeof navigator !== 'undefined' && 'locks' in navigator && navigator.locks?.request) {
+      const result = await navigator.locks.request(
+        this.SYNC_LOCK_KEY,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) {
+            console.log('[OfflineSync] Otra pestaña ya está sincronizando — skip');
+            return null;
+          }
+          return await this.sincronizarTodoInner();
+        },
+      );
+      if (result === null) {
+        return { exitosas: 0, fallidas: 0, errores: ['Lock no disponible (otra pestaña sincronizando)'] };
+      }
+      return result;
+    }
+    // Fallback: browsers viejos sin Web Locks (FF < 96 sin flag) caen al
+    // path original — el guard in-memory `sincronizando` sigue siendo la
+    // única defensa contra reentrancia dentro de la misma tab.
+    return await this.sincronizarTodoInner();
+  }
+
+  private async sincronizarTodoInner(): Promise<SyncResult> {
     if (!this._syncStatus.value.online) {
       throw new Error('No hay conexión a internet');
     }
@@ -785,23 +846,36 @@ export class OfflineSyncService {
         flag_fraude
       }, datosVisita.syncUuid);
 
-      // Migrar fotos base64 → Blob en tabla `photos` (Dexie v2).
-      // Resulta en ~25% menos storage + evita serializar binarios al leer.
-      // Después actualizamos la visita reemplazando fotoBase64 por _photoBlobId.
+      // Persistir fotos como Blob en la tabla `photos` (Dexie v2).
+      // Fuentes (en orden de preferencia):
+      //   1. `_photoBlob: Blob` — flujo nuevo (compressImage usa canvas.toBlob).
+      //   2. `fotoBase64: string` — solo si es data URL legacy (no objectURL).
+      //      Una objectURL `blob:http://...` NO sobrevive el reload, así que
+      //      si llega acá no tiene sentido persistirla.
       try {
         const exhibicionesProcesadas = await Promise.all(
           (datosVisita.exhibiciones || []).map(async (ex: any) => {
-            if (!ex?.fotoBase64) return ex;
-            const photoId = await this.db.savePhoto(visitaId, ex.fotoBase64);
-            const { fotoBase64, ...rest } = ex;
+            const directBlob = ex?._photoBlob as Blob | undefined;
+            const b64 = ex?.fotoBase64 as string | undefined;
+            const isDataUrl = typeof b64 === 'string' && b64.startsWith('data:');
+
+            if (!directBlob && !isDataUrl) {
+              // Si fotoBase64 es objectURL (blob:...) la dropeamos en el rest
+              // — no es persistible, y la imagen real ya debería estar en
+              // _photoBlob. Si tampoco hay _photoBlob, la exhibición se
+              // guarda sin foto (caso degradado, ya estaba antes).
+              const { _photoBlob, fotoBase64, ...rest } = ex;
+              return rest;
+            }
+            const input: Blob | string = directBlob ?? (b64 as string);
+            const photoId = await this.db.savePhoto(visitaId, input);
+            const { _photoBlob, fotoBase64, ...rest } = ex;
             return { ...rest, _photoBlobId: photoId };
           }),
         );
         await this.db.visitas.update(visitaId, { exhibiciones: exhibicionesProcesadas });
       } catch (photoErr) {
-        // Si falla la migración, dejamos las fotos en base64 (fallback v1).
-        // No bloqueamos el guardado offline porque la visita ya está persistida.
-        console.warn('[OfflineSync] Fallback a fotoBase64 (no se pudo mover a Blob):', photoErr);
+        console.warn('[OfflineSync] Error persistiendo fotos a Blob (la visita queda sin fotos):', photoErr);
       }
 
       // Actualizar contador de pendientes

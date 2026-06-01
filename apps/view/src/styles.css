@@ -478,7 +478,7 @@ body {
  *   <span class="chip-brand">Mega Dulces</span>
  *   <span class="chip-warn-soft">Competencia</span>
  */
-.chip-info, .chip-warn-soft, .chip-brand {
+.chip-info, .chip-warn-soft, .chip-brand, .chip-competition {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -492,6 +492,7 @@ body {
 .chip-info       { background-color: var(--chip-info-bg);       color: var(--chip-info-fg);       border-color: var(--chip-info-border); }
 .chip-warn-soft  { background-color: var(--chip-warn-soft-bg);  color: var(--chip-warn-soft-fg);  border-color: var(--chip-warn-soft-border); }
 .chip-brand      { background-color: var(--chip-brand-bg);      color: var(--chip-brand-fg);      border-color: var(--chip-brand-border); }
+.chip-competition { background-color: var(--chip-competition-bg); color: var(--chip-competition-fg); border-color: var(--chip-competition-border); }
 
 /*
  * Close button para overlays sobre imágenes (fondo negro). Usa el accent

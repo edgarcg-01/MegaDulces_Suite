@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger, BadRequestException, ConflictException } fr
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { EventsService } from '../websocket/events.service';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 
 export interface VisitaSyncDto {
   id: string; // UUID v4 para idempotencia
@@ -34,6 +35,7 @@ export class VisitasSyncService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly eventsService: EventsService,
+    private readonly tenantContext: TenantContextService,
   ) {}
 
   /**
@@ -129,15 +131,23 @@ export class VisitasSyncService {
 
       this.logger.log(`Visita sincronizada exitosamente: ${nuevaVisita.id} (${folio})`);
 
-      this.eventsService.emitCaptureSynced({
-        type: 'capture:synced',
-        captureId: nuevaVisita.id,
-        userId: visitaDto.user_id,
-        capturedByUsername: usuario?.username || '',
-        zonaCaptura: tienda?.nombre || '',
-        fecha: visitaDto.fecha,
-        stats: visitaDto.stats,
-      });
+      const tenantId = this.tenantContext.get()?.tenantId;
+      if (tenantId) {
+        this.eventsService.emitCaptureSynced({
+          type: 'capture:synced',
+          captureId: nuevaVisita.id,
+          userId: visitaDto.user_id,
+          tenantId,
+          capturedByUsername: usuario?.username || '',
+          zonaCaptura: tienda?.nombre || '',
+          fecha: visitaDto.fecha,
+          stats: visitaDto.stats,
+        });
+      } else {
+        this.logger.warn(
+          `Skipping capture:synced emit — sin tenant context (sync_uuid=${visitaDto.id})`,
+        );
+      }
 
       return {
         id: nuevaVisita.id,

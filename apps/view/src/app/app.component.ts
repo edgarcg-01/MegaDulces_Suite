@@ -1,6 +1,6 @@
 import { Component, DestroyRef, OnInit, inject } from '@angular/core';
 import { RouterOutlet, Router, NavigationEnd } from '@angular/router';
-import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
+import { SwUpdate, VersionReadyEvent, UnrecoverableStateEvent } from '@angular/service-worker';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
@@ -72,6 +72,15 @@ export class AppComponent implements OnInit {
           .activateUpdate()
           .then(() => document.location.reload())
           .catch(() => { this.updatePending = true; });
+      });
+
+    // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS
+    // Safari cuando se evicta el cache mid-fetch). Single fix: reload.
+    this.swUpdate.unrecoverable
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt: UnrecoverableStateEvent) => {
+        console.error('[SW] unrecoverable state:', evt.reason);
+        document.location.reload();
       });
 
     this.swUpdate.checkForUpdate().catch(() => {});

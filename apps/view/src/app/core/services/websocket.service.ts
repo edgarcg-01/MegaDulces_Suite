@@ -170,9 +170,15 @@ export class WebSocketService {
     }
 
     const wsUrl = environment.apiUrl.replace('/api', '');
-    console.log('[WS] Connecting to:', wsUrl);
+    console.log('[WS] Connecting to:', `${wsUrl}/reports`);
 
-    this.socket = io(wsUrl, {
+    // CRÍTICO: el segundo arg de `io(url, opts)` selecciona el NAMESPACE
+    // socket.io (parte de la URL después del host). El `path` en opts es
+    // solo el endpoint HTTP de Engine.IO. Antes pasábamos `wsUrl` sin
+    // `/reports` y el cliente se conectaba al namespace por defecto `/` —
+    // ReportsGateway (namespace='/reports') nunca recibía la conexión y
+    // los emits `capture:*`/`metrics:updated` jamás llegaban al frontend.
+    this.socket = io(`${wsUrl}/reports`, {
       path: '/reports/socket.io',
       auth: { token },
       transports: ['websocket', 'polling'],

@@ -546,6 +546,7 @@ export class DailyCapturesService {
       type: 'capture:created',
       captureId: dailyCapture.id,
       userId: userId,
+      tenantId,
       capturedByUsername: username,
       zonaCaptura: zona || 'No Asignada',
       fecha: dailyCapture.fecha,

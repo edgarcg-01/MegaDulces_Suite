@@ -121,20 +121,39 @@ export class AdminUsersComponent implements OnInit {
   filteredUsers = computed(() => {
     const query = this.debouncedSearch().toLowerCase().trim();
     if (!query) return this.users();
-
     return this.users().filter((user) => {
-      const username = (user.username ?? '').toLowerCase();
-      const nombre = (user.nombre ?? '').toLowerCase();
-      const role = (user.role_name ?? '').toLowerCase();
-      const zona = (user.zona ?? '').toLowerCase();
       return (
-        username.includes(query) ||
-        nombre.includes(query) ||
-        role.includes(query) ||
-        zona.includes(query)
+        (user.username ?? '').toLowerCase().includes(query) ||
+        (user.nombre ?? '').toLowerCase().includes(query) ||
+        (user.role_name ?? '').toLowerCase().includes(query) ||
+        (user.zona ?? '').toLowerCase().includes(query)
       );
     });
   });
+
+  /** Color de avatar hash-seeded sobre la escala --avatar-1..8 (AA ≥ 4.5 sobre texto blanco). */
+  avatarColorFor(seed: string): string {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+    return `var(--avatar-${(Math.abs(h) % 8) + 1})`;
+  }
+
+  getInitials(name?: string | null): string {
+    if (!name) return '?';
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  /** Color del dot de actividad. Inactivo > stale > recent > nunca. */
+  activityDotColor(user: User): string {
+    if (!user.activo) return 'var(--bad-fg)';
+    if (!user.last_login_at) return 'var(--text-faint)';
+    const days = (Date.now() - new Date(user.last_login_at).getTime()) / 864e5;
+    if (days < 7) return 'var(--ok-fg)';
+    return 'var(--warn-fg)';
+  }
 
   userForm: FormGroup;
 
@@ -430,5 +449,55 @@ export class AdminUsersComponent implements OnInit {
     if (!id) return 'N/A';
     const s = this.supervisors().find((x) => x.value === id);
     return s ? s.label : 'N/A';
+  }
+
+  /**
+   * Format relativo (ej. "Hace 5 min", "Hace 2 h", "Hace 3 días", "Hace 2 meses").
+   * `null` / `undefined` → "Nunca". Útil para feed de actividad de usuarios.
+   */
+  formatLastLogin(iso?: string | null): string {
+    if (!iso) return 'Nunca';
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return '—';
+    const diff = Date.now() - t;
+    if (diff < 0) return 'Ahora';
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return 'Hace unos segundos';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `Hace ${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `Hace ${h} h`;
+    const d = Math.floor(h / 24);
+    if (d < 30) return `Hace ${d} ${d === 1 ? 'día' : 'días'}`;
+    const months = Math.floor(d / 30);
+    if (months < 12) return `Hace ${months} ${months === 1 ? 'mes' : 'meses'}`;
+    const years = Math.floor(months / 12);
+    return `Hace ${years} ${years === 1 ? 'año' : 'años'}`;
+  }
+
+  /** Severidad PrimeNG según antigüedad: success <24h, info <7d, warn <30d, danger >30d / nunca. */
+  lastLoginSeverity(iso?: string | null): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
+    if (!iso) return 'danger';
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return 'secondary';
+    const days = (Date.now() - t) / (1000 * 60 * 60 * 24);
+    if (days < 1) return 'success';
+    if (days < 7) return 'info';
+    if (days < 30) return 'warn';
+    return 'danger';
+  }
+
+  /** Date+hora absoluta para el `title=` (tooltip nativo). */
+  formatLastLoginAbs(iso?: string | null): string {
+    if (!iso) return 'Sin actividad registrada';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('es-MX', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   }
 }

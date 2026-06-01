@@ -96,6 +96,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
           <p-button
             label="Regresar"
             icon="pi pi-arrow-left"
+            severity="secondary"
             [text]="true"
             (onClick)="goBack()"
           ></p-button>

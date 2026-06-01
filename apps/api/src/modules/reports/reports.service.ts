@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { getDataScope } from '../../shared/ability/data-scope';
 import { EventsService } from '../websocket/events.service';
 import { ReportsCacheService } from './reports-cache.service';
 import { toMxDateKey, todayMx } from '../../shared/date/mx-date';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 
 @Injectable()
 export class ReportsService {
@@ -14,6 +15,7 @@ export class ReportsService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly eventsService: EventsService,
     private readonly cache: ReportsCacheService,
+    @Optional() private readonly tenantContext?: TenantContextService,
   ) {
     this.eventsService.onCaptureChange = async (affectedUserIds: string[]) => {
       // Rate-limit: si ya hay un broadcast en vuelo, acumular usuarios y salir.
@@ -70,55 +72,52 @@ export class ReportsService {
       const startDate = toMxDateKey(startOfMonth);
 
       const filters = { startDate, endDate: today };
-      const globalUser = { sub: 'system', permissions: {}, rules: [{ action: 'manage', subject: 'all' }] };
-
-      const [summary, dailyScores] = await Promise.all([
-        this.getSummary(filters, globalUser),
-        this.getDailyScoresPerUser(filters, globalUser),
-      ]);
 
       const afterGlobal = this.cache.getHitRate();
-      const lines = [`[Cache] invalidated + global metrics emitted. Hit rate: ${before.rate} → ${afterGlobal.rate}`];
-
-      this.eventsService.emitMetricsUpdateToRoom('reports:global', {
-        type: 'metrics:updated',
-        scope: 'global',
-        summary,
-        dailyScores,
-      });
+      const lines = [`[Cache] invalidated. Hit rate: ${before.rate} → ${afterGlobal.rate}`];
 
       const connectedScopes = this.eventsService.getConnectedUserScopes();
+      // Iteramos sesiones únicas: cada admin global recibe métricas SOLO de
+      // su tenant; cada own/team recibe en su room scoped. No hay broadcast
+      // global cross-tenant — sería un leak.
       const seen = new Map<string, boolean>();
 
       for (const sc of connectedScopes) {
-        if (sc.type === 'all') continue;
-
-        const room = sc.type === 'team' ? `reports:team:${sc.userId}` : `reports:own:${sc.userId}`;
-        const key = `${sc.type}:${sc.userId}`;
-
+        const key = `${sc.tenantId}:${sc.type}:${sc.userId}`;
         if (seen.has(key)) continue;
         seen.set(key, true);
 
         try {
-          const user = sc.type === 'team'
-            ? { sub: sc.userId, permissions: {}, rules: [{ action: 'read', subject: 'reports_team' }] }
-            : { sub: sc.userId, permissions: {}, rules: [] };
+          const user =
+            sc.type === 'all'
+              ? { sub: sc.userId, tenant_id: sc.tenantId, permissions: {}, rules: [{ action: 'manage', subject: 'all' }] }
+              : sc.type === 'team'
+                ? { sub: sc.userId, tenant_id: sc.tenantId, permissions: {}, rules: [{ action: 'read', subject: 'reports_team' }] }
+                : { sub: sc.userId, tenant_id: sc.tenantId, permissions: {}, rules: [] };
 
           const [s, ds] = await Promise.all([
             this.getSummary(filters, user),
             this.getDailyScoresPerUser(filters, user),
           ]);
 
-          this.eventsService.emitMetricsUpdateToRoom(room, {
-            type: 'metrics:updated',
-            scope: sc.type,
+          const payload = {
+            type: 'metrics:updated' as const,
+            scope: sc.type === 'all' ? 'global' as const : sc.type,
             summary: s,
             dailyScores: ds,
-          });
+          };
 
-          lines.push(`  ${sc.type}/${sc.userId} → room ${room}`);
+          if (sc.type === 'all') {
+            this.eventsService.emitMetricsToGlobal(sc.tenantId, payload);
+          } else {
+            this.eventsService.emitMetricsToUser(sc.tenantId, sc.type, sc.userId, payload);
+          }
+
+          lines.push(`  ${sc.tenantId}/${sc.type}/${sc.userId}`);
         } catch (err) {
-          this.logger.warn(`Failed to compute ${sc.type} metrics for ${sc.userId}: ${err.message}`);
+          this.logger.warn(
+            `Failed to compute metrics for ${sc.tenantId}/${sc.type}/${sc.userId}: ${err.message}`,
+          );
         }
       }
 
@@ -669,11 +668,19 @@ export class ReportsService {
 
     this.cache.invalidateAllReports();
 
-    this.eventsService.emitCaptureDeleted({
-      type: 'capture:deleted',
-      captureId: id,
-      userId: report.user_id,
-    });
+    // tenant_id puede venir del row (multi-tenant DB) o del context CLS.
+    // Si ninguno está, no emitimos para no leakear cross-tenant.
+    const tenantId = report.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (tenantId) {
+      this.eventsService.emitCaptureDeleted({
+        type: 'capture:deleted',
+        captureId: id,
+        userId: report.user_id,
+        tenantId,
+      });
+    } else {
+      this.logger.warn(`Skipping capture:deleted emit — sin tenant_id (id=${id})`);
+    }
 
     return { success: true, message: 'Reporte eliminado correctamente' };
   }

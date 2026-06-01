@@ -55,7 +55,7 @@ export class AuthMtService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, meta?: { ip?: string | null; userAgent?: string | null }) {
     if (!dto.tenant_slug || !dto.username || !dto.password) {
       throw new UnauthorizedException('Faltan credenciales o tenant');
     }
@@ -99,6 +99,26 @@ export class AuthMtService {
     if (!valid) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
+
+    // 3.5 Registrar último login (fire-and-forget — el éxito del login NO
+    // depende de este UPDATE). RLS aplica via SET LOCAL.
+    // IP truncada a 45 chars (col limit IPv6 + margen); UA a 1024 chars
+    // para que un UA absurdo no infle la fila.
+    const ip = meta?.ip ? String(meta.ip).slice(0, 45) : null;
+    const ua = meta?.userAgent ? String(meta.userAgent).slice(0, 1024) : null;
+    void this.knex
+      .transaction(async (trx) => {
+        await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
+        await trx('users').where({ id: user.id }).update({
+          last_login_at: trx.fn.now(),
+          last_login_ip: ip,
+          last_login_user_agent: ua,
+        });
+      })
+      .catch((err) => {
+        // Logueamos pero no fallamos el login.
+        console.warn(`[auth-mt] No se pudo actualizar last_login para ${user.id}: ${err?.message}`);
+      });
 
     // 4. Construir permissions + rules para gating de UI.
     const permissions: Record<string, boolean> =

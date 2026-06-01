@@ -182,6 +182,8 @@ export class UsersService {
         'u.activo',
         'u.supervisor_id',
         'u.created_at',
+        'u.last_login_at',
+        'u.last_login_ip',
         knex.raw(
           'CASE WHEN da.id IS NOT NULL THEN true ELSE false END as has_route_today',
         ),

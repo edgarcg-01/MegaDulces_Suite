@@ -966,7 +966,7 @@ class="text-xs font-bold text-content-faint uppercase"
                <p-button
                  label="Exportar PDF"
                  icon="pi pi-file-pdf"
-                 severity="success"
+                 severity="contrast"
                  size="small"
                 (onClick)="exportSingleVisitPdf(selectedRow)"
               />
