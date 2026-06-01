@@ -64,6 +64,14 @@ export class OfflineSyncService {
   private _catalogsRefreshed$ = new Subject<void>();
   readonly catalogsRefreshed$ = this._catalogsRefreshed$.asObservable();
 
+  /**
+   * Emite cuando al menos UNA visita pendiente acaba de sincronizar exitoso.
+   * `DailyCaptureService` subscribe → recarga `loadTodayCaptures()` para que
+   * el signal `_captures` deje de mostrar el badge `-PEND` (audit #7).
+   */
+  private _visitasSincronizadas$ = new Subject<void>();
+  readonly visitasSincronizadas$ = this._visitasSincronizadas$.asObservable();
+
   // Configuración
   private readonly SYNC_INTERVAL_MS = 60000; // 1 minuto
   private readonly MAX_RETRY_ATTEMPTS = 5;
@@ -73,6 +81,17 @@ export class OfflineSyncService {
   private readonly VISIT_POST_TIMEOUT_MS = 60_000;
   /** Watchdog: máximo tiempo razonable para una sincronización completa. */
   private readonly SYNC_WATCHDOG_MS = 120_000; // 2 minutos
+  /** Cap a reintentos transient (500/timeout) por visita en un mismo proceso. */
+  private readonly MAX_TRANSIENT_RETRIES = 20;
+  /** Contador in-memory por visita: cuenta cuántos transient consecutivos. */
+  private readonly _transientCount = new Map<string, number>();
+  /**
+   * Subject que la UI puede subscribir para reaccionar a sesión expirada
+   * (audit #21). Cuando un sync devuelve 401, emite. El AppShell debería
+   * forzar re-login o refresh del token.
+   */
+  private _sessionExpired$ = new Subject<void>();
+  readonly sessionExpired$ = this._sessionExpired$.asObservable();
 
   /** Inicio del último ciclo de sync (epoch ms). 0 si no hay activo. */
   private _syncStartedAt = 0;
@@ -130,6 +149,9 @@ export class OfflineSyncService {
     return this._syncStartedAt ? Date.now() - this._syncStartedAt : 0;
   }
 
+  /** Timer de debounce para el sync post-online (audit #26). */
+  private _onlineDebounceTimer: any = null;
+
   /**
    * Inicia los listeners de eventos de conexión
    */
@@ -148,11 +170,28 @@ export class OfflineSyncService {
         });
 
         if (isOnline) {
-          // Pequeña espera para asegurar que la red esté estable
-          setTimeout(() => this.sincronizarTodo(), 2000);
+          // Debounce (audit #26): flapping de red dispara online/offline
+          // varias veces seguidas → cancelamos el timer anterior antes de
+          // programar uno nuevo. Sin esto, se acumulan setTimeouts y N syncs
+          // intentan arrancar a la vez (el segundo+ tira "ya en progreso").
+          if (this._onlineDebounceTimer) {
+            clearTimeout(this._onlineDebounceTimer);
+          }
+          this._onlineDebounceTimer = setTimeout(() => {
+            this._onlineDebounceTimer = null;
+            void this.sincronizarTodo().catch(() => {
+              /* errores ya quedan en _syncStatus.errores */
+            });
+          }, 2000);
         }
       })
     ).subscribe();
+  }
+
+  /** Audit #25: chequear que haya sesión antes de tirar requests a la API. */
+  private hasAuthToken(): boolean {
+    if (typeof document === 'undefined') return false;
+    return /(^|;)\s*auth_token\s*=/.test(document.cookie);
   }
 
   /**
@@ -160,12 +199,19 @@ export class OfflineSyncService {
    */
   private iniciarSincronizacionPeriodica(): void {
     interval(this.SYNC_INTERVAL_MS).pipe(
-      filter(() => this._syncStatus.value.online && !this._syncStatus.value.sincronizando),
+      filter(
+        () =>
+          this._syncStatus.value.online &&
+          !this._syncStatus.value.sincronizando &&
+          this.hasAuthToken(), // audit #25
+      ),
       tap(() => {
         const pendientes = this._syncStatus.value.visitasPendientes;
         if (pendientes > 0) {
           console.log(`[OfflineSync] Iniciando sincronización periódica (${pendientes} pendientes)`);
-          this.sincronizarTodo();
+          void this.sincronizarTodo().catch(() => {
+            /* errores ya quedan en _syncStatus.errores */
+          });
         }
       })
     ).subscribe();
@@ -619,6 +665,13 @@ export class OfflineSyncService {
 
       console.log(`[OfflineSync] Visita ${visita.id} sincronizada exitosamente`);
 
+      // Reset contador de retries transient: la visita se sincronizó OK.
+      this._transientCount.delete(visita.id);
+
+      // Notificar a UI (DailyCaptureService recarga `_captures` → desaparece
+      // el badge -PEND que antes se quedaba forever hasta refresh manual).
+      this._visitasSincronizadas$.next();
+
     } catch (error: any) {
       // Timeouts del proxy/edge (502/503/504/408/522/524), network errors (0)
       // y 500 (server bug transitorio: migration faltante, deploy en curso,
@@ -632,7 +685,35 @@ export class OfflineSyncService {
       const isLocalTransient =
         msg.includes('aún no sincronizada') ||
         msg.includes('Reintentar en próximo ciclo');
-      const isTransient = isLocalTransient || status === undefined || TRANSIENT_STATUSES.has(status);
+
+      // ── Audit #21: 401 → session expirada. NO incrementar nada, emitir
+      // evento para que la UI fuerce re-login. La visita queda pendiente
+      // intacta para el siguiente ciclo.
+      if (status === 401) {
+        console.warn(`[OfflineSync] Visita ${visita.id} sync FAIL · 401 → sesión expirada. Esperando re-login.`);
+        this._sessionExpired$.next();
+        throw error;
+      }
+
+      let isTransient = isLocalTransient || status === undefined || TRANSIENT_STATUSES.has(status);
+
+      // ── Audit #22: cap a transient retries. Si una visita lleva 20 transient
+      // consecutivos (eg. backend con bug determinístico que devuelve 500),
+      // dejamos de tratarlo como transient → cuenta como intento fallido y
+      // eventualmente va al pile de "muertas" para revisión manual.
+      if (isTransient) {
+        const count = (this._transientCount.get(visita.id) || 0) + 1;
+        this._transientCount.set(visita.id, count);
+        if (count >= this.MAX_TRANSIENT_RETRIES) {
+          isTransient = false;
+          console.error(
+            `[OfflineSync] Visita ${visita.id} excedió ${this.MAX_TRANSIENT_RETRIES} retries transient consecutivos — degradando a non-transient para evitar loop infinito.`,
+          );
+        }
+      } else {
+        // Reset del contador cuando es un fallo no-transient (otro tipo de error).
+        this._transientCount.delete(visita.id);
+      }
 
       // Surface DETALLE del error para debugging — antes solo se logueaba
       // [OfflineSync] error transitorio (status=500) sin más info, lo que
@@ -730,9 +811,16 @@ export class OfflineSyncService {
         visitasPendientes: estadoActual.visitasPendientes + 1
       });
 
-      // Intentar sincronizar inmediatamente si está online
-      if (estadoActual.online) {
-        setTimeout(() => this.sincronizarTodo(), 1000);
+      // Intentar sincronizar inmediatamente si está online.
+      // Audit #27: si ya hay sync activo, NO lanzamos otro — el periodic
+      // lo recoge en el próximo ciclo. Si no hay activo, dispara con catch
+      // explícito para no producir unhandled rejection.
+      if (estadoActual.online && !estadoActual.sincronizando) {
+        setTimeout(() => {
+          void this.sincronizarTodo().catch(() => {
+            /* errores ya quedan en _syncStatus.errores */
+          });
+        }, 1000);
       }
 
       console.log(`[OfflineSync] Visita guardada offline: ${visitaId}`);

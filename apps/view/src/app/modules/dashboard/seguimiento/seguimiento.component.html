@@ -1,7 +1,7 @@
-<main class="p-6 space-y-6">
+<main class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 space-y-6 min-h-[100dvh]">
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+      <h1 class="title-premium flex items-center gap-3">
         <i class="pi pi-eye text-content-main"></i> Seguimiento Diario
       </h1>
       <p class="text-content-muted text-sm">
@@ -130,7 +130,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           @for (visit of filteredVisits(); track visit.folio) {
             <div
-              class="card-premium cursor-pointer transition-all hover-lift
+              class="card-premium cursor-pointer motion-safe:transition-shadow
                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
               [class.ring-2]="isVisitSelected(visit.folio)"
               [class.ring-brand-orange]="isVisitSelected(visit.folio)"
@@ -283,9 +283,11 @@
   (visibleChange)="showDetail.set($event)"
   [modal]="true"
   [style]="{ width: '94vw', maxWidth: '860px', height: '85vh' }"
+  [breakpoints]="{'640px': '100vw'}"
   [draggable]="false"
   [resizable]="false"
   [blockScroll]="true"
+  [focusOnShow]="false"
   [closable]="false"
   [appendTo]="'body'"
   styleClass="seguimiento-detail-dialog"
@@ -427,7 +429,7 @@
                             aria-label="Abrir foto en tamaño grande">
                       <img [src]="getImageUrl(ex.fotoUrl)"
                            alt="Foto de exhibición"
-                           class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-200" />
+                           class="w-full h-full object-cover motion-safe:transition-transform" />
                     </button>
                   } @else {
                     <div class="shrink-0 w-16 h-16 rounded-lg bg-surface-layout border border-dashed border-divider flex items-center justify-center">
@@ -493,6 +495,11 @@
   [closable]="false"
   [appendTo]="'body'"
   [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }"
+  [breakpoints]="{'640px': '100vw'}"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="false"
   ariaLabel="Previsualización de imagen de exhibición"
 >
   <div class="relative w-full h-full flex flex-col">
@@ -514,8 +521,11 @@
   (visibleChange)="showMetasDialog.set($event)"
   [modal]="true"
   [style]="{ width: '90vw', maxWidth: '680px' }"
+  [breakpoints]="{'640px': '100vw'}"
   [draggable]="false"
   [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="false"
   [appendTo]="'body'"
   styleClass="surface-card rounded-2xl"
   [contentStyleClass]="'bg-surface-card'"

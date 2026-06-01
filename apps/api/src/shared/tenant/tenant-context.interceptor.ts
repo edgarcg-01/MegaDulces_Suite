@@ -7,10 +7,12 @@ import {
   NestInterceptor,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Knex } from 'knex';
 import { firstValueFrom, from, Observable } from 'rxjs';
 import { KNEX_CONNECTION_RAW } from '../database/database.module';
+import { SKIP_TENANT_TX_KEY } from '../decorators/skip-tenant-tx.decorator';
 import { legacyTxStorage } from './legacy-tx.als';
 import { TenantContextService } from './tenant-context.service';
 
@@ -33,6 +35,7 @@ export class TenantContextInterceptor implements NestInterceptor {
   constructor(
     private readonly tenantCtx: TenantContextService,
     private readonly jwtService: JwtService,
+    private readonly reflector: Reflector,
     @Inject(KNEX_CONNECTION_RAW) private readonly legacyRawKnex: Knex,
   ) {}
 
@@ -55,6 +58,26 @@ export class TenantContextInterceptor implements NestInterceptor {
     const url = (request.url || '').split('?')[0];
     const method = request.method;
     const reqId = Math.random().toString(36).slice(2, 8);
+
+    // ── Audit #3: endpoints que hacen I/O largo (Cloudinary upload, etc.)
+    // marcan @SkipTenantTx → solo seteamos CLS context, sin abrir trx ni
+    // tener una conexión idle de DB durante el upload. El handler abre su
+    // propia trx tight para las queries (vía `legacyRawKnex.transaction`).
+    const skipTx = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_TX_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (skipTx) {
+      const ctx = {
+        tenantId,
+        userId: payload.sub,
+        username: payload.username,
+        roleName: payload.role_name,
+      };
+      this.logger.log(`[${reqId}] ${method} ${url} → CLS only (skipTx) tenant=${tenantId}`);
+      return from(this.tenantCtx.run(ctx, () => firstValueFrom(next.handle())));
+    }
 
     // Ejecutamos el flow como Promise → from() lo convierte en Observable que
     // Nest sabe consumir.

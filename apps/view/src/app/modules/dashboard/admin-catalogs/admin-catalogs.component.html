@@ -1,4 +1,4 @@
-<div class="p-4 sm:p-6 space-y-5 sm:space-y-6">
+<div class="p-4 sm:p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 min-h-[100dvh] space-y-5 sm:space-y-6">
   <!-- Toast for notifications -->
   <p-toast position="bottom-right" [breakpoints]="{'640px': {width: '100%', right: '0', left: '0'}}"></p-toast>
 
@@ -6,7 +6,9 @@
   <p-confirmDialog
     header="Confirmar"
     icon="pi pi-exclamation-triangle"
-    [style]="{width: '450px'}"
+    [style]="{width: '90vw', maxWidth: '450px'}"
+    [breakpoints]="{'640px': '95vw'}"
+    appendTo="body"
     acceptButtonStyleClass="p-button-danger"
     rejectButtonStyleClass="p-button-secondary">
   </p-confirmDialog>
@@ -15,7 +17,7 @@
   <div class="flex flex-col gap-4">
     <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3">
       <div>
-        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+        <h1 class="title-premium flex items-center gap-3">
           <i class="pi pi-cog text-content-main"></i> {{ title() }}
           <span class="text-sm font-normal text-content-muted">
             · {{ activeCountInfo().active }} activos
@@ -119,7 +121,7 @@
               <button
                 type="button"
                 (click)="toggleZoneExpansion(zone)"
-                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all"
+                class="w-11 h-11 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover motion-safe:transition-colors"
               >
                 <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>
               </button>
@@ -302,7 +304,7 @@
               <button
                 type="button"
                 (click)="toggleZoneExpansion(zone)"
-                class="w-8 h-8 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover transition-all"
+                class="w-11 h-11 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-hover motion-safe:transition-colors"
               >
                 <i class="pi" [class.pi-chevron-down]="isZoneExpanded(zone.id)" [class.pi-chevron-right]="!isZoneExpanded(zone.id)"></i>
               </button>
@@ -432,7 +434,8 @@
   [blockScroll]="true"
   [draggable]="false"
   [resizable]="false"
-  [focusOnShow]="true"
+  [focusOnShow]="false"
+  appendTo="body"
   styleClass="p-dialog surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main p-4'">
   <div class="flex flex-col gap-4" (keydown.enter)="$event.preventDefault(); saveItem()">
@@ -505,7 +508,8 @@
   [blockScroll]="true"
   [draggable]="false"
   [resizable]="false"
-  [focusOnShow]="true"
+  [focusOnShow]="false"
+  appendTo="body"
   styleClass="p-dialog surface-card border-divider rounded-xl"
   [contentStyleClass]="'bg-surface-card text-content-main p-4'">
   <div class="flex flex-col gap-4" (keydown.enter)="$event.preventDefault(); saveRoute()">

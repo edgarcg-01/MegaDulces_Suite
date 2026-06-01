@@ -1,10 +1,10 @@
-<div class="p-4 sm:p-6 h-full flex flex-col space-y-6">
+<div class="p-4 sm:p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 min-h-[100dvh] flex flex-col space-y-6">
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-4">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-2">
+      <h1 class="title-premium flex items-center gap-2">
         <i class="pi pi-calendar-clock text-content-main text-2xl sm:text-3xl"></i> Configuración de Semana Estándar
       </h1>
-      <p class="text-sm text-content-dim">Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.</p>
+      <p class="text-sm text-content-muted">Asigna la ruta fija para cada día de la semana. Estas se repetirán automáticamente.</p>
     </div>
     <div class="bg-surface-card border border-divider px-3 sm:px-4 py-2 rounded-xl shadow-sm flex items-center gap-3">
         <div class="text-xs font-semibold text-content-muted border-r border-divider pr-3">Equipos activos</div>
@@ -37,7 +37,7 @@
                    autocapitalize="none"
                    autocorrect="off"
                    spellcheck="false"
-                   class="w-full pl-9 py-2 text-sm bg-surface-ground/50 border border-divider rounded-lg outline-none focus:border-brand transition-all" />
+                   class="w-full min-h-11 pl-9 py-2 text-sm bg-surface-ground border border-divider rounded-lg outline-none focus:border-brand motion-safe:transition-colors" />
         </div>
       </div>
       <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">

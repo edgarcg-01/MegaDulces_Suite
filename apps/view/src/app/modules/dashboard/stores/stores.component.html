@@ -1,9 +1,9 @@
 <p-confirmDialog></p-confirmDialog>
-<div class="p-6 space-y-6">
-  <div class="flex justify-between items-center mb-6">
+<div class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 min-h-[100dvh] space-y-6">
+  <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
     <div>
-      <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-building text-content-main"></i> Directorio de Tiendas (PDV)</h1>
-      <p class="text-sm text-content-dim">Consulta de puntos de venta filtrados por zona y ruta.</p>
+      <h1 class="title-premium flex items-center gap-3"><i class="pi pi-building text-content-main"></i> Directorio de Tiendas (PDV)</h1>
+      <p class="text-sm text-content-muted">Consulta de puntos de venta filtrados por zona y ruta.</p>
     </div>
     @if (showAllStoresTag()) {
       <p-tag value="Mostrando todas las zonas" severity="info" [rounded]="true" />

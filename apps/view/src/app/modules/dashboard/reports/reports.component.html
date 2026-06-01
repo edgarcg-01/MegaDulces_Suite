@@ -1,4 +1,4 @@
-<main class="reports-container p-6 pt-8 space-y-6 min-h-screen">
+<main class="reports-container p-6 pt-8 space-y-6 min-h-[100dvh] pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-8">
 
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
     <div>
@@ -615,7 +615,7 @@
     </p-tabs>
   </div>
 
-  <p-dialog header="Construir reporte PDF" [(visible)]="showPdfBuilder" [modal]="true" appendTo="body" [style]="{ width: '90vw', maxWidth: '500px' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card'">
+  <p-dialog header="Construir reporte PDF" [(visible)]="showPdfBuilder" [modal]="true" appendTo="body" [style]="{ width: '90vw', maxWidth: '500px' }" [breakpoints]="{'640px': '100vw'}" [blockScroll]="true" [focusOnShow]="false" [draggable]="false" [resizable]="false" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card'">
     <div class="space-y-4 pt-2">
       <p class="text-sm text-content-muted">Selecciona las secciones a incluir. El PDF se genera con los filtros activos.</p>
       <div class="space-y-2">
@@ -642,7 +642,7 @@
     </ng-template>
   </p-dialog>
 
-  <p-dialog header="Detalle visita" [(visible)]="showDetail" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+  <p-dialog header="Detalle visita" [(visible)]="showDetail" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" [breakpoints]="{'640px': '100vw'}" [blockScroll]="true" [focusOnShow]="false" [draggable]="false" [resizable]="false" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
     @if (selectedRow) {
       <div class="space-y-4 pt-2">
 
@@ -760,7 +760,7 @@
                   <td class="text-center py-4 px-5">
                     @if (ex.fotoUrl) {
                       <img [src]="getImageUrl(ex.fotoUrl)" alt="Exhibición {{ getConceptoName(ex.conceptoId) }}"
-                           class="w-24 h-24 rounded-lg shadow-sm cursor-pointer hover:shadow-md hover:scale-105 transition-all object-cover"
+                           class="w-24 h-24 rounded-lg shadow-sm cursor-pointer hover:shadow-md motion-safe:transition-shadow object-cover"
                            (click)="openImagePreview(getImageUrl(ex.fotoUrl))">
                     } @else {
                       <span class="text-sm text-content-faint">-</span>
@@ -789,7 +789,7 @@
   </p-dialog>
 
   <!-- Modal personalizado para preview de imágenes -->
-  <p-dialog [(visible)]="showImagePreview" [modal]="true" [closable]="false" appendTo="body" [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-black p-0 overflow-hidden'" ariaLabel="Previsualización de imagen de exhibición">
+  <p-dialog [(visible)]="showImagePreview" [modal]="true" [closable]="false" appendTo="body" [style]="{ width: '90vw', maxWidth: '1200px', maxHeight: '90vh' }" [breakpoints]="{'640px': '100vw'}" [blockScroll]="true" [focusOnShow]="false" [draggable]="false" [resizable]="false" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-black p-0 overflow-hidden'" ariaLabel="Previsualización de imagen de exhibición">
     <div class="relative w-full h-full flex flex-col">
       <!--
         Botón de cerrar — bg/hover heredan del token --checkbox-accent (azul tematizable),
@@ -807,7 +807,7 @@
     </div>
   </p-dialog>
 
-  <p-dialog header="Reporte de Rutas" [(visible)]="showRouteReportDialog" [modal]="true" [style]="{ width: '400px' }">
+  <p-dialog header="Reporte de Rutas" [(visible)]="showRouteReportDialog" [modal]="true" appendTo="body" [style]="{ width: '90vw', maxWidth: '400px' }" [breakpoints]="{'640px': '100vw'}" [blockScroll]="true" [focusOnShow]="false" [draggable]="false" [resizable]="false" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
     <div class="space-y-4">
       <div>
         <label class="block text-sm font-medium mb-2">Fecha del reporte</label>
@@ -951,7 +951,7 @@
   }
 
   <!-- Diálogo de Todos los Productos -->
-  <p-dialog header="Todos los Productos" [(visible)]="showAllProductsDialog" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+  <p-dialog header="Todos los Productos" [(visible)]="showAllProductsDialog" [modal]="true" appendTo="body" [style]="{ width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }" [breakpoints]="{'640px': '100vw'}" [blockScroll]="true" [focusOnShow]="false" [draggable]="false" [resizable]="false" styleClass="surface-card rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
     <div class="pt-2">
       <!-- Buscador de productos -->
       <div class="mb-4">

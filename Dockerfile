@@ -143,6 +143,11 @@ ENV NODE_ENV=production \
 COPY --from=builder  --chown=node:node /app/dist/apps/api ./dist/apps/api
 COPY --from=builder  --chown=node:node /app/database     ./database
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+# Bundle del SPA → /usr/share/nginx/html. Solo nginx lo sirve. NestJS YA
+# NO usa ServeStaticModule (removido por bug del exclude pattern en
+# Express 5: el fallback static interceptaba TODO request no-API y tiraba
+# ENOENT con 404 JSON. nginx hace el SPA serving en el puerto $PORT;
+# NestJS solo recibe /api/* proxy desde nginx).
 COPY --from=builder  --chown=node:node /app/dist/apps/view /usr/share/nginx/html
 
 # Config de nginx + script de arranque.

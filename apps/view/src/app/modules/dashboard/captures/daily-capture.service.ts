@@ -190,6 +190,13 @@ export class DailyCaptureService {
       this._masterDataLoaded = false;
       void this.applyMasterDataFromCache();
     });
+
+    // Cuando una visita pendiente sincroniza exitoso, refrescar `_captures`
+    // para que el badge `-PEND` desaparezca sin requerir refresh de página
+    // (audit #7).
+    this.syncService.visitasSincronizadas$.subscribe(() => {
+      void this.loadTodayCaptures();
+    });
   }
 
   // --- Visit Lifecycle Actions ---
@@ -517,7 +524,18 @@ export class DailyCaptureService {
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
-    const customFolio = `${user.username.charAt(0).toUpperCase()}-${hh}${mm}${ss}`;
+    // Sufijo de 4 chars hex random para evitar colisión cuando dos vendedores
+    // con la misma inicial guardan en el MISMO segundo. Resolución por seg
+    // sola → 2/N usuarios con misma letra terminaba devolviendo la fila ajena
+    // en el catch del UNIQUE (visita perdida silenciosa, ver audit #2).
+    const rand = (typeof crypto !== 'undefined' && (crypto as any).getRandomValues
+      ? (() => {
+          const buf = new Uint16Array(1);
+          (crypto as any).getRandomValues(buf);
+          return buf[0].toString(16).padStart(4, '0');
+        })()
+      : Math.random().toString(16).slice(2, 6).padStart(4, '0'));
+    const customFolio = `${user.username.charAt(0).toUpperCase()}-${hh}${mm}${ss}-${rand}`;
     const fechaInicio = this._horaInicio()!;
     const localDateStr = fechaInicio.split('T')[0];
 

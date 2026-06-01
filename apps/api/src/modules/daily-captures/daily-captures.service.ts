@@ -7,12 +7,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_CONNECTION, KNEX_CONNECTION_RAW } from '../../shared/database/database.module';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
 import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
 import { EventsService } from '../websocket/events.service';
 import { toMxDateKey } from '../../shared/date/mx-date';
+import { legacyTxStorage } from '../../shared/tenant/legacy-tx.als';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 
 @Injectable()
 export class DailyCapturesService {
@@ -20,9 +22,11 @@ export class DailyCapturesService {
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    @Inject(KNEX_CONNECTION_RAW) private readonly knexRaw: Knex,
     private readonly cloudinaryService: CloudinaryService,
     private readonly scoringV2Service: ScoringV2Service,
     private readonly eventsService: EventsService,
+    private readonly tenantCtx: TenantContextService,
   ) {}
 
   /**
@@ -108,11 +112,16 @@ export class DailyCapturesService {
     // 20260529_add_sync_uuid_to_daily_captures NO se corrió todavía en este
     // entorno, ignoramos sync_uuid (cae al INSERT normal sin la columna) en
     // lugar de tirar 500 que mataría todos los sync_uuid retries del cliente.
+    // El controller marca @SkipTenantTx → no hay auto-trx. Abrimos trxs
+    // cortas (audit #3 — Cloudinary upload ya no idlea una conexión a DB).
+    const tenantId = this.tenantCtx.requireTenantId();
     const hasSyncUuid = await this.hasSyncUuidColumn();
     if (dto.sync_uuid && hasSyncUuid) {
-      const existing = await this.knex('daily_captures')
-        .where({ sync_uuid: dto.sync_uuid })
-        .first();
+      // Precheck en trx corta (~ms) — evita upload redundante en retries.
+      const existing = await this.knexRaw.transaction(async (tx) => {
+        await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+        return tx('daily_captures').where({ sync_uuid: dto.sync_uuid }).first();
+      });
       if (existing) {
         this.logger.warn(
           `Idempotency hit: sync_uuid=${dto.sync_uuid} ya existe (id=${existing.id}, folio=${existing.folio}). Retornando fila existente sin re-procesar.`,
@@ -239,6 +248,27 @@ export class DailyCapturesService {
       this.logger.log(`Fotos: ${fotosSubidas} subidas, ${fotosFallidas} fallidas`);
     }
 
+    // ── PHASE DB-WORK ────────────────────────────────────────────────────
+    // Desde acá hasta el INSERT TODO va en UNA trx corta. Antes del refactor,
+    // la trx la abría el interceptor para TODA la request (incluyendo
+    // Cloudinary upload) → 30s+ idle → pool exhausted o
+    // idle_in_transaction_timeout. Audit #3.
+    const dbWork = async () => {
+
+    // ── Sanitización JSONB (audit #14): productosMarcados debe ser array de
+    // strings UUID. Garbage (objetos, nulls, números) explota reports que
+    // joinean con products.id.
+    const UUID_LIKE = /^[a-z0-9-]{8,}$/i;
+    for (const ex of processedExhibiciones) {
+      if (Array.isArray(ex.productosMarcados)) {
+        ex.productosMarcados = ex.productosMarcados.filter(
+          (p: any) => typeof p === 'string' && UUID_LIKE.test(p),
+        );
+      } else {
+        ex.productosMarcados = [];
+      }
+    }
+
     // ── ENRIQUECIMIENTO: backfill nivelEjecucionId desde el string si falta ──
     // Esto resuelve el bug donde el frontend mandaba exhibiciones sin nivelEjecucionId.
     // Bulk lookup: una sola query por todos los nombres distintos de nivel faltantes.
@@ -246,6 +276,31 @@ export class DailyCapturesService {
     for (const ex of processedExhibiciones) {
       if (!ex.nivelEjecucionId && !ex.nivel_ejecucion_id && ex.nivelEjecucion) {
         nivelesFaltantes.add(String(ex.nivelEjecucion).toLowerCase());
+      }
+    }
+
+    // Audit #10: si vienen `nivelEjecucionId` desde el front, validar que
+    // existan REALMENTE en catalogs. Antes ids basura pasaban al scoring que
+    // devolvía 0 puntos silente.
+    const incomingIds = new Set<string>();
+    for (const ex of processedExhibiciones) {
+      const id = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
+      if (id && typeof id === 'string') incomingIds.add(id);
+    }
+    if (incomingIds.size > 0) {
+      const validRows = await this.knex('catalogs')
+        .whereIn('id', Array.from(incomingIds))
+        .select('id');
+      const validIds = new Set(validRows.map((r) => r.id));
+      for (const ex of processedExhibiciones) {
+        const id = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
+        if (id && !validIds.has(id)) {
+          this.logger.warn(
+            `nivelEjecucionId "${id}" no existe en catalogs — limpiando para que backfill por nombre intente resolverlo.`,
+          );
+          ex.nivelEjecucionId = undefined;
+          ex.nivel_ejecucion_id = undefined;
+        }
       }
     }
 
@@ -318,17 +373,26 @@ export class DailyCapturesService {
        }
     }
 
-    // Normalizar ventaTotal: si es 0 o menor que ventaAdicional, usar ventaAdicional
-    const ventaAdicional = dto.stats.ventaAdicional || 0;
-    const ventaTotalActual = dto.stats.ventaTotal || 0;
+    // Sanitización numérica (audit #13): NaN, Infinity, strings garbage no
+    // pueden entrar al JSONB porque rompen casts downstream (`SUM((stats->>
+    // 'ventaTotal')::numeric)` → ERROR). Coerción defensiva a 0.
+    const safeNum = (v: unknown): number => {
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const ventaAdicional = safeNum(dto.stats.ventaAdicional);
+    const ventaTotalActual = safeNum(dto.stats.ventaTotal);
     const ventaTotalFinal = ventaTotalActual > 0 ? ventaTotalActual : ventaAdicional;
 
-    // Agregar puntosTotales recalibrados
+    // Recalibramos stats numéricos. `puntuacionTotal` viene del backend score
+    // ya saneado (Number.isFinite garantizado por scoringV2).
     const statsWithPct = {
       ...dto.stats,
       ventaTotal: ventaTotalFinal,
-      puntuacionTotal: puntosBackendTotales,
-      // Se eliminan campos legacy % obsoletos
+      ventaAdicional,
+      puntuacionTotal: safeNum(puntosBackendTotales),
+      totalExhibiciones: safeNum((dto.stats as any).totalExhibiciones),
+      totalProductosMarcados: safeNum((dto.stats as any).totalProductosMarcados),
     };
 
     this.logger.debug(
@@ -431,8 +495,22 @@ export class DailyCapturesService {
           .where({ folio: dto.folio })
           .first();
         if (!dailyCapture) throw err;
+        // CRÍTICO (audit #2): si la fila existente NO es del mismo user, NO
+        // la devolvemos — significa que el folio chocó con OTRA visita (otro
+        // vendedor con misma inicial+segundo). Antes esto devolvía la fila
+        // ajena como "exitosa" → la captura del user actual se perdía silente
+        // y el reporte mostraba data cruzada. Ahora lanzamos para que el
+        // cliente reintente con nuevo folio.
+        if (dailyCapture.user_id && dailyCapture.user_id !== userId) {
+          this.logger.error(
+            `Folio collision con OTRO user: dto.folio=${dto.folio} requesting_user=${userId} existing_user=${dailyCapture.user_id}. Rechazando para evitar mezcla de data.`,
+          );
+          throw new BadRequestException(
+            'El folio generado choca con otro pedido. Reintentá la captura.',
+          );
+        }
         this.logger.warn(
-          `Folio ${dto.folio} ya existía. Retornando fila existente id=${dailyCapture.id}.`,
+          `Folio ${dto.folio} ya existía (mismo user). Retornando fila existente id=${dailyCapture.id}.`,
         );
       } else {
         // Otra unique no contemplada — re-throw para que el cliente sepa.
@@ -444,13 +522,33 @@ export class DailyCapturesService {
       `Captura guardada id=${dailyCapture.id} folio=${dailyCapture.folio} fecha=${dailyCapture.fecha}`,
     );
 
+    return dailyCapture;
+    }; // ← fin de la closure dbWork
+
+    // ── Ejecutamos dbWork dentro de UNA trx corta ────────────────────────
+    let dailyCapture: any;
+    try {
+      dailyCapture = await this.knexRaw.transaction(async (tx) => {
+        await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+        return legacyTxStorage.run({ tx, tenantId }, () => dbWork());
+      });
+    } catch (err: any) {
+      // Cleanup audit #4: si el INSERT falló post-Cloudinary, las fotos ya
+      // subidas quedarían huérfanas pagas para siempre. Mejor esfuerzo.
+      await this.cleanupOrphanCloudinary(processedExhibiciones);
+      throw err;
+    }
+
+    // ── Emit POST-COMMIT (audit #5) ──────────────────────────────────────
+    // Antes el emit corría dentro del trx. Si el COMMIT fallaba, los WS
+    // subscribers recibían un evento de una fila que NO existe.
     this.eventsService.emitCaptureCreated({
       type: 'capture:created',
       captureId: dailyCapture.id,
       userId: userId,
       capturedByUsername: username,
       zonaCaptura: zona || 'No Asignada',
-      fecha: fecha,
+      fecha: dailyCapture.fecha,
       stats: dailyCapture.stats,
     });
 
@@ -467,13 +565,40 @@ export class DailyCapturesService {
     };
   }
 
+  /**
+   * Audit #4: limpia uploads a Cloudinary que quedaron huérfanos cuando el
+   * INSERT post-upload falla. Best-effort: si no se puede borrar (Cloudinary
+   * down, etc.) loguea warning pero no propaga error.
+   */
+  private async cleanupOrphanCloudinary(exhibiciones: any[]): Promise<void> {
+    const pids = exhibiciones
+      .map((ex) => ex?.fotoPublicId)
+      .filter((p): p is string => !!p);
+    if (pids.length === 0) return;
+    this.logger.warn(`Limpiando ${pids.length} fotos huérfanas en Cloudinary tras INSERT fallido.`);
+    await Promise.allSettled(
+      pids.map((p) =>
+        this.cloudinaryService
+          .deleteImage(p)
+          .catch((e) =>
+            this.logger.warn(`No se pudo borrar Cloudinary ${p}: ${e?.message || e}`),
+          ),
+      ),
+    );
+  }
+
   async findAll(
     fecha?: string,
     zona?: string,
     ejecutivo?: string,
     userId?: string,
   ) {
+    // Defense in depth (audit #6): RLS scopea por current_tenant_id() pero
+    // si por algún motivo el CLS no se setea (degradación), un user de un
+    // tenant podría ver data de otro. Filter explícito.
+    const tenantId = this.tenantCtx.get()?.tenantId;
     const query = this.knex('daily_captures').select('*');
+    if (tenantId) query.where('tenant_id', tenantId);
     if (fecha) {
       // hora_inicio convertida a TZ MX para que "hoy" del cliente coincida
       // con el día calendario del backend (visitas vespertinas en MX están

@@ -2,8 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
+// ServeStaticModule + join removidos — nginx sirve el SPA, NestJS solo /api/*.
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
@@ -109,13 +108,15 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       { name: 'medium', ttl: 10_000, limit: 60 },  // 60 req/10seg
       { name: 'long', ttl: 60_000, limit: 200 },   // 200 req/min
     ]),
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'view'),
-      // Exclude API routes y el namespace WS de /reports/socket.io.
-      // Sin esta segunda exclusión, el fallback SPA respondía con index.html
-      // al handshake de socket.io → cliente recibía "websocket error".
-      exclude: ['/api/{*path}', '/reports/socket.io/{*path}'],
-    }),
+    // ServeStaticModule REMOVIDO 2026-06-01: el SPA lo sirve nginx directo
+    // desde /usr/share/nginx/html en el puerto $PORT. NestJS solo recibe
+    // requests proxied por nginx con prefix /api/* o /reports/socket.io/*.
+    // Mantener ServeStaticModule causaba un bug grave: el `exclude` con
+    // patrón `/api/{*path}` no matcheaba bien en Express 5 + path-to-regexp
+    // v8 → CUALQUIER request a NestJS que no resolvía a un controller caía
+    // al fallback static y tiraba "ENOENT: stat dist/apps/view/index.html"
+    // con 404 en JSON. Sin el módulo, Nest devuelve su 404 estándar para
+    // rutas inexistentes, que es lo correcto.
     DatabaseModule,
     AbilityModule,
     AuthModule,

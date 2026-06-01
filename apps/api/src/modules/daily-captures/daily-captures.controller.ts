@@ -21,6 +21,7 @@ import { RolesGuard } from '../../shared/guards/roles.guard';
 import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
 import { Permission } from '../../shared/constants/permissions';
 import { ReqUser } from '../../shared/decorators/req-user.decorator';
+import { SkipTenantTx } from '../../shared/decorators/skip-tenant-tx.decorator';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -53,6 +54,11 @@ export class DailyCapturesController {
    */
   @Post()
   @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  // SkipTenantTx (audit #3): Cloudinary upload puede tardar 30s+. Con el
+  // auto-trx del interceptor, la conexión a DB queda idle todo ese tiempo →
+  // Postgres mata la trx o agota el pool. Acá el service maneja su propia trx
+  // corta SOLO alrededor del INSERT.
+  @SkipTenantTx()
   @UseInterceptors(
     AnyFilesInterceptor({
       limits: { fileSize: 10 * 1024 * 1024, files: 20 },
