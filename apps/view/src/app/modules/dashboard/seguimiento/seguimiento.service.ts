@@ -5,7 +5,12 @@ import { environment } from '../../../../environments/environment';
 
 export interface UserScore {
   fecha: string;
+  /** Promedio del score del día (compat histórico — `AVG` por día). */
   puntuacion: number;
+  /** Suma REAL de puntos del día (`SUM` por día, no avg). Habilita modo Volumen. */
+  total?: number;
+  /** Conteo de visitas del día. Habilita modos Adherencia y Eficiencia. */
+  visitas?: number;
 }
 
 export interface UserScores {

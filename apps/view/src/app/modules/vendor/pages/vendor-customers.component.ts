@@ -85,7 +85,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
   `,
   styles: [
     `
-      .page-title { margin: 0 0 1rem; font-size: 1.5rem; }
+      .page-title { margin: 0 0 1rem; font-size: 1.5rem; color: var(--text-main); }
       .search-bar { margin-bottom: 1rem; }
       .search-wrap {
         display: block;
@@ -100,13 +100,13 @@ import { VendorService, VendorCustomer } from '../vendor.service';
         left: 0.75rem;
         top: 50%;
         transform: translateY(-50%);
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
         z-index: 1;
       }
       .empty {
         text-align: center;
         padding: 2rem;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
       }
       .empty i { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
       .customer-list {
@@ -119,6 +119,8 @@ import { VendorService, VendorCustomer } from '../vendor.service';
       :host ::ng-deep .p-card.customer-card {
         cursor: pointer;
         transition: box-shadow 0.15s, transform 0.05s;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
       }
       :host ::ng-deep .p-card.customer-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
       :host ::ng-deep .p-card.customer-card:active { transform: scale(0.99); }
@@ -134,24 +136,25 @@ import { VendorService, VendorCustomer } from '../vendor.service';
         font-weight: 600;
         font-size: 1rem;
         line-height: 1.2;
+        color: var(--text-main);
       }
       .meta {
         display: flex;
         gap: 0.75rem;
         flex-wrap: wrap;
         font-size: 0.8rem;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
         margin-top: 0.25rem;
       }
       .code { font-weight: 600; }
       .phone i { font-size: 0.7rem; }
       .credit {
         font-size: 0.75rem;
-        color: var(--green-600, #16a34a);
+        color: var(--ok-fg);
         margin-top: 0.25rem;
       }
       .action {
-        color: var(--primary-color);
+        color: var(--brand-700);
         font-size: 1.25rem;
         flex-shrink: 0;
       }

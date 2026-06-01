@@ -25,6 +25,7 @@ import {
   DailyScoresResponse,
   SeguimientoFilters,
   SeguimientoService,
+  UserScore,
   UserScores,
 } from './seguimiento.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
@@ -211,6 +212,33 @@ export class SeguimientoComponent implements OnInit {
   scoreOpt = signal<number>(80);
   scoreMin = signal<number>(50);
 
+  // \u2500\u2500 Chart secundario: Suma total + Promedio por d\u00eda con captura \u2500\u2500
+  // Mismo dataset que el chart principal, distinta agregaci\u00f3n:
+  //   - SUMA = sum(puntuacion) por usuario en el rango
+  //   - AVG  = SUMA / d\u00edas con al menos 1 captura
+  // Ej: 800 pts en 6 d\u00edas llenados = 133 pts/d\u00eda. Sirve para detectar
+  // ejecutivos con alto volumen vs eficiencia diaria.
+  // \u2500\u2500 Chart alternativo \u2014 cambia seg\u00fan `chartMode` \u2500\u2500
+  // 4 modos ortogonales. Cada uno aporta una dimensi\u00f3n distinta del
+  // desempe\u00f1o del ejecutivo, sin redundancia con el modo Promedio.
+  //   'avg'        = Promedio del score (calidad de ejecuci\u00f3n).
+  //   'adherence'  = Adherencia % + Visitas totales (constancia y volumen).
+  //   'volume'     = Suma REAL de puntos (cu\u00e1nto valor gener\u00f3, no avg).
+  //   'efficiency' = Puntos por visita + Visitas por d\u00eda (productividad unitaria).
+  altChartData = signal<Record<string, unknown> | null>(null);
+  altChartOptions = signal<Record<string, unknown> | null>(null);
+
+  /** KPIs del subheader del chart activo. Cada modo llena distintos. */
+  altKpis = signal<{ label: string; value: string }[]>([]);
+
+  chartMode = signal<'avg' | 'adherence' | 'volume' | 'efficiency'>('avg');
+  setChartMode(mode: 'avg' | 'adherence' | 'volume' | 'efficiency'): void {
+    this.chartMode.set(mode);
+    if (mode !== 'avg' && this.lastScores) {
+      this.buildAltChart(this.lastScores);
+    }
+  }
+
   // Signals \u2014 dialogs & selection
   showComparison = signal(false);
   showDetail = signal(false);
@@ -237,14 +265,17 @@ export class SeguimientoComponent implements OnInit {
     id: 'scoreLabels',
     afterDraw: (chart: {
       ctx: CanvasRenderingContext2D;
-      data: { datasets: { data: number[] }[] };
+      data: { datasets: Array<{ data: number[]; labelSuffix?: string }> };
       getDatasetMeta(idx: number): {
         data: { x: number; y: number; base: number; active?: boolean }[];
       };
     }) => {
       const { ctx, data } = chart;
+      const ds = data.datasets[0];
+      if (!ds) return;
+      const suffix = ds.labelSuffix ?? ' pts';
       ctx.save();
-      data.datasets[0].data.forEach((value: number, i: number) => {
+      ds.data.forEach((value: number, i: number) => {
         const meta = chart.getDatasetMeta(0);
         const bar = meta.data[i];
         if (bar && bar.active !== false) {
@@ -252,7 +283,7 @@ export class SeguimientoComponent implements OnInit {
           ctx.fillStyle = getChartTokens().cardBg;
           ctx.textAlign = 'right';
           ctx.textBaseline = 'middle';
-          const text = `${value} pts`;
+          const text = `${value}${suffix}`;
           const xPos = bar.x - 10;
           if (xPos > bar.base + 30) {
             ctx.fillText(text, xPos, bar.y);
@@ -263,16 +294,98 @@ export class SeguimientoComponent implements OnInit {
     },
   };
 
+  /**
+   * Plugin que pinta una sparkline (línea + dots) DENTRO de cada barra del
+   * chart de scores, mostrando la tendencia diaria del ejecutivo. Lee
+   * `dataset.sparkData[i]` = scores[] del usuario en el rango. Solo dibuja
+   * cuando la barra tiene ancho suficiente (>130px) para no chocar con el
+   * score label ni perder legibilidad.
+   */
+  protected readonly sparklinePlugin = {
+    id: 'sparkline',
+    afterDraw: (chart: {
+      ctx: CanvasRenderingContext2D;
+      data: { datasets: Array<{ data: number[]; sparkData?: UserScore[][] }> };
+      getDatasetMeta(idx: number): {
+        data: { x: number; y: number; base: number; height?: number; active?: boolean }[];
+      };
+    }) => {
+      const { ctx } = chart;
+      const dataset = chart.data.datasets[0];
+      const sparkData = dataset.sparkData;
+      if (!sparkData?.length) return;
+      const meta = chart.getDatasetMeta(0);
+
+      ctx.save();
+      meta.data.forEach((bar, i) => {
+        if (!bar || bar.active === false) return;
+        const series = sparkData[i];
+        if (!series || series.length < 2) return;
+
+        const barWidth = bar.x - bar.base;
+        if (barWidth < 130) return;
+
+        const labelGap = 50;
+        const sparkW = 60;
+        const sparkRight = bar.x - labelGap;
+        const sparkLeft = sparkRight - sparkW;
+        const h = (bar as { height?: number }).height ?? 18;
+        const halfH = h / 2;
+        const sparkTop = bar.y - halfH + 4;
+        const sparkBottom = bar.y + halfH - 4;
+        const sparkH = sparkBottom - sparkTop;
+        if (sparkH < 6) return;
+
+        const ordered = [...series].sort((a, b) =>
+          (a.fecha || '').localeCompare(b.fecha || ''),
+        );
+        const values = ordered.map((s) => s.puntuacion);
+        const maxV = Math.max(...values, 1);
+        const stepX = sparkW / (ordered.length - 1);
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1.4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ordered.forEach((s, idx) => {
+          const x = sparkLeft + idx * stepX;
+          const y = sparkBottom - (s.puntuacion / maxV) * sparkH;
+          if (idx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ordered.forEach((s, idx) => {
+          const x = sparkLeft + idx * stepX;
+          const y = sparkBottom - (s.puntuacion / maxV) * sparkH;
+          ctx.beginPath();
+          ctx.arc(x, y, 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      });
+      ctx.restore();
+    },
+  };
+
   /** Lista de plugins para `<p-chart [plugins]>`. Tipada como `unknown[]` para
    * que Angular acepte el binding (PrimeNG espera `any[]`). */
-  protected readonly chartPlugins: unknown[] = [this.scoreLabelsPlugin];
+  protected readonly chartPlugins: unknown[] = [this.scoreLabelsPlugin, this.sparklinePlugin];
 
   // Computed \u2014 permisos
   canEditMetas = this.perms.can$('manage', 'kpi_goals');
   // Coherente con el backend: requiere REPORTES_GESTIONAR ('delete' on 'reports_manage').
   canDeleteVisit = this.perms.can$('delete', 'reports_manage');
 
-  chartHeight = computed(() => Math.max(160, this.totalUsers() * 56 + 80));
+  // Alt modes (adherence/volume/efficiency) tienen 2 datasets por usuario
+  // que se stackean dentro del slot. Con 56px/user se ven comprimidos —
+  // 84px/user les da respiro consistente con el peso visual del avg mode.
+  chartHeight = computed(() => {
+    const n = this.totalUsers();
+    const perUser = this.chartMode() === 'avg' ? 56 : 84;
+    return Math.max(160, n * perUser + 80);
+  });
 
   allVisits = computed(() => this.reportsData()?.rows ?? []);
 
@@ -537,6 +650,9 @@ export class SeguimientoComponent implements OnInit {
 
     if (!res.users?.length) {
       this.chartData.set(null);
+      this.altChartData.set(null);
+      this.altChartOptions.set(null);
+      this.altKpis.set([]);
       this.totalUsers.set(0);
       this.enMeta.set(0);
       return;
@@ -555,6 +671,7 @@ export class SeguimientoComponent implements OnInit {
         nombre: u.nombre,
         score: avg(u.scores),
         visits: u.scores.length,
+        scores: u.scores,
       }))
       .filter((u) => u.score > 0)
       .sort((a, b) => b.score - a.score);
@@ -567,16 +684,18 @@ export class SeguimientoComponent implements OnInit {
       return;
     }
 
-    // Color por tier discreto. Los hex provienen de CSS variables del theme
-    // (--chart-fill-*), por lo que respetan automáticamente light/dark.
+    // Tier discreto en grayscale (--chart-fill-low/mid/high). Respeta tema
+    // light/dark automáticamente via CSS variables.
+    const t = getChartTokens();
     const chartColors = readChartColors();
     const colorForScore = (score: number): string => {
       if (score >= scoreOpt) return chartColors.high;
-      if (score >= scoreOpt / 2) return chartColors.mid;
+      if (score >= scoreMin) return chartColors.mid;
       return chartColors.low;
     };
     const barColors = users.map((u) => colorForScore(u.score));
     const visitsPerUser = users.map((u) => u.visits);
+    const sparkData = users.map((u) => u.scores);
 
     this.chartData.set({
       labels: users.map((u) => u.nombre),
@@ -584,32 +703,44 @@ export class SeguimientoComponent implements OnInit {
         {
           data: users.map((u) => u.score),
           backgroundColor: barColors,
-          borderRadius: 2,
-          barPercentage: 0.7,
+          borderRadius: 3,
+          barPercentage: 0.72,
           categoryPercentage: 0.9,
-          // Cantidad de visitas del usuario en el rango — se usa en el tooltip.
           visitsPerUser,
+          sparkData,
+          labelSuffix: ' pts',
         },
       ],
     });
 
-    const t = getChartTokens();
     this.chartOptions.set({
       indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 400, easing: 'easeOutQuart' },
       plugins: {
         legend: { display: false },
         tooltip: {
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMain,
+          borderColor: t.borderColor,
+          borderWidth: 1,
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: false,
           callbacks: {
             label: (context: {
               parsed: { x: number };
               dataIndex: number;
               dataset: { visitsPerUser?: number[] };
             }) => {
+              const score = context.parsed.x;
               const n = context.dataset.visitsPerUser?.[context.dataIndex] ?? 0;
               const visitsTxt = n === 1 ? '1 visita' : `${n} visitas`;
-              return ` Promedio: ${context.parsed.x} pts · ${visitsTxt}`;
+              const gap = score - scoreOpt;
+              const gapTxt = gap >= 0 ? `+${gap} sobre meta` : `${gap} bajo meta`;
+              return [`${score} pts · ${visitsTxt}`, gapTxt];
             },
           },
         },
@@ -634,6 +765,7 @@ export class SeguimientoComponent implements OnInit {
           },
         },
         scoreLabels: { afterDraw: this.scoreLabelsPlugin.afterDraw },
+        sparkline: { afterDraw: this.sparklinePlugin.afterDraw },
       },
       scales: {
         x: {
@@ -648,6 +780,306 @@ export class SeguimientoComponent implements OnInit {
           ticks: { color: t.textMain, font: { weight: 'bold', size: 12 } },
         },
       },
+    });
+
+    // Si el modo activo no es 'avg', reconstruir el chart alternativo.
+    if (this.chartMode() !== 'avg') {
+      this.buildAltChart(res);
+    }
+  }
+
+  /**
+   * Calcula días calendario del rango activo (start..end inclusive).
+   * Lo usa el modo Adherencia para el denominador. Excluir fines de semana
+   * sería un refinamiento futuro — por ahora días naturales.
+   */
+  private daysInRange(): number {
+    const f = this.filtersState.filters();
+    const start = new Date(f.startDate + 'T00:00:00');
+    const end = new Date(f.endDate + 'T00:00:00');
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+    return Math.max(
+      1,
+      Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1,
+    );
+  }
+
+  /**
+   * Construye el chart secundario según el modo activo. Tres modos posibles:
+   *
+   *   'adherence' — Constancia + volumen de actividad:
+   *     - Dataset 1: % adherencia = (días con captura / días del rango) × 100
+   *     - Dataset 2: Visitas totales en el rango
+   *
+   *   'volume' — Valor real generado (no avg-de-avg):
+   *     - Dataset 1: Suma REAL de puntos (sum(stats.puntuacionTotal) backend)
+   *     - Dataset 2: Promedio score (referencia de calidad)
+   *
+   *   'efficiency' — Productividad unitaria:
+   *     - Dataset 1: Puntos por visita = total_pts / total_visitas
+   *     - Dataset 2: Visitas por día llenado = total_visitas / días_con_captura
+   */
+  private buildAltChart(res: DailyScoresResponse): void {
+    const mode = this.chartMode();
+    if (mode === 'avg') return;
+
+    const dayRange = this.daysInRange();
+    const t = getChartTokens();
+    const colors = readChartColors();
+
+    // Agregaciones comunes por usuario.
+    const users = (res.users ?? [])
+      .map((u) => {
+        const daysFilled = u.scores.length;
+        const totalReal = u.scores.reduce((s, x) => s + (x.total ?? x.puntuacion ?? 0), 0);
+        const totalVisits = u.scores.reduce((s, x) => s + (x.visitas ?? 0), 0);
+        const avgScore = daysFilled > 0
+          ? Math.round(u.scores.reduce((s, x) => s + (x.puntuacion || 0), 0) / daysFilled)
+          : 0;
+        const adherence = dayRange > 0 ? Math.round((daysFilled / dayRange) * 100) : 0;
+        const ptsPerVisit = totalVisits > 0 ? Math.round(totalReal / totalVisits) : 0;
+        const visitsPerDay = daysFilled > 0 ? +(totalVisits / daysFilled).toFixed(1) : 0;
+        return {
+          nombre: u.nombre,
+          daysFilled,
+          totalReal: Math.round(totalReal),
+          totalVisits,
+          avgScore,
+          adherence,
+          ptsPerVisit,
+          visitsPerDay,
+        };
+      })
+      .filter((u) => u.daysFilled > 0);
+
+    if (!users.length) {
+      this.altChartData.set(null);
+      this.altChartOptions.set(null);
+      this.altKpis.set([]);
+      return;
+    }
+
+    // Sort + KPIs globales por modo.
+    if (mode === 'adherence') {
+      users.sort((a, b) => b.adherence - a.adherence || b.totalVisits - a.totalVisits);
+    } else if (mode === 'volume') {
+      users.sort((a, b) => b.totalReal - a.totalReal);
+    } else {
+      // efficiency: priorizar puntos por visita
+      users.sort((a, b) => b.ptsPerVisit - a.ptsPerVisit || b.visitsPerDay - a.visitsPerDay);
+    }
+
+    // KPIs globales (subheader) — qué se ve depende del modo.
+    if (mode === 'adherence') {
+      const avgAdh = Math.round(users.reduce((s, u) => s + u.adherence, 0) / users.length);
+      const totVisits = users.reduce((s, u) => s + u.totalVisits, 0);
+      this.altKpis.set([
+        { label: 'Adherencia media', value: `${avgAdh}%` },
+        { label: 'Visitas totales', value: `${totVisits}` },
+        { label: 'Días del rango', value: `${dayRange}` },
+      ]);
+    } else if (mode === 'volume') {
+      const sumReal = users.reduce((s, u) => s + u.totalReal, 0);
+      const totVisits = users.reduce((s, u) => s + u.totalVisits, 0);
+      const ptsPerVisitGlobal = totVisits > 0 ? Math.round(sumReal / totVisits) : 0;
+      this.altKpis.set([
+        { label: 'Puntos generados', value: `${sumReal}` },
+        { label: 'Visitas totales', value: `${totVisits}` },
+        { label: 'Pts/visita global', value: `${ptsPerVisitGlobal}` },
+      ]);
+    } else {
+      const sumReal = users.reduce((s, u) => s + u.totalReal, 0);
+      const totVisits = users.reduce((s, u) => s + u.totalVisits, 0);
+      const totDays = users.reduce((s, u) => s + u.daysFilled, 0);
+      const ptsPerVisitGlobal = totVisits > 0 ? Math.round(sumReal / totVisits) : 0;
+      const visitsPerDayGlobal = totDays > 0 ? +(totVisits / totDays).toFixed(1) : 0;
+      this.altKpis.set([
+        { label: 'Pts/visita media', value: `${ptsPerVisitGlobal}` },
+        { label: 'Visitas/día media', value: `${visitsPerDayGlobal}` },
+        { label: 'Ejecutivos', value: `${users.length}` },
+      ]);
+    }
+
+    // Datasets según modo.
+    type DS = Record<string, unknown>;
+    let datasets: DS[];
+    let scales: DS;
+
+    if (mode === 'adherence') {
+      datasets = [
+        {
+          label: 'Adherencia %',
+          data: users.map((u) => u.adherence),
+          backgroundColor: colors.high,
+          borderRadius: 3,
+          barPercentage: 0.55,
+          categoryPercentage: 0.9,
+          xAxisID: 'xPct',
+          metaDays: users.map((u) => u.daysFilled),
+          metaRange: dayRange,
+          labelSuffix: '%',
+        },
+        {
+          label: 'Visitas totales',
+          data: users.map((u) => u.totalVisits),
+          backgroundColor: colors.mid,
+          borderRadius: 3,
+          barPercentage: 0.55,
+          categoryPercentage: 0.9,
+          xAxisID: 'xCount',
+        },
+      ];
+      scales = {
+        xPct: {
+          beginAtZero: true, max: 100, position: 'top',
+          title: { display: true, text: 'Adherencia %', color: t.chartMetaLine },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis, callback: (v: number) => `${v}%` },
+        },
+        xCount: {
+          beginAtZero: true, position: 'bottom',
+          title: { display: true, text: 'Visitas totales', color: t.chartMetaLine },
+          grid: { display: false },
+          ticks: { color: t.chartAxis },
+        },
+        y: { grid: { display: false }, ticks: { color: t.textMain, font: { weight: 'bold', size: 12 } } },
+      };
+    } else if (mode === 'volume') {
+      datasets = [
+        {
+          label: 'Puntos generados',
+          data: users.map((u) => u.totalReal),
+          backgroundColor: colors.high,
+          borderRadius: 3,
+          barPercentage: 0.55,
+          categoryPercentage: 0.9,
+          xAxisID: 'xPts',
+          visits: users.map((u) => u.totalVisits),
+          labelSuffix: ' pts',
+        },
+        {
+          label: 'Score promedio',
+          data: users.map((u) => u.avgScore),
+          backgroundColor: colors.mid,
+          borderRadius: 3,
+          barPercentage: 0.55,
+          categoryPercentage: 0.9,
+          xAxisID: 'xScore',
+        },
+      ];
+      scales = {
+        xPts: {
+          beginAtZero: true, position: 'top',
+          title: { display: true, text: 'Puntos generados (suma real)', color: t.chartMetaLine },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
+        },
+        xScore: {
+          beginAtZero: true, position: 'bottom',
+          title: { display: true, text: 'Score promedio', color: t.chartMetaLine },
+          grid: { display: false },
+          ticks: { color: t.chartAxis },
+        },
+        y: { grid: { display: false }, ticks: { color: t.textMain, font: { weight: 'bold', size: 12 } } },
+      };
+    } else {
+      // efficiency
+      datasets = [
+        {
+          label: 'Pts/visita',
+          data: users.map((u) => u.ptsPerVisit),
+          backgroundColor: colors.high,
+          borderRadius: 3,
+          barPercentage: 0.55,
+          categoryPercentage: 0.9,
+          xAxisID: 'xPpv',
+          visits: users.map((u) => u.totalVisits),
+          labelSuffix: ' pts/v',
+        },
+        {
+          label: 'Visitas/día',
+          data: users.map((u) => u.visitsPerDay),
+          backgroundColor: colors.mid,
+          borderRadius: 3,
+          barPercentage: 0.55,
+          categoryPercentage: 0.9,
+          xAxisID: 'xVpd',
+        },
+      ];
+      scales = {
+        xPpv: {
+          beginAtZero: true, position: 'top',
+          title: { display: true, text: 'Puntos por visita', color: t.chartMetaLine },
+          grid: { color: t.chartGrid },
+          ticks: { color: t.chartAxis },
+        },
+        xVpd: {
+          beginAtZero: true, position: 'bottom',
+          title: { display: true, text: 'Visitas por día con captura', color: t.chartMetaLine },
+          grid: { display: false },
+          ticks: { color: t.chartAxis },
+        },
+        y: { grid: { display: false }, ticks: { color: t.textMain, font: { weight: 'bold', size: 12 } } },
+      };
+    }
+
+    this.altChartData.set({
+      labels: users.map((u) => u.nombre),
+      datasets,
+    });
+
+    this.altChartOptions.set({
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400, easing: 'easeOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: t.cardBg,
+          titleColor: t.textMain,
+          bodyColor: t.textMain,
+          borderColor: t.borderColor,
+          borderWidth: 1,
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: false,
+          callbacks: {
+            label: (context: {
+              parsed: { x: number };
+              dataIndex: number;
+              dataset: {
+                label?: string;
+                metaDays?: number[];
+                metaRange?: number;
+                visits?: number[];
+              };
+            }) => {
+              const ds = context.dataset;
+              const idx = context.dataIndex;
+              const val = context.parsed.x;
+              if (ds.label === 'Adherencia %') {
+                const d = ds.metaDays?.[idx] ?? 0;
+                const r = ds.metaRange ?? 0;
+                return ` ${val}% (${d} de ${r} días)`;
+              }
+              if (ds.label === 'Visitas totales' || ds.label === 'Visitas/día') {
+                return ` ${val}`;
+              }
+              if (ds.label === 'Puntos generados') {
+                const v = ds.visits?.[idx] ?? 0;
+                return ` ${val} pts · ${v} visita${v === 1 ? '' : 's'}`;
+              }
+              if (ds.label === 'Pts/visita') {
+                const v = ds.visits?.[idx] ?? 0;
+                return ` ${val} pts/visita · ${v} visita${v === 1 ? '' : 's'}`;
+              }
+              return ` ${val}`;
+            },
+          },
+        },
+      },
+      scales,
     });
   }
 

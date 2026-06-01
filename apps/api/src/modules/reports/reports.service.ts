@@ -723,6 +723,10 @@ export class ReportsService {
           "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') as fecha",
         ),
         this.knex.raw("AVG(COALESCE((stats->>'puntuacionTotal')::float, 0)) as puntuacion"),
+        // Suma REAL de puntos del día (no avg) — necesario para volumen acumulado.
+        this.knex.raw("SUM(COALESCE((stats->>'puntuacionTotal')::float, 0)) as total"),
+        // Conteo de visitas del día — habilita "puntos por visita" + adherencia.
+        this.knex.raw('COUNT(*) as visitas'),
       );
 
       // Scope filtering
@@ -792,20 +796,32 @@ export class ReportsService {
       this.logger.debug(`Daily scores rows fetched: ${rows.length}`);
 
       const metaDiaria = 5;
-      const userMap = new Map<string, { nombre: string; scores: { fecha: string; puntuacion: number }[]; metaDiaria: number }>();
+      const userMap = new Map<
+        string,
+        {
+          nombre: string;
+          scores: { fecha: string; puntuacion: number; total: number; visitas: number }[];
+          metaDiaria: number;
+        }
+      >();
 
       for (const row of rows) {
         if (!userMap.has(row.user_id)) {
           userMap.set(row.user_id, { nombre: row.captured_by_username, scores: [], metaDiaria });
         }
-        
+
         // fecha del score en TZ MX — consumido por /seguimiento que agrupa
         // por día calendario para el chart per-usuario.
         const fechaStr = toMxDateKey(row.fecha) || 'n/a';
 
         userMap.get(row.user_id)!.scores.push({
           fecha: fechaStr,
+          // Promedio por día (compat con chart histórico).
           puntuacion: Math.round(Number(row.puntuacion) || 0),
+          // Suma REAL de puntos del día — habilita modo "Volumen".
+          total: Math.round(Number(row.total) || 0),
+          // Conteo de visitas — habilita modos "Adherencia" y "Eficiencia".
+          visitas: Number(row.visitas) || 0,
         });
       }
 

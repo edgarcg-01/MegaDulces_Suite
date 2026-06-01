@@ -84,13 +84,17 @@ import { Order } from '../../portal/portal.service';
   `,
   styles: [
     `
-      .page-title { margin: 0 0 0.25rem; font-size: 1.5rem; }
-      .subtitle { margin: 0 0 1rem; color: var(--text-color-secondary); font-size: 0.875rem; }
+      .page-title { margin: 0 0 0.25rem; font-size: 1.5rem; color: var(--text-main); }
+      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; }
       .kpis {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 0.5rem;
         margin-bottom: 1rem;
+      }
+      :host ::ng-deep .p-card.kpi-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
       }
       :host ::ng-deep .p-card.kpi-card .p-card-body { padding: 0.75rem; }
       :host ::ng-deep .p-card.kpi-card .p-card-content { padding: 0; }
@@ -98,18 +102,18 @@ import { Order } from '../../portal/portal.service';
       .kpi-content .value {
         font-size: 1.25rem;
         font-weight: 700;
-        color: var(--primary-color);
+        color: var(--text-main);
       }
       .kpi-content .label {
         font-size: 0.7rem;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.05em;
       }
       .empty {
         text-align: center;
         padding: 1.5rem 1rem;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
       }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
       .empty p { margin: 0 0 1rem; }
@@ -118,7 +122,12 @@ import { Order } from '../../portal/portal.service';
         flex-direction: column;
         gap: 0.5rem;
       }
-      :host ::ng-deep .p-card.order-card { cursor: pointer; transition: box-shadow 0.15s; }
+      :host ::ng-deep .p-card.order-card {
+        cursor: pointer;
+        transition: box-shadow 0.15s;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+      }
       :host ::ng-deep .p-card.order-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
       :host ::ng-deep .p-card.order-card .p-card-body { padding: 0.875rem; }
       :host ::ng-deep .p-card.order-card .p-card-content { padding: 0; }
@@ -129,8 +138,8 @@ import { Order } from '../../portal/portal.service';
         gap: 1rem;
       }
       .info { min-width: 0; }
-      .code { font-weight: 700; }
-      .time { font-size: 0.75rem; color: var(--text-color-secondary); }
+      .code { font-weight: 700; color: var(--text-main); }
+      .time { font-size: 0.75rem; color: var(--text-muted); }
       .totals {
         display: flex;
         flex-direction: column;
@@ -140,6 +149,7 @@ import { Order } from '../../portal/portal.service';
       .total {
         font-weight: 700;
         font-variant-numeric: tabular-nums;
+        color: var(--text-main);
       }
     `,
   ],

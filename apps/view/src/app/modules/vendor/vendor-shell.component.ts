@@ -58,15 +58,15 @@ import { AuthService } from '../../core/services/auth.service';
         min-height: 100dvh;
         display: flex;
         flex-direction: column;
-        background: var(--surface-100, #f3f4f6);
+        background: var(--layout-bg);
       }
       .vendor-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
-        background: var(--surface-card, white);
-        border-bottom: 1px solid var(--surface-border, #e5e7eb);
+        background: var(--card-bg);
+        border-bottom: 1px solid var(--border-color);
         position: sticky;
         top: 0;
         z-index: 10;
@@ -76,13 +76,13 @@ import { AuthService } from '../../core/services/auth.service';
         align-items: center;
         gap: 0.5rem;
         font-weight: 700;
-        color: var(--primary-color);
+        color: var(--brand-700);
       }
       .vendor-brand i { font-size: 1.25rem; }
       .vendor-user { display: flex; align-items: center; gap: 0.5rem; }
       .vendor-username {
         font-size: 0.875rem;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
       }
       .vendor-main {
         flex: 1;
@@ -98,8 +98,8 @@ import { AuthService } from '../../core/services/auth.service';
         bottom: 0;
         left: 0;
         right: 0;
-        background: var(--surface-card, white);
-        border-top: 1px solid var(--surface-border, #e5e7eb);
+        background: var(--card-bg);
+        border-top: 1px solid var(--border-color);
         display: flex;
         justify-content: space-around;
         padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
@@ -114,13 +114,13 @@ import { AuthService } from '../../core/services/auth.service';
         align-items: center;
         gap: 0.125rem;
         text-decoration: none;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
         padding: 0.5rem;
         font-size: 0.75rem;
       }
       .vendor-bottom-nav a i { font-size: 1.25rem; }
       .vendor-bottom-nav a.active {
-        color: var(--primary-color);
+        color: var(--brand-700);
         font-weight: 600;
       }
     `,

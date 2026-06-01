@@ -149,6 +149,7 @@ import { HapticService } from '../../../core/services/haptic.service';
                 pButton
                 icon="pi pi-plus"
                 size="small"
+                severity="contrast"
                 [disabled]="!!adding[p.product_id]"
                 (click)="addToCart(p)"
               ></button>
@@ -215,6 +216,7 @@ import { HapticService } from '../../../core/services/haptic.service';
             pButton
             label="Confirmar pedido"
             icon="pi pi-check"
+            severity="contrast"
             [disabled]="confirming()"
             (click)="confirm()"
           ></button>
@@ -231,9 +233,9 @@ import { HapticService } from '../../../core/services/haptic.service';
       .customer-header {
         margin-bottom: 1rem;
       }
-      .customer-header h1 { margin: 0; font-size: 1.5rem; }
+      .customer-header h1 { margin: 0; font-size: 1.5rem; color: var(--text-main); }
       .customer-header .code {
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
         font-size: 0.875rem;
       }
       /* J.6.6 — Toggle tipo de entrega en el header */
@@ -243,7 +245,7 @@ import { HapticService } from '../../../core/services/haptic.service';
         gap: 0.5rem;
         margin-top: 0.5rem;
         font-size: 0.85rem;
-        color: var(--text-color-secondary);
+        color: var(--text-muted);
       }
       :host ::ng-deep .delivery-type .p-selectbutton .p-button {
         padding: 0.25rem 0.65rem;
@@ -255,15 +257,16 @@ import { HapticService } from '../../../core/services/haptic.service';
         font-size: 0.7rem;
         padding: 0.1rem 0.4rem;
       }
-      /* styleClass="cart-summary" se aplica AL .p-card directamente, no a un hijo.
-         Por eso el selector combina las dos clases sin descendant. */
+      /* Cart summary: bg brand-400 + text neutral-950 (regla #1 UX_TOKENS:
+         brand-400 amarillo NUNCA con texto blanco encima — contraste 1.07). */
       :host ::ng-deep .p-card.cart-summary {
-        background: var(--primary-color);
-        color: white;
+        background: var(--brand-400);
+        color: var(--neutral-950);
         margin-bottom: 1rem;
+        border: 1px solid var(--brand-500);
       }
       :host ::ng-deep .p-card.cart-summary .p-card-body { padding: 0.75rem 1rem; }
-      :host ::ng-deep .p-card.cart-summary .p-card-content { padding: 0; color: white; }
+      :host ::ng-deep .p-card.cart-summary .p-card-content { padding: 0; color: var(--neutral-950); }
       .cart-summary-row {
         display: flex;
         justify-content: space-between;
@@ -284,6 +287,10 @@ import { HapticService } from '../../../core/services/haptic.service';
         flex-direction: column;
         gap: 0.5rem;
       }
+      :host ::ng-deep .p-card.product-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+      }
       :host ::ng-deep .p-card.product-card .p-card-body { padding: 0.75rem; }
       :host ::ng-deep .p-card.product-card .p-card-content { padding: 0; }
       .product-row {
@@ -296,18 +303,20 @@ import { HapticService } from '../../../core/services/haptic.service';
         font-weight: 600;
         font-size: 0.95rem;
         line-height: 1.2;
+        color: var(--text-main);
       }
       .meta {
         display: flex;
         gap: 0.75rem;
         font-size: 0.8rem;
         margin-top: 0.25rem;
+        color: var(--text-muted);
       }
       .meta .price {
         font-weight: 700;
-        color: var(--primary-color);
+        color: var(--brand-700);
       }
-      .meta .min { color: var(--text-color-secondary); }
+      .meta .min { color: var(--text-muted); }
       .qty-controls {
         display: flex;
         gap: 0.375rem;
@@ -316,9 +325,9 @@ import { HapticService } from '../../../core/services/haptic.service';
       .cart-detail {
         margin-top: 2rem;
         padding-top: 1rem;
-        border-top: 2px solid var(--surface-border);
+        border-top: 2px solid var(--border-color);
       }
-      .cart-detail h2 { margin: 0 0 1rem; font-size: 1.25rem; }
+      .cart-detail h2 { margin: 0 0 1rem; font-size: 1.25rem; color: var(--text-main); }
       .tr { text-align: right; }
       .money { font-variant-numeric: tabular-nums; }
       .totals {
@@ -330,9 +339,10 @@ import { HapticService } from '../../../core/services/haptic.service';
         display: flex;
         justify-content: space-between;
         padding: 0.25rem 0;
+        color: var(--text-main);
       }
       .totals .total {
-        border-top: 2px solid var(--primary-color);
+        border-top: 2px solid var(--brand-400);
         padding-top: 0.5rem;
         margin-top: 0.5rem;
         font-size: 1.125rem;

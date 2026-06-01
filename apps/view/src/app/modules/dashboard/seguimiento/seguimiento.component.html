@@ -31,60 +31,178 @@
     </div>
   </div>
 
-  @if (totalUsers() > 0) {
-    <div class="flex items-center gap-2 px-4 py-2.5 bg-surface-layout rounded-lg border border-divider">
-      <span class="text-sm font-semibold text-content-main">
-        {{ enMeta() }} de {{ totalUsers() }} ejecutivos en meta
-        <span class="text-content-muted font-normal text-xs ml-1">(&ge;{{ scoreOpt() }} pts promedio)</span>
-      </span>
-    </div>
-  }
+  <!-- Sub-header + segmented toggle. Solo se muestra una vista a la vez. -->
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    @if (chartMode() === 'avg' && totalUsers() > 0) {
+      <div class="flex items-center gap-2 px-4 py-2.5 bg-surface-layout rounded-lg border border-divider">
+        <span class="text-sm font-semibold text-content-main">
+          {{ enMeta() }} de {{ totalUsers() }} ejecutivos en meta
+          <span class="text-content-muted font-normal text-xs ml-1">(&ge;{{ scoreOpt() }} pts promedio)</span>
+        </span>
+      </div>
+    } @else if (chartMode() !== 'avg' && altKpis().length > 0) {
+      <div class="flex items-center gap-4 text-xs">
+        @for (kpi of altKpis(); track kpi.label) {
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-content-faint">{{ kpi.label }}</div>
+            <div class="text-sm font-bold text-content-main">{{ kpi.value }}</div>
+          </div>
+        }
+      </div>
+    } @else {
+      <span></span>
+    }
 
+    <!-- Toggle: 4 modos ortogonales. role=tablist para a11y. -->
+    <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5 flex-wrap" role="tablist" aria-label="Tipo de gráfica">
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="chartMode() === 'avg'"
+        (click)="setChartMode('avg')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        [class.bg-surface-active]="chartMode() === 'avg'"
+        [class.text-content-active]="chartMode() === 'avg'"
+        [class.text-content-muted]="chartMode() !== 'avg'"
+        [class.hover:text-content-main]="chartMode() !== 'avg'">
+        <i class="pi pi-chart-bar text-[10px] mr-1" aria-hidden="true"></i>
+        Promedio
+      </button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="chartMode() === 'adherence'"
+        (click)="setChartMode('adherence')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        [class.bg-surface-active]="chartMode() === 'adherence'"
+        [class.text-content-active]="chartMode() === 'adherence'"
+        [class.text-content-muted]="chartMode() !== 'adherence'"
+        [class.hover:text-content-main]="chartMode() !== 'adherence'">
+        <i class="pi pi-calendar-clock text-[10px] mr-1" aria-hidden="true"></i>
+        Adherencia
+      </button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="chartMode() === 'volume'"
+        (click)="setChartMode('volume')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        [class.bg-surface-active]="chartMode() === 'volume'"
+        [class.text-content-active]="chartMode() === 'volume'"
+        [class.text-content-muted]="chartMode() !== 'volume'"
+        [class.hover:text-content-main]="chartMode() !== 'volume'">
+        <i class="pi pi-sigma text-[10px] mr-1" aria-hidden="true"></i>
+        Volumen
+      </button>
+      <button
+        type="button"
+        role="tab"
+        [attr.aria-selected]="chartMode() === 'efficiency'"
+        (click)="setChartMode('efficiency')"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        [class.bg-surface-active]="chartMode() === 'efficiency'"
+        [class.text-content-active]="chartMode() === 'efficiency'"
+        [class.text-content-muted]="chartMode() !== 'efficiency'"
+        [class.hover:text-content-main]="chartMode() !== 'efficiency'">
+        <i class="pi pi-bolt text-[10px] mr-1" aria-hidden="true"></i>
+        Eficiencia
+      </button>
+    </div>
+  </div>
+
+  <!-- Chart activo (uno a la vez). -->
   <div class="card-premium card-flat">
     <div [style.height.px]="chartHeight()">
-      @if (chartData(); as cd) {
-        <p-chart
-          type="bar"
-          [data]="cd"
-          [options]="chartOptions()"
-          [plugins]="chartPlugins"
-          height="100%"
-        />
-      } @else if (loadingChart()) {
+      @if (loadingChart()) {
         <div class="flex items-center justify-center h-full">
           <i class="pi pi-spin pi-spinner text-2xl text-content-faint" aria-hidden="true"></i>
         </div>
+      } @else if (chartMode() === 'avg') {
+        @if (chartData(); as cd) {
+          <p-chart
+            type="bar"
+            [data]="cd"
+            [options]="chartOptions()"
+            [plugins]="chartPlugins"
+            height="100%"
+          />
+        } @else {
+          <div class="flex items-center justify-center h-full text-content-muted">
+            No hay datos para el período seleccionado
+          </div>
+        }
       } @else {
-        <div class="flex items-center justify-center h-full text-content-muted">
-          No hay datos para hoy
-        </div>
+        @if (altChartData(); as ad) {
+          <p-chart
+            type="bar"
+            [data]="ad"
+            [options]="altChartOptions()"
+            [plugins]="chartPlugins"
+            height="100%"
+          />
+        } @else {
+          <div class="flex items-center justify-center h-full text-content-muted">
+            No hay datos para el período seleccionado
+          </div>
+        }
       }
     </div>
   </div>
 
-  <!--
-    Leyenda del chart de scores. Los colores vienen de --chart-fill-* que se
-    invierten en dark mode (claro → oscuro = barra alta vs barra alta = claro
-    en dark). Antes los hex estaban hardcoded.
-  -->
-  <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
-    <span class="flex items-center gap-1.5">
-      <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-low)"></span>
-      Bajo
-    </span>
-    <span class="flex items-center gap-1.5">
-      <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
-      Medio
-    </span>
-    <span class="flex items-center gap-1.5">
-      <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
-      Alto (&ge;{{ scoreOpt() }})
-    </span>
-    <span class="flex items-center gap-1.5 ml-2">
-      <span class="w-6 inline-block border-t-2 border-dashed" style="border-color: var(--chart-meta-line)"></span>
-      Meta ({{ scoreOpt() }} pts)
-    </span>
-  </div>
+  <!-- Leyenda contextual al modo activo. -->
+  @if (chartMode() === 'avg') {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-low)"></span>
+        Bajo
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Medio
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        Alto (&ge;{{ scoreOpt() }})
+      </span>
+      <span class="flex items-center gap-1.5 ml-2">
+        <span class="w-6 inline-block border-t-2 border-dashed" style="border-color: var(--chart-meta-line)"></span>
+        Meta ({{ scoreOpt() }} pts)
+      </span>
+    </div>
+  } @else if (chartMode() === 'adherence') {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        % Adherencia (días con captura ÷ días del rango)
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Visitas totales
+      </span>
+    </div>
+  } @else if (chartMode() === 'volume') {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        Puntos generados (suma real de todas las visitas)
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Score promedio (referencia de calidad)
+      </span>
+    </div>
+  } @else {
+    <div class="flex items-center gap-4 text-xs text-content-faint flex-wrap">
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-high)"></span>
+        Puntos por visita (total pts ÷ total visitas)
+      </span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded inline-block" style="background-color: var(--chart-fill-mid)"></span>
+        Visitas por día con captura
+      </span>
+    </div>
+  }
 
   <div class="mt-10 pt-6 border-t border-divider">
     <!-- El efecto reactivo sobre filtersState.filtersDebounced() ya dispara
