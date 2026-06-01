@@ -824,10 +824,11 @@ export class ReportsComponent implements OnInit, AfterViewInit {
       });
     });
 
-    // Clasificar cada visita según el nivel de ejecución de sus exhibiciones
-    // Si una visita tiene múltiples exhibiciones, usamos el nivel más bajo (peor caso)
+    // Clasificar cada visita según el peor nivel de ejecución de sus exhibiciones.
+    // `nivelOrden` ordenado de peor (idx 0) a mejor (idx 3). Una visita con
+    // múltiples exhibiciones se clasifica por el nivel MÁS BAJO.
     const nivelOrden = ['crítico', 'bajo', 'medio', 'alto'];
-    
+
     const visitLevelCounts: Record<string, number> = {
       'alto': 0, 'medio': 0, 'bajo': 0, 'crítico': 0,
     };
@@ -839,25 +840,26 @@ export class ReportsComponent implements OnInit, AfterViewInit {
         return;
       }
 
-      // Encontrar el nivel más bajo entre todas las exhibiciones de la visita
+      // Arrancamos en el mejor ('alto') y bajamos si encontramos algo peor.
+      // `nivelOrden.indexOf` peor=0, mejor=3 → comparar con `<` para tomar
+      // el menor índice (= nivel más bajo de calidad). Antes el código usaba
+      // `>` lo que NUNCA bajaba el worstLevel porque 'alto' (3) ya es el max.
       let worstLevel = 'alto';
       for (const ex of exhibiciones) {
         const nivelId = ex.nivelEjecucionId || ex.nivel_ejecucion_id;
         const nivelInfo = nivelMap.get(nivelId);
+        let candidate: string | null = null;
         if (nivelInfo) {
-          const currentIdx = nivelOrden.indexOf(worstLevel);
-          const newIdx = nivelOrden.indexOf(nivelInfo.value.toLowerCase());
-          if (newIdx > currentIdx) {
-            worstLevel = nivelInfo.value.toLowerCase();
-          }
+          candidate = nivelInfo.value.toLowerCase();
         } else if (ex.nivelEjecucion) {
-          // Fallback: usar el string directamente (ya en minúsculas)
-          const normalizedVal = ex.nivelEjecucion.toLowerCase();
-          const currentIdx = nivelOrden.indexOf(worstLevel);
-          const newIdx = nivelOrden.indexOf(normalizedVal);
-          if (newIdx > currentIdx) {
-            worstLevel = normalizedVal;
-          }
+          candidate = String(ex.nivelEjecucion).toLowerCase();
+        }
+        if (!candidate) continue;
+        const candidateIdx = nivelOrden.indexOf(candidate);
+        if (candidateIdx === -1) continue;
+        const currentIdx = nivelOrden.indexOf(worstLevel);
+        if (candidateIdx < currentIdx) {
+          worstLevel = candidate;
         }
       }
       visitLevelCounts[worstLevel] = (visitLevelCounts[worstLevel] || 0) + 1;
@@ -973,16 +975,26 @@ export class ReportsComponent implements OnInit, AfterViewInit {
         .slice(0, 5);
     }
 
+    // Normalización dinámica: para cada métrica (visitas, exhibiciones, ventas)
+    // tomamos el máximo DE LAS ZONAS y escalamos relativo a ese máximo. Antes
+    // estaba hardcodeado `/2`, `/1000` y con cifras reales de Mega Dulces todas
+    // las zonas clipeaban a 100 → radar visualmente idéntico (bug del audit).
+    // Score y gpsPct ya vienen 0-100 nativamente.
+    const maxVisitas = Math.max(1, ...zoneData.map((z: any) => z.totalVisitas ?? 0));
+    const maxExhibiciones = Math.max(1, ...zoneData.map((z: any) => z.totalExhibiciones ?? 0));
+    const maxVentas = Math.max(1, ...zoneData.map((z: any) => z.totalVentas ?? 0));
+    const norm = (v: number, max: number) => max > 0 ? Math.round((v / max) * 100) : 0;
+
     this.radarChartData = {
       labels: radarLabels,
       datasets: zoneData.map((z: any, idx: number) => ({
         label: z.zone,
         data: [
-          z.avgScore || 0,
-          Math.min(100, (z.totalVisitas ?? 0) / 2), // Normalizado a 100
-          z.gpsPct || 0,
-          Math.min(100, (z.totalExhibiciones ?? 0) / 2), // Normalizado a 100
-          Math.min(100, (z.totalVentas ?? 0) / 1000), // Normalizado a 100 (asumiendo ventas en miles)
+          Math.round(z.avgScore || 0),
+          norm(z.totalVisitas ?? 0, maxVisitas),
+          Math.round(z.gpsPct || 0),
+          norm(z.totalExhibiciones ?? 0, maxExhibiciones),
+          norm(z.totalVentas ?? 0, maxVentas),
         ],
         borderColor: chartSeriesPalette(t, 5)[idx],
         backgroundColor: chartSeriesPalette(t, 5)[idx],
