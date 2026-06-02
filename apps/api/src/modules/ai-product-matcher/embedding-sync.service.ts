@@ -4,166 +4,223 @@ import {
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_VECTOR_DB } from '../../shared/database/vector-database.module';
 import { EmbeddingsService } from '../../shared/ai/embeddings.service';
 
 /**
- * Fase K integridad: scanner periódico que detecta products con embedding
- * stale (insertados sin embedding, renombrados, o brand renombrado) y los
- * re-embed via Voyage.
+ * Fase K v2 — Sync del corpus del RAG hacia la DB vector dedicada.
  *
- * **Cuándo corre**:
- *   - `@Cron('0 *\/15 * * * *')` — cada 15 minutos (segundos 0).
- *   - Endpoint manual `POST /api/ai/products/sync-now` (admin).
+ * Fuente de verdad: `public.products` (catálogo ERP) en la DB transaccional
+ * (`KNEX_CONNECTION`). Destino: `product_embeddings` en la DB vector dedicada
+ * (`KNEX_VECTOR_DB`), denormalizada (brand_name/product_name) para que el
+ * matcher haga KNN sin join cross-DB.
  *
- * **Qué detecta stale**:
- *   - `activo = true` (productos soft-deleted no importan).
- *   - `embedding IS NULL` (nunca embedded — backfill original o insert sin hook).
- *   - `embedding_updated_at IS NULL` (marcado stale por trigger o updateBrand).
+ * Cada tick:
+ *   1. Lee productos activos de la fuente (id, brand, nombre).
+ *   2. Borra del vector store los que dejaron de estar activos (con guarda
+ *      anti-wipe: si borraría >30% del store, la fuente está mal apuntada).
+ *   3. Detecta nuevos (no están en el store) o renombrados (`source_text`
+ *      difiere) → los re-embebe via Voyage (input_type='document') y upsert.
  *
- * **Idempotente y safe**:
- *   - Lock `isRunning` previene overlap si un tick demora más de 15 min.
- *   - Failure-tolerant: si Voyage cae, log warning y reintenta en el próximo tick.
- *   - No-op si `VOYAGE_API_KEY` falta (warn una vez al boot).
- *
- * **Batches**: 50 products por iteración para acotar memoria + API cost por
- * tick. Si hay 500 stale, se procesan 50 ahora y los otros 450 en los próximos
- * 9 ticks.
+ * Idempotente, bounded (hasta `tickBatch` por tick), failure-tolerant. No-op
+ * si falta `VOYAGE_API_KEY` o `VECTOR_DATABASE_URL`.
  */
 @Injectable()
 export class EmbeddingSyncService implements OnModuleInit {
   private readonly logger = new Logger(EmbeddingSyncService.name);
   private isRunning = false;
-  private readonly enabled = !!process.env.VOYAGE_API_KEY;
-  private readonly batchSize = 50;
+  private readonly hasKey = !!process.env.VOYAGE_API_KEY;
+  /** Máximo de productos re-embebidos por tick (acota costo Voyage por tick). */
+  private readonly tickBatch = Number(process.env.VECTOR_SYNC_TICK_BATCH) || 200;
+  /** Voyage acepta hasta 128 inputs por request. */
+  private readonly embedChunk = 100;
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    @Inject(KNEX_VECTOR_DB) private readonly vectorDb: Knex | null,
     private readonly embeddings: EmbeddingsService,
   ) {}
 
   onModuleInit(): void {
-    if (!this.enabled) {
+    if (!this.hasKey) {
       this.logger.warn(
-        'EmbeddingSyncService: VOYAGE_API_KEY no configurada — el scanner queda en no-op. Llamadas a sync-now responden 503.',
+        'EmbeddingSyncService: VOYAGE_API_KEY no configurada — scanner en no-op, sync-now responde sin trabajo.',
+      );
+    } else if (!this.vectorDb) {
+      this.logger.warn(
+        'EmbeddingSyncService: VECTOR_DATABASE_URL no configurada — scanner en no-op. Setear para activar la DB vector dedicada.',
       );
     } else {
       this.logger.log(
-        `EmbeddingSyncService habilitado (batch=${this.batchSize}, cron=cada 15min).`,
+        `EmbeddingSyncService habilitado (tickBatch=${this.tickBatch}, cron=cada 15min).`,
       );
     }
   }
 
-  /**
-   * Ejecutado por NestJS Schedule. Si el tick anterior aún corre, skip.
-   */
   @Cron('0 */15 * * * *')
   async tick(): Promise<void> {
-    if (!this.enabled) return;
+    if (!this.hasKey || !this.vectorDb) return;
     if (this.isRunning) {
-      this.logger.warn('tick(): previous run still in progress, skipping.');
+      this.logger.warn('tick(): run anterior aún en curso, skip.');
       return;
     }
     this.isRunning = true;
     try {
-      const result = await this.syncBatch();
-      if (result.processed > 0) {
+      const r = await this.syncBatch();
+      if (r.processed > 0 || r.deleted > 0) {
         this.logger.log(
-          `tick(): processed ${result.processed} stale embeddings (${result.failed} failed)`,
+          `tick(): ${r.processed} embebidos, ${r.deleted} borrados, ${r.failed} fallidos, ${r.pending} pendientes.`,
         );
       }
     } catch (e: any) {
-      this.logger.error(`tick() failed: ${e.message}`);
+      this.logger.error(`tick() falló: ${e.message}`);
     } finally {
       this.isRunning = false;
     }
   }
 
+  private sourceText(brandName: string | null, productName: string): string {
+    return [brandName, productName]
+      .filter((s) => s && s.trim())
+      .map((s) => s!.trim())
+      .join(' — ');
+  }
+
   /**
-   * Una iteración del scanner: detecta hasta `batchSize` rows stale, calcula
-   * source_text, llama Voyage en un batch, y persiste los embeddings.
-   *
-   * Devuelve `{ processed, failed }` para reporting / endpoint manual.
+   * Una iteración del sync. Devuelve métricas para el endpoint manual.
+   * `pending` = stale restantes tras este batch (re-correr para drenar).
    */
-  async syncBatch(): Promise<{ processed: number; failed: number; pending: number }> {
-    // Detecta stale: activo + (sin embedding O sin updated_at).
-    const stale = await this.knex('products as p')
+  async syncBatch(): Promise<{
+    processed: number;
+    failed: number;
+    deleted: number;
+    pending: number;
+  }> {
+    if (!this.vectorDb) {
+      throw new Error('VECTOR_DATABASE_URL no configurada — no hay DB vector destino.');
+    }
+
+    // 1) Productos activos de la fuente.
+    const active: {
+      id: string;
+      tenant_id: string | null;
+      brand_id: string | null;
+      product_name: string;
+      brand_name: string | null;
+    }[] = await this.knex('products as p')
       .leftJoin('brands as b', 'b.id', 'p.brand_id')
       .where('p.activo', true)
-      .where((q) =>
-        q.whereNull('p.embedding').orWhereNull('p.embedding_updated_at'),
-      )
-      .orderBy('p.updated_at', 'asc')
-      .limit(this.batchSize)
       .select(
         'p.id',
+        'p.tenant_id',
+        'p.brand_id',
         'p.nombre as product_name',
         'b.nombre as brand_name',
       );
 
-    if (stale.length === 0) {
-      return { processed: 0, failed: 0, pending: 0 };
-    }
+    const activeIds = new Set(active.map((p) => p.id));
 
-    // Cuenta total de pendientes (sin limit) — útil para reporting.
-    const pendingRow = await this.knex('products')
-      .where('activo', true)
-      .where((q) =>
-        q.whereNull('embedding').orWhereNull('embedding_updated_at'),
-      )
-      .count<{ n: string }[]>('* as n')
-      .first();
-    const pendingTotal = Number(pendingRow?.n ?? 0);
+    // 2) Estado actual del vector store (id → source_text).
+    const existingRows: { product_id: string; source_text: string }[] =
+      await this.vectorDb('product_embeddings').select('product_id', 'source_text');
+    const existing = new Map(existingRows.map((r) => [r.product_id, r.source_text]));
 
-    // Compose source_text para cada row.
-    const sourceTexts = stale.map((r) =>
-      [r.brand_name, r.product_name]
-        .filter((s) => s && s.trim())
-        .map((s) => s.trim())
-        .join(' — '),
-    );
-
-    let vectors: number[][];
-    try {
-      vectors = await this.embeddings.embedBatch(sourceTexts, 'document');
-    } catch (e: any) {
-      this.logger.warn(
-        `syncBatch: Voyage embedBatch failed (${e.message}). Reintenta en el próximo tick.`,
+    // 3) Borrar inactivos (en el store pero ya no activos en la fuente).
+    //    Guarda anti-wipe: si borrar limpiaría >30% del store, la fuente
+    //    probablemente está mal apuntada (ej. PRODUCT_SOURCE_URL → DB con
+    //    catálogo viejo/parcial). Saltamos el delete y alertamos en vez de
+    //    vaciar el RAG sembrado.
+    const toDelete = existingRows
+      .map((r) => r.product_id)
+      .filter((id) => !activeIds.has(id));
+    let deleted = 0;
+    const wipeRatio = existingRows.length > 0 ? toDelete.length / existingRows.length : 0;
+    if (toDelete.length > 0 && wipeRatio > 0.3) {
+      this.logger.error(
+        `syncBatch: el delete eliminaría ${toDelete.length}/${existingRows.length} (${Math.round(wipeRatio * 100)}%) del store. ` +
+          `Fuente probablemente incompleta — SALTANDO borrado. Revisar PRODUCT_SOURCE_URL.`,
       );
-      return { processed: 0, failed: stale.length, pending: pendingTotal };
+    } else if (toDelete.length > 0) {
+      for (let i = 0; i < toDelete.length; i += 500) {
+        const chunk = toDelete.slice(i, i + 500);
+        deleted += await this.vectorDb('product_embeddings')
+          .whereIn('product_id', chunk)
+          .del();
+      }
     }
 
-    // Persist embeddings. Hacemos un UPDATE por row dentro de un trx —
-    // las queries SQL del trigger reaccionan solo a cambios de nombre/brand_id,
-    // así que estos UPDATEs NO re-disparan staleness.
-    let failed = 0;
-    await this.knex.transaction(async (trx) => {
-      for (let i = 0; i < stale.length; i++) {
-        try {
-          const vecLiteral = `[${vectors[i].join(',')}]`;
-          await trx.raw(
-            `UPDATE products
-               SET embedding = ?::vector,
-                   embedding_source_text = ?,
-                   embedding_updated_at = NOW()
-             WHERE id = ?`,
-            [vecLiteral, sourceTexts[i], stale[i].id],
-          );
-        } catch (e: any) {
-          failed++;
-          this.logger.warn(
-            `syncBatch: failed to persist embedding for ${stale[i].id}: ${e.message}`,
-          );
-        }
-      }
+    // 4) Detectar stale: nuevos o renombrados (source_text difiere).
+    const staleAll = active.filter((p) => {
+      const text = this.sourceText(p.brand_name, p.product_name);
+      return existing.get(p.id) !== text;
     });
+    const pending = Math.max(0, staleAll.length - this.tickBatch);
+    const batch = staleAll.slice(0, this.tickBatch);
 
-    return {
-      processed: stale.length - failed,
-      failed,
-      pending: Math.max(0, pendingTotal - (stale.length - failed)),
-    };
+    if (batch.length === 0) {
+      return { processed: 0, failed: 0, deleted, pending: 0 };
+    }
+
+    // 5) Embeber en sub-chunks (límite Voyage) + upsert.
+    let processed = 0;
+    let failed = 0;
+    for (let i = 0; i < batch.length; i += this.embedChunk) {
+      const chunk = batch.slice(i, i + this.embedChunk);
+      const texts = chunk.map((p) => this.sourceText(p.brand_name, p.product_name));
+      let vectors: number[][];
+      try {
+        vectors = await this.embeddings.embedBatch(texts, 'document');
+      } catch (e: any) {
+        this.logger.warn(
+          `syncBatch: Voyage embedBatch falló (${e.message}). Reintenta próximo tick.`,
+        );
+        failed += chunk.length;
+        continue;
+      }
+
+      await this.vectorDb.transaction(async (trx) => {
+        for (let j = 0; j < chunk.length; j++) {
+          try {
+            const p = chunk[j];
+            const vecLiteral = `[${vectors[j].join(',')}]`;
+            await trx.raw(
+              `
+              INSERT INTO product_embeddings
+                (product_id, tenant_id, brand_id, brand_name, product_name, source_text, embedding, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?::vector, now())
+              ON CONFLICT (product_id) DO UPDATE SET
+                tenant_id    = EXCLUDED.tenant_id,
+                brand_id     = EXCLUDED.brand_id,
+                brand_name   = EXCLUDED.brand_name,
+                product_name = EXCLUDED.product_name,
+                source_text  = EXCLUDED.source_text,
+                embedding    = EXCLUDED.embedding,
+                updated_at   = now()
+              `,
+              [
+                p.id,
+                p.tenant_id,
+                p.brand_id,
+                p.brand_name,
+                p.product_name,
+                texts[j],
+                vecLiteral,
+              ],
+            );
+            processed++;
+          } catch (e: any) {
+            failed++;
+            this.logger.warn(
+              `syncBatch: upsert falló para ${chunk[j].id}: ${e.message}`,
+            );
+          }
+        }
+      });
+    }
+
+    return { processed, failed, deleted, pending };
   }
 }

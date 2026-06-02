@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_VECTOR_DB } from '../../shared/database/vector-database.module';
 import { EmbeddingsService } from '../../shared/ai/embeddings.service';
 import { LlmExtractorService } from '../../shared/ai/llm-extractor.service';
 
@@ -125,12 +126,73 @@ export class AiProductMatcherService {
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    @Inject(KNEX_VECTOR_DB) private readonly vectorDb: Knex | null,
     private readonly embeddings: EmbeddingsService,
     private readonly extractor: LlmExtractorService,
   ) {
     const parsed = Number(process.env.AI_PRODUCT_MATCH_MAX_ITEMS);
     this.maxItems =
       Number.isFinite(parsed) && parsed > 0 ? parsed : MAX_ITEMS_DEFAULT;
+    if (this.vectorDb) {
+      this.logger.log('Matcher usa la DB vector dedicada (product_embeddings).');
+    } else {
+      this.logger.warn(
+        'Matcher usa la fuente legacy (products.embedding). Setear VECTOR_DATABASE_URL para la DB dedicada.',
+      );
+    }
+  }
+
+  /**
+   * KNN coseno overfetch a K=RERANK_TOP_K. Si hay DB vector dedicada, consulta
+   * `product_embeddings` (denormalizada, sin join). Si no, cae a la fuente
+   * legacy `products.embedding` con join a brands.
+   */
+  private async knnCandidates(vecLiteral: string): Promise<MatchedProduct[]> {
+    if (this.vectorDb) {
+      const rows = await this.vectorDb.raw(
+        `
+        SELECT product_id,
+               brand_id,
+               brand_name,
+               product_name,
+               ROUND((1 - (embedding <=> ?::vector))::numeric, 4) AS score
+        FROM product_embeddings
+        ORDER BY embedding <=> ?::vector
+        LIMIT ${RERANK_TOP_K}
+        `,
+        [vecLiteral, vecLiteral],
+      );
+      return rows.rows.map((r: any) => ({
+        product_id: r.product_id,
+        brand_id: r.brand_id,
+        brand_name: r.brand_name,
+        product_name: r.product_name,
+        score: Number(r.score),
+      }));
+    }
+
+    const rows = await this.knex.raw(
+      `
+      SELECT p.id AS product_id,
+             p.brand_id,
+             b.nombre AS brand_name,
+             p.nombre AS product_name,
+             ROUND((1 - (p.embedding <=> ?::vector))::numeric, 4) AS score
+      FROM products p
+      LEFT JOIN brands b ON b.id = p.brand_id
+      WHERE p.activo = true AND p.embedding IS NOT NULL
+      ORDER BY p.embedding <=> ?::vector
+      LIMIT ${RERANK_TOP_K}
+      `,
+      [vecLiteral, vecLiteral],
+    );
+    return rows.rows.map((r: any) => ({
+      product_id: r.product_id,
+      brand_id: r.brand_id,
+      brand_name: r.brand_name,
+      product_name: r.product_name,
+      score: Number(r.score),
+    }));
   }
 
   async match(rawText: string): Promise<MatchResponse> {
@@ -190,29 +252,7 @@ export class AiProductMatcherService {
           const vec = vectors[idx];
           const vecLiteral = `[${vec.join(',')}]`;
 
-          const rows = await this.knex.raw(
-            `
-            SELECT p.id AS product_id,
-                   p.brand_id,
-                   b.nombre AS brand_name,
-                   p.nombre AS product_name,
-                   ROUND((1 - (p.embedding <=> ?::vector))::numeric, 4) AS score
-            FROM products p
-            LEFT JOIN brands b ON b.id = p.brand_id
-            WHERE p.activo = true AND p.embedding IS NOT NULL
-            ORDER BY p.embedding <=> ?::vector
-            LIMIT ${RERANK_TOP_K}
-            `,
-            [vecLiteral, vecLiteral],
-          );
-
-          const candidates: MatchedProduct[] = rows.rows.map((r: any) => ({
-            product_id: r.product_id,
-            brand_id: r.brand_id,
-            brand_name: r.brand_name,
-            product_name: r.product_name,
-            score: Number(r.score),
-          }));
+          const candidates = await this.knnCandidates(vecLiteral);
 
           const rerankedFull = this.rerankCandidates(it.normalized, candidates);
           const reranked = rerankedFull.slice(0, RETURN_TOP_N);
