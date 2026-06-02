@@ -52,6 +52,7 @@ export const permissionToSubject: Record<string, AppSubject> = {
   [Permission.LOGISTICS_PAYROLL_VER]: 'logistics_payroll',
   [Permission.LOGISTICS_PAYROLL_GESTIONAR]: 'logistics_payroll',
   [Permission.LOGISTICS_CONFIG_GESTIONAR]: 'logistics_config',
+  [Permission.CAPTURE_TICKET_USE]: 'capture_ticket',
 };
 
 const permissionToAction: Record<string, Action | Action[]> = {
@@ -104,6 +105,7 @@ const permissionToAction: Record<string, Action | Action[]> = {
   [Permission.LOGISTICS_PAYROLL_VER]: 'read',
   [Permission.LOGISTICS_PAYROLL_GESTIONAR]: ['read', 'create', 'update', 'delete'],
   [Permission.LOGISTICS_CONFIG_GESTIONAR]: ['read', 'create', 'update', 'delete'],
+  [Permission.CAPTURE_TICKET_USE]: 'read',
 };
 
 export function buildAbility(permissions: Record<string, boolean>): AppAbility {

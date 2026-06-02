@@ -43,15 +43,20 @@ import {
         <p class="muted">Vista en tiempo real del período. Refrescá si querés data actualizada.</p>
       </div>
       <div class="filter-bar">
-        <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
-        <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
-        <button pButton icon="pi pi-refresh" label="Actualizar" (click)="reload()" [loading]="loading()"></button>
+        <div class="filter-daterange" role="group" aria-label="Rango de fechas">
+          <label class="filter-label" for="ld-from">Desde</label>
+          <p-datepicker inputId="ld-from" [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
+          <i class="pi pi-arrow-right filter-arrow" aria-hidden="true"></i>
+          <label class="filter-label" for="ld-to">Hasta</label>
+          <p-datepicker inputId="ld-to" [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
+        </div>
+        <button pButton icon="pi pi-refresh" label="Actualizar" severity="contrast" (click)="reload()" [loading]="loading()"></button>
       </div>
     </div>
 
     <!-- KPI Grid (4 columns) -->
     <div class="kpi-grid">
-      <div class="kpi-card kpi-purple" [class.skeleton]="loading()">
+      <div class="kpi-card" [class.skeleton]="loading()">
         <div class="kpi-icon"><i class="pi pi-truck"></i></div>
         <div class="kpi-label">Volumen operativo</div>
         <div class="kpi-value" *ngIf="!loading()">{{ overview()?.shipments?.count || 0 }}</div>
@@ -62,7 +67,7 @@ import {
         </div>
       </div>
 
-      <div class="kpi-card kpi-green" [class.skeleton]="loading()">
+      <div class="kpi-card" [class.skeleton]="loading()">
         <div class="kpi-icon"><i class="pi pi-arrow-up-right"></i></div>
         <div class="kpi-label">Ingreso flete</div>
         <div class="kpi-value" *ngIf="!loading()">\${{ overview()?.revenue?.freight || 0 | number:'1.2-2' }}</div>
@@ -73,7 +78,7 @@ import {
         </div>
       </div>
 
-      <div class="kpi-card kpi-orange" [class.skeleton]="loading()">
+      <div class="kpi-card" [class.skeleton]="loading()">
         <div class="kpi-icon"><i class="pi pi-money-bill"></i></div>
         <div class="kpi-label">Costo operativo</div>
         <div class="kpi-value" *ngIf="!loading()">\${{ overview()?.cost?.total || 0 | number:'1.2-2' }}</div>
@@ -194,7 +199,7 @@ import {
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="muted">Sin data en el período.</td></tr>
+            <tr><td colspan="6" class="muted">Sin embarques cerrados en este rango. Probá ampliar las fechas.</td></tr>
           </ng-template>
         </p-table>
       </p-card>
@@ -223,7 +228,7 @@ import {
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="5" class="muted">Sin unidades activas en el período.</td></tr>
+            <tr><td colspan="5" class="muted">Aún no se asignaron unidades en este período.</td></tr>
           </ng-template>
         </p-table>
       </p-card>
@@ -234,7 +239,30 @@ import {
     .header-row { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
     .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .filter-bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .filter-bar { display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap; }
+    .filter-daterange {
+      display:inline-flex;
+      align-items:flex-end;
+      gap:.5rem;
+      padding: .5rem .75rem;
+      background: var(--surface-card, #fff);
+      border: 1px solid var(--surface-border, var(--neutral-200));
+      border-radius: 10px;
+    }
+    .filter-label {
+      display: block;
+      font-size: .65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-color-secondary);
+      margin-bottom: .25rem;
+    }
+    .filter-arrow {
+      color: var(--text-color-secondary);
+      font-size: .7rem;
+      padding-bottom: .65rem;
+    }
 
     .kpi-grid {
       display:grid;
@@ -244,22 +272,21 @@ import {
     }
     .kpi-card {
       background: var(--surface-card, var(--surface-50));
-      border-left: 4px solid var(--surface-300);
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
+      border: 1px solid var(--surface-border, var(--neutral-200));
+      border-radius: 12px;
+      padding: 1.125rem 1.25rem;
       position: relative;
     }
-    .kpi-purple { border-left-color: var(--chart-3); }
-    .kpi-purple .kpi-icon { color: var(--chart-3); }
-    .kpi-green { border-left-color: var(--ok-fg); }
-    .kpi-green .kpi-icon { color: var(--ok-fg); }
-    .kpi-orange { border-left-color: var(--warn-fg); }
-    .kpi-orange .kpi-icon { color: var(--warn-fg); }
-    .kpi-positive { border-left-color: var(--ok-fg); }
+    /* Margen mantiene semántico legítimo (positivo/negativo = dirección crítica) */
+    .kpi-positive { border-left: 3px solid var(--ok-fg); }
     .kpi-positive .kpi-icon { color: var(--ok-fg); }
-    .kpi-negative { border-left-color: var(--bad-fg); }
+    .kpi-negative { border-left: 3px solid var(--bad-fg); }
     .kpi-negative .kpi-icon { color: var(--bad-fg); }
-    .kpi-icon { font-size:1.25rem; margin-bottom:.5rem; }
+    .kpi-icon {
+      font-size:1.25rem;
+      margin-bottom:.5rem;
+      color: var(--text-color-secondary);
+    }
     .kpi-label { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
     .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
     .kpi-sub { font-size:.75rem; color: var(--text-color-secondary); margin-top:.5rem; }
