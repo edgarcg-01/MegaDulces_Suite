@@ -98,11 +98,12 @@ function check(name, condition, detail) {
   check('GET price-lists incluye BASE-MXN', !!basePl);
 
   if (basePl) {
-    const prices = await req('GET', `/commercial/price-lists/${basePl.id}/prices`, null, token);
+    const prices = await req('GET', `/commercial/price-lists/${basePl.id}/prices?pageSize=200`, null, token);
+    const rows = Array.isArray(prices.body) ? prices.body : (prices.body?.data || []);
     check(
       'GET prices con >= 25 productos',
-      Array.isArray(prices.body) && prices.body.length >= 25,
-      `count=${prices.body?.length}`,
+      rows.length >= 25,
+      `count=${rows.length}`,
     );
   }
 

@@ -19,7 +19,7 @@ async function setCtx(trx) {
 
 const LINES_TO_ADD = [
   { brand: 'Chocolates Premium', product: 'Trufas Surtidas 12pz', qty: 5 },
-  { brand: 'Dulces Típicos MX', product: 'Pulparindo 20pz', qty: 30 },
+  { brand: 'Chocolates Premium', product: 'Barra Chocolate Amargo 70%', qty: 30 },
   { brand: 'Chicles & Gomitas', product: 'Gomitas Frutales 1kg', qty: 8 },
   { brand: 'Paletas y Helados', product: 'Paleta Glaseada Caramelo', qty: 24 },
 ];
@@ -35,8 +35,8 @@ const LINES_TO_ADD = [
       for (const l of LINES_TO_ADD) {
         const p = await trx('public.products as p')
           .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-          .where('b.nombre', l.brand)
-          .where('p.nombre', l.product)
+          .whereRaw('LOWER(b.nombre) = LOWER(?)', [l.brand])
+          .whereRaw('LOWER(p.nombre) = LOWER(?)', [l.product])
           .select('p.id')
           .first();
         const stock = await trx('commercial.stock').where({ product_id: p.id }).first();
@@ -84,8 +84,8 @@ const LINES_TO_ADD = [
       for (const l of LINES_TO_ADD) {
         const product = await trx('public.products as p')
           .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-          .where('b.nombre', l.brand)
-          .where('p.nombre', l.product)
+          .whereRaw('LOWER(b.nombre) = LOWER(?)', [l.brand])
+          .whereRaw('LOWER(p.nombre) = LOWER(?)', [l.product])
           .select('p.id', 'p.nombre')
           .first();
 
@@ -208,8 +208,8 @@ const LINES_TO_ADD = [
       for (const l of LINES_TO_ADD) {
         const p = await trx('public.products as p')
           .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-          .where('b.nombre', l.brand)
-          .where('p.nombre', l.product)
+          .whereRaw('LOWER(b.nombre) = LOWER(?)', [l.brand])
+          .whereRaw('LOWER(p.nombre) = LOWER(?)', [l.product])
           .select('p.id')
           .first();
         const stockAfter = await trx('commercial.stock').where({ product_id: p.id }).first();

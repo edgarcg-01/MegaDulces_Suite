@@ -176,10 +176,10 @@ function wait(ms) {
   );
   const pls = (await http('GET', '/commercial/price-lists', null, t1Token)).body;
   const basePl = pls.find((p) => p.code === 'BASE-MXN');
-  const prices = (await http('GET', `/commercial/price-lists/${basePl.id}/prices`, null, t1Token))
-    .body;
+  const pricesResp = await http('GET', `/commercial/price-lists/${basePl.id}/prices?pageSize=200`, null, t1Token);
+  const prices = Array.isArray(pricesResp.body) ? pricesResp.body : (pricesResp.body?.data || []);
   // Buscar producto caro para superar $3k
-  const expensive = prices.sort((a, b) => Number(b.price) - Number(a.price))[0];
+  const expensive = [...prices].sort((a, b) => Number(b.price) - Number(a.price))[0];
 
   // Idempotencia: replenish stock para el producto elegido a un nivel seguro
   // antes de tomar la orden. Sin esto re-runs depletan el stock.
@@ -204,20 +204,27 @@ function wait(ms) {
   );
   const confirm = await http('POST', `/commercial/orders/${draft.body.id}/confirm`, null, t1Token);
   check(
-    'order confirm exitoso (status=confirmed)',
-    confirm.body?.status === 'confirmed',
+    'order confirm exitoso (status=pending_approval)',
+    confirm.body?.status === 'pending_approval',
     `status=${confirm.body?.status}`,
   );
   await wait(500);
 
-  check(
-    'recibimos order_confirmed alert',
-    t1.alerts.some((a) => a.type === 'order_confirmed'),
-  );
+  // emitLargeOrder se dispara en confirm() (cliente confirma)
   check(
     'recibimos large_order alert (total > $3k)',
     t1.alerts.some((a) => a.type === 'large_order'),
     `total=${confirm.body?.total}`,
+  );
+
+  t1.alerts.length = 0;
+  const approve = await http('POST', `/commercial/orders/${draft.body.id}/approve`, null, t1Token);
+  check('order approve exitoso (status=confirmed)', approve.body?.status === 'confirmed', `status=${approve.body?.status}`);
+  await wait(500);
+  // emitOrderConfirmed se dispara en approve() (vendedor aprueba)
+  check(
+    'recibimos order_confirmed alert tras approve',
+    t1.alerts.some((a) => a.type === 'order_confirmed'),
   );
 
   t1.alerts.length = 0;

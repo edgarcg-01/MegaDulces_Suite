@@ -146,13 +146,15 @@ const USER2_ID = '00000000-0000-0000-0000-000000002a01';
       `count=${pl2.body?.length}`,
     );
 
-    // Tenant 1 ve stock
+    // Tenant 1 ve stock (response: { data: [], pagination: { total } })
     const s1 = await req('GET', '/commercial/inventory/stock', null, token1);
-    check('Tenant 1 ve stock', (s1.body?.total || 0) > 0);
+    const s1Count = s1.body?.pagination?.total ?? s1.body?.total ?? s1.body?.data?.length ?? 0;
+    check('Tenant 1 ve stock', s1Count > 0, `count=${s1Count}`);
 
     // Tenant 2 NO ve stock
     const s2 = await req('GET', '/commercial/inventory/stock', null, token2);
-    check('Tenant 2 NO ve stock', s2.body?.total === 0, `total=${s2.body?.total}`);
+    const s2Count = s2.body?.pagination?.total ?? s2.body?.total ?? s2.body?.data?.length ?? 0;
+    check('Tenant 2 NO ve stock', s2Count === 0, `count=${s2Count}`);
 
     // Tenant 1 ve orders
     const o1 = await req('GET', '/commercial/orders', null, token1);

@@ -334,6 +334,49 @@ Detallado en `FASES/FASE_A0bis_MULTITENANT_NEW_DB.md` (nuevo). Sprint **A.0-mult
 
 ---
 
+## ADR-013 — Estado intermedio `pending_approval` en state machine de orders (flujo B2B)
+
+**Estado:** ✅ Aceptado
+
+**Fecha:** 2026-06-02
+
+**Contexto:**
+- Pre-existente: `commercial.orders.status` solo tenía `draft → confirmed → fulfilled` (+ `cancelled` desde varios). El cliente B2B confirmaba y el order saltaba directo a `confirmed`, reservando stock sin que el vendedor revisara.
+- Necesidad de negocio: el vendedor en Mega Dulces debe **revisar** cada pedido confirmado por el cliente antes de comprometer stock real para preparación. En especial debe poder **recortar** cantidades cuando el cliente pidió más de lo realista.
+- El cambio aterrizó en commit `edff610` (migraciones `20260528100000_orders_add_pending_approval_status.js` + `20260529082000_*` + `20260529100000_order_lines_requested_quantity.js`) pero la regression suite no se actualizó al mismo tiempo — 7/19 suites quedaron rojas hasta el cierre 2026-06-02.
+
+**Decisión:** Adoptar el state machine ampliado:
+
+```
+draft → pending_approval → confirmed → fulfilled
+                                     ↘
+                                       cancelled  (desde draft / pending_approval / confirmed)
+```
+
+Reglas:
+- `POST /commercial/orders/:id/confirm` (cliente, permiso `COMMERCIAL_ORDERS_CREAR`) → `draft → pending_approval`. **Reserva stock** en este punto (no en confirmed). Líneas snapshot `quantity` en `requested_quantity`.
+- `POST /commercial/orders/:id/approve` (vendedor, permiso `COMMERCIAL_ORDERS_CONFIRMAR`) → `pending_approval → confirmed`. **No mueve inventario** (ya reservado).
+- En `pending_approval` el vendedor solo puede **recortar** cantidades (≤ `requested_quantity`), nunca aumentar. Editar la línea ajusta la reserva atómicamente.
+- `fulfill()` sigue siendo `confirmed → fulfilled` y consume stock (vía hook desde `LogisticsShipmentsService.close()` cuando es la última shipment del order).
+- `cancel()` libera reservas si el order estaba en `pending_approval` **o** `confirmed`.
+
+**Alternativas consideradas:**
+- **Mantener 3 estados + flag `needs_review` boolean**: split de truth source → bugs de consistencia. Rechazado.
+- **Reservar stock solo al `approve()`**: ventana donde cliente confirma pero stock no está protegido → otro cliente puede comprar lo mismo. Rechazado.
+- **Notificar al vendedor con alerts WS y dejar `confirmed` como antes**: no impide stock comprometido a pedidos no revisados. Rechazado.
+
+**Consecuencias:**
+- ✅ Vendedor tiene cola explícita `WHERE status='pending_approval'` para revisar.
+- ✅ `requested_quantity` audita cuánto pidió el cliente vs. cuánto se aprobó.
+- ✅ Alerts WS: `emitLargeOrder` dispara en `confirm()`; `emitOrderConfirmed` dispara en `approve()`; `emitOrderFulfilled` igual que antes.
+- ⚠️ Frontend `portal/` y `vendor/` deben mostrar el nuevo estado intermedio (validación visual pendiente).
+- ⚠️ Tests (B.1, B.3.2, J.6.1, J.8, C.4, D.1, D.4) ajustados para llamar `/approve` entre `/confirm` y `/fulfill`. Regression 19/19 verde al cierre.
+- 🔄 Reversible: la migración `up` tiene `down` que UPDATEa cualquier order `pending_approval → confirmed` antes de quitar el valor del CHECK constraint. Data preservada.
+
+**Bug colateral detectado y corregido en el mismo cierre:** `apps/api/src/shared/ability/ability.factory.ts` **nunca tuvo** mappings para los Permission `COMMERCIAL_*` ni `LOGISTICS_*`. El `RolesGuard` chequea `permissionToSubject[perm]` y devuelve `false` si el mapping no existe → 403 silencioso para CUALQUIER role no-admin sobre endpoints comerciales/logística. `superoot` pasaba sólo porque su permiso `REPORTES_VER_GLOBAL` activa `can('manage', 'all')`. Fix: agregados 28 mappings (subjects nuevos: `commercial_customers`, `commercial_warehouses`, `commercial_pricing`, `commercial_inventory`, `commercial_orders`, `commercial_payments`, `commercial_promotions`, `commercial_televenta`, `logistics_fleet`, `logistics_shipments`, `logistics_guides`, `logistics_expenses`, `logistics_payroll`, `logistics_config`) en `ability.types.ts` + `ability.factory.ts`. Verificado E2E con `cliente_demo` (rol `customer_b2b`) en portal.
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

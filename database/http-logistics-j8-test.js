@@ -56,18 +56,19 @@ function check(name, cond, detail) {
     process.exit(1);
   }
 
-  // 2. Setup: customer + warehouse + producto
+  // 2. Setup: customer TST-0001 (testdata) + warehouse + producto con precio en su price_list
   console.log('\n── 2. Setup data ──');
-  const customers = await req('GET', '/commercial/customers?pageSize=5', null, token);
-  const customer = (customers.body?.data || []).find((c) => c.active);
+  const customers = await req('GET', '/commercial/customers?pageSize=50', null, token);
+  const allCustomers = customers.body?.data || [];
+  const customer = allCustomers.find((c) => c.code === 'TST-0001' && c.active) || allCustomers.find((c) => c.active);
   check('customer activo encontrado', !!customer?.id);
 
   const warehouses = await req('GET', '/commercial/warehouses', null, token);
   const warehouse = (warehouses.body?.data || warehouses.body || []).find((w) => w.is_default);
   check('warehouse default encontrado', !!warehouse?.id);
 
-  // 3. Crear order draft → confirm
-  console.log('\n── 3. Order: draft + lines + confirm ──');
+  // 3. Crear order draft → confirm → approve
+  console.log('\n── 3. Order: draft + lines + confirm + approve ──');
   const draft = await req('POST', '/commercial/orders', {
     customer_id: customer.id, warehouse_id: warehouse.id, notes: 'J.8 test',
   }, token);
@@ -75,10 +76,13 @@ function check(name, cond, detail) {
   check('order draft creado', !!order?.id);
   if (!order?.id) { console.error('Cannot continue'); process.exit(1); }
 
-  const products = await req('GET', '/commercial/inventory/stock', null, token);
-  const stockList = products.body?.data || products.body || [];
-  const stockEntry = stockList.find((s) => Number(s.quantity || 0) >= 5);
-  check('stock entry con qty >= 5 encontrado', !!stockEntry);
+  // Cruzar prices de la price_list del customer con stock del warehouse
+  const plPrices = await req('GET', `/commercial/price-lists/${customer.default_price_list_id}/prices?pageSize=200`, null, token);
+  const pricedIds = new Set((plPrices.body?.data || []).map((p) => p.product_id));
+  const stockResp = await req('GET', `/commercial/inventory/stock?warehouse_id=${warehouse.id}&pageSize=200`, null, token);
+  const stockList = stockResp.body?.data || stockResp.body || [];
+  const stockEntry = stockList.find((s) => Number(s.quantity || 0) >= 5 && pricedIds.has(s.product_id));
+  check('stock entry con qty >= 5 + precio en price_list encontrado', !!stockEntry, { stockCount: stockList.length, pricedCount: pricedIds.size });
   if (!stockEntry) process.exit(1);
 
   const addLine = await req('POST', `/commercial/orders/${order.id}/lines`, {
@@ -87,7 +91,10 @@ function check(name, cond, detail) {
   check('order line agregada', addLine.status === 201 || addLine.status === 200, addLine);
 
   const confirm = await req('POST', `/commercial/orders/${order.id}/confirm`, {}, token);
-  check('order confirmed', confirm.body?.status === 'confirmed', confirm.body?.status);
+  check('order → pending_approval tras confirm', confirm.body?.status === 'pending_approval', confirm.body?.status);
+
+  const approve = await req('POST', `/commercial/orders/${order.id}/approve`, {}, token);
+  check('order → confirmed tras approve', approve.body?.status === 'confirmed', approve.body?.status);
 
   // 4. Crear shipment ligado al order
   console.log('\n── 4. Shipment ──');

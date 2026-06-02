@@ -38,11 +38,32 @@ const TESTS = [
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
 ];
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Suites que disparan el tier `short`/`long` del throttler global y necesitan
+// el reset del bucket (ttl 60s) antes de correr. Si no esperamos, llegan al
+// PRIMER request con 429 porque las suites previas agotaron la cuota.
+const NEEDS_THROTTLE_COOLDOWN = new Set([
+  'http-analytics-mv-test.js',  // C.1 — POST /refresh tiene @Throttle short: 3/60s
+  'http-ai-match-test.js',      // K.1 — @Throttle long: 10/60s, además testea el 429 internamente
+]);
+
 (async () => {
   const root = path.resolve(__dirname);
   const results = [];
+  const useThrottleBypass = process.env.THROTTLE_DISABLED === 'true';
+  if (useThrottleBypass) {
+    console.log('THROTTLE_DISABLED=true — API debería estar arriba con skipIf activo, sin cooldowns.');
+  }
 
   for (const t of TESTS) {
+    if (t.needsApi && !useThrottleBypass && NEEDS_THROTTLE_COOLDOWN.has(t.file)) {
+      process.stdout.write(`\n⏸ throttle cooldown 65s antes de ${t.label}...\n`);
+      await sleep(65_000);
+    } else if (t.needsApi) {
+      // Pequeña pausa entre suites HTTP para no agotar el tier short (10/s).
+      await sleep(1_500);
+    }
     const filePath = path.join(root, t.file);
     process.stdout.write(`\n━━━ ${t.label} (${t.file}) ━━━\n`);
     const start = Date.now();

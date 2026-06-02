@@ -6,6 +6,51 @@
 
 ---
 
+## 2026-06-02 — Cierre formal Comercial (Fases B + C + D + E) + estabilización regression suite
+
+**Item revisado:** declarar Comercial cerrado en beta antes de arrancar Sprint Embarques (Fase J integración profunda + J.9.5-11).
+
+**Estado inicial:** la regression suite estaba reportada como 19/19 verde en CLAUDE.md y memorias, pero al re-ejecutar dió **12/19** — 7 suites rojas (B.1, B.3.2, C.4, D.1, D.4, J.6.1, J.8 + K.1 ruido infra). Eso bloqueaba el cierre formal: el módulo no estaba en el estado que la documentación afirmaba.
+
+**Diagnóstico — 4 causas distintas:**
+
+1. **Estado intermedio `pending_approval` introducido en commit `edff610` sin actualizar tests.** El state machine de orders pasó de `draft → confirmed → fulfilled` a `draft → pending_approval → confirmed → fulfilled`. Tests llamaban `/confirm` y esperaban `confirmed` — ahora reciben `pending_approval`. Documentado en **ADR-013** nuevo. Afectó: B.3.2, J.6.1, J.8, C.4, D.1.
+2. **`ability.factory.ts` nunca tuvo mappings de `COMMERCIAL_*` ni `LOGISTICS_*`.** El `RolesGuard` devolvía 403 silencioso a cualquier role no-admin sobre endpoints comerciales/logística. `superoot` pasaba sólo por `REPORTES_VER_GLOBAL` → `can('manage', 'all')`. Bug pre-existente desconocido (no había tests con role `customer_b2b` que llamara endpoints commerciales hasta hoy). Afectó: D.1 (403 en `cliente_demo`).
+3. **Response shape paginada.** Varios endpoints (`/commercial/inventory/stock`, `/commercial/price-lists/:id/prices`, `/commercial/customers`) cambiaron de array plano a `{data, pagination}` sin que los tests adaptaran. Afectó: B.1, C.4, D.1, D.4, B isolation.
+4. **Mega Dulces sync re-uppercased brands.** B.3.2 buscaba `'Chocolates Premium' / 'Trufas Surtidas 12pz'` (PascalCase) pero la DB tiene `'CHOCOLATES PREMIUM' / 'TRUFAS SURTIDAS 12PZ'`. Idéntico al bug que ya estaba en memoria (`feedback_fase_k_lessons.md`). Solucionado con `LOWER(b.nombre) = LOWER(?)` + 4 products que existen.
+5. **Ruido infra: throttle 429 en C.1 y K.1.** Las suites corridas consecutivamente agotaban el tier `long` (200/60s) o `short:3/60s` específico de los endpoints sensibles. Mitigado con `skipIf` en `ThrottlerModule` activado por env var `THROTTLE_DISABLED=true` + cooldown 65s en `run-all-tests.js` para fallback sin la var.
+
+**Fixes aplicados:**
+
+- **Código API** (requirió restart de `nx serve api`):
+  - [`apps/api/src/shared/ability/ability.types.ts`](apps/api/src/shared/ability/ability.types.ts) — 14 subjects nuevos para grupos commercial/logistics.
+  - [`apps/api/src/shared/ability/ability.factory.ts`](apps/api/src/shared/ability/ability.factory.ts) — 28 mappings (subject + action) para Permissions `COMMERCIAL_*` y `LOGISTICS_*`.
+  - [`apps/api/src/app.module.ts`](apps/api/src/app.module.ts) — `ThrottlerModule.forRoot` con `skipIf: () => process.env.THROTTLE_DISABLED === 'true'`.
+- **Tests** (no requieren restart):
+  - [`database/test-newdb-orders-with-testdata.js`](database/test-newdb-orders-with-testdata.js) — case-insensitive lookup + 4 products que existen.
+  - [`database/http-e2e-test.js`](database/http-e2e-test.js) — response shape paginada para `/price-lists/:id/prices`.
+  - [`database/http-shipment-hook-fulfill-test.js`](database/http-shipment-hook-fulfill-test.js) — paso `/approve` entre `/confirm` y `/close`.
+  - [`database/http-logistics-j8-test.js`](database/http-logistics-j8-test.js) — `/approve` + path correcto `/commercial/price-lists/` (sin `pricing/`) + cruzar prices con stock para evitar "Producto sin precio configurado".
+  - [`database/http-portal-b2b-test.js`](database/http-portal-b2b-test.js) — response shape paginada + `/approve` + 4 entries en history (`null→draft→pending_approval→confirmed→fulfilled`) + assert correcto para customer_b2b (server-side scope iguala `/orders` con `/my`).
+  - [`database/http-recommendations-test.js`](database/http-recommendations-test.js) — usar admin token para listar customers (TST-PORTAL-001).
+  - [`database/http-alerts-ws-test.js`](database/http-alerts-ws-test.js) — adaptar a `pending_approval` (large_order alert dispara en confirm; order_confirmed en approve).
+  - [`database/http-tenant-isolation-test.js`](database/http-tenant-isolation-test.js) — leer `pagination.total` del stock response.
+  - [`database/http-ai-match-test.js`](database/http-ai-match-test.js) — skip rate-limit assertion si no se disparan 12 reqs (modo THROTTLE_DISABLED).
+  - [`database/run-all-tests.js`](database/run-all-tests.js) — cooldown 65s antes de C.1 y K.1 + sleep 1.5s entre suites HTTP.
+
+**Resultado final:** `node database/run-all-tests.js` → **19/19 suites verde en ~41s**, ~155 sub-assertions.
+
+**Lecciones:**
+- **El test runner debe estar verde antes de declarar "cerrado".** La memoria + CLAUDE.md decían 19/19 desde hace una semana, pero la suite no se había re-ejecutado desde entonces. Cualquier commit `feat()` que aterrizó después (incluyendo `pending_approval`) rompió tests silenciosamente.
+- **Cambios al state machine son cambios al contrato externo** y requieren actualización coordinada de tests + ADR + memoria.
+- **`ability.factory.ts` es punto único de fallo silencioso.** Cada Permission nuevo debe tener entrada explícita. Falta lint/test que verifique completitud (TODO post-cierre).
+- **El sync de Mega Dulces (ERP .245) sobrescribe testdata B.3.** Solución idempotente: tests usan `LOWER(...)` + lista de products que siempre van a existir en data real.
+- **Throttler global en CI:** soporte `skipIf` por env var es estándar y zero-risk; el cooldown 65s en el runner es el fallback cuando el ops no setea la var.
+
+**Comercial = 🟢 CERRADO formalmente (beta scope, B + C + D + E).** Diferidos post-beta documentados en CLAUDE.md (PaymentsService, E.4 dashboard métricas, Dexie offline real, mapa Leaflet, aplicación de promociones a order_lines). Próximo: arrancar Sprint Embarques con J.10 (integración profunda) seguido de J.9.5-11 según el plan.
+
+---
+
 ## 2026-05-27 — Sprint UX/UI paso 3 + paso 3.5 (codemod inline TS styles)
 
 **Item revisado:** continuación del Sprint UX/UI después de paso 2.

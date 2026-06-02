@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-05-27
+**Última actualización:** 2026-06-02
 
 ---
 
@@ -11,10 +11,10 @@
 | Fase | Estado | Sprint actual | % completado |
 |---|---|---|---|
 | A — Fundaciones | 🟡 En progreso | A.-1 ✅ → próximo: **A.0-multitenant** | 8% |
-| B — Core Comercial | 🟢 Completada (beta scope) | B.0+B.1+B.2+B.3 ✅ | 100% (PaymentsService deferred post-beta; data real reemplaza testdata cuando llegue) |
-| C — Sales Intelligence | 🟢 CERRADA (beta) | C.0+C.1+C.3 MVP+C.4+C.5 ✅ | 100% (C.0bis exhibition normalization + C.3.8-9 mapa/drill-down deferred) |
-| D — Catálogo + B2B Portal | 🟢 CERRADA (beta) | D.0+D.1+D.2+D.3+D.4+D.5 ✅ | 100% (D.2.3 offline sync queue + D.3.1 app separada deferred post-beta) |
-| **E — Remote Manager (televenta)** | 🟢 **CERRADA (beta)** | E.0+E.1+E.2 ✅ 2026-05-27 — schema (lead_reservations + call_logs + rol tele_operator) + backend 7 endpoints + smoke HTTP 29/29 + cron @5min + frontend `/televenta/*` (queue + lead + take-order). Validación visual pendiente (E.3.2). | 95% beta-ready |
+| B — Core Comercial | 🟢 **CERRADA formalmente (beta)** | B.0+B.1+B.2+B.3 ✅ — cierre verificado 2026-06-02 con regression 19/19 verde tras ADR-013 (`pending_approval` state) + fix ability.factory (28 mappings COMMERCIAL/LOGISTICS) | 100% (PaymentsService deferred post-beta) |
+| C — Sales Intelligence | 🟢 **CERRADA formalmente (beta)** | C.0+C.1+C.3 MVP+C.4+C.5 ✅ — cierre verificado 2026-06-02 | 100% (C.0bis exhibition normalization + C.3.8-9 mapa/drill-down deferred) |
+| D — Catálogo + B2B Portal | 🟢 **CERRADA formalmente (beta)** | D.0+D.1+D.2+D.3+D.4+D.5 ✅ — cierre verificado 2026-06-02 | 100% (D.2.3 offline sync queue + D.3.1 app separada deferred post-beta) |
+| **E — Remote Manager (televenta)** | 🟢 **CERRADA formalmente (beta)** | E.0+E.1+E.2 ✅ — cierre verificado 2026-06-02 con regression 19/19. Schema (lead_reservations + call_logs + rol tele_operator) + backend 7 endpoints + cron @5min + frontend `/televenta/*`. Validación visual pendiente (E.3.2). | 100% beta-ready |
 | F — WhatsApp Bot | ⏸️ Bloqueada por D | — | 0% |
 | G — Growth | ⏸️ Bloqueada por D | — | 0% |
 | H — Fintech | ⏸️ Bloqueada por D | — | 0% |

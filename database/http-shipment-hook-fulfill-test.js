@@ -92,10 +92,13 @@ function check(name, cond, detail) {
   }, token);
   check('línea agregada', line.status === 201, line.body);
 
-  // 4. Confirmar pedido (reserva stock)
-  console.log('\n── 4. Confirmar pedido (reserva stock) ──');
+  // 4. Confirmar pedido (cliente → pending_approval, reserva stock) + aprobar (vendedor → confirmed)
+  console.log('\n── 4. Confirmar pedido (pending_approval) + aprobar (confirmed) ──');
   const confirmed = await req('POST', `/commercial/orders/${orderId}/confirm`, {}, token);
-  check('order confirmed', confirmed.body?.status === 'confirmed');
+  check('order → pending_approval tras confirm', confirmed.body?.status === 'pending_approval', { status: confirmed.body?.status });
+
+  const approved = await req('POST', `/commercial/orders/${orderId}/approve`, {}, token);
+  check('order → confirmed tras approve', approved.body?.status === 'confirmed', { status: approved.body?.status });
 
   const stockAfterConfirm = await req(`GET`, `/commercial/inventory/stock?warehouse_id=${warehouse.id}&pageSize=50`, null, token);
   const stockListAC = stockAfterConfirm.body?.data || stockAfterConfirm.body || [];

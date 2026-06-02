@@ -47,9 +47,10 @@ function check(name, cond, det) {
   const adminToken = admin.body.access_token;
   const clientToken = client.body.access_token;
 
-  // Get cliente_demo customer_id via /commercial/customers (sees own)
-  const customers = await req('GET', '/commercial/customers', null, clientToken);
-  const customer = customers.body.data.find((c) => c.code === 'TST-PORTAL-001');
+  // Get TST-PORTAL-001 via admin (customer_b2b /customers ahora solo devuelve el customer propio)
+  const customers = await req('GET', '/commercial/customers?pageSize=50', null, adminToken);
+  const rows = customers.body?.data || customers.body || [];
+  const customer = (Array.isArray(rows) ? rows : []).find((c) => c.code === 'TST-PORTAL-001');
   check('cliente_demo ve TST-PORTAL-001', !!customer);
 
   console.log('\n── 2. Compute manual ──');

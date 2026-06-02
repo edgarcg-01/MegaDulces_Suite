@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from './shared/database/database.module';
+import { VectorDatabaseModule } from './shared/database/vector-database.module';
 import { AbilityModule } from './shared/ability/ability.module';
 import { UsersModule } from './modules/users/users.module';
 import { DailyCapturesModule } from './modules/daily-captures/daily-captures.module';
@@ -106,11 +107,17 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // Rate limiting global: 3 tiers (short/medium/long) por IP.
     // Defaults pensados para mobile + web admin. Endpoints sensibles
     // (login, upload) pueden tener @Throttle más estricto por método.
-    ThrottlerModule.forRoot([
-      { name: 'short', ttl: 1000, limit: 10 },     // 10 req/seg
-      { name: 'medium', ttl: 10_000, limit: 60 },  // 60 req/10seg
-      { name: 'long', ttl: 60_000, limit: 200 },   // 200 req/min
-    ]),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        { name: 'short', ttl: 1000, limit: 10 },     // 10 req/seg
+        { name: 'medium', ttl: 10_000, limit: 60 },  // 60 req/10seg
+        { name: 'long', ttl: 60_000, limit: 200 },   // 200 req/min
+      ],
+      // Bypass para regression suite. Setear THROTTLE_DISABLED=true en el
+      // entorno del API antes de correr database/run-all-tests.js. NUNCA
+      // dejarlo activo en prod.
+      skipIf: () => process.env.THROTTLE_DISABLED === 'true',
+    }),
     // ServeStaticModule REMOVIDO 2026-06-01: el SPA lo sirve nginx directo
     // desde /usr/share/nginx/html en el puerto $PORT. NestJS solo recibe
     // requests proxied por nginx con prefix /api/* o /reports/socket.io/*.
@@ -121,6 +128,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // con 404 en JSON. Sin el módulo, Nest devuelve su 404 estándar para
     // rutas inexistentes, que es lo correcto.
     DatabaseModule,
+    VectorDatabaseModule,
     AbilityModule,
     AuthModule,
     UsersModule,

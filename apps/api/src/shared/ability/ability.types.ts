@@ -22,6 +22,20 @@ export type AppSubject =
   | 'reports_manage'
   | 'kpi_goals'
   | 'team_management'
-  | 'seguimiento';
+  | 'seguimiento'
+  | 'commercial_customers'
+  | 'commercial_warehouses'
+  | 'commercial_pricing'
+  | 'commercial_inventory'
+  | 'commercial_orders'
+  | 'commercial_payments'
+  | 'commercial_promotions'
+  | 'commercial_televenta'
+  | 'logistics_fleet'
+  | 'logistics_shipments'
+  | 'logistics_guides'
+  | 'logistics_expenses'
+  | 'logistics_payroll'
+  | 'logistics_config';
 
 export type AppAbility = MongoAbility<[Action, AppSubject]>;
