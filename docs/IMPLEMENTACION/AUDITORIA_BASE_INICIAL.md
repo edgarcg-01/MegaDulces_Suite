@@ -283,6 +283,65 @@ Estos se difieren al sprint correspondiente o a fases posteriores:
 
 ---
 
+## Addendum — Hallazgos sesión QA 2026-06-02
+
+Findings descubiertos post-auditoría inicial, durante una sesión de QA + caza de
+bugs internos. Todos **ya resueltos** salvo donde se indique. Detalle en
+[`03_LOG_REVISIONES.md`](03_LOG_REVISIONES.md) (entrada 2026-06-02).
+
+### 🔴 Crítico
+
+**S2.1 — Clase "transacción envenenada" (25P02 / rollback silencioso)** ✅ FIXED
+`TenantContextInterceptor` corre TODA request autenticada en una sola trx; un
+`catch` que traga un error DB y sigue queryeando tira `25P02` o el COMMIT hace
+rollback silencioso. Afectó: `daily-captures` (INSERT idempotente → savepoint),
+`registrarLog` (conexión separada), `safeRecalcularScoreMaximo` + `embedProduct`
+(savepoint). Patrón a evitar en TODO handler que corre dentro de la trx global.
+
+**S2.2 — `VisitasSyncModule` roto contra el schema** ✅ FIXED (eliminado)
+Referenciaba tabla `tiendas` (nunca existió; la canónica es `stores`), tabla
+`sync_logs` (nunca creada) y 9 columnas inexistentes en `daily_captures`. Wired
+con 2 controllers → cualquier llamada real 500. Frontend usa `/daily-captures`.
+Módulo borrado tras verificar 0 uso.
+
+**S2.4 — Promo form guarda percent 1-100 pero el engine quiere [0..1]** ✅ FIXED
+`comercial-promotions` guardaba `percent: 15`; el engine hace `Math.min(1, pct)`
+→ una promo creada por UI aplicaba **100% de descuento**. Fix: conversión
+fracción↔1-100 en el borde (load/save + tiers).
+
+### 🟡 Importante
+
+**S2.3 — `ExhibitionsModule`: POST huérfanos sin autorización** ✅ FIXED (eliminado)
+`@Post()` y `@Post(:id/photos)` solo con `RequireAuthGuard` (sin RolesGuard ni
+permisos ni ValidationPipe) → cualquier autenticado creaba nodos / subía a
+Cloudinary. Frontend no los llama. Borrado.
+
+**S2.5 — Reports sin filtro `tenant_id` (RLS bypasseado)** ✅ FIXED
+`buildBaseQuery` + counts de `stores` no filtraban tenant; la conexión legacy es
+`postgres` (bypassa RLS) → leak latente con 2+ tenants. Filtro explícito agregado.
+
+**S2.6 — `REFRESH MATERIALIZED VIEW CONCURRENTLY` en MV sin poblar** ✅ FIXED
+`AnalyticsRefreshService` fallaba si la MV no estaba poblada. Ahora chequea
+`pg_class.relispopulated` y hace REFRESH normal la primera vez.
+
+**S2.7 — Inventory list devolvía pagination flat** ✅ FIXED
+`commercial-inventory` devolvía `{data, page, pageSize, total}` flat; el resto de
+endpoints + el frontend usan `{data, pagination:{...}}` → contador en 0. Anidado.
+
+### 🟢 Nice-to-have / diferido
+
+**S2.8 — Promo display no convertía fracción a %** ✅ FIXED
+Mostraba `-0.15%` en vez de `-15%`. Fix ×100 en `promotions-meta`.
+
+**S2.9 — Historical (FDW) "0 clientes únicos"** ⏳ DEFERRED
+Módulo nuevo en curso; el conteo de unique customers de la fuente FDW parece roto.
+
+**S2.10 — `isPercent` backend acepta ≤100** ⏳ DEFERRED
+Debería ser ≤1 (convención fracción del engine). El form ya manda fracciones, así
+que no rompe; endurecer como defensa.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

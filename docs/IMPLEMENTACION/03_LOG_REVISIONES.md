@@ -1830,3 +1830,49 @@ Visits/exhibitions/exhibition_photos NO migrados (vacíos en legacy — data viv
 ---
 
 <!-- Las siguientes entradas se agregan al revisar / cerrar items reales. -->
+
+## 2026-06-02 — Sesión QA + caza de bugs internos (Trade Marketing + Comercial)
+
+Sesión reactiva: arrancó por un error 25P02 en prod y derivó en una caza
+sistemática de bugs internos + QA de navegador de los proyectos Trade Marketing
+y Comercial. Todo commiteado en `f7b21b2` / `9f6763a` / `34f404e`.
+
+**Clase "transacción envenenada" (25P02 / rollback silencioso).** Causa raíz:
+`TenantContextInterceptor` envuelve TODA request autenticada en una sola
+transacción; cualquier `catch` que traga un error DB y sigue queryeando tira
+`25P02` (o rollback silencioso en el COMMIT). Fixes:
+- `daily-captures.service`: INSERT idempotente envuelto en SAVEPOINT (el catch de
+  `23505` releía la fila en la trx ya abortada → era el 25P02 de prod).
+- `daily-captures` / `catalogs` / `planograms`: helpers best-effort
+  (`registrarLog`, `safeRecalcularScoreMaximo`, `embedProduct`) desacoplados —
+  conexión separada (audit log) o savepoint (read-after-write).
+
+**Materialized views.** `AnalyticsRefreshService`: `REFRESH ... CONCURRENTLY`
+fallaba en MVs sin poblar → ahora chequea `pg_class.relispopulated` y hace un
+REFRESH normal la primera vez.
+
+**Código muerto / roto eliminado (verificado sin uso en front+back):**
+- `VisitasSyncModule`: referenciaba tabla `tiendas` (nunca existió), `sync_logs`
+  (nunca existió) y 9 columnas inexistentes en `daily_captures`. El frontend
+  sincroniza vía `/daily-captures`. Borrado.
+- `ExhibitionsModule`: 2 POST huérfanos sin RolesGuard/permisos (vector Cloudinary).
+  Frontend no los llama. Borrado. (Colateral: `import 'multer'` movido a
+  `cloudinary.service` para conservar la augmentation global `Express.Multer`.)
+
+**Multi-tenant isolation (defense-in-depth).** `reports.service.buildBaseQuery`
+y los counts de `stores` no filtraban `tenant_id` (la conexión legacy es
+`postgres` y bypassa RLS) → leak latente con 2+ tenants. Agregado filtro explícito.
+
+**QA navegador (login superoot):**
+- Trade Marketing: 11/11 páginas sanas, 0 errores JS. Solo warning perf del logo.
+- Comercial: 9/9 páginas sanas. Bugs encontrados y arreglados:
+  - **COM-001**: promos mostraban `-0.15%` en vez de `-15%` (display no hacía
+    ×100 sobre la fracción del engine). Fix en `promotions-meta`.
+  - **COM-002**: inventory devolvía pagination flat → contador "líneas de stock"
+    en 0. Fix: forma anidada consistente con el resto de endpoints.
+  - **COM-004** (HIGH): el form de promos guardaba percent 1-100 pero el engine
+    lo clampa a [0..1] → una promo creada por UI aplicaba 100% off. Fix:
+    conversión fracción↔1-100 en el borde (load/save + tiers).
+
+Reportes QA en `.gstack/qa-reports/`. Deferred: COM-003 (historical FDW "0
+clientes únicos", módulo nuevo en curso), endurecer `isPercent` backend a ≤1.
