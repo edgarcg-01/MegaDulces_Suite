@@ -81,7 +81,13 @@ export class StoresService {
 
     if (requester) {
       const zonaId = await this.getRequesterZonaId(requester);
-      if (zonaId) query.where({ zona_id: zonaId });
+      // Incluir tiendas SIN zona asignada: una tienda frente a la que estás
+      // parado debe ser detectable aunque no tenga zona_id. Sin este OR, un
+      // usuario scopeado a zona NUNCA detecta tiendas con zona_id NULL (todas,
+      // hoy) → "no se reconoce la tienda". La cercanía geográfica ya acota.
+      if (zonaId) {
+        query.where((b) => b.where('zona_id', zonaId).orWhereNull('zona_id'));
+      }
     }
 
     const stores = await query;
@@ -150,7 +156,11 @@ export class StoresService {
 
     if (requester) {
       const zonaId = await this.getRequesterZonaId(requester);
-      if (zonaId) query.where({ zona_id: zonaId });
+      // Igual que findNearby: el cache offline debe incluir tiendas sin zona,
+      // si no la detección Haversine offline tampoco las encuentra.
+      if (zonaId) {
+        query.where((b) => b.where('zona_id', zonaId).orWhereNull('zona_id'));
+      }
     }
 
     return query.orderBy('nombre', 'asc');
