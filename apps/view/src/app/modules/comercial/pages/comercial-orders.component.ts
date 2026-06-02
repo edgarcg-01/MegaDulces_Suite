@@ -123,44 +123,64 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
         </div>
       </header>
 
-      <!-- SHEET 1: KPI STRIP ventana actual -->
+      <!-- SHEET 1: KPI STRIP ventana actual (adaptativo por modo) -->
       <p-skeleton *ngIf="loadingKpis()" height="120px"></p-skeleton>
       <div *ngIf="!loadingKpis() && kpiData() as k" class="sheet cols-12">
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-accent" aria-hidden="true">
+        <!-- Hero ventas: span más amplio en pending (3 tiles), normal en history (4 tiles) -->
+        <article class="cell" [class.cell-span-6]="mode === 'pending'" [class.cell-span-3]="mode === 'history'">
+          <span class="cell-icon" aria-hidden="true">
             <i class="pi pi-wallet"></i>
           </span>
-          <span class="cell-label">Ventas en la ventana</span>
+          <span class="cell-label">{{ mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana' }}</span>
           <span class="cell-value is-headline">{{ fmtMoneyShort(k.totalAmount) }}</span>
           <span class="cell-sub">{{ total() }} pedido{{ total() === 1 ? '' : 's' }} en período</span>
         </article>
 
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-warn" aria-hidden="true">
-            <i class="pi pi-hourglass"></i>
-          </span>
-          <span class="cell-label">Pendientes</span>
-          <span class="cell-value">{{ k.pending }}</span>
-          <span class="cell-sub">requieren acción</span>
-        </article>
+        <ng-container *ngIf="mode === 'pending'">
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-hourglass"></i>
+            </span>
+            <span class="cell-label">Por aprobar</span>
+            <span class="cell-value">{{ statusCounts()['pending_approval'] ?? 0 }}</span>
+            <span class="cell-sub">requieren acción</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-pencil"></i>
+            </span>
+            <span class="cell-label">Borradores</span>
+            <span class="cell-value">{{ statusCounts()['draft'] ?? 0 }}</span>
+            <span class="cell-sub">sin enviar a aprobación</span>
+          </article>
+        </ng-container>
 
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-info" aria-hidden="true">
-            <i class="pi pi-sync"></i>
-          </span>
-          <span class="cell-label">Confirmados</span>
-          <span class="cell-value">{{ k.confirmed }}</span>
-          <span class="cell-sub">a despachar</span>
-        </article>
-
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-ok" aria-hidden="true">
-            <i class="pi pi-truck"></i>
-          </span>
-          <span class="cell-label">Entregados</span>
-          <span class="cell-value">{{ k.fulfilled }}</span>
-          <span class="cell-sub">cerrados</span>
-        </article>
+        <ng-container *ngIf="mode === 'history'">
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-sync"></i>
+            </span>
+            <span class="cell-label">En curso</span>
+            <span class="cell-value">{{ k.confirmed }}</span>
+            <span class="cell-sub">a despachar</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-check-circle"></i>
+            </span>
+            <span class="cell-label">Entregados</span>
+            <span class="cell-value">{{ k.fulfilled }}</span>
+            <span class="cell-sub">cerrados</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-times-circle"></i>
+            </span>
+            <span class="cell-label">Cancelados</span>
+            <span class="cell-value">{{ k.cancelled }}</span>
+            <span class="cell-sub">en el período</span>
+          </article>
+        </ng-container>
       </div>
 
       <!-- SHEET 2: FILTERS — toolbar densa, todas las alturas alineadas -->
@@ -209,7 +229,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                 appendTo="body"
                 styleClass="co-date-input"
               ></p-datepicker>
-              <span class="co-daterange-arrow" aria-hidden="true">→</span>
+              <i class="pi pi-arrow-right co-daterange-arrow" aria-hidden="true"></i>
               <p-datepicker
                 [(ngModel)]="toDate"
                 (ngModelChange)="onDateManualChange()"
@@ -283,61 +303,52 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
               <tr>
                 <th>Folio</th>
                 <th>Cliente</th>
-                <th>Ruta</th>
-                <th>Almacén</th>
                 <th>Estado</th>
                 <th>Entrega</th>
                 <th class="comm-num">Total</th>
                 <th>Fecha</th>
-                <th>Vendedor</th>
-                <th></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-o>
               <tr (click)="goDetail(o)" class="comm-row-clickable">
                 <td><code class="comm-code">{{ o.folio }}</code></td>
-                <td class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</td>
                 <td>
-                  <span *ngIf="o.route_name" class="co-route">
-                    <i class="pi pi-directions" aria-hidden="true"></i>
-                    {{ o.route_name }}
-                  </span>
-                  <span *ngIf="!o.route_name" class="comm-muted">—</span>
+                  <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
+                  <div class="comm-muted is-small co-cell-meta">
+                    <span *ngIf="o.route_name">
+                      <i class="pi pi-directions" aria-hidden="true"></i>
+                      {{ o.route_name }}
+                    </span>
+                    <span *ngIf="o.warehouse_name">
+                      <i class="pi pi-box" aria-hidden="true"></i>
+                      {{ o.warehouse_name }}
+                    </span>
+                    <span *ngIf="o.user_username">
+                      <i class="pi pi-user" aria-hidden="true"></i>
+                      {{ o.user_username }}
+                    </span>
+                  </div>
                 </td>
-                <td>{{ o.warehouse_name || '—' }}</td>
                 <td>
                   <span class="portal-status-pill" [class]="'is-' + o.status">
                     {{ statusLabel(o.status) }}
                   </span>
                 </td>
                 <td>
-                  <span class="co-delivery" [class.is-long]="o.delivery_type === 'long_trip'">
+                  <span class="co-delivery">
                     <i [class]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'" aria-hidden="true"></i>
                     {{ o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta' }}
                   </span>
                 </td>
                 <td class="comm-num is-strong">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td>
-                  <div>{{ o.created_at | date:'dd MMM' }}</div>
-                  <div class="comm-muted is-small">{{ o.created_at | date:'HH:mm' }}</div>
-                </td>
-                <td>{{ o.user_username || '—' }}</td>
-                <td class="comm-actions">
-                  <button
-                    pButton
-                    icon="pi pi-eye"
-                    size="small"
-                    severity="secondary"
-                    [text]="true"
-                    (click)="$event.stopPropagation(); goDetail(o)"
-                    pTooltip="Ver detalle"
-                  ></button>
+                  <span class="co-date">{{ o.created_at | date:'dd MMM · HH:mm' }}</span>
                 </td>
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="10" class="co-empty-cell">
+                <td colspan="6" class="co-empty-cell">
                   <div class="co-empty">
                     <div class="co-empty-icon"><i [class]="emptyIcon()" aria-hidden="true"></i></div>
                     <h3>{{ emptyTitle() }}</h3>
@@ -370,7 +381,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     .co-mode-tabs {
       display: inline-flex;
       gap: .25rem;
-      background: var(--surface-100);
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
       border-radius: 10px;
       padding: 4px;
       margin: 0;
@@ -380,16 +392,16 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       padding: .5rem .95rem;
       border: 0; background: transparent;
       border-radius: 8px;
-      font-size: .88rem; font-weight: 500;
-      color: var(--text-color-secondary);
+      font-size: .88rem; font-weight: var(--fw-medium);
+      color: var(--c-text-2);
       cursor: pointer;
-      transition: background .15s, color .15s;
+      transition: background 120ms var(--ease-standard), color 120ms var(--ease-standard);
     }
-    .co-mode-tab:hover { color: var(--text-color); }
+    .co-mode-tab:hover { color: var(--c-text-1); }
     .co-mode-tab.active {
-      background: var(--surface-0, #fff);
-      color: var(--primary-color);
-      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      font-weight: var(--fw-bold);
     }
     .co-mode-tab i { font-size: .85rem; }
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
@@ -503,7 +515,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     }
     .co-daterange:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .co-daterange-icon {
       color: var(--c-text-3);
@@ -551,7 +563,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     }
     .co-search:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .co-search-icon {
       color: var(--c-text-3);
@@ -607,33 +619,14 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       transition: all 120ms var(--ease-standard);
     }
     .co-reset:hover {
-      color: var(--c-bad);
-      border-color: var(--c-bad);
-      background: rgba(220, 38, 38, 0.06);
+      color: var(--c-text-1);
+      border-color: var(--c-text-1);
+      background: var(--c-surface-2);
     }
     .co-reset i { font-size: var(--fs-xs); }
 
-    /* ── DELIVERY PILL (compacto, distinto del status pill) ── */
+    /* ── DELIVERY chip neutral (sólo el icono cambia entre por_ruta y long_trip) ── */
     .co-delivery {
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
-      padding: .15rem .55rem;
-      border-radius: 6px;
-      background: var(--c-surface-2);
-      color: var(--c-text-1);
-      font-size: var(--fs-xs);
-      font-weight: var(--fw-medium);
-      white-space: nowrap;
-    }
-    .co-delivery i { font-size: var(--fs-xs); color: var(--c-text-2); }
-    .co-delivery.is-long {
-      background: var(--warn-soft-bg);
-      color: var(--warn-soft-fg, var(--c-warn));
-    }
-    .co-delivery.is-long i { color: var(--c-warn); }
-
-    .co-route {
       display: inline-flex;
       align-items: center;
       gap: .35rem;
@@ -641,7 +634,23 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       color: var(--c-text-1);
       white-space: nowrap;
     }
-    .co-route i { font-size: var(--fs-xs); color: var(--c-text-3); }
+    .co-delivery i { font-size: var(--fs-xs); color: var(--c-text-3); }
+
+    /* Cell meta — sub-línea bajo Cliente con ruta / almacén / vendedor */
+    .co-cell-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: .75rem;
+      margin-top: .15rem;
+      flex-wrap: wrap;
+    }
+    .co-cell-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+    }
+    .co-cell-meta i { font-size: var(--fs-nano); color: var(--c-text-3); }
+    .co-date { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--c-text-1); }
 
     /* ── EMPTY STATE inline en tabla ── */
     .co-empty-cell { padding: 0 !important; }
@@ -740,6 +749,7 @@ export class ComercialOrdersComponent {
       pending: list.filter((o) => o.status === 'pending_approval' || o.status === 'draft').length,
       confirmed: list.filter((o) => o.status === 'confirmed').length,
       fulfilled: list.filter((o) => o.status === 'fulfilled').length,
+      cancelled: list.filter((o) => o.status === 'cancelled').length,
     };
   });
 

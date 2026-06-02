@@ -7,34 +7,40 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import {
   CommercialCustomersService,
   CreateCustomerDto,
   UpdateCustomerDto,
 } from './commercial-customers.service';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { Permission } from '../../shared/constants/permissions';
 
 /**
  * CRUD de clientes B2B. Todos los endpoints respetan tenant context via
  * AsyncLocalStorage (poblado por TenantContextInterceptor en cada request).
- *
- * Guards de permisos: pendientes hasta que el cutover Multi-tenant complete
- * el wiring de JwtAuthGuard + PermissionsGuard para la nueva DB. Por ahora
- * la app no expone esto en prod (toggle ENABLE_MULTITENANT).
+ * Reads gateados por COMMERCIAL_CUSTOMERS_VER; mutaciones por COMMERCIAL_CUSTOMERS_GESTIONAR.
+ * Ownership scoping para customer_b2b vive en el service (list y findById).
  */
 @ApiTags('commercial-customers')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('commercial/customers')
 export class CommercialCustomersController {
   constructor(private readonly service: CommercialCustomersService) {}
 
   @Post()
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({ summary: 'Crear customer B2B' })
   create(@Body() body: CreateCustomerDto) {
     return this.service.create(body);
   }
 
   @Post('from-store')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({
     summary: 'J.6.2: promover una tienda de Trade Marketing a cliente comercial (idempotente)',
   })
@@ -51,7 +57,11 @@ export class CommercialCustomersController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar customers (paginado, búsqueda por name/code/rfc/email)' })
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary:
+      'Listar customers (paginado, búsqueda por name/code/rfc/email). customer_b2b solo ve su propio customer (scoping forzado en service).',
+  })
   list(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -67,6 +77,7 @@ export class CommercialCustomersController {
   }
 
   @Get('me')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({
     summary:
       'Portal B2B: devuelve el customer linkeado al JWT (users.customer_id). Null si el user no es customer_b2b.',
@@ -76,24 +87,31 @@ export class CommercialCustomersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener customer por id' })
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary:
+      'Obtener customer por id. customer_b2b solo puede leer SU propio customer (ownership check en service).',
+  })
   findOne(@Param('id') id: string) {
     return this.service.findById(id);
   }
 
   @Patch(':id')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({ summary: 'Actualizar customer (parcial)' })
   update(@Param('id') id: string, @Body() body: UpdateCustomerDto) {
     return this.service.update(id, body);
   }
 
   @Delete(':id')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({ summary: 'Soft-delete customer (deleted_at + active=false)' })
   remove(@Param('id') id: string) {
     return this.service.softDelete(id);
   }
 
   @Post(':id/portal-access')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({
     summary:
       'J.6.3: crea user Portal B2B vinculado al customer. Devuelve password temporal una sola vez.',

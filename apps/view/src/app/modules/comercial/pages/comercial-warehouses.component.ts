@@ -64,6 +64,7 @@ import { ComercialService, Warehouse } from '../comercial.service';
             icon="pi pi-plus"
             label="Nuevo almacén"
             size="small"
+            severity="contrast"
             (click)="openCreate()"
           ></button>
         </div>
@@ -86,20 +87,30 @@ import { ComercialService, Warehouse } from '../comercial.service';
             <ng-template pTemplate="body" let-w>
               <tr>
                 <td><code class="comm-code">{{ w.code }}</code></td>
-                <td class="comm-cell-strong">{{ w.name }}</td>
+                <td>
+                  <span class="wh-name">
+                    <i class="pi pi-warehouse" aria-hidden="true"></i>
+                    <span class="comm-cell-strong">{{ w.name }}</span>
+                  </span>
+                </td>
                 <td>{{ w.address || '—' }}</td>
                 <td>
-                  <span *ngIf="w.is_default" class="comm-pill is-default">Default</span>
+                  <span *ngIf="w.is_default" class="wh-default-badge">
+                    <i class="pi pi-bookmark-fill" aria-hidden="true"></i>
+                    Default
+                  </span>
                   <span *ngIf="!w.is_default" class="comm-muted">—</span>
                 </td>
                 <td>
-                  <span *ngIf="w.active !== false" class="comm-pill is-active">Activo</span>
-                  <span *ngIf="w.active === false" class="comm-pill is-inactive">Inactivo</span>
+                  <span class="wh-status" [class.is-on]="w.active !== false">
+                    <span class="wh-status-dot" aria-hidden="true"></span>
+                    {{ w.active !== false ? 'Activo' : 'Inactivo' }}
+                  </span>
                 </td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
                           (click)="openEdit(w)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
+                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
                           (click)="confirmDelete(w)" *ngIf="w.active !== false" pTooltip="Desactivar"></button>
                 </td>
               </tr>
@@ -115,7 +126,7 @@ import { ComercialService, Warehouse } from '../comercial.service';
                       type="button"
                       pButton
                       icon="pi pi-plus"
-                      severity="primary"
+                      severity="contrast"
                       size="small"
                       label="Nuevo almacén"
                       (click)="openCreate()"
@@ -173,6 +184,50 @@ import { ComercialService, Warehouse } from '../comercial.service';
     .wh-head-actions { display:flex; gap:.5rem; align-items:center; }
     .wh-divider { opacity: 0.4; }
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
+
+    /* ── Nombre con icono (consistente con inventory) ── */
+    .wh-name {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+    }
+    .wh-name i {
+      color: var(--c-text-3);
+      font-size: var(--fs-xs);
+    }
+
+    /* ── Default badge (subtle, no pill llena) ── */
+    .wh-default-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .wh-default-badge i {
+      font-size: var(--fs-xs);
+      color: var(--c-text-2);
+    }
+
+    /* ── Estado dot + label (sin pill llena) ── */
+    .wh-status {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-sm);
+      color: var(--c-text-3);
+    }
+    .wh-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--c-text-3);
+    }
+    .wh-status.is-on { color: var(--c-text-1); }
+    .wh-status.is-on .wh-status-dot { background: var(--c-ok); }
 
     /* ── EMPTY STATE ── */
     .wh-empty-cell { padding: 0 !important; }

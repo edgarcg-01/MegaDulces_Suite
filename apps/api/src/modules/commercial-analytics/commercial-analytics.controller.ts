@@ -1,9 +1,15 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { Permission } from '../../shared/constants/permissions';
 
 @ApiTags('commercial-analytics')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('commercial/analytics')
 export class CommercialAnalyticsController {
   constructor(
@@ -12,6 +18,7 @@ export class CommercialAnalyticsController {
   ) {}
 
   @Get('overview')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
     summary:
       'KPIs rolling 30d (MV por default). Con from/to o ?live=true → on-the-fly.',
@@ -25,6 +32,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('top-customers')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Top N customers por revenue (MV rolling 30d o live)' })
   topCustomers(
     @Query('from') from?: string,
@@ -41,6 +49,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('top-products')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Top N productos (MV rolling 30d o live, orderBy=units|revenue)' })
   topProducts(
     @Query('from') from?: string,
@@ -59,15 +68,18 @@ export class CommercialAnalyticsController {
   }
 
   @Post('refresh')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
+  @Throttle({ short: { limit: 3, ttl: 60_000 } })
   @ApiOperation({
     summary:
-      'Disparar refresh manual de las MVs en `analytics.*` (admin only — sin guard formal aún)',
+      'Disparar refresh manual de las MVs en `analytics.*`. Gate: COMMERCIAL_ORDERS_FULFILL (admin-only). 3 req/min anti-DoS porque REFRESH MATERIALIZED VIEW es operación cara.',
   })
   refreshMvs() {
     return this.refresh.refreshAll('manual');
   }
 
   @Get('inactive-customers')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
     summary:
       'Customers activos sin pedidos en los últimos N días (oportunidad de recuperación)',
@@ -77,14 +89,17 @@ export class CommercialAnalyticsController {
   }
 
   @Get('sales-by-brand')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Revenue + units por brand en el período + share %' })
   salesByBrand(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.salesByBrand({ from, to });
   }
 
   @Get('low-stock')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
-    summary: 'Productos con stock disponible (quantity - reserved) bajo threshold',
+    summary:
+      'Productos con stock disponible (quantity - reserved) bajo threshold. Gate ORDERS_VER (no INVENTORY_VER) porque el command-center necesita alertas para todos los roles comerciales sin requerir CRUD de inventario.',
   })
   lowStock(
     @Query('threshold') threshold?: string,
@@ -94,6 +109,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('daily-series')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Series diarias de revenue + orders count (TZ MX)' })
   dailySeries(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.dailySeries({ from, to });

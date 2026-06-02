@@ -7,8 +7,9 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import {
   CommercialOrdersService,
   CreateDraftDto,
@@ -17,20 +18,30 @@ import {
   UpdateOrderDraftDto,
   OrderStatus,
 } from './commercial-orders.service';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { Permission } from '../../shared/constants/permissions';
 
 @ApiTags('commercial-orders')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('commercial/orders')
 export class CommercialOrdersController {
   constructor(private readonly service: CommercialOrdersService) {}
 
   @Post()
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({ summary: 'Crear pedido en estado draft' })
   createDraft(@Body() body: CreateDraftDto) {
     return this.service.createDraft(body);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar pedidos (paginado + filtros)' })
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Listar pedidos (paginado + filtros). Si el rol es customer_b2b, el filtro customer_id se fuerza al customer del JWT — no puede listar pedidos ajenos.',
+  })
   list(
     @Query('status') status?: OrderStatus,
     @Query('customer_id') customerId?: string,
@@ -52,6 +63,7 @@ export class CommercialOrdersController {
   }
 
   @Get('my')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
     summary: 'Pedidos del customer del JWT (Portal B2B — rol customer_b2b)',
   })
@@ -72,18 +84,24 @@ export class CommercialOrdersController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener pedido con líneas' })
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Obtener pedido con líneas. customer_b2b solo puede leer SUS propios pedidos (ownership check en el service).',
+  })
   findOne(@Param('id') id: string) {
     return this.service.findById(id);
   }
 
   @Get(':id/history')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Historial de cambios de status del pedido (audit trail)' })
   history(@Param('id') id: string) {
     return this.service.getHistory(id);
   }
 
   @Patch(':id')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({
     summary: 'J.6.6: actualiza notes / delivery_type del pedido (solo en draft)',
   })
@@ -92,12 +110,14 @@ export class CommercialOrdersController {
   }
 
   @Post(':id/lines')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({ summary: 'Agregar línea (solo si draft)' })
   addLine(@Param('id') orderId: string, @Body() body: AddLineDto) {
     return this.service.addLine(orderId, body);
   }
 
   @Patch(':id/lines/:line_id')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({ summary: 'Editar línea (solo si draft)' })
   updateLine(
     @Param('id') orderId: string,
@@ -108,12 +128,14 @@ export class CommercialOrdersController {
   }
 
   @Delete(':id/lines/:line_id')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({ summary: 'Eliminar línea (solo si draft)' })
   removeLine(@Param('id') orderId: string, @Param('line_id') lineId: string) {
     return this.service.removeLine(orderId, lineId);
   }
 
   @Post(':id/confirm')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({
     summary:
       'Confirmar pedido por el CLIENTE (draft → pending_approval). Reserva stock; espera aprobación del vendedor.',
@@ -123,6 +145,7 @@ export class CommercialOrdersController {
   }
 
   @Post(':id/approve')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
   @ApiOperation({
     summary:
       'Aprobar pedido por el VENDEDOR (pending_approval → confirmed). Sin cambio de inventario.',
@@ -132,12 +155,14 @@ export class CommercialOrdersController {
   }
 
   @Post(':id/fulfill')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
   @ApiOperation({ summary: 'Entregar pedido (confirmed → fulfilled). Consume stock.' })
   fulfill(@Param('id') id: string) {
     return this.service.fulfill(id);
   }
 
   @Post(':id/cancel')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CANCELAR)
   @ApiOperation({ summary: 'Cancelar pedido. Libera reservas si estaba confirmed.' })
   cancel(@Param('id') id: string, @Body() body: { reason?: string }) {
     return this.service.cancel(id, body?.reason);

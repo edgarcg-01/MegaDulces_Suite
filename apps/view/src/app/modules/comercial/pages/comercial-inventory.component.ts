@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -13,6 +13,8 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ComercialService, StockRow, Warehouse } from '../comercial.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-comercial-inventory',
@@ -59,6 +61,34 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
           ></button>
         </div>
       </header>
+
+      <!-- KPI STRIP — resumen del total (independiente del paginado) -->
+      <div class="sheet cols-12" *ngIf="summaryAll().length > 0">
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-box"></i></span>
+          <span class="cell-label">Líneas de stock</span>
+          <span class="cell-value is-headline">{{ kpis().lines }}</span>
+          <span class="cell-sub">producto × almacén</span>
+        </article>
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-exclamation-circle"></i></span>
+          <span class="cell-label">Stock crítico</span>
+          <span class="cell-value">{{ kpis().critical }}</span>
+          <span class="cell-sub">disponible &lt; 20</span>
+        </article>
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-times-circle"></i></span>
+          <span class="cell-label">Sin stock</span>
+          <span class="cell-value">{{ kpis().zero }}</span>
+          <span class="cell-sub">requieren reabasto</span>
+        </article>
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-database"></i></span>
+          <span class="cell-label">Unidades on-hand</span>
+          <span class="cell-value">{{ fmtUnits(kpis().totalUnits) }}</span>
+          <span class="cell-sub">suma de todas las líneas</span>
+        </article>
+      </div>
 
       <!-- FILTERS toolbar -->
       <div class="sheet cols-12">
@@ -122,21 +152,24 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
             <ng-template pTemplate="body" let-s>
               <tr [class.in-row-low]="s.available > 0 && s.available < 20" [class.in-row-zero]="s.available <= 0">
                 <td>
-                  <code class="comm-code">{{ s.warehouse_name || s.warehouse_id }}</code>
+                  <span class="in-warehouse-cell">
+                    <i class="pi pi-warehouse" aria-hidden="true"></i>
+                    {{ s.warehouse_name || s.warehouse_id }}
+                  </span>
                 </td>
                 <td>
                   <div class="comm-cell-strong">{{ s.product_name || s.product_id }}</div>
                   <div class="comm-muted is-small" *ngIf="s.brand_name">{{ s.brand_name }}</div>
                 </td>
-                <td class="comm-num">{{ s.on_hand }}</td>
-                <td class="comm-num">{{ s.reserved }}</td>
-                <td class="comm-num">
-                  <span class="comm-pill no-dot" [class]="stockPillClass(s.available)">
+                <td class="comm-num in-num-soft">{{ s.on_hand }}</td>
+                <td class="comm-num in-num-soft">{{ s.reserved }}</td>
+                <td class="comm-num in-avail-cell">
+                  <span class="comm-pill no-dot in-avail-pill" [class]="stockPillClass(s.available)">
                     {{ s.available }}
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
+                  <button *ngIf="canAdjust()" pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
                           pTooltip="Ajustar saldo"
                           (click)="openAdjust(s)"></button>
                 </td>
@@ -236,7 +269,7 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
     }
     .in-field:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .in-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     :host ::ng-deep .in-warehouse-select.p-select {
@@ -270,16 +303,52 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
       transition: all 120ms var(--ease-standard);
     }
     .in-reset:hover {
-      color: var(--c-bad);
-      border-color: var(--c-bad);
-      background: rgba(220, 38, 38, 0.06);
+      color: var(--c-text-1);
+      border-color: var(--c-text-1);
+      background: var(--c-surface-2);
     }
 
-    /* ── ROW tinting low/zero stock ── */
-    tr.in-row-low { background: rgba(245, 158, 11, 0.06); }
-    tr.in-row-zero { background: rgba(220, 38, 38, 0.08); }
-    tr.in-row-low:hover { background: rgba(245, 158, 11, 0.12) !important; }
-    tr.in-row-zero:hover { background: rgba(220, 38, 38, 0.14) !important; }
+    /* ── ROW tinting: border-left sutil en vez de bg full-row ── */
+    tr.in-row-low td:first-child,
+    tr.in-row-zero td:first-child {
+      position: relative;
+    }
+    tr.in-row-low td:first-child::before,
+    tr.in-row-zero td:first-child::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 4px;
+      bottom: 4px;
+      width: 3px;
+      border-radius: 2px;
+    }
+    tr.in-row-low td:first-child::before { background: var(--c-warn); }
+    tr.in-row-zero td:first-child::before { background: var(--c-bad); }
+
+    /* ── Warehouse cell: texto + icono ── */
+    .in-warehouse-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-sm);
+      color: var(--c-text-1);
+      white-space: nowrap;
+    }
+    .in-warehouse-cell i {
+      color: var(--c-text-3);
+      font-size: var(--fs-xs);
+    }
+
+    /* ── Numéricos: on_hand y reserved soft, available prominente ── */
+    .in-num-soft { color: var(--c-text-2); font-variant-numeric: tabular-nums; }
+    .in-avail-cell { font-variant-numeric: tabular-nums; }
+    .in-avail-pill {
+      font-size: var(--fs-body);
+      font-weight: var(--fw-bold);
+      min-width: 48px;
+      justify-content: center;
+    }
 
     /* ── EMPTY STATE inline en tabla ── */
     .in-empty-cell { padding: 0 !important; }
@@ -360,6 +429,11 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
 export class ComercialInventoryComponent {
   private readonly api = inject(ComercialService);
   private readonly toast = inject(MessageService);
+  private readonly auth = inject(AuthService);
+
+  readonly canAdjust = computed(() => {
+    return this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_AJUSTAR] === true;
+  });
 
   readonly rows = signal<StockRow[]>([]);
   readonly total = signal(0);
@@ -369,6 +443,17 @@ export class ComercialInventoryComponent {
 
   readonly warehouses = signal<Warehouse[]>([]);
   warehouseFilter: string | null = null;
+
+  readonly summaryAll = signal<StockRow[]>([]);
+  readonly kpis = computed(() => {
+    const list = this.summaryAll();
+    return {
+      lines: list.length,
+      critical: list.filter((r) => r.available > 0 && r.available < 20).length,
+      zero: list.filter((r) => r.available <= 0).length,
+      totalUnits: list.reduce((s, r) => s + Number(r.on_hand || 0), 0),
+    };
+  });
 
   readonly adjusting = signal<StockRow | null>(null);
   dialogVisible = false;
@@ -382,6 +467,20 @@ export class ComercialInventoryComponent {
       error: () => this.warehouses.set([]),
     });
     this.load();
+    this.loadSummary();
+  }
+
+  private loadSummary(): void {
+    this.api.listStock({ pageSize: 9999 }).subscribe({
+      next: (r) => this.summaryAll.set(r.data || []),
+      error: () => this.summaryAll.set([]),
+    });
+  }
+
+  fmtUnits(n: number): string {
+    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(Math.round(n));
   }
 
   load(): void {
@@ -459,6 +558,7 @@ export class ComercialInventoryComponent {
           this.dialogVisible = false;
           this.toast.add({ severity: 'success', summary: 'Stock ajustado' });
           this.load();
+          this.loadSummary();
         },
         error: (err) => {
           this.saving.set(false);

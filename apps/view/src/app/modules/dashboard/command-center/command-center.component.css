@@ -5,6 +5,22 @@
   letter-spacing: -0.03em;
 }
 
+/* Más respiración entre sheets (entre tablas) */
+:host ::ng-deep .surf-page.cc { gap: 1.5rem; }
+@media (min-width: 768px) {
+  :host ::ng-deep .surf-page.cc { gap: 2rem; }
+}
+
+/* Padding más generoso dentro de cells de KPI */
+:host ::ng-deep .cc .cell:not(.is-flush) {
+  padding: 1.5rem 1.75rem;
+}
+
+/* Tablas con padding vertical algo mayor (respiración entre rows) */
+:host ::ng-deep .cc .cell .data-table tbody td {
+  padding: 0.75rem 1.25rem;
+}
+
 /* ── HEAD: live dot + actions ── */
 .cc-head-actions { display: flex; gap: 0.5rem; align-items: center; }
 
@@ -40,6 +56,37 @@
   50%      { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0); }
 }
 .cc-divider { opacity: 0.4; }
+
+/* ── HERO Ventas ── */
+.cc-hero { gap: 0.875rem; padding: 1.5rem 1.75rem; }
+.cc-hero-value { display: block; }
+.cc-hero-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.cc-hero-meta { color: var(--c-text-2); }
+
+.cc-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-1);
+}
+.cc-delta i { font-size: 0.7rem; color: var(--c-text-2); }
+
+.cc-spark {
+  margin-top: auto;
+  padding-top: 1rem;
+  width: 100%;
+  height: 76px;
+  display: block;
+}
+.cc-spark svg { width: 100%; height: 100%; display: block; }
 
 /* ── RANK BADGES ── */
 .cc-rank-badge {
@@ -77,8 +124,8 @@
 .cc-brand-list {
   display: flex;
   flex-direction: column;
-  gap: 0.875rem;
-  padding: 1rem 1.25rem 1.25rem;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 1.5rem;
 }
 .cc-brand-row { display: flex; flex-direction: column; gap: 0.375rem; }
 .cc-brand-head {
@@ -117,9 +164,8 @@
   border-radius: 999px;
   transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.cc-brand-row:first-child .cc-bar-fill {
-  background: linear-gradient(90deg, var(--brand-500), var(--brand-400));
-}
+.cc-brand-row:nth-child(n+2) .cc-bar-fill { background: var(--c-text-2); opacity: 0.6; }
+.cc-brand-row:nth-child(n+5) .cc-bar-fill { opacity: 0.35; }
 
 /* ── ALERTS FEED dentro de cell flush ── */
 .cc-feed {

@@ -66,6 +66,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
             icon="pi pi-plus"
             label="Nueva lista"
             size="small"
+            severity="contrast"
             (click)="openCreate()"
           ></button>
         </div>
@@ -91,17 +92,22 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                 <td class="comm-cell-strong">{{ pl.name }}</td>
                 <td>{{ pl.currency || 'MXN' }}</td>
                 <td>
-                  <span *ngIf="pl.is_default" class="comm-pill is-default">Default</span>
+                  <span *ngIf="pl.is_default" class="pr-default-badge">
+                    <i class="pi pi-bookmark-fill" aria-hidden="true"></i>
+                    Default
+                  </span>
                   <span *ngIf="!pl.is_default" class="comm-muted">—</span>
                 </td>
                 <td>
-                  <span *ngIf="pl.active !== false" class="comm-pill is-active">Activa</span>
-                  <span *ngIf="pl.active === false" class="comm-pill is-inactive">Inactiva</span>
+                  <span class="pr-status" [class.is-on]="pl.active !== false">
+                    <span class="pr-status-dot" aria-hidden="true"></span>
+                    {{ pl.active !== false ? 'Activa' : 'Inactiva' }}
+                  </span>
                 </td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
                           (click)="$event.stopPropagation(); openEdit(pl)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
+                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
                           (click)="$event.stopPropagation(); confirmDelete(pl)"
                           *ngIf="pl.active !== false" pTooltip="Desactivar"></button>
                 </td>
@@ -118,7 +124,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                       type="button"
                       pButton
                       icon="pi pi-plus"
-                      severity="primary"
+                      severity="contrast"
                       size="small"
                       label="Nueva lista"
                       (click)="openCreate()"
@@ -168,7 +174,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                 <td class="comm-num is-strong">{{ p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="comm-num">{{ p.min_quantity || 1 }}</td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
+                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
                           (click)="confirmDeletePrice(p)" pTooltip="Eliminar"></button>
                 </td>
               </tr>
@@ -179,7 +185,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                   <div class="pr-empty">
                     <div class="pr-empty-icon"><i class="pi pi-box" aria-hidden="true"></i></div>
                     <h3>Lista vacía</h3>
-                    <p>Cargá precios via importer CLI:</p>
+                    <p>Esta lista todavía no tiene precios cargados. La carga masiva se hace via importer CLI:</p>
                     <code class="comm-code pr-empty-cmd">database/importers/commercial_import.js --type=prices</code>
                   </div>
                 </td>
@@ -231,12 +237,45 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
     .pr-divider { opacity: 0.4; }
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
 
-    /* ── Master table: selected row con stripe brand ── */
+    /* ── Master table: selected row con stripe monocromo ── */
     tr.pr-selected {
       background: var(--c-surface-2);
-      box-shadow: inset 3px 0 0 var(--c-accent);
+      box-shadow: inset 3px 0 0 var(--c-text-1);
     }
     tr.pr-selected td:first-child { padding-left: calc(.75rem + 3px); }
+
+    /* ── Default badge (subtle, no pill llena) ── */
+    .pr-default-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-bold);
+      color: var(--c-text-1);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .pr-default-badge i {
+      font-size: var(--fs-xs);
+      color: var(--c-text-2);
+    }
+
+    /* ── Estado dot + label (sin pill llena) ── */
+    .pr-status {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-sm);
+      color: var(--c-text-3);
+    }
+    .pr-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--c-text-3);
+    }
+    .pr-status.is-on { color: var(--c-text-1); }
+    .pr-status.is-on .pr-status-dot { background: var(--c-ok); }
 
     /* ── DETAIL head: título de la lista seleccionada ── */
     .pr-detail-head {

@@ -85,6 +85,7 @@ interface ProductOption {
             icon="pi pi-plus"
             label="Nueva promoción"
             size="small"
+            severity="contrast"
             (click)="openCreate()"
           ></button>
         </div>
@@ -182,7 +183,7 @@ interface ProductOption {
                 <td>
                   <div *ngIf="p.starts_at || p.ends_at; else noWindow" class="pm-window">
                     <span class="pm-window-from">{{ p.starts_at ? (p.starts_at | date:'dd MMM') : '∞' }}</span>
-                    <span class="pm-window-sep" aria-hidden="true">→</span>
+                    <i class="pi pi-arrow-right pm-window-sep" aria-hidden="true"></i>
                     <span class="pm-window-to">{{ p.ends_at ? (p.ends_at | date:'dd MMM') : '∞' }}</span>
                   </div>
                   <ng-template #noWindow><span class="comm-muted">Siempre</span></ng-template>
@@ -198,7 +199,7 @@ interface ProductOption {
                 </td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"></button>
+                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"></button>
                 </td>
               </tr>
             </ng-template>
@@ -213,7 +214,7 @@ interface ProductOption {
                       type="button"
                       pButton
                       icon="pi pi-plus"
-                      severity="primary"
+                      severity="contrast"
                       size="small"
                       label="Nueva promoción"
                       (click)="openCreate()"
@@ -262,10 +263,10 @@ interface ProductOption {
       <ng-container *ngIf="wizardStep() === 'configure' && form">
         <div class="step-header" *ngIf="!editing()">
           <button pButton icon="pi pi-arrow-left" label="Cambiar tipo" severity="secondary" [text]="true" size="small" (click)="backToChoose()"></button>
-          <p-tag
-            [value]="meta(selectedType()!).label"
-            [style]="{ background: meta(selectedType()!).color, color: 'white' }"
-          ></p-tag>
+          <span class="pm-type-chip">
+            <i [class]="meta(selectedType()!).icon" aria-hidden="true"></i>
+            {{ meta(selectedType()!).label }}
+          </span>
         </div>
 
         <form [formGroup]="form" class="comm-form-grid">
@@ -356,7 +357,7 @@ interface ProductOption {
                     <p-inputNumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
                     <span class="tier-arrow">→</span>
                     <p-inputNumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
-                    <button pButton type="button" icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="removeTier(i)"></button>
+                    <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeTier(i)"></button>
                   </div>
                   <div *ngIf="tiersValue.length === 0" class="muted">Sin tiers. Agregá al menos uno.</div>
                 </div>
@@ -386,7 +387,7 @@ interface ProductOption {
                     ></p-select>
                     <span>×</span>
                     <p-inputNumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
-                    <button pButton type="button" icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="removeBundleItem(i)"></button>
+                    <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeBundleItem(i)"></button>
                   </div>
                   <div *ngIf="bundleValue.length === 0" class="muted">Agregá al menos 2 productos.</div>
                 </div>
@@ -489,7 +490,7 @@ interface ProductOption {
     }
     .pm-field:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .pm-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     :host ::ng-deep .pm-type-select.p-select {
@@ -553,9 +554,9 @@ interface ProductOption {
       transition: all 120ms var(--ease-standard);
     }
     .pm-reset:hover {
-      color: var(--c-bad);
-      border-color: var(--c-bad);
-      background: rgba(220, 38, 38, 0.06);
+      color: var(--c-text-1);
+      border-color: var(--c-text-1);
+      background: var(--c-surface-2);
     }
 
     /* ── TABLA: type chip monocromo + window inline + mechanic ── */
@@ -588,7 +589,7 @@ interface ProductOption {
       color: var(--c-text-1);
       font-variant-numeric: tabular-nums;
     }
-    .pm-window-sep { color: var(--c-text-3); }
+    .pm-window-sep { color: var(--c-text-3); font-size: var(--fs-nano); }
 
     /* ── EMPTY STATE ── */
     .pm-empty-cell { padding: 0 !important; }

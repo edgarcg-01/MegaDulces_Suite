@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
@@ -121,9 +122,30 @@ export class CommercialCustomersService {
     const offset = (page - 1) * pageSize;
 
     return this.tk.run(async (trx) => {
+      // Defense in depth: customer_b2b solo puede listar SU propio customer.
+      // Sin esto, un customer_b2b autenticado vería el directorio completo de
+      // clientes del tenant (info competitivamente sensible: RFC, email, teléfono,
+      // credit limit). RLS no diferencia entre customers del mismo tenant.
+      const ctx = this.tenantCtx.get();
+      let forceCustomerId: string | null = null;
+      if (ctx?.roleName === 'customer_b2b') {
+        const userRow = await trx('public.users')
+          .where({ id: ctx.userId })
+          .select('customer_id')
+          .first();
+        forceCustomerId = userRow?.customer_id || null;
+        if (!forceCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+      }
+
       let q = trx('commercial.customers as c')
         .leftJoin('logistics.routes as r', 'r.id', 'c.route_id')
         .whereNull('c.deleted_at');
+
+      if (forceCustomerId) {
+        q = q.where('c.id', forceCustomerId);
+      }
 
       if (typeof query.active === 'boolean') {
         q = q.where('c.active', query.active);
@@ -162,6 +184,21 @@ export class CommercialCustomersService {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
 
     return this.tk.run(async (trx) => {
+      // Ownership: customer_b2b solo puede leer SU propio customer.
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const userRow = await trx('public.users')
+          .where({ id: ctx.userId })
+          .select('customer_id')
+          .first();
+        if (!userRow?.customer_id) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        if (userRow.customer_id !== id) {
+          throw new ForbiddenException('No tenés acceso a este customer');
+        }
+      }
+
       const row = await trx('commercial.customers as c')
         .leftJoin('logistics.routes as r', 'r.id', 'c.route_id')
         .where('c.id', id)

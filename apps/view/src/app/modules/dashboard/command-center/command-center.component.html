@@ -1,7 +1,6 @@
 <div class="surf-page cc">
   <p-toast></p-toast>
 
-  <!-- PAGE HEAD edge-to-edge -->
   <header class="surf-page-head">
     <div class="surf-page-head-text">
       <h1>Centro de control</h1>
@@ -22,47 +21,96 @@
         pButton
         type="button"
         icon="pi pi-refresh"
-        [label]="refreshing() ? 'Actualizando' : 'Refrescar'"
         severity="secondary"
+        [text]="true"
         size="small"
         [disabled]="refreshing() || loading()"
         [loading]="refreshing()"
+        [pTooltip]="refreshing() ? 'Actualizando…' : 'Refrescar datos'"
+        tooltipPosition="left"
+        aria-label="Refrescar datos"
         (click)="refreshMvs()"
       ></button>
     </div>
   </header>
 
-  <!-- SHEET 1: KPIs 2x2 (cols 1-6) + Mix marca (cols 7-12, 2 rows) -->
   <p-skeleton *ngIf="loading()" height="280px"></p-skeleton>
 
+  <!-- SHEET 1: Hero Ventas + 3 KPIs satélite -->
   <div *ngIf="!loading()" class="sheet cols-12">
-    <!-- ROW 1: KPI Ventas headline + Pedidos + Brand mix (rowspan 2) -->
-    <article class="cell cell-span-3">
-      <span class="cell-icon is-accent" aria-hidden="true">
+    <article class="cell cell-span-6 cell-row-2 cc-hero">
+      <span class="cell-icon" aria-hidden="true">
         <i class="pi pi-dollar"></i>
       </span>
       <span class="cell-label">Ventas brutas · 30d</span>
-      <span class="cell-value is-headline">{{ fmtMoneyShort(overview()?.revenue?.gross) }}</span>
-      <span class="cell-sub">
-        Neto {{ fmtMoneyShort(overview()?.revenue?.net) }}<br>
-        IVA {{ fmtMoneyShort(overview()?.revenue?.tax) }}
+      <span class="cell-value is-headline cc-hero-value">{{ fmtMoneyShort(overview()?.revenue?.gross) }}</span>
+      <span class="cell-sub cc-hero-sub">
+        <span
+          *ngIf="revenueDelta() as d"
+          class="cc-delta"
+          [class.is-up]="d.direction === 'up'"
+          [class.is-down]="d.direction === 'down'"
+          [pTooltip]="'Δ vs primera mitad del período'"
+          tooltipPosition="top"
+        >
+          <i [class]="d.direction === 'up' ? 'pi pi-arrow-up-right' : 'pi pi-arrow-down-right'" aria-hidden="true"></i>
+          {{ fmtNumber(d.pct >= 0 ? d.pct : -d.pct, 1) }}%
+        </span>
+        <span class="cc-hero-meta">
+          Neto {{ fmtMoneyShort(overview()?.revenue?.net) }} · IVA {{ fmtMoneyShort(overview()?.revenue?.tax) }}
+        </span>
       </span>
+
+      <div class="cc-spark" *ngIf="revenueSpark() as s" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="ccSparkFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="var(--c-text-1)" stop-opacity="0.12"/>
+              <stop offset="100%" stop-color="var(--c-text-1)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path [attr.d]="s.area" fill="url(#ccSparkFill)"/>
+          <path [attr.d]="s.line" fill="none" stroke="var(--c-text-1)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2.5" fill="var(--c-text-1)"/>
+        </svg>
+      </div>
     </article>
 
     <article class="cell cell-span-3">
-      <span class="cell-icon is-ok" aria-hidden="true">
+      <span class="cell-icon" aria-hidden="true">
         <i class="pi pi-check-circle"></i>
       </span>
       <span class="cell-label">Pedidos entregados</span>
       <span class="cell-value">{{ fmtNumber(overview()?.orders?.fulfilled) }}</span>
       <span class="cell-sub">
-        Ticket prom<br>
-        {{ fmtMoneyShort(overview()?.orders?.avg_order_value) }}
+        Ticket prom {{ fmtMoneyShort(overview()?.orders?.avg_order_value) }}
       </span>
     </article>
 
-    <!-- Brand mix ocupa 6 cols × 2 rows -->
-    <article class="cell cell-span-6 cell-row-2 is-flush">
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true">
+        <i class="pi pi-sync"></i>
+      </span>
+      <span class="cell-label">En curso</span>
+      <span class="cell-value">{{ fmtNumber(overview()?.orders?.confirmed) }}</span>
+      <span class="cell-sub">
+        {{ fmtNumber(overview()?.orders?.draft) }} borradores · {{ fmtNumber(overview()?.orders?.cancelled) }} cancelados
+      </span>
+    </article>
+
+    <article class="cell cell-span-6">
+      <span class="cell-icon" aria-hidden="true">
+        <i class="pi pi-users"></i>
+      </span>
+      <span class="cell-label">Clientes únicos · 30d</span>
+      <span class="cell-value">{{ fmtNumber(overview()?.unique_customers) }}</span>
+      <span class="cell-sub">Compraron al menos una vez en los últimos 30 días</span>
+    </article>
+  </div>
+
+  <!-- SHEET 2: Mix por marca -->
+  <div *ngIf="!loading()" class="sheet cols-12">
+    <article class="cell cell-span-12 is-flush">
       <div class="cell-head">
         <span class="cell-label">Mix por marca · % de ventas</span>
         <span class="comm-muted is-small">{{ salesByBrand().length }} marcas</span>
@@ -88,31 +136,9 @@
         </div>
       </div>
     </article>
-
-    <!-- ROW 2: En curso + Clientes únicos (junto a brand mix) -->
-    <article class="cell cell-span-3">
-      <span class="cell-icon is-info" aria-hidden="true">
-        <i class="pi pi-sync"></i>
-      </span>
-      <span class="cell-label">En curso</span>
-      <span class="cell-value">{{ fmtNumber(overview()?.orders?.confirmed) }}</span>
-      <span class="cell-sub">
-        {{ fmtNumber(overview()?.orders?.draft) }} borradores<br>
-        {{ fmtNumber(overview()?.orders?.cancelled) }} cancelados
-      </span>
-    </article>
-
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-users"></i>
-      </span>
-      <span class="cell-label">Clientes únicos</span>
-      <span class="cell-value">{{ fmtNumber(overview()?.unique_customers) }}</span>
-      <span class="cell-sub">Compraron en 30 días</span>
-    </article>
   </div>
 
-  <!-- SHEET 2: Top customers + Top productos -->
+  <!-- SHEET 3: Top customers + Top products -->
   <div *ngIf="!loading()" class="sheet cols-12">
     <article class="cell cell-span-6 is-flush">
       <div class="cell-head">
@@ -130,14 +156,17 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let r of topCustomers()">
-              <td><span class="cc-rank-badge">{{ r.rank || '—' }}</span></td>
+            <tr *ngFor="let r of topCustomers(); let i = index">
+              <td><span class="cc-rank-badge">{{ r.rank || i + 1 }}</span></td>
               <td>
                 <div class="strong">{{ r.name }}</div>
                 <div class="muted small">{{ r.code }}</div>
               </td>
               <td class="num">{{ fmtNumber(r.orders_count) }}</td>
-              <td class="num strong">{{ fmtMoney(r.revenue) }}</td>
+              <td class="num">
+                <div class="strong">{{ fmtMoney(r.revenue) }}</div>
+                <div class="muted small">{{ fmtNumber(topShareCustomer(r.revenue), 1) }}%</div>
+              </td>
             </tr>
             <tr *ngIf="topCustomers().length === 0">
               <td colspan="4" class="cc-table-empty">
@@ -165,14 +194,17 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let r of topProducts()">
-              <td><span class="cc-rank-badge">{{ r.rank_by_revenue || '—' }}</span></td>
+            <tr *ngFor="let r of topProducts(); let i = index">
+              <td><span class="cc-rank-badge">{{ r.rank_by_revenue || i + 1 }}</span></td>
               <td>
                 <div class="strong">{{ r.product_name }}</div>
                 <div class="muted small">{{ r.brand_name }}</div>
               </td>
               <td class="num">{{ fmtNumber(r.units_sold, 0) }}</td>
-              <td class="num strong">{{ fmtMoney(r.revenue) }}</td>
+              <td class="num">
+                <div class="strong">{{ fmtMoney(r.revenue) }}</div>
+                <div class="muted small">{{ fmtNumber(topShareProduct(r.revenue), 1) }}%</div>
+              </td>
             </tr>
             <tr *ngIf="topProducts().length === 0">
               <td colspan="4" class="cc-table-empty">
@@ -185,7 +217,7 @@
     </article>
   </div>
 
-  <!-- SHEET 3 (condicional): Alerts realtime, fullwidth -->
+  <!-- SHEET 4 (condicional): Alerts realtime -->
   <div *ngIf="alertFeed().length > 0" class="sheet cols-12">
     <article class="cell cell-span-12 is-flush">
       <div class="cell-head">
@@ -209,13 +241,15 @@
             <div class="cc-feed-title">{{ a.title }}</div>
             <div class="cc-feed-msg">{{ a.message }}</div>
           </div>
-          <time class="cc-feed-time">{{ fmtTime(a.emitted_at) }}</time>
+          <time class="cc-feed-time" [pTooltip]="fmtTime(a.emitted_at)" tooltipPosition="left">
+            {{ fmtRelTime(a.emitted_at) }}
+          </time>
         </li>
       </ul>
     </article>
   </div>
 
-  <!-- SHEET 4: Stock bajo + Inactivos -->
+  <!-- SHEET 5: Stock bajo + Inactivos -->
   <div *ngIf="!loading()" class="sheet cols-12">
     <article class="cell cell-span-6 is-flush">
       <div class="cell-head">
@@ -270,9 +304,9 @@
           <thead>
             <tr>
               <th>Cliente</th>
+              <th class="num">Días sin compra</th>
               <th>Teléfono</th>
               <th class="num">Crédito</th>
-              <th class="num">Días</th>
             </tr>
           </thead>
           <tbody>
@@ -281,11 +315,13 @@
                 <div class="strong">{{ c.name }}</div>
                 <div class="muted small">{{ c.code }}</div>
               </td>
+              <td class="num">
+                <span class="strong">
+                  {{ c.days_since_last_order !== null ? fmtNumber(c.days_since_last_order) + 'd' : 'Nunca' }}
+                </span>
+              </td>
               <td>{{ c.phone || '—' }}</td>
               <td class="num">{{ fmtMoney(c.credit_limit) }}</td>
-              <td class="num strong">
-                {{ c.days_since_last_order !== null ? fmtNumber(c.days_since_last_order) + 'd' : 'Nunca' }}
-              </td>
             </tr>
             <tr *ngIf="inactiveCustomers()!.customers.length === 0">
               <td colspan="4" class="cc-table-empty">

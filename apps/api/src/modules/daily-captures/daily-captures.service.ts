@@ -468,11 +468,18 @@ export class DailyCapturesService {
     // (tenant_id, folio) o por sync_uuid. La pre-validación arriba ya cubre
     // el happy path; este try/catch es solo defensa contra la race window
     // entre el SELECT idempotente y este INSERT.
+    // El INSERT va dentro de un SAVEPOINT (nested trx de Knex). Sin esto, una
+    // unique violation (23505) aborta la transacción ENTERA en Postgres y las
+    // queries de recuperación de abajo fallan con 25P02 ("current transaction
+    // is aborted"). El savepoint hace ROLLBACK TO SAVEPOINT en el 23505 y deja
+    // la trx externa viva para releer la fila existente.
+    const store = legacyTxStorage.getStore();
+    const tx = (store?.tx ?? this.knex) as Knex;
     let dailyCapture;
     try {
-      [dailyCapture] = await this.knex('daily_captures')
-        .insert(insertPayload)
-        .returning('*');
+      [dailyCapture] = await tx.transaction(async (sp) =>
+        sp('daily_captures').insert(insertPayload).returning('*'),
+      );
     } catch (err: any) {
       if (err?.code !== '23505') throw err;
 

@@ -212,6 +212,7 @@ exports.seed = async function (knex) {
         COMMERCIAL_CUSTOMERS_VER: true,    // ver SU propio perfil (scoped por customer_id)
         COMMERCIAL_PRICING_VER: true,       // ver SU lista de precio
         COMMERCIAL_INVENTORY_VER: true,     // ver stock disponible
+        COMMERCIAL_WAREHOUSES_VER: true,    // portal B2B usa default warehouse para el carrito
         COMMERCIAL_ORDERS_VER: true,        // ver SUS pedidos
         COMMERCIAL_ORDERS_CREAR: true,      // crear pedidos
         COMMERCIAL_ORDERS_CANCELAR: true,   // cancelar SUS propios drafts

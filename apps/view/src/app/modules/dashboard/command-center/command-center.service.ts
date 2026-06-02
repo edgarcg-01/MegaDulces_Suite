@@ -83,6 +83,13 @@ export interface RefreshResponse {
   results: Array<{ mv: string; ok: boolean; ms?: number; error?: string }>;
 }
 
+export interface DailySeriesRow {
+  day: string;
+  orders_count: number;
+  revenue: number;
+  net_revenue: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CommandCenterService {
   private readonly http = inject(HttpClient);
@@ -118,5 +125,12 @@ export class CommandCenterService {
 
   refresh(): Observable<RefreshResponse> {
     return this.http.post<RefreshResponse>(`${this.base}/refresh`, {});
+  }
+
+  dailySeries(from?: string, to?: string): Observable<DailySeriesRow[]> {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<DailySeriesRow[]>(`${this.base}/daily-series`, { params });
   }
 }

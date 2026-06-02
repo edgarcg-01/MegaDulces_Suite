@@ -1,6 +1,17 @@
 /* Design system tokens — single source of truth. Ver docs/UX_TOKENS.md */
 
 :root {
+  /* Typography families */
+  --font-body:    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-mono:    'JetBrains Mono', 'Courier New', monospace;
+
+  /* Display scale (portal hero + section heads, clamp responsive) */
+  --text-display-xl: clamp(2.5rem, 7vw, 3.5rem);   /* hero h1 */
+  --text-display-lg: clamp(1.875rem, 4.5vw, 2.5rem); /* section feature */
+  --text-display-md: clamp(1.375rem, 3vw, 1.625rem); /* card title */
+
+
   /* Brand (warm — Mega Dulces). 400=primary, 600=secondary, 700=tertiary.
      brand-400 NUNCA con texto blanco encima (AA 1.07 — usar neutral-950). */
   --brand-50:  #FFFEF0;

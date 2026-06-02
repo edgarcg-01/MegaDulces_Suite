@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -72,10 +72,39 @@ import { debounceTime, Subject } from 'rxjs';
             icon="pi pi-plus"
             label="Nuevo cliente"
             size="small"
+            severity="contrast"
             (click)="openCreate()"
           ></button>
         </div>
       </header>
+
+      <!-- KPI STRIP — resumen del total (no del paginado) -->
+      <div class="sheet cols-12" *ngIf="summaryAll().length > 0">
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-users"></i></span>
+          <span class="cell-label">Activos</span>
+          <span class="cell-value is-headline">{{ kpis().active }}</span>
+          <span class="cell-sub">en la cartera</span>
+        </article>
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-directions"></i></span>
+          <span class="cell-label">Con ruta</span>
+          <span class="cell-value">{{ kpis().withRoute }}</span>
+          <span class="cell-sub">asignada a reparto</span>
+        </article>
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-map-marker"></i></span>
+          <span class="cell-label">Tienda enlazada</span>
+          <span class="cell-value">{{ kpis().withStore }}</span>
+          <span class="cell-sub">visibles en Trade</span>
+        </article>
+        <article class="cell cell-span-3">
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+          <span class="cell-label">Crédito asignado</span>
+          <span class="cell-value">{{ fmtMoneyShort(kpis().totalCredit) }}</span>
+          <span class="cell-sub">suma de límites activos</span>
+        </article>
+      </div>
 
       <!-- FILTERS toolbar densa -->
       <div class="sheet cols-12">
@@ -147,13 +176,10 @@ import { debounceTime, Subject } from 'rxjs';
         <ng-template pTemplate="header">
           <tr>
             <th>Código</th>
-            <th>Nombre</th>
+            <th>Cliente</th>
             <th>Tienda enlazada</th>
             <th>Ruta</th>
-            <th>RFC</th>
-            <th>Email / Teléfono</th>
             <th class="comm-num">Crédito</th>
-            <th class="comm-num">Días pago</th>
             <th>Estado</th>
             <th></th>
           </tr>
@@ -163,99 +189,120 @@ import { debounceTime, Subject } from 'rxjs';
             <td><code class="comm-code">{{ c.code }}</code></td>
             <td>
               <div class="comm-cell-strong">{{ c.name }}</div>
-              <div class="comm-muted is-small" *ngIf="c.legal_name">{{ c.legal_name }}</div>
+              <div class="cu-cell-meta">
+                <span *ngIf="c.legal_name">{{ c.legal_name }}</span>
+                <span *ngIf="c.rfc"><i class="pi pi-id-card" aria-hidden="true"></i>{{ c.rfc }}</span>
+                <span *ngIf="c.email"><i class="pi pi-envelope" aria-hidden="true"></i>{{ c.email }}</span>
+                <span *ngIf="c.phone"><i class="pi pi-phone" aria-hidden="true"></i>{{ c.phone }}</span>
+              </div>
             </td>
-            <td class="store-cell">
-              <p-select
-                [options]="stores()"
-                [ngModel]="c.store_id"
-                [ngModelOptions]="{ standalone: true }"
-                (onChange)="linkStore(c, $event.value)"
-                optionLabel="nombre"
-                optionValue="id"
-                placeholder="— Sin enlazar —"
-                [filter]="true"
-                filterBy="nombre,direccion"
-                [showClear]="true"
-                appendTo="body"
-                styleClass="row-store-select"
-                [disabled]="linkingId() === c.id"
-              >
-                <ng-template let-s pTemplate="selectedItem">
-                  <div class="store-link">
-                    <i class="pi pi-map-marker"></i>
-                    <span>{{ s.nombre }}</span>
-                  </div>
-                </ng-template>
-                <ng-template let-s pTemplate="item">
-                  <div class="store-option">
-                    <i class="pi pi-map-marker"></i>
-                    <div>
-                      <div>{{ s.nombre }}</div>
-                      <div class="comm-muted is-small" *ngIf="s.direccion">{{ s.direccion }}</div>
+            <td class="cu-link-cell">
+              <ng-container *ngIf="editingStoreId() === c.id; else storeView">
+                <p-select
+                  [options]="stores()"
+                  [ngModel]="c.store_id"
+                  [ngModelOptions]="{ standalone: true }"
+                  (onChange)="linkStore(c, $event.value); editingStoreId.set(null)"
+                  (onHide)="editingStoreId.set(null)"
+                  optionLabel="nombre"
+                  optionValue="id"
+                  placeholder="— Sin enlazar —"
+                  [filter]="true"
+                  filterBy="nombre,direccion"
+                  [showClear]="true"
+                  appendTo="body"
+                  styleClass="row-store-select"
+                  [disabled]="linkingId() === c.id"
+                  [autofocus]="true"
+                >
+                  <ng-template let-s pTemplate="item">
+                    <div class="store-option">
+                      <i class="pi pi-map-marker"></i>
+                      <div>
+                        <div>{{ s.nombre }}</div>
+                        <div class="comm-muted is-small" *ngIf="s.direccion">{{ s.direccion }}</div>
+                      </div>
                     </div>
-                  </div>
-                </ng-template>
-              </p-select>
+                  </ng-template>
+                </p-select>
+              </ng-container>
+              <ng-template #storeView>
+                <button *ngIf="c.store_id" type="button" class="cu-inline-chip" (click)="editingStoreId.set(c.id)" pTooltip="Cambiar tienda">
+                  <i class="pi pi-map-marker" aria-hidden="true"></i>
+                  <span>{{ storeName(c.store_id) }}</span>
+                  <i class="pi pi-pencil cu-chip-edit" aria-hidden="true"></i>
+                </button>
+                <button *ngIf="!c.store_id" type="button" class="cu-inline-add" (click)="editingStoreId.set(c.id)">
+                  <i class="pi pi-plus" aria-hidden="true"></i>
+                  Vincular
+                </button>
+              </ng-template>
               <i *ngIf="linkingId() === c.id" class="pi pi-spin pi-spinner saving-spinner" aria-label="Guardando…"></i>
             </td>
-            <td class="route-cell">
-              <p-select
-                [options]="routes()"
-                [ngModel]="c.route_id"
-                [ngModelOptions]="{ standalone: true }"
-                (onChange)="linkRoute(c, $event.value)"
-                optionLabel="name"
-                optionValue="id"
-                placeholder="— Sin ruta —"
-                [filter]="true"
-                filterBy="name"
-                [showClear]="true"
-                appendTo="body"
-                styleClass="row-route-select"
-                [disabled]="linkingRouteId() === c.id"
-              >
-                <ng-template let-r pTemplate="selectedItem">
-                  <div class="route-link">
-                    <i class="pi pi-directions"></i>
-                    <span>{{ r.name }}</span>
-                  </div>
-                </ng-template>
-                <ng-template let-r pTemplate="item">
-                  <div class="route-option">
-                    <i class="pi pi-directions"></i>
-                    <span>{{ r.name }}</span>
-                  </div>
-                </ng-template>
-              </p-select>
+            <td class="cu-link-cell">
+              <ng-container *ngIf="editingRouteId() === c.id; else routeView">
+                <p-select
+                  [options]="routes()"
+                  [ngModel]="c.route_id"
+                  [ngModelOptions]="{ standalone: true }"
+                  (onChange)="linkRoute(c, $event.value); editingRouteId.set(null)"
+                  (onHide)="editingRouteId.set(null)"
+                  optionLabel="name"
+                  optionValue="id"
+                  placeholder="— Sin ruta —"
+                  [filter]="true"
+                  filterBy="name"
+                  [showClear]="true"
+                  appendTo="body"
+                  styleClass="row-route-select"
+                  [disabled]="linkingRouteId() === c.id"
+                  [autofocus]="true"
+                >
+                  <ng-template let-r pTemplate="item">
+                    <div class="route-option">
+                      <i class="pi pi-directions"></i>
+                      <span>{{ r.name }}</span>
+                    </div>
+                  </ng-template>
+                </p-select>
+              </ng-container>
+              <ng-template #routeView>
+                <button *ngIf="c.route_id" type="button" class="cu-inline-chip" (click)="editingRouteId.set(c.id)" pTooltip="Cambiar ruta">
+                  <i class="pi pi-directions" aria-hidden="true"></i>
+                  <span>{{ routeName(c.route_id) }}</span>
+                  <i class="pi pi-pencil cu-chip-edit" aria-hidden="true"></i>
+                </button>
+                <button *ngIf="!c.route_id" type="button" class="cu-inline-add" (click)="editingRouteId.set(c.id)">
+                  <i class="pi pi-plus" aria-hidden="true"></i>
+                  Asignar
+                </button>
+              </ng-template>
               <i *ngIf="linkingRouteId() === c.id" class="pi pi-spin pi-spinner saving-spinner" aria-label="Guardando…"></i>
             </td>
-            <td>{{ c.rfc || '—' }}</td>
-            <td>
-              <div *ngIf="c.email">{{ c.email }}</div>
-              <div class="comm-muted is-small" *ngIf="c.phone">{{ c.phone }}</div>
-              <span *ngIf="!c.email && !c.phone" class="comm-muted">—</span>
+            <td class="comm-num">
+              <div class="comm-cell-strong">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</div>
+              <div class="comm-muted is-small">{{ c.payment_terms_days ?? 0 }}d pago</div>
             </td>
-            <td class="comm-num">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
-            <td class="comm-num">{{ c.payment_terms_days ?? 0 }}</td>
             <td>
-              <span *ngIf="c.active !== false" class="comm-pill is-active">Activo</span>
-              <span *ngIf="c.active === false" class="comm-pill is-inactive">Inactivo</span>
+              <span class="cu-status" [class.is-on]="c.active !== false">
+                <span class="cu-status-dot" aria-hidden="true"></span>
+                {{ c.active !== false ? 'Activo' : 'Inactivo' }}
+              </span>
             </td>
             <td class="comm-actions">
               <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
-              <button pButton icon="pi pi-key" size="small" severity="success" [text]="true"
+              <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
                       *ngIf="c.active !== false"
                       [disabled]="creatingAccessId() === c.id"
                       (click)="createPortalAccess(c)"
                       pTooltip="Crear acceso Portal B2B"></button>
-              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(c)" *ngIf="c.active !== false" pTooltip="Soft-delete"></button>
+              <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(c)" *ngIf="c.active !== false" pTooltip="Desactivar"></button>
             </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr>
-            <td colspan="10" class="cu-empty-cell">
+            <td colspan="7" class="cu-empty-cell">
               <div class="cu-empty">
                 <div class="cu-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
                 <h3>Sin clientes</h3>
@@ -457,7 +504,7 @@ import { debounceTime, Subject } from 'rxjs';
     }
     .cu-search:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .cu-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     .cu-search input {
@@ -517,21 +564,67 @@ import { debounceTime, Subject } from 'rxjs';
       font-weight: var(--fw-bold);
     }
 
-    /* ── INLINE SELECTS dentro de tabla — compactos, sin chrome de PrimeNG ── */
-    .store-cell { min-width: 220px; display: flex; align-items: center; gap: .5rem; }
-    .route-cell { min-width: 180px; display: flex; align-items: center; gap: .5rem; }
+    /* ── Sub-meta debajo del nombre del cliente ── */
+    .cu-cell-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem;
+      margin-top: .15rem;
+      font-size: var(--fs-xs);
+      color: var(--c-text-3);
+    }
+    .cu-cell-meta span {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+    }
+    .cu-cell-meta i { font-size: var(--fs-nano); color: var(--c-text-3); }
 
-    .store-link, .route-link {
+    /* ── INLINE CHIP / ADD (view mode de tienda/ruta) ── */
+    .cu-link-cell { min-width: 160px; }
+    .cu-inline-chip,
+    .cu-inline-add {
       display: inline-flex;
       align-items: center;
       gap: .35rem;
       font-size: var(--fs-sm);
+      cursor: pointer;
+      padding: .3rem .55rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all 120ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .cu-inline-chip {
       color: var(--c-text-1);
     }
-    .store-link i, .route-link i {
+    .cu-inline-chip i:first-child { color: var(--c-text-3); font-size: var(--fs-xs); }
+    .cu-chip-edit {
+      color: var(--c-text-3) !important;
+      font-size: var(--fs-nano) !important;
+      opacity: 0;
+      transition: opacity 120ms var(--ease-standard);
+    }
+    .cu-inline-chip:hover {
+      background: var(--c-surface-2);
+      border-color: var(--c-divider);
+    }
+    .cu-inline-chip:hover .cu-chip-edit { opacity: 1; }
+    .cu-inline-add {
       color: var(--c-text-3);
+      border: 1px dashed var(--c-divider);
       font-size: var(--fs-xs);
     }
+    .cu-inline-add i { font-size: var(--fs-nano); }
+    .cu-inline-add:hover {
+      color: var(--c-text-1);
+      border-color: var(--c-text-2);
+      border-style: solid;
+      background: var(--c-surface-2);
+    }
+
+    /* Selects abiertos en edit mode — sin chrome PrimeNG visible */
     .store-option, .route-option {
       display: flex;
       gap: .5rem;
@@ -546,19 +639,29 @@ import { debounceTime, Subject } from 'rxjs';
     :host ::ng-deep .p-select.row-route-select {
       width: 100%;
       font-size: var(--fs-sm);
-      background: transparent;
-      border-color: transparent;
-    }
-    :host ::ng-deep .p-select.row-store-select:hover,
-    :host ::ng-deep .p-select.row-route-select:hover {
-      background: var(--c-surface-2);
-      border-color: var(--c-divider);
     }
     :host ::ng-deep .p-select.row-store-select .p-select-label,
     :host ::ng-deep .p-select.row-route-select .p-select-label {
       padding: .35rem .55rem;
     }
-    .saving-spinner { color: var(--c-accent-fg); font-size: var(--fs-sm); }
+    .saving-spinner { color: var(--c-text-2); font-size: var(--fs-sm); margin-left: .35rem; }
+
+    /* ── ESTADO dot + label (sin pill llena) ── */
+    .cu-status {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      font-size: var(--fs-sm);
+      color: var(--c-text-3);
+    }
+    .cu-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--c-text-3);
+    }
+    .cu-status.is-on { color: var(--c-text-1); }
+    .cu-status.is-on .cu-status-dot { background: var(--c-ok); }
 
     /* ── EMPTY STATE inline en tabla ── */
     .cu-empty-cell { padding: 0 !important; }
@@ -666,6 +769,24 @@ export class ComercialCustomersComponent {
   /** ID del customer cuyo enlace de tienda está guardándose ahora mismo. */
   readonly linkingId = signal<string | null>(null);
 
+  /** ID del customer cuyo select de tienda está abierto en modo edición. */
+  readonly editingStoreId = signal<string | null>(null);
+  /** ID del customer cuyo select de ruta está abierto en modo edición. */
+  readonly editingRouteId = signal<string | null>(null);
+
+  /** Resumen total cargado aparte (todas las filas) para KPI strip — independiente del paginado actual. */
+  readonly summaryAll = signal<Customer[]>([]);
+  readonly kpis = computed(() => {
+    const list = this.summaryAll();
+    const active = list.filter((c) => c.active !== false);
+    return {
+      active: active.length,
+      withRoute: active.filter((c) => !!c.route_id).length,
+      withStore: active.filter((c) => !!c.store_id).length,
+      totalCredit: active.reduce((s, c) => s + Number(c.credit_limit || 0), 0),
+    };
+  });
+
   // Tiendas de Trade Marketing — cache compartido para dropdown + lookup en lista.
   // Se carga una sola vez al montar el componente; el endpoint /api/stores
   // devuelve todas las activas del tenant en una sola llamada.
@@ -704,6 +825,22 @@ export class ComercialCustomersComponent {
     this.loadStores();
     this.loadRoutes();
     this.load();
+    this.loadSummary();
+  }
+
+  private loadSummary(): void {
+    this.api.listCustomers({ pageSize: 9999 }).subscribe({
+      next: (r) => this.summaryAll.set(r.data || []),
+      error: () => this.summaryAll.set([]),
+    });
+  }
+
+  fmtMoneyShort(n: number | undefined | null): string {
+    if (n === null || n === undefined) return '—';
+    const v = Number(n);
+    if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+    if (Math.abs(v) >= 1e3) return '$' + (v / 1e3).toFixed(2) + 'K';
+    return '$' + v.toFixed(0);
   }
 
   clearSearch(): void {
@@ -925,6 +1062,7 @@ export class ComercialCustomersComponent {
         this.dialogVisible = false;
         this.toast.add({ severity: 'success', summary: editing ? 'Cliente actualizado' : 'Cliente creado' });
         this.load();
+        this.loadSummary();
       },
       error: (err) => {
         this.saving.set(false);
@@ -947,6 +1085,7 @@ export class ComercialCustomersComponent {
           next: () => {
             this.toast.add({ severity: 'success', summary: 'Cliente desactivado' });
             this.load();
+            this.loadSummary();
           },
           error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo desactivar' }),
         });

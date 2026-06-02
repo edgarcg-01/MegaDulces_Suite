@@ -3,8 +3,10 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 
 // ─────────── DTOs ───────────
 
@@ -39,7 +41,44 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 @Injectable()
 export class CommercialPricingService {
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * Para customer_b2b: devuelve el set de price_list_ids permitidos (su
+   * default_price_list + tenant default por fallback). Para otros roles
+   * devuelve null (acceso completo).
+   */
+  private async allowedPriceListIdsForCtx(trx: any): Promise<string[] | null> {
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') return null;
+
+    const userRow = await trx('public.users')
+      .where({ id: ctx.userId })
+      .select('customer_id')
+      .first();
+    if (!userRow?.customer_id) {
+      throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+    }
+
+    const customer = await trx('commercial.customers')
+      .where({ id: userRow.customer_id })
+      .select('default_price_list_id')
+      .first();
+
+    const tenantDefault = await trx('commercial.price_lists')
+      .where({ is_default: true, active: true })
+      .whereNull('deleted_at')
+      .select('id')
+      .first();
+
+    const ids = new Set<string>();
+    if (customer?.default_price_list_id) ids.add(customer.default_price_list_id);
+    if (tenantDefault?.id) ids.add(tenantDefault.id);
+    return Array.from(ids);
+  }
 
   // ───── price_lists ─────
 
@@ -77,8 +116,13 @@ export class CommercialPricingService {
 
   async listPriceLists(active?: boolean) {
     return this.tk.run(async (trx) => {
+      const allowed = await this.allowedPriceListIdsForCtx(trx);
       let q = trx('commercial.price_lists').whereNull('deleted_at');
       if (typeof active === 'boolean') q = q.where({ active });
+      if (allowed !== null) {
+        if (allowed.length === 0) return [];
+        q = q.whereIn('id', allowed);
+      }
       return q.orderBy('is_default', 'desc').orderBy('name', 'asc');
     });
   }
@@ -86,6 +130,10 @@ export class CommercialPricingService {
   async findPriceListById(id: string) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
+      const allowed = await this.allowedPriceListIdsForCtx(trx);
+      if (allowed !== null && !allowed.includes(id)) {
+        throw new ForbiddenException('No tenés acceso a esta price list');
+      }
       const row = await trx('commercial.price_lists')
         .where({ id })
         .whereNull('deleted_at')
@@ -178,6 +226,11 @@ export class CommercialPricingService {
     }
 
     return this.tk.run(async (trx) => {
+      const allowed = await this.allowedPriceListIdsForCtx(trx);
+      if (allowed !== null && !allowed.includes(priceListId)) {
+        throw new ForbiddenException('No tenés acceso a esta price list');
+      }
+
       let q = trx('commercial.product_prices as pp')
         .leftJoin('public.products as p', function () {
           this.on('p.id', '=', 'pp.product_id').andOn(
@@ -289,6 +342,22 @@ export class CommercialPricingService {
       throw new BadRequestException('customer_id inválido');
 
     return this.tk.run(async (trx) => {
+      // Defense in depth: si el rol es customer_b2b, sobrescribir customerId
+      // con el customer del JWT. Sin esto un customer_b2b autenticado podría
+      // consultar el precio que paga OTRO cliente para cualquier producto
+      // pasando ?customer_id=<otro_uuid> — leak de pricing competitivo.
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const userRow = await trx('public.users')
+          .where({ id: ctx.userId })
+          .select('customer_id')
+          .first();
+        if (!userRow?.customer_id) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        customerId = userRow.customer_id;
+      }
+
       const customer = await trx('commercial.customers')
         .where({ id: customerId })
         .whereNull('deleted_at')

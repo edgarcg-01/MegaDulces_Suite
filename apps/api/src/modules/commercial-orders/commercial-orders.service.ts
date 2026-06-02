@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { TenantKnexService } from '../../shared/database/tenant-knex.service';
 import { TenantContextService } from '../../shared/tenant/tenant-context.service';
@@ -157,6 +158,7 @@ export class CommercialOrdersService {
     return this.tk.run(async (trx) => {
       const order = await trx('commercial.orders').where({ id: orderId }).first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
       if (order.status !== 'draft') {
         throw new ConflictException(
           `Solo se pueden editar pedidos en draft. Estado actual: '${order.status}'.`,
@@ -210,6 +212,7 @@ export class CommercialOrdersService {
       await trx.raw('SELECT id FROM commercial.orders WHERE id = ? FOR UPDATE', [orderId]);
 
       const order = await this.requireDraft(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
 
       // Resolver precio para este customer
       const priceInfo = await this.pricing.resolvePriceForCustomer(
@@ -269,6 +272,7 @@ export class CommercialOrdersService {
 
     return this.tk.run(async (trx) => {
       const order = await this.requireEditableForLines(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
 
       const line = await trx('commercial.order_lines')
         .where({ id: lineId, order_id: orderId })
@@ -345,6 +349,7 @@ export class CommercialOrdersService {
 
     return this.tk.run(async (trx) => {
       const order = await this.requireEditableForLines(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
 
       const line = await trx('commercial.order_lines')
         .where({ id: lineId, order_id: orderId })
@@ -384,6 +389,7 @@ export class CommercialOrdersService {
 
     return this.tk.run(async (trx) => {
       const order = await this.requireDraft(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
 
       const lines = await trx('commercial.order_lines')
         .where({ order_id: orderId })
@@ -584,6 +590,7 @@ export class CommercialOrdersService {
     return this.tk.run(async (trx) => {
       const order = await trx('commercial.orders').where({ id: orderId }).first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
       if (order.status === 'cancelled')
         throw new ConflictException('Pedido ya estaba cancelado');
       if (order.status === 'fulfilled')
@@ -630,6 +637,7 @@ export class CommercialOrdersService {
     return this.tk.run(async (trx) => {
       const order = await trx('commercial.orders').where({ id: orderId }).first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
 
       return trx('commercial.order_status_history')
         .where({ order_id: orderId })
@@ -670,6 +678,40 @@ export class CommercialOrdersService {
     });
   }
 
+  /**
+   * Variante de `resolveCustomerIdFromCtx` que usa una trx existente —
+   * evita abrir un sub-trx anidado cuando ya estamos dentro de `tk.run`.
+   */
+  private async resolveCustomerIdFromUser(trx: any): Promise<string | null> {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) return null;
+    const row = await trx('public.users')
+      .where({ id: userId })
+      .select('customer_id')
+      .first();
+    return row?.customer_id || null;
+  }
+
+  /**
+   * Defense in depth: para usuarios con rol `customer_b2b`, valida que el
+   * pedido pertenezca al customer linkeado al user. Sin esta validación, un
+   * customer_b2b autenticado podría leer / modificar pedidos de cualquier
+   * otro customer del mismo tenant (RLS no protege porque comparten tenant).
+   * Admin / vendedor / supervisor pasan sin validación (su permiso ya implica
+   * scope global tenant).
+   */
+  private async enforceOrderOwnership(trx: any, order: { customer_id: string }): Promise<void> {
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') return;
+    const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+    if (!myCustomerId) {
+      throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+    }
+    if (order.customer_id !== myCustomerId) {
+      throw new ForbiddenException('No tenés acceso a este pedido');
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Reads
   // ─────────────────────────────────────────────────────────────────
@@ -679,6 +721,14 @@ export class CommercialOrdersService {
       throw new BadRequestException('orderId inválido');
 
     return this.tk.run(async (trx) => {
+      // Ownership pre-check con query liviano antes del join completo.
+      const headOnly = await trx('commercial.orders')
+        .where({ id: orderId })
+        .select('id', 'customer_id')
+        .first();
+      if (!headOnly) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, headOnly);
+
       const order = await trx('commercial.orders as o')
         .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
         .leftJoin('commercial.warehouses as w', 'w.id', 'o.warehouse_id')
@@ -736,6 +786,19 @@ export class CommercialOrdersService {
     const offset = (page - 1) * pageSize;
 
     return this.tk.run(async (trx) => {
+      // Defense in depth: si el rol es customer_b2b, sobrescribir cualquier
+      // customer_id que venga en la query con el customer del JWT. Sin esto,
+      // un customer_b2b podría listar pedidos de otros customers del tenant
+      // pasando `?customer_id=<otro>` (RLS no diferencia entre customers).
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+        if (!myCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        query = { ...query, customer_id: myCustomerId };
+      }
+
       let q = trx('commercial.orders as o')
         .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
         .leftJoin('commercial.warehouses as w', 'w.id', 'o.warehouse_id')

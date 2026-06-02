@@ -68,9 +68,25 @@ export class AnalyticsRefreshService {
       for (const mv of MVS) {
         const start = Date.now();
         try {
-          await this.adminKnex.raw(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${mv}`);
+          // CONCURRENTLY exige que la MV ya esté poblada al menos una vez. Si
+          // se creó WITH NO DATA (o es una DB nueva sin seed inicial),
+          // relispopulated=false y CONCURRENTLY falla. En ese caso hacemos un
+          // REFRESH normal primero para poblarla; las siguientes corridas ya
+          // usan CONCURRENTLY sin bloquear lecturas.
+          const [{ relispopulated }] = (
+            await this.adminKnex.raw(
+              `SELECT relispopulated FROM pg_class WHERE oid = ?::regclass`,
+              [mv],
+            )
+          ).rows;
+          const concurrently = relispopulated ? 'CONCURRENTLY ' : '';
+          await this.adminKnex.raw(
+            `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`,
+          );
           const ms = Date.now() - start;
-          this.logger.log(`Refreshed ${mv} (${ms}ms, source=${source})`);
+          this.logger.log(
+            `Refreshed ${mv} (${ms}ms, source=${source}${concurrently ? '' : ', initial populate'})`,
+          );
           results.push({ mv, ok: true, ms });
         } catch (e: any) {
           this.logger.error(`Refresh ${mv} failed: ${e.message}`);

@@ -5,21 +5,28 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import {
   CommercialInventoryService,
   RecordMovementDto,
   AdjustStockDto,
   StockMovementType,
 } from './commercial-inventory.service';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { Permission } from '../../shared/constants/permissions';
 
 @ApiTags('commercial-inventory')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('commercial/inventory')
 export class CommercialInventoryController {
   constructor(private readonly service: CommercialInventoryService) {}
 
   @Get('stock')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
   @ApiOperation({ summary: 'Listar saldo de stock (paginado)' })
   listStock(
     @Query('warehouse_id') warehouseId?: string,
@@ -36,6 +43,7 @@ export class CommercialInventoryController {
   }
 
   @Get('stock/:warehouse_id/:product_id')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
   @ApiOperation({ summary: 'Saldo puntual de un producto en un almacén' })
   getStock(
     @Param('warehouse_id') warehouseId: string,
@@ -45,22 +53,28 @@ export class CommercialInventoryController {
   }
 
   @Post('movements')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
   @ApiOperation({
     summary:
-      'Registrar movimiento de inventario (in/out/reserve/release/sale/adjust)',
+      'Registrar movimiento de inventario (in/out/reserve/release/sale/adjust). Solo ops/admin — el flujo de pedidos dispara reserve/sale/release internamente y NO debería usar este endpoint.',
   })
   recordMovement(@Body() body: RecordMovementDto) {
     return this.service.recordMovement(body);
   }
 
   @Post('adjust')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
   @ApiOperation({ summary: 'Ajuste a saldo deseado (auditoría física)' })
   adjust(@Body() body: AdjustStockDto) {
     return this.service.adjustStock(body);
   }
 
   @Get('movements')
-  @ApiOperation({ summary: 'Bitácora de movimientos (paginado, filtros)' })
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
+  @ApiOperation({
+    summary:
+      'Bitácora de movimientos (paginado, filtros). Gate AJUSTAR (no VER) porque el audit log expone operaciones internas — customer_b2b con INVENTORY_VER ve saldos disponibles, no la bitácora.',
+  })
   listMovements(
     @Query('warehouse_id') warehouseId?: string,
     @Query('product_id') productId?: string,

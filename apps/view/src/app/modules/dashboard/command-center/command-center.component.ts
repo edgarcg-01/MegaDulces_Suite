@@ -4,6 +4,7 @@ import {
   DestroyRef,
   OnDestroy,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -11,9 +12,11 @@ import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin } from 'rxjs';
+import { forkJoin, interval } from 'rxjs';
+import { startWith } from 'rxjs/operators';
 
 import {
   CommandCenterService,
@@ -23,6 +26,7 @@ import {
   SalesByBrandRow,
   LowStockResponse,
   InactiveCustomersResponse,
+  DailySeriesRow,
 } from './command-center.service';
 import { AlertsSocketService, CommercialAlert } from './alerts-socket.service';
 
@@ -34,6 +38,7 @@ import { AlertsSocketService, CommercialAlert } from './alerts-socket.service';
     ButtonModule,
     SkeletonModule,
     ToastModule,
+    TooltipModule,
   ],
   providers: [MessageService],
   templateUrl: './command-center.component.html',
@@ -55,6 +60,43 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
   readonly salesByBrand = signal<SalesByBrandRow[]>([]);
   readonly lowStock = signal<LowStockResponse | null>(null);
   readonly inactiveCustomers = signal<InactiveCustomersResponse | null>(null);
+  readonly dailySeries = signal<DailySeriesRow[]>([]);
+
+  readonly nowTick = signal(Date.now());
+
+  readonly revenueSpark = computed(() => {
+    const series = this.dailySeries();
+    if (series.length < 2) return null;
+    const W = 280;
+    const H = 64;
+    const padX = 4;
+    const padY = 6;
+    const values = series.map((d) => d.revenue);
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const n = series.length;
+    const stepX = (W - 2 * padX) / Math.max(n - 1, 1);
+    const points = series.map((d, i) => {
+      const x = padX + i * stepX;
+      const y = padY + (H - 2 * padY) * (1 - (d.revenue - min) / range);
+      return { x, y, v: d.revenue, day: d.day };
+    });
+    const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const area = `${line} L${points[points.length - 1].x.toFixed(1)},${H - padY} L${points[0].x.toFixed(1)},${H - padY} Z`;
+    return { W, H, line, area, points, last: points[points.length - 1] };
+  });
+
+  readonly revenueDelta = computed(() => {
+    const series = this.dailySeries();
+    if (series.length < 4) return null;
+    const mid = Math.floor(series.length / 2);
+    const first = series.slice(0, mid).reduce((s, d) => s + d.revenue, 0);
+    const second = series.slice(mid).reduce((s, d) => s + d.revenue, 0);
+    if (first === 0) return null;
+    const pct = ((second - first) / first) * 100;
+    return { pct, direction: pct >= 0 ? 'up' : 'down' as 'up' | 'down' };
+  });
 
   // Alerts realtime
   readonly wsConnected = this.alertsSocket.connected;
@@ -67,6 +109,10 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
     this.alertsSocket.alert$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((a) => this.handleAlert(a));
+
+    interval(30_000)
+      .pipe(startWith(0), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.nowTick.set(Date.now()));
   }
 
   ngOnDestroy(): void {
@@ -95,6 +141,11 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
 
   loadAll(): void {
     this.loading.set(true);
+    const today = new Date();
+    const from = new Date(today.getTime() - 29 * 86400_000);
+    const fromIso = from.toISOString().slice(0, 10);
+    const toIso = today.toISOString().slice(0, 10);
+
     forkJoin({
       ov: this.api.overview(),
       tc: this.api.topCustomers(5),
@@ -102,16 +153,18 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
       sbb: this.api.salesByBrand(),
       ls: this.api.lowStock(200),
       ic: this.api.inactiveCustomers(30, 5),
+      ds: this.api.dailySeries(fromIso, toIso),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ ov, tc, tp, sbb, ls, ic }) => {
+        next: ({ ov, tc, tp, sbb, ls, ic, ds }) => {
           this.overview.set(ov);
           this.topCustomers.set(tc);
           this.topProducts.set(tp);
           this.salesByBrand.set(sbb);
           this.lowStock.set(ls);
           this.inactiveCustomers.set(ic);
+          this.dailySeries.set(ds);
           this.loading.set(false);
         },
         error: (err) => {
@@ -209,5 +262,41 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
   fmtTime(s: string): string {
     const d = new Date(s);
     return d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  fmtRelTime(s: string): string {
+    void this.nowTick();
+    const t = new Date(s).getTime();
+    if (Number.isNaN(t)) return '—';
+    const diff = Math.max(0, Date.now() - t);
+    const sec = Math.floor(diff / 1000);
+    if (sec < 5) return 'ahora';
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h`;
+    const day = Math.floor(hr / 24);
+    return `${day}d`;
+  }
+
+  daysSeverityClass(days: number | null): string {
+    if (days === null) return 'is-bad';
+    if (days > 90) return 'is-bad';
+    if (days > 60) return 'is-warn';
+    if (days > 30) return 'is-info';
+    return '';
+  }
+
+  topShareCustomer(rev: number): number {
+    const total = this.topCustomers().reduce((s, r) => s + Number(r.revenue || 0), 0);
+    if (total <= 0) return 0;
+    return (Number(rev || 0) / total) * 100;
+  }
+
+  topShareProduct(rev: number): number {
+    const total = this.topProducts().reduce((s, r) => s + Number(r.revenue || 0), 0);
+    if (total <= 0) return 0;
+    return (Number(rev || 0) / total) * 100;
   }
 }
