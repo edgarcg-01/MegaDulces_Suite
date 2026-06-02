@@ -541,6 +541,171 @@ export class CommercialAnalyticsService {
     });
   }
 
+  /**
+   * Top N productos pre-calculado por el ERP (Mega_Dulces.ranking_productos).
+   * Esta tabla mantiene un top 1000 calculado por el ERP que cuenta TODA la
+   * venta (no solo lo levantado por el portal/vendor app), por eso es más
+   * fiel que el ranking derivado de `commercial.orders`.
+   *
+   * No acepta filtros — el ERP precalcula con su propia ventana temporal.
+   */
+  async historicalRanking(q: { limit?: number }) {
+    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 100));
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics_external.ranking_legacy')
+        .orderBy('posicion', 'asc')
+        .limit(limit);
+      return rows.map((r) => ({
+        posicion: Number(r.posicion),
+        articulo: r.articulo,
+        nombre: r.nombre,
+        total_cajas: Number(r.total_cajas || 0),
+        total_piezas: Number(r.total_piezas || 0),
+        total_piezas_totales: Number(r.total_piezas_totales || 0),
+        total_venta: Number(r.total_venta || 0),
+      }));
+    });
+  }
+
+  /**
+   * Margen por categoría sobre ventas del período.
+   *
+   * `ventas.categoria` deja de poblarse en el ERP desde mayo 2026, así que
+   * JOIN-eamos por sku=articulo a `public.products` → `public.categories.name`
+   * para obtener categoría estable. Costo usa `ventas.costo` cuando viene
+   * (histórico al momento de venta), fallback a `cantidad × products.cost_base`
+   * (costo actual).
+   */
+  async historicalMarginByCategory(q: { from?: string; to?: string; limit?: number }) {
+    const { from, to } = this.parseDateRange(q);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
+    return this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+      const rows = await trx.raw(
+        `
+        SELECT
+          COALESCE(cat.name, 'Sin categoría')                AS category,
+          cat.id                                              AS category_id,
+          COUNT(DISTINCT v.producto_id)::int                  AS products,
+          COUNT(*)::int                                       AS lines,
+          COALESCE(SUM(v.cantidad), 0)::numeric               AS units,
+          COALESCE(SUM(v.venta_diaria), 0)::numeric           AS revenue,
+          COALESCE(SUM(
+            COALESCE(v.costo, v.cantidad * COALESCE(p.cost_base, 0))
+          ), 0)::numeric                                       AS cost,
+          COALESCE(SUM(v.venta_diaria), 0)::numeric
+            - COALESCE(SUM(
+                COALESCE(v.costo, v.cantidad * COALESCE(p.cost_base, 0))
+              ), 0)::numeric                                   AS margin,
+          CASE WHEN SUM(v.venta_diaria) > 0
+            THEN ROUND(
+              ((SUM(v.venta_diaria) - COALESCE(SUM(
+                  COALESCE(v.costo, v.cantidad * COALESCE(p.cost_base, 0))
+                ), 0)) / SUM(v.venta_diaria)) * 100,
+              2
+            )
+            ELSE NULL
+          END                                                  AS margin_pct
+        FROM analytics_external.ventas_legacy v
+        LEFT JOIN public.products p
+          ON p.sku = v.producto_id AND p.tenant_id = ?
+        LEFT JOIN public.categories cat
+          ON cat.id = p.category_id AND cat.tenant_id = ?
+        WHERE 1=1
+          ${from ? `AND v.fecha >= ?` : ''}
+          ${to ? `AND v.fecha <= ?` : ''}
+        GROUP BY cat.id, cat.name
+        ORDER BY revenue DESC
+        LIMIT ?
+        `,
+        [
+          tenantId,
+          tenantId,
+          ...(from ? [from] : []),
+          ...(to ? [to] : []),
+          limit,
+        ],
+      );
+      return rows.rows.map((r: any) => ({
+        category: r.category,
+        category_id: r.category_id,
+        products: Number(r.products),
+        lines: Number(r.lines),
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+        cost: Number(r.cost),
+        margin: Number(r.margin),
+        margin_pct: r.margin_pct != null ? Number(r.margin_pct) : null,
+      }));
+    });
+  }
+
+  /**
+   * Productos en el top del ERP pero con stock=0 en commercial.stock.
+   * Señal crítica: el ERP los considera best-sellers pero la app no tiene
+   * dónde surtirlos → oportunidad de venta perdida.
+   *
+   * Match por SKU = articulo del ERP.
+   */
+  async rankingOutOfStock(q: { limit?: number; topN?: number }) {
+    const limit = Math.min(50, Math.max(1, Number(q.limit) || 10));
+    // Solo escaneamos el top-N del ERP (más relevante; el ERP ya ordenó).
+    const topN = Math.min(1000, Math.max(50, Number(q.topN) || 200));
+
+    return this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+      const rows = await trx.raw(
+        `
+        WITH top_erp AS (
+          SELECT articulo, nombre, posicion, total_venta, total_piezas_totales
+            FROM analytics_external.ranking_legacy
+           ORDER BY posicion ASC
+           LIMIT ?
+        ),
+        stock_agg AS (
+          SELECT p.sku,
+                 p.id AS product_id,
+                 SUM(s.quantity)::numeric AS total_qty,
+                 SUM(s.reserved_quantity)::numeric AS total_reserved
+            FROM public.products p
+            LEFT JOIN commercial.stock s ON s.product_id = p.id
+           WHERE p.tenant_id = ?
+             AND p.deleted_at IS NULL
+             AND p.sku IS NOT NULL
+           GROUP BY p.sku, p.id
+        )
+        SELECT t.posicion,
+               t.articulo,
+               t.nombre AS erp_name,
+               t.total_venta,
+               t.total_piezas_totales,
+               sa.product_id,
+               COALESCE(sa.total_qty, 0)::numeric AS total_qty,
+               COALESCE(sa.total_reserved, 0)::numeric AS total_reserved,
+               GREATEST(COALESCE(sa.total_qty, 0) - COALESCE(sa.total_reserved, 0), 0)::numeric AS available
+          FROM top_erp t
+          LEFT JOIN stock_agg sa ON sa.sku = t.articulo
+         WHERE COALESCE(sa.total_qty, 0) - COALESCE(sa.total_reserved, 0) <= 0
+         ORDER BY t.posicion ASC
+         LIMIT ?
+        `,
+        [topN, tenantId, limit],
+      );
+
+      return rows.rows.map((r: any) => ({
+        posicion: Number(r.posicion),
+        articulo: r.articulo,
+        product_id: r.product_id || null,
+        nombre: r.erp_name,
+        total_venta: Number(r.total_venta || 0),
+        total_piezas_totales: Number(r.total_piezas_totales || 0),
+        total_qty: Number(r.total_qty),
+        total_reserved: Number(r.total_reserved),
+        available: Number(r.available),
+      }));
+    });
+  }
+
   /** Resumen por zona/sucursal en el período. */
   async historicalSalesByZona(q: { from?: string; to?: string }) {
     const { from, to } = this.parseDateRange(q);

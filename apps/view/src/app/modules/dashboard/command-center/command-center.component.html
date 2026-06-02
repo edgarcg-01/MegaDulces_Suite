@@ -333,4 +333,45 @@
       </div>
     </article>
   </div>
+
+  <!-- M.6.3 — Ranking ERP × stock 0: oportunidad de venta perdida -->
+  <div *ngIf="!loading() && rankingOOS().length > 0" class="sheet cols-12">
+    <article class="cell cell-span-12 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true" style="margin-right:0.35rem; color: var(--c-bad);"></i>
+          Best-sellers ERP sin stock
+        </span>
+        <span class="comm-pill is-bad no-dot">{{ rankingOOS().length }}</span>
+      </div>
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:50px">Pos ERP</th>
+              <th>Producto</th>
+              <th class="num">Vendido (ERP)</th>
+              <th class="num">Disponible</th>
+              <th class="num">Reservado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let r of rankingOOS()">
+              <td><span class="cc-rank-badge is-bad">#{{ r.posicion }}</span></td>
+              <td>
+                <div class="strong">{{ r.nombre }}</div>
+                <div class="muted small"><code class="comm-code">{{ r.articulo }}</code></div>
+              </td>
+              <td class="num">
+                <div>{{ fmtMoney(r.total_venta) }}</div>
+                <div class="muted small">{{ fmtNumber(r.total_piezas_totales) }} pzas</div>
+              </td>
+              <td class="num strong">{{ fmtNumber(r.available) }}</td>
+              <td class="num">{{ fmtNumber(r.total_reserved) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
 </div>

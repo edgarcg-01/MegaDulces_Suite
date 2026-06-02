@@ -47,25 +47,21 @@
 
 **Reentrenamiento**: mensual con data nueva.
 
-### I.3 — WebSocket scaling
+### I.3 — WebSocket scaling ✅ COMPLETADO 2026-06-02
 
-Cuando Railway corra 2+ replicas del API, Socket.IO deja de funcionar entre ellas. Solución:
+Implementado early (fuera de orden de Fase I) porque era cheap y desbloquea horizontal scaling.
 
-```bash
-npm install --workspace=apps/api @socket.io/redis-adapter
-```
+**Cambios:**
+- `npm install @socket.io/redis-adapter redis` (+11 paquetes).
+- `apps/api/src/main.ts` — `ReportsIoAdapter.connectToRedis()`: si `REDIS_URL` está seteado conecta pub/sub y registra `createAdapter` en el io server. Sin `REDIS_URL` → log informativo + in-memory fallback. Cubre ambos namespaces (`/reports` + `/alerts`) porque comparten el mismo io server.
+- `.env.example` + `.env` con `REDIS_URL=redis://localhost:6379` (local Docker `redis-md`).
+- Password masking en logs (`//***@`).
 
-```ts
-import { createAdapter } from '@socket.io/redis-adapter';
+**Local:** `docker run -d --name redis-md -p 6379:6379 --restart unless-stopped redis:7-alpine`. PING → PONG verificado.
 
-// En main.ts:
-const pubClient = createClient({ url: process.env.REDIS_URL });
-const subClient = pubClient.duplicate();
-await Promise.all([pubClient.connect(), subClient.connect()]);
-io.adapter(createAdapter(pubClient, subClient));
-```
+**Railway:** ver runbook `docs/IMPLEMENTACION/RUNBOOKS/REDIS_RAILWAY.md`.
 
-Validación: dos instancias del API, evento emitido en instancia A → cliente conectado a B lo recibe.
+**Validación pendiente:** 2 replicas del API + evento emitido en A → cliente en B lo recibe (requiere Railway con `numReplicas: 2`).
 
 ## Entregables clave
 

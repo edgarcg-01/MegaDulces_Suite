@@ -22,6 +22,8 @@ import {
   CommandCenterService,
   HistoricalByZonaRow,
   HistoricalDailyRow,
+  HistoricalMarginRow,
+  HistoricalRankingRow,
   HistoricalTopProductRow,
 } from '../command-center/command-center.service';
 import { getChartTokens } from '../../../shared/theme/chart-theme';
@@ -160,11 +162,32 @@ const PRESETS: DatePreset[] = [
       <!-- Top productos + by zona -->
       <div *ngIf="!loading()" class="sheet cols-12">
         <article class="cell cell-span-6 is-flush">
-          <div class="cell-head">
+          <div class="cell-head ha-top-head">
             <span class="cell-label">Top productos · revenue</span>
-            <span class="comm-muted is-small">{{ topProducts().length }}</span>
+            <div class="ha-source-toggle" role="tablist" aria-label="Fuente del ranking">
+              <button
+                type="button"
+                class="ha-toggle-btn"
+                [class.active]="topSource() === 'period'"
+                role="tab"
+                [attr.aria-selected]="topSource() === 'period'"
+                (click)="topSource.set('period')"
+                pTooltip="Ventas calculadas en el rango seleccionado"
+                tooltipPosition="top"
+              >Período</button>
+              <button
+                type="button"
+                class="ha-toggle-btn"
+                [class.active]="topSource() === 'erp'"
+                role="tab"
+                [attr.aria-selected]="topSource() === 'erp'"
+                (click)="topSource.set('erp')"
+                pTooltip="Ranking pre-calculado por el ERP (ventana propia)"
+                tooltipPosition="top"
+              >ERP all-time</button>
+            </div>
           </div>
-          <div class="data-table-wrap">
+          <div class="data-table-wrap" *ngIf="topSource() === 'period'">
             <table class="data-table">
               <thead>
                 <tr>
@@ -187,6 +210,37 @@ const PRESETS: DatePreset[] = [
                 <tr *ngIf="topProducts().length === 0">
                   <td colspan="4" class="cc-table-empty">
                     <i class="pi pi-box"></i>Sin ventas en el período
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="data-table-wrap" *ngIf="topSource() === 'erp'">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:36px">#</th>
+                  <th>Producto</th>
+                  <th class="num">Cajas</th>
+                  <th class="num">Piezas</th>
+                  <th class="num">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let p of rankingErp()">
+                  <td><span class="cc-rank-badge">{{ p.posicion }}</span></td>
+                  <td>
+                    <div class="strong">{{ p.nombre }}</div>
+                    <div class="muted small"><code class="comm-code">{{ p.articulo }}</code></div>
+                  </td>
+                  <td class="num">{{ fmtNumber(p.total_cajas, 0) }}</td>
+                  <td class="num">{{ fmtNumber(p.total_piezas_totales, 0) }}</td>
+                  <td class="num strong">{{ fmtMoney(p.total_venta) }}</td>
+                </tr>
+                <tr *ngIf="rankingErp().length === 0">
+                  <td colspan="5" class="cc-table-empty">
+                    <i class="pi pi-database"></i>Ranking ERP no disponible
                   </td>
                 </tr>
               </tbody>
@@ -222,6 +276,66 @@ const PRESETS: DatePreset[] = [
                 <tr *ngIf="byZona().length === 0">
                   <td colspan="4" class="cc-table-empty">
                     <i class="pi pi-map-marker"></i>Sin data por zona
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+
+      <!-- Margen por categoría — joinea ventas (FDW) ↔ products.cost_base -->
+      <div *ngIf="!loading()" class="sheet cols-12">
+        <article class="cell cell-span-12 is-flush">
+          <div class="cell-head ha-margin-head">
+            <span class="cell-label">Margen por categoría</span>
+            <div class="ha-margin-summary" *ngIf="marginByCat().length > 0">
+              <span class="ha-margin-mini">
+                <span class="comm-muted is-small">Revenue total</span>
+                <strong>{{ fmtMoneyShort(marginTotals().revenue) }}</strong>
+              </span>
+              <span class="ha-margin-mini">
+                <span class="comm-muted is-small">Costo</span>
+                <strong>{{ fmtMoneyShort(marginTotals().cost) }}</strong>
+              </span>
+              <span class="ha-margin-mini">
+                <span class="comm-muted is-small">Margen</span>
+                <strong [class]="marginClass(marginTotals().margin_pct)">
+                  {{ fmtMoneyShort(marginTotals().margin) }}
+                  <span class="ha-margin-pct">({{ fmtNumber(marginTotals().margin_pct, 1) }}%)</span>
+                </strong>
+              </span>
+            </div>
+          </div>
+          <div class="data-table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Categoría</th>
+                  <th class="num">SKUs</th>
+                  <th class="num">Unidades</th>
+                  <th class="num">Revenue</th>
+                  <th class="num">Costo</th>
+                  <th class="num">Margen $</th>
+                  <th class="num">Margen %</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let m of marginByCat()">
+                  <td><div class="strong">{{ m.category }}</div></td>
+                  <td class="num">{{ fmtNumber(m.products) }}</td>
+                  <td class="num">{{ fmtNumber(m.units, 0) }}</td>
+                  <td class="num strong">{{ fmtMoney(m.revenue) }}</td>
+                  <td class="num">{{ fmtMoney(m.cost) }}</td>
+                  <td class="num strong" [class]="marginClass(m.margin_pct)">{{ fmtMoney(m.margin) }}</td>
+                  <td class="num" [class]="marginClass(m.margin_pct)">
+                    <span *ngIf="m.margin_pct != null">{{ fmtNumber(m.margin_pct, 1) }}%</span>
+                    <span *ngIf="m.margin_pct == null" class="comm-muted">—</span>
+                  </td>
+                </tr>
+                <tr *ngIf="marginByCat().length === 0">
+                  <td colspan="7" class="cc-table-empty">
+                    <i class="pi pi-percentage"></i>Sin data de margen en el período
                   </td>
                 </tr>
               </tbody>
@@ -304,6 +418,71 @@ const PRESETS: DatePreset[] = [
       font-variant-numeric: tabular-nums;
     }
 
+    /* ── Margen por categoría: header + summary inline ── */
+    .ha-margin-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .ha-margin-summary {
+      display: inline-flex;
+      gap: 1.25rem;
+      align-items: center;
+    }
+    .ha-margin-mini {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .ha-margin-mini strong { font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .ha-margin-pct { font-weight: var(--fw-medium); font-size: var(--fs-sm); margin-left: 0.25rem; }
+
+    .is-margin-good { color: var(--c-ok) !important; }
+    .is-margin-warn { color: var(--c-warn) !important; }
+    .is-margin-bad  { color: var(--c-bad)  !important; font-weight: var(--fw-bold); }
+
+    /* ── Top source toggle (Período vs ERP) ── */
+    .ha-top-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .ha-source-toggle {
+      display: inline-flex;
+      align-items: stretch;
+      height: 28px;
+      background: var(--c-surface-2);
+      border: 1px solid var(--c-divider);
+      border-radius: 7px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .ha-toggle-btn {
+      background: transparent;
+      border: none;
+      padding: 0 0.65rem;
+      font-size: var(--fs-nano);
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+      cursor: pointer;
+      border-radius: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      transition: all 100ms var(--ease-standard);
+      white-space: nowrap;
+    }
+    .ha-toggle-btn:hover { color: var(--c-text-1); }
+    .ha-toggle-btn.active {
+      background: var(--c-surface-1);
+      color: var(--c-text-1);
+      box-shadow: 0 1px 2px rgba(0,0,0,.08);
+      font-weight: var(--fw-bold);
+    }
+
     .cc-table-empty {
       text-align: center !important;
       color: var(--c-text-2) !important;
@@ -331,6 +510,24 @@ export class HistoricalAnalyticsComponent {
   readonly daily = signal<HistoricalDailyRow[]>([]);
   readonly topProducts = signal<HistoricalTopProductRow[]>([]);
   readonly byZona = signal<HistoricalByZonaRow[]>([]);
+  readonly rankingErp = signal<HistoricalRankingRow[]>([]);
+  readonly marginByCat = signal<HistoricalMarginRow[]>([]);
+
+  readonly marginTotals = computed(() => {
+    const list = this.marginByCat();
+    const revenue = list.reduce((s, r) => s + (r.revenue || 0), 0);
+    const cost = list.reduce((s, r) => s + (r.cost || 0), 0);
+    return {
+      revenue,
+      cost,
+      margin: revenue - cost,
+      margin_pct: revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0,
+    };
+  });
+
+  /** 'period' = top calculado de ventas en el rango actual.
+   *  'erp' = top pre-calculado por el ERP (ranking_productos) — usualmente all-time. */
+  readonly topSource = signal<'period' | 'erp'>('period');
 
   readonly presets = PRESETS;
 
@@ -453,13 +650,21 @@ export class HistoricalAnalyticsComponent {
       top: this.api.historicalTopProducts({ from, to, zona, limit: 20 }).pipe(catchError(() => of([]))),
       // by-zona NO filtra por zona — siempre traemos el desglose completo para el select.
       zonas: this.api.historicalByZona(from, to).pipe(catchError(() => of([]))),
+      // Ranking ERP no depende del rango — pero lo cargamos en paralelo para
+      // que el toggle 'period'/'erp' sea instantáneo (sin re-fetch).
+      ranking: this.api.historicalRanking(20).pipe(catchError(() => of([]))),
+      // Margen por categoría: depende del rango (recalcula en cada load).
+      margin: this.api.historicalMarginByCategory({ from, to, limit: 15 })
+        .pipe(catchError(() => of([]))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ daily, top, zonas }) => {
+        next: ({ daily, top, zonas, ranking, margin }) => {
           this.daily.set(daily);
           this.topProducts.set(top);
           this.byZona.set(zonas);
+          this.rankingErp.set(ranking);
+          this.marginByCat.set(margin);
           this.loading.set(false);
         },
         error: (err) => {
@@ -509,5 +714,19 @@ export class HistoricalAnalyticsComponent {
     return new Intl.NumberFormat('es-MX', {
       minimumFractionDigits: decimals, maximumFractionDigits: decimals,
     }).format(Number(n));
+  }
+
+  /**
+   * Clase CSS para colorear margen %:
+   *   ≥20% → good (verde)
+   *   5-20% → warn (amarillo)
+   *   <5% o negativo → bad (rojo)
+   *   null → muted
+   */
+  marginClass(pct: number | null | undefined): string {
+    if (pct == null) return '';
+    if (pct >= 20) return 'is-margin-good';
+    if (pct >= 5) return 'is-margin-warn';
+    return 'is-margin-bad';
   }
 }

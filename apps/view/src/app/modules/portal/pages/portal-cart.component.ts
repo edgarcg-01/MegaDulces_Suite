@@ -111,9 +111,12 @@ function hashColor(key: string): string {
                 <span class="ca-meta-item">
                   IVA {{ taxPct(line.tax_rate) }}%
                 </span>
-                <span class="ca-meta-item ca-meta-promo" *ngIf="promoCodeOf(line) as pc">
+                <span class="ca-meta-item ca-meta-promo" *ngIf="line.applied_promo_code">
                   <i class="pi pi-megaphone"></i>
-                  {{ pc }}
+                  {{ line.applied_promo_code }}
+                  <em *ngIf="lineSavings(line) > 0">
+                    −{{ fmtMoney(lineSavings(line)) }}
+                  </em>
                 </span>
               </div>
             </div>
@@ -187,6 +190,18 @@ function hashColor(key: string): string {
               <div class="ca-summary-row">
                 <span>IVA</span>
                 <b>{{ fmtMoney(c.tax_total) }}</b>
+              </div>
+              <div class="ca-summary-row ca-summary-savings" *ngIf="totalLineSavings() > 0">
+                <span>
+                  <i class="pi pi-tag"></i> Ahorro promos
+                </span>
+                <b>−{{ fmtMoney(totalLineSavings()) }}</b>
+              </div>
+              <div class="ca-summary-row ca-summary-savings" *ngIf="basketDiscount() > 0">
+                <span>
+                  <i class="pi pi-megaphone"></i> {{ c.basket_promo_code }}
+                </span>
+                <b>−{{ fmtMoney(basketDiscount()) }}</b>
               </div>
             </div>
 
@@ -471,6 +486,19 @@ function hashColor(key: string): string {
         font-weight: 600;
         font-variant-numeric: tabular-nums;
       }
+      .ca-summary-savings span,
+      .ca-summary-savings b {
+        color: var(--good-fg, #15803d);
+        font-weight: 700;
+      }
+      .ca-summary-savings i { margin-right: 0.25rem; }
+
+      .ca-meta-promo em {
+        font-style: normal;
+        font-weight: 700;
+        color: var(--good-fg, #15803d);
+        margin-left: 0.375rem;
+      }
       .ca-summary-total {
         display: flex;
         justify-content: space-between;
@@ -553,6 +581,17 @@ export class PortalCartComponent implements OnInit {
     const c = this.cart();
     if (!c?.lines) return 0;
     return c.lines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+  });
+
+  readonly totalLineSavings = computed(() => {
+    const c = this.cart();
+    if (!c?.lines) return 0;
+    return c.lines.reduce((sum, l) => sum + (Number(l.discount_amount) || 0), 0);
+  });
+
+  readonly basketDiscount = computed(() => {
+    const c = this.cart();
+    return Number(c?.basket_discount_amount) || 0;
   });
 
   ngOnInit(): void {
@@ -698,16 +737,8 @@ export class PortalCartComponent implements OnInit {
     return id?.slice(0, 8) || '—';
   }
 
-  /**
-   * Extrae el code de promo aplicada desde line.notes. El backend escribe
-   * `Promo aplicada: <CODE>` cuando recalcOrderTotals detecta y aplica una promo
-   * a la línea. Devuelve null si no hay promo activa.
-   */
-  promoCodeOf(line: any): string | null {
-    const n = (line?.notes || '').trim();
-    if (!n.startsWith('Promo aplicada:')) return null;
-    const after = n.slice('Promo aplicada:'.length).trim();
-    return after.split(/[·\s]/)[0] || null;
+  lineSavings(line: any): number {
+    return Number(line?.discount_amount) || 0;
   }
 
   lineGradient(productId: string): string {

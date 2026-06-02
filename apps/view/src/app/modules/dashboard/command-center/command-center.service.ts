@@ -119,6 +119,46 @@ export interface HistoricalByZonaRow {
   revenue: number;
 }
 
+export interface HistoricalRankingRow {
+  posicion: number;
+  articulo: string;
+  nombre: string;
+  total_cajas: number;
+  total_piezas: number;
+  total_piezas_totales: number;
+  total_venta: number;
+}
+
+/**
+ * Margen por categoría sobre ventas del período. cost_base × cantidad vs venta_diaria.
+ */
+export interface HistoricalMarginRow {
+  category: string;
+  category_id: string | null;
+  products: number;
+  lines: number;
+  units: number;
+  revenue: number;
+  cost: number;
+  margin: number;
+  margin_pct: number | null;
+}
+
+/**
+ * Productos en top-N del ERP con stock disponible 0 — oportunidad de venta perdida.
+ */
+export interface RankingOutOfStockRow {
+  posicion: number;
+  articulo: string;
+  product_id: string | null;
+  nombre: string;
+  total_venta: number;
+  total_piezas_totales: number;
+  total_qty: number;
+  total_reserved: number;
+  available: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CommandCenterService {
   private readonly http = inject(HttpClient);
@@ -187,5 +227,29 @@ export class CommandCenterService {
     if (from) params = params.set('from', from);
     if (to) params = params.set('to', to);
     return this.http.get<HistoricalByZonaRow[]>(`${this.base}/historical/by-zona`, { params });
+  }
+
+  /**
+   * Top productos del ERP pre-calculado (Mega_Dulces.ranking_productos vía FDW).
+   * NO acepta filtros — el ERP mantiene esta tabla con su propia ventana
+   * temporal (usualmente all-time o trailing-12M). Más fiel a la realidad
+   * que `top-products` (que solo cuenta ventas registradas como `ventas` legacy).
+   */
+  historicalRanking(limit = 100): Observable<HistoricalRankingRow[]> {
+    const params = new HttpParams().set('limit', limit);
+    return this.http.get<HistoricalRankingRow[]>(`${this.base}/historical/ranking`, { params });
+  }
+
+  rankingOutOfStock(limit = 10, topN = 200): Observable<RankingOutOfStockRow[]> {
+    const params = new HttpParams().set('limit', limit).set('topN', topN);
+    return this.http.get<RankingOutOfStockRow[]>(`${this.base}/ranking-out-of-stock`, { params });
+  }
+
+  historicalMarginByCategory(opts: { from?: string; to?: string; limit?: number } = {}): Observable<HistoricalMarginRow[]> {
+    let params = new HttpParams();
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.limit) params = params.set('limit', opts.limit);
+    return this.http.get<HistoricalMarginRow[]>(`${this.base}/historical/margin-by-category`, { params });
   }
 }

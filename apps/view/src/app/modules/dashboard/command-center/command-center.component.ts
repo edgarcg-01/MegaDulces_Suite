@@ -15,8 +15,8 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, interval } from 'rxjs';
-import { startWith } from 'rxjs/operators';
+import { forkJoin, interval, of } from 'rxjs';
+import { catchError, startWith } from 'rxjs/operators';
 
 import {
   CommandCenterService,
@@ -27,6 +27,7 @@ import {
   LowStockResponse,
   InactiveCustomersResponse,
   DailySeriesRow,
+  RankingOutOfStockRow,
 } from './command-center.service';
 import { AlertsSocketService, CommercialAlert } from './alerts-socket.service';
 
@@ -61,6 +62,7 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
   readonly lowStock = signal<LowStockResponse | null>(null);
   readonly inactiveCustomers = signal<InactiveCustomersResponse | null>(null);
   readonly dailySeries = signal<DailySeriesRow[]>([]);
+  readonly rankingOOS = signal<RankingOutOfStockRow[]>([]);
 
   readonly nowTick = signal(Date.now());
 
@@ -154,10 +156,13 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
       ls: this.api.lowStock(200),
       ic: this.api.inactiveCustomers(30, 5),
       ds: this.api.dailySeries(fromIso, toIso),
+      // ranking-out-of-stock: FDW a Mega_Dulces. catchError para no romper
+      // el dashboard entero si la conexión al ERP está caída.
+      oos: this.api.rankingOutOfStock(10, 200).pipe(catchError(() => of([] as RankingOutOfStockRow[]))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ ov, tc, tp, sbb, ls, ic, ds }) => {
+        next: ({ ov, tc, tp, sbb, ls, ic, ds, oos }) => {
           this.overview.set(ov);
           this.topCustomers.set(tc);
           this.topProducts.set(tp);
@@ -165,6 +170,7 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
           this.lowStock.set(ls);
           this.inactiveCustomers.set(ic);
           this.dailySeries.set(ds);
+          this.rankingOOS.set(oos);
           this.loading.set(false);
         },
         error: (err) => {

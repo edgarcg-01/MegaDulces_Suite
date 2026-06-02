@@ -75,17 +75,70 @@ export interface PriceList {
   created_at?: string;
 }
 
+/**
+ * Producto del catálogo (admin view). Mapea a `public.products` + JOINs a
+ * brand/category. Trae todos los campos M.6.2 del importer Mega_Dulces.
+ */
+export interface Product {
+  id: string;
+  sku: string | null;
+  barcode: string | null;
+  nombre: string;
+  description: string | null;
+  brand_id: string | null;
+  brand_name?: string | null;
+  category_id: string | null;
+  category_name?: string | null;
+  unit_purchase: string | null;
+  unit_sale: string | null;
+  factor_purchase: number | null;
+  factor_sale: number | null;
+  iva_rate: number | null;
+  ieps_rate: number | null;
+  cost_base: number | null;
+  cost_with_tax: number | null;
+  cost_per_case: number | null;
+  location: string | null;
+  location_warehouse: string | null;
+  loyalty_points: number | null;
+  activo: boolean;
+  updated_at?: string;
+  // Solo en findById:
+  prices_count?: number;
+  total_on_hand?: number;
+  total_reserved?: number;
+  total_available?: number;
+}
+
+export interface ProductsPage {
+  data: Product[];
+  pagination: { page: number; pageSize: number; total: number; pageCount: number };
+}
+
+export interface UpdateProductDto {
+  description?: string | null;
+  location?: string | null;
+  location_warehouse?: string | null;
+  loyalty_points?: number | null;
+  activo?: boolean;
+}
+
 export interface ProductPrice {
   id: string;
   price_list_id?: string;
   product_id: string;
   product_name?: string;
+  product_description?: string | null;
   sku?: string | null;
   barcode?: string | null;
   brand_id?: string;
   brand_name?: string;
   category_id?: string | null;
   category_name?: string | null;
+  cost_base?: number | null;
+  cost_with_tax?: number | null;
+  location?: string | null;
+  loyalty_points?: number | null;
   price: number;
   tax_rate?: number;
   min_qty?: number;
@@ -165,10 +218,19 @@ export interface OrderHistoryEntry {
 
 export interface StockRow {
   warehouse_id: string;
+  warehouse_code?: string;
   warehouse_name?: string;
   product_id: string;
   product_name?: string;
+  sku?: string | null;
+  brand_id?: string;
   brand_name?: string;
+  /** M.6.2 — costos del producto (Mega_Dulces) para mostrar valor + margen. */
+  cost_base?: number | null;
+  cost_with_tax?: number | null;
+  location?: string | null;
+  /** Valor del stock disponible al costo (qty_available × cost_base). */
+  available_value?: number;
   available: number;
   reserved: number;
   on_hand: number;
@@ -346,6 +408,33 @@ export class ComercialService {
   }
   deletePrice(id: string) {
     return this.http.delete<{ ok: true }>(`${this.base}/product-prices/${id}`);
+  }
+
+  // ── Products (admin catalog) ───────────────────────────────────────
+  listProducts(opts: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    brand_id?: string;
+    category_id?: string;
+    active?: boolean;
+    with_cost?: boolean;
+  } = {}) {
+    let params = new HttpParams();
+    if (opts.page != null) params = params.set('page', opts.page);
+    if (opts.pageSize != null) params = params.set('pageSize', opts.pageSize);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.category_id) params = params.set('category_id', opts.category_id);
+    if (opts.active !== undefined) params = params.set('active', String(opts.active));
+    if (opts.with_cost) params = params.set('with_cost', 'true');
+    return this.http.get<ProductsPage>(`${this.base}/products`, { params });
+  }
+  findProduct(id: string) {
+    return this.http.get<Product>(`${this.base}/products/${id}`);
+  }
+  updateProduct(id: string, body: UpdateProductDto) {
+    return this.http.patch<Product>(`${this.base}/products/${id}`, body);
   }
 
   // ── Inventory ──────────────────────────────────────────────────────

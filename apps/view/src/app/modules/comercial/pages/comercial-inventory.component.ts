@@ -143,9 +143,13 @@ import { Permission } from '../../../core/constants/permissions';
               <tr>
                 <th>Almacén</th>
                 <th>Producto</th>
+                <th>SKU</th>
+                <th>Ubic.</th>
+                <th class="comm-num">Costo</th>
                 <th class="comm-num">On hand</th>
                 <th class="comm-num">Reservado</th>
                 <th class="comm-num">Disponible</th>
+                <th class="comm-num">Valor disp.</th>
                 <th></th>
               </tr>
             </ng-template>
@@ -161,12 +165,28 @@ import { Permission } from '../../../core/constants/permissions';
                   <div class="comm-cell-strong">{{ s.product_name || s.product_id }}</div>
                   <div class="comm-muted is-small" *ngIf="s.brand_name">{{ s.brand_name }}</div>
                 </td>
+                <td>
+                  <code *ngIf="s.sku" class="comm-code">{{ s.sku }}</code>
+                  <span *ngIf="!s.sku" class="comm-muted">—</span>
+                </td>
+                <td>
+                  <code *ngIf="s.location" class="comm-code in-loc-code">{{ s.location }}</code>
+                  <span *ngIf="!s.location" class="comm-muted">—</span>
+                </td>
+                <td class="comm-num">
+                  <span *ngIf="s.cost_base != null">{{ s.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  <span *ngIf="s.cost_base == null" class="comm-muted">—</span>
+                </td>
                 <td class="comm-num in-num-soft">{{ s.on_hand }}</td>
                 <td class="comm-num in-num-soft">{{ s.reserved }}</td>
                 <td class="comm-num in-avail-cell">
                   <span class="comm-pill no-dot in-avail-pill" [class]="stockPillClass(s.available)">
                     {{ s.available }}
                   </span>
+                </td>
+                <td class="comm-num">
+                  <span *ngIf="s.available_value">{{ s.available_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  <span *ngIf="!s.available_value" class="comm-muted">—</span>
                 </td>
                 <td class="comm-actions">
                   <button *ngIf="canAdjust()" pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
@@ -177,7 +197,7 @@ import { Permission } from '../../../core/constants/permissions';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="6" class="in-empty-cell">
+                <td colspan="10" class="in-empty-cell">
                   <div class="in-empty">
                     <div class="in-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
                     <h3>Sin stock registrado</h3>
@@ -342,6 +362,7 @@ import { Permission } from '../../../core/constants/permissions';
 
     /* ── Numéricos: on_hand y reserved soft, available prominente ── */
     .in-num-soft { color: var(--c-text-2); font-variant-numeric: tabular-nums; }
+    .in-loc-code { font-size: var(--fs-xs); padding: .1rem .35rem; letter-spacing: 0.04em; }
     .in-avail-cell { font-variant-numeric: tabular-nums; }
     .in-avail-pill {
       font-size: var(--fs-body);

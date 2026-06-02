@@ -104,6 +104,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
       },
       {
+        // Sprint M.7 — catálogo de productos admin (data Mega_Dulces enriquecida)
+        path: 'products',
+        loadComponent: () => import('./modules/comercial/pages/comercial-products.component').then(m => m.ComercialProductsComponent),
+        canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
+      },
+      {
         path: 'promotions',
         loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]

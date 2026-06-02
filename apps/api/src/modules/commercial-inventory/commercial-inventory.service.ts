@@ -81,7 +81,8 @@ export class CommercialInventoryService {
     return this.tk.run(async (trx) => {
       let q = trx('commercial.stock as s')
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
-        .leftJoin('public.products as p', 'p.id', 's.product_id');
+        .leftJoin('public.products as p', 'p.id', 's.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id');
 
       if (query.warehouse_id) q = q.where('s.warehouse_id', query.warehouse_id);
       if (query.product_id) q = q.where('s.product_id', query.product_id);
@@ -95,10 +96,26 @@ export class CommercialInventoryService {
           'w.code as warehouse_code',
           'w.name as warehouse_name',
           's.product_id',
+          'p.sku',
           'p.nombre as product_name',
+          'p.brand_id',
+          'b.nombre as brand_name',
+          // M.6.2 enriched fields (Mega_Dulces) → margen + picking en UI.
+          'p.cost_base',
+          'p.cost_with_tax',
+          'p.location',
+          // Aliases para alinearse con el frontend que históricamente usa
+          // on_hand/reserved/available. Esto desbroza un bug preexistente
+          // donde la UI mostraba campos vacíos (referenciaba on_hand sin que
+          // existiera). Mantenemos también los nombres reales por compat.
           's.quantity',
+          's.quantity as on_hand',
           's.reserved_quantity',
+          's.reserved_quantity as reserved',
           trx.raw('(s.quantity - s.reserved_quantity) as available_quantity'),
+          trx.raw('(s.quantity - s.reserved_quantity) as available'),
+          // Valor del stock disponible al costo (para totals del dashboard).
+          trx.raw('GREATEST(s.quantity - s.reserved_quantity, 0) * COALESCE(p.cost_base, 0) AS available_value'),
           's.updated_at',
         )
         .orderBy('w.name', 'asc')

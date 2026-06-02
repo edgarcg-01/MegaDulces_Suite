@@ -335,7 +335,8 @@ export class DailyCapturesService {
     const scoreMaximoVersion = Number(activeVersion?.score_maximo) || 0;
 
     // Recalcular los puntos puros con el Backend Engine y no de la app móvil
-    let puntosBackendTotales = dto.stats.puntuacionTotal || 0;
+    const frontendTotal = Number(dto.stats.puntuacionTotal) || 0;
+    let puntosBackendTotales = frontendTotal;
 
     if (configVersionId && processedExhibiciones.length > 0) {
        try {
@@ -357,7 +358,22 @@ export class DailyCapturesService {
            };
            
            const backendScore = await this.scoringV2Service.calculateVisitScore(scoringDto as any);
-           puntosBackendTotales = backendScore.puntos_obtenidos;
+           const backendTotal = backendScore.puntos_obtenidos;
+
+           // Guarda anti-regresión: un backend total = 0 con front > 0 casi
+           // siempre significa pesos faltantes en scoring_weights (drift
+           // catálogo↔pesos). NO pisamos un score real con 0 — conservamos el
+           // del front y alertamos fuerte. El fallback a catalogs.puntuacion en
+           // ScoringV2 ya debería evitarlo, esto es defensa en profundidad.
+           if (backendTotal === 0 && frontendTotal > 0) {
+             this.logger.error(
+               `Scoring backend devolvió 0 pero front=${frontendTotal} (folio=${dto.folio}). ` +
+                 `Probable peso faltante en scoring_weights. Conservando score del front.`,
+             );
+             puntosBackendTotales = frontendTotal;
+           } else {
+             puntosBackendTotales = backendTotal;
+           }
            this.logger.log(`Puntos backend: ${puntosBackendTotales}`);
 
            if (validExhibiciones.length < processedExhibiciones.length) {

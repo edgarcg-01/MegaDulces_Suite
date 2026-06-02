@@ -1,6 +1,11 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import { Readable } from 'stream';
+// Side-effect import: carga la augmentation global `Express.Multer` (tipos de
+// multer) para todo el compile. Antes la traía el import de 'multer' en
+// exhibitions.controller (ya eliminado); sin esto, `Express.Multer.File` deja
+// de resolver en este service, daily-captures.controller y ticket-extractor.
+import 'multer';
 
 let sharp: any;
 try {

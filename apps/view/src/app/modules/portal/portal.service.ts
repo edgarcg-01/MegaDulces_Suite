@@ -51,6 +51,9 @@ export interface OrderLine {
   line_subtotal: number | string;
   line_tax: number | string;
   line_total: number | string;
+  applied_promo_code?: string | null;
+  applied_promo_type?: string | null;
+  discount_amount?: number | string | null;
   notes?: string;
 }
 
@@ -64,6 +67,8 @@ export interface Order {
   tax_total: number | string;
   total: number | string;
   balance_due: number | string;
+  basket_promo_code?: string | null;
+  basket_discount_amount?: number | string | null;
   notes?: string;
   created_at: string;
   pending_approval_at?: string;

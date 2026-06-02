@@ -21,7 +21,6 @@ import { ScoringV2Module } from './modules/scoring/scoring-v2.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { StoresModule } from './modules/stores/stores.module';
 import { VisitsModule } from './modules/visits/visits.module';
-import { ExhibitionsModule } from './modules/exhibitions/exhibitions.module';
 import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assignments.module';
 import { CronModule } from './modules/cron/cron.module';
 import { DataModule } from './modules/data/data.module';
@@ -44,6 +43,7 @@ import { CommercialAnalyticsModule } from './modules/commercial-analytics/commer
 import { CommercialAlertsModule } from './modules/commercial-alerts/commercial-alerts.module';
 import { CommercialRecommendationsModule } from './modules/commercial-recommendations/commercial-recommendations.module';
 import { CommercialPromotionsModule } from './modules/commercial-promotions/commercial-promotions.module';
+import { CommercialProductsModule } from './modules/commercial-products/commercial-products.module';
 import { PortalAiOrderModule } from './modules/portal-ai-order/portal-ai-order.module';
 import { CommercialCatalogSearchModule } from './modules/commercial-catalog-search/commercial-catalog-search.module';
 // Fase E — Remote Manager / Televenta
@@ -80,6 +80,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialAlertsModule,
       CommercialRecommendationsModule,
       CommercialPromotionsModule,
+      CommercialProductsModule,
       PortalAiOrderModule,
       CommercialCatalogSearchModule,
       CommercialTeleventaModule,
@@ -133,7 +134,6 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     ReportsModule,
     StoresModule,
     VisitsModule,
-    ExhibitionsModule,
     DailyAssignmentsModule,
     CronModule,
     DataModule,

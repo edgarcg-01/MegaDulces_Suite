@@ -21,3 +21,4 @@ apps/api/src/**/*.js
 apps/api/src/**/*.js.map
 apps/api/src/**/*.d.ts
 apps/view/src/**/*.js.map
+.gstack/

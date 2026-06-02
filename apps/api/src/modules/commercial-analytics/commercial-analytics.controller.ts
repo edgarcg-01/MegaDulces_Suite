@@ -159,4 +159,48 @@ export class CommercialAnalyticsController {
   historicalByZona(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.historicalSalesByZona({ from, to });
   }
+
+  @Get('historical/ranking')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Top N pre-calculado por el ERP (Mega_Dulces.ranking_productos). Cuenta TODA la venta del ERP, no solo pedidos levantados por la app. Default limit 100, max 1000.',
+  })
+  historicalRanking(@Query('limit') limit?: string) {
+    return this.service.historicalRanking({ limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('historical/margin-by-category')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Margen por categoría en el período. JOIN ventas_legacy (FDW) ↔ products.cost_base ↔ categories. Devuelve revenue, costo, margen $, margen %.',
+  })
+  historicalMarginByCategory(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.historicalMarginByCategory({
+      from,
+      to,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('ranking-out-of-stock')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Productos en el top-N del ERP con stock disponible 0 — oportunidad de venta perdida. Scan default top-200 del ERP, devuelve hasta `limit` (default 10).',
+  })
+  rankingOutOfStock(
+    @Query('limit') limit?: string,
+    @Query('topN') topN?: string,
+  ) {
+    return this.service.rankingOutOfStock({
+      limit: limit ? Number(limit) : undefined,
+      topN: topN ? Number(topN) : undefined,
+    });
+  }
 }

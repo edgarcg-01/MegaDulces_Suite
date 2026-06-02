@@ -202,7 +202,10 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                 <th>Producto</th>
                 <th>SKU</th>
                 <th>Categoría</th>
+                <th>Ubic.</th>
+                <th class="comm-num">Costo</th>
                 <th class="comm-num">Precio</th>
+                <th class="comm-num">Margen</th>
                 <th class="comm-num">Min</th>
                 <th></th>
               </tr>
@@ -210,7 +213,9 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
             <ng-template pTemplate="body" let-p>
               <tr>
                 <td>
-                  <div class="comm-cell-strong">{{ p.product_name || p.product_id }}</div>
+                  <div class="comm-cell-strong" [pTooltip]="p.product_description || ''" tooltipPosition="right" [tooltipDisabled]="!p.product_description">
+                    {{ p.product_name || p.product_id }}
+                  </div>
                   <div class="comm-muted is-small" *ngIf="p.brand_name">{{ p.brand_name }}</div>
                 </td>
                 <td>
@@ -222,8 +227,24 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                   <span *ngIf="p.category_name" class="pr-cat-tag">{{ p.category_name }}</span>
                   <span *ngIf="!p.category_name" class="comm-muted">—</span>
                 </td>
+                <td>
+                  <code *ngIf="p.location" class="comm-code pr-loc-code">{{ p.location }}</code>
+                  <span *ngIf="!p.location" class="comm-muted">—</span>
+                </td>
+                <td class="comm-num">
+                  <span *ngIf="p.cost_base != null">{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  <span *ngIf="p.cost_base == null" class="comm-muted">—</span>
+                </td>
                 <td class="comm-num is-strong">{{ p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="comm-num">{{ p.min_qty || p.min_quantity || 1 }}</td>
+                <td class="comm-num">
+                  <span *ngIf="marginPct(p) as m" class="pr-margin" [class.is-good]="m >= 20" [class.is-warn]="m >= 5 && m < 20" [class.is-bad]="m < 5">
+                    {{ m | number:'1.1-1' }}%
+                  </span>
+                  <span *ngIf="!marginPct(p)" class="comm-muted">—</span>
+                </td>
+                <td class="comm-num">
+                  <span class="pr-min-qty" [class.is-tier]="(p.min_qty || 1) > 1">{{ p.min_qty || p.min_quantity || 1 }}</span>
+                </td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
                           (click)="confirmDeletePrice(p)" pTooltip="Eliminar"></button>
@@ -232,7 +253,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="6" class="pr-empty-cell">
+                <td colspan="9" class="pr-empty-cell">
                   <div class="pr-empty">
                     <div class="pr-empty-icon"><i [class]="pricesSearchSignal() ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                     <h3>{{ pricesSearchSignal() ? 'Sin resultados' : 'Lista vacía' }}</h3>
@@ -412,6 +433,39 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
     .pr-search-clear:hover {
       color: var(--c-text-1);
       background: var(--c-surface-2);
+    }
+
+    /* ── Margen semáforo: bueno (≥20%) / warn (5-20%) / bad (<5%) ── */
+    .pr-margin {
+      display: inline-block;
+      font-variant-numeric: tabular-nums;
+      font-weight: var(--fw-medium);
+      color: var(--c-text-2);
+    }
+    .pr-margin.is-good { color: var(--c-ok); font-weight: var(--fw-bold); }
+    .pr-margin.is-warn { color: var(--c-warn); }
+    .pr-margin.is-bad  { color: var(--c-bad);  font-weight: var(--fw-bold); }
+
+    /* ── min_qty con tier badge (cuando > 1) ── */
+    .pr-min-qty {
+      display: inline-block;
+      font-variant-numeric: tabular-nums;
+      color: var(--c-text-2);
+    }
+    .pr-min-qty.is-tier {
+      padding: .1rem .45rem;
+      background: var(--c-surface-2);
+      color: var(--c-text-1);
+      font-weight: var(--fw-bold);
+      border-radius: 4px;
+      font-size: var(--fs-xs);
+    }
+
+    /* ── location code (más chico que SKU) ── */
+    .pr-loc-code {
+      font-size: var(--fs-xs);
+      padding: .1rem .35rem;
+      letter-spacing: 0.04em;
     }
 
     /* ── Category tag inline ── */
@@ -638,6 +692,19 @@ export class ComercialPricingComponent {
         });
       },
     });
+  }
+
+  /**
+   * Margen sobre precio = (price - cost_base) / price * 100.
+   * Devuelve null si falta data — el template lo renderiza como "—".
+   * Usar precio (no costo) en el denominador es la convención retail estándar
+   * ("margen sobre venta"), distinto al markup ("margen sobre costo").
+   */
+  marginPct(p: ProductPrice): number | null {
+    const price = Number(p.price || 0);
+    const cost = Number(p.cost_base || 0);
+    if (!price || !cost) return null;
+    return ((price - cost) / price) * 100;
   }
 
   confirmDeletePrice(p: ProductPrice): void {

@@ -842,6 +842,8 @@ export class CommercialOrdersService {
           'o.tax_total',
           'o.total',
           'o.balance_due',
+          'o.basket_promo_code',
+          'o.basket_discount_amount',
           'o.notes',
           'o.user_id',
           'u.username as user_username',
@@ -977,15 +979,13 @@ export class CommercialOrdersService {
       const manualDiscount = Number(line.discount_percent) || 0;
       const taxRate = Number(line.tax_rate);
 
-      // Base sin promos: qty * price * (1 - manual_discount).
-      let lineSubtotal = qty * unitPrice * (1 - manualDiscount);
+      const baseSubtotal = qty * unitPrice * (1 - manualDiscount);
+      let lineSubtotal = baseSubtotal;
       let appliedPromoCode: string | null = null;
+      let appliedPromoType: string | null = null;
 
-      // 1) bundle_fixed_price: el bundle gana sobre cualquier per-line promo.
       const bundle = bundleByLine.get(line.product_id);
       if (bundle) {
-        // Distribuir el precio fijo del bundle proporcionalmente entre las líneas
-        // del bundle (por contribución de cada línea al base subtotal del bundle).
         const items: Array<{ product_id: string; quantity: number }> = bundle.rules.items;
         const bundlePrice = Number(bundle.rules.price);
         const bundleBaseTotal = items.reduce((acc, it) => {
@@ -997,10 +997,9 @@ export class CommercialOrdersService {
           const lineWeight = (qty * unitPrice) / bundleBaseTotal;
           lineSubtotal = +(bundlePrice * lineWeight).toFixed(2);
           appliedPromoCode = bundle.code;
+          appliedPromoType = 'bundle_fixed_price';
         }
       } else {
-        // 2) Per-product promos: nxm > percent_off_product > volume_discount > cross_sell.
-        // Se aplica solo el primero que matche (priority order del array).
         for (const p of promos) {
           if (p.promotion_type === 'bundle_fixed_price' || p.promotion_type === 'percent_off_basket') continue;
           const r = p.rules || {};
@@ -1019,7 +1018,6 @@ export class CommercialOrdersService {
             discountAmount = qty * unitPrice * pct;
           } else if (p.promotion_type === 'volume_discount' && r.product_id === line.product_id) {
             const tiers: Array<{ min_qty: number; percent: number }> = Array.isArray(r.tiers) ? r.tiers : [];
-            // Pick tier de mayor min_qty que cumpla.
             const sorted = [...tiers].sort((a, b) => Number(b.min_qty) - Number(a.min_qty));
             const tier = sorted.find((t) => qty >= Number(t.min_qty));
             if (tier) {
@@ -1035,8 +1033,9 @@ export class CommercialOrdersService {
           }
 
           if (discountAmount > 0) {
-            lineSubtotal = +(qty * unitPrice * (1 - manualDiscount) - discountAmount).toFixed(2);
+            lineSubtotal = +(baseSubtotal - discountAmount).toFixed(2);
             appliedPromoCode = p.code;
+            appliedPromoType = p.promotion_type;
             break;
           }
         }
@@ -1045,6 +1044,11 @@ export class CommercialOrdersService {
       lineSubtotal = Math.max(0, +lineSubtotal.toFixed(2));
       const lineTax = +(lineSubtotal * taxRate).toFixed(2);
       const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+      const discountAmount = +Math.max(0, baseSubtotal - lineSubtotal).toFixed(2);
+
+      const cleanedNotes = typeof line.notes === 'string' && line.notes.startsWith('Promo aplicada:')
+        ? null
+        : line.notes;
 
       await trx('commercial.order_lines')
         .where({ id: line.id })
@@ -1052,9 +1056,10 @@ export class CommercialOrdersService {
           line_subtotal: lineSubtotal,
           line_tax: lineTax,
           line_total: lineTotal,
-          notes: appliedPromoCode
-            ? `Promo aplicada: ${appliedPromoCode}${line.notes && !line.notes.startsWith('Promo aplicada:') ? ' · ' + line.notes : ''}`
-            : (line.notes && line.notes.startsWith('Promo aplicada:') ? null : line.notes),
+          applied_promo_code: appliedPromoCode,
+          applied_promo_type: appliedPromoType,
+          discount_amount: discountAmount,
+          notes: cleanedNotes,
         });
     }
 
@@ -1071,15 +1076,19 @@ export class CommercialOrdersService {
     let t = Number(tax) || 0;
     let g = Number(total) || 0;
 
-    // 3) percent_off_basket: aplica al total final si supera min_order_amount.
+    let basketPromoCode: string | null = null;
+    let basketDiscountAmount = 0;
     const basketPromo = promos.find((p) => p.promotion_type === 'percent_off_basket');
     if (basketPromo) {
       const pct = Math.min(1, Math.max(0, Number(basketPromo.rules?.percent) || 0));
       const minOrder = Number(basketPromo.min_order_amount) || 0;
       if (pct > 0 && g >= minOrder) {
+        const totalBefore = g;
         s = +(s * (1 - pct)).toFixed(2);
         t = +(t * (1 - pct)).toFixed(2);
         g = +(s + t).toFixed(2);
+        basketPromoCode = basketPromo.code;
+        basketDiscountAmount = +(totalBefore - g).toFixed(2);
       }
     }
 
@@ -1089,7 +1098,9 @@ export class CommercialOrdersService {
         subtotal: s,
         tax_total: t,
         total: g,
-        balance_due: g, // sin payments todavía
+        balance_due: g,
+        basket_promo_code: basketPromoCode,
+        basket_discount_amount: basketDiscountAmount,
         updated_at: trx.fn.now(),
       });
   }

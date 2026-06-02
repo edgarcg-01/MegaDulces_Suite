@@ -83,6 +83,13 @@ export const PROMOTION_META_LIST: PromotionMeta[] = Object.values(PROMOTION_META
  * Resume en lenguaje natural qué hace una promo, leyendo sus rules.
  * Usado en la tabla y tooltips.
  */
+// El engine guarda/aplica `percent` como FRACCIÓN [0..1] (0.15 = 15%, ver
+// commercial-orders.service: `Math.min(1, percent)`). Para mostrarlo formateamos
+// a porcentaje humano (×100). toFixed(2) evita el artefacto 0.15*100=15.0000002.
+function pctLabel(fraction: unknown): string {
+  return String(+(Number(fraction) * 100).toFixed(2));
+}
+
 export function summarizePromotion(
   type: PromotionType,
   rules: any,
@@ -91,16 +98,16 @@ export function summarizePromotion(
   if (!rules) return PROMOTION_META[type]?.label || type;
   switch (type) {
     case 'percent_off_product':
-      return `-${rules.percent}% en ${productName(rules.product_id)}`;
+      return `-${pctLabel(rules.percent)}% en ${productName(rules.product_id)}`;
     case 'percent_off_basket':
-      return `-${rules.percent}% al total del pedido`;
+      return `-${pctLabel(rules.percent)}% al total del pedido`;
     case 'nxm':
       return `${rules.n_buy}x${rules.m_pay} en ${productName(rules.product_id)}`;
     case 'volume_discount': {
       const tiers = (rules.tiers || []) as Array<{ min_qty: number; percent: number }>;
       const last = tiers[tiers.length - 1];
       return tiers.length > 0
-        ? `Volumen en ${productName(rules.product_id)} (hasta -${last.percent}%)`
+        ? `Volumen en ${productName(rules.product_id)} (hasta -${pctLabel(last.percent)}%)`
         : `Volumen en ${productName(rules.product_id)}`;
     }
     case 'bundle_fixed_price': {
@@ -108,7 +115,7 @@ export function summarizePromotion(
       return `Pack de ${items.length} productos por $${rules.price}`;
     }
     case 'cross_sell_discount':
-      return `Comprá ${productName(rules.trigger_product_id)} → -${rules.percent}% en ${productName(rules.target_product_id)}`;
+      return `Comprá ${productName(rules.trigger_product_id)} → -${pctLabel(rules.percent)}% en ${productName(rules.target_product_id)}`;
     default:
       return type;
   }

@@ -39,21 +39,57 @@ import helmet from 'helmet';
 import { ScheduleModule } from '@nestjs/schedule';
 import { INestApplicationContext } from '@nestjs/common';
 import { ServerOptions } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient, RedisClientType } from 'redis';
 
 /**
- * Adapter custom para que socket.io escuche en `/reports/socket.io` en lugar
- * del `/socket.io` por defecto. El frontend espera este path (ver
- * websocket.service.ts) y el `setGlobalPrefix` lo excluye explícitamente.
+ * Adapter custom: (1) sirve socket.io en `/reports/socket.io` (no en
+ * `/socket.io` default — el SPA y el reverse-proxy esperan ese path),
+ * (2) si REDIS_URL está seteado, conecta a Redis y registra el
+ * `@socket.io/redis-adapter` para broadcast cross-instance. Sin REDIS_URL
+ * sigue funcionando in-memory (single-instance). Necesario para escalar
+ * el API horizontalmente sin que un emit en pod A se pierda en pod B.
+ *
+ * Los dos namespaces (`/reports` y `/alerts`) comparten el mismo io server
+ * → con un solo adapter quedan ambos cubiertos.
  */
 class ReportsIoAdapter extends IoAdapter {
+  private readonly mainLogger = new Logger('SocketIOAdapter');
+  private pub?: RedisClientType;
+  private sub?: RedisClientType;
+
   constructor(app: INestApplicationContext) {
     super(app);
   }
+
+  async connectToRedis(): Promise<void> {
+    const url = process.env.REDIS_URL;
+    if (!url) {
+      this.mainLogger.log('REDIS_URL no seteado → socket.io en modo in-memory (single instance).');
+      return;
+    }
+    try {
+      this.pub = createClient({ url });
+      this.sub = this.pub.duplicate();
+      await Promise.all([this.pub.connect(), this.sub.connect()]);
+      this.mainLogger.log(`Conectado a Redis (${url.replace(/\/\/[^@]+@/, '//***@')}) — adapter cross-instance ACTIVO.`);
+    } catch (err: any) {
+      this.mainLogger.error(`Falló conexión a Redis: ${err.message}. Sigo en modo in-memory.`);
+      this.pub = undefined;
+      this.sub = undefined;
+    }
+  }
+
   override createIOServer(port: number, options?: ServerOptions): any {
-    return super.createIOServer(port, {
+    const server = super.createIOServer(port, {
       ...options,
       path: '/reports/socket.io',
     });
+    if (this.pub && this.sub) {
+      server.adapter(createAdapter(this.pub, this.sub));
+      this.mainLogger.log('Redis adapter wired al io server.');
+    }
+    return server;
   }
 }
 
@@ -113,8 +149,11 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup(`${apiPrefix}/docs`, app, document);
 
-  // WebSocket adapter custom — sirve socket.io en `/reports/socket.io`.
-  app.useWebSocketAdapter(new ReportsIoAdapter(app));
+  // WebSocket adapter custom — sirve socket.io en `/reports/socket.io` y
+  // si REDIS_URL está disponible, conecta el redis-adapter para multi-instance.
+  const ioAdapter = new ReportsIoAdapter(app);
+  await ioAdapter.connectToRedis();
+  app.useWebSocketAdapter(ioAdapter);
 
   // Habilita lifecycle hooks (onModuleDestroy, onApplicationShutdown).
   // Sin esto los `setInterval` y `setTimeout` de servicios no se limpian

@@ -121,13 +121,15 @@ const WAREHOUSE_COLUMN_MAP = {
   ex_cedis: 'MD-CEDIS',
 };
 
-// 5 price lists fijas (orden por priority: MAYOREO=100 default, P1-P4 descenden)
+// 5 price lists fijas. `min_qty_col`: la columna de catalogo_etiquetas que
+// indica la cantidad mínima del tier (p_X_ca). MAYOREO usa min_qty fijo en 1
+// porque es la lista por defecto y no debería forzar tier mínimo.
 const PRICE_LISTS = [
-  { code: 'MAYOREO', name: 'Mayoreo', source_col: 'precio_mayoreo', is_default: true },
-  { code: 'P1', name: 'Nivel 1 (precio público)', source_col: 'p_1', is_default: false },
-  { code: 'P2', name: 'Nivel 2', source_col: 'p_2', is_default: false },
-  { code: 'P3', name: 'Nivel 3', source_col: 'p_3', is_default: false },
-  { code: 'P4', name: 'Nivel 4 (mayorista grande)', source_col: 'p_4', is_default: false },
+  { code: 'MAYOREO', name: 'Mayoreo',                     source_col: 'precio_mayoreo', min_qty_col: null,    is_default: true  },
+  { code: 'P1',      name: 'Nivel 1 (precio público)',    source_col: 'p_1',            min_qty_col: 'p_1_ca', is_default: false },
+  { code: 'P2',      name: 'Nivel 2',                     source_col: 'p_2',            min_qty_col: 'p_2_ca', is_default: false },
+  { code: 'P3',      name: 'Nivel 3',                     source_col: 'p_3',            min_qty_col: 'p_3_ca', is_default: false },
+  { code: 'P4',      name: 'Nivel 4 (mayorista grande)',  source_col: 'p_4',            min_qty_col: 'p_4_ca', is_default: false },
 ];
 
 // Sanitización: trims + nulleo de strings vacíos
@@ -268,13 +270,11 @@ async function syncWarehouses({ target, tenantId, dryRun }) {
     for (const w of wh) {
       const exists = await trx('commercial.warehouses').where({ code: w.code }).first();
       if (exists) {
-        // Solo actualizar nombre si cambió. NO tocamos `is_default` para no
-        // sobrescribir lo que el admin haya configurado vía UI.
-        if (exists.name !== w.name) {
-          await trx('commercial.warehouses').where({ id: exists.id })
-            .update({ name: w.name, updated_at: trx.fn.now() });
-          upserted++;
-        }
+        // M.6.4: NO tocar `name` ni `is_default` en sync. El ERP no tiene
+        // nombres reales de almacén (solo prefijos numéricos en
+        // productos_activos.alm{X}_*), así que el admin tiene que renombrar
+        // a "Sucursal La Piedad" etc. vía /comercial/warehouses. Sobreescribir
+        // en sync borraría esa edición humana.
         continue;
       }
       // El primer warehouse en crearse será default si no hay otro default.
@@ -290,7 +290,15 @@ async function syncWarehouses({ target, tenantId, dryRun }) {
     }
   });
 
-  console.log(`  ✓ ${upserted} warehouses upserted`);
+  console.log(`  ✓ ${upserted} warehouses upserted (existentes preservan nombre editado por admin)`);
+
+  // M.6.4: imprimir lista de nombres reales como hint para el admin.
+  // ventas.almacen tiene 8 sucursales reales que el admin puede mapear
+  // manualmente desde /comercial/warehouses.
+  console.log(`  hint: sucursales reales detectadas en Mega_Dulces.ventas:`);
+  console.log(`        Sucursal 8 Esquinas, Canindo Abastos, La Piedad Abastos,`);
+  console.log(`        Morelia Abastos, Morelia Madero, Padre Hidalgo, Yurecuaro,`);
+  console.log(`        Zamora Centro — renombrar MD-{X} en /comercial/warehouses`);
   return { upserted, source: wh.length };
 }
 
@@ -333,6 +341,9 @@ async function syncPriceLists({ target, tenantId, dryRun }) {
 
 async function syncProducts({ source, target, tenantId, dryRun, limit }) {
   console.log('\n[products] ───────────────────────────────');
+  // M.6.2: enriquecemos con costos (productos_activos.costo_civa/costo_x_caja
+  // y catalogo_etiquetas.costo_matriz), descripción, ubicación, IVA/IEPS de
+  // compra, puntos de fidelidad, y cruzamos `en_existencia` con activos.
   const baseQuery = `
     SELECT
       cc.articulo,
@@ -347,9 +358,19 @@ async function syncProducts({ source, target, tenantId, dryRun, limit }) {
       cc.factor_venta,
       cc.iva_venta,
       cc.ieps_venta,
+      cc.iva_compra,
+      cc.ieps_compra,
+      cc.ptos_frecuencia,
+      pa.costo_civa,
+      pa.costo_x_caja,
+      et.costo_matriz,
+      et.ubicacion,
+      et.ubicacion_bodega,
+      et.en_existencia,
       CASE WHEN pa.articulo IS NOT NULL THEN true ELSE false END AS is_activo
     FROM catalogo_completo cc
-    LEFT JOIN productos_activos pa ON pa.articulo = cc.articulo
+    LEFT JOIN productos_activos pa  ON pa.articulo = cc.articulo
+    LEFT JOIN catalogo_etiquetas et ON et.articulo = cc.articulo
     WHERE cc.nombre IS NOT NULL
     ORDER BY cc.articulo
     ${limit ? `LIMIT ${parseInt(limit, 10)}` : ''}
@@ -389,8 +410,19 @@ async function syncProducts({ source, target, tenantId, dryRun, limit }) {
       if (!brandId) { skipped++; skipReasons.no_brand++; continue; }
 
       const categoryId = categoriesByCode.get(clean(r.categoria_codigo)) || null;
+      // IVA/IEPS en Mega_Dulces vienen como percent integer (16 = 16%, 8 = 8%).
+      // Almacenamos como decimal 0..1 (0.16) en numeric(5,4) para consistencia
+      // con commercial.product_prices.tax_rate.
       const ivaRate = r.iva_venta != null ? Number(r.iva_venta) / 100 : null;
       const iepsRate = r.ieps_venta != null ? Number(r.ieps_venta) / 100 : null;
+      const ivaPurchaseRate = r.iva_compra != null ? Number(r.iva_compra) / 100 : null;
+      const iepsPurchaseRate = r.ieps_compra != null ? Number(r.ieps_compra) / 100 : null;
+
+      // `en_existencia` (catalogo_etiquetas) marca productos descontinuados a
+      // nivel etiqueta. Cruzamos con `is_activo` (productos_activos) — un
+      // producto se considera activo SOLO si está en ambos. Esto desactiva
+      // automáticamente lo que el ERP retiró.
+      const finalActivo = r.is_activo === true && r.en_existencia !== false;
 
       try {
         // Buscar por sku primero (preferido), si no existe por (brand_id, nombre)
@@ -410,13 +442,23 @@ async function syncProducts({ source, target, tenantId, dryRun, limit }) {
           brand_id: brandId,
           category_id: categoryId,
           nombre,
+          description: clean(r.descripcion),
           unit_purchase: clean(r.unidad_compra),
           unit_sale: clean(r.unidad_venta),
           factor_purchase: r.factor_compra != null ? Number(r.factor_compra) : null,
           factor_sale: r.factor_venta != null ? Number(r.factor_venta) : null,
           iva_rate: ivaRate,
           ieps_rate: iepsRate,
-          activo: r.is_activo === true,
+          // M.6.2 — campos enriquecidos del ERP
+          cost_with_tax: r.costo_civa != null ? Number(r.costo_civa) : null,
+          cost_per_case: r.costo_x_caja != null ? Number(r.costo_x_caja) : null,
+          cost_base: r.costo_matriz != null ? Number(r.costo_matriz) : null,
+          location: clean(r.ubicacion),
+          location_warehouse: clean(r.ubicacion_bodega),
+          iva_purchase_rate: ivaPurchaseRate,
+          ieps_purchase_rate: iepsPurchaseRate,
+          loyalty_points: r.ptos_frecuencia != null ? Number(r.ptos_frecuencia) : null,
+          activo: finalActivo,
           updated_at: trx.fn.now(),
         };
 
@@ -442,8 +484,15 @@ async function syncProducts({ source, target, tenantId, dryRun, limit }) {
 
 async function syncPrices({ source, target, tenantId, dryRun, limit }) {
   console.log('\n[prices] ─────────────────────────────────');
+  // M.6.2: traemos también `p_X_ca` (cantidad mínima por tier) para que cada
+  // price_list tenga el volume tier correcto del ERP.
   const baseQuery = `
-    SELECT et.articulo, et.precio_mayoreo, et.p_1, et.p_2, et.p_3, et.p_4
+    SELECT et.articulo,
+           et.precio_mayoreo,
+           et.p_1, et.p_1_ca,
+           et.p_2, et.p_2_ca,
+           et.p_3, et.p_3_ca,
+           et.p_4, et.p_4_ca
       FROM catalogo_etiquetas et
       JOIN productos_activos pa ON pa.articulo = et.articulo
       ${limit ? `LIMIT ${parseInt(limit, 10)}` : ''}
@@ -486,6 +535,13 @@ async function syncPrices({ source, target, tenantId, dryRun, limit }) {
         const priceListId = priceListByCode.get(pl.code);
         if (!priceListId) continue;
 
+        // M.6.2: min_qty del tier. Si pl.min_qty_col viene null (caso MAYOREO),
+        // queda en 1 — la lista por defecto no fuerza tier mínimo. Para P1..P4
+        // tomamos p_X_ca del ERP. `>=1` siempre (Math.max).
+        const minQty = pl.min_qty_col && r[pl.min_qty_col] != null
+          ? Math.max(1, Number(r[pl.min_qty_col]))
+          : 1;
+
         // UNIQUE constraint es (tenant_id, price_list_id, product_id) sin
         // partial. Hacemos SELECT + UPDATE/INSERT explícito (sin ON CONFLICT)
         // para evitar contaminar la trx con errores recuperables.
@@ -493,9 +549,17 @@ async function syncPrices({ source, target, tenantId, dryRun, limit }) {
           .where({ tenant_id: tenantId, price_list_id: priceListId, product_id: product.id })
           .first();
         if (existing) {
-          if (Number(existing.price) !== Number(price) || Number(existing.tax_rate) !== tax) {
+          const diff = Number(existing.price) !== Number(price)
+            || Number(existing.tax_rate) !== tax
+            || Number(existing.min_qty) !== minQty;
+          if (diff) {
             await trx('commercial.product_prices').where({ id: existing.id })
-              .update({ price: Number(price), tax_rate: tax, updated_at: trx.fn.now() });
+              .update({
+                price: Number(price),
+                tax_rate: tax,
+                min_qty: minQty,
+                updated_at: trx.fn.now(),
+              });
             upserted++;
           }
         } else {
@@ -505,7 +569,7 @@ async function syncPrices({ source, target, tenantId, dryRun, limit }) {
             product_id: product.id,
             price: Number(price),
             tax_rate: tax,
-            min_qty: 1,
+            min_qty: minQty,
           });
           upserted++;
         }
@@ -515,6 +579,44 @@ async function syncPrices({ source, target, tenantId, dryRun, limit }) {
 
   console.log(`  ✓ ${upserted} precios upserted (skip ${skipped} sin sku en target)`);
   return { upserted, skipped, source: rows.rows.length };
+}
+
+async function syncVendedores({ source, target, tenantId, dryRun }) {
+  console.log('\n[vendedores] ─────────────────────────────');
+  // Source columns en Mega_Dulces son `codigo`/`nombre` (legacy ERP).
+  // Target columns en vendedores_erp post-cleanup son `code`/`name`.
+  const rows = await source.raw(`SELECT codigo, nombre FROM vendedores ORDER BY codigo`);
+  console.log(`  source: ${rows.rows.length} vendedores`);
+
+  if (dryRun) {
+    console.log(`  [DRY-RUN] omitiendo upsert`);
+    return { upserted: 0, source: rows.rows.length };
+  }
+
+  let upserted = 0;
+  await withTenantTx(target, tenantId, async (trx) => {
+    for (const r of rows.rows) {
+      const code = clean(r.codigo);
+      const name = clean(r.nombre);
+      if (!code || !name) continue;
+      const existing = await trx('vendedores_erp')
+        .where({ tenant_id: tenantId, code })
+        .first();
+      if (existing) {
+        if (existing.name !== name) {
+          await trx('vendedores_erp').where({ id: existing.id })
+            .update({ name, updated_at: trx.fn.now() });
+          upserted++;
+        }
+      } else {
+        await trx('vendedores_erp').insert({ tenant_id: tenantId, code, name });
+        upserted++;
+      }
+    }
+  });
+
+  console.log(`  ✓ ${upserted} vendedores upserted`);
+  return { upserted, source: rows.rows.length };
 }
 
 async function syncStock({ source, target, tenantId, dryRun, limit }) {
@@ -626,7 +728,7 @@ async function main() {
 
   const ctx = { source, target, tenantId, dryRun: !!args.dryRun, limit: args.limit };
 
-  const order = ['categories', 'brands', 'warehouses', 'price-lists', 'products', 'prices', 'stock'];
+  const order = ['categories', 'brands', 'warehouses', 'price-lists', 'vendedores', 'products', 'prices', 'stock'];
   const scopes = args.scope === 'all' ? order : [args.scope];
 
   const summary = {};
@@ -640,6 +742,7 @@ async function main() {
         case 'brands':      r = await syncBrands(ctx); break;
         case 'warehouses':  r = await syncWarehouses(ctx); break;
         case 'price-lists': r = await syncPriceLists(ctx); break;
+        case 'vendedores':  r = await syncVendedores(ctx); break;
         case 'products':    r = await syncProducts(ctx); break;
         case 'prices':      r = await syncPrices(ctx); break;
         case 'stock':       r = await syncStock(ctx); break;

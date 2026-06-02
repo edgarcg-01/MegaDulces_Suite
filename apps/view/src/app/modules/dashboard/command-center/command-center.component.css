@@ -102,6 +102,11 @@
   font-variant-numeric: tabular-nums;
 }
 .cc-rank-badge.is-sm { width: 18px; height: 18px; font-size: var(--fs-nano); }
+.cc-rank-badge.is-bad {
+  width: auto; padding: 0 0.45rem; border-radius: 999px;
+  background: rgba(220, 38, 38, 0.10);
+  color: var(--c-bad);
+}
 
 /* ── TABLE EMPTY inline ── */
 .cc-table-empty {

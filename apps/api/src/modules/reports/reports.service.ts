@@ -150,7 +150,12 @@ export class ReportsService {
     }
 
     const { query: dcQuery } = await this.buildBaseQuery(user, filters);
+    // Mismo motivo que buildBaseQuery: el count de tiendas debe filtrar tenant
+    // explícito (RLS bypasseado por el connection postgres).
+    const sTenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
     const sQuery = this.knex('stores');
+    if (sTenantId) sQuery.where('tenant_id', sTenantId);
 
     // Filtrar por fecha actual para cierres de hoy. `today` debe ser el día
     // calendario en MX — con UTC, después de las 18:00 MX el "today" del
@@ -286,7 +291,10 @@ export class ReportsService {
     }
 
     const { query: dcQuery } = await this.buildBaseQuery(user, filters);
+    const sTenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
     const sQuery = this.knex('stores');
+    if (sTenantId) sQuery.where('tenant_id', sTenantId);
 
     const [totalDaily] = await dcQuery.clone().count('id as count');
     const [totalTiendas] = await sQuery.count('id as count');
@@ -912,6 +920,17 @@ export class ReportsService {
   ): Promise<{ query: Knex.QueryBuilder }> {
     const scope = getDataScope(user);
     let query = this.knex('daily_captures');
+
+    // 0. Tenant isolation (defense-in-depth). El connection legacy es `postgres`
+    // y BYPASSEA RLS, así que el aislamiento NO viene de la policy — hay que
+    // filtrar explícito. getFilteredData ya lo hacía; getSummary/
+    // getDailyScoresPerUser (que usan este base) no, dejando un leak latente
+    // apenas exista un 2do tenant. tenant_id sale del JWT o del CLS context.
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (tenantId) {
+      query = query.where('tenant_id', tenantId);
+    }
 
     // 1. Scope
     if (scope.type === 'own') {

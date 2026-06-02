@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
 import { calcularPuntosExhibicion } from '@megadulces/shared-scoring';
@@ -17,6 +17,8 @@ export interface ScoringV2VisitDto {
 
 @Injectable()
 export class ScoringV2Service {
+  private readonly logger = new Logger(ScoringV2Service.name);
+
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
   /**
@@ -96,29 +98,49 @@ export class ScoringV2Service {
   private calcularScoreExhibicionSync(
     dto: ScoringV2CalculateDto,
     pesos: Record<string, Record<string, number>>,
-    catalogMap: Map<string, string>
+    catalogMap: Map<string, { value: string; puntuacion: number }>
   ) {
-    const nombrePosicion = catalogMap.get(dto.posicion_id);
-    const nombreExhibicion = catalogMap.get(dto.exhibicion_id);
-    const nombreNivel = catalogMap.get(dto.nivel_ejecucion_id);
+    const posicionEntry = catalogMap.get(dto.posicion_id);
+    const exhibicionEntry = catalogMap.get(dto.exhibicion_id);
+    const nivelEntry = catalogMap.get(dto.nivel_ejecucion_id);
 
-    if (!nombrePosicion) {
+    if (!posicionEntry) {
       throw new BadRequestException(`Posición no encontrada en catálogo: id=${dto.posicion_id}`);
     }
-    if (!nombreExhibicion) {
+    if (!exhibicionEntry) {
       throw new BadRequestException(`Exhibición no encontrada en catálogo: id=${dto.exhibicion_id}`);
     }
-    if (!nombreNivel) {
+    if (!nivelEntry) {
       throw new BadRequestException(`Nivel de ejecución no encontrado en catálogo: id=${dto.nivel_ejecucion_id}`);
     }
 
-    // Obtener parámetros desde la configuración versionada
-    const factorPosicion = pesos.posicion[nombrePosicion] ? Number(pesos.posicion[nombrePosicion]) : 0;
-    const nivelRaw = pesos.ejecucion[nombreNivel] ? Number(pesos.ejecucion[nombreNivel]) : 0;
-    const puntuacionBase = pesos.exhibicion[nombreExhibicion] ? Number(pesos.exhibicion[nombreExhibicion]) : 0;
+    // Peso desde la config versionada (scoring_weights, por nombre). Si la
+    // fila NO existe, caemos al `puntuacion` del catálogo en vez de 0: un peso
+    // ausente por drift catálogo↔pesos NO debe anular el score real de una
+    // exhibición capturada (bug scoring-0, recurrencia del fix "Sin exhibidor").
+    const resolveWeight = (
+      table: Record<string, number>,
+      nombre: string,
+      catalogFallback: number,
+      tipo: string,
+    ): number => {
+      const raw = table[nombre];
+      if (raw === undefined || raw === null) {
+        this.logger.warn(
+          `Peso faltante en scoring_weights: tipo=${tipo} nombre="${nombre}". ` +
+            `Usando catalogs.puntuacion=${catalogFallback} como fallback.`,
+        );
+        return Number(catalogFallback) || 0;
+      }
+      return Number(raw);
+    };
+
+    const factorPosicion = resolveWeight(pesos.posicion, posicionEntry.value, posicionEntry.puntuacion, 'posicion');
+    const puntuacionBase = resolveWeight(pesos.exhibicion, exhibicionEntry.value, exhibicionEntry.puntuacion, 'exhibicion');
+    const nivelRaw = resolveWeight(pesos.ejecucion, nivelEntry.value, nivelEntry.puntuacion, 'ejecucion');
 
     if (nivelRaw > 1) {
-      console.warn(`[ScoringV2] Factor nivel "${nombreNivel}" > 1: ${nivelRaw}. Revisar scoring_weights.`);
+      this.logger.warn(`Factor nivel "${nivelEntry.value}" > 1: ${nivelRaw}. Revisar scoring_weights.`);
     }
 
     // Fórmula canónica compartida con el frontend
@@ -176,14 +198,16 @@ export class ScoringV2Service {
 
     const catalogRows = await this.knex('catalogs')
       .whereIn('id', [...new Set(allCatalogIds)])
-      .select('id', 'value');
+      .select('id', 'value', 'puntuacion');
 
-    const catalogMap = new Map(catalogRows.map(r => [r.id, r.value]));
+    const catalogMap = new Map(
+      catalogRows.map(r => [r.id, { value: r.value, puntuacion: Number(r.puntuacion) || 0 }]),
+    );
 
     // Verificar que todos los IDs fueron resueltos
     const missingIds = [...new Set(allCatalogIds)].filter(id => !catalogMap.has(id));
     if (missingIds.length > 0) {
-      console.warn(`[ScoringV2] IDs de catálogo no encontrados: ${missingIds.join(', ')}`);
+      this.logger.warn(`IDs de catálogo no encontrados: ${missingIds.join(', ')}`);
     }
 
     // 3. Evaluar exhibiciones pasivas a memoria local
