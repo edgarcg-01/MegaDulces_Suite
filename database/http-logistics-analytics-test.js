@@ -91,13 +91,15 @@ function check(name, cond, detail) {
   check('overview con rango 200', ovRange.status === 200);
   check('overview rango cuenta solo del día', ovRange.body?.shipments?.count >= 1, ovRange.body?.shipments);
 
-  // 2. Shipment profitability
+  // 2. Shipment profitability — filtrar por DEMO-001 + rango hoy para que
+  // el shipment recién creado aparezca aunque la base tenga muchos cerrados
+  // con margen mayor (sin filtro caería fuera del top N por ranking).
   console.log('\n── 2. Shipment profitability ──');
-  const prof = await req('GET', '/logistics/analytics/shipment-profitability?limit=10', null, token);
+  const prof = await req('GET', `/logistics/analytics/shipment-profitability?vehicle_id=${vehId}&from=${today}&to=${today}&limit=500`, null, token);
   check('GET profitability 200', prof.status === 200);
   check('profitability es array', Array.isArray(prof.body));
   const mine = (prof.body || []).find((p) => p.id === shipmentId);
-  check('mi shipment está en profitability', !!mine, { folio: mine?.folio });
+  check('mi shipment está en profitability', !!mine, { folio: mine?.folio, count: prof.body?.length });
   check('mine revenue = 2500', Number(mine?.revenue) === 2500);
   check('mine margin = revenue - cost', mine && Number(mine.margin) === Number(mine.revenue) - Number(mine.cost));
   check('mine margin_pct calculado', typeof mine?.margin_pct === 'number');
