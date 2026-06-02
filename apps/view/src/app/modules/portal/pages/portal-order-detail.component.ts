@@ -13,7 +13,7 @@ import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
-import { PortalService, Order, OrderHistoryEntry } from '../portal.service';
+import { PortalService, Order, OrderHistoryEntry, OrderShipmentEntry } from '../portal.service';
 
 const NEUTRAL_PALETTE = [
   '#3F3F46', '#52525B', '#71717A', '#27272A',
@@ -150,6 +150,47 @@ function hashColor(key: string): string {
               <span><i class="pi pi-exclamation-circle"></i> Saldo pendiente</span>
               <b>{{ +o.balance_due | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
             </div>
+          </div>
+        </section>
+
+        <!-- Tracking de embarques (J.10) -->
+        <section class="od-tracking-section" *ngIf="shipments().length > 0" aria-label="Rastreo de entrega">
+          <header class="od-section-head">
+            <h2><i class="pi pi-truck"></i> Rastreo</h2>
+          </header>
+
+          <div class="od-shipments">
+            <article *ngFor="let s of shipments()" class="od-shipment" [class]="'is-' + s.status">
+              <div class="od-ship-head">
+                <code class="od-ship-folio">{{ s.folio }}</code>
+                <span class="od-ship-badge" [class]="'is-' + s.status">
+                  <i [class]="shipStatusIcon(s.status)" aria-hidden="true"></i>
+                  {{ shipStatusLabel(s.status) }}
+                </span>
+              </div>
+              <div class="od-ship-meta">
+                <span *ngIf="s.route_name">
+                  <i class="pi pi-map" aria-hidden="true"></i> {{ s.route_name }}
+                </span>
+                <span *ngIf="s.vehicle_plate">
+                  <i class="pi pi-car" aria-hidden="true"></i> {{ s.vehicle_plate }}
+                </span>
+                <span *ngIf="!s.route_name && !s.vehicle_plate && s.destination">
+                  <i class="pi pi-flag" aria-hidden="true"></i> {{ s.destination }}
+                </span>
+              </div>
+              <div class="od-ship-stamps">
+                <span *ngIf="s.departure_at">
+                  <i class="pi pi-send" aria-hidden="true"></i> Salió {{ fmtDateTime(s.departure_at) }}
+                </span>
+                <span *ngIf="s.arrival_at">
+                  <i class="pi pi-check-circle" aria-hidden="true"></i> Entregado {{ fmtDateTime(s.arrival_at) }}
+                </span>
+                <span *ngIf="!s.departure_at && !s.arrival_at">
+                  <i class="pi pi-calendar" aria-hidden="true"></i> Programado {{ fmtDate(s.shipment_date) }}
+                </span>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -486,6 +527,75 @@ function hashColor(key: string): string {
         color: var(--bad-soft-fg);
       }
 
+      /* ── TRACKING (J.10) ──────────────────────────────────────── */
+      .od-tracking-section {
+        grid-column: 1 / -1;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 14px;
+        padding: 1rem 1.125rem 1.125rem;
+        margin-bottom: 1rem;
+      }
+      .od-shipments {
+        display: grid;
+        gap: 0.625rem;
+      }
+      .od-shipment {
+        display: grid;
+        gap: 0.375rem;
+        padding: 0.75rem 0.875rem;
+        background: var(--neutral-50, var(--card-bg));
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+      }
+      .od-shipment.is-en_ruta { border-color: var(--info-fg); background: var(--info-soft-bg); }
+      .od-shipment.is-entregado,
+      .od-shipment.is-cerrado { border-color: var(--ok-fg); background: var(--ok-soft-bg); }
+      .od-shipment.is-cancelado { border-color: var(--bad-fg); background: var(--bad-soft-bg); opacity: 0.85; }
+
+      .od-ship-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .od-ship-folio {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 0.8125rem;
+        font-weight: 700;
+        color: var(--text-main);
+        letter-spacing: 0.02em;
+      }
+      .od-ship-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.25rem 0.625rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        background: var(--neutral-100);
+        color: var(--text-main);
+      }
+      .od-ship-badge.is-en_ruta { background: var(--info-fg); color: var(--info-soft-bg); }
+      .od-ship-badge.is-entregado,
+      .od-ship-badge.is-cerrado { background: var(--ok-fg); color: var(--ok-soft-bg); }
+      .od-ship-badge.is-cancelado { background: var(--bad-fg); color: var(--bad-soft-bg); }
+
+      .od-ship-meta,
+      .od-ship-stamps {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.875rem;
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+      }
+      .od-ship-meta i,
+      .od-ship-stamps i {
+        margin-right: 0.25rem;
+        font-size: 0.75rem;
+      }
+
       /* ── TIMELINE ─────────────────────────────────────────────── */
       .od-timeline-section {
         background: var(--card-bg);
@@ -602,6 +712,7 @@ export class PortalOrderDetailComponent implements OnInit {
   readonly loading = signal(true);
   readonly order = signal<Order | null>(null);
   readonly history = signal<OrderHistoryEntry[]>([]);
+  readonly shipments = signal<OrderShipmentEntry[]>([]);
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
@@ -609,12 +720,14 @@ export class PortalOrderDetailComponent implements OnInit {
     forkJoin({
       order: this.api.orderById(id),
       history: this.api.orderHistory(id),
+      shipments: this.api.orderShipments(id),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ order, history }) => {
+        next: ({ order, history, shipments }) => {
           this.order.set(order);
           this.history.set(history);
+          this.shipments.set(shipments);
           this.loading.set(false);
         },
         error: () => this.loading.set(false),
@@ -652,6 +765,34 @@ export class PortalOrderDetailComponent implements OnInit {
       cancelled: 'pi pi-times',
     };
     return m[s] || 'pi pi-circle';
+  }
+
+  shipStatusLabel(s: string): string {
+    const m: Record<string, string> = {
+      programado: 'Programado',
+      checklist_salida: 'Inspección de salida',
+      en_ruta: 'En ruta',
+      entregado: 'Entregado',
+      checklist_llegada: 'Inspección de llegada',
+      costos_pendientes: 'Cierre administrativo',
+      cerrado: 'Cerrado',
+      cancelado: 'Cancelado',
+    };
+    return m[s] || s;
+  }
+
+  shipStatusIcon(s: string): string {
+    const m: Record<string, string> = {
+      programado: 'pi pi-calendar',
+      checklist_salida: 'pi pi-list-check',
+      en_ruta: 'pi pi-send',
+      entregado: 'pi pi-check-circle',
+      checklist_llegada: 'pi pi-list-check',
+      costos_pendientes: 'pi pi-receipt',
+      cerrado: 'pi pi-flag-fill',
+      cancelado: 'pi pi-times',
+    };
+    return m[s] || 'pi pi-truck';
   }
 
   statusMessage(s: string): string {

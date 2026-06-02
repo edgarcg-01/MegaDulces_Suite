@@ -411,7 +411,15 @@ export class LogisticsShipmentsService {
     });
   }
 
-  /** programado|en_ruta → cancelado. Libera vehicle si estaba reservado. */
+  /**
+   * programado|en_ruta → cancelado. Libera vehicle si estaba reservado.
+   *
+   * IMPORTANTE (J.10): cancelar una shipment NO revierte el stock reservado
+   * del order asociado. La shipment falló logísticamente, pero el compromiso
+   * comercial sigue vigente — el operador puede crear una nueva shipment para
+   * el mismo `order_id`. Para liberar stock realmente hay que cancelar el
+   * order vía `POST /commercial/orders/:id/cancel`.
+   */
   async cancel(id: string, reason?: string) {
     return this.transition(id, 'cancelado', async (trx, shipment) => {
       if (shipment.vehicle_id) {

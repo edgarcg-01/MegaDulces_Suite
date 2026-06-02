@@ -655,6 +655,53 @@ export class CommercialOrdersService {
     });
   }
 
+  /**
+   * J.10 — Tracking de embarques desde el módulo comercial.
+   *
+   * Devuelve los shipments asociados a un order (filtrados por tenant via RLS),
+   * incluyendo timestamps de cada transición. Pensado para que el Portal B2B
+   * y el módulo vendedor muestren el estado real de entrega sin requerir el
+   * permiso `LOGISTICS_SHIPMENTS_VER` (este endpoint vive en commercial y
+   * reusa `COMMERCIAL_ORDERS_VER`).
+   *
+   * customer_b2b solo puede leer shipments de SUS órdenes (ownership check).
+   */
+  async getShipments(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders')
+        .where({ id: orderId })
+        .select('id', 'customer_id')
+        .first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      return trx('logistics.shipments as s')
+        .leftJoin('logistics.vehicles as v', 'v.id', 's.vehicle_id')
+        .leftJoin('logistics.routes as r', 'r.id', 's.route_id')
+        .where('s.order_id', orderId)
+        .whereNull('s.deleted_at')
+        .orderBy('s.created_at', 'asc')
+        .select(
+          's.id',
+          's.folio',
+          's.status',
+          's.type',
+          's.origin',
+          's.destination',
+          's.shipment_date',
+          's.departure_at',
+          's.arrival_at',
+          's.closed_at',
+          's.created_at',
+          'v.plate as vehicle_plate',
+          'r.name as route_name',
+        );
+    });
+  }
+
   /** Lista pedidos del customer del JWT actual (Portal B2B). */
   async listMyOrders(query: ListOrdersQuery & { customer_id?: string }) {
     const customerId = await this.resolveCustomerIdFromCtx();

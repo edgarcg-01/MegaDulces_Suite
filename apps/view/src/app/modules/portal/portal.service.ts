@@ -88,6 +88,30 @@ export interface OrderHistoryEntry {
   changed_at: string;
 }
 
+export interface OrderShipmentEntry {
+  id: string;
+  folio: string;
+  status:
+    | 'programado'
+    | 'checklist_salida'
+    | 'en_ruta'
+    | 'entregado'
+    | 'checklist_llegada'
+    | 'costos_pendientes'
+    | 'cerrado'
+    | 'cancelado';
+  type: 'entrega' | 'traspaso' | 'recoleccion';
+  origin: string | null;
+  destination: string | null;
+  shipment_date: string;
+  departure_at: string | null;
+  arrival_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+  vehicle_plate: string | null;
+  route_name: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PortalService {
   private readonly http = inject(HttpClient);
@@ -289,6 +313,10 @@ export class PortalService {
 
   orderHistory(id: string): Observable<OrderHistoryEntry[]> {
     return this.http.get<OrderHistoryEntry[]>(`${this.base}/orders/${id}/history`);
+  }
+
+  orderShipments(id: string): Observable<OrderShipmentEntry[]> {
+    return this.http.get<OrderShipmentEntry[]>(`${this.base}/orders/${id}/shipments`);
   }
 
   // ─── Recommendations (D.4) ───

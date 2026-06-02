@@ -19,7 +19,7 @@
 | G — Growth | ⏸️ Bloqueada por D | — | 0% |
 | H — Fintech | ⏸️ Bloqueada por D | — | 0% |
 | I — ML + WS scaling | ⏸️ Bloqueada por H | — | 0% |
-| **J — Logística** | 🟢 **CERRADA (beta scope)** | J.0+J.1+J.2+J.4+J.5+J.6+J.6.6/J.6.7+J.7+**J.8** ✅ — J.3 driver mobile deferred | 100% beta-ready + J.8 migración repo origen (`_imported/logistica/`): state machine 7 estados, checklists+photos+reports jspdf, 96 destinos reales (ver [`FASE_J8_REPO_MIGRATION.md`](FASES/FASE_J8_REPO_MIGRATION.md)) |
+| **J — Logística** | 🟢 **CERRADA (beta scope) + J.10 ✅ 2026-06-02** | J.0+J.1+J.2+J.4+J.5+J.6+J.6.6/J.6.7+J.7+J.8+J.9.1-4+**J.10** ✅ — J.3 driver mobile + J.9.5-11 UI items deferred | 100% beta-ready. **J.10**: endpoint `GET /commercial/orders/:id/shipments` (reusa `COMMERCIAL_ORDERS_VER`, customer_b2b ve tracking de SUS orders), sección "Rastreo" en portal-order-detail con cards por shipment, smoke E2E nuevo en runner (20/20 verde). Cancel shipment NO revierte stock (documentado en código). |
 | **K — AI product match (captures)** | 🟢 **CERRADA (beta)** | K.0+K.1+K.2+K.3 ✅ — smoke 29/29 + 2 migraciones compatibility shim (activo virtual + zones.is_system + daily_captures.captured_by_username) | 100% beta-ready |
 | **K-debt — Refactor legacy services** | 🟢 **CERRADA 2026-05-27** | Refactor de `catalogs.service.ts` + `daily-assignments.service.ts` + `stores.service.ts`: writes a columna GENERATED `activo` reemplazados por `deleted_at` (NOW/null). Soft-delete + reactivate ahora idiomáticos. Shims `activo` (GENERATED) + `captured_by_username` + `zones.is_system` reclasificados como **columnas canónicas**, no debt (helper de lectura + snapshot denormalizado + flag system-zone). Build OK + regression 19/19 verde. | 100% |
 

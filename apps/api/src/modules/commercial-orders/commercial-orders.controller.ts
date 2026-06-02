@@ -100,6 +100,16 @@ export class CommercialOrdersController {
     return this.service.getHistory(id);
   }
 
+  @Get(':id/shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'J.10: shipments asociados al pedido (tracking). customer_b2b solo puede ver shipments de SUS propios pedidos.',
+  })
+  shipments(@Param('id') id: string) {
+    return this.service.getShipments(id);
+  }
+
   @Patch(':id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({

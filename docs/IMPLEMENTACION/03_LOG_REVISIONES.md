@@ -6,6 +6,38 @@
 
 ---
 
+## 2026-06-02 — Sprint Embarques · J.10: Tracking de shipments desde Comercial
+
+**Item revisado:** primer sub-sprint del Sprint Embarques (Fase J integración profunda). Objetivo: que el portal B2B y el módulo vendedor muestren estado real de entrega sin requerir el permiso `LOGISTICS_SHIPMENTS_VER` (que `customer_b2b` no tiene).
+
+**Decisiones de diseño:**
+1. **Endpoint vive en `commercial-orders`, no en `logistics`.** Reusa el permiso `COMMERCIAL_ORDERS_VER` (ya en `customer_b2b`) y el ownership check existente (`enforceOrderOwnership`). Evita agregar `LOGISTICS_SHIPMENTS_VER` al rol B2B (que abriría visibilidad de fleet/expenses/payroll). Patrón análogo a `GET /commercial/orders/:id/history`.
+2. **No se inyecta `LogisticsShipmentsService` en `CommercialOrdersService`.** Query directa a `logistics.shipments` desde el mismo `TenantKnexService.run()` — RLS filtra por tenant_id, no hace falta cross-module guard.
+3. **NO se agregó `ready_to_ship` como estado intermedio en `commercial.orders`.** El endpoint existente `GET /logistics/shipments/pending-orders` (filtra `orders.status='confirmed'` sin shipment activo) cumple la misma función operativa sin ensuciar la state machine.
+4. **Cancelar shipment NO revierte stock del order** — comportamiento explícitamente documentado en comentario del método `cancel()` de [`logistics-shipments.service.ts`](apps/api/src/modules/logistics-shipments/logistics-shipments.service.ts). La shipment falló logísticamente, pero el compromiso comercial sigue vigente. El operador crea una nueva shipment para el mismo `order_id`. Para liberar stock realmente, hay que cancelar el order vía `/commercial/orders/:id/cancel`.
+
+**Implementación:**
+
+- **Backend** ([`commercial-orders.service.ts`](apps/api/src/modules/commercial-orders/commercial-orders.service.ts) + [`commercial-orders.controller.ts`](apps/api/src/modules/commercial-orders/commercial-orders.controller.ts)):
+  - Método `getShipments(orderId)` — ownership check + JOIN a `logistics.shipments` + `logistics.vehicles` + `logistics.routes`. Devuelve campos visibles (folio, status, type, origin, destination, shipment_date, departure_at, arrival_at, closed_at, vehicle_plate, route_name).
+  - Endpoint `GET /commercial/orders/:id/shipments` con `@RequirePermissions(COMMERCIAL_ORDERS_VER)`.
+- **Frontend** ([`portal.service.ts`](apps/view/src/app/modules/portal/portal.service.ts) + [`portal-order-detail.component.ts`](apps/view/src/app/modules/portal/pages/portal-order-detail.component.ts)):
+  - Interface `OrderShipmentEntry` + método `orderShipments(id)`.
+  - Sección "Rastreo" en `portal-order-detail` con cards por shipment: folio mono, badge de status con color semántico (en_ruta→info, entregado/cerrado→ok, cancelado→bad), vehículo/ruta/destino, timestamps de cada transición. Solo se muestra si hay shipments.
+- **Smoke E2E nuevo** ([`database/http-j10-order-tracking-test.js`](database/http-j10-order-tracking-test.js)): cubre flow completo — cliente crea order → admin aprueba → endpoint vacío → admin crea shipment → cliente ve folio + status programado → depart → status=en_ruta + departure_at → deliver+close → status=cerrado + arrival_at + closed_at + order=fulfilled (hook intacto) → 403 contra order ajeno. Agregado al runner → 20 suites.
+
+**Resultado:** `nx build view` ✅. Regression `node database/run-all-tests.js` → **20/20 suites verde** post-restart de API.
+
+**Lecciones:**
+- **Cross-module reads pueden vivir donde mejor convenga el permiso, no donde está la tabla.** El JOIN entre `commercial.orders` y `logistics.shipments` es legítimo desde el service comercial porque ambas tablas son del mismo tenant.
+- **El comportamiento "cancel shipment no revierte stock" debe estar documentado en el código fuente**, no solo en docs.
+- **Commitear inmediatamente al cerrar un sub-sprint.** En esta sesión los cambios J.10 se perdieron una vez al estar uncommitted cuando el working tree se limpió en otra operación. Lección: cada sub-sprint cierra con commit local antes de cualquier otra cosa.
+- **Validación visual del nuevo tracking pendiente** (no automatizable desde CLI) — testear en dev mobile + desktop.
+
+**Próximo:** J.9.6 DeliveryWizard, o pasar directo a sub-sprints UI restantes según prioridad.
+
+---
+
 ## 2026-06-02 — Cierre formal Comercial (Fases B + C + D + E) + estabilización regression suite
 
 **Item revisado:** declarar Comercial cerrado en beta antes de arrancar Sprint Embarques (Fase J integración profunda + J.9.5-11).
