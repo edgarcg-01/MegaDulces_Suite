@@ -89,7 +89,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                   <td><p-tag [value]="r.active ? 'Activa' : 'Inactiva'" [severity]="r.active ? 'success' : 'secondary'"></p-tag></td>
                   <td class="actions">
                     <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openRouteDialog(r)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDeleteRoute(r)"></button>
+                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteRoute(r)"></button>
                   </td>
                 </tr>
               </ng-template>
@@ -127,7 +127,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                   <td><p-tag [value]="c.active ? 'Activo' : 'Inactivo'" [severity]="c.active ? 'success' : 'secondary'"></p-tag></td>
                   <td class="actions">
                     <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openConfigDialog(c)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDeleteConfig(c)"></button>
+                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteConfig(c)"></button>
                   </td>
                 </tr>
               </ng-template>

@@ -144,12 +144,12 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           <span class="cell-value">{{ fmtNumber(total()) }}</span>
         </article>
         <article class="cell cell-span-3">
-          <span class="cell-icon is-ok" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
           <span class="cell-label">Activos</span>
           <span class="cell-value">{{ fmtNumber(kpis().active) }}</span>
         </article>
         <article class="cell cell-span-3">
-          <span class="cell-icon is-info" aria-hidden="true"><i class="pi pi-dollar"></i></span>
+          <span class="cell-icon" aria-hidden="true"><i class="pi pi-dollar"></i></span>
           <span class="cell-label">Con costo</span>
           <span class="cell-value">{{ fmtNumber(kpis().withCost) }}</span>
         </article>
@@ -329,7 +329,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     }
     .pp-search:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .pp-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     .pp-search input {
@@ -388,7 +388,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
       font-size: var(--fs-xs); font-weight: var(--fw-medium);
       cursor: pointer;
     }
-    .pp-reset:hover { color: var(--c-bad); border-color: var(--c-bad); background: rgba(220, 38, 38, 0.06); }
+    .pp-reset:hover { color: var(--c-text-1); border-color: var(--c-text-1); background: var(--c-surface-2); }
     .pp-reset i { font-size: var(--fs-xs); }
 
     .pp-brand-tag, .pp-cat-tag {

@@ -71,7 +71,7 @@ function severityLiq(s: LiquidationStatus): Severity {
               <td>{{ p.payment_date | date:'shortDate' }}</td>
               <td><p-tag [severity]="sevPeriod(p.status)" [value]="p.status"></p-tag></td>
               <td class="actions">
-                <button pButton icon="pi pi-cog" size="small" severity="info" [text]="true"
+                <button pButton icon="pi pi-cog" size="small" severity="secondary" [text]="true"
                         pTooltip="Calcular liquidaciones" (click)="calculate(p)"
                         [loading]="calculatingId() === p.id"></button>
               </td>

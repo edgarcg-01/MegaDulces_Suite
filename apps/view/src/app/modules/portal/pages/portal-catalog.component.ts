@@ -72,21 +72,45 @@ function initial(name: string): string {
       <span><b>Vista administrador</b> — catálogo default del tenant, solo lectura. Iniciá sesión como cliente para hacer pedidos.</span>
     </div>
 
-    <header class="portal-page-head">
+    <header class="portal-page-head cat-page-head">
       <div class="portal-page-head-text">
         <span class="portal-eyebrow">
           <i class="pi pi-th-large" aria-hidden="true"></i>
           Catálogo
         </span>
-        <h1>Productos disponibles</h1>
+        <h1 class="cat-h1">Productos disponibles</h1>
         <p class="portal-page-sub" *ngIf="customerName()">
           Lista de precios de <b>{{ customerName() }}</b>
         </p>
       </div>
-      <button type="button" class="portal-btn-ghost" (click)="goAi()">
-        <i class="pi pi-bolt" aria-hidden="true"></i> Pedir con IA
+      <button type="button" class="cat-ai-btn" (click)="goAi()">
+        <i class="pi pi-sparkles" aria-hidden="true"></i>
+        <span>Recomendado para ti</span>
       </button>
     </header>
+
+    <!-- Hero mini: trust signals contextualizados al cliente -->
+    <section class="cat-hero" *ngIf="!loading() && prices().length > 0" aria-label="Información de tu cuenta">
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Tu cartera</span>
+        <strong>{{ customerName() || 'Mi tienda' }}</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Productos</span>
+        <strong>{{ prices().length }} SKUs</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Entrega</span>
+        <strong>24-48h hábiles</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Mín. pedido</span>
+        <strong>$2,500 MXN</strong>
+      </div>
+    </section>
 
     <div class="cat-search-bar" *ngIf="!loading() && prices().length > 0">
       <i [class]="aiSearch() ? 'pi pi-bolt cat-search-icon cat-search-icon-ai' : 'pi pi-search cat-search-icon'"></i>
@@ -530,6 +554,94 @@ function initial(name: string): string {
     `
       :host { display: block; }
 
+      /* ── Page head: Fraunces + AI button identitario ─────────────── */
+      .cat-page-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      .cat-h1 {
+        font-family: var(--font-display, inherit);
+        font-size: clamp(1.875rem, 4vw, 2.25rem);
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+        margin: 0;
+        color: var(--neutral-950);
+      }
+      .cat-ai-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.625rem 1.125rem;
+        background: linear-gradient(135deg, var(--neutral-950) 0%, var(--neutral-900) 100%);
+        color: var(--brand-400);
+        border: none;
+        border-radius: 999px;
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 180ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
+        box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.3);
+        white-space: nowrap;
+      }
+      .cat-ai-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.4),
+                    0 0 0 3px rgba(253, 231, 7, 0.18);
+      }
+      .cat-ai-btn i { font-size: 0.95rem; }
+
+      /* ── Hero mini con trust signals contextualizados ─────────────── */
+      .cat-hero {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.125rem 1.5rem;
+        margin: 0.5rem 0 1.25rem;
+        background: var(--brand-50, var(--card-bg));
+        border: 1px solid var(--brand-100, var(--border-color));
+        border-radius: 16px;
+      }
+      .cat-hero-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        min-width: 0;
+      }
+      .cat-hero-label {
+        font-size: 0.65rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-muted, var(--neutral-600));
+      }
+      .cat-hero-item strong {
+        font-size: 0.9375rem;
+        font-weight: 700;
+        color: var(--neutral-950);
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .cat-hero-divider {
+        width: 1px;
+        height: 28px;
+        background: var(--brand-200, var(--border-color));
+      }
+      @media (max-width: 900px) {
+        .cat-hero {
+          grid-template-columns: 1fr 1fr;
+          gap: 0.875rem 1rem;
+        }
+        .cat-hero-divider { display: none; }
+      }
+
       .cat-search-bar {
         position: sticky;
         top: 0;
@@ -544,8 +656,8 @@ function initial(name: string): string {
         transition: border-color 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard);
       }
       .cat-search-bar:focus-within {
-        border-color: var(--neutral-700);
-        box-shadow: 0 0 0 3px rgba(253, 231, 7, 0.16);
+        border-color: var(--neutral-950);
+        box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
       }
       .cat-search-icon { color: var(--text-faint); font-size: 1rem; }
       .cat-search-icon-ai { color: var(--text-main); }
@@ -670,8 +782,10 @@ function initial(name: string): string {
       }
       .cat-main-head h2 {
         margin: 0;
-        font-size: 1.0625rem;
+        font-family: var(--font-display, inherit);
+        font-size: 1.5rem;
         font-weight: 700;
+        letter-spacing: -0.02em;
         color: var(--text-main);
       }
       .cat-main-meta { font-size: 0.8125rem; color: var(--text-muted); }
@@ -989,22 +1103,24 @@ function initial(name: string): string {
         right: 0.625rem;
         bottom: 0.625rem;
         z-index: 3;
-        width: 36px;
-        height: 36px;
+        width: 38px;
+        height: 38px;
         border-radius: 999px;
         border: none;
-        background: var(--brand-600);
-        color: #fff;
+        background: var(--neutral-950);
+        color: var(--brand-400);
         font-size: 0.95rem;
         cursor: pointer;
         display: grid;
         place-items: center;
-        box-shadow: 0 4px 12px -3px rgba(0, 0, 0, 0.18);
-        transition: transform 120ms var(--ease-standard), background-color 120ms var(--ease-standard);
+        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.28),
+                    0 0 0 0 rgba(253, 231, 7, 0);
+        transition: transform 140ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
       }
       .cat-add:hover:not(:disabled) {
-        background: var(--brand-700);
-        transform: scale(1.06);
+        transform: scale(1.08);
+        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.28),
+                    0 0 0 4px rgba(253, 231, 7, 0.22);
       }
       .cat-add:active:not(:disabled) { transform: scale(0.94); }
 
@@ -1221,8 +1337,10 @@ function initial(name: string): string {
       }
       .cat-drawer-head h3 {
         margin: 0;
-        font-size: 1.25rem;
-        font-weight: 800;
+        font-family: var(--font-display, inherit);
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
         color: var(--text-main);
       }
       .cat-drawer-close {
@@ -1433,11 +1551,12 @@ function initial(name: string): string {
       }
       .cat-sheet-name {
         margin: 0;
-        font-size: 1.25rem;
-        font-weight: 800;
+        font-family: var(--font-display, inherit);
+        font-size: 1.5rem;
+        font-weight: 700;
         color: var(--text-main);
-        letter-spacing: -0.015em;
-        line-height: 1.25;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
       }
 
       .cat-sheet-meta {

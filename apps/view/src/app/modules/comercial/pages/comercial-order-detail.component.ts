@@ -52,13 +52,13 @@ import { Permission } from '../../../core/constants/permissions';
         <div class="hero-tags">
           <p-tag
             *ngIf="o.route_name"
-            severity="info"
+            severity="contrast"
             [value]="o.route_name"
             icon="pi pi-directions"
             pTooltip="Ruta de reparto asignada al cliente"
           ></p-tag>
           <p-tag
-            [severity]="o.delivery_type === 'long_trip' ? 'warn' : 'info'"
+            severity="secondary"
             [value]="o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta'"
             [icon]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'"
           ></p-tag>
@@ -147,7 +147,7 @@ import { Permission } from '../../../core/constants/permissions';
               <td class="comm-num is-strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td *ngIf="o.status === 'pending_approval'" class="comm-actions">
                 <button pButton icon="pi pi-trash"
-                        size="small" severity="danger" [text]="true"
+                        size="small" severity="secondary" [text]="true"
                         [disabled]="savingLineId() === l.id"
                         (click)="confirmRemoveLine(l, o)"
                         pTooltip="Quitar línea (libera reserva)"></button>
@@ -163,14 +163,15 @@ import { Permission } from '../../../core/constants/permissions';
       <div class="action-bar" *ngIf="o.status === 'draft' || o.status === 'pending_approval' || o.status === 'confirmed'">
         <button pButton *ngIf="o.status === 'draft'" label="Confirmar pedido" icon="pi pi-check"
                 [loading]="actioning()"
+                severity="contrast"
                 (click)="confirmTransition('confirm', o)"></button>
         <button pButton *ngIf="o.status === 'pending_approval'" label="Aprobar pedido" icon="pi pi-check-circle"
                 [loading]="actioning()"
-                severity="info"
+                severity="contrast"
                 (click)="confirmTransition('approve', o)"></button>
         <button pButton *ngIf="o.status === 'confirmed'" label="Marcar entregado" icon="pi pi-truck"
                 [loading]="actioning()"
-                severity="success"
+                severity="contrast"
                 (click)="confirmTransition('fulfill', o)"></button>
         <button pButton label="Cancelar pedido" icon="pi pi-times"
                 [loading]="actioning()"

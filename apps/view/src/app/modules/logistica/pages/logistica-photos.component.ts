@@ -102,14 +102,14 @@ import {
         <div *ngFor="let p of photos()" class="photo-card">
           <a [href]="p.url" target="_blank"><img [src]="p.url" alt="" /></a>
           <div class="photo-meta">
-            <p-tag [value]="p.category" severity="info"></p-tag>
+            <p-tag [value]="p.category" severity="secondary"></p-tag>
             <span class="muted">{{ p.uploaded_at | date:'short' }}</span>
           </div>
           <p *ngIf="p.description" class="desc">{{ p.description }}</p>
           <p *ngIf="p.gps_lat && p.gps_lng" class="gps">
             📍 {{ p.gps_lat }}, {{ p.gps_lng }}
           </p>
-          <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(p)" label="Borrar"></button>
+          <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" label="Borrar"></button>
         </div>
         <div *ngIf="!photos().length" class="empty">No hay fotos en esta categoría.</div>
       </div>

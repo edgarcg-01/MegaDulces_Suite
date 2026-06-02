@@ -244,7 +244,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     }
     .da-field:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .da-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     :host ::ng-deep .da-status-select.p-select {
@@ -278,9 +278,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       transition: all 120ms var(--ease-standard);
     }
     .da-reset:hover {
-      color: var(--c-bad);
-      border-color: var(--c-bad);
-      background: rgba(220, 38, 38, 0.06);
+      color: var(--c-text-1);
+      border-color: var(--c-text-1);
+      background: var(--c-surface-2);
     }
 
     /* ── MOBILE CARDS — stripe semántico izquierdo por status ── */

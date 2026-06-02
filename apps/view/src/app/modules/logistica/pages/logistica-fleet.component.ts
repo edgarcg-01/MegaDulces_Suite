@@ -88,7 +88,7 @@ function severityForDriverStatus(s: string): Severity {
                   <td><p-tag [severity]="severityVeh(v.status)" [value]="vStatusLabel(v.status)"></p-tag></td>
                   <td class="actions">
                     <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openVehicleEdit(v)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDeleteVehicle(v)" *ngIf="v.active"></button>
+                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteVehicle(v)" *ngIf="v.active"></button>
                   </td>
                 </tr>
               </ng-template>
@@ -113,14 +113,14 @@ function severityForDriverStatus(s: string): Severity {
                 <tr>
                   <td class="strong">{{ d.full_name }}</td>
                   <td>
-                    <p-tag *ngFor="let r of d.roles" [value]="r" severity="info" class="role-tag"></p-tag>
+                    <p-tag *ngFor="let r of d.roles" [value]="r" severity="secondary" class="role-tag"></p-tag>
                   </td>
                   <td>{{ d.employee_type }}</td>
                   <td>{{ d.phone || '—' }}</td>
                   <td><p-tag [severity]="severityDrv(d.status)" [value]="d.status"></p-tag></td>
                   <td class="actions">
                     <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openDriverEdit(d)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDeleteDriver(d)" *ngIf="d.active"></button>
+                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteDriver(d)" *ngIf="d.active"></button>
                   </td>
                 </tr>
               </ng-template>
@@ -208,7 +208,7 @@ function severityForDriverStatus(s: string): Severity {
                   <td class="num">\${{ m.cost | number:'1.2-2' }}</td>
                   <td class="small">{{ m.next_service_date ? (m.next_service_date | date:'shortDate') : (m.next_service_km ? (m.next_service_km + ' km') : '—') }}</td>
                   <td class="actions">
-                    <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDeleteMaint(m)"></button>
+                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteMaint(m)"></button>
                   </td>
                 </tr>
               </ng-template>

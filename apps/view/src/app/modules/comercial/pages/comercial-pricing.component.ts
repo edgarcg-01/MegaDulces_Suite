@@ -396,7 +396,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
     }
     .pr-search:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .pr-search-icon {
       color: var(--c-text-3);

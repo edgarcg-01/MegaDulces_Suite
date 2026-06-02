@@ -132,12 +132,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </article>
 
             <article class="cell cell-span-3">
-              <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-dollar"></i></span>
+              <span class="cell-icon" aria-hidden="true"><i class="pi pi-dollar"></i></span>
               <span class="cell-label">Valor carga</span>
               <span class="cell-value is-medium">{{ s.cargo_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
             </article>
             <article class="cell cell-span-3">
-              <span class="cell-icon is-ok" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+              <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
               <span class="cell-label">Flete cobrado</span>
               <span class="cell-value is-medium">{{ s.freight_revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
             </article>
@@ -280,7 +280,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
             </article>
             <article class="cell cell-span-4">
-              <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+              <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
               <span class="cell-label">Total</span>
               <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
             </article>
@@ -388,7 +388,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton *ngIf="r.status === 'pendiente'" icon="pi pi-check" size="small" severity="success" [text]="true"
+                  <button pButton *ngIf="r.status === 'pendiente'" icon="pi pi-check" size="small" severity="secondary" [text]="true"
                           pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"></button>
                 </td>
               </tr>

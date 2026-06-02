@@ -99,7 +99,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </td>
             <td><strong>{{ d.full_name }}</strong></td>
             <td>
-              <p-tag *ngFor="let r of d.roles" [value]="r" severity="info" styleClass="role-tag"></p-tag>
+              <p-tag *ngFor="let r of d.roles" [value]="r" severity="secondary" styleClass="role-tag"></p-tag>
             </td>
             <td>{{ d.employee_type }}</td>
             <td>
@@ -109,7 +109,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <td>{{ d.nss || '—' }}</td>
             <td class="actions">
               <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(d)"></button>
-              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true" (click)="confirmDelete(d)"></button>
+              <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(d)"></button>
             </td>
           </tr>
         </ng-template>

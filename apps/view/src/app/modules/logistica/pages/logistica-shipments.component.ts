@@ -101,7 +101,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
       <p-skeleton *ngIf="loadingStats()" height="120px"></p-skeleton>
       <div *ngIf="!loadingStats() && stats() as st" class="sheet cols-12">
         <article class="cell cell-span-3">
-          <span class="cell-icon is-accent" aria-hidden="true">
+          <span class="cell-icon" aria-hidden="true">
             <i class="pi pi-truck"></i>
           </span>
           <span class="cell-label">Total embarques</span>
@@ -110,7 +110,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         </article>
 
         <article class="cell cell-span-3">
-          <span class="cell-icon is-warn" aria-hidden="true">
+          <span class="cell-icon" aria-hidden="true">
             <i class="pi pi-send"></i>
           </span>
           <span class="cell-label">En ruta</span>
@@ -119,7 +119,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         </article>
 
         <article class="cell cell-span-3">
-          <span class="cell-icon is-ok" aria-hidden="true">
+          <span class="cell-icon" aria-hidden="true">
             <i class="pi pi-check-circle"></i>
           </span>
           <span class="cell-label">Entregados</span>
@@ -128,7 +128,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         </article>
 
         <article class="cell cell-span-3">
-          <span class="cell-icon is-info" aria-hidden="true">
+          <span class="cell-icon" aria-hidden="true">
             <i class="pi pi-inbox"></i>
           </span>
           <span class="cell-label">Pendientes</span>
@@ -239,13 +239,13 @@ function severityForStatus(s: ShipmentStatus): Severity {
                     </span>
                   </td>
                   <td class="comm-actions" (click)="$event.stopPropagation()">
-                    <button pButton *ngIf="s.status === 'programado'" icon="pi pi-send" size="small" severity="info" [text]="true"
+                    <button pButton *ngIf="s.status === 'programado'" icon="pi pi-send" size="small" severity="secondary" [text]="true"
                             pTooltip="Marcar en ruta" (click)="action(s, 'depart')"></button>
-                    <button pButton *ngIf="s.status === 'en_ruta'" icon="pi pi-check" size="small" severity="success" [text]="true"
+                    <button pButton *ngIf="s.status === 'en_ruta'" icon="pi pi-check" size="small" severity="secondary" [text]="true"
                             pTooltip="Marcar entregado" (click)="action(s, 'deliver')"></button>
                     <button pButton *ngIf="s.status === 'entregado'" icon="pi pi-lock" size="small" severity="secondary" [text]="true"
                             pTooltip="Cerrar" (click)="action(s, 'close')"></button>
-                    <button pButton *ngIf="s.status === 'programado' || s.status === 'en_ruta'" icon="pi pi-times" size="small" severity="danger" [text]="true"
+                    <button pButton *ngIf="s.status === 'programado' || s.status === 'en_ruta'" icon="pi pi-times" size="small" severity="secondary" [text]="true"
                             pTooltip="Cancelar" (click)="confirmCancel(s)"></button>
                   </td>
                 </tr>
@@ -432,7 +432,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
     }
     .sh-field:focus-within {
       border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
     }
     .sh-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     :host ::ng-deep .sh-status-select.p-select {
@@ -466,9 +466,9 @@ function severityForStatus(s: ShipmentStatus): Severity {
       transition: all 120ms var(--ease-standard);
     }
     .sh-reset:hover {
-      color: var(--c-bad);
-      border-color: var(--c-bad);
-      background: rgba(220, 38, 38, 0.06);
+      color: var(--c-text-1);
+      border-color: var(--c-text-1);
+      background: var(--c-surface-2);
     }
 
     /* ── DELIVERY PILL (consistente con comercial-orders) ── */
