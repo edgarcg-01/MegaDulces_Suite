@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-06-02
+**Última actualización:** 2026-06-02 (J.10 cerrado)
 
 ---
 
