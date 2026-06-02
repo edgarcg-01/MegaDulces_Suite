@@ -422,12 +422,22 @@ export class SeguimientoComponent implements OnInit {
     return (conceptoId: string | undefined): string => {
       if (!conceptoId) return '';
       const c = conceptos.find((cc) => cc.id === conceptoId);
-      return c ? c.nombre : conceptoId;
+      // NUNCA devolver el conceptoId crudo: si el catálogo aún no cargó, el
+      // template caía mostrando el UUID. Devolvemos '' para que el fallback
+      // (`|| 'Sin concepto'`) aplique hasta que `conceptos()` se hidrate.
+      return c ? c.nombre : '';
     };
   });
 
   ngOnInit(): void {
     this.setupDataLoading();
+    // Los nombres de concepto se resuelven contra el master data del singleton
+    // DailyCaptureService (a diferencia de los productos, que vienen en
+    // reportsData.productMap). En contextos de solo-reporte ese catálogo puede
+    // no haberse cargado nunca → forzamos la carga si está vacío.
+    if (!this.dailyCaptureService.conceptos().length) {
+      this.dailyCaptureService.reloadMasterData();
+    }
   }
 
   private setupDataLoading(): void {

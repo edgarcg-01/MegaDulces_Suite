@@ -123,7 +123,19 @@ export class CommercialInventoryService {
         .limit(pageSize)
         .offset(offset);
 
-      return { data, page, pageSize, total: Number(count) };
+      // Forma anidada `pagination` consistente con el resto de los endpoints
+      // comerciales (customers/orders/pricing/products/promotions). El frontend
+      // lee `r.pagination.total`; con la forma flat anterior leía undefined → 0
+      // (contador de "líneas de stock" y paginador rotos).
+      return {
+        data,
+        pagination: {
+          page,
+          pageSize,
+          total: Number(count),
+          pageCount: Math.ceil(Number(count) / pageSize) || 0,
+        },
+      };
     });
   }
 
@@ -353,7 +365,19 @@ export class CommercialInventoryService {
         .limit(pageSize)
         .offset(offset);
 
-      return { data, page, pageSize, total: Number(count) };
+      // Forma anidada `pagination` consistente con el resto de los endpoints
+      // comerciales (customers/orders/pricing/products/promotions). El frontend
+      // lee `r.pagination.total`; con la forma flat anterior leía undefined → 0
+      // (contador de "líneas de stock" y paginador rotos).
+      return {
+        data,
+        pagination: {
+          page,
+          pageSize,
+          total: Number(count),
+          pageCount: Math.ceil(Number(count) / pageSize) || 0,
+        },
+      };
     });
   }
 

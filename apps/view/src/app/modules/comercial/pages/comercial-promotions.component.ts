@@ -947,12 +947,12 @@ export class ComercialPromotionsComponent {
       case 'percent_off_product':
         typeFields = {
           product_id: [rules.product_id ?? null, Validators.required],
-          percent: [rules.percent ?? 10, [Validators.required, Validators.min(1), Validators.max(100)]],
+          percent: [this.fracToPctInput(rules.percent), [Validators.required, Validators.min(1), Validators.max(100)]],
         };
         break;
       case 'percent_off_basket':
         typeFields = {
-          percent: [rules.percent ?? 10, [Validators.required, Validators.min(1), Validators.max(100)]],
+          percent: [this.fracToPctInput(rules.percent), [Validators.required, Validators.min(1), Validators.max(100)]],
           min_order_amount: [rules.min_order_amount ?? null],
         };
         break;
@@ -967,7 +967,7 @@ export class ComercialPromotionsComponent {
         typeFields = {
           product_id: [rules.product_id ?? null, Validators.required],
         };
-        this.tiersValue = (rules.tiers || []).map((t: any) => ({ min_qty: t.min_qty, percent: t.percent }));
+        this.tiersValue = (rules.tiers || []).map((t: any) => ({ min_qty: t.min_qty, percent: this.fracToPctInput(t.percent, 5) }));
         if (this.tiersValue.length === 0) this.tiersValue.push({ min_qty: 10, percent: 5 });
         break;
       case 'bundle_fixed_price':
@@ -984,7 +984,7 @@ export class ComercialPromotionsComponent {
         typeFields = {
           trigger_product_id: [rules.trigger_product_id ?? null, Validators.required],
           target_product_id: [rules.target_product_id ?? null, Validators.required],
-          percent: [rules.percent ?? 10, [Validators.required, Validators.min(1), Validators.max(100)]],
+          percent: [this.fracToPctInput(rules.percent), [Validators.required, Validators.min(1), Validators.max(100)]],
         };
         break;
     }
@@ -1070,18 +1070,32 @@ export class ComercialPromotionsComponent {
     });
   }
 
+  // El engine guarda/aplica `percent` como FRACCIÓN [0..1] (0.15 = 15%, ver
+  // commercial-orders.service: `Math.min(1, percent)`). La UI trabaja en 1-100.
+  // Convertimos en el borde: fracción→input al cargar, input→fracción al guardar.
+  // Sin esto, una promo creada por la UI guardaba 15 → el engine la clampaba a
+  // 1 = 100% de descuento (bug de plata), y editar una existente mostraba 0.15.
+  private fracToPctInput(f: any, def = 10): number {
+    return f == null ? def : +(Number(f) * 100).toFixed(2);
+  }
+  private pctInputToFrac(v: any): number {
+    return +(Number(v) / 100).toFixed(4);
+  }
+
   private buildRulesFromForm(type: PromotionType, raw: any): any {
     switch (type) {
       case 'percent_off_product':
-        return { product_id: raw.product_id, percent: raw.percent };
+        return { product_id: raw.product_id, percent: this.pctInputToFrac(raw.percent) };
       case 'percent_off_basket':
-        return { percent: raw.percent };
+        return { percent: this.pctInputToFrac(raw.percent) };
       case 'nxm':
         return { product_id: raw.product_id, n_buy: raw.n_buy, m_pay: raw.m_pay };
       case 'volume_discount':
         return {
           product_id: raw.product_id,
-          tiers: [...this.tiersValue].sort((a, b) => a.min_qty - b.min_qty),
+          tiers: [...this.tiersValue]
+            .sort((a, b) => a.min_qty - b.min_qty)
+            .map((t) => ({ min_qty: t.min_qty, percent: this.pctInputToFrac(t.percent) })),
         };
       case 'bundle_fixed_price':
         return {
@@ -1092,7 +1106,7 @@ export class ComercialPromotionsComponent {
         return {
           trigger_product_id: raw.trigger_product_id,
           target_product_id: raw.target_product_id,
-          percent: raw.percent,
+          percent: this.pctInputToFrac(raw.percent),
         };
     }
   }
