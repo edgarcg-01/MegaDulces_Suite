@@ -156,13 +156,22 @@ export class PortalService {
   /**
    * Lista precios de una price list. Si `warehouseId` viene, el response incluye
    * `stock_available` por producto (J.6.7 — para mostrar badges en catalog).
+   *
+   * Sprint M: el endpoint pasa a estar paginado por default (100/page). Para
+   * el portal/vendor pedimos `pageSize=5000` para traer la lista entera
+   * (alineado con el uso histórico: mostrar el catálogo completo del customer).
+   * Backend devuelve `{ data, pagination }` — extraemos `data`.
    */
   listPricesForList(priceListId: string, warehouseId?: string): Observable<PriceRow[]> {
-    let params = new HttpParams();
+    let params = new HttpParams().set('pageSize', 5000);
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
-    return this.http.get<PriceRow[]>(
+    return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,
       { params },
+    ).pipe(
+      // Tolerar ambos shapes durante deploy en progreso (array legacy o
+      // wrapped). Después del cutover de la API se puede simplificar.
+      map((r: any) => Array.isArray(r) ? r : (r?.data || [])),
     );
   }
 

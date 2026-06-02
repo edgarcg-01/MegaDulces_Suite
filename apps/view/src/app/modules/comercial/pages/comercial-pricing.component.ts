@@ -137,31 +137,73 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
         </article>
       </div>
 
-      <!-- DETAIL: precios de la lista seleccionada -->
+      <!-- DETAIL: precios de la lista seleccionada (paginado + search) -->
       <div *ngIf="selected() as sel" class="sheet cols-12 pr-detail">
         <article class="cell cell-span-12 is-flush">
           <header class="pr-detail-head">
             <div class="pr-detail-head-text">
               <span class="cell-label">Precios de la lista</span>
               <h3 class="pr-detail-title">{{ sel.name }}</h3>
-              <span class="comm-muted is-small">{{ prices().length }} producto{{ prices().length === 1 ? '' : 's' }} · {{ sel.currency || 'MXN' }}</span>
+              <span class="comm-muted is-small">
+                <b>{{ pricesTotal() }}</b> producto{{ pricesTotal() === 1 ? '' : 's' }}
+                <ng-container *ngIf="pricesSearchSignal()"> · filtrados de toda la lista</ng-container>
+                · {{ sel.currency || 'MXN' }}
+              </span>
             </div>
-            <button
-              pButton
-              icon="pi pi-times"
-              [text]="true"
-              severity="secondary"
-              size="small"
-              (click)="selected.set(null)"
-              pTooltip="Cerrar detalle"
-            ></button>
+            <div class="pr-detail-actions">
+              <div class="pr-search">
+                <i class="pi pi-search pr-search-icon" aria-hidden="true"></i>
+                <input
+                  type="search"
+                  [value]="pricesSearch"
+                  (input)="onPricesSearchChange($any($event.target).value)"
+                  placeholder="Buscar nombre, SKU o código de barras…"
+                  inputmode="search"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-label="Buscar precios"
+                />
+                <button
+                  *ngIf="pricesSearch"
+                  type="button"
+                  class="pr-search-clear"
+                  (click)="clearPricesSearch()"
+                  aria-label="Limpiar"
+                >
+                  <i class="pi pi-times" aria-hidden="true"></i>
+                </button>
+              </div>
+              <button
+                pButton
+                icon="pi pi-times"
+                [text]="true"
+                severity="secondary"
+                size="small"
+                (click)="selected.set(null)"
+                pTooltip="Cerrar detalle"
+              ></button>
+            </div>
           </header>
-          <p-table [value]="prices()" [loading]="loadingPrices()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+          <p-table
+            [value]="prices()"
+            [loading]="loadingPrices()"
+            [lazy]="true"
+            [paginator]="true"
+            [rows]="pricesPageSize()"
+            [totalRecords]="pricesTotal()"
+            [first]="(pricesPage() - 1) * pricesPageSize()"
+            [rowsPerPageOptions]="[25, 50, 100, 200]"
+            (onLazyLoad)="onPricesLazyLoad($event)"
+            responsiveLayout="scroll"
+            styleClass="p-datatable-sm"
+          >
             <ng-template pTemplate="header">
               <tr>
                 <th>Producto</th>
+                <th>SKU</th>
+                <th>Categoría</th>
                 <th class="comm-num">Precio</th>
-                <th class="comm-num">Min qty</th>
+                <th class="comm-num">Min</th>
                 <th></th>
               </tr>
             </ng-template>
@@ -171,8 +213,17 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
                   <div class="comm-cell-strong">{{ p.product_name || p.product_id }}</div>
                   <div class="comm-muted is-small" *ngIf="p.brand_name">{{ p.brand_name }}</div>
                 </td>
+                <td>
+                  <code *ngIf="p.sku" class="comm-code">{{ p.sku }}</code>
+                  <span *ngIf="!p.sku" class="comm-muted">—</span>
+                  <div class="comm-muted is-small" *ngIf="p.barcode">{{ p.barcode }}</div>
+                </td>
+                <td>
+                  <span *ngIf="p.category_name" class="pr-cat-tag">{{ p.category_name }}</span>
+                  <span *ngIf="!p.category_name" class="comm-muted">—</span>
+                </td>
                 <td class="comm-num is-strong">{{ p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="comm-num">{{ p.min_quantity || 1 }}</td>
+                <td class="comm-num">{{ p.min_qty || p.min_quantity || 1 }}</td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
                           (click)="confirmDeletePrice(p)" pTooltip="Eliminar"></button>
@@ -181,12 +232,13 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="4" class="pr-empty-cell">
+                <td colspan="6" class="pr-empty-cell">
                   <div class="pr-empty">
-                    <div class="pr-empty-icon"><i class="pi pi-box" aria-hidden="true"></i></div>
-                    <h3>Lista vacía</h3>
-                    <p>Esta lista todavía no tiene precios cargados. La carga masiva se hace via importer CLI:</p>
-                    <code class="comm-code pr-empty-cmd">database/importers/commercial_import.js --type=prices</code>
+                    <div class="pr-empty-icon"><i [class]="pricesSearchSignal() ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
+                    <h3>{{ pricesSearchSignal() ? 'Sin resultados' : 'Lista vacía' }}</h3>
+                    <p *ngIf="pricesSearchSignal()">No se encontraron precios con "{{ pricesSearchSignal() }}".</p>
+                    <p *ngIf="!pricesSearchSignal()">Esta lista todavía no tiene precios cargados. Sincronizar desde Mega_Dulces ERP via importer:</p>
+                    <code *ngIf="!pricesSearchSignal()" class="comm-code pr-empty-cmd">database/importers/mega_dulces_sync.js --scope=prices</code>
                   </div>
                 </td>
               </tr>
@@ -301,6 +353,82 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
       letter-spacing: -0.01em;
     }
 
+    /* ── DETAIL head actions (search + close) ── */
+    .pr-detail-actions {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-shrink: 0;
+    }
+    .pr-search {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      width: 280px;
+      max-width: 100%;
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      padding: 0 .5rem;
+      gap: .35rem;
+      transition: border-color 120ms var(--ease-standard);
+    }
+    .pr-search:focus-within {
+      border-color: var(--c-text-1);
+      box-shadow: 0 0 0 3px rgba(248, 180, 0, 0.15);
+    }
+    .pr-search-icon {
+      color: var(--c-text-3);
+      font-size: var(--fs-sm);
+      flex-shrink: 0;
+    }
+    .pr-search input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: var(--fs-sm);
+      color: var(--c-text-1);
+      min-width: 0;
+      padding: 0;
+      height: 28px;
+    }
+    .pr-search input::placeholder {
+      color: var(--c-text-3);
+    }
+    .pr-search-clear {
+      background: transparent;
+      border: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      color: var(--c-text-3);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      font-size: var(--fs-xs);
+    }
+    .pr-search-clear:hover {
+      color: var(--c-text-1);
+      background: var(--c-surface-2);
+    }
+
+    /* ── Category tag inline ── */
+    .pr-cat-tag {
+      display: inline-block;
+      padding: .15rem .55rem;
+      background: var(--c-surface-2);
+      color: var(--c-text-2);
+      font-size: var(--fs-xs);
+      border-radius: 6px;
+      font-weight: var(--fw-medium);
+      white-space: nowrap;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     /* ── EMPTY STATE inline ── */
     .pr-empty-cell { padding: 0 !important; }
     .pr-empty {
@@ -352,6 +480,15 @@ export class ComercialPricingComponent {
   readonly prices = signal<ProductPrice[]>([]);
   readonly loadingPrices = signal(false);
 
+  // Paginación + search del detail table — necesario para listas grandes
+  // (post-importer Mega_Dulces: ~6500 SKUs en MAYOREO).
+  readonly pricesPage = signal(1);
+  readonly pricesPageSize = signal(50);
+  readonly pricesTotal = signal(0);
+  pricesSearch = '';
+  readonly pricesSearchSignal = signal('');
+  private searchDebounce: any = null;
+
   readonly editing = signal<PriceList | null>(null);
   readonly saving = signal(false);
   dialogVisible = false;
@@ -371,7 +508,10 @@ export class ComercialPricingComponent {
     this.loading.set(true);
     this.api.listPriceLists().subscribe({
       next: (r) => {
-        this.rows.set(r.data || []);
+        // El backend retorna array directo. Antes el código hacía `r.data || []`
+        // y el array nunca matcheaba, dejando la tabla siempre vacía aunque
+        // hubiera 6 listas en la DB.
+        this.rows.set(Array.isArray(r) ? r : []);
         this.loading.set(false);
       },
       error: () => {
@@ -383,17 +523,58 @@ export class ComercialPricingComponent {
 
   selectPriceList(pl: PriceList): void {
     this.selected.set(pl);
+    this.pricesPage.set(1);
+    this.pricesSearch = '';
+    this.pricesSearchSignal.set('');
+    this.loadPricesPage();
+  }
+
+  loadPricesPage(): void {
+    const sel = this.selected();
+    if (!sel) return;
     this.loadingPrices.set(true);
-    this.api.listPrices(pl.id).subscribe({
-      next: (r) => {
-        this.prices.set(r.data || []);
-        this.loadingPrices.set(false);
-      },
-      error: () => {
-        this.loadingPrices.set(false);
-        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar precios' });
-      },
-    });
+    this.api
+      .listPrices(sel.id, {
+        page: this.pricesPage(),
+        pageSize: this.pricesPageSize(),
+        search: this.pricesSearchSignal() || undefined,
+      })
+      .subscribe({
+        next: (r) => {
+          this.prices.set(r.data || []);
+          this.pricesTotal.set(r.pagination?.total || 0);
+          this.loadingPrices.set(false);
+        },
+        error: () => {
+          this.loadingPrices.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar precios' });
+        },
+      });
+  }
+
+  onPricesLazyLoad(e: { first?: number | null; rows?: number | null }): void {
+    const first = e.first ?? 0;
+    const rows = e.rows ?? this.pricesPageSize();
+    this.pricesPage.set(Math.floor(first / rows) + 1);
+    this.pricesPageSize.set(rows);
+    this.loadPricesPage();
+  }
+
+  onPricesSearchChange(v: string): void {
+    this.pricesSearch = v;
+    if (this.searchDebounce) clearTimeout(this.searchDebounce);
+    this.searchDebounce = setTimeout(() => {
+      this.pricesSearchSignal.set((v || '').trim());
+      this.pricesPage.set(1);
+      this.loadPricesPage();
+    }, 250);
+  }
+
+  clearPricesSearch(): void {
+    this.pricesSearch = '';
+    this.pricesSearchSignal.set('');
+    this.pricesPage.set(1);
+    this.loadPricesPage();
   }
 
   openCreate(): void {
@@ -471,8 +652,7 @@ export class ComercialPricingComponent {
         this.api.deletePrice(p.id).subscribe({
           next: () => {
             this.toast.add({ severity: 'success', summary: 'Precio eliminado' });
-            const sel = this.selected();
-            if (sel) this.selectPriceList(sel);
+            this.loadPricesPage();
           },
           error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo eliminar' }),
         });

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, RouterOutlet, NavigationEnd } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -6,6 +6,7 @@ import { ToastModule } from 'primeng/toast';
 import { BadgeModule } from 'primeng/badge';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
@@ -1019,6 +1020,7 @@ export class PortalShellComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly theme = inject(ThemeService);
+  private readonly destroyRef = inject(DestroyRef);
   readonly cart = inject(PortalService);
   readonly notif = inject(NotificationPrefsService);
 
@@ -1057,8 +1059,12 @@ export class PortalShellComponent {
 
   constructor() {
     this.cart.refreshCart();
+    // takeUntilDestroyed crítico: sin esto el subscribe quedaba colgado
+    // después de salir del portal y refrescaba el carrito en CADA navegación
+    // de la app, disparando /commercial/orders/my desde rutas admin (que
+    // entonces fallaban 400 porque el user no es customer_b2b).
     this.router.events
-      .pipe(filter((e) => e instanceof NavigationEnd))
+      .pipe(filter((e) => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.cart.refreshCart());
   }
 

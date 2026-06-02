@@ -290,7 +290,9 @@ export class ComercialWarehousesComponent {
     this.loading.set(true);
     this.api.listWarehouses().subscribe({
       next: (r) => {
-        this.rows.set(r.data || []);
+        // Backend retorna array directo. Antes era `r.data || []` y siempre
+        // caía al fallback vacío aunque el importer cargara 11 warehouses.
+        this.rows.set(Array.isArray(r) ? r : []);
         this.loading.set(false);
       },
       error: () => {

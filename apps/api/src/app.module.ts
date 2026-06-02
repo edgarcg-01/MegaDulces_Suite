@@ -24,7 +24,6 @@ import { VisitsModule } from './modules/visits/visits.module';
 import { ExhibitionsModule } from './modules/exhibitions/exhibitions.module';
 import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assignments.module';
 import { CronModule } from './modules/cron/cron.module';
-import { VisitasSyncModule } from './modules/visitas/visitas-sync.module';
 import { DataModule } from './modules/data/data.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { WebSocketModule } from './modules/websocket/websocket.module';
@@ -61,6 +60,8 @@ import { LogisticsAnalyticsModule } from './modules/logistics-analytics/logistic
 import { LogisticsChecklistsModule } from './modules/logistics-checklists/logistics-checklists.module';
 import { LogisticsPhotosModule } from './modules/logistics-photos/logistics-photos.module';
 import { LogisticsReportsModule } from './modules/logistics-reports/logistics-reports.module';
+// Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
+import { MegaDulcesSyncModule } from './modules/mega-dulces-sync/mega-dulces-sync.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -92,6 +93,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsChecklistsModule,
       LogisticsPhotosModule,
       LogisticsReportsModule,
+      MegaDulcesSyncModule,
     ]
   : [];
 
@@ -134,7 +136,6 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     ExhibitionsModule,
     DailyAssignmentsModule,
     CronModule,
-    VisitasSyncModule,
     DataModule,
     WebSocketModule,
     ScheduleModule.forRoot(),

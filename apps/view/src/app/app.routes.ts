@@ -108,6 +108,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
       },
+      {
+        // Sprint M.3: ventas históricas del ERP Mega_Dulces vía FDW (read-only).
+        path: 'historical',
+        loadComponent: () => import('./modules/dashboard/historical-analytics/historical-analytics.component').then(m => m.HistoricalAnalyticsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
     ]
   },
   // ── Proyecto Logística (Fase J) ─────────────────────────────────────

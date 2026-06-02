@@ -467,6 +467,110 @@ export class CommercialAnalyticsService {
     });
   }
 
+  // ─────────── Sprint M.3 — Ventas históricas (ERP Mega_Dulces vía FDW) ───────────
+
+  /**
+   * Series diarias desde `analytics_external.ventas_legacy` (foreign table sobre
+   * `Mega_Dulces.public.ventas` en .245). Datos transaccionales desnormalizados,
+   * NO pasan por commercial.orders. Sirve para reportería de ventas reales del
+   * ERP (no de pedidos B2B levantados por la app).
+   *
+   * Pushdown FDW: WHERE fecha/zona se aplica remotamente. Para período corto
+   * (<30d) el GROUP BY también baja, así que aunque la tabla source tenga 2.1M
+   * rows, el plan solo transfiere el resultado agregado (decenas de filas).
+   */
+  async historicalSalesDaily(q: { from?: string; to?: string; zona?: string }) {
+    const { from, to } = this.parseDateRange(q);
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics_external.ventas_legacy')
+        .modify((qb) => {
+          if (from) qb.where('fecha', '>=', from);
+          if (to) qb.where('fecha', '<=', to);
+          if (q.zona) qb.where('zona', q.zona);
+        })
+        .select(
+          'fecha AS day',
+          trx.raw('COUNT(*)::int AS lines'),
+          trx.raw('COALESCE(SUM(cantidad), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(venta_diaria), 0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(costo), 0)::numeric AS cost'),
+        )
+        .groupBy('fecha')
+        .orderBy('fecha', 'asc');
+      return rows.map((r) => ({
+        day: r.day,
+        lines: Number(r.lines),
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+        cost: Number(r.cost),
+        margin: Number(r.revenue) - Number(r.cost),
+      }));
+    });
+  }
+
+  /** Top productos del ERP por revenue en el período. */
+  async historicalTopProducts(q: { from?: string; to?: string; zona?: string; limit?: number }) {
+    const { from, to } = this.parseDateRange(q);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics_external.ventas_legacy')
+        .modify((qb) => {
+          if (from) qb.where('fecha', '>=', from);
+          if (to) qb.where('fecha', '<=', to);
+          if (q.zona) qb.where('zona', q.zona);
+        })
+        .select(
+          'producto_id',
+          'producto',
+          'categoria',
+          'subfamilia',
+          trx.raw('COALESCE(SUM(cantidad), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(venta_diaria), 0)::numeric AS revenue'),
+        )
+        .groupBy('producto_id', 'producto', 'categoria', 'subfamilia')
+        .orderBy('revenue', 'desc')
+        .limit(limit);
+      return rows.map((r) => ({
+        producto_id: r.producto_id,
+        producto: r.producto,
+        categoria: r.categoria,
+        subfamilia: r.subfamilia,
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+      }));
+    });
+  }
+
+  /** Resumen por zona/sucursal en el período. */
+  async historicalSalesByZona(q: { from?: string; to?: string }) {
+    const { from, to } = this.parseDateRange(q);
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics_external.ventas_legacy')
+        .modify((qb) => {
+          if (from) qb.where('fecha', '>=', from);
+          if (to) qb.where('fecha', '<=', to);
+        })
+        .select(
+          'zona',
+          'almacen',
+          trx.raw('COUNT(DISTINCT folio)::int AS tickets'),
+          trx.raw('COUNT(DISTINCT tercero_id)::int AS unique_customers'),
+          trx.raw('COALESCE(SUM(cantidad), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(venta_diaria), 0)::numeric AS revenue'),
+        )
+        .groupBy('zona', 'almacen')
+        .orderBy('revenue', 'desc');
+      return rows.map((r) => ({
+        zona: r.zona,
+        almacen: r.almacen,
+        tickets: Number(r.tickets),
+        unique_customers: Number(r.unique_customers),
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+      }));
+    });
+  }
+
   // ─────────── helpers ───────────
 
   private parseDateRange(q: DateRangeQuery): { from?: string; to?: string } {

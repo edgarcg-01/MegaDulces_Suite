@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { legacyTxStorage } from '../../shared/tenant/legacy-tx.als';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { EmbeddingsService } from '../../shared/ai/embeddings.service';
@@ -48,14 +49,25 @@ export class PlanogramsService {
       const vec = await this.embeddings.embedSingle(sourceText, 'document');
       const vecLiteral = `[${vec.join(',')}]`;
 
-      await this.knex.raw(
-        `UPDATE products
+      // El UPDATE con cast `?::vector` es lo único que puede fallar duro: si la
+      // DB no tiene la extensión pgvector, tira `type "vector" does not exist` y
+      // aborta la trx de la request entera — el INSERT/UPDATE del producto que
+      // la disparó haría rollback silencioso al COMMIT del interceptor (el admin
+      // ve 200 OK pero el producto no se persiste). Lo envolvemos en un savepoint
+      // sobre la MISMA trx (así ve la fila recién insertada aún sin commitear);
+      // un fallo hace ROLLBACK TO SAVEPOINT y deja la trx de la request viva.
+      const updateSql = `UPDATE products
            SET embedding = ?::vector,
                embedding_source_text = ?,
                embedding_updated_at = NOW()
-         WHERE id = ?`,
-        [vecLiteral, sourceText, productId],
-      );
+         WHERE id = ?`;
+      const params = [vecLiteral, sourceText, productId];
+      const store = legacyTxStorage.getStore();
+      if (store?.tx) {
+        await store.tx.transaction((sp) => sp.raw(updateSql, params));
+      } else {
+        await this.knex.raw(updateSql, params);
+      }
     } catch (err: any) {
       // No-throw: el feature debe degradar elegante. El producto queda
       // marcado sin embedding y el backfill script lo recoge.

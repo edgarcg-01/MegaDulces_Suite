@@ -90,6 +90,35 @@ export interface DailySeriesRow {
   net_revenue: number;
 }
 
+// ───── Sprint M.3 — Ventas históricas ERP Mega_Dulces (FDW) ─────
+
+export interface HistoricalDailyRow {
+  day: string;
+  lines: number;
+  units: number;
+  revenue: number;
+  cost: number;
+  margin: number;
+}
+
+export interface HistoricalTopProductRow {
+  producto_id: string;
+  producto: string;
+  categoria: string;
+  subfamilia: string;
+  units: number;
+  revenue: number;
+}
+
+export interface HistoricalByZonaRow {
+  zona: string;
+  almacen: string;
+  tickets: number;
+  unique_customers: number;
+  units: number;
+  revenue: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CommandCenterService {
   private readonly http = inject(HttpClient);
@@ -132,5 +161,31 @@ export class CommandCenterService {
     if (from) params = params.set('from', from);
     if (to) params = params.set('to', to);
     return this.http.get<DailySeriesRow[]>(`${this.base}/daily-series`, { params });
+  }
+
+  // ───── M.3 historical (ERP) ─────
+
+  historicalDaily(opts: { from?: string; to?: string; zona?: string }): Observable<HistoricalDailyRow[]> {
+    let params = new HttpParams();
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.zona) params = params.set('zona', opts.zona);
+    return this.http.get<HistoricalDailyRow[]>(`${this.base}/historical/daily`, { params });
+  }
+
+  historicalTopProducts(opts: { from?: string; to?: string; zona?: string; limit?: number }): Observable<HistoricalTopProductRow[]> {
+    let params = new HttpParams();
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.zona) params = params.set('zona', opts.zona);
+    if (opts.limit) params = params.set('limit', opts.limit);
+    return this.http.get<HistoricalTopProductRow[]>(`${this.base}/historical/top-products`, { params });
+  }
+
+  historicalByZona(from?: string, to?: string): Observable<HistoricalByZonaRow[]> {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<HistoricalByZonaRow[]>(`${this.base}/historical/by-zona`, { params });
   }
 }

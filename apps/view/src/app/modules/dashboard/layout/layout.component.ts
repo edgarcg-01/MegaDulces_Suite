@@ -244,6 +244,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private comercialNavItems: NavItem[] = [
     { label: 'Centro de Control', icon: 'pi pi-compass',        route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
     { label: 'Pedidos',           icon: 'pi pi-file-edit',      route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
+    { label: 'Ventas (ERP)',      icon: 'pi pi-database',       route: '/comercial/historical',     permission: Permission.COMMERCIAL_ORDERS_VER },
     { label: 'Clientes',          icon: 'pi pi-users',          route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
     { label: 'Inventario',        icon: 'pi pi-box',            route: '/comercial/inventory',      permission: Permission.COMMERCIAL_INVENTORY_VER },
     { label: 'Listas de precios', icon: 'pi pi-tag',            route: '/comercial/pricing',        permission: Permission.COMMERCIAL_PRICING_VER },

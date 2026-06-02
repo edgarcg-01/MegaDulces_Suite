@@ -210,20 +210,34 @@ export class CommercialPricingService {
   // ───── product_prices ─────
 
   /**
-   * Lista precios de una price list.
+   * Lista precios de una price list (paginado).
    *
    * J.6.7: si `warehouseId` viene, LEFT JOIN con `commercial.stock` y devuelve
    * `stock_available` por producto. Si no viene, `stock_available` queda como
    * `null` (mantiene compatibilidad con callers que no necesitan stock).
    *
-   * `stock_available` es lo disponible REAL (quantity - reserved), no el total.
+   * Sprint M: agregado `search` (ilike sobre product_name, sku, barcode) +
+   * paginación (default 100/page, max 500). Sin esto, listas con miles de
+   * SKUs (post-importer Mega_Dulces ~6500 en MAYOREO) colapsan el browser.
+   *
+   * Returns `{ data, pagination }` siempre — antes era array crudo, los callers
+   * necesitan actualizar a `.data`.
    */
-  async listPrices(priceListId: string, warehouseId?: string) {
+  async listPrices(
+    priceListId: string,
+    opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string } = {},
+  ) {
     if (!UUID_REGEX.test(priceListId))
       throw new BadRequestException('price_list_id inválido');
+    const warehouseId = opts.warehouseId;
     if (warehouseId !== undefined && warehouseId !== null && !UUID_REGEX.test(warehouseId)) {
       throw new BadRequestException('warehouse_id inválido');
     }
+
+    const page = Math.max(1, Number(opts.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(opts.pageSize) || 100));
+    const offset = (page - 1) * pageSize;
+    const search = (opts.search || '').trim();
 
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
@@ -231,20 +245,40 @@ export class CommercialPricingService {
         throw new ForbiddenException('No tenés acceso a esta price list');
       }
 
-      let q = trx('commercial.product_prices as pp')
-        .leftJoin('public.products as p', function () {
-          this.on('p.id', '=', 'pp.product_id').andOn(
-            'p.tenant_id',
-            '=',
-            'pp.tenant_id',
-          );
-        })
-        .leftJoin('public.brands as b', function () {
-          this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
-        })
-        .whereNull('pp.deleted_at')
-        .where('pp.price_list_id', priceListId);
+      const buildBaseQuery = () => {
+        let q = trx('commercial.product_prices as pp')
+          .leftJoin('public.products as p', function () {
+            this.on('p.id', '=', 'pp.product_id').andOn(
+              'p.tenant_id',
+              '=',
+              'pp.tenant_id',
+            );
+          })
+          .leftJoin('public.brands as b', function () {
+            this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
+          })
+          .leftJoin('public.categories as cat', function () {
+            this.on('cat.id', '=', 'p.category_id').andOn('cat.tenant_id', '=', 'p.tenant_id');
+          })
+          .whereNull('pp.deleted_at')
+          .where('pp.price_list_id', priceListId);
 
+        if (search) {
+          const term = `%${search}%`;
+          q = q.where((b) =>
+            b.where('p.nombre', 'ilike', term)
+              .orWhere('p.sku', 'ilike', term)
+              .orWhere('p.barcode', 'ilike', term),
+          );
+        }
+        return q;
+      };
+
+      // Count primero (sin joins de stock para no inflar el count).
+      const [{ total }] = await buildBaseQuery().count<{ total: string }[]>('pp.id as total');
+
+      // Página real con joins completos.
+      let q = buildBaseQuery();
       if (warehouseId) {
         q = q.leftJoin('commercial.stock as s', function () {
           this.on('s.product_id', '=', 'pp.product_id')
@@ -257,14 +291,17 @@ export class CommercialPricingService {
         'pp.id',
         'pp.product_id',
         'p.nombre as product_name',
+        'p.sku',
+        'p.barcode',
         'p.brand_id as brand_id',
         'b.nombre as brand_name',
+        'p.category_id',
+        'cat.name as category_name',
         'pp.price',
         'pp.tax_rate',
         'pp.min_qty',
       ];
       if (warehouseId) {
-        // stock_available = quantity - reserved. Si no hay row en stock → null.
         selects.push(
           trx.raw(
             'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
@@ -274,7 +311,22 @@ export class CommercialPricingService {
         selects.push(trx.raw('NULL::int AS stock_available'));
       }
 
-      return q.select(...selects).orderBy('p.nombre', 'asc');
+      const data = await q
+        .select(...selects)
+        .orderBy('p.nombre', 'asc')
+        .limit(pageSize)
+        .offset(offset);
+
+      const totalNum = Number(total) || 0;
+      return {
+        data,
+        pagination: {
+          page,
+          pageSize,
+          total: totalNum,
+          pageCount: Math.ceil(totalNum / pageSize) || 0,
+        },
+      };
     });
   }
 

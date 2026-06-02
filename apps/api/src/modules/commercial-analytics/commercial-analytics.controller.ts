@@ -114,4 +114,49 @@ export class CommercialAnalyticsController {
   dailySeries(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.dailySeries({ from, to });
   }
+
+  // ─────────── Sprint M.3 — Ventas históricas (ERP Mega_Dulces vía FDW) ───────────
+
+  @Get('historical/daily')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Series diarias de ventas REALES del ERP (Mega_Dulces.ventas vía FDW). Read-only, no se mezcla con commercial.orders. Soporta filtro ?zona=La Piedad.',
+  })
+  historicalDaily(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('zona') zona?: string,
+  ) {
+    return this.service.historicalSalesDaily({ from, to, zona });
+  }
+
+  @Get('historical/top-products')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary: 'Top N productos del ERP por revenue (FDW). Filtros: from/to/zona/limit',
+  })
+  historicalTopProducts(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('zona') zona?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.historicalTopProducts({
+      from,
+      to,
+      zona,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('historical/by-zona')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Ventas del ERP por zona/sucursal en el período: tickets, customers únicos, units, revenue',
+  })
+  historicalByZona(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.historicalSalesByZona({ from, to });
+  }
 }

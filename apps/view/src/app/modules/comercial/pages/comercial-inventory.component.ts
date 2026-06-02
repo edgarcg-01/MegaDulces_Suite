@@ -463,7 +463,7 @@ export class ComercialInventoryComponent {
 
   constructor() {
     this.api.listWarehouses(true).subscribe({
-      next: (r) => this.warehouses.set(r.data || []),
+      next: (r) => this.warehouses.set(Array.isArray(r) ? r : []),
       error: () => this.warehouses.set([]),
     });
     this.load();

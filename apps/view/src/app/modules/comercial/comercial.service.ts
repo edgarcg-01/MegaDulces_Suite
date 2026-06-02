@@ -77,12 +77,25 @@ export interface PriceList {
 
 export interface ProductPrice {
   id: string;
-  price_list_id: string;
+  price_list_id?: string;
   product_id: string;
   product_name?: string;
+  sku?: string | null;
+  barcode?: string | null;
+  brand_id?: string;
   brand_name?: string;
+  category_id?: string | null;
+  category_name?: string | null;
   price: number;
+  tax_rate?: number;
+  min_qty?: number;
   min_quantity?: number;
+  stock_available?: number | null;
+}
+
+export interface ProductPricesPage {
+  data: ProductPrice[];
+  pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
 export type OrderStatus = 'draft' | 'pending_approval' | 'confirmed' | 'fulfilled' | 'cancelled';
@@ -290,7 +303,8 @@ export class ComercialService {
   listWarehouses(active?: boolean) {
     let params = new HttpParams();
     if (active !== undefined) params = params.set('active', String(active));
-    return this.http.get<{ data: Warehouse[] }>(`${this.base}/warehouses`, { params });
+    // Backend retorna array directo (mismo patrón que listPriceLists).
+    return this.http.get<Warehouse[]>(`${this.base}/warehouses`, { params });
   }
   createWarehouse(body: Partial<Warehouse>) {
     return this.http.post<Warehouse>(`${this.base}/warehouses`, body);
@@ -306,7 +320,9 @@ export class ComercialService {
   listPriceLists(active?: boolean) {
     let params = new HttpParams();
     if (active !== undefined) params = params.set('active', String(active));
-    return this.http.get<{ data: PriceList[] }>(`${this.base}/price-lists`, { params });
+    // Backend retorna array directo (no envuelto en { data }). Era bug:
+    // el component hacía `r.data || []` y siempre caía al fallback vacío.
+    return this.http.get<PriceList[]>(`${this.base}/price-lists`, { params });
   }
   createPriceList(body: Partial<PriceList>) {
     return this.http.post<PriceList>(`${this.base}/price-lists`, body);
@@ -317,8 +333,13 @@ export class ComercialService {
   deletePriceList(id: string) {
     return this.http.delete<{ ok: true }>(`${this.base}/price-lists/${id}`);
   }
-  listPrices(priceListId: string) {
-    return this.http.get<{ data: ProductPrice[] }>(`${this.base}/price-lists/${priceListId}/prices`);
+  listPrices(priceListId: string, opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string } = {}) {
+    let params = new HttpParams();
+    if (opts.warehouseId) params = params.set('warehouse_id', opts.warehouseId);
+    if (opts.page != null) params = params.set('page', opts.page);
+    if (opts.pageSize != null) params = params.set('pageSize', opts.pageSize);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    return this.http.get<ProductPricesPage>(`${this.base}/price-lists/${priceListId}/prices`, { params });
   }
   bulkUpsertPrices(body: { price_list_id: string; items: { product_id: string; price: number; min_quantity?: number }[] }) {
     return this.http.post<{ upserted: number }>(`${this.base}/product-prices/bulk-upsert`, body);

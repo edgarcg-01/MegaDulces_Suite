@@ -659,9 +659,20 @@ export class CommercialOrdersService {
   async listMyOrders(query: ListOrdersQuery & { customer_id?: string }) {
     const customerId = await this.resolveCustomerIdFromCtx();
     if (!customerId) {
-      throw new BadRequestException(
-        'Usuario sin customer_id linkeado — no es customer_b2b o está mal configurado',
-      );
+      // Sin customer_id linkeado (= no es customer_b2b o user mal configurado)
+      // → respuesta vacía 200 en vez de 400. El portal frontend leakea
+      // refreshCart() a navegaciones admin (bug) y el 400 ensucia la consola
+      // a admins legítimos. Si el user es realmente un customer_b2b sin link,
+      // verá un carrito vacío que es el comportamiento esperado.
+      const page = Math.max(1, Number(query.page) || 1);
+      const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 50));
+      return {
+        data: [],
+        page,
+        pageSize,
+        total: 0,
+        pagination: { page, pageSize, total: 0, pageCount: 0 },
+      };
     }
     return this.list({ ...query, customer_id: customerId });
   }

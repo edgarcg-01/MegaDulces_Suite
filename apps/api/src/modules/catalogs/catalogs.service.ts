@@ -10,6 +10,7 @@ import {
 import { Knex } from 'knex';
 import { randomUUID } from 'crypto';
 import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { legacyTxStorage } from '../../shared/tenant/legacy-tx.als';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
 import { Permission } from '../../shared/constants/permissions';
 import { PermissionsCacheService } from '../../shared/ability/permissions-cache.service';
@@ -685,7 +686,22 @@ export class CatalogsService {
   private async safeRecalcularScoreMaximo(triggerType: string) {
     try {
       const activeVersion = await this.scoringV2Service.getActiveVersion();
-      if (activeVersion) {
+      if (!activeVersion) return;
+
+      // El recálculo es best-effort: si falla, NO debe abortar la trx de la
+      // request (que ya tiene el create/update/delete del catálogo pendiente de
+      // commit) y provocar un rollback silencioso. Lo corremos en un savepoint
+      // sobre la misma trx. recalcularScoreMaximo usa su propio `this.knex`
+      // (proxy → CLS), así que re-scopeamos el CLS al savepoint para que sus
+      // queries caigan ahí y vean el cambio de catálogo aún sin commitear.
+      const store = legacyTxStorage.getStore();
+      if (store?.tx) {
+        await store.tx.transaction((sp) =>
+          legacyTxStorage.run({ tx: sp, tenantId: store.tenantId }, () =>
+            this.scoringV2Service.recalcularScoreMaximo(activeVersion.id),
+          ),
+        );
+      } else {
         await this.scoringV2Service.recalcularScoreMaximo(activeVersion.id);
       }
     } catch (err: any) {

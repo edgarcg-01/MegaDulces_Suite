@@ -72,13 +72,21 @@ export class CommercialPricingController {
   @RequirePermissions(Permission.COMMERCIAL_PRICING_VER)
   @ApiOperation({
     summary:
-      'Listar precios de una price list. J.6.7: con ?warehouse_id=X incluye stock_available por producto. customer_b2b solo puede listar prices de SU price list (o la tenant_default).',
+      'Listar precios (paginado) de una price list. J.6.7: con ?warehouse_id=X incluye stock_available. M.1: incluye sku, barcode, category_name. ?search filtra por nombre/sku/barcode. customer_b2b solo puede listar prices de SU price list.',
   })
   listPrices(
     @Param('id') priceListId: string,
     @Query('warehouse_id') warehouseId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
   ) {
-    return this.service.listPrices(priceListId, warehouseId);
+    return this.service.listPrices(priceListId, {
+      warehouseId,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+      search,
+    });
   }
 
   @Post('product-prices/bulk-upsert')
