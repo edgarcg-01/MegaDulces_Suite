@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { PdfService } from './pdf.service';
+import { BrandPresenceReportService } from './brand-presence-report.service';
 import { RequireAuthGuard } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -23,6 +24,7 @@ import { ReqUser } from '@megadulces/platform-core';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
+  BrandPresenceFilterDto,
   ExportPdfDto,
   ReportsDataFilterDto,
   ReportsFilterDto,
@@ -41,6 +43,7 @@ export class ReportsController {
   constructor(
     private readonly reportsService: ReportsService,
     private readonly pdfService: PdfService,
+    private readonly brandPresenceReport: BrandPresenceReportService,
   ) {}
 
   @Get('summary')
@@ -180,6 +183,33 @@ export class ReportsController {
       this.logger.error(`exportPdf error: ${error.message}`, error.stack);
       res.status(500).json({
         error: 'Error generando PDF',
+        message: error.message,
+      });
+    }
+  }
+
+  @Post('brand-presence/pdf')
+  @RequirePermissions(Permission.REPORTES_EXPORTAR)
+  @ApiOperation({
+    summary: 'Genera el reporte de Presencia de Marca (PDF Tier-1)',
+  })
+  async exportBrandPresencePdf(
+    @ReqUser() user: any,
+    @Body() filters: BrandPresenceFilterDto,
+    @Res() res: Response,
+  ) {
+    try {
+      const { buffer, filename } = await this.brandPresenceReport.generatePdf(filters, user);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': buffer.length,
+      });
+      res.end(buffer);
+    } catch (error: any) {
+      this.logger.error(`exportBrandPresencePdf error: ${error.message}`, error.stack);
+      res.status(500).json({
+        error: 'Error generando el reporte de presencia de marca',
         message: error.message,
       });
     }

@@ -322,6 +322,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];
+    // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
+    const legacy = user.permissions;
+    const fullDashboard =
+      legacy?.[Permission.REPORTES_VER_EQUIPO] === true ||
+      legacy?.[Permission.REPORTES_VER_GLOBAL] === true;
+    if (!fullDashboard) {
+      return this.tradeMkNavItems.filter(
+        (i) => i.route === '/dashboard/captures' && this.hasPermFor(i),
+      );
+    }
     const project = this.currentProject();
     const items =
       project === 'comercial'

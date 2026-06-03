@@ -91,6 +91,36 @@ export class DailyCapturesService {
     }
   }
 
+  /**
+   * Igual que `hasSyncUuidColumn` pero para `route_id` (ruta self-service).
+   * Protege el deploy window en que el API arrancó antes de aplicar la
+   * migración 20260603190000_add_route_id_to_daily_captures: si la columna no
+   * existe, el INSERT omite route_id en lugar de tirar 500 y romper TODAS las
+   * capturas. Re-checkea cada 60s para pickear la migración sin reiniciar.
+   */
+  private _hasRouteIdColumn: boolean | null = null;
+  private _hasRouteIdCheckedAt = 0;
+  private async hasRouteIdColumn(): Promise<boolean> {
+    if (this._hasRouteIdColumn === true) return true;
+    const stale =
+      this._hasRouteIdColumn === false &&
+      Date.now() - this._hasRouteIdCheckedAt < this.NEGATIVE_TTL_MS;
+    if (stale) return false;
+    try {
+      const exists = await this.knex.schema.hasColumn(
+        'daily_captures',
+        'route_id',
+      );
+      this._hasRouteIdColumn = exists;
+      this._hasRouteIdCheckedAt = Date.now();
+      return exists;
+    } catch {
+      this._hasRouteIdColumn = false;
+      this._hasRouteIdCheckedAt = Date.now();
+      return false;
+    }
+  }
+
   async create(
     dto: CreateDailyCaptureDto,
     userId: string,
@@ -473,6 +503,9 @@ export class DailyCapturesService {
     if (hasSyncUuid) {
       insertPayload.sync_uuid = dto.sync_uuid || null;
     }
+    if (await this.hasRouteIdColumn()) {
+      insertPayload.route_id = dto.route_id || null;
+    }
 
     // INSERT con manejo unificado de colisiones por race condition.
     //
@@ -616,6 +649,7 @@ export class DailyCapturesService {
     zona?: string,
     ejecutivo?: string,
     userId?: string,
+    routeId?: string,
   ) {
     // Defense in depth (audit #6): RLS scopea por current_tenant_id() pero
     // si por algún motivo el CLS no se setea (degradación), un user de un
@@ -635,6 +669,7 @@ export class DailyCapturesService {
     if (zona) query.where({ zona_captura: zona });
     if (ejecutivo) query.where({ captured_by_username: ejecutivo });
     if (userId) query.where({ user_id: userId });
+    if (routeId) query.where({ route_id: routeId });
 
     query.orderBy('created_at', 'desc');
     return query;

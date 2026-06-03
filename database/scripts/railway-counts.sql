@@ -1,0 +1,41 @@
+-- Real COUNT(*) per table in domain schemas (Railway prod sanity check)
+SELECT 'catalog' AS schema, 'brands' AS tabla, COUNT(*) FROM catalog.brands
+UNION ALL SELECT 'catalog','categories', COUNT(*) FROM catalog.categories
+UNION ALL SELECT 'catalog','products', COUNT(*) FROM catalog.products
+UNION ALL SELECT 'commercial','call_logs', COUNT(*) FROM commercial.call_logs
+UNION ALL SELECT 'commercial','customers', COUNT(*) FROM commercial.customers
+UNION ALL SELECT 'commercial','lead_reservations', COUNT(*) FROM commercial.lead_reservations
+UNION ALL SELECT 'commercial','order_lines', COUNT(*) FROM commercial.order_lines
+UNION ALL SELECT 'commercial','order_sequences', COUNT(*) FROM commercial.order_sequences
+UNION ALL SELECT 'commercial','order_status_history', COUNT(*) FROM commercial.order_status_history
+UNION ALL SELECT 'commercial','orders', COUNT(*) FROM commercial.orders
+UNION ALL SELECT 'commercial','payments', COUNT(*) FROM commercial.payments
+UNION ALL SELECT 'commercial','price_lists', COUNT(*) FROM commercial.price_lists
+UNION ALL SELECT 'commercial','product_prices', COUNT(*) FROM commercial.product_prices
+UNION ALL SELECT 'commercial','promotions', COUNT(*) FROM commercial.promotions
+UNION ALL SELECT 'commercial','recommended_baskets', COUNT(*) FROM commercial.recommended_baskets
+UNION ALL SELECT 'commercial','stock', COUNT(*) FROM commercial.stock
+UNION ALL SELECT 'commercial','stock_movements', COUNT(*) FROM commercial.stock_movements
+UNION ALL SELECT 'commercial','warehouses', COUNT(*) FROM commercial.warehouses
+UNION ALL SELECT 'erp','staff', COUNT(*) FROM erp.staff
+UNION ALL SELECT 'identity','role_permissions', COUNT(*) FROM identity.role_permissions
+UNION ALL SELECT 'identity','tenants', COUNT(*) FROM identity.tenants
+UNION ALL SELECT 'identity','users', COUNT(*) FROM identity.users
+UNION ALL SELECT 'logistics','config_finance', COUNT(*) FROM logistics.config_finance
+UNION ALL SELECT 'logistics','delivery_guides', COUNT(*) FROM logistics.delivery_guides
+UNION ALL SELECT 'logistics','drivers', COUNT(*) FROM logistics.drivers
+UNION ALL SELECT 'logistics','guide_recipients', COUNT(*) FROM logistics.guide_recipients
+UNION ALL SELECT 'logistics','liquidations', COUNT(*) FROM logistics.liquidations
+UNION ALL SELECT 'logistics','load_details', COUNT(*) FROM logistics.load_details
+UNION ALL SELECT 'logistics','payroll_periods', COUNT(*) FROM logistics.payroll_periods
+UNION ALL SELECT 'logistics','routes', COUNT(*) FROM logistics.routes
+UNION ALL SELECT 'logistics','sequences', COUNT(*) FROM logistics.sequences
+UNION ALL SELECT 'logistics','shipment_checklists', COUNT(*) FROM logistics.shipment_checklists
+UNION ALL SELECT 'logistics','shipment_expenses', COUNT(*) FROM logistics.shipment_expenses
+UNION ALL SELECT 'logistics','shipment_photos', COUNT(*) FROM logistics.shipment_photos
+UNION ALL SELECT 'logistics','shipments', COUNT(*) FROM logistics.shipments
+UNION ALL SELECT 'logistics','unload_details', COUNT(*) FROM logistics.unload_details
+UNION ALL SELECT 'logistics','vehicle_maintenance', COUNT(*) FROM logistics.vehicle_maintenance
+UNION ALL SELECT 'logistics','vehicle_usage_logs', COUNT(*) FROM logistics.vehicle_usage_logs
+UNION ALL SELECT 'logistics','vehicles', COUNT(*) FROM logistics.vehicles
+ORDER BY schema, tabla;

@@ -138,6 +138,20 @@ export class DailyCaptureService {
   readonly currentAssignment = this._currentAssignment.asReadonly();
 
   /**
+   * Ruta activa de hoy (self-service). Fuente de verdad de con qué ruta se
+   * etiquetan las capturas. Se resuelve: captura más reciente de hoy → asignación
+   * recurrente (sugerida) → null (obliga a elegir antes de iniciar visita).
+   */
+  private _activeRoute = signal<{ id: string; name: string } | null>(null);
+  readonly activeRoute = this._activeRoute.asReadonly();
+  /** El usuario eligió ruta manualmente → no sobreescribir con la resolución. */
+  private _routeChosen = false;
+
+  /** Rutas de la zona del usuario para el selector "¿En qué ruta estás hoy?". */
+  private _zoneRoutes = signal<{ label: string; value: string }[]>([]);
+  readonly zoneRoutes = this._zoneRoutes.asReadonly();
+
+  /**
    * Lista de visitas de hoy.
    * El backend ya filtra por scope (admins ven todo, capturistas ven lo suyo)
    * vía `userIdFilter` en daily-captures.controller. El frontend NO debe
@@ -633,6 +647,7 @@ export class DailyCaptureService {
       latitud,
       longitud,
       store_id: store?.id || null,
+      route_id: this._activeRoute()?.id || this._currentAssignment()?.route_id || null,
       // Nota: NO enviamos `_offline` al backend — lo añadimos solo al
       // response del offline-catch para que el componente lo identifique.
     };
@@ -662,6 +677,7 @@ export class DailyCaptureService {
           horaFin: res.hora_fin || res.horaFin,
           capturedBy: res.captured_by_username || user?.username || 'Sistema',
           zona: res.zona_captura,
+          routeId: res.route_id || this._activeRoute()?.id,
           exhibiciones:
             typeof res.exhibiciones === 'string'
               ? JSON.parse(res.exhibiciones)
@@ -824,6 +840,7 @@ export class DailyCaptureService {
             horaFin: item.hora_fin || item.horaFin,
             capturedBy: item.captured_by_username || 'Sistema',
             zona: item.zona_captura,
+            routeId: item.route_id || undefined,
             exhibiciones:
               typeof item.exhibiciones === 'string'
                 ? JSON.parse(item.exhibiciones)
@@ -843,6 +860,7 @@ export class DailyCaptureService {
           } catch { /* cache best-effort */ }
           // Merge con visitas pendientes en Dexie (offline saves de hoy).
           await this.mergeTodayCapturesWithPending(parsedData);
+          this.resolveActiveRoute();
         } catch {
           /* corrupt JSON en JSONB — ignorar para no romper la vista */
         } finally {
@@ -961,14 +979,16 @@ export class DailyCaptureService {
       return;
     }
 
+    // Endpoint self-service `/me`: gateado por VISITAS_REGISTRAR, así funciona
+    // para colaboradores/vendedores sin permiso de supervisor. El server fuerza
+    // user_id = sub del JWT.
     this.http
-      .get<any[]>(
-        `${this.apiUrl}/daily-assignments?user_id=${user.sub}&day_of_week=${dayOfWeek}`,
-      )
+      .get<any[]>(`${this.apiUrl}/daily-assignments/me?day_of_week=${dayOfWeek}`)
       .subscribe({
         next: async (data) => {
           const assignment = data && data.length > 0 ? data[0] : null;
           this._currentAssignment.set(assignment);
+          this.resolveActiveRoute();
           // Persistir para el próximo fallback offline.
           try {
             await this.offlineDb.guardarCatalogo(
@@ -992,8 +1012,123 @@ export class DailyCaptureService {
       const { assignment, userId: cachedUser, dayOfWeek: cachedDay } = cached.datos as any;
       if (cachedUser === userId && cachedDay === dayOfWeek) {
         this._currentAssignment.set(assignment);
+        this.resolveActiveRoute();
       }
     } catch { /* silent — no crítico */ }
+  }
+
+  /**
+   * Resuelve la "ruta activa de hoy" sin pisar una elección manual del usuario:
+   *   1. captura más reciente de hoy con route_id (sticky una vez que empezó)
+   *   2. asignación recurrente del día (sugerencia del supervisor / propia)
+   *   3. null → el selector "¿En qué ruta estás hoy?" obliga a elegir.
+   * El nombre se resuelve contra `zoneRoutes`; si aún no cargó, cae al
+   * route_name de la asignación o al id como placeholder (se refina al recargar
+   * zoneRoutes, que vuelve a llamar este método).
+   */
+  private resolveActiveRoute(): void {
+    if (this._routeChosen) return;
+
+    const today = todayMx();
+    const nameOf = (id: string): string => {
+      const hit = this._zoneRoutes().find((r) => r.value === id);
+      if (hit) return hit.label;
+      const a = this._currentAssignment();
+      if (a?.route_id === id && a?.route_name) return a.route_name;
+      return id;
+    };
+
+    const recent = this._captures().find(
+      (c) => c.fechaCaptura === today && c.routeId,
+    );
+    if (recent?.routeId) {
+      this._activeRoute.set({ id: recent.routeId, name: nameOf(recent.routeId) });
+      return;
+    }
+
+    const assignment = this._currentAssignment();
+    if (assignment?.route_id) {
+      this._activeRoute.set({
+        id: assignment.route_id,
+        name: assignment.route_name || nameOf(assignment.route_id),
+      });
+      return;
+    }
+
+    this._activeRoute.set(null);
+  }
+
+  /** Elección manual del colaborador en el selector de /captures. */
+  setActiveRoute(route: { id: string; name: string } | null): void {
+    this._routeChosen = !!route;
+    this._activeRoute.set(route);
+    const user = this.auth.user();
+    if (route && user) {
+      // Persistir hoy en self-service (recurrente por día de semana, pero el
+      // colaborador puede cambiarla). No bloquea el flujo si falla.
+      const day = new Date().getDay();
+      const dayOfWeek = day === 0 ? 7 : day;
+      this.http
+        .post(`${this.apiUrl}/daily-assignments/me`, {
+          route_id: route.id,
+          day_of_week: dayOfWeek,
+        })
+        .subscribe({ next: () => {}, error: () => {} });
+    }
+  }
+
+  /**
+   * Carga las rutas para el selector. Prefiere scopear a la zona del usuario,
+   * pero si esa zona no tiene rutas (la data real de Mega Dulces tiene las
+   * rutas SIN zona — parent_id NULL) o el usuario no tiene zona, cae a mostrar
+   * TODAS las rutas. Así el selector nunca queda vacío teniendo rutas en el
+   * catálogo. El backend `assertRouteValidForUser` solo valida zona cuando la
+   * ruta tiene parent_id, así que aceptar rutas sin zona es seguro.
+   */
+  loadZoneRoutes(): void {
+    const user = this.auth.user();
+    if (!user) return;
+    const zonaName = (user as any).zona as string | undefined;
+
+    const setFrom = (rutas: any[]) => {
+      this._zoneRoutes.set(
+        (rutas || []).map((r) => ({ label: r.value, value: r.id })),
+      );
+      this.resolveActiveRoute();
+      void this.offlineDb
+        .guardarCatalogo('zone-routes' as any, this._zoneRoutes(), todayMx())
+        .catch(() => {});
+    };
+
+    if (!navigator.onLine) {
+      void this.offlineDb
+        .getCatalogo('zone-routes' as any)
+        .then((c) => {
+          if (c?.datos) this._zoneRoutes.set(c.datos as any);
+          this.resolveActiveRoute();
+        })
+        .catch(() => {});
+      return;
+    }
+
+    // Traemos zonas (para mapear nombre→id) y TODAS las rutas en paralelo, y
+    // decidimos el scope en cliente.
+    forkJoin({
+      zonas: this.http
+        .get<any[]>(`${this.apiUrl}/catalogs/zonas`)
+        .pipe(catchError(() => of([] as any[]))),
+      rutas: this.http
+        .get<any[]>(`${this.apiUrl}/catalogs/rutas`)
+        .pipe(catchError(() => of([] as any[]))),
+    }).subscribe(({ zonas, rutas }) => {
+      const zoneId = (zonas || []).find(
+        (z) => (z.value || z.name) === zonaName,
+      )?.id;
+      const zoned = zoneId
+        ? (rutas || []).filter((r) => r.parent_id === zoneId)
+        : [];
+      setFrom(zoned.length > 0 ? zoned : rutas || []);
+    });
   }
 
   private _masterDataInFlight = false;
@@ -1256,6 +1391,7 @@ export class DailyCaptureService {
       this.loadTodayCaptures();
       this.loadMasterData();
       this.loadTodayAssignment();
+      this.loadZoneRoutes();
     }
   }
 

@@ -116,6 +116,28 @@ export class CapturesComponent implements OnInit, OnDestroy {
     () => this.svc.hasActiveVisit() && !this.svc.detectedStore(),
   );
 
+  /**
+   * Self-service de ruta: antes de iniciar la primera visita, el colaborador/
+   * vendedor debe declarar en qué ruta está hoy. Bloquea "Iniciar Visita".
+   */
+  needsRoute = computed(() => !this.svc.activeRoute());
+
+  /** Toggle para mostrar el dropdown "Cambiar ruta" cuando ya hay una activa. */
+  changingRoute = signal(false);
+
+  /** Aplica la ruta elegida en el selector al estado del service. */
+  onSelectRoute(routeId: string | null) {
+    if (!routeId) {
+      this.svc.setActiveRoute(null);
+      return;
+    }
+    const opt = this.svc.zoneRoutes().find((r) => r.value === routeId);
+    this.svc.setActiveRoute(
+      opt ? { id: opt.value, name: opt.label } : { id: routeId, name: routeId },
+    );
+    this.changingRoute.set(false);
+  }
+
   // Validación y compresión de archivos
   private readonly MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB original
   private readonly ALLOWED_IMAGE_TYPES = [
@@ -481,6 +503,17 @@ export class CapturesComponent implements OnInit, OnDestroy {
     // Guard: GPS puede tardar hasta ~45s con reintentos. Sin esto, el usuario
     // tappea varias veces y dispara múltiples geolocation requests + toasts.
     if (this.isStartingVisita() || this.svc.hasActiveVisit()) return;
+
+    // Self-service: hay que declarar en qué ruta estás antes de empezar. La
+    // ruta etiqueta todas las capturas del día.
+    if (this.needsRoute()) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Elegí tu ruta',
+        detail: '¿En qué ruta estás hoy? Seleccioná una ruta antes de iniciar la visita.',
+      });
+      return;
+    }
 
     this.lastResult = null;
     this.isStartingVisita.set(true);
@@ -1665,11 +1698,56 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * en Dexie (~30ms × N exhibidores de jank). Ahora el Blob viaja crudo a
    * upload y a IndexedDB; el preview usa `URL.createObjectURL`.
    */
-  private compressImage(
+  private async compressImage(
     file: File,
     maxDim = 1920,
     quality = 0.8,
   ): Promise<{ blob: Blob; previewUrl: string }> {
+    // Path rápido: createImageBitmap decodifica YA reescalado, evitando el
+    // bitmap full-res en heap (causa del OOM en Android con fotos de 12-48 MP).
+    // Mismo output (maxDim/quality) que el fallback.
+    if (typeof createImageBitmap === 'function') {
+      let probe: ImageBitmap | null = null;
+      let scaled: ImageBitmap | null = null;
+      try {
+        probe = await createImageBitmap(file);
+        const ratio = Math.min(1, maxDim / Math.max(probe.width, probe.height));
+        const w = Math.round(probe.width * ratio);
+        const h = Math.round(probe.height * ratio);
+        probe.close();
+        probe = null;
+
+        scaled = await createImageBitmap(file, {
+          resizeWidth: w,
+          resizeHeight: h,
+          resizeQuality: 'high',
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas sin contexto 2D');
+        ctx.drawImage(scaled, 0, 0);
+        scaled.close();
+        scaled = null;
+
+        const blob = await new Promise<Blob>((res, rej) =>
+          canvas.toBlob(
+            (b) => (b ? res(b) : rej(new Error('canvas.toBlob devolvió null'))),
+            'image/jpeg',
+            quality,
+          ),
+        );
+        canvas.width = canvas.height = 0; // libera el backing store del canvas
+        return { blob, previewUrl: URL.createObjectURL(blob) };
+      } catch (err) {
+        probe?.close();
+        scaled?.close();
+        // HEIC y formatos que createImageBitmap no decodifica caen al fallback,
+        // que reusa el manejo de error existente (toast HEIC).
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = () =>
@@ -1698,6 +1776,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
                   reject(new Error('canvas.toBlob devolvió null'));
                   return;
                 }
+                canvas.width = canvas.height = 0;
                 resolve({ blob, previewUrl: URL.createObjectURL(blob) });
               },
               'image/jpeg',

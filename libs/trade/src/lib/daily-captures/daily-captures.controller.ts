@@ -128,6 +128,7 @@ export class DailyCapturesController {
   @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD (alias: fecha)' })
   @ApiQuery({ name: 'zone', required: false, description: 'Nombre de zona (alias: zona)' })
   @ApiQuery({ name: 'user', required: false, description: 'Username capturista (alias: ejecutivo)' })
+  @ApiQuery({ name: 'route_id', required: false, description: 'Filtrar por ruta (FK catalogs)' })
   @ApiQuery({ name: 'fecha', required: false, deprecated: true })
   @ApiQuery({ name: 'zona', required: false, deprecated: true })
   @ApiQuery({ name: 'ejecutivo', required: false, deprecated: true })
@@ -137,6 +138,7 @@ export class DailyCapturesController {
     @Query('date') dateEn?: string,
     @Query('zone') zoneEn?: string,
     @Query('user') userEn?: string,
+    @Query('route_id') routeId?: string,
     @Query('fecha') fecha?: string,
     @Query('zona') zona?: string,
     @Query('ejecutivo') ejecutivo?: string,
@@ -151,6 +153,7 @@ export class DailyCapturesController {
       zoneEn ?? zona,
       userEn ?? ejecutivo,
       user.sub,
+      routeId,
     );
   }
 

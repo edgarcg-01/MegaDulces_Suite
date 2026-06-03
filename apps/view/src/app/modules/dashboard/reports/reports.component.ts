@@ -2487,230 +2487,64 @@ export class ReportsComponent implements OnInit, AfterViewInit {
     }
   }
 
-  async exportBrandPdf() {
-    try {
-      const data = this.reportsData();
-      if (!data || !this.selectedBrand) {
-        this.messageService.add({
-          severity: 'warn',
-          summary: 'Sin datos',
-          detail: 'No hay datos disponibles o no se ha seleccionado una marca.',
-        });
-        return;
-      }
+  brandPdfLoading = false;
 
-      const { jsPDF, autoTable } = await this.getPdfLibs();
-      const doc = new jsPDF();
-      const f = this.filtersState.filters();
-      const pageWidth = doc.internal.pageSize.width;
-      const margin = 14;
-
-      // Colores corporativos
-      const primary: [number, number, number] = [100, 100, 100];
-      const text: [number, number, number] = [9, 9, 11];
-      const textMuted: [number, number, number] = [82, 82, 91];
-      const bgLight: [number, number, number] = [244, 244, 245];
-      const success: [number, number, number] = [34, 197, 94];
-      const warning: [number, number, number] = [251, 191, 36];
-      const danger: [number, number, number] = [239, 68, 68];
-
-      // Header
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('MEGA DULCES', margin, 20);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-      doc.text('Trade Marketing Report', margin, 28);
-
-      // Título del reporte
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text(`Reporte: ${this.selectedBrand}`, pageWidth - margin, 20, { align: 'right' });
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-      doc.text('Análisis por marca', pageWidth - margin, 28, { align: 'right' });
-
-      // Período
-      let y = 50;
-      doc.setFillColor(bgLight[0], bgLight[1], bgLight[2]);
-      doc.roundedRect(margin, y, pageWidth - margin * 2, 20, 4, 4, 'F');
-      doc.setFontSize(9);
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.text('PERÍODO DE ANÁLISIS', margin + 6, y + 7);
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(primary[0], primary[1], primary[2]);
-      doc.text(this.filtersState.rangeLabel(), margin + 6, y + 16);
-      doc.setFont('helvetica', 'normal');
-
-      y += 35;
-
-      // KPIs de la marca
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('MÉTRICAS DE LA MARCA', margin, y);
-      y += 10;
-
-      const brandProducts = this.allProductStatsRaw.filter(p => p.marca === this.selectedBrand);
-      const totalBrandPresence = brandProducts.reduce((sum, p) => sum + p.total, 0);
-      const totalVisits = data.metrics?.totalVisitas || 1;
-      const shareOfShelf = ((totalBrandPresence / (totalVisits * brandProducts.length)) * 100).toFixed(1);
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Métrica', 'Valor']],
-        body: [
-          ['Marca', this.selectedBrand],
-          ['Productos Únicos', brandProducts.length.toString()],
-          ['Presencia Total', totalBrandPresence.toString()],
-          ['Share of Shelf', `${shareOfShelf}%`],
-          ['Avg por Producto', (totalBrandPresence / brandProducts.length).toFixed(1)],
-        ],
-        theme: 'grid',
-        headStyles: {
-          fillColor: bgLight,
-          textColor: text,
-          fontSize: 9,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 9,
-          textColor: text,
-        },
-        alternateRowStyles: {
-          fillColor: [250, 250, 250],
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      y = (doc as any).lastAutoTable.finalY + 15;
-
-      // Productos Top de la marca
-      if (y > 200) {
-        doc.addPage();
-        y = 20;
-      }
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('PRODUCTOS TOP', margin, y);
-      y += 10;
-
-      const topProductsWithStockout = this.topProducts
-        .filter(p => p.marca === this.selectedBrand)
-        .slice(0, 10)
-        .map(p => ({
-          ...p,
-          stockoutRate: Math.max(0, 100 - ((p.total / totalVisits) * 100)).toFixed(1)
-        }));
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Producto', 'Frecuencia', 'Stockout Rate']],
-        body: topProductsWithStockout.map(p => [
-          p.name,
-          p.total.toString(),
-          p.stockoutRate + '%',
-        ]),
-        theme: 'grid',
-        headStyles: {
-          fillColor: bgLight,
-          textColor: text,
-          fontSize: 9,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: text,
-        },
-        alternateRowStyles: {
-          fillColor: [250, 250, 250],
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      y = (doc as any).lastAutoTable.finalY + 15;
-
-      // Productos con problemas
-      if (y > 200) {
-        doc.addPage();
-        y = 20;
-      }
-
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(text[0], text[1], text[2]);
-      doc.text('ÁREAS DE OPORTUNIDAD', margin, y);
-      y += 10;
-
-      const bottomProductsWithStockout = this.bottomProducts
-        .filter(p => p.marca === this.selectedBrand)
-        .slice(0, 10)
-        .map(p => ({
-          ...p,
-          stockoutRate: Math.max(0, 100 - ((p.total / totalVisits) * 100)).toFixed(1)
-        }));
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Producto', 'Frecuencia', 'Stockout Rate']],
-        body: bottomProductsWithStockout.map(p => [
-          p.name,
-          p.total.toString(),
-          p.stockoutRate + '%',
-        ]),
-        theme: 'grid',
-        headStyles: {
-          fillColor: bgLight,
-          textColor: text,
-          fontSize: 9,
-          fontStyle: 'bold',
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: text,
-        },
-        alternateRowStyles: {
-          fillColor: [250, 250, 250],
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      // Footer
-      const totalPages = (doc as any).getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(textMuted[0], textMuted[1], textMuted[2]);
-        doc.text(
-          `Mega Dulces · Trade Marketing © ${new Date().getFullYear()}`,
-          pageWidth / 2,
-          doc.internal.pageSize.height - 10,
-          { align: 'center' },
-        );
-      }
-
-      doc.save(`reporte_marca_${this.selectedBrand}_${f.startDate}_${f.endDate}.pdf`);
+  exportBrandPdf() {
+    console.log('[brand-pdf] click', { selectedBrand: this.selectedBrand, loading: this.brandPdfLoading });
+    if (!this.selectedBrand) {
       this.messageService.add({
-        severity: 'success',
-        summary: 'PDF generado',
-        detail: `Reporte de marca "${this.selectedBrand}" generado correctamente.`,
+        severity: 'warn',
+        summary: 'Selecciona una marca',
+        detail: 'Elegí una marca del menú para generar su reporte.',
       });
-    } catch (error) {
-      this.messageService.add({
-        severity: 'error',
-        summary: 'Error',
-        detail: 'No se pudo generar el PDF. Por favor intenta nuevamente.',
-      });
+      return;
     }
+    if (this.brandPdfLoading) return;
+    this.brandPdfLoading = true;
+
+    const f = this.filtersState.filters();
+    const body: Record<string, any> = { brand: this.selectedBrand };
+    if (f.startDate) body['startDate'] = f.startDate;
+    if (f.endDate) body['endDate'] = f.endDate;
+    if (f.zone) body['zone'] = f.zone;
+
+    this.messageService.add({
+      severity: 'info',
+      summary: 'Generando reporte',
+      detail: 'Construyendo el PDF de Presencia de Marca…',
+      life: 4000,
+    });
+
+    this.http
+      .post(`${environment.apiUrl}/reports/brand-presence/pdf`, body, { responseType: 'blob' })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob: Blob) => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const safeBrand = String(this.selectedBrand).replace(/[^a-zA-Z0-9_-]/g, '_');
+          a.href = url;
+          a.download = `presencia_marca_${safeBrand}_${f.startDate || 'inicio'}_${f.endDate || 'hoy'}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          this.brandPdfLoading = false;
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Reporte generado',
+            detail: `Presencia de "${this.selectedBrand}" descargado.`,
+          });
+        },
+        error: (err: any) => {
+          this.brandPdfLoading = false;
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo generar el reporte. Intenta nuevamente.',
+          });
+        },
+      });
   }
 
   async exportSingleVisitPdf(row: any) {

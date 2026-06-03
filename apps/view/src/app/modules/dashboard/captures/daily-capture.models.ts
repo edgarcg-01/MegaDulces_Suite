@@ -94,6 +94,8 @@ export interface VisitaSnapshot {
   userId?: string;
   /** Zona autocompletada */
   zona?: string;
+  /** Ruta (FK catalogs) en la que se hizo la captura */
+  routeId?: string;
   /** Lista de exhibidores registrados */
   exhibiciones: RegistroExhibicion[];
   /** Estadísticas de la visita */

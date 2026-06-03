@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { DailyAssignmentsService } from './daily-assignments.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
+import { CreateMyAssignmentDto } from './dto/create-my-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
 import { RequireAuthGuard } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
@@ -61,6 +62,30 @@ export class DailyAssignmentsController {
       },
       user,
     );
+  }
+
+  // ── Self-service (colaborador/vendedor se asigna su propia ruta) ──────────
+  // Gateado por VISITAS_REGISTRAR (quien captura), NO por USUARIOS_ASIGNAR_RUTA
+  // (que es del supervisor). El service fuerza user_id = requester.sub, así que
+  // un usuario solo puede leer/escribir su propia asignación.
+
+  @Get('me')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @ApiQuery({ name: 'day_of_week', required: false, type: Number })
+  findMine(
+    @ReqUser() user: AuthUser,
+    @Query('day_of_week') dayOfWeek?: string,
+  ) {
+    return this.service.findMine(
+      dayOfWeek ? parseInt(dayOfWeek, 10) : undefined,
+      user,
+    );
+  }
+
+  @Post('me')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  createMine(@Body() dto: CreateMyAssignmentDto, @ReqUser() user: AuthUser) {
+    return this.service.create({ ...dto, user_id: user.sub }, user);
   }
 
   @Get(':id')

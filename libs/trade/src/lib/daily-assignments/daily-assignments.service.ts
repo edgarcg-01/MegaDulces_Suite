@@ -101,6 +101,17 @@ export class DailyAssignmentsService {
   }
 
   /**
+   * Self-service: asignación recurrente del propio colaborador para un día de
+   * la semana. Reusa `findAll` con scope 'own' forzando user_id = requester.sub.
+   */
+  async findMine(dayOfWeek: number | undefined, requester: RequesterContext) {
+    return this.findAll(
+      { user_id: requester.sub, day_of_week: dayOfWeek },
+      requester,
+    );
+  }
+
+  /**
    * Lista asignaciones respetando el scope del requester:
    *  - global: ve todo
    *  - team (supervisor): solo su equipo (+sí mismo)

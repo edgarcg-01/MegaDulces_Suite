@@ -102,6 +102,37 @@ export class ReportsStoresFilterDto {
 }
 
 /**
+ * Reporte de Presencia de Marca: el servidor recibe SOLO filtros y
+ * computa todos los KPIs internamente. No acepta payload pre-calculado
+ * del cliente.
+ */
+export class BrandPresenceFilterDto {
+  @ApiProperty({ description: 'Nombre exacto de la marca a reportar' })
+  @IsString()
+  brand!: string;
+
+  @ApiProperty({ required: false, description: 'YYYY-MM-DD' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiProperty({ required: false, description: 'YYYY-MM-DD' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @ApiProperty({ required: false, description: 'UUID de zona (opcional)' })
+  @IsOptional()
+  @IsString()
+  zone?: string;
+
+  @ApiProperty({ required: false, description: 'Etiqueta del destinatario (ej. "Hershey\'s México")' })
+  @IsOptional()
+  @IsString()
+  preparedFor?: string;
+}
+
+/**
  * Estructura mínima esperada por el endpoint POST /reports/export-pdf.
  * El service de PDF reconstruye el reporte a partir de este payload —
  * validamos lo crítico (userId del dueño) para evitar exportación cruzada.

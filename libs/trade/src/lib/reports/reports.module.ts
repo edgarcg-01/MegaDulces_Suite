@@ -4,11 +4,12 @@ import { ReportsService } from './reports.service';
 import { PdfService } from './pdf.service';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { ReportsCacheService } from './reports-cache.service';
+import { BrandPresenceReportService } from './brand-presence-report.service';
 
 @Module({
   imports: [WebSocketModule],
   controllers: [ReportsController],
-  providers: [ReportsService, PdfService, ReportsCacheService],
+  providers: [ReportsService, PdfService, ReportsCacheService, BrandPresenceReportService],
   exports: [ReportsCacheService],
 })
 export class ReportsModule {}

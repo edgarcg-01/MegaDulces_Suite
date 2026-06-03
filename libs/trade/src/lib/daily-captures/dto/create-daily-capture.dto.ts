@@ -89,6 +89,10 @@ export class CreateDailyCaptureDto {
   @IsOptional() @IsString()
   store_id?: string;
 
+  @ApiProperty({ description: 'ID de la ruta activa (FK catalogs rutas) en la que se hizo la captura', required: false })
+  @IsOptional() @IsString()
+  route_id?: string;
+
   @ApiProperty({
     description: 'UUID generado en el cliente para idempotencia offline→server. Si llega duplicado, el server retorna la fila existente sin re-procesar.',
     required: false,
