@@ -51,6 +51,11 @@ exports.up = async function (knex) {
   await knex.raw(`COMMENT ON VIEW public.products_active IS 'Productos comerciales activos según ERP Mega_Dulces.productos_activos (FDW). Match por SKU. Filtros adicionales: deleted_at NULL + brand.is_commercial. Reemplaza la versión 20260602160000 que solo filtraba por brand.is_commercial.'`);
 
   // 3. Recrear MV products_top_sellers (drop por CASCADE arriba)
+  // ⚠ HOTFIX: WITH NO DATA. Sin esto la migración ejecuta el SELECT joineando
+  // con el FDW `analytics_external.ranking_legacy` (→ 192.168.0.245) al boot,
+  // lo que rompe Railway (sin acceso a esa red local). El refresh poblará
+  // cuando el FDW esté accesible (AnalyticsRefreshService cron @15min); si
+  // está caído, captura el error y skippea sin afectar las otras MVs.
   await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS public.products_top_sellers`);
   await knex.raw(`
     CREATE MATERIALIZED VIEW public.products_top_sellers AS
@@ -66,6 +71,7 @@ exports.up = async function (knex) {
     INNER JOIN analytics_external.ranking_legacy rl
       ON rl.articulo = p.sku
     ORDER BY rl.posicion ASC
+    WITH NO DATA
   `);
   await knex.raw(`CREATE UNIQUE INDEX IF NOT EXISTS products_top_sellers_pk ON public.products_top_sellers (tenant_id, id)`);
   await knex.raw(`CREATE INDEX IF NOT EXISTS idx_products_top_sellers_rank ON public.products_top_sellers (tenant_id, sales_rank)`);
