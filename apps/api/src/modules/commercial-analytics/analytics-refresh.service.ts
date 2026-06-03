@@ -18,17 +18,29 @@ import { KNEX_NEW_DB_ADMIN } from '../../shared/database/new-database.module';
  *   - Refresh disparado por eventos ('order:fulfilled' → invalidar)
  */
 
-const MVS = [
-  'analytics.mv_sales_overview_30d',
-  'analytics.mv_top_customers_30d',
-  'analytics.mv_top_products_30d',
-  'public.products_top_sellers',
+/**
+ * MVs a refrescar. `requires_fdw=true` significa que el SELECT joinea con
+ * `analytics_external.*` (postgres_fdw → 192.168.0.245). Esos refresh se
+ * skippean automáticamente si el FDW no es alcanzable, sin reintentar 15min
+ * más tarde y sin spamear el log.
+ */
+const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
+  { name: 'analytics.mv_sales_overview_30d' },
+  { name: 'analytics.mv_top_customers_30d' },
+  { name: 'analytics.mv_top_products_30d' },
+  { name: 'public.products_top_sellers', requires_fdw: true },
 ];
 
 @Injectable()
 export class AnalyticsRefreshService {
   private readonly logger = new Logger(AnalyticsRefreshService.name);
   private isRefreshing = false;
+  /**
+   * Cache TTL para el check de salud del FDW. Si una vez falla, no volvemos
+   * a probar hasta 30 min después — sino cada cron tick (15 min) ata una
+   * conexión esperando timeout al FDW caído.
+   */
+  private fdwUnhealthyUntil: number = 0;
 
   constructor(
     @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
@@ -64,9 +76,23 @@ export class AnalyticsRefreshService {
       );
     }
     this.isRefreshing = true;
-    const results: Array<{ mv: string; ok: boolean; ms?: number; error?: string }> = [];
+    const results: Array<{ mv: string; ok: boolean; ms?: number; error?: string; skipped?: boolean }> = [];
+    const now = Date.now();
     try {
-      for (const mv of MVS) {
+      for (const entry of MVS) {
+        const mv = entry.name;
+
+        // FDW health gate: si una corrida previa marcó el FDW como caído,
+        // saltamos las MVs que lo requieren hasta que pase la ventana.
+        if (entry.requires_fdw && this.fdwUnhealthyUntil > now) {
+          const minutesLeft = Math.ceil((this.fdwUnhealthyUntil - now) / 60_000);
+          this.logger.debug(
+            `Skip ${mv}: FDW marcado unhealthy hasta hace ${minutesLeft} min restantes`,
+          );
+          results.push({ mv, ok: false, skipped: true, error: 'fdw_unhealthy' });
+          continue;
+        }
+
         const start = Date.now();
         try {
           // CONCURRENTLY exige que la MV ya esté poblada al menos una vez. Si
@@ -90,8 +116,23 @@ export class AnalyticsRefreshService {
           );
           results.push({ mv, ok: true, ms });
         } catch (e: any) {
-          this.logger.error(`Refresh ${mv} failed: ${e.message}`);
-          results.push({ mv, ok: false, error: e.message });
+          const msg = e.message || String(e);
+          // Detectar fallos del FDW para marcar unhealthy y no reintentar
+          // cada 15 min (sino cada tick ata una conexión esperando timeout).
+          const isFdwDown =
+            entry.requires_fdw &&
+            /could not connect to server|connection to server.*failed|no route to host|ETIMEDOUT/i.test(
+              msg,
+            );
+          if (isFdwDown) {
+            this.fdwUnhealthyUntil = Date.now() + 30 * 60_000;
+            this.logger.warn(
+              `Refresh ${mv} skip: FDW unreachable. No reintentaremos por 30 min. (${msg.slice(0, 120)})`,
+            );
+          } else {
+            this.logger.error(`Refresh ${mv} failed: ${msg}`);
+          }
+          results.push({ mv, ok: false, error: msg });
         }
       }
     } finally {

@@ -23,6 +23,11 @@
 exports.up = async function (knex) {
   await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS public.products_top_sellers`);
 
+  // ⚠ HOTFIX: WITH NO DATA. La versión original (WITH DATA) ejecutaba el SELECT
+  // joineando con `analytics_external.ranking_legacy` (FDW → 192.168.0.245),
+  // lo que rompía el boot en Railway (sin acceso a esa red local). Con NO DATA
+  // la MV se crea vacía y el refresh la puebla cuando el FDW esté accesible;
+  // si no, queda vacía pero la app arranca y el cron skippea con error captado.
   await knex.raw(`
     CREATE MATERIALIZED VIEW public.products_top_sellers AS
     SELECT
@@ -44,6 +49,7 @@ exports.up = async function (knex) {
     INNER JOIN analytics_external.ranking_legacy rl
       ON rl.articulo = p.sku
     ORDER BY rl.posicion ASC
+    WITH NO DATA
   `);
 
   await knex.raw(`
