@@ -3,9 +3,9 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 
 @ApiTags('commercial-analytics')
 @ApiBearerAuth()

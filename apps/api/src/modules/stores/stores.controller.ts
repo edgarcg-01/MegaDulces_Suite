@@ -15,11 +15,11 @@ import {
 import { StoresService } from './stores.service';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { ReqUser } from '../../shared/decorators/req-user.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { ReqUser } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 
 interface AuthUser {

@@ -2,7 +2,7 @@ import { Body, Controller, Headers, Ip, Post, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthMtService, LoginDto } from './auth-mt.service';
-import { Public } from '../../shared/auth/public.decorator';
+import { Public } from '@megadulces/platform-core';
 
 @ApiTags('auth-mt')
 @Controller('auth-mt')

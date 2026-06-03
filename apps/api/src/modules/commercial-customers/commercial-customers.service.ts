@@ -7,13 +7,13 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 import {
   AddressJsonbSchema,
   AddressJsonb,
   validateJsonb,
-} from '../../shared/schemas/jsonb-schemas';
+} from '@megadulces/platform-core';
 
 export interface CreateCustomerDto {
   code: string;

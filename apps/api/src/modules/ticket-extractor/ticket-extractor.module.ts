@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TicketExtractorController } from './ticket-extractor.controller';
 import { TicketExtractorService } from './ticket-extractor.service';
-import { CloudinaryModule } from '../../shared/cloudinary/cloudinary.module';
+import { CloudinaryModule } from '@megadulces/platform-core';
 import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher.module';
 
 /**

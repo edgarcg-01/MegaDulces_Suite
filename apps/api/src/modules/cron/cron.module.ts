@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { CronController } from './cron.controller';
-import { CloudinaryModule } from '../../shared/cloudinary/cloudinary.module';
-import { DatabaseModule } from '../../shared/database/database.module';
+import { CloudinaryModule } from '@megadulces/platform-core';
+import { DatabaseModule } from '@megadulces/platform-core';
 
 @Module({
   imports: [CloudinaryModule, DatabaseModule],

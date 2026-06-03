@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB_ADMIN } from '../../shared/database/new-database.module';
+import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 
 /**
  * Cron de limpieza para Fase E.

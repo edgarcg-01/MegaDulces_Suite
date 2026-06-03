@@ -6,10 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
-import { getDataScope } from '../../shared/ability/data-scope';
+import { getDataScope } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;

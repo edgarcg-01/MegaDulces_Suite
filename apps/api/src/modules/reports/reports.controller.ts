@@ -15,11 +15,11 @@ import {
 } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { PdfService } from './pdf.service';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
-import { ReqUser } from '../../shared/decorators/req-user.decorator';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+import { ReqUser } from '@megadulces/platform-core';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
@@ -28,7 +28,7 @@ import {
   ReportsFilterDto,
   ReportsStoresFilterDto,
 } from './dto/reports-filter.dto';
-import { getDataScope } from '../../shared/ability/data-scope';
+import { getDataScope } from '@megadulces/platform-core';
 
 @ApiTags('reports')
 @ApiBearerAuth()

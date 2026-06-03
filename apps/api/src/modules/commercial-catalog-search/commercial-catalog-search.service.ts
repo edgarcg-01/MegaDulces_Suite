@@ -1,7 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
-import { EmbeddingsService } from '../../shared/ai/embeddings.service';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
+import { EmbeddingsService } from '@megadulces/platform-core';
 import { RecommendationsService } from '../commercial-recommendations/recommendations.service';
 import {
   RecommendationCategory,

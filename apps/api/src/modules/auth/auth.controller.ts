@@ -1,10 +1,10 @@
 import { Controller, Post, Body, Get, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { ReqUser } from '../../shared/decorators/req-user.decorator';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { ReqUser } from '@megadulces/platform-core';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Public } from '../../shared/auth/public.decorator';
+import { Public } from '@megadulces/platform-core';
 
 @ApiTags('auth')
 @Controller('auth')

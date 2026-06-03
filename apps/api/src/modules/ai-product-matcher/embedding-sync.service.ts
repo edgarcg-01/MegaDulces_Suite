@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
-import { KNEX_VECTOR_DB } from '../../shared/database/vector-database.module';
-import { EmbeddingsService } from '../../shared/ai/embeddings.service';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { KNEX_VECTOR_DB } from '@megadulces/platform-core';
+import { EmbeddingsService } from '@megadulces/platform-core';
 
 /**
  * Fase K v2 — Sync del corpus del RAG hacia la DB vector dedicada.

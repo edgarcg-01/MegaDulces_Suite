@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 import { LogisticsConfigService } from '../logistics-config/logistics-config.service';
 
 /** Campos del costeo operativo (todos opcionales, default 0). */

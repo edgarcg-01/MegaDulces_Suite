@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
-import { getDataScope } from '../../shared/ability/data-scope';
+import { getDataScope } from '@megadulces/platform-core';
 
 export interface CaptureEventPayload {
   type: 'capture:created' | 'capture:synced' | 'capture:deleted';

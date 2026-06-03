@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 
 export interface ListProductsQuery {
   page?: number;

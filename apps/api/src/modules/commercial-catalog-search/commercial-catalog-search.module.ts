@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommercialCatalogSearchController } from './commercial-catalog-search.controller';
 import { CommercialCatalogSearchService } from './commercial-catalog-search.service';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher.module';
 import { CommercialRecommendationsModule } from '../commercial-recommendations/commercial-recommendations.module';
 

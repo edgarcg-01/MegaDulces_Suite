@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
 
 export interface ScoringCalculateDto {
   posicion: string;

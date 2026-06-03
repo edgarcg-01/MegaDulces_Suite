@@ -16,12 +16,12 @@ import {
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { DailyCapturesService } from './daily-captures.service';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
-import { ReqUser } from '../../shared/decorators/req-user.decorator';
-import { SkipTenantTx } from '../../shared/decorators/skip-tenant-tx.decorator';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+import { ReqUser } from '@megadulces/platform-core';
+import { SkipTenantTx } from '@megadulces/platform-core';
 import {
   ApiTags,
   ApiBearerAuth,

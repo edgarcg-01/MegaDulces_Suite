@@ -6,11 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
-import { legacyTxStorage } from '../../shared/tenant/legacy-tx.als';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { legacyTxStorage } from '@megadulces/platform-core';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
-import { EmbeddingsService } from '../../shared/ai/embeddings.service';
+import { EmbeddingsService } from '@megadulces/platform-core';
 
 @Injectable()
 export class PlanogramsService {

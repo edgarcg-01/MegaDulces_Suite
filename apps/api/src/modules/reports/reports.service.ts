@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
-import { getDataScope } from '../../shared/ability/data-scope';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { getDataScope } from '@megadulces/platform-core';
 import { EventsService } from '../websocket/events.service';
 import { ReportsCacheService } from './reports-cache.service';
-import { toMxDateKey, todayMx } from '../../shared/date/mx-date';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { toMxDateKey, todayMx } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 
 @Injectable()
 export class ReportsService {

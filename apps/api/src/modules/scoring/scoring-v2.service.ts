@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { calcularPuntosExhibicion } from '@megadulces/shared-scoring';
 
 export interface ScoringV2CalculateDto {

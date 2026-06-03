@@ -4,9 +4,9 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
-import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
+import { CloudinaryService } from '@megadulces/platform-core';
 
 export type PhotoCategory =
   | 'loading'

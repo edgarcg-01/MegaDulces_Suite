@@ -1,9 +1,9 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PortalAiOrderService } from './portal-ai-order.service';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 
 interface ChatMessage {
   role: 'user' | 'assistant';

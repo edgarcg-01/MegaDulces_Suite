@@ -4,8 +4,8 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 
 export type ChecklistType = 'salida' | 'llegada';
 export type ChecklistStatus = 'pendiente' | 'completado';

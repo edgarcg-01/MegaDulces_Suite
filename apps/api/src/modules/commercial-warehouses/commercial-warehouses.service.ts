@@ -4,7 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 
 export interface CreateWarehouseDto {
   code: string;

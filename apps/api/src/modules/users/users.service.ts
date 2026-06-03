@@ -7,11 +7,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { getDataScope } from '../../shared/ability/data-scope';
+import { getDataScope } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;

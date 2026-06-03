@@ -1,6 +1,6 @@
 import { Inject, Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB } from '../../shared/database/new-database.module';
+import { KNEX_NEW_DB } from '@megadulces/platform-core';
 
 /**
  * Service de administración de tenants. Operaciones GLOBALES (sin tenant context)

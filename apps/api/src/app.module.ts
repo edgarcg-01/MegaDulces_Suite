@@ -6,9 +6,9 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
-import { DatabaseModule } from './shared/database/database.module';
-import { VectorDatabaseModule } from './shared/database/vector-database.module';
-import { AbilityModule } from './shared/ability/ability.module';
+import { DatabaseModule } from '@megadulces/platform-core';
+import { VectorDatabaseModule } from '@megadulces/platform-core';
+import { AbilityModule } from '@megadulces/platform-core';
 import { UsersModule } from './modules/users/users.module';
 import { DailyCapturesModule } from './modules/daily-captures/daily-captures.module';
 import { PlanogramsModule } from './modules/planograms/planograms.module';
@@ -29,10 +29,10 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WebSocketModule } from './modules/websocket/websocket.module';
 // Multi-tenant modules (nueva DB) — registrados condicionalmente via ENABLE_MULTITENANT
-import { NewDatabaseModule } from './shared/database/new-database.module';
-import { TenantModule } from './shared/tenant/tenant.module';
-import { TenantContextInterceptor } from './shared/tenant/tenant-context.interceptor';
-import { JwtAuthGuard } from './shared/auth/jwt-auth.guard';
+import { NewDatabaseModule } from '@megadulces/platform-core';
+import { TenantModule } from '@megadulces/platform-core';
+import { TenantContextInterceptor } from '@megadulces/platform-core';
+import { JwtAuthGuard } from '@megadulces/platform-core';
 import { AuthMtModule } from './modules/auth-mt/auth-mt.module';
 import { TenantsAdminModule } from './modules/tenants-admin/tenants-admin.module';
 // Fase B — Core comercial (corre dentro del toggle multi-tenant)

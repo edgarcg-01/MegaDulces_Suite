@@ -16,10 +16,10 @@ import {
 import { CatalogsService } from './catalogs.service';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -28,7 +28,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { createMongoAbility } from '@casl/ability';
-import type { AppAbility } from '../../shared/ability/ability.types';
+import type { AppAbility } from '@megadulces/platform-core';
 
 @ApiTags('catalogs')
 @ApiBearerAuth()

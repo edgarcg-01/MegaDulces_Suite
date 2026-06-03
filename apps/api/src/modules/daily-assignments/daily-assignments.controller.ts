@@ -15,11 +15,11 @@ import {
 import { DailyAssignmentsService } from './daily-assignments.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { UpdateAssignmentDto } from './dto/update-assignment.dto';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { ReqUser } from '../../shared/decorators/req-user.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { ReqUser } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 import { ApiTags, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 
 interface AuthUser {

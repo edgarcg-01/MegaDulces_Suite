@@ -16,9 +16,9 @@ import {
   UpdatePriceListDto,
   BulkUpsertProductPricesDto,
 } from './commercial-pricing.service';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 
 @ApiTags('commercial-pricing')
 @ApiBearerAuth()

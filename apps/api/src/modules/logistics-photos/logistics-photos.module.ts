@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { LogisticsPhotosService } from './logistics-photos.service';
 import { LogisticsPhotosController } from './logistics-photos.controller';
-import { CloudinaryModule } from '../../shared/cloudinary/cloudinary.module';
+import { CloudinaryModule } from '@megadulces/platform-core';
 
 @Module({
   imports: [CloudinaryModule],

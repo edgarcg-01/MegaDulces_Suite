@@ -1,9 +1,9 @@
 import { Inject, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { KNEX_NEW_DB } from '../../shared/database/new-database.module';
+import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
-import { buildAbility } from '../../shared/ability/ability.factory';
+import { buildAbility } from '@megadulces/platform-core';
 
 /**
  * Auth multi-tenant para la nueva DB.

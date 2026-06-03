@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB_ADMIN } from '../../shared/database/new-database.module';
+import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 
 /**
  * Refresh de materialized views de `analytics.*`. Requiere conexión admin

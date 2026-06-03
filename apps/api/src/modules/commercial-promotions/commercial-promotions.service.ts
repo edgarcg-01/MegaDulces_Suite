@@ -4,8 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 
 /**
  * Tipos de promoción soportados. Cada uno tiene un shape específico en `rules`.

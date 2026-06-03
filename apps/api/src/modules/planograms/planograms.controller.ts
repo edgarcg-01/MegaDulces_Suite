@@ -14,10 +14,10 @@ import {
 import { PlanogramsService } from './planograms.service';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
-import { RolesGuard } from '../../shared/guards/roles.guard';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
 import {
   ApiBearerAuth,
   ApiOperation,

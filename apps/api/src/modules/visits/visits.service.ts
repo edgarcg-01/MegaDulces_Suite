@@ -5,8 +5,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
-import { getDataScope } from '../../shared/ability/data-scope';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { getDataScope } from '@megadulces/platform-core';
 
 @Injectable()
 export class VisitsService {

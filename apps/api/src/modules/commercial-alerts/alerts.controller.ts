@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AlertsService } from './alerts.service';
 import { AlertsGateway } from './alerts.gateway';
 import { AlertsScannerService } from './alerts-scanner.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { TenantContextService } from '@megadulces/platform-core';
 
 @ApiTags('commercial-alerts')
 @Controller('commercial/alerts')

@@ -1,6 +1,6 @@
 import { Controller, Post, UseGuards } from '@nestjs/common';
 import { TasksService } from './tasks.service';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
+import { RequireAuthGuard } from '@megadulces/platform-core';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 
 @ApiTags('cron')

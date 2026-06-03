@@ -14,10 +14,10 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
-import { RolesGuard } from '../../shared/guards/roles.guard';
-import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
-import { Permission } from '../../shared/constants/permissions';
+import { RequireAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
+import { RequirePermissions } from '@megadulces/platform-core';
+import { Permission } from '@megadulces/platform-core';
 import { AiProductMatcherService } from './ai-product-matcher.service';
 import { EmbeddingSyncService } from './embedding-sync.service';
 import { MatchAiDto } from './dto/match-ai.dto';

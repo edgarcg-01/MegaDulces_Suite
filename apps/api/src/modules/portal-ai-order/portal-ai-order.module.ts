@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PortalAiOrderController } from './portal-ai-order.controller';
 import { PortalAiOrderService } from './portal-ai-order.service';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 
 /**
  * Portal B2B — AI Order builder.

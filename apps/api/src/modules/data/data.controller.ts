@@ -1,6 +1,6 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { DataService } from './data.service';
-import { RequireAuthGuard } from '../../shared/guards/require-auth.guard';
+import { RequireAuthGuard } from '@megadulces/platform-core';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('data')

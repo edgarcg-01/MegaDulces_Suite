@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB } from '../../shared/database/new-database.module';
+import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { AlertsService } from './alerts.service';
 import { ALERT_THRESHOLDS } from './alerts.types';
 

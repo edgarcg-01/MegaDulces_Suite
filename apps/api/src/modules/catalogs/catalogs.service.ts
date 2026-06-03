@@ -9,11 +9,11 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { randomUUID } from 'crypto';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
-import { legacyTxStorage } from '../../shared/tenant/legacy-tx.als';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { legacyTxStorage } from '@megadulces/platform-core';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
-import { Permission } from '../../shared/constants/permissions';
-import { PermissionsCacheService } from '../../shared/ability/permissions-cache.service';
+import { Permission } from '@megadulces/platform-core';
+import { PermissionsCacheService } from '@megadulces/platform-core';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 

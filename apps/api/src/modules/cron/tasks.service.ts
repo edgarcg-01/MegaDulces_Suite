@@ -1,8 +1,8 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
-import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { CloudinaryService } from '@megadulces/platform-core';
 
 interface ExhibicionDiaria {
   fotoPublicId?: string;

@@ -1,10 +1,10 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { KNEX_CONNECTION } from '../../shared/database/database.module';
+import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
-import { buildAbility } from '../../shared/ability/ability.factory';
+import { buildAbility } from '@megadulces/platform-core';
 
 /**
  * El JWT carga:

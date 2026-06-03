@@ -7,14 +7,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, KNEX_CONNECTION_RAW } from '../../shared/database/database.module';
+import { KNEX_CONNECTION, KNEX_CONNECTION_RAW } from '@megadulces/platform-core';
 import { CreateDailyCaptureDto } from './dto/create-daily-capture.dto';
-import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
+import { CloudinaryService } from '@megadulces/platform-core';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
 import { EventsService } from '../websocket/events.service';
-import { toMxDateKey } from '../../shared/date/mx-date';
-import { legacyTxStorage } from '../../shared/tenant/legacy-tx.als';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { toMxDateKey } from '@megadulces/platform-core';
+import { legacyTxStorage } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 
 @Injectable()
 export class DailyCapturesService {

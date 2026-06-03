@@ -3,8 +3,8 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { LlmExtractorService } from '../../shared/ai/llm-extractor.service';
-import { CloudinaryService } from '../../shared/cloudinary/cloudinary.service';
+import { LlmExtractorService } from '@megadulces/platform-core';
+import { CloudinaryService } from '@megadulces/platform-core';
 import {
   AiProductMatcherService,
   MatchResponse,

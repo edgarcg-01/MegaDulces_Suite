@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 
 export type PeriodStatus = 'abierto' | 'calculado' | 'pagado' | 'cerrado';
 export type LiquidationStatus = 'calculado' | 'revisado' | 'pagado' | 'anulado';

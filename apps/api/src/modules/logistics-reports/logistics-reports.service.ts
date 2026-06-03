@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantKnexService } from '@megadulces/platform-core';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

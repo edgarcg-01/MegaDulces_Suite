@@ -4,8 +4,8 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { TenantKnexService } from '../../shared/database/tenant-knex.service';
-import { TenantContextService } from '../../shared/tenant/tenant-context.service';
+import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 
 export type GuideStatus = 'pendiente' | 'en_ruta' | 'entregada' | 'cancelada';
 export type RecipientStatus = 'pendiente' | 'entregado' | 'no_entregado' | 'rechazado';
