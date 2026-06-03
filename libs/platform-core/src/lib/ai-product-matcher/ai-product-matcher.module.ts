@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { AiProductMatcherController } from './ai-product-matcher.controller';
 import { AiProductMatcherService } from './ai-product-matcher.service';
 import { EmbeddingSyncService } from './embedding-sync.service';
-import { EmbeddingsService } from '@megadulces/platform-core';
-import { LlmExtractorService } from '@megadulces/platform-core';
+import { EmbeddingsService } from '../ai/embeddings.service';
+import { LlmExtractorService } from '../ai/llm-extractor.service';
 
 /**
  * Fase K — AI product match en captures.

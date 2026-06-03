@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TicketExtractorController } from './ticket-extractor.controller';
 import { TicketExtractorService } from './ticket-extractor.service';
 import { CloudinaryModule } from '@megadulces/platform-core';
-import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher.module';
+import { AiProductMatcherModule } from '@megadulces/platform-core';
 
 /**
  * Fase V — Endpoint `POST /api/ai/ticket/extract`.

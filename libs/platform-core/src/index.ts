@@ -38,6 +38,8 @@ export * from './lib/decorators/skip-tenant-tx.decorator';
 // ── ai ──
 export * from './lib/ai/embeddings.service';
 export * from './lib/ai/llm-extractor.service';
+export * from './lib/ai-product-matcher/ai-product-matcher.module';
+export * from './lib/ai-product-matcher/ai-product-matcher.service';
 
 // ── cloudinary ──
 export * from './lib/cloudinary/cloudinary.module';

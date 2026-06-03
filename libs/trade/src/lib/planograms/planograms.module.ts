@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PlanogramsController, PlanogramsProductsController } from './planograms.controller';
 import { PlanogramsService } from './planograms.service';
-import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher.module';
+import { AiProductMatcherModule } from '@megadulces/platform-core';
 
 @Module({
   // Fase K: importa AiProductMatcherModule para inyectar EmbeddingsService

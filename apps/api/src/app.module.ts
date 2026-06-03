@@ -9,25 +9,25 @@ import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from '@megadulces/platform-core';
 import { VectorDatabaseModule } from '@megadulces/platform-core';
 import { AbilityModule } from '@megadulces/platform-core';
-import { UsersModule } from './modules/users/users.module';
-import { DailyCapturesModule } from './modules/daily-captures/daily-captures.module';
-import { PlanogramsModule } from './modules/planograms/planograms.module';
-import { CatalogsModule } from './modules/catalogs/catalogs.module';
+import { UsersModule } from '@megadulces/trade';
+import { DailyCapturesModule } from '@megadulces/trade';
+import { PlanogramsModule } from '@megadulces/trade';
+import { CatalogsModule } from '@megadulces/trade';
 // Fase K — AI product match en captures wizard paso 5.
-import { AiProductMatcherModule } from './modules/ai-product-matcher/ai-product-matcher.module';
+import { AiProductMatcherModule } from '@megadulces/platform-core';
 // Fase V — OCR del ticket del vendedor (Claude Haiku vision + matcher).
 import { TicketExtractorModule } from './modules/ticket-extractor/ticket-extractor.module';
-import { ScoringModule } from './modules/scoring/scoring.module';
-import { ScoringV2Module } from './modules/scoring/scoring-v2.module';
-import { ReportsModule } from './modules/reports/reports.module';
-import { StoresModule } from './modules/stores/stores.module';
-import { VisitsModule } from './modules/visits/visits.module';
-import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assignments.module';
+import { ScoringModule } from '@megadulces/trade';
+import { ScoringV2Module } from '@megadulces/trade';
+import { ReportsModule } from '@megadulces/trade';
+import { StoresModule } from '@megadulces/trade';
+import { VisitsModule } from '@megadulces/trade';
+import { DailyAssignmentsModule } from '@megadulces/trade';
 import { CronModule } from './modules/cron/cron.module';
-import { DataModule } from './modules/data/data.module';
+import { DataModule } from '@megadulces/trade';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { WebSocketModule } from './modules/websocket/websocket.module';
+import { WebSocketModule } from '@megadulces/trade';
 // Multi-tenant modules (nueva DB) — registrados condicionalmente via ENABLE_MULTITENANT
 import { NewDatabaseModule } from '@megadulces/platform-core';
 import { TenantModule } from '@megadulces/platform-core';

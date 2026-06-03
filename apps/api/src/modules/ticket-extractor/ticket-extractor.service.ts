@@ -8,7 +8,7 @@ import { CloudinaryService } from '@megadulces/platform-core';
 import {
   AiProductMatcherService,
   MatchResponse,
-} from '../ai-product-matcher/ai-product-matcher.service';
+} from '@megadulces/platform-core';
 
 export interface TicketExtractResult {
   ticket_url: string;

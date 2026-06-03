@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { CommercialCatalogSearchController } from './commercial-catalog-search.controller';
 import { CommercialCatalogSearchService } from './commercial-catalog-search.service';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher.module';
+import { AiProductMatcherModule } from '@megadulces/platform-core';
 import { CommercialRecommendationsModule } from '../commercial-recommendations/commercial-recommendations.module';
 
 /**

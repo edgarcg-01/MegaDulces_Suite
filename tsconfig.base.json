@@ -20,7 +20,8 @@
       "@megadulces/shared-auth/ui": ["libs/shared-auth/ui/index.ts"],
       "@megadulces/shared-scoring": ["libs/shared-scoring/index.ts"],
       "@megadulces/contracts": ["libs/contracts/src/index.ts"],
-      "@megadulces/platform-core": ["libs/platform-core/src/index.ts"]
+      "@megadulces/platform-core": ["libs/platform-core/src/index.ts"],
+      "@megadulces/trade": ["libs/trade/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist"]

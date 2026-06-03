@@ -5,10 +5,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '@megadulces/platform-core';
-import { KNEX_VECTOR_DB } from '@megadulces/platform-core';
-import { EmbeddingsService } from '@megadulces/platform-core';
-import { LlmExtractorService } from '@megadulces/platform-core';
+import { KNEX_CONNECTION } from '../database/database.module';
+import { KNEX_VECTOR_DB } from '../database/vector-database.module';
+import { EmbeddingsService } from '../ai/embeddings.service';
+import { LlmExtractorService } from '../ai/llm-extractor.service';
 
 export interface MatchedProduct {
   product_id: string;
