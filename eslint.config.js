@@ -10,14 +10,16 @@ module.exports = [
   {
     files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
     rules: {
-      // Fase 0 de aislamiento de módulos: regla en 'warn' mientras se
-      // completan los tags y se migran dominios a libs. Se flipea a 'error'
-      // por scope a medida que cada dominio aterriza (ver plan de migración).
+      // Aislamiento de módulos enforced (todos los dominios migrados a libs).
+      // 'error': un import cross-domain ilegal ROMPE el lint. Esta es la red
+      // que impide que un cambio en un dominio acople/rompa otro en silencio.
+      // banTransitiveDependencies omitido a propósito: con una sola package.json
+      // raíz y libs no-buildable genera falsos positivos; el aislamiento real
+      // lo dan los depConstraints de scope de abajo.
       '@nx/enforce-module-boundaries': [
-        'warn',
+        'error',
         {
           enforceBuildableLibDependency: true,
-          banTransitiveDependencies: true,
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?js$'],
           depConstraints: [
             // ── capas (type:*) ──
