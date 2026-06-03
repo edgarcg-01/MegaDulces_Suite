@@ -1,13 +1,11 @@
 import { Module } from '@nestjs/common';
 import { LogisticsShipmentsService } from './logistics-shipments.service';
 import { LogisticsShipmentsController } from './logistics-shipments.controller';
-// Hook close → commercial.orders.fulfilled requiere CommercialOrdersService
-// para consumir stock + history + alerts (J.6.1 fix — antes hacíamos UPDATE
-// pelado sin consumir stock).
-import { CommercialOrdersModule } from '../commercial-orders/commercial-orders.module';
 
+// Hook close → orders.fulfilled (consume stock + history + alerts, J.6.1 fix).
+// La dependencia hacia commercial está invertida vía ORDER_FULFILLMENT_PORT
+// (token global bindeado en el composition root). Logística NO importa commercial.
 @Module({
-  imports: [CommercialOrdersModule],
   controllers: [LogisticsShipmentsController],
   providers: [LogisticsShipmentsService],
   exports: [LogisticsShipmentsService],

@@ -4,4 +4,4 @@
 // Producer y consumer importan el mismo tipo → un cambio de payload
 // es error de compilación en ambos lados (garantía "no romper en silencio").
 
-export {};
+export * from './ports/order-fulfillment.port';

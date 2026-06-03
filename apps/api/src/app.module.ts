@@ -51,19 +51,22 @@ import { CommercialCatalogSearchModule } from './modules/commercial-catalog-sear
 // Fase E — Remote Manager / Televenta
 import { CommercialTeleventaModule } from './modules/commercial-televenta/commercial-televenta.module';
 // Fase J — Logística
-import { LogisticsFleetModule } from './modules/logistics-fleet/logistics-fleet.module';
-import { LogisticsConfigModule } from './modules/logistics-config/logistics-config.module';
-import { LogisticsShipmentsModule } from './modules/logistics-shipments/logistics-shipments.module';
-import { LogisticsGuidesModule } from './modules/logistics-guides/logistics-guides.module';
-import { LogisticsExpensesModule } from './modules/logistics-expenses/logistics-expenses.module';
-import { LogisticsPayrollModule } from './modules/logistics-payroll/logistics-payroll.module';
-import { LogisticsAnalyticsModule } from './modules/logistics-analytics/logistics-analytics.module';
+import { LogisticsFleetModule } from '@megadulces/logistics';
+import { LogisticsConfigModule } from '@megadulces/logistics';
+import { LogisticsShipmentsModule } from '@megadulces/logistics';
+import { LogisticsGuidesModule } from '@megadulces/logistics';
+import { LogisticsExpensesModule } from '@megadulces/logistics';
+import { LogisticsPayrollModule } from '@megadulces/logistics';
+import { LogisticsAnalyticsModule } from '@megadulces/logistics';
 // Fase J.8 — Migración desde repo origen: checklists, photos (Cloudinary), reports (jspdf)
-import { LogisticsChecklistsModule } from './modules/logistics-checklists/logistics-checklists.module';
-import { LogisticsPhotosModule } from './modules/logistics-photos/logistics-photos.module';
-import { LogisticsReportsModule } from './modules/logistics-reports/logistics-reports.module';
+import { LogisticsChecklistsModule } from '@megadulces/logistics';
+import { LogisticsPhotosModule } from '@megadulces/logistics';
+import { LogisticsReportsModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from './modules/mega-dulces-sync/mega-dulces-sync.module';
+// Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
+// Permite que logística dispare el fulfill sin importar commercial (DI inversion).
+import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -86,6 +89,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       PortalAiOrderModule,
       CommercialCatalogSearchModule,
       CommercialTeleventaModule,
+      // Binding del Port ANTES de logística (provee el token global que inyecta).
+      OrderFulfillmentBindingModule,
       LogisticsFleetModule,
       LogisticsConfigModule,
       LogisticsShipmentsModule,

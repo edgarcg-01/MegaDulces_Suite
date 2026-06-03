@@ -3,10 +3,11 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Inject,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
-import { CommercialOrdersService } from '../commercial-orders/commercial-orders.service';
+import { ORDER_FULFILLMENT_PORT, OrderFulfillmentPort } from '@megadulces/contracts';
 
 export type ShipmentStatus =
   | 'programado'
@@ -79,7 +80,8 @@ export class LogisticsShipmentsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
-    private readonly commercialOrders: CommercialOrdersService,
+    @Inject(ORDER_FULFILLMENT_PORT)
+    private readonly orderFulfillment: OrderFulfillmentPort,
   ) {}
 
   // ── Create ───────────────────────────────────────────────────────────────
@@ -404,7 +406,7 @@ export class LogisticsShipmentsService {
         if (!open) {
           // Idempotente: si el order ya está fulfilled/cancelled,
           // fulfillInTransaction retorna el order sin tocar.
-          await this.commercialOrders.fulfillInTransaction(trx, shipment.order_id);
+          await this.orderFulfillment.fulfillInTransaction(trx, shipment.order_id);
         }
       }
       return { closed_at: trx.fn.now() };
