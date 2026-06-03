@@ -3,6 +3,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
@@ -15,6 +16,8 @@ import { buildAbility, permissionToSubject } from '../ability/ability.factory';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
+  private readonly logger = new Logger(RolesGuard.name);
+
   constructor(
     private reflector: Reflector,
     private permsCache: PermissionsCacheService,
@@ -61,9 +64,8 @@ export class RolesGuard implements CanActivate {
       });
 
       if (!allGranted) {
-        console.error(
-          ` Bloqueo 403. Usuario: ${user.username}. Faltan permisos:`,
-          requiredPermissions,
+        this.logger.warn(
+          `Bloqueo 403. Usuario: ${user.username}. Faltan permisos: ${requiredPermissions.join(', ')}`,
         );
         throw new ForbiddenException(
           'No tienes los permisos dinámicos necesarios.',

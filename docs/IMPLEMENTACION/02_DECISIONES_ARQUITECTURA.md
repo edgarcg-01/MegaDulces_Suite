@@ -377,6 +377,48 @@ Reglas:
 
 ---
 
+## ADR-014 — App del Portal B2B: Capacitor (Android primero), no Ionic; extraer a `apps/b2b-portal`
+
+**Estado:** ✅ Aceptado (2026-06-03)
+
+**Fecha:** 2026-06-03
+
+**Contexto:** El Portal B2B hoy es una web Angular responsive (standalone + PrimeNG + Tailwind) embebida en `apps/view` bajo `/portal/*`, online-only, ya mobile-first (shell propio con bottom-nav + FAB). Se evalúa convertirlo en app descargable con 3 drivers: **presencia en tiendas**, **push notifications** y **funcionar offline**. Se consideró Ionic, React Native y Flutter.
+
+**Decisión:** **App nativa con Capacitor reusando el portal Angular — NO Ionic ni RN/Flutter.** Refinamientos elegidos:
+- **Extraer el portal a `apps/b2b-portal`** (build propio, core compartido vía `libs/`) en vez de envolver `apps/view`. Razón: el binario nativo empaqueta TODO el bundle web on-device; envolver `apps/view` metería el panel admin dentro del celular del cliente (peso + UI interna expuesta).
+- **Android primero** (compila en Windows, Play Store). iOS diferido (requiere macOS/Xcode o cloud build; dev está en Windows).
+- **Offline = catálogo de solo lectura** (cachear productos/precios/cliente con Dexie para navegar sin señal); el pedido se envía online. El offline-ordering completo (outbox + resolución de conflictos precio/stock + idempotencia) queda diferido por costo (~semanas).
+
+**Razonamiento:**
+1. Capacitor ya está en el stack; Ionic solo agregaría una librería UI que obligaría a reescribir la UI PrimeNG/Tailwind ya funcional — semanas tiradas a la basura por ~0 ganancia (el shell ya se siente nativo).
+2. 1 solo dev — minimizar stacks (consistente con ADR-005).
+3. Reuso ~100% del portal Angular y del backend REST `commercial/*` multi-tenant (auth-mt, ownership por `customer_b2b`).
+4. La infra Dexie/offline ya existe (la usa Trade Marketing); el catálogo de solo lectura reusa esos patrones con bajo costo.
+
+**Alternativas rechazadas:**
+- **Ionic (rewrite UI):** reescribir todo en componentes Ionic; alto costo, reuso ~30%, sin beneficio real sobre Capacitor que ya se tiene.
+- **React Native / Flutter:** segundo stack, reuso 0, insostenible con 1 dev.
+- **Envolver `apps/view`:** rápido para piloto pero empaqueta el admin en el binario del cliente.
+- **Offline-ordering completo en v1:** costo desproporcionado (conflictos de precio/stock + idempotencia) para el MVP.
+
+**Consecuencias:**
+- ✅ App Android en Play Store reusando el portal; iOS reactivable cuando haya Mac/cloud build (backend ya listo).
+- ✅ Push vía Capacitor Push + FCM; backend suma registro de device tokens + hooks en ciclo de pedido (complementa `AlertsGateway`/WS).
+- ✅ Catálogo navegable offline; pedido online.
+- ⚠️ Extraer a `apps/b2b-portal` exige mover core (`AuthService`, `ThemeService`, `HapticService`, `PermissionsService`, interceptor, `environment`) a `libs/` — ~1 semana de setup.
+- ⚠️ Push masivo y sync futuro se beneficiarían de Redis/colas (ligado a la decisión de no-Redis-hasta-Fase-F).
+- 🔄 Reversible: el backend no depende del frontend; el portal puede seguir viviendo como ruta web en paralelo a la app.
+
+**Roadmap propuesto (fases):**
+1. Extraer `apps/b2b-portal` (core → `libs/`, Nx app nueva, build web verde).
+2. Capacitor Android + íconos/splash + Play Store (cuenta dev, privacy policy, screenshots).
+3. Push FCM (plugin + endpoint registro de tokens + envío + hooks confirm/approve/fulfill/promos).
+4. Offline catálogo solo-lectura (cache Dexie de productos/precios/cliente + estrategia de refresh).
+5. (Diferido) iOS · offline-ordering completo.
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

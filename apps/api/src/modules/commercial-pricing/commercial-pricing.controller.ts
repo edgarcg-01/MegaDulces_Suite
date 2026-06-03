@@ -80,12 +80,31 @@ export class CommercialPricingController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
+    @Query('commercial_only') commercialOnly?: string,
   ) {
     return this.service.listPrices(priceListId, {
       warehouseId,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       search,
+      commercialOnly: commercialOnly === 'true' || commercialOnly === '1',
+    });
+  }
+
+  @Get('price-lists/:id/top-sellers')
+  @RequirePermissions(Permission.COMMERCIAL_PRICING_VER)
+  @ApiOperation({
+    summary:
+      'Top sellers de una price list (lee MATERIALIZED VIEW products_top_sellers). Default limit=20, máx 1000. Incluye sales_rank, units_sold, revenue, last_sold_at + precio del price_list del customer.',
+  })
+  topSellers(
+    @Param('id') priceListId: string,
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listTopSellers(priceListId, {
+      warehouseId,
+      limit: limit ? Number(limit) : undefined,
     });
   }
 

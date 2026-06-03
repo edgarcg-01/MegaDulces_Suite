@@ -157,6 +157,12 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly ticketExtracting = signal(false);
   readonly ticketResult = signal<any | null>(null);
   readonly ticketConfirmed = signal<Set<number>>(new Set());
+  /**
+   * Fase V offline: el ticket se tomó SIN red. Se guarda la foto y el OCR se
+   * difiere al sync. Permite finalizar la visita sin OCR (distinto de
+   * `ticketSkipped`, que descarta el ticket; acá la foto SÍ se conserva).
+   */
+  readonly ticketDeferred = signal(false);
 
   // ── Initialization ───────────────────────────────────────────────────────
   /**
@@ -202,6 +208,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
     }
     this.pendingTimeouts.forEach(clearTimeout);
     this.pendingTimeouts.clear();
+    // Resetear flag de guardado por si quedó colgado al navegar mid-upload.
+    this.isSaving.set(false);
+    this.revokeAllBlobUrls();
     // Restaurar body scroll si el usuario navegó con el wizard abierto;
     // sin esto, body queda `position: fixed` y toda la app pierde scroll.
     if (this.showWizard) {
@@ -473,6 +482,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
     // tappea varias veces y dispara múltiples geolocation requests + toasts.
     if (this.isStartingVisita() || this.svc.hasActiveVisit()) return;
 
+    this.lastResult = null;
     this.isStartingVisita.set(true);
     try {
       const success = await this.svc.iniciarVisita();
@@ -505,13 +515,17 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   async onReDetectarTienda() {
+    if (this.detectionStatus() === 'detecting') return;
     this.detectionStatus.set('detecting');
     this.newStoreName.set('');
-    await this.svc.detectarTiendaCercana();
-    if (this.svc.detectedStore()) {
-      this.detectionStatus.set('found');
-    } else {
-      this.detectionStatus.set('not-found');
+    try {
+      await this.svc.detectarTiendaCercana();
+    } finally {
+      if (this.svc.detectedStore()) {
+        this.detectionStatus.set('found');
+      } else {
+        this.detectionStatus.set('not-found');
+      }
     }
   }
 
@@ -521,6 +535,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   async onCreateStore() {
+    if (this.creatingStore()) return;
     const name = this.newStoreName().trim();
     if (!name) return;
 
@@ -577,6 +592,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       // (en lugar de bloquear al usuario).
       const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
       const status = err?.status;
+      let offlineErr: any = null;
       if (status === undefined || TRANSIENT_STATUSES.has(status)) {
         try {
           const localId = await this.svc.crearTiendaOffline(name, lat, lng);
@@ -589,15 +605,21 @@ export class CapturesComponent implements OnInit, OnDestroy {
             life: 6000,
           });
           return;
-        } catch (offErr) {
-          /* swallow — caemos al toast genérico abajo */
+        } catch (offErr: any) {
+          // Si Dexie también falló (storage lleno, IndexedDB bloqueado, modo
+          // privado del navegador) exponemos el motivo en lugar de tragar.
+          offlineErr = offErr;
         }
       }
+      const offlineDetail = offlineErr?.message
+        ? ` (offline también falló: ${offlineErr.message})`
+        : '';
       this.toast.add({
         severity: 'error',
         summary: 'Error',
         detail:
-          err?.error?.message || 'No se pudo crear la tienda. Intente nuevamente.',
+          (err?.error?.message || 'No se pudo crear la tienda. Intente nuevamente.') +
+          offlineDetail,
       });
     } finally {
       this.creatingStore.set(false);
@@ -664,16 +686,32 @@ export class CapturesComponent implements OnInit, OnDestroy {
       this.saveSubscription.unsubscribe();
     }
 
+    // Snapshot de objectURLs ANTES de subscribe — el service llama
+    // `clearActiveState()` en el tap interno antes del next del componente,
+    // así que para entonces ya perdimos la lista de exhibiciones a revocar.
+    const blobUrlsToRevoke: string[] = [];
+    const currUrl = (this.currentExhibicion() as any)?.fotoBase64;
+    if (typeof currUrl === 'string' && currUrl.startsWith('blob:')) {
+      blobUrlsToRevoke.push(currUrl);
+    }
+    for (const ex of this.svc.activeExhibiciones()) {
+      const u = (ex as any)?.fotoBase64;
+      if (typeof u === 'string' && u.startsWith('blob:')) blobUrlsToRevoke.push(u);
+    }
+
     this.isSaving.set(true);
 
     this.saveSubscription = obs.pipe(take(1)).subscribe({
       next: (result) => {
         this.isSaving.set(false);
+        for (const u of blobUrlsToRevoke) {
+          try { URL.revokeObjectURL(u); } catch { /* no-op */ }
+        }
         this.lastResult = result;
-        
+
         // Detectar si es visita offline
         const isOffline = result._offline === true;
-        
+
         this.showResultDialog = true;
         this.showImpactDialog = false;
         
@@ -755,6 +793,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       rejectLabel: 'Reanudar',
       acceptButtonStyleClass: 'p-button-danger',
       accept: () => {
+        this.revokeAllBlobUrls();
         this.svc.clearActiveState();
         this.toast.add({
           severity: 'info',
@@ -808,12 +847,16 @@ export class CapturesComponent implements OnInit, OnDestroy {
         nivelEjecucion: niv?.value?.toLowerCase() || '',
         nivelEjecucionId: niv?.id || '',
       });
-      // Reset estado del ticket en cada apertura del wizard.
+      // Reset estado UI del ticket. NO tocamos `_deferredTicket` del servicio:
+      // si quedó un blob diferido de un exhibidor previo (vendedor en zona sin
+      // red), debe sobrevivir hasta saveCapturaTotal o clearActiveState — caso
+      // contrario perdemos la foto del ticket que viaja al sync.
       this.ticketFile.set(null);
       this.ticketPreview.set(null);
       this.ticketResult.set(null);
       this.ticketConfirmed.set(new Set());
       this.ticketSkipped.set(false);
+      this.ticketDeferred.set(false);
       this.wizardStep = 6;
     } else {
       this.currentExhibicion.set({
@@ -1086,6 +1129,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * Bloquea el scroll del body para evitar scroll en iOS Safari
    */
   lockBodyScroll() {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
     this.bodyScrollPosition = window.scrollY;
     document.body.style.overflow = 'hidden';
     document.body.style.position = 'fixed';
@@ -1097,6 +1141,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * Restaura el scroll del body a su posición original
    */
   unlockBodyScroll() {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
     document.body.style.removeProperty('overflow');
     document.body.style.removeProperty('position');
     document.body.style.removeProperty('top');
@@ -1350,7 +1395,31 @@ export class CapturesComponent implements OnInit, OnDestroy {
     const reader = new FileReader();
     reader.onload = () => this.ticketPreview.set(reader.result as string);
     reader.readAsDataURL(file);
+    // Sin red: no intentamos el OCR (fallaría). Guardamos la foto y diferimos
+    // el análisis al sync.
+    if (!this.isOnline()) {
+      this.deferTicket(file);
+      return;
+    }
     await this.extractTicket(file);
+  }
+
+  /**
+   * Difiere el análisis del ticket: conserva la foto y deja que el OCR corra
+   * en el sync (offline-first). Distinto de skipTicket, que descarta el ticket.
+   */
+  private deferTicket(file: File): void {
+    this.ticketDeferred.set(true);
+    this.ticketSkipped.set(false);
+    this.ticketResult.set(null);
+    this.ticketConfirmed.set(new Set());
+    this.svc.setDeferredTicket(file);
+    this.toast.add({
+      severity: 'info',
+      summary: 'Ticket guardado (sin red)',
+      detail: 'Se analizará automáticamente al volver la conexión. Tocá Finalizar.',
+      life: 4500,
+    });
   }
 
   /** Sube el ticket al endpoint Fase V y marca productos auto-confirmados. */
@@ -1382,8 +1451,32 @@ export class CapturesComponent implements OnInit, OnDestroy {
         life: 2500,
       });
     } catch (err: any) {
-      const detail = err?.error?.message || 'No se pudo procesar el ticket';
-      this.toast.add({ severity: 'error', summary: 'Error', detail });
+      // Si el OCR falló por red (offline / timeout del edge), diferimos en vez
+      // de bloquear: conservamos la foto y el análisis corre en el sync.
+      const status = err?.status;
+      const isNetwork =
+        status === undefined ||
+        status === 0 ||
+        [408, 502, 503, 504, 522, 524].includes(status);
+      if (isNetwork) {
+        this.deferTicket(file);
+      } else {
+        let detail = '';
+        if (typeof err?.error === 'string' && !err.error.trim().startsWith('<')) {
+          detail = err.error;
+        } else if (err?.error?.message) {
+          detail = Array.isArray(err.error.message)
+            ? err.error.message.join(', ')
+            : err.error.message;
+        } else if (err?.message && !/json|token|unexpected/i.test(err.message)) {
+          detail = err.message;
+        }
+        this.toast.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: detail || 'No se pudo procesar el ticket. Intentá con otra foto.',
+        });
+      }
     } finally {
       this.ticketExtracting.set(false);
     }
@@ -1421,6 +1514,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.ticketResult.set(null);
     this.ticketConfirmed.set(new Set());
     this.ticketSkipped.set(false);
+    this.ticketDeferred.set(false);
+    this.svc.setDeferredTicket(null);
     this.currentExhibicion.update((curr) => ({ ...curr, productosMarcados: [] }));
   }
 
@@ -1433,19 +1528,28 @@ export class CapturesComponent implements OnInit, OnDestroy {
    * para análisis posterior.
    */
   skipTicket(): void {
-    if (!confirm('¿Saltar el paso del ticket? La visita se guardará solo con la foto del exhibidor. Asegurate de que la foto sea clara.')) {
-      return;
-    }
-    this.ticketSkipped.set(true);
-    this.ticketFile.set(null);
-    this.ticketPreview.set(null);
-    this.ticketResult.set(null);
-    this.ticketConfirmed.set(new Set());
-    this.toast.add({
-      severity: 'info',
-      summary: 'Ticket saltado',
-      detail: 'Tocá Finalizar para guardar la visita con la foto del exhibidor.',
-      life: 4000,
+    this.confirmSvc.confirm({
+      message:
+        '¿Saltar el paso del ticket? La visita se guardará solo con la foto del exhibidor. Asegurate de que la foto sea clara.',
+      header: 'Saltar ticket',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, saltar',
+      rejectLabel: 'Volver',
+      accept: () => {
+        this.ticketSkipped.set(true);
+        this.ticketDeferred.set(false);
+        this.svc.setDeferredTicket(null);
+        this.ticketFile.set(null);
+        this.ticketPreview.set(null);
+        this.ticketResult.set(null);
+        this.ticketConfirmed.set(new Set());
+        this.toast.add({
+          severity: 'info',
+          summary: 'Ticket saltado',
+          detail: 'Tocá Finalizar para guardar la visita con la foto del exhibidor.',
+          life: 4000,
+        });
+      },
     });
   }
 
@@ -1626,6 +1730,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Revoca TODAS las objectURLs vivas: la del wizard en curso + todas las
+   * exhibiciones acumuladas en la visita activa. Llamar al cerrar la visita
+   * (save success, cancel, ngOnDestroy). Sin esto, una jornada con ~30 visitas
+   * × 3 exhibidores deja ~90 blobs flotando en memoria.
+   */
+  private revokeAllBlobUrls(): void {
+    this.revokeFotoPreview();
+    for (const ex of this.svc.activeExhibiciones()) {
+      const url = (ex as any)?.fotoBase64;
+      if (typeof url === 'string' && url.startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          /* no-op */
+        }
+      }
+    }
+  }
+
+  /**
    * Elimina la foto del exhibidor
    */
   removeFoto() {
@@ -1680,9 +1804,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
     // Vendedor: exige también el ticket procesado (al menos 1 producto confirmado
     // o el ticket procesado con 0 matches válidos pero foto del ticket subida).
     if (this.isVendedor()) {
-      // Aceptar la visita si: hay ticket procesado, O el vendedor lo saltó
-      // explícitamente (con confirmación). Cualquier otro caso = falta foto.
-      if (!this.ticketResult() && !this.ticketSkipped()) {
+      // Aceptar la visita si: hay ticket procesado (OCR online), O el vendedor
+      // lo saltó explícitamente, O el ticket quedó diferido (sin red → la foto
+      // se guarda y el OCR corre en el sync). Cualquier otro caso = falta ticket.
+      if (!this.ticketResult() && !this.ticketSkipped() && !this.ticketDeferred()) {
         this.toast.add({
           severity: 'warn',
           summary: 'Falta el ticket',
@@ -1696,6 +1821,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
       (ex as any).ticket_foto_url = tr?.ticket_url || null;
       (ex as any).ticket_foto_public_id = tr?.ticket_public_id || null;
       (ex as any).ticket_skipped = this.ticketSkipped();
+      (ex as any).ticket_deferred = this.ticketDeferred();
     }
 
     try {

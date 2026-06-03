@@ -1,17 +1,27 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { Router, RouterModule, RouterOutlet, NavigationEnd } from '@angular/router';
+import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { BadgeModule } from 'primeng/badge';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { filter } from 'rxjs/operators';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { PortalService } from './portal.service';
 import { NotificationPrefsService, NotifKey } from './notification-prefs.service';
+import {
+  AlertsSocketService,
+  CommercialAlert,
+} from '../dashboard/command-center/alerts-socket.service';
 
 interface NavItem {
   path: string;
@@ -242,9 +252,6 @@ interface NavItem {
           <section class="ps-section">
             <h3 class="ps-section-title">
               <i class="pi pi-bell" aria-hidden="true"></i> Notificaciones
-              <span class="ps-section-count">
-                {{ notif.enabledCount() }}/4 activas
-              </span>
             </h3>
 
             <ul class="ps-notif-list">
@@ -252,7 +259,7 @@ interface NavItem {
                 <span class="ps-notif-icon"><i class="pi pi-receipt" aria-hidden="true"></i></span>
                 <div class="ps-notif-text">
                   <span class="ps-notif-title">Estado de pedidos</span>
-                  <span class="ps-notif-desc">Confirmación, entrega y cancelaciones.</span>
+                  <span class="ps-notif-desc">Aviso en tiempo real cuando confirmen o entreguen tu pedido.</span>
                 </div>
                 <button
                   type="button"
@@ -262,57 +269,6 @@ interface NavItem {
                   [attr.aria-checked]="notif.prefs().orders"
                   role="switch"
                   [attr.aria-label]="'Notificaciones de pedidos: ' + (notif.prefs().orders ? 'activadas' : 'desactivadas')"
-                ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
-              </li>
-
-              <li class="ps-notif-item">
-                <span class="ps-notif-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></span>
-                <div class="ps-notif-text">
-                  <span class="ps-notif-title">Promociones</span>
-                  <span class="ps-notif-desc">Ofertas exclusivas y descuentos B2B.</span>
-                </div>
-                <button
-                  type="button"
-                  class="ps-switch"
-                  [class.on]="notif.prefs().promotions"
-                  (click)="toggleNotif('promotions')"
-                  [attr.aria-checked]="notif.prefs().promotions"
-                  role="switch"
-                  [attr.aria-label]="'Notificaciones de promociones: ' + (notif.prefs().promotions ? 'activadas' : 'desactivadas')"
-                ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
-              </li>
-
-              <li class="ps-notif-item">
-                <span class="ps-notif-icon"><i class="pi pi-bolt" aria-hidden="true"></i></span>
-                <div class="ps-notif-text">
-                  <span class="ps-notif-title">Recomendaciones IA</span>
-                  <span class="ps-notif-desc">Sugerencias del asistente cuando aparezcan.</span>
-                </div>
-                <button
-                  type="button"
-                  class="ps-switch"
-                  [class.on]="notif.prefs().recommendations"
-                  (click)="toggleNotif('recommendations')"
-                  [attr.aria-checked]="notif.prefs().recommendations"
-                  role="switch"
-                  [attr.aria-label]="'Notificaciones de recomendaciones IA: ' + (notif.prefs().recommendations ? 'activadas' : 'desactivadas')"
-                ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
-              </li>
-
-              <li class="ps-notif-item">
-                <span class="ps-notif-icon"><i class="pi pi-exclamation-circle" aria-hidden="true"></i></span>
-                <div class="ps-notif-text">
-                  <span class="ps-notif-title">Alertas de stock</span>
-                  <span class="ps-notif-desc">Avisos cuando bajen tus productos preferidos.</span>
-                </div>
-                <button
-                  type="button"
-                  class="ps-switch"
-                  [class.on]="notif.prefs().lowStock"
-                  (click)="toggleNotif('lowStock')"
-                  [attr.aria-checked]="notif.prefs().lowStock"
-                  role="switch"
-                  [attr.aria-label]="'Notificaciones de stock bajo: ' + (notif.prefs().lowStock ? 'activadas' : 'desactivadas')"
                 ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
               </li>
             </ul>
@@ -1020,6 +976,8 @@ export class PortalShellComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly theme = inject(ThemeService);
+  private readonly toast = inject(MessageService);
+  private readonly alerts = inject(AlertsSocketService);
   private readonly destroyRef = inject(DestroyRef);
   readonly cart = inject(PortalService);
   readonly notif = inject(NotificationPrefsService);
@@ -1035,6 +993,8 @@ export class PortalShellComponent {
     if (this.theme.followingSystem()) return 'system';
     return this.theme.isMonochrome() ? 'dark' : 'light';
   });
+
+  private readonly myCustomerId = signal<string | null>(null);
 
   openSettings(): void { this.settingsOpen.set(true); }
   closeSettings(): void { this.settingsOpen.set(false); }
@@ -1059,13 +1019,37 @@ export class PortalShellComponent {
 
   constructor() {
     this.cart.refreshCart();
-    // takeUntilDestroyed crítico: sin esto el subscribe quedaba colgado
-    // después de salir del portal y refrescaba el carrito en CADA navegación
-    // de la app, disparando /commercial/orders/my desde rutas admin (que
-    // entonces fallaban 400 porque el user no es customer_b2b).
-    this.router.events
-      .pipe(filter((e) => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.cart.refreshCart());
+
+    // Resolver el customer_id del JWT una vez al montar (lo usamos para filtrar
+    // alertas WS que llegan tenant-wide).
+    this.cart.myCustomerInfo().subscribe({
+      next: (c) => this.myCustomerId.set(c?.id || null),
+      error: () => this.myCustomerId.set(null),
+    });
+
+    // Conectar al namespace /alerts. Las alertas llegan a TODO el tenant —
+    // acá filtramos por customer_id propio + tipo + preferencia local.
+    this.alerts.connect();
+    this.alerts.alert$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((a) => this.handleAlert(a));
+
+    this.destroyRef.onDestroy(() => this.alerts.disconnect());
+  }
+
+  private handleAlert(a: CommercialAlert): void {
+    if (!this.notif.prefs().orders) return;
+    if (a.type !== 'order_confirmed' && a.type !== 'order_fulfilled') return;
+    const mine = this.myCustomerId();
+    if (!mine || a.data?.customer_id !== mine) return;
+
+    this.toast.add({
+      severity: 'success',
+      summary: a.title,
+      detail: a.message,
+      life: 6000,
+    });
+    this.cart.refreshCart();
   }
 
   logout(): void {

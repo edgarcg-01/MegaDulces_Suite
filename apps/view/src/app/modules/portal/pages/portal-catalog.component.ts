@@ -1,11 +1,17 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  OnDestroy,
   OnInit,
+  ViewChild,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -19,7 +25,15 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
-import { PortalService, PriceRow, SmartSearchResult } from '../portal.service';
+import {
+  PortalService,
+  PriceRow,
+  SmartSearchResult,
+  CatalogHistoryRow,
+  CatalogSuggestedRow,
+  CatalogWithPromoRow,
+  CatalogFacets,
+} from '../portal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
@@ -185,38 +199,242 @@ function initial(name: string): string {
       <p>Aún no hay productos con precio configurado. Contactá a tu administrador.</p>
     </div>
 
+    <!-- Atajos personalizados (chips activos). Próximos pasos van a sumar
+         "Con promo" y "Nuevos". -->
     <nav
-      *ngIf="!loading() && prices().length > 0"
-      class="cat-chip-rail"
-      aria-label="Filtrar por marca"
+      *ngIf="!loading() && prices().length > 0 && (historyProducts().length > 0 || suggestedProducts().length > 0 || promoProducts().length > 0)"
+      class="cat-chip-rail cat-chip-rail-quick"
+      aria-label="Atajos personalizados"
     >
       <button
+        *ngIf="historyProducts().length > 0"
         type="button"
-        class="cat-chip"
-        [class.active]="selectedBrandId() === '__all__'"
-        (click)="selectBrand('__all__')"
+        class="cat-chip cat-chip-quick"
+        [class.active]="quickFilter() === 'reorder'"
+        (click)="toggleQuickFilter('reorder')"
+        [attr.aria-pressed]="quickFilter() === 'reorder'"
       >
-        Todos
-        <span class="cat-chip-count">{{ prices().length }}</span>
+        <i class="pi pi-history" aria-hidden="true"></i>
+        Reordenar
+        <span class="cat-chip-count">{{ historyProducts().length }}</span>
       </button>
       <button
-        *ngFor="let b of brands(); trackBy: trackByBrand"
+        *ngIf="suggestedProducts().length > 0"
         type="button"
-        class="cat-chip"
-        [class.active]="selectedBrandId() === b.brand_id"
-        (click)="selectBrand(b.brand_id)"
+        class="cat-chip cat-chip-quick cat-chip-ai"
+        [class.active]="quickFilter() === 'suggested'"
+        (click)="toggleQuickFilter('suggested')"
+        [attr.aria-pressed]="quickFilter() === 'suggested'"
       >
-        {{ b.brand_name }}
-        <span class="cat-chip-count">{{ b.count }}</span>
+        <i class="pi pi-sparkles" aria-hidden="true"></i>
+        Sugeridos IA
+        <span class="cat-chip-count">{{ suggestedProducts().length }}</span>
+      </button>
+      <button
+        *ngIf="promoProducts().length > 0"
+        type="button"
+        class="cat-chip cat-chip-quick cat-chip-promo"
+        [class.active]="quickFilter() === 'promo'"
+        (click)="toggleQuickFilter('promo')"
+        [attr.aria-pressed]="quickFilter() === 'promo'"
+      >
+        <i class="pi pi-tag" aria-hidden="true"></i>
+        Con promo
+        <span class="cat-chip-count">{{ promoProducts().length }}</span>
       </button>
     </nav>
 
+    <!-- Toolbar de filtros: botón abre panel lateral con marca/precio/stock.
+         Reemplaza al chip-rail de 438 marcas que era inmanejable. -->
+    <div
+      *ngIf="!loading() && prices().length > 0 && !quickFilter()"
+      class="cat-toolbar"
+    >
+      <button
+        type="button"
+        class="cat-filters-btn"
+        [class.has-filters]="activeFiltersCount() > 0"
+        (click)="openFilters()"
+        [attr.aria-expanded]="filtersOpen()"
+      >
+        <i class="pi pi-sliders-h" aria-hidden="true"></i>
+        Filtros
+        <span *ngIf="activeFiltersCount() > 0" class="cat-filters-badge">
+          {{ activeFiltersCount() }}
+        </span>
+      </button>
+      <button
+        *ngIf="activeFiltersCount() > 0"
+        type="button"
+        class="cat-clear-btn"
+        (click)="clearPanelFilters()"
+      >
+        <i class="pi pi-times" aria-hidden="true"></i>
+        Limpiar
+      </button>
+      <span class="cat-toolbar-meta">{{ visibleProducts().length }} de {{ prices().length }}</span>
+    </div>
+
+    <!-- Panel slide-in: desktop = side-right, mobile = bottom-sheet
+         (la diferencia es CSS responsive). -->
+    <div
+      *ngIf="filtersOpen()"
+      class="cat-filters-backdrop"
+      (click)="closeFilters()"
+      aria-hidden="true"
+    ></div>
+    <aside
+      *ngIf="filtersOpen()"
+      class="cat-filters-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Filtros del catálogo"
+    >
+      <header class="cat-filters-head">
+        <h3>Filtros</h3>
+        <button
+          type="button"
+          class="cat-filters-close"
+          (click)="closeFilters()"
+          aria-label="Cerrar filtros"
+        ><i class="pi pi-times"></i></button>
+      </header>
+
+      <div class="cat-filters-body">
+        <!-- Sección: Marca -->
+        <section class="cat-filters-section" *ngIf="facets()">
+          <h4 class="cat-filters-section-title">Marca</h4>
+          <div class="cat-filters-search">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <input
+              type="text"
+              [ngModel]="brandPanelSearch()"
+              (ngModelChange)="brandPanelSearch.set($event)"
+              placeholder="Buscar marca..."
+              autocomplete="off"
+            />
+          </div>
+          <ul class="cat-filters-list">
+            <li>
+              <button
+                type="button"
+                class="cat-filters-row"
+                [class.active]="selectedBrandId() === '__all__'"
+                (click)="selectBrand('__all__')"
+              >
+                <span>Todas las marcas</span>
+                <span class="cat-filters-row-count">{{ facets()!.total }}</span>
+              </button>
+            </li>
+            <li *ngFor="let b of filteredBrandFacets(); trackBy: trackByBrandFacet">
+              <button
+                type="button"
+                class="cat-filters-row"
+                [class.active]="selectedBrandId() === b.brand_id"
+                (click)="selectBrand(b.brand_id || '__unknown__')"
+              >
+                <span>{{ b.brand_name || 'Sin marca' }}</span>
+                <span class="cat-filters-row-count">{{ b.count }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Sección: Precio -->
+        <section class="cat-filters-section" *ngIf="facets() && facets()!.price_buckets.length > 0">
+          <h4 class="cat-filters-section-title">Precio</h4>
+          <ul class="cat-filters-list">
+            <li *ngFor="let b of facets()!.price_buckets; trackBy: trackByBucket">
+              <button
+                type="button"
+                class="cat-filters-row"
+                [class.active]="priceBucket()?.min === b.min && priceBucket()?.max === b.max"
+                (click)="togglePriceBucket(b)"
+                [disabled]="b.count === 0"
+              >
+                <span>{{ b.label }}</span>
+                <span class="cat-filters-row-count">{{ b.count }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Sección: Stock -->
+        <section class="cat-filters-section" *ngIf="facets()?.stock">
+          <h4 class="cat-filters-section-title">Disponibilidad</h4>
+          <button
+            type="button"
+            class="cat-filters-row"
+            [class.active]="onlyWithStock()"
+            (click)="toggleStockOnly()"
+          >
+            <span>Solo con stock</span>
+            <span class="cat-filters-row-count">{{ facets()!.stock!.with_stock }}</span>
+          </button>
+        </section>
+      </div>
+
+      <footer class="cat-filters-foot">
+        <button
+          type="button"
+          class="cat-filters-clear"
+          (click)="clearPanelFilters()"
+          [disabled]="activeFiltersCount() === 0"
+        >Limpiar todo</button>
+        <button
+          type="button"
+          class="cat-filters-apply"
+          (click)="closeFilters()"
+        >Ver {{ visibleProducts().length }} producto(s)</button>
+      </footer>
+    </aside>
+
     <div *ngIf="!loading() && prices().length > 0" class="cat-layout">
       <section class="cat-main">
+        <section *ngIf="topSellers().length > 0" class="cat-bestsellers" aria-label="Más vendidos">
+          <header class="cat-bestsellers-head">
+            <h3>
+              <i class="pi pi-chart-line" aria-hidden="true"></i>
+              Más vendidos
+            </h3>
+            <span class="cat-bestsellers-meta">{{ topSellers().length }} producto(s) — últimos 90 días</span>
+          </header>
+          <div class="cat-bestsellers-strip">
+            <article
+              *ngFor="let p of topSellers(); trackBy: trackByProduct"
+              class="cat-bestseller-card"
+              (click)="openSheet(p)"
+              tabindex="0"
+              role="button"
+              [attr.aria-label]="'Más vendido #' + p.sales_rank + ' — ' + p.product_name"
+              (keydown.enter)="openSheet(p)"
+              (keydown.space)="openSheet(p); $event.preventDefault()"
+            >
+              <span class="cat-bestseller-rank">#{{ p.sales_rank }}</span>
+              <div class="cat-bestseller-img" [class.has-photo]="hasImg(p)">
+                <img *ngIf="hasImg(p)" [src]="p.image_url" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+                <span *ngIf="!hasImg(p)" class="cat-bestseller-img-initials">{{ productInitials(p) }}</span>
+              </div>
+              <div class="cat-bestseller-body">
+                <span class="cat-bestseller-brand">{{ p.brand_name || 'Sin marca' }}</span>
+                <h4 class="cat-bestseller-name" [title]="p.product_name">{{ p.product_name }}</h4>
+                <span class="cat-bestseller-price">
+                  {{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                </span>
+              </div>
+            </article>
+          </div>
+        </section>
+
         <header class="cat-main-head">
           <h2>{{ selectedBrandName() }}</h2>
           <span class="cat-main-meta">
-            {{ visibleProducts().length }} producto(s)
+            <ng-container *ngIf="hasMorePages(); else allShown">
+              Mostrando {{ visibleProducts().length }} de {{ totalCount() }}
+            </ng-container>
+            <ng-template #allShown>
+              {{ visibleProducts().length }} producto(s)
+            </ng-template>
           </span>
         </header>
 
@@ -239,9 +457,27 @@ function initial(name: string): string {
           >
             <div
               class="cat-card-img"
+              [class.has-photo]="hasImg(p)"
               [style.background]="cardGradient(p)"
             >
-              <span class="cat-card-img-initials">{{ productInitials(p) }}</span>
+              <img
+                *ngIf="hasImg(p)"
+                [src]="p.image_url"
+                [alt]="p.product_name"
+                loading="lazy"
+                decoding="async"
+                class="cat-card-img-real"
+                (error)="onImgError(p)"
+              />
+              <span *ngIf="!hasImg(p)" class="cat-card-img-initials">{{ productInitials(p) }}</span>
+              <span
+                *ngIf="promoByProductId()[p.product_id] as promo"
+                class="cat-card-promo-pill"
+                [attr.title]="promo.promo_name"
+              >
+                <i class="pi pi-tag"></i>
+                {{ promoLabel(promo.promo_type) }}
+              </span>
               <span
                 *ngIf="p.stock_available != null && p.stock_available <= 5"
                 class="cat-card-stock-pill"
@@ -323,6 +559,19 @@ function initial(name: string): string {
             </div>
           </article>
         </div>
+
+        <!-- Sentinel para infinite scroll: el IntersectionObserver dispara
+             loadNextPage() cuando este div entra al viewport. Solo presente
+             si quedan páginas por traer del backend. -->
+        <div
+          *ngIf="hasMorePages()"
+          #scrollSentinel
+          class="cat-scroll-sentinel"
+          aria-hidden="true"
+        >
+          <i class="pi pi-spin pi-spinner"></i>
+          <span>Cargando más productos…</span>
+        </div>
       </section>
     </div>
 
@@ -366,8 +615,17 @@ function initial(name: string): string {
           aria-label="Cerrar detalle del producto"
         ><i class="pi pi-times" aria-hidden="true"></i></button>
 
-        <div class="cat-sheet-img" [style.background]="cardGradient(sp)" aria-hidden="true">
-          <span class="cat-sheet-img-initials">{{ productInitials(sp) }}</span>
+        <div class="cat-sheet-img" [class.has-photo]="hasImg(sp)" [style.background]="cardGradient(sp)" aria-hidden="true">
+          <img
+            *ngIf="hasImg(sp)"
+            [src]="sp.image_url"
+            [alt]="sp.product_name"
+            loading="lazy"
+            decoding="async"
+            class="cat-sheet-img-real"
+            (error)="onImgError(sp)"
+          />
+          <span *ngIf="!hasImg(sp)" class="cat-sheet-img-initials">{{ productInitials(sp) }}</span>
         </div>
 
         <div class="cat-sheet-body">
@@ -774,6 +1032,323 @@ function initial(name: string): string {
       }
       .cat-chip.active .cat-chip-count { opacity: 0.85; }
 
+      /* Rail de atajos personalizados — un poco más arriba, sin sticky para
+         que se quede al hacer scroll y ceda espacio al rail de marcas debajo. */
+      .cat-chip-rail-quick {
+        position: static;
+        margin-bottom: 0.5rem;
+        padding-bottom: 0;
+      }
+      .cat-chip-quick {
+        background: linear-gradient(135deg, var(--accent-soft-bg, #fde68a22) 0%, var(--card-bg) 100%);
+        border-color: var(--accent-border, var(--neutral-300));
+      }
+      .cat-chip-quick i { font-size: 0.85rem; opacity: 0.8; }
+      .cat-chip-quick.active i { opacity: 1; }
+      .cat-chip-quick.active {
+        background: var(--neutral-900);
+        border-color: var(--neutral-900);
+        color: #fff;
+      }
+      .cat-chip-ai {
+        background: linear-gradient(135deg, color-mix(in srgb, var(--ai-accent, #8b5cf6) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
+        border-color: color-mix(in srgb, var(--ai-accent, #8b5cf6) 30%, var(--border-color));
+      }
+      .cat-chip-ai i { color: var(--ai-accent, #8b5cf6); }
+      .cat-chip-ai.active {
+        background: var(--ai-accent, #8b5cf6);
+        border-color: var(--ai-accent, #8b5cf6);
+        color: #fff;
+      }
+      .cat-chip-ai.active i { color: #fff; }
+      .cat-chip-promo {
+        background: linear-gradient(135deg, color-mix(in srgb, var(--promo-accent, #ef4444) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
+        border-color: color-mix(in srgb, var(--promo-accent, #ef4444) 30%, var(--border-color));
+      }
+      .cat-chip-promo i { color: var(--promo-accent, #ef4444); }
+      .cat-chip-promo.active {
+        background: var(--promo-accent, #ef4444);
+        border-color: var(--promo-accent, #ef4444);
+        color: #fff;
+      }
+      .cat-chip-promo.active i { color: #fff; }
+
+      .cat-card-promo-pill {
+        position: absolute;
+        top: 0.5rem;
+        left: 0.5rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        background: var(--promo-accent, #ef4444);
+        color: #fff;
+        z-index: 2;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      }
+      .cat-card-promo-pill i { font-size: 0.7rem; }
+
+      /* ── Toolbar de filtros (reemplaza chip-rail de brands) ── */
+      .cat-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.5rem 0;
+        margin-bottom: 1rem;
+        position: sticky;
+        top: calc(2.75rem + 1rem);
+        z-index: 10;
+        background: var(--layout-bg, var(--surface-ground));
+      }
+      .cat-filters-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.5rem 0.875rem;
+        border: 1px solid var(--border-color);
+        background: var(--card-bg);
+        color: var(--text-main);
+        border-radius: 999px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: border-color 120ms var(--ease-standard);
+      }
+      .cat-filters-btn:hover { border-color: var(--neutral-400); }
+      .cat-filters-btn.has-filters {
+        border-color: var(--neutral-900);
+        background: var(--neutral-900);
+        color: #fff;
+      }
+      .cat-filters-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.25rem;
+        height: 1.25rem;
+        padding: 0 0.35rem;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.25);
+        font-size: 0.7rem;
+        font-weight: 700;
+      }
+      .cat-clear-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.4rem 0.7rem;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-muted);
+        border-radius: 999px;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+      .cat-clear-btn:hover { color: var(--text-main); background: var(--neutral-100); }
+      .cat-toolbar-meta {
+        margin-left: auto;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ── Panel de filtros (drawer side-right) ── */
+      .cat-filters-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 80;
+        animation: catFadeIn 180ms var(--ease-standard);
+      }
+      .cat-filters-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(420px, 100vw);
+        background: var(--card-bg);
+        border-left: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        z-index: 81;
+        box-shadow: -8px 0 24px rgba(0,0,0,0.12);
+        animation: catSlideInRight 220ms var(--ease-standard);
+      }
+      .cat-filters-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .cat-filters-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+      .cat-filters-close {
+        background: transparent;
+        border: 0;
+        padding: 0.4rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: 6px;
+      }
+      .cat-filters-close:hover { background: var(--neutral-100); color: var(--text-main); }
+
+      .cat-filters-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      .cat-filters-section { display: flex; flex-direction: column; gap: 0.5rem; }
+      .cat-filters-section-title {
+        margin: 0 0 0.25rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+      }
+      .cat-filters-search {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .cat-filters-search i {
+        position: absolute;
+        left: 0.65rem;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        pointer-events: none;
+      }
+      .cat-filters-search input {
+        width: 100%;
+        padding: 0.45rem 0.75rem 0.45rem 2rem;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--surface-ground);
+        color: var(--text-main);
+        font-size: 0.85rem;
+      }
+      .cat-filters-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        max-height: 280px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .cat-filters-row {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--text-main);
+        border-radius: 8px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        text-align: left;
+      }
+      .cat-filters-row:hover:not(:disabled) { background: var(--neutral-100); }
+      .cat-filters-row.active {
+        background: var(--neutral-900);
+        color: #fff;
+      }
+      .cat-filters-row:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .cat-filters-row-count {
+        font-size: 0.75rem;
+        opacity: 0.7;
+        font-variant-numeric: tabular-nums;
+      }
+      .cat-filters-row.active .cat-filters-row-count { opacity: 0.9; }
+
+      .cat-filters-foot {
+        display: flex;
+        gap: 0.75rem;
+        padding: 0.875rem 1.25rem;
+        border-top: 1px solid var(--border-color);
+        background: var(--card-bg);
+      }
+      .cat-filters-clear {
+        flex: 1;
+        padding: 0.6rem;
+        border: 1px solid var(--border-color);
+        background: transparent;
+        color: var(--text-main);
+        border-radius: 8px;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .cat-filters-clear:disabled { opacity: 0.4; cursor: not-allowed; }
+      .cat-filters-apply {
+        flex: 1.5;
+        padding: 0.6rem;
+        border: 0;
+        background: var(--neutral-900);
+        color: #fff;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      @keyframes catFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes catSlideInRight {
+        from { transform: translateX(100%); }
+        to { transform: translateX(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cat-filters-backdrop, .cat-filters-panel { animation: none; }
+      }
+
+      /* Mobile: el panel se vuelve bottom-sheet */
+      @media (max-width: 640px) {
+        .cat-filters-panel {
+          top: auto;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100%;
+          max-height: 85vh;
+          border-left: 0;
+          border-top: 1px solid var(--border-color);
+          border-radius: 16px 16px 0 0;
+          animation: catSlideInBottom 220ms var(--ease-standard);
+        }
+      }
+      @keyframes catSlideInBottom {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+      }
+
+      /* Sentinel del infinite scroll — un slot sutil al final del grid que
+         indica "se sigue cargando" mientras el observer trae el próximo batch. */
+      .cat-scroll-sentinel {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 1.5rem 0;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+      .cat-scroll-sentinel i { font-size: 1rem; }
+
       .cat-main { display: flex; flex-direction: column; gap: 0.875rem; }
       .cat-main-head {
         display: flex;
@@ -796,6 +1371,28 @@ function initial(name: string): string {
         color: var(--text-muted);
       }
       .cat-empty-grid i { font-size: 1.75rem; display: block; margin-bottom: 0.5rem; }
+
+      .cat-bestsellers { margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color); }
+      .cat-bestsellers-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; margin-bottom: .625rem; }
+      .cat-bestsellers-head h3 { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; color: var(--text-color); margin: 0; display: inline-flex; align-items: center; gap: .4rem; }
+      .cat-bestsellers-head h3 i { font-size: .85rem; color: var(--text-color-secondary); }
+      .cat-bestsellers-meta { font-size: .7rem; color: var(--text-muted); }
+      .cat-bestsellers-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(160px,180px); gap: .625rem; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; padding-bottom: .5rem; scrollbar-width: thin; }
+      .cat-bestsellers-strip::-webkit-scrollbar { height: 6px; }
+      .cat-bestsellers-strip::-webkit-scrollbar-thumb { background: var(--neutral-300); border-radius: 3px; }
+      .cat-bestseller-card { position: relative; scroll-snap-align: start; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform .2s var(--ease-standard), box-shadow .2s var(--ease-standard), border-color .2s var(--ease-standard); }
+      .cat-bestseller-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px -8px rgba(0,0,0,.12); border-color: var(--neutral-300); }
+      .cat-bestseller-card:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
+      .cat-bestseller-rank { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: .65rem; font-weight: 700; padding: .15rem .4rem; background: var(--neutral-950); color: var(--brand-400); border-radius: 999px; }
+      .cat-bestseller-img { position: relative; aspect-ratio: 1/1; background: var(--brand-50); display: grid; place-items: center; overflow: hidden; }
+      .cat-bestseller-img.has-photo { background: var(--surface-card,#fff); }
+      .cat-bestseller-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 6px; }
+      .cat-bestseller-img-initials { font-weight: 800; font-size: 1.4rem; color: var(--brand-700); opacity: .5; }
+      .cat-bestseller-body { padding: .5rem .625rem .625rem; display: flex; flex-direction: column; gap: .2rem; }
+      .cat-bestseller-brand { font-size: .65rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .cat-bestseller-name { font-size: .75rem; font-weight: 600; color: var(--text-color); line-height: 1.25; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+      .cat-bestseller-price { margin-top: .15rem; font-size: .85rem; font-weight: 700; color: var(--text-color); }
+      .cat-bestseller-noprice { margin-top: .15rem; font-size: .7rem; color: var(--text-muted); font-style: italic; }
 
       .cat-grid {
         display: grid;
@@ -843,6 +1440,17 @@ function initial(name: string): string {
         place-items: center;
         overflow: hidden;
         border-bottom: 1px solid var(--border-color);
+      }
+      .cat-card-img.has-photo {
+        background: var(--surface-card, #fff) !important;
+      }
+      .cat-card-img-real {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        padding: 8px;
       }
       .cat-card-img-initials {
         position: relative;
@@ -1528,6 +2136,17 @@ function initial(name: string): string {
           radial-gradient(80% 60% at 80% 90%, rgba(0,0,0,0.20), transparent 60%);
         pointer-events: none;
       }
+      .cat-sheet-img.has-photo {
+        background: var(--surface-card, #fff) !important;
+      }
+      .cat-sheet-img-real {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        padding: 16px;
+      }
       .cat-sheet-img-initials {
         position: relative;
         z-index: 1;
@@ -1692,7 +2311,7 @@ function initial(name: string): string {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PortalCatalogComponent implements OnInit {
+export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly api = inject(PortalService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -1709,6 +2328,119 @@ export class PortalCatalogComponent implements OnInit {
   readonly selectedBrandId = signal<string>('__all__');
   readonly searchSignal = signal<string>('');
   readonly drawerOpen = signal(false);
+
+  /**
+   * Productos que el customer ya pidió (90d). Driver del chip "Reordenar".
+   * Vacío para admins/superadmin (no hay customer linkeado) o clientes nuevos
+   * sin historial — el chip se oculta en ese caso.
+   */
+  readonly historyProducts = signal<CatalogHistoryRow[]>([]);
+  /**
+   * Canasta IA D.4 hidratada (chip "Sugeridos IA"). Cubre a customers sin
+   * historial recurrente — la heurística mezcla base + focus + exploration +
+   * innovation, así que casi siempre devuelve algo si el tenant tiene ventas.
+   */
+  readonly suggestedProducts = signal<CatalogSuggestedRow[]>([]);
+  /**
+   * Productos con promoción activa (chip "Con promo"). Una promo por
+   * producto (la de mayor priority cuando aplica más de una).
+   */
+  readonly promoProducts = signal<CatalogWithPromoRow[]>([]);
+  /**
+   * Atajo personalizado activo. `null` = catálogo completo + brand filter.
+   */
+  readonly quickFilter = signal<'reorder' | 'suggested' | 'promo' | null>(null);
+
+  /**
+   * Top sellers del tenant (MV products_top_sellers — top 1000 últimos 90d).
+   * Drive del strip "Más vendidos" al inicio del catálogo. Crece con volumen
+   * real de ventas — al inicio puede tener pocos rows.
+   */
+  readonly topSellers = signal<PriceRow[]>([]);
+
+  /** Counts agregados del backend para drive del panel de filtros. */
+  readonly facets = signal<CatalogFacets | null>(null);
+  /** Panel de filtros abierto/cerrado (desktop y mobile lo comparten). */
+  readonly filtersOpen = signal<boolean>(false);
+  /**
+   * Bucket de precio activo (uno solo) — referencia al objeto del facets para
+   * que el matcheo del computed sea por identidad (max=null = "más de X").
+   */
+  readonly priceBucket = signal<{ min: number; max: number | null } | null>(null);
+  /** Toggle "solo con stock" (requiere warehouseId, sino el filtro no aplica). */
+  readonly onlyWithStock = signal<boolean>(false);
+  /** Search interno dentro del panel para los 30+ brands top. */
+  readonly brandPanelSearch = signal<string>('');
+
+  /**
+   * # de filtros del panel activos (excluye los quick-chips y el search top).
+   * Drive del badge "Filtros (N)" cuando hay algo aplicado.
+   */
+  readonly activeFiltersCount = computed<number>(() => {
+    let n = 0;
+    if (this.selectedBrandId() !== '__all__') n++;
+    if (this.priceBucket()) n++;
+    if (this.onlyWithStock()) n++;
+    return n;
+  });
+
+  /**
+   * Render-budget: cuántos cards del grid renderizar en DOM. Antes
+   * cargábamos los 7,569 cards de una → lag de scroll en mobile y CD lento.
+   * Ahora: 60 iniciales + 60 por batch al scrollear cerca del fondo (via
+   * IntersectionObserver sobre `#scrollSentinel`). Reset a 60 cuando cambia
+   * el set visible (filtro nuevo / search / quick-chip).
+   */
+  /**
+   * Server-side pagination — el backend filtra y pagina. `prices()` acumula
+   * los resultados del fetch inicial + las páginas siguientes cargadas vía
+   * IntersectionObserver. Los quick-chips (history/suggested/promo) usan
+   * sus propios endpoints (sets chicos) y no pasan por aquí.
+   */
+  private readonly PAGE_SIZE = 60;
+  readonly currentPage = signal<number>(1);
+  readonly totalCount = signal<number>(0);
+  readonly loadingMore = signal<boolean>(false);
+  readonly hasMorePages = computed<boolean>(() => {
+    if (this.quickFilter()) return false;
+    return this.prices().length < this.totalCount();
+  });
+
+  private _sentinelEl?: HTMLElement;
+  @ViewChild('scrollSentinel')
+  set scrollSentinelRef(ref: ElementRef<HTMLElement> | undefined) {
+    // Setter porque el `*ngIf` del sentinel hace que el elemento aparezca y
+    // desaparezca. Reobserva siempre que cambia la referencia (o desconecta
+    // si quedó null).
+    if (this._sentinelEl && this.scrollObserver) {
+      this.scrollObserver.unobserve(this._sentinelEl);
+    }
+    this._sentinelEl = ref?.nativeElement;
+    if (this._sentinelEl && this.scrollObserver) {
+      this.scrollObserver.observe(this._sentinelEl);
+    }
+  }
+  private scrollObserver?: IntersectionObserver;
+
+  constructor() {
+    // Effect: cuando cambian los filtros del panel (brand / bucket / stock)
+    // → reset y fetch page 1 server-side. Search NO va aquí — usa su propio
+    // pipeline con debounce en wireSmartSearch para no spamear al backend.
+    effect(() => {
+      // Dependencias explícitas que disparan el refetch.
+      this.selectedBrandId();
+      this.priceBucket();
+      this.onlyWithStock();
+      untracked(() => {
+        // Solo dispara si ya pasamos por el load inicial (`prices` no vacío
+        // o totalCount seteado). Sin esto el effect corre al construir el
+        // componente cuando warehouseId aún es '' y mete una request basura.
+        if (this.totalCount() > 0 || this.prices().length > 0) {
+          this.resetAndFetch();
+        }
+      });
+    });
+  }
 
   readonly aiSearch = signal(false);
   readonly searching = signal(false);
@@ -1742,6 +2474,23 @@ export class PortalCatalogComponent implements OnInit {
     return this.sheetQty() * (Number(p.price) || 0);
   });
 
+
+  /**
+   * Index product_id → metadata de su promo activa. Permite al template
+   * decorar el card del catálogo completo con un badge "Con promo", no solo
+   * cuando el chip está activo. Lookup O(1).
+   */
+  readonly promoByProductId = computed<Record<string, { promo_code: string; promo_name: string; promo_type: string }>>(() => {
+    const out: Record<string, { promo_code: string; promo_name: string; promo_type: string }> = {};
+    for (const p of this.promoProducts()) {
+      out[p.product_id] = {
+        promo_code: p.promo_code,
+        promo_name: p.promo_name,
+        promo_type: p.promo_type,
+      };
+    }
+    return out;
+  });
 
   readonly brands = computed<BrandGroup[]>(() => {
     const map = new Map<string, BrandGroup>();
@@ -1778,22 +2527,45 @@ export class PortalCatalogComponent implements OnInit {
       }));
     }
     const term = this.searchSignal().trim().toLowerCase();
-    const bid = this.selectedBrandId();
-    let arr = this.prices();
-    if (bid !== '__all__') arr = arr.filter((p) => (p.brand_id || '__unknown__') === bid);
-    if (term) {
-      arr = arr.filter(
-        (p) =>
-          (p.product_name || '').toLowerCase().includes(term) ||
-          (p.brand_name || '').toLowerCase().includes(term),
-      );
+
+    // Quick filters: el set base viene del backend ya ordenado (frecuencia
+    // para 'reorder', score IA para 'suggested'). Brand filter no aplica
+    // para no confundir al cliente — la idea es "ver mi short-list", no
+    // recortarla más.
+    const qf = this.quickFilter();
+    if (qf === 'reorder' || qf === 'suggested' || qf === 'promo') {
+      let arr: PriceRow[] =
+        qf === 'reorder' ? this.historyProducts()
+        : qf === 'suggested' ? this.suggestedProducts()
+        : this.promoProducts();
+      if (term) {
+        arr = arr.filter(
+          (p) =>
+            (p.product_name || '').toLowerCase().includes(term) ||
+            (p.brand_name || '').toLowerCase().includes(term),
+        );
+      }
+      return arr;
     }
-    return arr;
+
+    // Catálogo paginado: `prices()` ya viene filtrado por el backend con
+    // brand/price/stock/q. No re-filtramos local — sería incorrecto contra
+    // un set parcial (página 1 de N) y duplicaría trabajo del SQL.
+    return this.prices();
   });
 
   readonly selectedBrandName = computed<string>(() => {
     if (this.aiSearch() && this.searchSignal().trim()) {
       return `Resultados para "${this.searchSignal().trim()}"`;
+    }
+    if (this.quickFilter() === 'reorder') {
+      return 'Para reordenar — productos que ya pediste';
+    }
+    if (this.quickFilter() === 'suggested') {
+      return 'Sugeridos para ti — canasta IA';
+    }
+    if (this.quickFilter() === 'promo') {
+      return 'En promoción — descuentos vigentes';
     }
     const bid = this.selectedBrandId();
     if (bid === '__all__') return 'Todos los productos';
@@ -1807,39 +2579,84 @@ export class PortalCatalogComponent implements OnInit {
     this.loadHistory();
   }
 
+  ngAfterViewInit(): void {
+    // SSR-safe: IntersectionObserver no existe en server-side. La app es CSR
+    // (Capacitor + browser puro) pero por defensividad chequeamos.
+    if (typeof IntersectionObserver === 'undefined') return;
+    this.scrollObserver = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && this.hasMorePages()) {
+            this.loadNextPage();
+          }
+        }
+      },
+      // `rootMargin` 400px: empezar a cargar el siguiente batch ANTES de que
+      // el sentinel sea visible — el usuario no debería ver el "Cargando..."
+      // a menos que tipee scroll muy rápido.
+      { rootMargin: '400px 0px' },
+    );
+    // Si el ViewChild ya se asignó antes del ngAfterViewInit (setter corrió
+    // primero), reobservamos. Sino, el setter lo hará cuando el *ngIf monte.
+    if (this._sentinelEl) {
+      this.scrollObserver.observe(this._sentinelEl);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.scrollObserver?.disconnect();
+  }
+
   private wireSmartSearch(): void {
+    // Search debounced. Bifurca según `aiSearch()`:
+    //   - aiSearch=true  → /catalog/search (vectorial Voyage + pgvector)
+    //   - aiSearch=false → /catalog/products?q=... (ILIKE server-side paginado)
+    // En ambos casos respetamos el quick-chip: si reorder/suggested/promo está
+    // activo, el filtro corre en cliente sobre ese set (ver visibleProducts).
     this.searchSubject
       .pipe(
         debounceTime(300),
         distinctUntilChanged(),
-        switchMap((q) => {
-          if (!q.trim() || !this.aiSearch()) {
-            this.searching.set(false);
-            return [];
-          }
-          this.searching.set(true);
-          return this.api.smartSearch(q.trim(), 24);
-        }),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe({
-        next: (res: any) => {
-          this.searching.set(false);
-          if (res && Array.isArray(res.results)) {
-            this.smartResults.set(res.results);
-            this.smartMode.set(res.mode);
-            const scores: Record<string, number> = {};
-            for (const r of res.results) scores[r.product_id] = r.score;
-            this.scoreById.set(scores);
-            this.pushHistory(this.search);
+      .subscribe((q) => {
+        const term = (q || '').trim();
+        if (this.aiSearch()) {
+          if (!term) {
+            this.searching.set(false);
+            this.smartResults.set([]);
+            this.smartMode.set(null);
+            return;
           }
-        },
-        error: () => {
-          this.searching.set(false);
-          this.smartResults.set([]);
-          this.smartMode.set(null);
-          this.scoreById.set({});
-        },
+          this.searching.set(true);
+          this.api.smartSearch(term, 24).subscribe({
+            next: (res: any) => {
+              this.searching.set(false);
+              if (res && Array.isArray(res.results)) {
+                this.smartResults.set(res.results);
+                this.smartMode.set(res.mode);
+                const scores: Record<string, number> = {};
+                for (const r of res.results) scores[r.product_id] = r.score;
+                this.scoreById.set(scores);
+                this.pushHistory(this.search);
+              }
+            },
+            error: () => {
+              this.searching.set(false);
+              this.smartResults.set([]);
+              this.smartMode.set(null);
+              this.scoreById.set({});
+            },
+          });
+        } else {
+          // Search regular: si hay quick-chip activo, el filtro se hace en
+          // cliente vía visibleProducts (sobre history/suggested/promo).
+          // Sin quick-chip, refetch del catálogo paginado.
+          if (!this.quickFilter()) {
+            this.resetAndFetch();
+          }
+          if (term) this.pushHistory(term);
+        }
       });
   }
 
@@ -1943,19 +2760,86 @@ export class PortalCatalogComponent implements OnInit {
   }
 
   private fetchCatalog(): void {
-    this.api.listCatalogProducts(this.warehouseId() || undefined)
+    // Catálogo paginado server-side. La página 1 se trae acá; las siguientes
+    // se cargan via IntersectionObserver cuando el sentinel entra al viewport.
+    this.loading.set(true);
+    this.loadCatalogPage(1, /* replace */ true);
+
+    // Cargar historial + canasta IA en paralelo. Para admin/sin customer
+    // ambos endpoints devuelven [] (no error), así que los chips
+    // simplemente no aparecen. La canasta IA puede demorar más (compute
+    // si está stale >24h) — el chip aparece cuando termina, lazy.
+    const wh = this.warehouseId() || undefined;
+    this.api.myCatalogHistory(wh)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (rows) => {
-          this.prices.set(rows);
-          rows.forEach((r) => (this.qtyByProduct[r.product_id] = r.min_qty || 1));
-          this.loading.set(false);
+          this.historyProducts.set(rows);
+          rows.forEach((r) => {
+            if (!this.qtyByProduct[r.product_id]) {
+              this.qtyByProduct[r.product_id] = r.min_qty || 1;
+            }
+          });
         },
-        error: (e) => {
-          this.toast.add({ severity: 'error', summary: 'Error', detail: e.message });
-          this.prices.set([]);
-          this.loading.set(false);
+        error: () => this.historyProducts.set([]),
+      });
+
+    this.api.myCatalogSuggested(wh)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rows) => {
+          this.suggestedProducts.set(rows);
+          rows.forEach((r) => {
+            if (!this.qtyByProduct[r.product_id]) {
+              this.qtyByProduct[r.product_id] = r.min_qty || 1;
+            }
+          });
         },
+        error: () => this.suggestedProducts.set([]),
+      });
+
+    // Top sellers del tenant (MV refrescada cada 15min). Resuelve price_list
+    // del customer via myCustomerInfo (default_price_list_id). Si no hay
+    // customer o no tiene price_list asignada, el strip queda vacío sin error.
+    this.api.myCustomerInfo()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (customer: any) => {
+          const plId = customer?.default_price_list_id;
+          if (!plId) {
+            this.topSellers.set([]);
+            return;
+          }
+          this.api.listTopSellers(plId, wh, 1000)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+              next: (rows) => this.topSellers.set(rows || []),
+              error: () => this.topSellers.set([]),
+            });
+        },
+        error: () => this.topSellers.set([]),
+      });
+
+    this.api.myCatalogWithPromo(wh)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rows) => {
+          this.promoProducts.set(rows);
+          rows.forEach((r) => {
+            if (!this.qtyByProduct[r.product_id]) {
+              this.qtyByProduct[r.product_id] = r.min_qty || 1;
+            }
+          });
+        },
+        error: () => this.promoProducts.set([]),
+      });
+
+    // Facets del backend — counts reales para los chips del panel.
+    this.api.catalogFacets(wh, 30)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (f) => this.facets.set(f),
+        error: () => this.facets.set(null),
       });
   }
 
@@ -1963,9 +2847,136 @@ export class PortalCatalogComponent implements OnInit {
     this.selectedBrandId.set(brandId);
   }
 
+  /**
+   * Fetch de UNA página del catálogo paginado. Si `replace=true`, reemplaza
+   * `prices()` (usado para page 1 y resets). Si `false`, append (usado para
+   * infinite scroll). `loadingMore` lockea contra carrera con observer.
+   */
+  private loadCatalogPage(page: number, replace: boolean): void {
+    if (this.loadingMore()) return;
+    this.loadingMore.set(true);
+    const bid = this.selectedBrandId();
+    const bucket = this.priceBucket();
+    this.api
+      .listCatalogPage({
+        warehouseId: this.warehouseId() || undefined,
+        page,
+        pageSize: this.PAGE_SIZE,
+        q: this.searchSignal().trim() || undefined,
+        brandId: bid !== '__all__' ? bid : undefined,
+        priceMin: bucket?.min,
+        priceMax: bucket?.max ?? undefined,
+        hasStock: this.onlyWithStock() || undefined,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          if (replace) this.prices.set(r.data);
+          else this.prices.update((arr) => [...arr, ...r.data]);
+          r.data.forEach((p) => {
+            if (!this.qtyByProduct[p.product_id]) {
+              this.qtyByProduct[p.product_id] = p.min_qty || 1;
+            }
+          });
+          this.totalCount.set(r.pagination.total);
+          this.currentPage.set(r.pagination.page);
+          this.loadingMore.set(false);
+          this.loading.set(false);
+        },
+        error: (e) => {
+          this.toast.add({ severity: 'error', summary: 'Error', detail: e.message });
+          if (replace) this.prices.set([]);
+          this.loadingMore.set(false);
+          this.loading.set(false);
+        },
+      });
+  }
+
+  /** Reset al cambiar filtros del panel o search — vuelve a página 1. */
+  private resetAndFetch(): void {
+    this.currentPage.set(1);
+    this.loadCatalogPage(1, /* replace */ true);
+  }
+
+  /** Disparado por IntersectionObserver al ver el sentinel. */
+  private loadNextPage(): void {
+    if (!this.hasMorePages() || this.loadingMore()) return;
+    this.loadCatalogPage(this.currentPage() + 1, /* replace */ false);
+  }
+
+  openFilters(): void { this.filtersOpen.set(true); }
+  closeFilters(): void { this.filtersOpen.set(false); }
+
+  togglePriceBucket(b: { min: number; max: number | null }): void {
+    const cur = this.priceBucket();
+    const same = cur && cur.min === b.min && cur.max === b.max;
+    this.priceBucket.set(same ? null : { min: b.min, max: b.max });
+  }
+
+  toggleStockOnly(): void {
+    this.onlyWithStock.set(!this.onlyWithStock());
+  }
+
+  /** Limpiar TODOS los filtros del panel (no quick-chips ni search). */
+  clearPanelFilters(): void {
+    this.selectedBrandId.set('__all__');
+    this.priceBucket.set(null);
+    this.onlyWithStock.set(false);
+    this.brandPanelSearch.set('');
+  }
+
+  /**
+   * Filtrado del listado de brands del panel: aplica el search interno del
+   * panel sobre los top-N que vienen del facets. Para "ver todas" hace falta
+   * un endpoint paginado dedicado (futuro).
+   */
+  readonly filteredBrandFacets = computed(() => {
+    const f = this.facets();
+    if (!f) return [];
+    const term = this.brandPanelSearch().trim().toLowerCase();
+    if (!term) return f.brands;
+    return f.brands.filter((b) =>
+      (b.brand_name || '').toLowerCase().includes(term),
+    );
+  });
+
+  /**
+   * Label corto del pill de promo en el card. La descripción larga del
+   * descuento (porcentaje, tiers, n×m, bundle) requiere parsear `rules` —
+   * el portal-promotions ya lo hace y es trabajo aparte. Acá solo tipo.
+   */
+  promoLabel(type: string): string {
+    switch (type) {
+      case 'percent_off_product': return '% OFF';
+      case 'nxm': return 'N×M';
+      case 'volume_discount': return 'Volumen';
+      case 'bundle_fixed_price': return 'Combo';
+      case 'cross_sell_discount': return 'Cross-sell';
+      default: return 'Promo';
+    }
+  }
+
+  /**
+   * Activa/desactiva un atajo personalizado. Click sobre el mismo chip lo
+   * apaga (vuelve al catálogo completo); click sobre otro lo cambia.
+   */
+  toggleQuickFilter(key: 'reorder' | 'suggested' | 'promo'): void {
+    this.quickFilter.set(this.quickFilter() === key ? null : key);
+    // Salir de IA / search al cambiar de modo — sino el grid queda en estado
+    // raro mostrando KNN results del catálogo completo cuando el user pidió
+    // "lo que ya compré" o "lo sugerido".
+    if (this.quickFilter() && this.aiSearch()) {
+      this.aiSearch.set(false);
+      this.smartResults.set([]);
+      this.smartMode.set(null);
+    }
+  }
+
   onSearchChange(v: string): void {
     this.searchSignal.set(v);
-    if (this.aiSearch()) this.searchSubject.next(v);
+    // Siempre disparar el subject — wireSmartSearch decide adónde va el query
+    // (smart-search IA si aiSearch=true, /catalog/products?q=... sino).
+    this.searchSubject.next(v);
   }
 
   clearSearch(): void {
@@ -1973,6 +2984,11 @@ export class PortalCatalogComponent implements OnInit {
     this.searchSignal.set('');
     this.smartResults.set([]);
     this.smartMode.set(null);
+    // Refetch sin q solo si no hay quick-chip activo (sino el filtro va sobre
+    // el set in-memory del quick-chip).
+    if (!this.quickFilter() && !this.loading()) {
+      this.resetAndFetch();
+    }
   }
 
   inc(p: PriceRow): void {
@@ -2106,6 +3122,8 @@ export class PortalCatalogComponent implements OnInit {
   trackByProduct(_i: number, p: PriceRow): string { return p.product_id; }
   trackByBrand(_i: number, b: BrandGroup): string { return b.brand_id; }
   trackByString = (_i: number, s: string) => s;
+  trackByBrandFacet = (_i: number, b: { brand_id: string | null }) => b.brand_id || '__unknown__';
+  trackByBucket = (_i: number, b: { min: number; max: number | null }) => `${b.min}-${b.max ?? 'inf'}`;
 
   hasQty(p: PriceRow): boolean {
     return this.isInCart(p);
@@ -2269,9 +3287,17 @@ export class PortalCatalogComponent implements OnInit {
   }
 
   cardGradient(_p: PriceRow): string {
-    // Card image area: fondo neutro plano. Cuando haya image_url real, se reemplaza
-    // por un <img>. Mientras tanto, sin gradients colorful que parecen AI-placeholder.
     return 'var(--brand-50)';
+  }
+
+  private imgFailedSet = new Set<string>();
+
+  hasImg(p: PriceRow): boolean {
+    return !!p.image_url && !this.imgFailedSet.has(p.product_id);
+  }
+
+  onImgError(p: PriceRow): void {
+    this.imgFailedSet.add(p.product_id);
   }
 
   productInitials(p: PriceRow): string {

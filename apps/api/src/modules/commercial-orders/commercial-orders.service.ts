@@ -485,6 +485,7 @@ export class CommercialOrdersService {
       this.alerts.emitOrderConfirmed(tenantId, {
         order_id: orderId,
         code: updated.code,
+        customer_id: order.customer_id,
         customer_name: customerName,
         total,
       });
@@ -571,6 +572,7 @@ export class CommercialOrdersService {
     this.alerts.emitOrderFulfilled(tenantId, {
       order_id: orderId,
       code: updated.code,
+      customer_id: order.customer_id,
       customer_name: customer?.name || order.customer_id,
       total: Number(updated.total),
     });

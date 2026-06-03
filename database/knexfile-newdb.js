@@ -40,6 +40,7 @@ const config = {
     migrations: {
       directory: './migrations-newdb',
       tableName: 'knex_migrations',
+      schemaName: 'public',
     },
     seeds: {
       directory: './seeds-newdb',
@@ -62,6 +63,7 @@ const config = {
     migrations: {
       directory: './migrations-newdb',
       tableName: 'knex_migrations',
+      schemaName: 'public',
     },
     seeds: {
       directory: './seeds-newdb',

@@ -112,6 +112,13 @@ export class DailyCaptureService {
   private _activeExhibiciones = signal<RegistroExhibicion[]>([]);
   readonly activeExhibiciones = this._activeExhibiciones.asReadonly();
 
+  // Fase V offline: foto del ticket que el vendedor tomó SIN red. Se difiere a
+  // la cola offline; el OCR corre en el sync. Seteado desde captures.component.
+  private _deferredTicket = signal<File | null>(null);
+  setDeferredTicket(file: File | null): void {
+    this._deferredTicket.set(file);
+  }
+
   // --- Visit-Level Commercial Impact ---
   /** Venta adicional total de la visita */
   private _visitaVentaAdicional = signal<number>(0);
@@ -217,6 +224,7 @@ export class DailyCaptureService {
 
     const MAX_RETRIES = 3;
     let gpsCapturado = false;
+    let permissionDenied = false;
 
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
@@ -228,9 +236,23 @@ export class DailyCaptureService {
           this.guardarUltimaPosicionConocida(lat, lng);
           break;
         }
-      } catch {
-        // continúa reintentando
+      } catch (err: any) {
+        // GeolocationPositionError.code: 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE,
+        // 3=TIMEOUT. Reintentar con permiso denegado es UX rota — el usuario
+        // tiene que ir a ajustes del navegador, no esperar 30s más.
+        if (err?.code === 1) {
+          permissionDenied = true;
+          break;
+        }
       }
+    }
+
+    if (permissionDenied) {
+      this._horaInicio.set(null);
+      this._activeExhibiciones.set([]);
+      throw new Error(
+        'Permiso de ubicación bloqueado. Activá el GPS para esta app en los ajustes del navegador (candado de la URL → Permisos → Ubicación) y volvé a intentar.',
+      );
     }
 
     if (!gpsCapturado) {
@@ -493,6 +515,7 @@ export class DailyCaptureService {
     this._activeExhibiciones.set([]);
     this._detectedStore.set(null);
     this._nearbyStores.set([]);
+    this._deferredTicket.set(null);
   }
 
   /**
@@ -619,8 +642,17 @@ export class DailyCaptureService {
     // a ~1.33 bytes como string). El backend acepta ambos formatos, pero
     // multipart es el preferido para el flujo online.
     const formData = buildVisitFormData(payload);
+    const deferredTicket = this._deferredTicket();
 
-    return this.http.post<any>(`${this.apiUrl}/daily-captures`, formData).pipe(
+    // Fase V offline: si hay un ticket diferido (tomado sin red), forzamos el
+    // path offline. La cola guarda la foto del ticket y corre el OCR en el sync
+    // (inmediato si hay red). Así el ticket no se pierde aunque la conexión
+    // haya vuelto justo al guardar, y el OCR siempre corre en el sync.
+    const source$ = deferredTicket
+      ? throwError(() => ({ status: 0, _deferredTicketOffline: true }))
+      : this.http.post<any>(`${this.apiUrl}/daily-captures`, formData);
+
+    return source$.pipe(
       tap((res: any) => {
         const parsedRes: VisitaSnapshot = {
           folio: res.folio,
@@ -710,6 +742,8 @@ export class DailyCaptureService {
                 // el siguiente POST con el mismo sync_uuid hace dedup en lugar
                 // de crear duplicado.
                 syncUuid,
+                // Fase V offline: foto del ticket a diferir (OCR en el sync).
+                ticketBlob: deferredTicket || undefined,
               },
             ),
           ).pipe(

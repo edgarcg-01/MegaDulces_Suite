@@ -43,6 +43,7 @@ export class AlertsService {
   emitOrderFulfilled(tenantId: string, params: {
     order_id: string;
     code: string;
+    customer_id: string;
     customer_name: string;
     total: number;
   }): void {
@@ -58,6 +59,7 @@ export class AlertsService {
   emitOrderConfirmed(tenantId: string, params: {
     order_id: string;
     code: string;
+    customer_id: string;
     customer_name: string;
     total: number;
   }): void {

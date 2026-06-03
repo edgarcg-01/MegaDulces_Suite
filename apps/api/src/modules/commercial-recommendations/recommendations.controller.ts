@@ -1,9 +1,14 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RecommendationsService } from './recommendations.service';
 import { RecommendationsRefreshService } from './recommendations-refresh.service';
+import { RolesGuard } from '../../shared/guards/roles.guard';
+import { RequirePermissions } from '../../shared/decorators/permissions.decorator';
+import { Permission } from '../../shared/constants/permissions';
 
 @ApiTags('commercial-recommendations')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('commercial/recommendations')
 export class RecommendationsController {
   constructor(
@@ -12,6 +17,7 @@ export class RecommendationsController {
   ) {}
 
   @Get('my')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
     summary:
       'Canasta estratégica del customer del JWT (Portal B2B). Recomputa si stale (>24h).',
@@ -21,6 +27,7 @@ export class RecommendationsController {
   }
 
   @Get(':customer_id')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({
     summary:
       'Canasta estratégica de un customer específico (admin). Recomputa si stale.',
@@ -30,6 +37,7 @@ export class RecommendationsController {
   }
 
   @Post(':customer_id/compute')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({
     summary: 'Forzar recómputo (UPSERT) de la canasta de un customer',
   })
@@ -38,6 +46,7 @@ export class RecommendationsController {
   }
 
   @Post('refresh-all')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({
     summary:
       'Trigger manual del cron nightly: refresca canasta de TODOS los customers (admin only)',

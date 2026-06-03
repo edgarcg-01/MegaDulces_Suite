@@ -29,7 +29,7 @@
         <p class="text-sm text-content-muted">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>
       </div>
       @if (canManageCurrent()) {
-        <p-button label="Nuevo Ítem" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
+        <p-button [label]="selectedType() === 'roles' ? 'Nuevo Rol' : 'Nuevo Ítem'" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
       }
     </div>
 
@@ -185,7 +185,7 @@
         </div>
       }
     </div>
-  } @else {
+  } @else if (selectedType() !== 'roles') {
     <!-- Tabla normal para otros catálogos -->
     <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden hidden lg:block">
       <p-table [value]="filteredItems()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped"
@@ -357,7 +357,7 @@
         </div>
       }
     </div>
-  } @else {
+  } @else if (selectedType() !== 'roles') {
     <!-- Vista Mobile para otros catálogos -->
     <div class="lg:hidden space-y-3">
       @if (filteredItems().length === 0 && !loading()) {
@@ -420,6 +420,17 @@
         </div>
       </div>
     </div>
+  }
+
+  <!-- Vista de Roles: tarjetas + drawer de desglose (responsive). -->
+  @if (selectedType() === 'roles') {
+    <app-admin-roles-grid
+      [roles]="filteredItems()"
+      [canManage]="canManageCurrent()"
+      (editPermissions)="goToPermissions($event)"
+      (renameRole)="openEditDialog($event)"
+      (deleteRole)="deleteItem($event.id, $event.value)"
+    ></app-admin-roles-grid>
   }
 </div>
 

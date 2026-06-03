@@ -657,6 +657,15 @@ export class OfflineSyncService {
         }),
       );
 
+      // Fase V offline: análisis diferido del ticket. Si la visita guardó una
+      // foto de ticket sin red, corremos el OCR ahora (con conexión) y aplicamos
+      // los productos detectados a la exhibición. Best-effort: si falla, la
+      // captura igual se postea (no se pierde la visita).
+      const exhibicionesFinal = await this.analizarTicketDiferidoSiAplica(
+        visita,
+        exhibicionesHidratadas,
+      );
+
       // Preparar payload para el backend (mismo formato que daily-captures).
       //
       // IDEMPOTENCIA: enviamos visita.id (UUID v4 generado en el cliente al
@@ -669,7 +678,7 @@ export class OfflineSyncService {
         fechaCaptura: visita.fecha,
         horaInicio: visita.horaInicio,
         horaFin: visita.horaFin,
-        exhibiciones: exhibicionesHidratadas,
+        exhibiciones: exhibicionesFinal,
         stats: visita.stats,
         latitud: visita.latitud,
         longitud: visita.longitud,
@@ -793,6 +802,54 @@ export class OfflineSyncService {
   }
 
   /**
+   * Fase V offline: si la visita tiene un ticket pendiente de análisis, corre
+   * el OCR (`/ai/ticket/extract`) con el blob guardado y aplica los productos
+   * auto-confirmados a la PRIMERA exhibición (`productosMarcados`). Auto-aplica
+   * sin revisión (decisión del flujo offline) + marca `ticket_analyzed_offline`.
+   * Best-effort: si el OCR falla, deja las exhibiciones intactas y marca
+   * `ticket_ocr_failed` — la captura se postea igual (no se pierde la visita).
+   */
+  private async analizarTicketDiferidoSiAplica(
+    visita: VisitaPendiente,
+    exhibiciones: any[],
+  ): Promise<any[]> {
+    if (!visita.ticketPendingAnalysis || !visita.ticketPhotoBlobId) {
+      return exhibiciones;
+    }
+    try {
+      const photo = await this.db.getPhoto(visita.ticketPhotoBlobId);
+      if (!photo) return exhibiciones;
+      const fd = new FormData();
+      fd.append('file', photo.blob, 'ticket.jpg');
+      const res: any = await firstValueFrom(
+        this.http
+          .post<any>(`${this.apiUrl}/ai/ticket/extract`, fd)
+          .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+      );
+      const items: any[] = res?.match?.items || [];
+      const productIds = items
+        .filter((it) => it?.suggested?.autoConfirm && it?.suggested?.product_id)
+        .map((it) => it.suggested.product_id as string);
+      if (visita.stats && typeof visita.stats === 'object') {
+        visita.stats.ticket_analyzed_offline = true;
+      }
+      // Aplica a la primera exhibición (modo vendedor = 1 exhibición + ticket).
+      return exhibiciones.map((ex, i) =>
+        i === 0 ? { ...ex, productosMarcados: productIds } : ex,
+      );
+    } catch (err) {
+      console.warn(
+        '[OfflineSync] OCR diferido del ticket falló; la captura se postea sin productos del ticket:',
+        err,
+      );
+      if (visita.stats && typeof visita.stats === 'object') {
+        visita.stats.ticket_ocr_failed = true;
+      }
+      return exhibiciones;
+    }
+  }
+
+  /**
    * Guarda una visita offline (la usa el servicio de captura)
    */
   async guardarVisitaOffline(
@@ -876,6 +933,20 @@ export class OfflineSyncService {
         await this.db.visitas.update(visitaId, { exhibiciones: exhibicionesProcesadas });
       } catch (photoErr) {
         console.warn('[OfflineSync] Error persistiendo fotos a Blob (la visita queda sin fotos):', photoErr);
+      }
+
+      // Fase V offline: persistir la foto del ticket como Blob + marcar pendiente
+      // de análisis. El OCR (`/ai/ticket/extract`) corre en el sync (online).
+      if (datosVisita.ticketBlob instanceof Blob) {
+        try {
+          const ticketPhotoId = await this.db.savePhoto(visitaId, datosVisita.ticketBlob);
+          await this.db.visitas.update(visitaId, {
+            ticketPhotoBlobId: ticketPhotoId,
+            ticketPendingAnalysis: true,
+          });
+        } catch (tErr) {
+          console.warn('[OfflineSync] Error persistiendo ticket Blob (visita sin ticket diferido):', tErr);
+        }
       }
 
       // Actualizar contador de pendientes

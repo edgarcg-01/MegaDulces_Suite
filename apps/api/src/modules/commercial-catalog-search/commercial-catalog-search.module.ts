@@ -3,6 +3,7 @@ import { CommercialCatalogSearchController } from './commercial-catalog-search.c
 import { CommercialCatalogSearchService } from './commercial-catalog-search.service';
 import { TenantKnexService } from '../../shared/database/tenant-knex.service';
 import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher.module';
+import { CommercialRecommendationsModule } from '../commercial-recommendations/commercial-recommendations.module';
 
 /**
  * Búsqueda semántica del catálogo scoped al price_list del customer.
@@ -15,7 +16,7 @@ import { AiProductMatcherModule } from '../ai-product-matcher/ai-product-matcher
  * Reusa `EmbeddingsService` exportado por `AiProductMatcherModule` (Fase K).
  */
 @Module({
-  imports: [AiProductMatcherModule],
+  imports: [AiProductMatcherModule, CommercialRecommendationsModule],
   controllers: [CommercialCatalogSearchController],
   providers: [CommercialCatalogSearchService, TenantKnexService],
 })

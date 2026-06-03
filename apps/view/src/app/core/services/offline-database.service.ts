@@ -28,6 +28,10 @@ export interface VisitaPendiente {
   intentos_fallidos: number;
   ultimo_intento: string;
   flag_fraude?: boolean; // Detectado en frontend
+  // Fase V offline: foto del ticket guardada sin red. El OCR (`/ai/ticket/extract`)
+  // se difiere al sync — ahí se llenan los productosMarcados de la exhibición.
+  ticketPhotoBlobId?: string; // FK a photos.id (tabla de blobs Dexie v2)
+  ticketPendingAnalysis?: boolean;
 }
 
 export interface CatalogoOffline {

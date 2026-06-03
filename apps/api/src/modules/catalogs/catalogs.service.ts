@@ -17,12 +17,25 @@ import { PermissionsCacheService } from '../../shared/ability/permissions-cache.
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 
+/**
+ * Roles del sistema (semilla): no pueden renombrarse ni eliminarse desde la
+ * UI. Set canónico snake_case + roles funcionales (tele_operator, vendedor,
+ * customer_b2b, chofer). Los slugs crípticos `Jefe_M`/`supervisor_v` quedaron
+ * deprecados (reemplazados por `jefe_marketing`/`supervisor_ventas`) y NO se
+ * protegen aquí a propósito: si quedan instancias viejas en una DB, deben
+ * poder borrarse desde la UI. Comparación case-insensitive vía `isSystemRole`.
+ */
 const SYSTEM_ROLES: readonly string[] = [
   'superadmin',
+  'admin',
   'supervisor',
   'supervisor_ventas',
   'jefe_marketing',
   'colaborador',
+  'ejecutivo',
+  'tele_operator',
+  'vendedor',
+  'customer_b2b',
   'chofer',
 ];
 
@@ -37,9 +50,10 @@ const VALID_PERMISSION_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Permisos que dan acceso elevado y que requieren que el editor ya los
- * tenga para poder otorgarlos (anti-escalation). Si la lista crece, vale la
- * pena moverla a configuración compartida con el frontend.
+ * Permisos marcados como "críticos" para logging/UX. El anti-escalation real
+ * aplica a TODAS las claves (ver `updateRolePermissions`): un editor solo
+ * puede otorgar permisos que él mismo posee. Esta lista solo destaca los de
+ * mayor impacto en logs.
  */
 const ELEVATED_PERMISSIONS: readonly string[] = [
   Permission.REPORTES_VER_GLOBAL,
@@ -58,7 +72,8 @@ const CAPTURE_FIELD_BY_TYPE: Record<string, string> = {
   niveles: 'nivelEjecucionId',
 };
 
-const isSystemRole = (name: string) => SYSTEM_ROLES.includes(name);
+const isSystemRole = (name: string) =>
+  SYSTEM_ROLES.includes((name ?? '').toLowerCase());
 
 @Injectable()
 export class CatalogsService {
@@ -91,9 +106,25 @@ export class CatalogsService {
     }
 
     if (type === 'roles') {
-      const roles = await this.knex('role_permissions')
-        .orderBy('role_name', 'asc')
-        .select('id', 'role_name as value');
+      // Enriquecido para la vista de roles: incluye el JSONB de permisos
+      // (para la barra de cobertura + desglose por módulo), el conteo de
+      // usuarios asignados y la fecha de última modificación.
+      const userCounts = this.knex('users')
+        .select('role_name')
+        .count('* as user_count')
+        .groupBy('role_name')
+        .as('uc');
+
+      const roles = await this.knex('role_permissions as rp')
+        .leftJoin(userCounts, 'uc.role_name', 'rp.role_name')
+        .orderBy('rp.role_name', 'asc')
+        .select(
+          'rp.id',
+          'rp.role_name as value',
+          'rp.permissions',
+          'rp.updated_at',
+          this.knex.raw('COALESCE(uc.user_count, 0)::int as user_count'),
+        );
       return roles.map((r) => ({ ...r, is_system: isSystemRole(r.value) }));
     }
 
@@ -720,8 +751,10 @@ export class CatalogsService {
    * lanza 404. Los roles se crean explícitamente vía `create('roles', ...)`.
    */
   async getRolePermissions(roleName: string) {
-    const role = await this.knex('role_permissions')
-      .where({ role_name: roleName })
+    const role = await this.knex('role_permissions as rp')
+      .leftJoin('users as u', 'u.id', 'rp.updated_by')
+      .where('rp.role_name', roleName)
+      .select('rp.*', 'u.username as updated_by_username')
       .first();
     if (!role) {
       throw new NotFoundException(`Rol "${roleName}" no encontrado.`);
@@ -790,17 +823,23 @@ export class CatalogsService {
       );
     }
 
-    // Anti-escalation: chequear que el editor solo OTORGA permisos elevados
-    // que él mismo posee. Quitarlos siempre es válido. Superadmin pasa libre.
+    // Anti-escalation (least-privilege): el editor solo puede OTORGAR permisos
+    // que él mismo posee. Quitar permisos siempre es válido. Superadmin pasa
+    // libre. Sin esto, alguien con ROLES_CONFIGURAR podía concederse cualquier
+    // permiso (USUARIOS_GESTIONAR, *_GESTIONAR comercial/logística, etc.).
     if (!isRequesterSuperadmin) {
-      for (const elevated of ELEVATED_PERMISSIONS) {
-        const willGrant =
-          sanitized[elevated] === true && previousPerms[elevated] !== true;
-        if (willGrant && !requesterPerms[elevated]) {
-          throw new ForbiddenException(
-            `No puedes otorgar el permiso "${elevated}" porque tu rol no lo tiene. Pide a un superadmin que lo habilite.`,
-          );
-        }
+      const illegalGrants = Object.keys(sanitized).filter(
+        (key) =>
+          sanitized[key] === true &&
+          previousPerms[key] !== true &&
+          requesterPerms[key] !== true,
+      );
+      if (illegalGrants.length > 0) {
+        throw new ForbiddenException(
+          `No puedes otorgar permisos que tu rol no tiene: ${illegalGrants.join(
+            ', ',
+          )}. Pide a un superadmin que los habilite.`,
+        );
       }
     }
 

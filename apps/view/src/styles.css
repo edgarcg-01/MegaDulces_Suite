@@ -53,6 +53,26 @@
 .p-toast.p-toast-bottom-left {
   bottom: calc(env(safe-area-inset-bottom) + 0.75rem) !important;
 }
+/*
+ * Ancho responsive. p-toast default = `width: 25rem` fijo → en mobile <400px
+ * el toast sobresale o se ve cortado (vivido en /dashboard/captures al
+ * disparar "Visita Iniciada"). min() colapsa al ancho disponible sin media
+ * queries; safe-area-inset-* cubre landscape notched.
+ */
+.p-toast {
+  width: min(25rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right))) !important;
+}
+.p-toast.p-toast-top-right,
+.p-toast.p-toast-bottom-right {
+  right: calc(env(safe-area-inset-right) + 0.75rem) !important;
+}
+.p-toast.p-toast-top-left,
+.p-toast.p-toast-bottom-left {
+  left: calc(env(safe-area-inset-left) + 0.75rem) !important;
+}
+.p-toast .p-toast-message {
+  max-width: 100%;
+}
 
 /*
  * FAB consciente del bottom nav. Cuando la página vive dentro del layout

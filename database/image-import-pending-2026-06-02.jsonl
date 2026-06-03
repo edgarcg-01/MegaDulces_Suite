@@ -1,0 +1,536 @@
+{"id":"45955051-4911-4d39-814b-7099e8e53cba","sku":"00001","barcode":"00001","nombre":"VENTAS AL 0 %","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"b31cb4f3-6c1e-46ab-8e5a-4f36b163f3db","sku":"00002","barcode":"00002","nombre":"VENTAS AL 16 %","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"c2252ae7-8920-467e-97ef-54f96cb34a5f","sku":"00003","barcode":"00003","nombre":"DEVOLUCIONES  0 %","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"f45f1af6-3711-48e6-b74d-fce22dded743","sku":"00004","barcode":"00004","nombre":"DEVOLUCIONES 16%","brand":"JOSE IVAN VELAZQUEZ JUAREZ","reason":"not_found_off"}
+{"id":"f5b41509-31f9-4730-88dd-0fc3e003862b","sku":"00005","barcode":"00005","nombre":"PARA GENERAR VENTAS NC","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"dd0abc21-ac22-4579-bbb7-1202b04af399","sku":"00006","barcode":"00006","nombre":"VENTAS AL 8% IEPS","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"90a0e32d-90a2-414e-a3a8-3e89296c0a07","sku":"00007","barcode":"00007","nombre":"DEVOLUCIONES AL 8%","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"5e813ea3-66de-469e-bc6a-6885d8320083","sku":"00008","barcode":"00008","nombre":"DESCUENTO A FACTURA 0%","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"8db3d853-7e07-428c-bd37-e71d5aeb0640","sku":"00009","barcode":"00009","nombre":"DESCUENTO A FACTURA IEPS","brand":"ADMINISTRATIVO","reason":"not_found_off"}
+{"id":"aad081b7-d03b-4e3d-b4e3-b44b62939fa9","sku":"00011","barcode":"00011","nombre":"PACA DE CARTON P/RECICLAR","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"ed121498-630a-45b6-852a-dc5bb782f55d","sku":"00023","barcode":"756956004226","nombre":"IND GALL BEST SURTIDA /1","brand":"MARCAS EXTRAORDINARIAS","reason":"error","error":"OFF status 404 for 756956004226"}
+{"id":"e013467f-2016-49b3-9b9a-204f51caaa72","sku":"00031","barcode":"757528012854","nombre":"IND PALETA PAYASO MINIA RICOLINO","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 404 for 757528012854"}
+{"id":"b9e20c7c-7e63-4b01-8a54-862b9a662078","sku":"00032","barcode":"7501058644145","nombre":"IND CARLOS V SNAX 35G/NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 404 for 7501058644145"}
+{"id":"97795219-fb30-45bd-8433-1c15808a6304","sku":"00035","barcode":"7501575504069","nombre":"IND PAPA ADOBADA COYOTE 50GR","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"error","error":"OFF status 404 for 7501575504069"}
+{"id":"ed121498-630a-45b6-852a-dc5bb782f55d","sku":"00023","barcode":"756956004226","nombre":"IND GALL BEST SURTIDA /1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"ed121498-630a-45b6-852a-dc5bb782f55d","sku":"00023","barcode":"756956004226","nombre":"IND GALL BEST SURTIDA /1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"e013467f-2016-49b3-9b9a-204f51caaa72","sku":"00031","barcode":"757528012854","nombre":"IND PALETA PAYASO MINIA RICOLINO","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"b9e20c7c-7e63-4b01-8a54-862b9a662078","sku":"00032","barcode":"7501058644145","nombre":"IND CARLOS V SNAX 35G/NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"97795219-fb30-45bd-8433-1c15808a6304","sku":"00035","barcode":"7501575504069","nombre":"IND PAPA ADOBADA COYOTE 50GR","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"7979a6fa-4990-46cc-9007-3d8cb3653377","sku":"00045","barcode":"766902008604","nombre":"IND VASITO CHAMOY MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"ae742ebb-c79f-4475-ba65-c441a154383c","sku":"00047","barcode":"766902005139","nombre":"IND VASITO TAMARINDO MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"5e353c33-a1e3-47d6-9024-eb09d519f494","sku":"00049","barcode":"7503006137136","nombre":"* IND PALOMITA POPCORNER QUESO CHEDDAR","brand":"ILA GRANJA ORGANICA","reason":"not_found_off"}
+{"id":"8239c081-7b77-4784-881a-7a04a474e1ab","sku":"00052","barcode":"840004096513","nombre":"TIC TAC CANELA  /12","brand":"FERRERO DE MEXICO, S.A.","reason":"not_found_off"}
+{"id":"baae090c-cb1b-48d3-9d6c-71a446e87dce","sku":"00054","barcode":"766902008611","nombre":"IND VASITO MANGO MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"d1e4a3eb-6a59-4535-bbb0-0b0fd81caf71","sku":"00055","barcode":"7501059281516","nombre":"IND CRUNCH MAX 50G","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"cb5afdd0-116c-4b5d-9de4-943b8432f7e2","sku":"00057","barcode":"7501058644121","nombre":"IND KIT KAT SNAX 32G NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501058644121"}
+{"id":"217a61c6-c955-4d68-94e5-01eb2752aece","sku":"00058","barcode":"7501059274341","nombre":"IND CHOC LARIN ALM SIN AZUCAR 19G NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501059274341"}
+{"id":"d9119dc8-07e4-44ae-b004-d1db441113ba","sku":"00059","barcode":"7501059239579","nombre":"IND CHOC CARLOS V CACAHUATE 22GR NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501059239579"}
+{"id":"9ff517c7-1bc2-4b80-b0f5-454fec0cbc93","sku":"00060","barcode":"7501059209381","nombre":"IND CHOC LARIN ALMENDRAS 26GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"42c77346-3248-44b3-b1e9-d0affec7fcfb","sku":"00061","barcode":"7501575504281","nombre":"BOLIBOYS 110 GR / 10  LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"error","error":"OFF status 429 for 7501575504281"}
+{"id":"2c2892d0-86a3-4ca6-a13c-bc277281d899","sku":"00062","barcode":"7501059299443","nombre":"IND CHOC LARIN NUEZ 26GR NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501059299443"}
+{"id":"bce335ed-babf-40c1-936a-5aba2b96ef79","sku":"00063","barcode":"7501059209374","nombre":"IND CHOC LARIN AVELLANA 26GR NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501059209374"}
+{"id":"0fc640d2-e423-4218-9d3c-ad8fe65d3694","sku":"00064","barcode":"7501059299252","nombre":"IND CHOC CARLOS V SEMIAMARGO 20GR NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501059299252"}
+{"id":"fd270f99-8d35-4985-9edb-df14ff6f34bc","sku":"00065","barcode":"7501059298835","nombre":"IND CHOC CARLOS V COOKIES N CREAM 20GR NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"error","error":"OFF status 429 for 7501059298835"}
+{"id":"4b9684d3-5aaa-4497-a4ef-0eb0d509386a","sku":"00066","barcode":"7501079221165","nombre":"GALL ANIMALITOS 5KG / GISA","brand":"GALLETERA ITALIANA","reason":"not_found_off"}
+{"id":"fe516ae9-0f76-4145-83b5-d7696a45484b","sku":"00067","barcode":"7501058644169","nombre":"IND CRUNCH SNAX 32G/NESTLE","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501058644169"}
+{"id":"e24b6541-a596-47e5-82b7-82c3ec6ee076","sku":"00068","barcode":"7622210108777","nombre":"IND CRACK-UPS BUBBALOO 40GR","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210108777"}
+{"id":"d9bfffc0-2330-4158-8359-5dd140cb94da","sku":"00070","barcode":"7506174512248","nombre":"IND CHOC SNICKERS 48.7GR","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"error","error":"OFF status 429 for 7506174512248"}
+{"id":"f09700f3-3e53-4209-9fb8-e0fa34fecb7a","sku":"00071","barcode":"7506174512200","nombre":"IND CHOC MILKY WAY 48 GR MARS","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"error","error":"OFF status 429 for 7506174512200"}
+{"id":"ac9e5c4a-b434-4f3a-af15-1e43167ccd5b","sku":"00072","barcode":"7898024397915","nombre":"IND NUTELLA B-READY 22GR","brand":"FERRERO DE MEXICO, S.A.","reason":"error","error":"OFF status 429 for 7898024397915"}
+{"id":"9894c077-4946-4893-9dc3-4f60d7a54c10","sku":"00073","barcode":"7506174500481","nombre":"IND CHOC SNICKERS 21.5GR","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"1bb2243c-1b02-43c7-bbd9-63853f2a7bf9","sku":"00074","barcode":"7501058654861","nombre":"NESTLE CARLOS V CHOCO LECHE 10P","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"error","error":"OFF status 429 for 7501058654861"}
+{"id":"35ff06ad-88aa-439d-b9de-d82599b55b8d","sku":"00075","barcode":"7500478037155","nombre":"IND DORITO HARD CORE FLAMIN HOT 32GR","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7500478037155"}
+{"id":"16091608-6029-46b2-a7ec-4070d35620c6","sku":"00078","barcode":"070847813620","nombre":"IND MOSTER JAVA LOCA MOCA 473ML","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 070847813620"}
+{"id":"5a779f5d-2451-4cc1-a0c0-e2b9669ce39d","sku":"00079","barcode":"7702174085038","nombre":"IND PAL PINPOP SURTIDA/1","brand":"MARCAS EXTRAORDINARIAS","reason":"error","error":"OFF status 429 for 7702174085038"}
+{"id":"db5b42f7-b8c3-441e-89b7-8fdf6a46ac41","sku":"00080","barcode":"757528012441","nombre":"IND CHIPS MINI ADOBADA(18GR)","brand":"BARCEL","reason":"error","error":"OFF status 429 for 757528012441"}
+{"id":"4c9916ac-6feb-4c34-86fe-1d303f1fbee6","sku":"00083","barcode":"7501013154245","nombre":"JUMEX SURTIDO LATA 335 ML /","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"not_found_off"}
+{"id":"7c346edb-fedf-45cf-b973-b7b2a46c59d0","sku":"00085","barcode":"75066871","nombre":"IND CREMINO AVELLANA / 1","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"error","error":"OFF status 429 for 75066871"}
+{"id":"d51da302-4edc-4ff4-b265-28da5741ef6d","sku":"00090","barcode":"044396000008","nombre":"IND FRUTI QUEKO 236ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 044396000008"}
+{"id":"8772913f-6875-40ac-987a-eba4a8b01c81","sku":"00091","barcode":"7501024599721","nombre":"IND CHOC DINOSAURIO  20GR / HERSHEYS","brand":"HERSHEY MEXICO SA DE CV","reason":"error","error":"OFF status 429 for 7501024599721"}
+{"id":"05cb2c56-854a-4c95-9c77-7c8f9143c1bf","sku":"00092","barcode":"7622210571175","nombre":"IND CH BUBBALOO ROLLO FRESA 56.7 GR","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210571175"}
+{"id":"f34373b7-9efe-4d54-9738-a836822b1f70","sku":"00093","barcode":"7622210571465","nombre":"IND CH BUBBALOO ROLLO MORA 56.7 GR","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210571465"}
+{"id":"0ed46fc3-cb96-48eb-aaed-2b09d8a1782e","sku":"00100","barcode":"044396001005","nombre":"IND FRUTI QUEKO 473ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 044396001005"}
+{"id":"834522d5-9200-4c59-af4c-f1b55b7b43c4","sku":"00101","barcode":"044396004006","nombre":"IND FRUTI QUEKO NAR CHUPON 500","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 044396004006"}
+{"id":"9b1e438a-a44a-443d-9e3b-90e7db811200","sku":"00102","barcode":"7622210253507","nombre":"IND TANG LIMON (13GR)","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210253507"}
+{"id":"82a97e4d-1204-4786-85d9-a1ae07d6e04e","sku":"00104","barcode":"7622210253408","nombre":"IND TANG JAMAICA (13GR)","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210253408"}
+{"id":"da566278-601b-402b-a3a7-cd0a6c476287","sku":"00111","barcode":"7506161208956","nombre":"IND CHOC HUEVO AVIONES 20G","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7506161208956"}
+{"id":"e9024f5e-6798-4e27-8bd6-6982b95f8e26","sku":"00113","barcode":"7506161207904","nombre":"IND CHOC HUEVO BATMAN 20G","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7506161207904"}
+{"id":"52a6b3f4-8f98-49eb-bdc9-68d233977457","sku":"00116","barcode":"7501575500436","nombre":"* POPOTE ANILLO PERLA","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"eaac158f-4d63-4d62-be06-023ae323cfe2","sku":"00117","barcode":"719886211898","nombre":"IND PELONAZO PELO RICO LORENA","brand":"HERSHEY MEXICO SA DE CV","reason":"error","error":"OFF status 429 for 719886211898"}
+{"id":"befd69be-ce9e-4f9e-9b8d-3d788d3c3572","sku":"00118","barcode":"840004099590","nombre":"IND CHOC WEBO EL CHAVO BONDY (20GR)","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"error","error":"OFF status 429 for 840004099590"}
+{"id":"6c381a70-8c22-4c77-9ff3-b551d364f01c","sku":"00119","barcode":"840004075129","nombre":"IND CHOC WEBO HELLO KITTY BONDY (20GR)","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"error","error":"OFF status 429 for 840004075129"}
+{"id":"54a6a01f-9613-49bb-9e0a-47d03a8558e0","sku":"00120","barcode":"018804701412","nombre":"IND GOMITAS ICEE CEREZA 85 GR /1CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"error","error":"OFF status 429 for 018804701412"}
+{"id":"fb606540-20af-449a-b5bb-0b2304e57576","sku":"00122","barcode":"018804701535","nombre":"IND PICOSOS MANGO C/ CHILE 85GR/1 CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"error","error":"OFF status 429 for 018804701535"}
+{"id":"d4ae468f-32ab-4034-8c45-a2ac6c44f88d","sku":"00123","barcode":"018804701528","nombre":"IND PICOSOS PIÑA C/ CHILE 85GR/1 CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"not_found_off"}
+{"id":"3e667a88-db92-4e8b-95a2-2da2ea940846","sku":"00127","barcode":"062020011602","nombre":"KINDER SORPRESA T4 NAVIDAD","brand":"FERRERO DE MEXICO, S.A.","reason":"error","error":"OFF status 429 for 062020011602"}
+{"id":"246afa55-cd94-4f66-9e96-c5ba23b66a31","sku":"00132","barcode":"78605831","nombre":"IND TIC TAC FRESA","brand":"FERRERO DE MEXICO, S.A.","reason":"error","error":"OFF status 429 for 78605831"}
+{"id":"e018dfba-e72b-41ee-b7d8-2d451444c306","sku":"00137","barcode":"7503022042056","nombre":"* IND JUGO CITRUS PUNCH TAMBAA (330ML)","brand":"PRODUCTOS A ELIMINAR","reason":"error","error":"OFF status 429 for 7503022042056"}
+{"id":"a1c111c8-92ca-4d35-865a-711e15df0f94","sku":"00139","barcode":"754177614453","nombre":"IND WINIS MAXI TUBITO SIRENA/ 1 KLASSCO","brand":"THE KLASS COMPANY S.A. DE C.V.","reason":"error","error":"OFF status 429 for 754177614453"}
+{"id":"23e480c2-2cf1-442e-b2fd-4d7c2d61848d","sku":"00140","barcode":"7501031346301","nombre":"IND REFRESCO PEPSI SURT 355 ML","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"error","error":"OFF status 429 for 7501031346301"}
+{"id":"42015829-6835-490d-9067-9a5e2e3c8b35","sku":"00144","barcode":"7501090800219","nombre":"GOMITAS GOTA ROMPOPE / 1 KG CUETARA","brand":"CUETARA DISTRIBUCION S.A DE C.V","reason":"not_found_off"}
+{"id":"4b871b0b-cdbe-49a9-a3c3-7ebc11b95c3e","sku":"00145","barcode":"7506192511155","nombre":"IND AMPER MANGO PARTY 473ML","brand":"QUALAMEX SA DE CV","reason":"error","error":"OFF status 429 for 7506192511155"}
+{"id":"b4570642-399d-43ba-8505-8e8640b57373","sku":"00158","barcode":"0000200101040","nombre":"CUCHARA NEVERA COLOR / REYHER","brand":"REYHER COMERCIALIZADORA","reason":"error","error":"OFF status 429 for 0000200101040"}
+{"id":"03a67486-136b-432b-b093-73be5dca8588","sku":"00164","barcode":"7506475115810","nombre":"IND CHOC CARLOS V KING SIZE(36GR) / NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"error","error":"OFF status 429 for 7506475115810"}
+{"id":"45bb96cf-1932-4332-ae55-8868c0abd0ca","sku":"00165","barcode":"840004010755","nombre":"IND CHOC WEBO LATE MISS CANDY / BONDY","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"error","error":"OFF status 429 for 840004010755"}
+{"id":"62671f4d-4b25-4264-9cd6-f38deea7b1c5","sku":"00166","barcode":"7501575509804","nombre":"IND MANGANITAS (80GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"error","error":"OFF status 429 for 7501575509804"}
+{"id":"6a109e91-820d-4ff5-98d7-5fdedb63e302","sku":"00179","barcode":"75001988","nombre":"IND FRUTSI SOBORES 250ML","brand":"FEMSA","reason":"error","error":"OFF status 429 for 75001988"}
+{"id":"ac61d948-fd5e-407f-a8a0-040a293d77cf","sku":"00180","barcode":"7501575509286","nombre":"IND PAPAS FRITAS HABANERAS (50GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"error","error":"OFF status 429 for 7501575509286"}
+{"id":"0c08a980-2c35-4e3e-a524-206009cf791b","sku":"00185","barcode":"894277000456","nombre":"IND FRUTI KING SURTIDO 500ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"c5c331bd-a2fb-4bac-aa24-e8a3353fa60d","sku":"00187","barcode":"7501575509477","nombre":"IND CHAPETONES C/QUESO (50GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"error","error":"OFF status 429 for 7501575509477"}
+{"id":"503a250b-c8fb-4b19-ab7d-3e3c4ad91e2a","sku":"00188","barcode":"7503001403250","nombre":"* IND FRUTI KIDS SURTIDO 250ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 7503001403250"}
+{"id":"133c88a8-def1-4cf6-b0c1-02f43ede5cae","sku":"00205","barcode":"7501575503284","nombre":"IND COYO SHERIFS (60 GR) LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"error","error":"OFF status 429 for 7501575503284"}
+{"id":"d393242b-14ee-4351-a5c6-536d6dc041c8","sku":"00212","barcode":"7501059277496","nombre":"NESTLE CARNATION CLAVEL (480GR) /1","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"error","error":"OFF status 429 for 7501059277496"}
+{"id":"d007a060-803b-4b46-ad25-398a0b124efb","sku":"00221","barcode":"7501124500238","nombre":"IND COCA COLA S/AZUCAR 355ML PET / 1","brand":"FEMSA","reason":"error","error":"OFF status 429 for 7501124500238"}
+{"id":"2658219f-e82c-4b95-a705-343aea281096","sku":"00222","barcode":"7861091132673","nombre":"IND CHOC CARLOS V AERO MILKY NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"e2c0b25d-11a0-42ec-8785-54b83a8107bb","sku":"00226","barcode":"7506105606053","nombre":"IND CH TRIDENT VALUPACK SURTIDO /1","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7506105606053"}
+{"id":"9e764685-8a97-4f15-88fa-d7956820001e","sku":"00228","barcode":"7501011162587","nombre":"IND OBLEA GRANDE  55GR / CABADAS","brand":"DIST CABADAS DE LA PIEDAD SA DE CV","reason":"error","error":"OFF status 429 for 7501011162587"}
+{"id":"f32c776d-b3fd-4ddc-987c-dacff463a34d","sku":"00231","barcode":"756774013073","nombre":"IND CHOC JOSE CUERVO 3 PACK 30GR","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"error","error":"OFF status 429 for 756774013073"}
+{"id":"8c295f00-4ef3-408b-87a0-f42cb09dd79b","sku":"00236","barcode":"7501124500191","nombre":"IND AGUA CACTUS SABORES 500ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 7501124500191"}
+{"id":"d023753f-5219-483a-a9a8-4d121a5052c1","sku":"00238","barcode":"80846185","nombre":"IND TIC TAC CANELA/ 1","brand":"FERRERO DE MEXICO, S.A.","reason":"error","error":"OFF status 429 for 80846185"}
+{"id":"0ec9862a-e9c7-4dde-89a4-563e29ebda7d","sku":"00239","barcode":"7503001403670","nombre":"IND FRUTI KING 170ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"67ffdba4-c13d-490f-a363-a918f232e5ae","sku":"00242","barcode":"7622210464774","nombre":"IND CH TRIDENT XTRA CARE MENTA","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210464774"}
+{"id":"24e554d2-95e8-47c6-b8a5-31d860ed0adb","sku":"00244","barcode":"7622210464811","nombre":"IND CH TRIDENT XTRA CARE FRESHMINT","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210464811"}
+{"id":"6f4bbe50-248e-4a10-94e6-b7a66701aa56","sku":"00245","barcode":"7506105602635","nombre":"* IND CH TRIDENT TWIST UVA/NARANJA","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7506105602635"}
+{"id":"bd3ce1e4-af76-45fa-b357-85ec587f5115","sku":"00246","barcode":"7622210938619","nombre":"IND CH TRIDENT TWIST FRESA/LIMON","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"error","error":"OFF status 429 for 7622210938619"}
+{"id":"f3e84b8b-723d-42d4-97c5-58a29b9e45d3","sku":"00247","barcode":"719886400117","nombre":"IND PELONETES HOT INTENSO","brand":"HERSHEY MEXICO SA DE CV","reason":"error","error":"OFF status 429 for 719886400117"}
+{"id":"a9b63015-7ef1-44cd-bdb8-e83a241f3a5b","sku":"00251","barcode":"7502242131311","nombre":"SALSA CHAMOY SOBRE 10G /900","brand":"SALSAS DON VASCO S.A DE C.V.","reason":"not_found_off"}
+{"id":"0d909473-273a-41b1-8685-5c2cd6624163","sku":"00252","barcode":"4895248008767","nombre":"IND GUMY YUM SURPRISE / 1","brand":"COSPOR DISTRIBUCIONES S.A. DE C.V.","reason":"error","error":"OFF status 429 for 4895248008767"}
+{"id":"98fd0722-bee1-46bf-b16f-3f254411d2fc","sku":"00253","barcode":"729090070631","nombre":"IND SONRISA MINIBRIK MANZANA 200ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 729090070631"}
+{"id":"ab6e64de-3687-43ae-9be4-fbf7f1ba3c6a","sku":"00255","barcode":"7501013142051","nombre":"IND JUMEX 355ML VIGOR DURAZNO","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501013142051"}
+{"id":"7d4c2bb2-77bc-431d-a0da-67d7eb7de27b","sku":"00256","barcode":"7501013142198","nombre":"IND JUMEX 355ML VIGOR MANZANA","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501013142198"}
+{"id":"ca948311-4f9a-46dd-aa0f-4f2c3e1ab469","sku":"00257","barcode":"7501013142068","nombre":"IND JUMEX 355ML VIGOR GUAYABA","brand":"G INDIVIDUALES","reason":"error","error":"OFF status 429 for 7501013142068"}
+{"id":"853df8b3-5af6-4a84-a78e-18bf576c0166","sku":"00260","barcode":"75011307","nombre":"IND POKY FRESA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 75011307"}
+{"id":"6480acac-9299-47f0-af0a-efc2266b1583","sku":"00261","barcode":"75011277","nombre":"IND POKY MANZANA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0b8d81ef-744e-4d27-9e76-64425f5c0b33","sku":"00262","barcode":"75011314","nombre":"IND POKY PIÑA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 75011314"}
+{"id":"edfb9fa6-eef6-4955-b557-d07c30571430","sku":"00263","barcode":"75011260","nombre":"IND POKY NARANJA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"error","error":"OFF status 429 for 75011260"}
+{"id":"ed121498-630a-45b6-852a-dc5bb782f55d","sku":"00023","barcode":"756956004226","nombre":"IND GALL BEST SURTIDA /1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"e013467f-2016-49b3-9b9a-204f51caaa72","sku":"00031","barcode":"757528012854","nombre":"IND PALETA PAYASO MINIA RICOLINO","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"b9e20c7c-7e63-4b01-8a54-862b9a662078","sku":"00032","barcode":"7501058644145","nombre":"IND CARLOS V SNAX 35G/NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"97795219-fb30-45bd-8433-1c15808a6304","sku":"00035","barcode":"7501575504069","nombre":"IND PAPA ADOBADA COYOTE 50GR","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"7979a6fa-4990-46cc-9007-3d8cb3653377","sku":"00045","barcode":"766902008604","nombre":"IND VASITO CHAMOY MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"ae742ebb-c79f-4475-ba65-c441a154383c","sku":"00047","barcode":"766902005139","nombre":"IND VASITO TAMARINDO MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"5e353c33-a1e3-47d6-9024-eb09d519f494","sku":"00049","barcode":"7503006137136","nombre":"* IND PALOMITA POPCORNER QUESO CHEDDAR","brand":"ILA GRANJA ORGANICA","reason":"not_found_off"}
+{"id":"8239c081-7b77-4784-881a-7a04a474e1ab","sku":"00052","barcode":"840004096513","nombre":"TIC TAC CANELA  /12","brand":"FERRERO DE MEXICO, S.A.","reason":"not_found_off"}
+{"id":"baae090c-cb1b-48d3-9d6c-71a446e87dce","sku":"00054","barcode":"766902008611","nombre":"IND VASITO MANGO MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"d1e4a3eb-6a59-4535-bbb0-0b0fd81caf71","sku":"00055","barcode":"7501059281516","nombre":"IND CRUNCH MAX 50G","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"d9119dc8-07e4-44ae-b004-d1db441113ba","sku":"00059","barcode":"7501059239579","nombre":"IND CHOC CARLOS V CACAHUATE 22GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"9ff517c7-1bc2-4b80-b0f5-454fec0cbc93","sku":"00060","barcode":"7501059209381","nombre":"IND CHOC LARIN ALMENDRAS 26GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"42c77346-3248-44b3-b1e9-d0affec7fcfb","sku":"00061","barcode":"7501575504281","nombre":"BOLIBOYS 110 GR / 10  LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"bce335ed-babf-40c1-936a-5aba2b96ef79","sku":"00063","barcode":"7501059209374","nombre":"IND CHOC LARIN AVELLANA 26GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"fd270f99-8d35-4985-9edb-df14ff6f34bc","sku":"00065","barcode":"7501059298835","nombre":"IND CHOC CARLOS V COOKIES N CREAM 20GR NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"4b9684d3-5aaa-4497-a4ef-0eb0d509386a","sku":"00066","barcode":"7501079221165","nombre":"GALL ANIMALITOS 5KG / GISA","brand":"GALLETERA ITALIANA","reason":"not_found_off"}
+{"id":"fe516ae9-0f76-4145-83b5-d7696a45484b","sku":"00067","barcode":"7501058644169","nombre":"IND CRUNCH SNAX 32G/NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"e24b6541-a596-47e5-82b7-82c3ec6ee076","sku":"00068","barcode":"7622210108777","nombre":"IND CRACK-UPS BUBBALOO 40GR","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"9894c077-4946-4893-9dc3-4f60d7a54c10","sku":"00073","barcode":"7506174500481","nombre":"IND CHOC SNICKERS 21.5GR","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"1bb2243c-1b02-43c7-bbd9-63853f2a7bf9","sku":"00074","barcode":"7501058654861","nombre":"NESTLE CARLOS V CHOCO LECHE 10P","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"35ff06ad-88aa-439d-b9de-d82599b55b8d","sku":"00075","barcode":"7500478037155","nombre":"IND DORITO HARD CORE FLAMIN HOT 32GR","brand":"G INDIVIDUALES","reason":"no_image_in_off","off_name":"Hardcore"}
+{"id":"16091608-6029-46b2-a7ec-4070d35620c6","sku":"00078","barcode":"070847813620","nombre":"IND MOSTER JAVA LOCA MOCA 473ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"5a779f5d-2451-4cc1-a0c0-e2b9669ce39d","sku":"00079","barcode":"7702174085038","nombre":"IND PAL PINPOP SURTIDA/1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"db5b42f7-b8c3-441e-89b7-8fdf6a46ac41","sku":"00080","barcode":"757528012441","nombre":"IND CHIPS MINI ADOBADA(18GR)","brand":"BARCEL","reason":"not_found_off"}
+{"id":"4c9916ac-6feb-4c34-86fe-1d303f1fbee6","sku":"00083","barcode":"7501013154245","nombre":"JUMEX SURTIDO LATA 335 ML /","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"not_found_off"}
+{"id":"7c346edb-fedf-45cf-b973-b7b2a46c59d0","sku":"00085","barcode":"75066871","nombre":"IND CREMINO AVELLANA / 1","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"d51da302-4edc-4ff4-b265-28da5741ef6d","sku":"00090","barcode":"044396000008","nombre":"IND FRUTI QUEKO 236ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0ed46fc3-cb96-48eb-aaed-2b09d8a1782e","sku":"00100","barcode":"044396001005","nombre":"IND FRUTI QUEKO 473ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"834522d5-9200-4c59-af4c-f1b55b7b43c4","sku":"00101","barcode":"044396004006","nombre":"IND FRUTI QUEKO NAR CHUPON 500","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"9b1e438a-a44a-443d-9e3b-90e7db811200","sku":"00102","barcode":"7622210253507","nombre":"IND TANG LIMON (13GR)","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"da566278-601b-402b-a3a7-cd0a6c476287","sku":"00111","barcode":"7506161208956","nombre":"IND CHOC HUEVO AVIONES 20G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"e9024f5e-6798-4e27-8bd6-6982b95f8e26","sku":"00113","barcode":"7506161207904","nombre":"IND CHOC HUEVO BATMAN 20G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"52a6b3f4-8f98-49eb-bdc9-68d233977457","sku":"00116","barcode":"7501575500436","nombre":"* POPOTE ANILLO PERLA","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"befd69be-ce9e-4f9e-9b8d-3d788d3c3572","sku":"00118","barcode":"840004099590","nombre":"IND CHOC WEBO EL CHAVO BONDY (20GR)","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"6c381a70-8c22-4c77-9ff3-b551d364f01c","sku":"00119","barcode":"840004075129","nombre":"IND CHOC WEBO HELLO KITTY BONDY (20GR)","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"fb606540-20af-449a-b5bb-0b2304e57576","sku":"00122","barcode":"018804701535","nombre":"IND PICOSOS MANGO C/ CHILE 85GR/1 CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"not_found_off"}
+{"id":"d4ae468f-32ab-4034-8c45-a2ac6c44f88d","sku":"00123","barcode":"018804701528","nombre":"IND PICOSOS PIÑA C/ CHILE 85GR/1 CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"not_found_off"}
+{"id":"e018dfba-e72b-41ee-b7d8-2d451444c306","sku":"00137","barcode":"7503022042056","nombre":"* IND JUGO CITRUS PUNCH TAMBAA (330ML)","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"a1c111c8-92ca-4d35-865a-711e15df0f94","sku":"00139","barcode":"754177614453","nombre":"IND WINIS MAXI TUBITO SIRENA/ 1 KLASSCO","brand":"THE KLASS COMPANY S.A. DE C.V.","reason":"not_found_off"}
+{"id":"23e480c2-2cf1-442e-b2fd-4d7c2d61848d","sku":"00140","barcode":"7501031346301","nombre":"IND REFRESCO PEPSI SURT 355 ML","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"no_image_in_off","off_name":"Fanta"}
+{"id":"42015829-6835-490d-9067-9a5e2e3c8b35","sku":"00144","barcode":"7501090800219","nombre":"GOMITAS GOTA ROMPOPE / 1 KG CUETARA","brand":"CUETARA DISTRIBUCION S.A DE C.V","reason":"not_found_off"}
+{"id":"4b871b0b-cdbe-49a9-a3c3-7ebc11b95c3e","sku":"00145","barcode":"7506192511155","nombre":"IND AMPER MANGO PARTY 473ML","brand":"QUALAMEX SA DE CV","reason":"not_found_off"}
+{"id":"b4570642-399d-43ba-8505-8e8640b57373","sku":"00158","barcode":"0000200101040","nombre":"CUCHARA NEVERA COLOR / REYHER","brand":"REYHER COMERCIALIZADORA","reason":"not_found_off"}
+{"id":"45bb96cf-1932-4332-ae55-8868c0abd0ca","sku":"00165","barcode":"840004010755","nombre":"IND CHOC WEBO LATE MISS CANDY / BONDY","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"62671f4d-4b25-4264-9cd6-f38deea7b1c5","sku":"00166","barcode":"7501575509804","nombre":"IND MANGANITAS (80GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"ac61d948-fd5e-407f-a8a0-040a293d77cf","sku":"00180","barcode":"7501575509286","nombre":"IND PAPAS FRITAS HABANERAS (50GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"0c08a980-2c35-4e3e-a524-206009cf791b","sku":"00185","barcode":"894277000456","nombre":"IND FRUTI KING SURTIDO 500ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"c5c331bd-a2fb-4bac-aa24-e8a3353fa60d","sku":"00187","barcode":"7501575509477","nombre":"IND CHAPETONES C/QUESO (50GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"503a250b-c8fb-4b19-ab7d-3e3c4ad91e2a","sku":"00188","barcode":"7503001403250","nombre":"* IND FRUTI KIDS SURTIDO 250ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"133c88a8-def1-4cf6-b0c1-02f43ede5cae","sku":"00205","barcode":"7501575503284","nombre":"IND COYO SHERIFS (60 GR) LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"d393242b-14ee-4351-a5c6-536d6dc041c8","sku":"00212","barcode":"7501059277496","nombre":"NESTLE CARNATION CLAVEL (480GR) /1","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"d007a060-803b-4b46-ad25-398a0b124efb","sku":"00221","barcode":"7501124500238","nombre":"IND COCA COLA S/AZUCAR 355ML PET / 1","brand":"FEMSA","reason":"not_found_off"}
+{"id":"2658219f-e82c-4b95-a705-343aea281096","sku":"00222","barcode":"7861091132673","nombre":"IND CHOC CARLOS V AERO MILKY NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"9e764685-8a97-4f15-88fa-d7956820001e","sku":"00228","barcode":"7501011162587","nombre":"IND OBLEA GRANDE  55GR / CABADAS","brand":"DIST CABADAS DE LA PIEDAD SA DE CV","reason":"not_found_off"}
+{"id":"f32c776d-b3fd-4ddc-987c-dacff463a34d","sku":"00231","barcode":"756774013073","nombre":"IND CHOC JOSE CUERVO 3 PACK 30GR","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"not_found_off"}
+{"id":"8c295f00-4ef3-408b-87a0-f42cb09dd79b","sku":"00236","barcode":"7501124500191","nombre":"IND AGUA CACTUS SABORES 500ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0ec9862a-e9c7-4dde-89a4-563e29ebda7d","sku":"00239","barcode":"7503001403670","nombre":"IND FRUTI KING 170ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"6f4bbe50-248e-4a10-94e6-b7a66701aa56","sku":"00245","barcode":"7506105602635","nombre":"* IND CH TRIDENT TWIST UVA/NARANJA","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"f3e84b8b-723d-42d4-97c5-58a29b9e45d3","sku":"00247","barcode":"719886400117","nombre":"IND PELONETES HOT INTENSO","brand":"HERSHEY MEXICO SA DE CV","reason":"not_found_off"}
+{"id":"a9b63015-7ef1-44cd-bdb8-e83a241f3a5b","sku":"00251","barcode":"7502242131311","nombre":"SALSA CHAMOY SOBRE 10G /900","brand":"SALSAS DON VASCO S.A DE C.V.","reason":"not_found_off"}
+{"id":"0d909473-273a-41b1-8685-5c2cd6624163","sku":"00252","barcode":"4895248008767","nombre":"IND GUMY YUM SURPRISE / 1","brand":"COSPOR DISTRIBUCIONES S.A. DE C.V.","reason":"not_found_off"}
+{"id":"98fd0722-bee1-46bf-b16f-3f254411d2fc","sku":"00253","barcode":"729090070631","nombre":"IND SONRISA MINIBRIK MANZANA 200ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"ab6e64de-3687-43ae-9be4-fbf7f1ba3c6a","sku":"00255","barcode":"7501013142051","nombre":"IND JUMEX 355ML VIGOR DURAZNO","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"7d4c2bb2-77bc-431d-a0da-67d7eb7de27b","sku":"00256","barcode":"7501013142198","nombre":"IND JUMEX 355ML VIGOR MANZANA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"ca948311-4f9a-46dd-aa0f-4f2c3e1ab469","sku":"00257","barcode":"7501013142068","nombre":"IND JUMEX 355ML VIGOR GUAYABA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"853df8b3-5af6-4a84-a78e-18bf576c0166","sku":"00260","barcode":"75011307","nombre":"IND POKY FRESA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"6480acac-9299-47f0-af0a-efc2266b1583","sku":"00261","barcode":"75011277","nombre":"IND POKY MANZANA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0b8d81ef-744e-4d27-9e76-64425f5c0b33","sku":"00262","barcode":"75011314","nombre":"IND POKY PIÑA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"edfb9fa6-eef6-4955-b557-d07c30571430","sku":"00263","barcode":"75011260","nombre":"IND POKY NARANJA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"a96b2ccf-5cdc-471b-ac69-b60fbecff0d7","sku":"00264","barcode":"75011284","nombre":"IND POKY UVA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"5fa057c5-646c-456f-82c6-81d697b88aea","sku":"00265","barcode":"75011291","nombre":"IND POKY MANGO","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"6aeb67ce-3fb3-4018-b407-5c4144dcf511","sku":"00268","barcode":"7622300278038","nombre":"IND PREDATOR 473ML LATA /1","brand":"FEMSA","reason":"not_found_off"}
+{"id":"5d47bb84-f5b4-4ea0-a650-be799ca6679e","sku":"00270","barcode":"7503001403977","nombre":"IND FRUTI KING PIÑA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"8eaf24ba-d55f-4801-9512-0c8eec16de85","sku":"00271","barcode":"7503001403939","nombre":"IND FRUTI KING TORONJA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"674d6a7e-96af-46f7-8c29-0bed6af70992","sku":"00272","barcode":"7503001403571","nombre":"IND FRUTI KING FRESA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"822faf63-5915-4b3e-a9c1-6ad8f1830d6f","sku":"00273","barcode":"7503028836178","nombre":"CUCHARA CHICA FENIX / 40 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"ed121498-630a-45b6-852a-dc5bb782f55d","sku":"00023","barcode":"756956004226","nombre":"IND GALL BEST SURTIDA /1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"e013467f-2016-49b3-9b9a-204f51caaa72","sku":"00031","barcode":"757528012854","nombre":"IND PALETA PAYASO MINIA RICOLINO","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"b9e20c7c-7e63-4b01-8a54-862b9a662078","sku":"00032","barcode":"7501058644145","nombre":"IND CARLOS V SNAX 35G/NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"97795219-fb30-45bd-8433-1c15808a6304","sku":"00035","barcode":"7501575504069","nombre":"IND PAPA ADOBADA COYOTE 50GR","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"7979a6fa-4990-46cc-9007-3d8cb3653377","sku":"00045","barcode":"766902008604","nombre":"IND VASITO CHAMOY MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"ae742ebb-c79f-4475-ba65-c441a154383c","sku":"00047","barcode":"766902005139","nombre":"IND VASITO TAMARINDO MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"5e353c33-a1e3-47d6-9024-eb09d519f494","sku":"00049","barcode":"7503006137136","nombre":"* IND PALOMITA POPCORNER QUESO CHEDDAR","brand":"ILA GRANJA ORGANICA","reason":"not_found_off"}
+{"id":"8239c081-7b77-4784-881a-7a04a474e1ab","sku":"00052","barcode":"840004096513","nombre":"TIC TAC CANELA  /12","brand":"FERRERO DE MEXICO, S.A.","reason":"not_found_off"}
+{"id":"baae090c-cb1b-48d3-9d6c-71a446e87dce","sku":"00054","barcode":"766902008611","nombre":"IND VASITO MANGO MEDIANO / MARA","brand":"PALETAS MARA SA DE CV","reason":"not_found_off"}
+{"id":"d1e4a3eb-6a59-4535-bbb0-0b0fd81caf71","sku":"00055","barcode":"7501059281516","nombre":"IND CRUNCH MAX 50G","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"d9119dc8-07e4-44ae-b004-d1db441113ba","sku":"00059","barcode":"7501059239579","nombre":"IND CHOC CARLOS V CACAHUATE 22GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"9ff517c7-1bc2-4b80-b0f5-454fec0cbc93","sku":"00060","barcode":"7501059209381","nombre":"IND CHOC LARIN ALMENDRAS 26GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"42c77346-3248-44b3-b1e9-d0affec7fcfb","sku":"00061","barcode":"7501575504281","nombre":"BOLIBOYS 110 GR / 10  LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"bce335ed-babf-40c1-936a-5aba2b96ef79","sku":"00063","barcode":"7501059209374","nombre":"IND CHOC LARIN AVELLANA 26GR NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"fd270f99-8d35-4985-9edb-df14ff6f34bc","sku":"00065","barcode":"7501059298835","nombre":"IND CHOC CARLOS V COOKIES N CREAM 20GR NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"4b9684d3-5aaa-4497-a4ef-0eb0d509386a","sku":"00066","barcode":"7501079221165","nombre":"GALL ANIMALITOS 5KG / GISA","brand":"GALLETERA ITALIANA","reason":"not_found_off"}
+{"id":"fe516ae9-0f76-4145-83b5-d7696a45484b","sku":"00067","barcode":"7501058644169","nombre":"IND CRUNCH SNAX 32G/NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"e24b6541-a596-47e5-82b7-82c3ec6ee076","sku":"00068","barcode":"7622210108777","nombre":"IND CRACK-UPS BUBBALOO 40GR","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"9894c077-4946-4893-9dc3-4f60d7a54c10","sku":"00073","barcode":"7506174500481","nombre":"IND CHOC SNICKERS 21.5GR","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"1bb2243c-1b02-43c7-bbd9-63853f2a7bf9","sku":"00074","barcode":"7501058654861","nombre":"NESTLE CARLOS V CHOCO LECHE 10P","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"35ff06ad-88aa-439d-b9de-d82599b55b8d","sku":"00075","barcode":"7500478037155","nombre":"IND DORITO HARD CORE FLAMIN HOT 32GR","brand":"G INDIVIDUALES","reason":"no_image_in_off","off_name":"Hardcore"}
+{"id":"16091608-6029-46b2-a7ec-4070d35620c6","sku":"00078","barcode":"070847813620","nombre":"IND MOSTER JAVA LOCA MOCA 473ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"5a779f5d-2451-4cc1-a0c0-e2b9669ce39d","sku":"00079","barcode":"7702174085038","nombre":"IND PAL PINPOP SURTIDA/1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"db5b42f7-b8c3-441e-89b7-8fdf6a46ac41","sku":"00080","barcode":"757528012441","nombre":"IND CHIPS MINI ADOBADA(18GR)","brand":"BARCEL","reason":"not_found_off"}
+{"id":"4c9916ac-6feb-4c34-86fe-1d303f1fbee6","sku":"00083","barcode":"7501013154245","nombre":"JUMEX SURTIDO LATA 335 ML /","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"not_found_off"}
+{"id":"7c346edb-fedf-45cf-b973-b7b2a46c59d0","sku":"00085","barcode":"75066871","nombre":"IND CREMINO AVELLANA / 1","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"d51da302-4edc-4ff4-b265-28da5741ef6d","sku":"00090","barcode":"044396000008","nombre":"IND FRUTI QUEKO 236ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0ed46fc3-cb96-48eb-aaed-2b09d8a1782e","sku":"00100","barcode":"044396001005","nombre":"IND FRUTI QUEKO 473ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"834522d5-9200-4c59-af4c-f1b55b7b43c4","sku":"00101","barcode":"044396004006","nombre":"IND FRUTI QUEKO NAR CHUPON 500","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"9b1e438a-a44a-443d-9e3b-90e7db811200","sku":"00102","barcode":"7622210253507","nombre":"IND TANG LIMON (13GR)","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"da566278-601b-402b-a3a7-cd0a6c476287","sku":"00111","barcode":"7506161208956","nombre":"IND CHOC HUEVO AVIONES 20G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"e9024f5e-6798-4e27-8bd6-6982b95f8e26","sku":"00113","barcode":"7506161207904","nombre":"IND CHOC HUEVO BATMAN 20G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"52a6b3f4-8f98-49eb-bdc9-68d233977457","sku":"00116","barcode":"7501575500436","nombre":"* POPOTE ANILLO PERLA","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"befd69be-ce9e-4f9e-9b8d-3d788d3c3572","sku":"00118","barcode":"840004099590","nombre":"IND CHOC WEBO EL CHAVO BONDY (20GR)","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"6c381a70-8c22-4c77-9ff3-b551d364f01c","sku":"00119","barcode":"840004075129","nombre":"IND CHOC WEBO HELLO KITTY BONDY (20GR)","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"fb606540-20af-449a-b5bb-0b2304e57576","sku":"00122","barcode":"018804701535","nombre":"IND PICOSOS MANGO C/ CHILE 85GR/1 CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"not_found_off"}
+{"id":"d4ae468f-32ab-4034-8c45-a2ac6c44f88d","sku":"00123","barcode":"018804701528","nombre":"IND PICOSOS PIÑA C/ CHILE 85GR/1 CANELS","brand":"CANEL´S S.A. DE C.V.","reason":"not_found_off"}
+{"id":"e018dfba-e72b-41ee-b7d8-2d451444c306","sku":"00137","barcode":"7503022042056","nombre":"* IND JUGO CITRUS PUNCH TAMBAA (330ML)","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"a1c111c8-92ca-4d35-865a-711e15df0f94","sku":"00139","barcode":"754177614453","nombre":"IND WINIS MAXI TUBITO SIRENA/ 1 KLASSCO","brand":"THE KLASS COMPANY S.A. DE C.V.","reason":"not_found_off"}
+{"id":"23e480c2-2cf1-442e-b2fd-4d7c2d61848d","sku":"00140","barcode":"7501031346301","nombre":"IND REFRESCO PEPSI SURT 355 ML","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"no_image_in_off","off_name":"Fanta"}
+{"id":"42015829-6835-490d-9067-9a5e2e3c8b35","sku":"00144","barcode":"7501090800219","nombre":"GOMITAS GOTA ROMPOPE / 1 KG CUETARA","brand":"CUETARA DISTRIBUCION S.A DE C.V","reason":"not_found_off"}
+{"id":"4b871b0b-cdbe-49a9-a3c3-7ebc11b95c3e","sku":"00145","barcode":"7506192511155","nombre":"IND AMPER MANGO PARTY 473ML","brand":"QUALAMEX SA DE CV","reason":"not_found_off"}
+{"id":"b4570642-399d-43ba-8505-8e8640b57373","sku":"00158","barcode":"0000200101040","nombre":"CUCHARA NEVERA COLOR / REYHER","brand":"REYHER COMERCIALIZADORA","reason":"not_found_off"}
+{"id":"45bb96cf-1932-4332-ae55-8868c0abd0ca","sku":"00165","barcode":"840004010755","nombre":"IND CHOC WEBO LATE MISS CANDY / BONDY","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"62671f4d-4b25-4264-9cd6-f38deea7b1c5","sku":"00166","barcode":"7501575509804","nombre":"IND MANGANITAS (80GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"ac61d948-fd5e-407f-a8a0-040a293d77cf","sku":"00180","barcode":"7501575509286","nombre":"IND PAPAS FRITAS HABANERAS (50GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"0c08a980-2c35-4e3e-a524-206009cf791b","sku":"00185","barcode":"894277000456","nombre":"IND FRUTI KING SURTIDO 500ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"c5c331bd-a2fb-4bac-aa24-e8a3353fa60d","sku":"00187","barcode":"7501575509477","nombre":"IND CHAPETONES C/QUESO (50GR) / LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"503a250b-c8fb-4b19-ab7d-3e3c4ad91e2a","sku":"00188","barcode":"7503001403250","nombre":"* IND FRUTI KIDS SURTIDO 250ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"133c88a8-def1-4cf6-b0c1-02f43ede5cae","sku":"00205","barcode":"7501575503284","nombre":"IND COYO SHERIFS (60 GR) LOS COYOTES","brand":"GRUPO BOTANERO ALTEÑO SA DE CV","reason":"not_found_off"}
+{"id":"d393242b-14ee-4351-a5c6-536d6dc041c8","sku":"00212","barcode":"7501059277496","nombre":"NESTLE CARNATION CLAVEL (480GR) /1","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"d007a060-803b-4b46-ad25-398a0b124efb","sku":"00221","barcode":"7501124500238","nombre":"IND COCA COLA S/AZUCAR 355ML PET / 1","brand":"FEMSA","reason":"not_found_off"}
+{"id":"2658219f-e82c-4b95-a705-343aea281096","sku":"00222","barcode":"7861091132673","nombre":"IND CHOC CARLOS V AERO MILKY NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"9e764685-8a97-4f15-88fa-d7956820001e","sku":"00228","barcode":"7501011162587","nombre":"IND OBLEA GRANDE  55GR / CABADAS","brand":"DIST CABADAS DE LA PIEDAD SA DE CV","reason":"not_found_off"}
+{"id":"f32c776d-b3fd-4ddc-987c-dacff463a34d","sku":"00231","barcode":"756774013073","nombre":"IND CHOC JOSE CUERVO 3 PACK 30GR","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"not_found_off"}
+{"id":"8c295f00-4ef3-408b-87a0-f42cb09dd79b","sku":"00236","barcode":"7501124500191","nombre":"IND AGUA CACTUS SABORES 500ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0ec9862a-e9c7-4dde-89a4-563e29ebda7d","sku":"00239","barcode":"7503001403670","nombre":"IND FRUTI KING 170ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"6f4bbe50-248e-4a10-94e6-b7a66701aa56","sku":"00245","barcode":"7506105602635","nombre":"* IND CH TRIDENT TWIST UVA/NARANJA","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"f3e84b8b-723d-42d4-97c5-58a29b9e45d3","sku":"00247","barcode":"719886400117","nombre":"IND PELONETES HOT INTENSO","brand":"HERSHEY MEXICO SA DE CV","reason":"not_found_off"}
+{"id":"a9b63015-7ef1-44cd-bdb8-e83a241f3a5b","sku":"00251","barcode":"7502242131311","nombre":"SALSA CHAMOY SOBRE 10G /900","brand":"SALSAS DON VASCO S.A DE C.V.","reason":"not_found_off"}
+{"id":"0d909473-273a-41b1-8685-5c2cd6624163","sku":"00252","barcode":"4895248008767","nombre":"IND GUMY YUM SURPRISE / 1","brand":"COSPOR DISTRIBUCIONES S.A. DE C.V.","reason":"not_found_off"}
+{"id":"98fd0722-bee1-46bf-b16f-3f254411d2fc","sku":"00253","barcode":"729090070631","nombre":"IND SONRISA MINIBRIK MANZANA 200ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"ab6e64de-3687-43ae-9be4-fbf7f1ba3c6a","sku":"00255","barcode":"7501013142051","nombre":"IND JUMEX 355ML VIGOR DURAZNO","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"7d4c2bb2-77bc-431d-a0da-67d7eb7de27b","sku":"00256","barcode":"7501013142198","nombre":"IND JUMEX 355ML VIGOR MANZANA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"ca948311-4f9a-46dd-aa0f-4f2c3e1ab469","sku":"00257","barcode":"7501013142068","nombre":"IND JUMEX 355ML VIGOR GUAYABA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"853df8b3-5af6-4a84-a78e-18bf576c0166","sku":"00260","barcode":"75011307","nombre":"IND POKY FRESA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"6480acac-9299-47f0-af0a-efc2266b1583","sku":"00261","barcode":"75011277","nombre":"IND POKY MANZANA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0b8d81ef-744e-4d27-9e76-64425f5c0b33","sku":"00262","barcode":"75011314","nombre":"IND POKY PIÑA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"edfb9fa6-eef6-4955-b557-d07c30571430","sku":"00263","barcode":"75011260","nombre":"IND POKY NARANJA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"a96b2ccf-5cdc-471b-ac69-b60fbecff0d7","sku":"00264","barcode":"75011284","nombre":"IND POKY UVA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"5fa057c5-646c-456f-82c6-81d697b88aea","sku":"00265","barcode":"75011291","nombre":"IND POKY MANGO","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"6aeb67ce-3fb3-4018-b407-5c4144dcf511","sku":"00268","barcode":"7622300278038","nombre":"IND PREDATOR 473ML LATA /1","brand":"FEMSA","reason":"not_found_off"}
+{"id":"5d47bb84-f5b4-4ea0-a650-be799ca6679e","sku":"00270","barcode":"7503001403977","nombre":"IND FRUTI KING PIÑA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"8eaf24ba-d55f-4801-9512-0c8eec16de85","sku":"00271","barcode":"7503001403939","nombre":"IND FRUTI KING TORONJA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"674d6a7e-96af-46f7-8c29-0bed6af70992","sku":"00272","barcode":"7503001403571","nombre":"IND FRUTI KING FRESA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"822faf63-5915-4b3e-a9c1-6ad8f1830d6f","sku":"00273","barcode":"7503028836178","nombre":"CUCHARA CHICA FENIX / 40 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"95f5aa68-69b3-4db1-b6fb-d87527b3a8b0","sku":"00274","barcode":"7503001403182","nombre":"IND FRUTI KING MANZANA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"9fd827b8-d727-4d06-9e91-75d1a37ce4ca","sku":"00275","barcode":"7503001403403","nombre":"IND FRUTI KING NARANJA 3.2LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"6e081aaf-99e5-48ea-9f0d-4594ffce3156","sku":"00276","barcode":"7503001403496","nombre":"IND FRUTI KING COLA 2.60LTS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"10f975d5-a247-47aa-9065-6becf7a2d1bc","sku":"00278","barcode":"7503028836192","nombre":"CUCHARA GRANDE FENIX / 20 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"79078707-e741-4f12-8288-c41a303b387d","sku":"00279","barcode":"840004030661","nombre":"MEGA HUEVO POLINESIOS / 6 BONDY","brand":"DISTRIBUIDORA BONDY FIESTA S.A. DE C.V","reason":"not_found_off"}
+{"id":"d6988ebb-c9cd-49c9-aef4-6a614d810f4c","sku":"00283","barcode":"7503028836161","nombre":"TENEDOR CHICO FENIX / 40 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"adafe4c0-571b-4439-bbb2-9db3169c6480","sku":"00284","barcode":"7503028836185","nombre":"TENEDOR GRANDE FENIX / 20 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"70753c59-7daf-4998-b7a7-7c6acf6fa82f","sku":"00285","barcode":"7503021750525","nombre":"CUCHARA NEVERA FOSFORILOCO BIO 100 GR / DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"411de3b2-a2b3-49a5-a49f-beae7d53efa6","sku":"00286","barcode":"7622300341237","nombre":"BOGLOS","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"a23f8657-b7fe-4091-bc60-edabcf50112c","sku":"00287","barcode":"7503028836857","nombre":"BOLSA TREBOL PAPEL #8 / 100 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"b7127eab-eaad-42c3-ada3-bfc4c32d508c","sku":"00288","barcode":"7503028836790","nombre":"BOLSA TREBOL PAPEL #1 / 100 DAMEX","brand":"MIL ENVASES SA DE CV","reason":"not_found_off"}
+{"id":"94556276-8098-46be-82bf-ad2cd9ad1813","sku":"00291","barcode":"055415197302","nombre":"IND GOMA CREEPY CRAWLERS/1","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"225f5ab1-83bc-445f-b0f1-0bc5ec745a90","sku":"00298","barcode":"7502271915722","nombre":"IND CHOC M&M FUDGE BROWNIE  ( 40 GR )","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"6906a565-c104-49d8-8bf4-ccfb3b309310","sku":"00303","barcode":"077910000017","nombre":"CERILLOS MAYA/ 10","brand":"ABARROTES","reason":"not_found_off"}
+{"id":"245cd0f3-a9f5-467c-9218-003b0a70901a","sku":"00307","barcode":"724869006903","nombre":"TUBO SELE CREMA IRLANDESA  180 GR / LA ROSA","brand":"DISTRIBUIDORA DE LA ROSA SA DE CV","reason":"not_found_off"}
+{"id":"89ca4982-853d-4781-a7ab-11efd40fe882","sku":"00313","barcode":"7501011174740","nombre":"IND INSPIREKA MAMUT (43GR) / SONRICS","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"not_found_off"}
+{"id":"2fdf79d1-6543-4ab1-b23d-3f8c5103980c","sku":"00314","barcode":"7501058619341","nombre":"IND CHOC ABUELITA TIRA (40GR) / NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"784dcf38-a118-4875-9bd5-4c06da3c49e9","sku":"00322","barcode":"7891000109427","nombre":"IND CHOC KIT KAT SURTIDO (45GR) / NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"16c19d07-e0c6-4847-b7ac-68d79850e852","sku":"00329","barcode":"7501186815042","nombre":"IND CARRO FORMULA X C/DULCE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"528bcbe8-1933-46d1-92f3-ed322ef28c65","sku":"00330","barcode":"7506060910059","nombre":"IND PLUMA MAGICA /1","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"3dc9ea70-7b46-4323-b3a0-ded34cba495f","sku":"00331","barcode":"7503015395145","nombre":"IND MK KOFFE SABORES","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"cdab0d66-f98a-45eb-a51e-4d2d3b4313ce","sku":"00332","barcode":"7501186815295","nombre":"IND EXCAVADOR C/DULCE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"204f072e-71f1-422c-9a42-fe0747346f7a","sku":"00333","barcode":"7501073417052","nombre":"IND CAJETOSO NOUGAT NESTLE 45 G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"4c3a504e-3ee3-4c88-a4b8-c8e71f72472c","sku":"00335","barcode":"7501000604289","nombre":"CHILES DE ARBOL SECOS 500GR/ ESPECIAS MOY","brand":"PRODUCTOS DE CALIDAD","reason":"not_found_off"}
+{"id":"c823d90b-1ddf-46f7-aab0-ef46a755bc24","sku":"00339","barcode":"7501059224124","nombre":"IND CAJETOSO CACAHUATE NESTLE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"9c3379d8-114e-4a5b-9832-b2582b084fe5","sku":"00340","barcode":"840004091631","nombre":"IND VARITA MAGICA LOLA C/DULCE BONDY","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"59106e24-b0af-4de4-b7dd-d6377cad81d0","sku":"00342","barcode":"7790206517800","nombre":"IND CHOC FORT DIET 50G LECHE","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"5c3915bc-3673-47a3-8281-798b77322d0d","sku":"00343","barcode":"840004088198","nombre":"IND BOLSITA MODA BARBIE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"409c26dd-ca5d-4d4f-ae6a-650b71e8f453","sku":"00344","barcode":"840004052175","nombre":"IND LONCHERA PRINCESAS BONDY","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"0f59a9b1-8305-4998-90d6-8f7afcbe4b18","sku":"00346","barcode":"840004052069","nombre":"IND LONCHERA LOONEY TUNES BOND","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"8903e354-afd5-462b-b36b-8c7595c100b1","sku":"00347","barcode":"7501186865306","nombre":"IND EST CORAZON 10 MAYO 120G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"627d2e90-3586-4900-83b7-47d2db58410e","sku":"00348","barcode":"840004052137","nombre":"IND LONCHERA SPIDER MAN 2 C/DULCE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"5cc47f70-e795-4778-83c8-bed336865a90","sku":"00349","barcode":"040000007197","nombre":"IND CHOC DOVE ORGANIC DARK 100G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"0c1e5d78-6db9-4912-838b-d01ff60acdb9","sku":"00350","barcode":"078742098036","nombre":"IND CHOC SAM*S CHOICE MILK 200G","brand":"PRODUCTOS CON BAJA ROTACION","reason":"no_image_in_off","off_name":"The bakery, granola"}
+{"id":"75dc602d-8b24-4c4e-8deb-d6fd3286f1e9","sku":"00351","barcode":"840004052892","nombre":"IND LONCHERA ROSITA FRESITA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"b3d77da4-0c47-4f77-bdff-24f4f11f6ef7","sku":"00352","barcode":"7501201110497","nombre":"IND MONEDERO C/DULCE LUCKY /30G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"d5f41ed7-3c62-47dd-9e0a-38b7bdaf766d","sku":"00353","barcode":"840004052038","nombre":"IND LONCHERA CHICAS BONDY","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"7c1833a6-33b7-4dd3-b196-e884f047ede3","sku":"00354","barcode":"840004052052","nombre":"IND LONCHERA BOB ESPONJA BONDY","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"7e43406e-96ea-4da9-80b1-56dfb49c6505","sku":"00355","barcode":"7501059228177","nombre":"IND FRESKAS 35 G NESTLE","brand":"MARCAS NESTLE S.A. DE C.V.","reason":"not_found_off"}
+{"id":"722447db-e4e3-4d50-867b-b3035995ae1d","sku":"00356","barcode":"7501008713488","nombre":"IND GALL HOJALDRADA 270G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"7b91c5bf-7162-42ae-90e0-9d2d0a83c5c9","sku":"00357","barcode":"7501186865665","nombre":"IND EST CORAZON 120G LOONES TUNES","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"18cf96f3-9310-44bc-bb51-f2fd6cc89c76","sku":"00358","barcode":"894800000984","nombre":"IND JOYITAS PRINCESAS","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"2e17aefe-28c1-4f59-b3a2-65024b243ce3","sku":"00359","barcode":"7501186868918","nombre":"IND EST CORAZON 85G LUCKY CANDY","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"9b393ca8-f107-476c-8545-29d7a96d942c","sku":"00362","barcode":"722082002405","nombre":"* IND PALANQUETA CACAHUATADA SAN PABLO","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"1b6c0dc6-cc82-4cdb-a02c-1bf1d6fd3872","sku":"00367","barcode":"7501186868819","nombre":"IND CHOC SPEED RACER DISPLAY 85G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"bbd73c5f-40e9-44a5-a7f7-c86d69576e15","sku":"00368","barcode":"840004052809","nombre":"IND LONCHERA PICNIC BARBIE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"76962e8b-0c75-4a68-b649-098ee074a57d","sku":"00369","barcode":"7501024528523","nombre":"IND KISSABLES HERSH TUBO 30G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"e2146997-2a26-4726-9a03-48e1ad631d6f","sku":"00370","barcode":"840004052557","nombre":"IND PORTA LAPIZ CHICO BOB ESPONJA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"b71775aa-d159-4cfc-8886-133a7f3c1453","sku":"00371","barcode":"7501186868970","nombre":"IND EST CORAZON BOB ESPONJA LUCKY 85G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"1e8ffef6-03ff-4062-8d06-b7cbc9909b7a","sku":"00372","barcode":"7501186855598","nombre":"IND CELULAR BATMAN C/DULCE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"ad15ba7a-49da-48fb-be0f-47c2ca42312e","sku":"00373","barcode":"038629001696","nombre":"IND GALL MARIAS MODERNA 170G","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"ffc5a518-fb17-4010-b348-e8a0be31c958","sku":"00378","barcode":"7501186858155","nombre":"IND CALABAZA GIRATORIA LUCKY 30G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"5c2a2c82-082d-4958-a7a2-24d57cf39a2f","sku":"00379","barcode":"604722006502","nombre":"IND RUGILEO SURTIDO 20GR/ 1 LEO","brand":"BOTANAS Y DERIVADOS BYDSA","reason":"not_found_off"}
+{"id":"f0471def-0a98-44af-a588-d1314a263606","sku":"00384","barcode":"7503023533720","nombre":"CHUPA CHUPS FRIKI FRUTS 513GR/ 9","brand":"PERFETTI VAN MELLE MEXICO SA DE CV","reason":"not_found_off"}
+{"id":"4d2c3697-6776-4dbd-82b2-dcec98cd888a","sku":"00386","barcode":"7506161206082","nombre":"IND CHOC HUEVO CAPITAN AMERICA 20G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"89cedb8c-1fbf-45d1-a64a-b491129b0c50","sku":"00388","barcode":"7506032104257","nombre":"IND HUEVO HADAS DISNEY","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"410aef6c-8900-4fe0-af21-5cd7d9411e84","sku":"00393","barcode":"7506161205894","nombre":"IND HUEVO BOB ESPONJA 20G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"1127917a-3eca-409e-b718-0e2e9a65d9a8","sku":"00394","barcode":"055415125497","nombre":"IND PAL PAINT POP C/SILVATO /1","brand":"PRODUCTOS LUGO","reason":"not_found_off"}
+{"id":"c0e5b2d9-91b1-4e15-9e0a-3f8f8df80858","sku":"00396","barcode":"7506161206273","nombre":"IND HUEVO DISTROLLER","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"ff20bbdc-cb44-403b-8a4e-d1cb097519ca","sku":"00398","barcode":"7501024528615","nombre":"IND KISSABLES HERSH TUBO HALLOWEEN 30G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"233c1f9e-0306-456a-bf17-71e9ac3ab0b2","sku":"00399","barcode":"7501024523078","nombre":"IND KISSES HERSH MOMIA HALLOWEEN 64G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"f4b20e9f-38bd-4b7e-8707-8ffedfb24183","sku":"00415","barcode":"7502231140010","nombre":"IND GOMITAS DULFREE S/AZUCAR 30G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"fbfc69b2-ca67-4ee2-a1ed-723183c3ea9c","sku":"00419","barcode":"7502226811567","nombre":"IND CH ORBIT MENTA WRIGLEYS /8´S","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"c0786090-9a0e-4265-b966-8c0ea813a0d4","sku":"00425","barcode":"7502226813301","nombre":"NUTRESCAN ORIGINAL BABY 1KG","brand":"MULTISERVICIOS 2001 S.A. DE C.V.","reason":"not_found_off"}
+{"id":"3a89a761-d08f-4018-9c6b-c8f513374041","sku":"00426","barcode":"7502226813370","nombre":"IND SKITTLES ORIGINAL 24GR","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"e89d5067-2bd4-4f51-9775-3277e74cfbad","sku":"00451","barcode":"7502226811307","nombre":"IND CH FIVE COBALT SUGAR FREE","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"947abc75-343e-4eae-bfc0-41fce91c72c0","sku":"00459","barcode":"7506105604714","nombre":"IND HALLS SURTIDA /1","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"3545e4e3-fb54-4f01-af14-a64d131050bf","sku":"00467","barcode":"7502271915258","nombre":"CAJA REGALO TURIN 100GR /MARS","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"c7efb322-fa8a-414f-a65e-139a15e043b5","sku":"00469","barcode":"7503016400299","nombre":"MINI GELATINA MANGONADA / 50 KALU","brand":"AZTECA CONFITERIA S.A DE CV","reason":"not_found_off"}
+{"id":"245c3e45-68db-4e03-9cd8-231b076de5c4","sku":"00484","barcode":"7500464333841","nombre":"IND VUALA SWICH ROOL  (32 GR ) /1","brand":"MASACK SA DE CV","reason":"not_found_off"}
+{"id":"6059a23e-6419-48e6-b287-29805e6e1b2f","sku":"00485","barcode":"7500464333858","nombre":"IND VUALA SWICH  (32 GR ) /1","brand":"MASACK SA DE CV","reason":"not_found_off"}
+{"id":"64ee9bcb-a243-4703-8320-403f80ee991c","sku":"00486","barcode":"02000012098","nombre":"IND CHICLE ORBIT FRESA 14´S (26.6 G)","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"a74e3441-cda3-4675-a5fb-599d62abd46d","sku":"00488","barcode":"7502271918372","nombre":"IND CHOC MASTERPIECES AVELLANA 30 G / TURIN","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"721e45b7-7bed-4dca-8e5f-564ddc9766d4","sku":"00501","barcode":"7802800719433","nombre":"IND ZUKO PIÑA COLADA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"no_image_in_off","off_name":"piña colada"}
+{"id":"d848ac0d-6687-4f6b-80e5-b3457c1c4d82","sku":"00502","barcode":"7802800735501","nombre":"IND SUKO SABILA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"5d83e0de-48a9-4d13-be0a-f86de1c6efde","sku":"00504","barcode":"7503032460130","nombre":"IND ZUKO MANGO","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"061de1d2-158e-4cb6-8cd8-5864022e897b","sku":"00506","barcode":"7802800719402","nombre":"IND ZUKO MELON","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"803ceb59-c1c2-4c98-8316-da0e60dbd295","sku":"00508","barcode":"7503021984258","nombre":"IND JAMONCILLO MIX CAJA 60 GR","brand":"JESUS HERNANDEZ ZAVALA","reason":"not_found_off"}
+{"id":"fa14377c-20ff-4ee0-a6ca-338e1bf2afa2","sku":"00509","barcode":"7802800719389","nombre":"IND ZUKO MANDARINA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"no_image_in_off","off_name":"Zuko sabor mandarina"}
+{"id":"923975f8-4e02-4be1-814a-5b6dca9f74bb","sku":"00510","barcode":"7503032460208","nombre":"IND ZUKO COCO","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"84d2c95f-4042-4ac3-9d1c-e04b850e5e5f","sku":"00511","barcode":"7802800710577","nombre":"IND ZUKO KIWI","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"63a6419d-fffb-47a1-9da3-a1ea0722b0fd","sku":"00512","barcode":"7802800719471","nombre":"IND ZUKO MARACUYA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"85b0851e-47be-4e55-bc1d-de4663967090","sku":"00514","barcode":"7802800719327","nombre":"IND ZUKO DURAZNO","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"55084566-4b6d-4822-a67d-f938093cab34","sku":"00515","barcode":"7802800719457","nombre":"IND ZUKO GUANABANA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"8581b2cf-2021-432d-bde3-5fcd4ee87598","sku":"00516","barcode":"7802800719471","nombre":"IND ZUKO MARACUYÁ","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"80165fa3-6700-496b-b87b-0e3da7058fe1","sku":"00518","barcode":"7802800668120","nombre":"* IND ZUKO GELATINA NARANJA 35GR","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"3af467d1-0273-4b2e-a360-5cde7a13add3","sku":"00519","barcode":"7802800719440","nombre":"IND ZUKO GUAYABA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"8c04d954-0049-45d5-988b-a9c8ae9f395e","sku":"00521","barcode":"7502231140430","nombre":"PAL NEON MIX 336GR / 24 COOL TOONS","brand":"SWEETS N LOLLY POPS S.A. DE C.V.","reason":"not_found_off"}
+{"id":"6b2ec005-693e-492f-9118-0e11382e76da","sku":"00525","barcode":"7802800710928","nombre":"* IND ZUKO TE HELADO LIMON (25GR)","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"6145007e-cf81-4ed2-9b18-02e698e89fa0","sku":"00528","barcode":"7503032460086","nombre":"IND ZUKO UVA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"9692cfcf-71c5-482c-998b-75778d4b97e0","sku":"00535","barcode":"7802800668144","nombre":"IND SUER OSITO/ GOBY","brand":"ALEJANDRO ROMERO","reason":"not_found_off"}
+{"id":"3c2e2c4d-b989-4b53-b516-a74f77c65edf","sku":"00539","barcode":"7802800710966","nombre":"* IND ZUKO TE HELADO FRESA (25GR)","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"606524a6-d61d-4ba3-b21e-312debdde15c","sku":"00558","barcode":"812999013318","nombre":"CHICOTAZO BUZZY (112.5 GR) / 25 ANAHUAC","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"2bfa9691-96cb-417b-89ee-bbe07b514df6","sku":"00560","barcode":"7503032460109","nombre":"IND ZUKO FRESA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"cd381657-86bf-4039-b9cb-7a6608fada03","sku":"00563","barcode":"7802800719396","nombre":"IND ZUKO MANZANA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"f04478a4-8425-45bf-b1ac-01e37e83589b","sku":"00565","barcode":"7802800719365","nombre":"IND ZUKO PIÑA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"0c205a77-3492-45a3-9e98-e36583c087d0","sku":"00566","barcode":"7503032460123","nombre":"IND ZUKO TAMARINDO","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"a8f0e914-aaca-474c-8d28-c470e28924b0","sku":"00567","barcode":"7503032460093","nombre":"IND ZUKO HORCHATA","brand":"TRESMONTES LUCHETTI (NUTRESA)","reason":"not_found_off"}
+{"id":"bb29ea94-96a9-4be6-8ae1-8e787c585e49","sku":"00571","barcode":"7501011155640","nombre":"* IND POFEETS EXRA MANTEQUILLA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"3864e430-e60e-4374-917e-6b917565e885","sku":"00572","barcode":"7501011155619","nombre":"IND POFFETS NATURAL","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"85c7cabe-b009-4be7-8b66-e8513ff3553c","sku":"00573","barcode":"7702993028391","nombre":"IND OKA LOKA OVNIS (35 GR)","brand":"PRODUCTOS ALIMENTICIOS PAF SA DE CV","reason":"not_found_off"}
+{"id":"99a4fc8d-1090-460f-a983-bbdf51995b46","sku":"00576","barcode":"643795548465","nombre":"IND TOTIS PALOMITA MICRO NATURAL","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"1bfd3293-54a3-4850-9923-8d93503835a0","sku":"00578","barcode":"7896683400892","nombre":"IND BRASSUK POLVO MANDARINA 45G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"ca444764-82e6-4224-b745-fdb21e490a29","sku":"00579","barcode":"7896683400816","nombre":"IND BRASSUK POLVO NARANJA 45G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"4cafd657-7048-4c92-956a-52ebda8d6e98","sku":"00582","barcode":"7896683400878","nombre":"IND BRASSUK POLVO FRUTILLA 45G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"52e24ec8-d68b-4459-819e-ee33c59a386a","sku":"00583","barcode":"7896683400847","nombre":"IND BRASSUK POLVO UVA 45G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"06e3b21d-26be-4156-b110-a340f98d5689","sku":"00584","barcode":"7896683400908","nombre":"IND BRASSUK POLVO DURAZNO 45G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"a62f9edf-387e-41a4-b600-5ac002c638f2","sku":"00591","barcode":"7502214002632","nombre":"IND QUIZZ LIGHT POLVO MANZ/PERA 8G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"24e2e0b3-d224-432f-a0c5-0b3243fb45f8","sku":"00592","barcode":"7502214002625","nombre":"IND QUIZZ LIGHT POLVO TAMARINDO 8G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"b1e54e83-b455-45f0-b3af-432b129ca6c8","sku":"00603","barcode":"7501310010619","nombre":"IND PEGAMENTO TOP","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"d50836d5-80c1-4d36-89f7-e6f652385d2c","sku":"00605","barcode":"7501310010503","nombre":"IND TOP LAPIZ ADHESIVO /1","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"6dd17617-a9fb-4cc4-99f8-3e6a73e42fbd","sku":"00606","barcode":"7501091479148","nombre":"IND PILA HEAVY DUTY 9V CUADRADA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"48949aea-9796-4a4f-bc92-4298f1a6b62b","sku":"00610","barcode":"7506306248861","nombre":"GEL EGO GRANDE 1.350 ML / 1","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"not_found_off"}
+{"id":"25246dfa-a598-47c1-a9c8-67c3b95c280f","sku":"00618","barcode":"7501091478929","nombre":"DISPLAY PILA AAA 2 PIEZAS","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"1ca2b73c-316a-46a6-a850-d232dc8b5d2e","sku":"00620","barcode":"8000500085462","nombre":"IND TIC TAC FRUTAS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"7f73bbe1-2f00-45d7-b7c4-8951c58943d3","sku":"00621","barcode":"7501091478967","nombre":"DISPLAY PILA AA DORADA 4 PIEZA","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"82c07b89-17c4-4abe-93e5-2de0363836c5","sku":"00637","barcode":"7501186845353","nombre":"INVITACION C/CHOC FELIZ NAVIDAD / 1 MDDLA","brand":"MEGA DULCES DE LOS ALTOS","reason":"not_found_off"}
+{"id":"a2314bef-eb6d-453b-aa0e-8006e863f43c","sku":"00643","barcode":"744911006231","nombre":"IND VASO KARLA GRANDE","brand":"SWEETS DIMENSION SA DE CV","reason":"not_found_off"}
+{"id":"8e1b37f0-e730-496a-b1cf-30b7052bd158","sku":"00649","barcode":"4500000006492","nombre":"LONCHERA PERSONAJE / 10 MANUEL","brand":"VICTOR MANUEL ARTICULOS DE FIESTA","reason":"not_found_off"}
+{"id":"755a8c08-5cdd-4bb3-8093-1fd6c7629aae","sku":"00650","barcode":"4500000006508","nombre":"250G CHILE ANCHO MOLIDO","brand":"JAVIER ORTIZ TORTOLERO","reason":"not_found_off"}
+{"id":"9eaed66c-b6fe-4b23-b416-8779eab71778","sku":"00653","barcode":"450000000653","nombre":"SEMILLA GIRASOL 500GR AMERICANO","brand":"CENTRO ABARROTERO DEL BAJIO SA DE CV","reason":"not_found_off"}
+{"id":"e6f033d6-b779-4087-a045-fbb77b88eac9","sku":"00656","barcode":"4500000006560","nombre":"ALPISTE 500GR BAJIO","brand":"CENTRO ABARROTERO DEL BAJIO SA DE CV","reason":"not_found_off"}
+{"id":"5700f391-815d-4912-ab63-e7413078e5c2","sku":"00657","barcode":"4500000006577","nombre":"500G LINAZA SEMILLA","brand":"DISTRIBUIDORA GARMIN","reason":"not_found_off"}
+{"id":"8c1e7c4d-fb52-44ff-9d1a-b972a94549fd","sku":"00658","barcode":"4500000006584","nombre":"REVOLTURA PARA PAJAROS 500GR BAJIO","brand":"CENTRO ABARROTERO DEL BAJIO SA DE CV","reason":"not_found_off"}
+{"id":"c32f3ef1-fcb5-45e7-8b81-367121884eb9","sku":"00660","barcode":"4500000006607","nombre":"500G MIJO BLANCO","brand":"JAVIER ORTIZ TORTOLERO","reason":"not_found_off"}
+{"id":"a873dda4-663b-40fe-8daf-30920a295455","sku":"00661","barcode":"4500000006614","nombre":"500G NABO SEMILLLA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"c49d02d4-bf20-4141-8670-7cd38c14c7c5","sku":"00662","barcode":"70002698000","nombre":"500G NIGER","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"f4359702-691e-420c-9382-33ddb43ade33","sku":"00663","barcode":"4500000006638","nombre":"200 GR CHIA DELGADA PARA PAJAROS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"54c763ab-e4e2-4dd3-ba0f-ea00fb68eb12","sku":"00665","barcode":"4500000006652","nombre":"* 200G NIGER SEMILLA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"c3d8e4cc-538e-4b0a-8263-5a05c244012a","sku":"00666","barcode":"4500000006669","nombre":"500G MOSTAZA NEGRA","brand":"JAVIER ORTIZ TORTOLERO","reason":"not_found_off"}
+{"id":"5e8deabd-9504-47d3-b7cf-1b963acceaf9","sku":"00667","barcode":"4500000006676","nombre":"100G GUSANO PARA PAJAROS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"61e1861b-bfe9-4512-bb80-85d257c3be25","sku":"00668","barcode":"4500000006683","nombre":"100G MOSCO","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"bbeebfee-4e9f-417a-9a8f-af3557207b95","sku":"00669","barcode":"706460750232","nombre":"IND SKWINKLES SOPEADOS EXH /1","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"701d40a4-9545-4167-97ed-e5a934f2b8e6","sku":"00704","barcode":"713606011195","nombre":"IND JAMOCILLO NUEZ / 1 PROVIDENCIA","brand":"FABRICA DE DULCES LA PROVIDENCIA SA DE CV","reason":"not_found_off"}
+{"id":"5b5ebfca-b25f-4271-9e46-1ea914e90a08","sku":"00710","barcode":"7502213470463","nombre":"FRESKI SODA 355ML / FRUTI FRESK","brand":"PRODUCTOS FRUTI FRESK DE ARANDAS SA DE CV","reason":"not_found_off"}
+{"id":"8ddf5bea-68fa-41cc-9ca5-a61874701a81","sku":"00720","barcode":"4500000940574","nombre":"* POPOTES CORTOS MAX 200GR","brand":"PRODUCTOS VARIOS","reason":"not_found_off"}
+{"id":"d18ea1e8-5e1f-4174-a462-fcbff122e55b","sku":"00721","barcode":"4500000940581","nombre":"POPOTES LARGOS MAX 200GR","brand":"PRODUCTOS VARIOS","reason":"not_found_off"}
+{"id":"ec348de9-0980-4c08-94b3-7e27583aad74","sku":"00730","barcode":"7502213470982","nombre":"IND FRESKI FRUTT SURTIDO /355ML","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"ff9fffcd-39cf-4515-82bf-5eecaaebe3cf","sku":"00731","barcode":"7502213470999","nombre":"IND JUGO TROMPICO´S CITRUS /355ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"0746079a-880b-4667-97fa-a370f0f6c914","sku":"00758","barcode":"729090070389","nombre":"IND JUGO CON FRUTTA MANZNA /200ML","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"c754593b-2e10-47f1-9bcd-49c1b86a9368","sku":"00781","barcode":"756774011871","nombre":"IND CHOC EXOTICAS OREO (18gr) TURIN","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"not_found_off"}
+{"id":"b9b1d222-2454-41b9-98a0-00fe2ff60acf","sku":"00782","barcode":"756774061210","nombre":"IND ALMENDRAS SNACK (30gr) TURIN","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"not_found_off"}
+{"id":"bde77a74-f7ed-4070-9fea-94dc0a37ac4e","sku":"00783","barcode":"756774061203","nombre":"IND ARANDANOS SNACK(30gr) TURIN","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"not_found_off"}
+{"id":"53c15123-412f-4442-bea7-3dea0e124304","sku":"00784","barcode":"756774061197","nombre":"IND PASITAS SNACK(30gr) TURIN","brand":"CHOCOLATES TURIN S.A. DE C.V.","reason":"not_found_off"}
+{"id":"47b3146f-ed10-4eb9-825e-0d256e306461","sku":"00801","barcode":"4500000000801","nombre":"ROLLO GUAYABA (1/2) 450GR (16kg aprox)","brand":"DULJAL S DE RL DE CV","reason":"not_found_off"}
+{"id":"f01ee15c-a204-4e3c-92b2-bbf7b0123993","sku":"00802","barcode":"7501173301206","nombre":"ROLLO GUAYABA 1KG (15kg aprox)","brand":"DULJAL S DE RL DE CV","reason":"not_found_off"}
+{"id":"613f0bee-e820-45b8-abcc-28611c31f599","sku":"00810","barcode":"7501313800996","nombre":"* IND COCADA ROLLO DIANA","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"61317a85-2d75-41c6-a50e-1a81f409ef0b","sku":"00830","barcode":"7501064305108","nombre":"IND BOL KRAFT ASA BOUTIQUE BLANCA MED / 1 CALTOM","brand":"D. IMAGEN PRINTS SA DE CV","reason":"not_found_off"}
+{"id":"e71aa2d1-c284-48d6-9bed-4254ba873f84","sku":"00831","barcode":"4500000008311","nombre":"500G CAR SURTIDOS COSTEÑA","brand":"JAVIER ORTIZ TORTOLERO","reason":"not_found_off"}
+{"id":"eb1148f2-28c3-4402-bafd-542d3af12b2d","sku":"00833","barcode":"4500000833","nombre":"500G CAR HUEVITO MARA","brand":"JAVIER ORTIZ TORTOLERO","reason":"not_found_off"}
+{"id":"7209c195-30e3-4c6f-8599-154e67c54272","sku":"00835","barcode":"4500000000835","nombre":"GARBANZA 1 KR / CALDERON","brand":"DIONICIO CALDERON","reason":"not_found_off"}
+{"id":"0882e969-a5ea-47b2-a190-2a3a0485f9cf","sku":"00880","barcode":"4500000008809","nombre":"500G CORN FLAKES ARROZ CHOCOLATE","brand":"PABLO IGNACIO MICHEL ONTIVEROS","reason":"not_found_off"}
+{"id":"8388ef1a-3e60-4068-96ea-ca6eae9ee7b8","sku":"00891","barcode":"4500000830615","nombre":"500G CEREAL SURTIDO MICHEL","brand":"JAVIER ORTIZ TORTOLERO","reason":"not_found_off"}
+{"id":"3d29d37c-c978-4a61-9f28-7491b20714ff","sku":"00892","barcode":"7501186821692","nombre":"IND CAMARITA LUCKY CANDY 50G","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"e5069d2a-805d-49f0-b07d-13f4358f8d9f","sku":"00893","barcode":"4800000000893","nombre":"500G CORN FLAKES KINX ARROZ CHOC","brand":"PRODUCTOS VARIOS","reason":"not_found_off"}
+{"id":"7c84ae07-f877-4ba1-aa8c-e53e40614fd9","sku":"00894","barcode":"450000000894","nombre":"500G CEREAL KEKOS VAINILLA /10K","brand":"PRODUCTOS VARIOS","reason":"not_found_off"}
+{"id":"8100ec89-17dd-4593-aa6b-5b05c28bf2ce","sku":"00895","barcode":"7501186855949","nombre":"HABA 1 KR / CALDERON","brand":"DIONICIO CALDERON","reason":"not_found_off"}
+{"id":"8ba951f6-74c2-4587-a93d-ccf666f8a26d","sku":"00896","barcode":"8436031750164","nombre":"IND RANA BALLS FANTASY TOYS","brand":"PRODUCTOS CON BAJA ROTACION","reason":"not_found_off"}
+{"id":"e1410d29-157e-4b25-93ae-9fb359132f7c","sku":"00901","barcode":"9310637001860","nombre":"IND POP TIME PULCERA /1","brand":"G INDIVIDUALES","reason":"not_found_off"}
+{"id":"171e85f5-0636-4c8b-a300-d4165cacdf04","sku":"00910","barcode":"7500810012529","nombre":"RICOLINO PANDITAS SOBRE SNOW 22P","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"1e825b01-d100-41d0-b460-084fec8175ab","sku":"00911","barcode":"7501000364039","nombre":"IND RUNNERS BARCEL /1","brand":"BARCEL","reason":"not_found_off"}
+{"id":"48639294-1360-48ab-8318-484d37c1c9d9","sku":"00913","barcode":"7501000362196","nombre":"IND TAKIS BARCEL /1","brand":"BARCEL","reason":"not_found_off"}
+{"id":"61923e50-fb17-4479-b124-7a51617097f2","sku":"00999","barcode":"7501013144796","nombre":"IND JUGO CAPRI-SUN KIDS 200ML","brand":"COMERCIALIZADORA ELORO SA DE CV","reason":"not_found_off"}
+{"id":"b3fae855-5e4c-4b88-90a8-a39512b1920e","sku":"01001","barcode":"812999015923","nombre":"GLOBO PARA 120KG/ DELICIATE","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"d649e4ab-1b34-4f16-a955-b79d21ec2352","sku":"01003","barcode":"812999013530","nombre":"POLVOS MIX SOLAPA ANAHUAC /60 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"fe45a125-343e-4f19-ab8d-b43f62b1c97a","sku":"01005","barcode":"812999014469","nombre":"PAL CHIPILETA CHAMOY SOLAPA/20 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"a40b411a-49a2-4865-b622-ad938016485e","sku":"01007","barcode":"7500810041550","nombre":"BIMBO PASTELITO HERSHEY 250 GR / 10","brand":"BARCEL","reason":"not_found_off"}
+{"id":"f6f9402c-a0ad-4f2b-b9c2-3ba675b01f7f","sku":"01009","barcode":"812999014575","nombre":"PAL CHIPILETA NARANJA  / 8 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"049651d2-0cb3-4fe2-8d81-fc6f1c587235","sku":"01010","barcode":"812999017156","nombre":"PAL CHIPILETA LIKE LIMON7 SOLAPA 360 GR /20 ANAHUA","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"6d4f942b-48a9-4628-ba8b-595e00e77f6a","sku":"01011","barcode":"95600002547","nombre":"RIFA ARCOIRIS SORPRESA / 16 JAIME","brand":"MA LETICIA JAIME ROMO","reason":"not_found_off"}
+{"id":"d53bc6f5-5e50-4eb4-9b82-cac35eee182a","sku":"01013","barcode":"7506226203629","nombre":"CHOCOLATE ICEE 1KG / INTER CANDY","brand":"INTER CANDY SA DE CV","reason":"not_found_off"}
+{"id":"108683f6-7ed3-47a5-b54c-19c5704648fb","sku":"01014","barcode":"655864111524","nombre":"TIRA SURTIDA MORDIDITAS 340 GR / 20 YOLIS","brand":"JOSE LUIS MENDOZA M.","reason":"not_found_off"}
+{"id":"b09bbe35-2016-4f8a-8123-e71742ffa2c1","sku":"01017","barcode":"812999011062","nombre":"LIMON 7 CHICO SOLAPA /80 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"2b76f79c-70fb-4217-ac58-4f1a2c3059c7","sku":"01018","barcode":"095600002622","nombre":"PAL CHIPILETA NARANJA SOLAPA /20 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"de8b01d9-8ee0-4dde-ad1e-ca873834038d","sku":"01019","barcode":"812999015138","nombre":"SALERO MIX (12GR) /10 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"72651d12-9098-4f05-9a3a-6aea69c62c18","sku":"01020","barcode":"7501019006623","nombre":"TOALLAS SANITARIAS SABA/ 8","brand":"ABARROTES","reason":"not_found_off"}
+{"id":"5d2ce2db-f7dd-4e28-bb50-367acaf6ba4d","sku":"01021","barcode":"7500478045228","nombre":"SABRITONES RODACA 38GR","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"not_found_off"}
+{"id":"fbdab83f-b7b9-46c7-991a-28bfde4ba18e","sku":"01022","barcode":"095600002455","nombre":"LIMON 7 GRANDE SOLAPA /40 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"3d84a166-d6e2-4a22-87b6-193acb2eadc7","sku":"01023","barcode":"7502009770135","nombre":"UNICORNIO C/CHICLE 40 GR / 8","brand":"RICARDO CARRIZALES","reason":"not_found_off"}
+{"id":"0c7fa358-4196-41df-b043-6e0fc6ac9410","sku":"01024","barcode":"812999010928","nombre":"BURBUSODA CHICA SOLAPA 160G/80 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"2306287f-5f90-4ba6-a7cf-74355ee25e89","sku":"01025","barcode":"812999017279","nombre":"* DESC CH THE LONG ONE MINI TUTTI/24 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"5f76788a-47e6-48fb-8b32-747947b9ba77","sku":"01027","barcode":"7500478045457","nombre":"SABRITONES PAPA SAL 90GR","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"not_found_off"}
+{"id":"d57e0bc8-5a5e-42b4-bfb4-3ab4768b04c5","sku":"01028","barcode":"812999010256","nombre":"JUGO SABORES /12 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"da5af55f-03c1-4ce2-844f-2bd1cfed7b8a","sku":"01029","barcode":"812999017170","nombre":"PAL CHIPILETA LIKE MANGO-CHAMOY SOLAPA 360 GR /20","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"d79c2842-41ee-432d-84bc-aa99a33fab2e","sku":"01031","barcode":"095600002615","nombre":"BURBUSODA GRANDE SOLAPA /40 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"da911e70-0f8f-49e8-8088-77b6bd561cde","sku":"01032","barcode":"095600002578","nombre":"LIMON 7 GRANDE BOLSA /50 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"6a732c5a-ad14-4ae3-ba88-b798e26031f1","sku":"01035","barcode":"812999014636","nombre":"PAL CHIPILETA MIX SOLAPA ANAHUAC 330GR/ 30","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"42ed529d-7050-4420-9e4e-66f7f58a48d5","sku":"01037","barcode":"812999017224","nombre":"PAL CHIIPILETA LIMON 7 LIKE COLA /20 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"2a49db84-556b-4dbc-8fa6-aee7d5229b46","sku":"01040","barcode":"7500464332516","nombre":"* DESC CHAPICO BOOM 120 GR /  24 DULCIBARR","brand":"DULCES EL DESCUENTO SA DE CV","reason":"not_found_off"}
+{"id":"6c5c05a6-e033-4477-879e-fc8267cb31a5","sku":"01041","barcode":"812999015220","nombre":"MILKY KUIKAS (8GR) /12 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"eef3ef2c-22d8-45f1-abf5-c1b9ce04e7ce","sku":"01042","barcode":"7501019006074","nombre":"TOALLA SABA INTIMA CLIP /10","brand":"ABARROTES","reason":"not_found_off"}
+{"id":"99012604-9e73-4f14-85ae-415e0ee20ca0","sku":"01043","barcode":"7503041399247","nombre":"* DESC DURAZNO/ 40 ROBELIS","brand":"DULCES ROBELIS","reason":"not_found_off"}
+{"id":"919ae6bb-8a36-4e9d-a0b1-073193beb74d","sku":"01044","barcode":"812999011499","nombre":"CH THE LONG ONE TUTTI (40G) / 24 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"295e6feb-a979-4c85-900b-561d19ddfaa3","sku":"01045","barcode":"812999017309","nombre":"* DESC CH THE LONG ONE MINI PLATANO/24 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"3db31cf9-8d3d-4056-9d04-fa88e2d1d0b2","sku":"01046","barcode":"095600001021","nombre":"* DESCONTINUADO","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"c9fa50ad-8681-4171-9a12-d45e201634b5","sku":"01047","barcode":"812999015503","nombre":"PICA KUIKAS /12 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"b009a170-bbae-413d-9ae3-3844838fbd38","sku":"01049","barcode":"7503030829205","nombre":"GEL ZEUS FIJADOR FRESH 250 GR / 1","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"9c807a5e-f8d6-48c5-842d-c0cdde32fda5","sku":"01050","barcode":"812999017521","nombre":"PAQUETE PIÑATA 1.265 KG / ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"4e3cf72a-4555-4aa2-93b6-98a3e0f61710","sku":"01051","barcode":"7502273905356","nombre":"JELLY VOLCAN TIRA 660GR / 20 HUBIN","brand":"GAMAHUBIN SA DE CV","reason":"not_found_off"}
+{"id":"11a589f4-cf77-483c-9006-2cfe1959237b","sku":"01052","barcode":"7503030829038","nombre":"HELIX SURTIDO  355 ML /  8","brand":"MARCAS EXTRAORDINARIAS","reason":"not_found_off"}
+{"id":"8745934d-f175-47c2-8993-f2a489a31fe3","sku":"01053","barcode":"750789011482","nombre":"MI CHELA MORA AZUL 50GR / AP","brand":"DIDUPLASTIC SA DE CV","reason":"not_found_off"}
+{"id":"a85a3bd7-32b5-4e77-9d91-3368ea8b1bbc","sku":"01058","barcode":"750789000219","nombre":"MI CHELA TAMARINDO 500GR / AP","brand":"DIDUPLASTIC SA DE CV","reason":"not_found_off"}
+{"id":"fbe06094-32d9-4e59-9e96-a1aca973a4f7","sku":"01059","barcode":"7503125475997","nombre":"MI CHELA CHAMOY 50OGR / AP","brand":"DIDUPLASTIC SA DE CV","reason":"not_found_off"}
+{"id":"cf794372-4ef8-4e77-8524-80455ad93acd","sku":"01061","barcode":"0614143137884","nombre":"POLIPRO 12X12 250GR ZAPIEN","brand":"GUIILERMO ZAPIEN","reason":"not_found_off"}
+{"id":"ed6de145-b6d3-4507-87ab-df73f6bdcf27","sku":"01065","barcode":"7503016400145","nombre":"VIT MINI GELATINA ESTRELLA YOGURT 1.40KG/ 40 KALU","brand":"AZTECA CONFITERIA S.A DE CV","reason":"not_found_off"}
+{"id":"eceaf032-db7f-4ccd-b3bd-29e15d08ea6a","sku":"01066","barcode":"812999015589","nombre":"* DESC BICHOS (275G) /110 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"dfd27f25-6e9a-49b8-b45d-7805c0da2927","sku":"01068","barcode":"812999017866","nombre":"CLOUD MINTS 1KG ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"a9289148-428e-40e3-9c34-a3d59c8c784d","sku":"01069","barcode":"812999011482","nombre":"IND CH THE LONG ONE FRUTAS/1","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"2ade5582-eff4-4935-ba58-6d63290870b0","sku":"01070","barcode":"812999017743","nombre":"POLVO CHIPILETA CHAMOY 200G /80 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"434bced6-c87a-44f7-9939-0b4bdb0f6b91","sku":"01075","barcode":"7500478037391","nombre":"TOSTITOS FLAMIN HOT 55 G / 1","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"no_image_in_off","off_name":"Tostitos Xtra Flamin’ Hot"}
+{"id":"0ca9a554-041a-4622-9c7b-8b4d62799486","sku":"01076","barcode":"7500478045488","nombre":"SABRITONES PAPA PICOSITA 40 G / 1","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"not_found_off"}
+{"id":"ae18a0e3-f35f-4857-b0ee-fb6280d8199c","sku":"01077","barcode":"7500478049554","nombre":"BOT SABRIPACK MIX / 25","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"not_found_off"}
+{"id":"bd663b86-cd9b-42f1-8440-3877ad9248c5","sku":"01079","barcode":"7500478049172","nombre":"BOT DORITOS NACHO 1350GR / 25","brand":"COMER. PEPSICO MEXICO S DE R L DE CV","reason":"not_found_off"}
+{"id":"ce2acd08-3cc5-4e32-8f7a-3f746fae06d2","sku":"01081","barcode":"812999017859","nombre":"POLVO BOTELLA CHIPILETA CHAMOY 230G / ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"4d0b0ac5-7894-4098-8910-be3501dc09d5","sku":"01090","barcode":"810812000156","nombre":"CHOC SURTIDO ANAHUAC BOLSA/40","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"b4f44356-9db2-4f39-97b0-037e7c85f9a3","sku":"01099","barcode":"741217001014","nombre":"CAR BOCATI (420G) /100 ANAHUAC","brand":"COMERCIALIZADORA ANAHUAC MEX SA","reason":"not_found_off"}
+{"id":"5b5cb910-81a6-4243-b789-acc723e9a031","sku":"02000","barcode":"7622201514303","nombre":"CH BUBBALOO ACID MORA 239.7GR / 47","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"5f7f4d14-e5b2-4bc6-8a46-13a5b3f7391f","sku":"02003","barcode":"7622210416766","nombre":"CH BUBBALOO MENTA 239.7GR/47","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a992c91d-43a6-4811-ad74-d5b5fd17b20f","sku":"02004","barcode":"7622210959010","nombre":"* CH CHICLETS 4 S SURTIDO /60","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"a6db5f62-a9e2-4c36-a004-2b98b70ad482","sku":"02005","barcode":"7622210447241","nombre":"CH BUBBALO FRESA / 70 CLUB PROM","brand":"NUEVA WALMART DE MEXICO  S DE RL DE CV","reason":"not_found_off"}
+{"id":"02154b8f-70fc-459c-b705-161546c7979b","sku":"02006","barcode":"7622210530462","nombre":"CH TRIDENT TWIST SANDIA-LIMON /8 MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"967ab973-66e8-4c3c-b20c-7631069a59e3","sku":"02007","barcode":"7506105610074","nombre":"CH TRIDENT 4 S MORA AZUL /40","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"af6a99d9-642a-4a03-937d-29373b6a169f","sku":"02008","barcode":"7622210416803","nombre":"CH BUBBALOO YERBA 239.7GR/ 47","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"7788756c-d660-4ea5-9b51-856815c92579","sku":"02009","barcode":"7622201770846","nombre":"CH BUBBALOO TUTI-FRUTI 239.7GR/ 47","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"94dda244-bfe7-4b86-9536-1ee009cdfb3c","sku":"02010","barcode":"76222108292800","nombre":"TANG GUAYABA (13GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"5a4e9790-d17a-444d-a4b4-b451322d0d34","sku":"02011","barcode":"7622210416773","nombre":"CH BUBBALOO FRESA 239.7 GR/ 47","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"no_image_in_off","off_name":"Bubbaloo, fresa chewing gum, strawberry"}
+{"id":"13c9dc91-6a87-4cff-a3dc-1478415c319f","sku":"02012","barcode":"7622210571198","nombre":"CH CLORETS PLUS 10 S/ 12 MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a2cf60d4-4f90-4b90-83d2-2d086680840d","sku":"02013","barcode":"7622210530493","nombre":"CH TRIDENT TWIST FRESA-LIMON /8 MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"4be1f022-96bb-4c98-9cb5-1965762395d5","sku":"02014","barcode":"7501056960254","nombre":"CH TRIDENT XTRA CARE YERBA /12","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"defc84e8-9d42-4900-ac9b-2159040ae85a","sku":"02015","barcode":"7622210530004","nombre":"CHICLETS 2´S MENTA 210GR /75 ADAMS","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"79897e62-36e5-46aa-aa6a-f45aa598a509","sku":"02017","barcode":"7622210603531","nombre":"CH TRIDENT VALUPACK FRUIT MIX /12","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"cfca4d2a-7161-4a70-8145-361c16b1d63d","sku":"02018","barcode":"7622210717436","nombre":"TANG LIMONADA (13GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"d88b0220-6926-4a31-be4a-1b06c8c45960","sku":"02019","barcode":"7622210717399","nombre":"TANG NARANJADA (13 GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"40edf4c4-6e1a-4074-bdde-d1e896547b2e","sku":"02020","barcode":"7501056960216","nombre":"CH TRIDENT XTRA CARE MENTA /12","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"fae04b7c-210e-4da5-9f7c-d22ed7274b1f","sku":"02024","barcode":"7506105616113","nombre":"***CH TRIDENT 6 S MENTA /18","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"d7c07eba-8cf7-4545-b4e4-abf4619f3929","sku":"02025","barcode":"7501056910334","nombre":"* CH TRIDENT 6 S MORA AZUL /18","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"9e6af08b-c735-4f17-b6e0-ae92cfef4977","sku":"02026","barcode":"7506105616120","nombre":"***CH TRIDENT 6 S YERBABUENA /18","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"cb764725-27f2-4086-9f09-4255fea9b045","sku":"02028","barcode":"7622210254528","nombre":"TANG FRESA (13GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"af295571-f2ba-4672-a8d4-6997cce6ea07","sku":"02029","barcode":"7622202841729","nombre":"TANG HORCHATA (13GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a8198edf-8048-43a6-bca1-3616857b15e1","sku":"02030","barcode":"7501056960223","nombre":"CH TRIDENT XTRA CARE FRESHM /12","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"55119694-42ea-483a-80c8-54821bb1638c","sku":"02031","barcode":"7622210253453","nombre":"TANG JAMAICA (13GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a1d6a17a-5651-4c38-9a35-8f94fb2cacc8","sku":"02032","barcode":"7622210565709","nombre":"TANG LIMÓN (13GR) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a672a9bc-b8ab-4233-8982-7de318b74af8","sku":"02033","barcode":"7622210577528","nombre":"TANG PIÑA (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"80254ad7-5c9e-4c0d-a120-71d6f842c862","sku":"02034","barcode":"7622210255556","nombre":"TANG MANDARINA (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"e6d59b5e-9b31-4c55-bf09-33b3799b2978","sku":"02035","barcode":"7622210967350","nombre":"* CHICLETS 12S SURTIDO /20 MONDELEZ","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"e8a97a55-8573-402b-aed4-b05e44e54da5","sku":"02037","barcode":"7622210565686","nombre":"TANG NARANJA (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"5caa9759-5944-40bd-a902-c3b8e7db590b","sku":"02040","barcode":"7622210577207","nombre":"TANG MELON (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"81b8a401-2525-4a29-b30f-b6b796e810f5","sku":"02041","barcode":"7501056008215","nombre":"IND CH CLORETS 26(36.4GR)","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"d7c044bb-8ac9-487c-be6f-8c84172ac27e","sku":"02042","barcode":"7622210544766","nombre":"IND COCA COLA LATA 355ML/ 1","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"4b78f78e-08cd-4a81-8065-d2826694aed7","sku":"02043","barcode":"7622210544537","nombre":"TANG JAMAICA SABILA / 8.","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"1d2eda7b-20ab-4931-bf7e-284c0a191583","sku":"02044","barcode":"7622210577054","nombre":"TANG TAMARINDO (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"ece93526-7e58-4b36-b24e-e3bac13dc4d7","sku":"02045","barcode":"7622210939210","nombre":"***CLORETS MINTS GLACIER MINT /9","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"59159fea-b088-4de9-8d42-bdc8ae7e99c5","sku":"02046","barcode":"7501056008208","nombre":"CH CLORETS 26 S 291.2G /8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"85a1ed70-17a4-4721-928e-308d7f72178d","sku":"02048","barcode":"9300613101196","nombre":"CH HUBBA BUBBA FRESA  / 6 MARS","brand":"EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV","reason":"not_found_off"}
+{"id":"46bb71c2-457d-4236-b70e-9c768a4990e1","sku":"02049","barcode":"7622210544681","nombre":"TANG LIMON SABILA / 8.","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"0e3745f2-495a-4e82-b38a-f35590a3a12c","sku":"02051","barcode":"7622210551351","nombre":"CH TRIDENT VALUPACK EXTRA STRONG /18","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"50ed04ce-6616-4eb1-b7ee-c5412a1352db","sku":"02052","barcode":"7622210558534","nombre":"CH TRIDENT 4 S MENTA FUERTE / 40","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a0d8548c-e9de-41b3-9765-ef4385ab5133","sku":"02053","barcode":"7622210551757","nombre":"CH TRIDENT XTRA CARE EXTRA STRONG / 12","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"ea3ac863-dba9-4aab-9ec7-8e6ab59859be","sku":"02060","barcode":"7622210993038","nombre":"HALLS TUBO BOOST LYPTUS /12","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"18ee659c-4c25-4389-87c8-b340380d1219","sku":"02062","barcode":"7622210996152","nombre":"PAL BUBBALOO PIK-POP MANGO 14.5GR /40","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"0bfcbdc7-8580-479b-b996-185b4eb3b1ba","sku":"02065","barcode":"7622210999788","nombre":"PAL BUBBALOO PIK POP PIÑA  /40","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"420065b5-d83b-44f3-9422-ba7b49819289","sku":"020666","barcode":"7622210938305","nombre":"CH TRIDENT 4 S CANELA / MONDELEZ","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"59c9b7e5-c570-4163-a92f-6037eaccdb8a","sku":"02067","barcode":"7622210581600","nombre":"* DESC PAL BURBUPOP FRESA /40 MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"76c0da75-2fa1-40c9-9af5-9b85ede74615","sku":"02072","barcode":"7622201770815","nombre":"CH BUBBALOO PIK PIÑA 239.7GR / 47","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"63ab671f-e7bf-4d24-9f0c-53db66312cb1","sku":"02074","barcode":"7622210829405","nombre":"* HALLS SILVER MINT LYPTUS /12","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"d357a748-513e-458f-89c1-e0a6ab079dd0","sku":"02076","barcode":"7702133414442","nombre":"CH TRIDENT 1 S MENTA /60","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"f75296a7-ba24-4f36-9038-fb22a4207bbc","sku":"02078","barcode":"7622210529428","nombre":"TANG UVA (13G) / 9+1","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"cc8fe6d5-c143-42d9-8bfa-680e06cdf76f","sku":"02079","barcode":"7622210577443","nombre":"TANG UVA (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"c7562976-c7a2-4e0d-a8b1-3c0beb2416fe","sku":"02080","barcode":"7622210787859","nombre":"TANG PIÑA COLADA (13G) / 8","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"ca100767-06c2-46a6-9515-7a3144aeacd9","sku":"02083","barcode":"7622210529398","nombre":"TANG JAMAICA (13G) / 9+1","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"5f8a522b-c026-4b46-aca4-57ca5b2c6674","sku":"02084","barcode":"7506105612542","nombre":"CH TRIDENT XTRA CARE COOL BUBBLE /12","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"e92a5b30-37fa-4618-889a-b262d060c8a3","sku":"02085","barcode":"7622210529480","nombre":"TANG NARANJA (13G) / 9+1","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"36461f5e-aeb5-4237-bea3-a203c588f3d9","sku":"02087","barcode":"7622210530028","nombre":"CH MAX AIR ICE BLUE 210GR /75 ADAMS","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"25e621d4-06d7-4b82-8b0d-915c5a239677","sku":"02089","barcode":"7622210570697","nombre":"* DESC HALLS MONCH FRAMBUESA 252 GR /15 MONDELEz","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a132e188-980e-410f-b983-dd9305d996cf","sku":"02092","barcode":"7622210416155","nombre":"* GALL CHIPS AHOY 285 GR / 5  MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"a3b5f890-1a80-4330-a288-486166c1c44f","sku":"02095","barcode":"7622210294364","nombre":"* CH TRIDENT VALUPACK MENTA (30.6GR)/4","brand":"PRODUCTOS A ELIMINAR","reason":"not_found_off"}
+{"id":"70d5cdda-3661-481f-bc55-4c1dec8f9d50","sku":"02096","barcode":"7622210530431","nombre":"CH TRIDENT X-TWIIST BLUEBERRY /8 MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}
+{"id":"3848dbe2-2483-46f7-a33f-88d5afafdaf6","sku":"02098","barcode":"7622210569028","nombre":"* VIT 4S TRIDENT Y CLOREST 624 GR / 120 MONDELEZ","brand":"MONDELEZ MEXICO S DE RL DE CV","reason":"not_found_off"}

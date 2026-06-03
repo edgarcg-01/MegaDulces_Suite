@@ -225,7 +225,7 @@ export class CommercialPricingService {
    */
   async listPrices(
     priceListId: string,
-    opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string } = {},
+    opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string; commercialOnly?: boolean } = {},
   ) {
     if (!UUID_REGEX.test(priceListId))
       throw new BadRequestException('price_list_id inválido');
@@ -238,6 +238,7 @@ export class CommercialPricingService {
     const pageSize = Math.min(500, Math.max(1, Number(opts.pageSize) || 100));
     const offset = (page - 1) * pageSize;
     const search = (opts.search || '').trim();
+    const commercialOnly = opts.commercialOnly === true;
 
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
@@ -245,14 +246,17 @@ export class CommercialPricingService {
         throw new ForbiddenException('No tenés acceso a esta price list');
       }
 
+      // Source of truth: `public.products` (catálogo completo).
+      // `commercial.product_prices` se une por LEFT JOIN para traer el precio del
+      // price_list del customer si existe — null si no hay (frontend ya maneja
+      // ese caso ocultando el botón "agregar" y mostrando "Sin precio").
       const buildBaseQuery = () => {
-        let q = trx('commercial.product_prices as pp')
-          .leftJoin('public.products as p', function () {
-            this.on('p.id', '=', 'pp.product_id').andOn(
-              'p.tenant_id',
-              '=',
-              'pp.tenant_id',
-            );
+        let q = trx('public.products as p')
+          .leftJoin('commercial.product_prices as pp', function () {
+            this.on('pp.product_id', '=', 'p.id')
+              .andOn('pp.tenant_id', '=', 'p.tenant_id')
+              .andOnVal('pp.price_list_id', priceListId)
+              .andOnNull('pp.deleted_at');
           })
           .leftJoin('public.brands as b', function () {
             this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
@@ -260,8 +264,13 @@ export class CommercialPricingService {
           .leftJoin('public.categories as cat', function () {
             this.on('cat.id', '=', 'p.category_id').andOn('cat.tenant_id', '=', 'p.tenant_id');
           })
-          .whereNull('pp.deleted_at')
-          .where('pp.price_list_id', priceListId);
+          .whereNull('p.deleted_at');
+
+        if (commercialOnly) {
+          q = q.where(function () {
+            this.where('b.is_commercial', true).orWhereNull('b.is_commercial');
+          });
+        }
 
         if (search) {
           const term = `%${search}%`;
@@ -275,21 +284,23 @@ export class CommercialPricingService {
       };
 
       // Count primero (sin joins de stock para no inflar el count).
-      const [{ total }] = await buildBaseQuery().count<{ total: string }[]>('pp.id as total');
+      const [{ total }] = await buildBaseQuery().count<{ total: string }[]>('p.id as total');
 
       // Página real con joins completos.
       let q = buildBaseQuery();
       if (warehouseId) {
         q = q.leftJoin('commercial.stock as s', function () {
-          this.on('s.product_id', '=', 'pp.product_id')
-            .andOn('s.tenant_id', '=', 'pp.tenant_id')
+          this.on('s.product_id', '=', 'p.id')
+            .andOn('s.tenant_id', '=', 'p.tenant_id')
             .andOnVal('s.warehouse_id', warehouseId);
         });
       }
 
       const selects: any[] = [
-        'pp.id',
-        'pp.product_id',
+        // `pp.id` puede ser null si no hay precio configurado — usamos `p.id` como
+        // identidad estable de fila (alineado con frontend trackBy product_id).
+        trx.raw('COALESCE(pp.id, p.id) AS id'),
+        trx.raw('p.id AS product_id'),
         'p.nombre as product_name',
         'p.description as product_description',
         'p.sku',
@@ -298,15 +309,14 @@ export class CommercialPricingService {
         'b.nombre as brand_name',
         'p.category_id',
         'cat.name as category_name',
-        // M.6.2: enriched fields → para que el frontend pueda calcular margen
-        // y mostrar ubicación / loyalty sin pegarle a otro endpoint.
         'p.cost_base',
         'p.cost_with_tax',
         'p.location',
         'p.loyalty_points',
+        'p.image_url',
         'pp.price',
         'pp.tax_rate',
-        'pp.min_qty',
+        trx.raw('COALESCE(pp.min_qty, 1) AS min_qty'),
       ];
       if (warehouseId) {
         selects.push(
@@ -334,6 +344,100 @@ export class CommercialPricingService {
           pageCount: Math.ceil(totalNum / pageSize) || 0,
         },
       };
+    });
+  }
+
+  /**
+   * Top sellers para una price_list. Lee de la MATERIALIZED VIEW
+   * `public.products_top_sellers` (refrescada cada 15min por AnalyticsRefreshService)
+   * y joinea con `commercial.product_prices` del price_list para devolver el
+   * precio del customer + sales_rank + units_sold.
+   *
+   * Customer_b2b sólo puede pedirla sobre SU price_list (allowedPriceListIdsForCtx).
+   * Si no hay ventas todavía la MV devuelve pocos rows (es esperable hasta que
+   * Mega Dulces tenga volumen real).
+   */
+  async listTopSellers(
+    priceListId: string,
+    opts: { warehouseId?: string; limit?: number } = {},
+  ) {
+    if (!UUID_REGEX.test(priceListId))
+      throw new BadRequestException('price_list_id inválido');
+    const warehouseId = opts.warehouseId;
+    if (warehouseId !== undefined && warehouseId !== null && !UUID_REGEX.test(warehouseId)) {
+      throw new BadRequestException('warehouse_id inválido');
+    }
+    const limit = Math.min(1000, Math.max(1, Number(opts.limit) || 1000));
+
+    return this.tk.run(async (trx) => {
+      const allowed = await this.allowedPriceListIdsForCtx(trx);
+      if (allowed !== null && !allowed.includes(priceListId)) {
+        throw new ForbiddenException('No tenés acceso a esta price list');
+      }
+
+      // INNER JOIN con product_prices: solo devolvemos top sellers que tienen
+      // precio configurado en la price_list del customer. Garantiza que cada
+      // card del portal sea comprable (sin "Sin precio"). MV ya viene filtrada
+      // por productos_activos del ERP, así que no requiere brand.is_commercial.
+      let q = trx('public.products_top_sellers as ts')
+        .innerJoin('commercial.product_prices as pp', function () {
+          this.on('pp.product_id', '=', 'ts.id')
+            .andOn('pp.tenant_id', '=', 'ts.tenant_id')
+            .andOnVal('pp.price_list_id', priceListId)
+            .andOnNull('pp.deleted_at');
+        })
+        .leftJoin('public.brands as b', function () {
+          this.on('b.id', '=', 'ts.brand_id').andOn('b.tenant_id', '=', 'ts.tenant_id');
+        })
+        .leftJoin('public.categories as cat', function () {
+          this.on('cat.id', '=', 'ts.category_id').andOn('cat.tenant_id', '=', 'ts.tenant_id');
+        });
+
+      if (warehouseId) {
+        q = q.leftJoin('commercial.stock as s', function () {
+          this.on('s.product_id', '=', 'ts.id')
+            .andOn('s.tenant_id', '=', 'ts.tenant_id')
+            .andOnVal('s.warehouse_id', warehouseId);
+        });
+      }
+
+      const selects: any[] = [
+        trx.raw('pp.id AS id'),
+        trx.raw('ts.id AS product_id'),
+        'ts.nombre as product_name',
+        'ts.sku',
+        'ts.barcode',
+        'ts.brand_id',
+        'b.nombre as brand_name',
+        'ts.category_id',
+        'cat.name as category_name',
+        'ts.cost_base',
+        'ts.image_url',
+        'pp.price',
+        'pp.tax_rate',
+        trx.raw('COALESCE(pp.min_qty, 1) AS min_qty'),
+        'ts.sales_rank',
+        'ts.units_sold',
+        'ts.revenue',
+        'ts.cases_sold',
+        'ts.units_total',
+      ];
+      if (warehouseId) {
+        selects.push(
+          trx.raw(
+            'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
+          ),
+        );
+      } else {
+        selects.push(trx.raw('NULL::int AS stock_available'));
+      }
+
+      const data = await q
+        .select(...selects)
+        .orderBy('ts.sales_rank', 'asc')
+        .limit(limit);
+
+      return { data, total: data.length };
     });
   }
 

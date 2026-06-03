@@ -1274,6 +1274,18 @@
           </div>
         </div>
 
+        <!-- Deferred state (sin red): foto guardada, OCR diferido al sync -->
+        <div *ngIf="ticketDeferred() && !ticketExtracting()"
+             class="flex items-start gap-3 p-3 rounded-xl border border-sky-500/30 bg-sky-500/5">
+          <i class="pi pi-clock text-sky-500 text-xl mt-0.5" aria-hidden="true"></i>
+          <div class="text-sm">
+            <div class="font-semibold text-content-main">Ticket guardado (sin conexión)</div>
+            <div class="text-xs text-content-muted mt-0.5">
+              La foto del ticket se guardó. Se analizará automáticamente cuando vuelva la conexión. Tocá Finalizar para guardar la visita.
+            </div>
+          </div>
+        </div>
+
         <!-- AI Results -->
         <div *ngIf="ticketResult() && !ticketExtracting()" class="space-y-2">
           <div class="flex items-center justify-between text-sm">
@@ -1367,8 +1379,8 @@
                   [disabled]="!currentExhibicion().fotoBase64"
                   (onClick)="nextStep()"></p-button>
 
-        <!-- Skip ticket: red mala / ticket no legible. Solo si NO está procesando. -->
-        <p-button *ngIf="wizardStep === 7 && !ticketResult() && !ticketSkipped()"
+        <!-- Skip ticket: red mala / ticket no legible. Solo si NO está procesando ni diferido. -->
+        <p-button *ngIf="wizardStep === 7 && !ticketResult() && !ticketSkipped() && !ticketDeferred()"
                   label="Saltar ticket"
                   icon="pi pi-forward"
                   severity="secondary"
@@ -1380,7 +1392,7 @@
                   label="Finalizar"
                   icon="pi pi-check"
                   styleClass="p-button-brand"
-                  [disabled]="(!ticketResult() && !ticketSkipped()) || ticketExtracting()"
+                  [disabled]="(!ticketResult() && !ticketSkipped() && !ticketDeferred()) || ticketExtracting()"
                   (onClick)="finishWizard(false)"></p-button>
       </ng-container>
     </nav>
@@ -1507,6 +1519,7 @@
   [focusOnShow]="false"
   [draggable]="false"
   [resizable]="false"
+  (onHide)="lastResult = null"
   styleClass="surface-card border-divider rounded-2xl"
   [contentStyleClass]="'bg-surface-card text-content-main'"
   ariaLabel="Confirmación de visita registrada">

@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-06-02 — Corrección módulo de roles (admin) + seeds antiguos
+
+**Item revisado:** análisis del módulo `/admin/roles` (permisos dinámicos JSONB). Se encontraron desalineamientos entre el enum `Permission` actual, los seeds y la lógica de protección/escalation. Correcciones aplicadas:
+
+1. **Seeds antiguos (`database/seeds/00_roles.js`).** Reescrito: eliminadas las claves legacy `LOG_*` (ya removidas de la DB viva por `20260522104500`, pero el seed las re-insertaba en cada install fresca), agregado el enum completo (COMMERCIAL_*, LOGISTICS_*, TELEVENTA, CAPTURE_TICKET_USE) con asignación por rol vía helpers `ALL_PERMS`/`NO_PERMS`, espejo del seed canónico `seeds-newdb/02_mega_dulces_initial_roles.js`. Conserva nombres legacy (supervisor_v, Jefe_M, ejecutivo) + idempotencia skip-existing.
+2. **Backfill prod (migración `20260602120000`).** Como el seed salta roles existentes, la DB viva tenía roles sin las claves comercial/logística → 403 en esos módulos para todo rol sin `manage:all`. Migración idempotente que agrega SOLO las claves faltantes por rol (`permissions -> 'KEY' IS NULL`), nunca pisa valores manuales. **Pendiente de correr `migrate:latest`** para aplicar a prod.
+3. **`SYSTEM_ROLES` desalineado** ([catalogs.service.ts](apps/api/src/modules/catalogs/catalogs.service.ts)). La lista protegía nombres que no existen (`supervisor_ventas`, `jefe_marketing`, `chofer`) y dejaba editables/borrables a `admin`, `supervisor_v`, `Jefe_M`, `ejecutivo`. Reemplazada por la unión legacy+canónico+funcionales; `isSystemRole` ahora case-insensitive.
+4. **Anti-escalation completo.** Antes solo cubría 2 permisos elevados → un rol con `ROLES_CONFIGURAR` podía concederse `USUARIOS_GESTIONAR` y todos los `*_GESTIONAR`. Ahora (least-privilege): el editor solo puede OTORGAR permisos que él mismo posee; quitar siempre permitido; superadmin bypass. Espejado en el frontend (bloqueo de checkbox generalizado + bypass `manage:all`).
+5. **UX/menores.** Frontend: completado `permissionMeta` para las ~30 claves comercial/logística/televenta/captura (antes salían con key cruda en categoría "Otros"); corregido mensaje stale "deben re-iniciar sesión" (el cambio aplica en ≤30s vía cache + invalidate); audit muestra `username` (join en `getRolePermissions`) en vez del UUID. Backend: `console.error` → `Logger` en `RolesGuard`.
+
+**Verificación:** `nx build api` y `nx build view` OK (solo warnings preexistentes ajenos). **Pendiente:** correr `migrate:latest` en prod para el backfill #2; validación visual del panel.
+
+**Rediseño UI del listado de roles (mismo día).** Antes los roles usaban la tabla genérica de catálogos (`Orden | Nombre | Acciones`) — columna Orden sin sentido y cero contexto. Reemplazado por grid de tarjetas + drawer de desglose:
+- **Backend:** `getByType('roles')` ahora devuelve `permissions` (JSONB), `user_count` (LEFT JOIN a `users` por role_name) y `updated_at`.
+- **Refactor:** la metadata de permisos (label/descripción/categoría de las 52 claves) se extrajo a `core/constants/permission-meta.ts` (`PERMISSION_META` + `PERMISSION_CATEGORY_ORDER` + `TOTAL_PERMISSIONS`). El editor `admin-roles-permissions` y la nueva vista la comparten (antes el editor tenía su copia → riesgo de drift).
+- **Frontend:** nuevo `AdminRolesGridComponent` (standalone, signal inputs/outputs) embebido en `admin-catalogs` cuando `selectedType()==='roles'`. Cada tarjeta: icono + nombre + badge Sistema, barra de cobertura (`n/52` + % ), chips de módulos tocados (top 4 + "+N"), conteo de usuarios, "Acceso total" cuando tiene `REPORTES_VER_GLOBAL`. Click en la tarjeta abre drawer lateral (custom, tokens Mega Dulces, Esc/backdrop para cerrar) con desglose read-only por módulo (✓ activos / ○ inactivos atenuados) y botón "Editar permisos" → editor existente. Acciones renombrar/eliminar solo en roles no-sistema. La tabla/cards genéricas se gatearon con `!== 'roles'`.
+
+**Verificación UI:** `nx build view` OK. Validación visual pendiente.
+
+**Limpieza de nombres de rol (mismo día, scope "solo seeds").** Los slugs crípticos `Jefe_M` y `supervisor_v` se reemplazaron por los canónicos snake_case `jefe_marketing` y `supervisor_ventas` en `database/seeds/00_roles.js` (helper `JEFE_M_PERMS` → `JEFE_MARKETING_PERMS`). `SYSTEM_ROLES` actualizado al set canónico; los slugs deprecados se quitaron de la lista a propósito (para poder borrarlos vía UI si quedan instancias viejas). La migración pendiente `20260602120000` se actualizó a nombres canónicos + aliases legacy. **Decisión del usuario: NO tocar la DB viva** (sin migración de reasignación/borrado); la limpieza de prod se hará manual. Detectado (no arreglado): bug de case en admin-users (`role_name.toLowerCase()` vs lookup case-sensitive de permisos). `nx build api` OK.
+
+---
+
 ## 2026-06-02 — Sprint Embarques · J.10: Tracking de shipments desde Comercial
 
 **Item revisado:** primer sub-sprint del Sprint Embarques (Fase J integración profunda). Objetivo: que el portal B2B y el módulo vendedor muestren estado real de entrega sin requerir el permiso `LOGISTICS_SHIPMENTS_VER` (que `customer_b2b` no tiene).

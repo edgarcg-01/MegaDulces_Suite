@@ -22,6 +22,7 @@ const MVS = [
   'analytics.mv_sales_overview_30d',
   'analytics.mv_top_customers_30d',
   'analytics.mv_top_products_30d',
+  'public.products_top_sellers',
 ];
 
 @Injectable()

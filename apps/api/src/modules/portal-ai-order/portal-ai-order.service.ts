@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { TenantKnexService } from '../../shared/database/tenant-knex.service';
+import { TenantContextService } from '../../shared/tenant/tenant-context.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -23,7 +24,12 @@ interface Suggestion {
 interface SuggestInput {
   message: string;
   history: ChatMessage[];
-  customerId: string | null;
+  /**
+   * Opcional. Si no viene, el service lo resuelve via
+   * `tenantCtx.userId → public.users.customer_id` (auth-mt no emite
+   * `customer_id` en el JWT).
+   */
+  customerId?: string | null;
   tenantId: string;
 }
 
@@ -46,13 +52,17 @@ export class PortalAiOrderService {
   private readonly logger = new Logger(PortalAiOrderService.name);
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
 
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
 
   async suggest(input: SuggestInput) {
     const message = (input.message || '').trim();
     if (!message) throw new BadRequestException('message vacío');
 
-    const catalog = await this.loadCatalog(input.customerId);
+    const customerId = input.customerId ?? (await this.resolveCustomerIdFromCtx());
+    const catalog = await this.loadCatalog(customerId);
     if (catalog.length === 0) {
       return {
         assistant_message:
@@ -72,6 +82,15 @@ export class PortalAiOrderService {
       this.logger.warn(`Claude suggest fallback (${e.message})`);
       return this.fallback(message, catalog);
     }
+  }
+
+  private async resolveCustomerIdFromCtx(): Promise<string | null> {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) return null;
+    return this.tk.run(async (trx) => {
+      const row = await trx('public.users').where({ id: userId }).select('customer_id').first();
+      return row?.customer_id || null;
+    });
   }
 
   private async loadCatalog(customerId: string | null): Promise<CatalogItem[]> {

@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map, of, switchMap, tap } from 'rxjs';
+import { Observable, forkJoin, map, of, switchMap, tap } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 
 // ─────────── Tipos ───────────
@@ -17,6 +18,62 @@ export interface PriceRow {
   min_qty: number;
   /** J.6.7: si el endpoint se llamó con `?warehouse_id=X`, contiene stock real disponible (quantity - reserved). Null si no se pidió. */
   stock_available?: number | null;
+  /** Sprint imágenes: URL pública Cloudinary. Null hasta que el importer la rellene. */
+  image_url?: string | null;
+  /** Top sellers MV: ranking 1..1000 según ERP Mega_Dulces.ranking_productos. */
+  sales_rank?: number;
+  /** Top sellers MV: unidades vendidas (histórico ERP). */
+  units_sold?: number | string;
+  /** Top sellers MV: revenue total (histórico ERP). */
+  revenue?: number | string;
+  /** Top sellers MV: cajas vendidas. */
+  cases_sold?: number | string;
+  /** Top sellers MV: piezas totales (incluye cajas × factor). */
+  units_total?: number | string;
+}
+
+/**
+ * PriceRow + metadata del historial del customer (chip "Reordenar").
+ * Permite que el grid del catálogo muestre "compraste 3× — última vez hace 2 sem"
+ * sin requests adicionales.
+ */
+export interface CatalogHistoryRow extends PriceRow {
+  times_ordered: number;
+  last_ordered_at: string | null;
+  total_quantity: number;
+}
+
+/**
+ * PriceRow + metadata de la canasta IA (D.4) — chip "Sugeridos IA".
+ * Cada producto trae su categoría heurística (base/focus/exploration/innovation)
+ * + score 0..1 + reason humano-legible.
+ */
+export interface CatalogSuggestedRow extends PriceRow {
+  rec_category: 'base' | 'focus' | 'exploration' | 'innovation' | null;
+  rec_score: number;
+  rec_reason: string;
+}
+
+/**
+ * PriceRow + metadata de la promoción activa que aplica al producto.
+ * Driver del chip "Con promo" del portal-catalog. Una sola promo por producto
+ * (la de mayor `priority` del backend).
+ */
+export interface CatalogWithPromoRow extends PriceRow {
+  promo_code: string;
+  promo_name: string;
+  promo_type: string;
+}
+
+/**
+ * Facets agregados del catálogo. Driver del panel de filtros del portal —
+ * counts pre-calculados en backend para chips con números reales.
+ */
+export interface CatalogFacets {
+  total: number;
+  brands: Array<{ brand_id: string | null; brand_name: string | null; count: number }>;
+  price_buckets: Array<{ label: string; min: number; max: number | null; count: number }>;
+  stock: { with_stock: number; without_stock: number } | null;
 }
 
 export interface AiSuggestion {
@@ -192,7 +249,7 @@ export class PortalService {
    * Backend devuelve `{ data, pagination }` — extraemos `data`.
    */
   listPricesForList(priceListId: string, warehouseId?: string): Observable<PriceRow[]> {
-    let params = new HttpParams().set('pageSize', 5000);
+    let params = new HttpParams().set('pageSize', 5000).set('commercial_only', 'true');
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,
@@ -202,6 +259,22 @@ export class PortalService {
       // wrapped). Después del cutover de la API se puede simplificar.
       map((r: any) => Array.isArray(r) ? r : (r?.data || [])),
     );
+  }
+
+  /**
+   * Top sellers del tenant (MATERIALIZED VIEW products_top_sellers — top 1000
+   * por unidades vendidas últimos 90d). Devuelve precio del price_list del
+   * customer + sales_rank + units_sold + revenue.
+   *
+   * Hoy la MV tiene poco volumen (~7 rows en .245) hasta que Mega Dulces tenga
+   * más data real. El strip del portal puede quedar vacío durante early stage.
+   */
+  listTopSellers(priceListId: string, warehouseId?: string, limit = 1000): Observable<PriceRow[]> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http
+      .get<{ data: PriceRow[] }>(`${this.base}/price-lists/${priceListId}/top-sellers`, { params })
+      .pipe(map((r: any) => (Array.isArray(r) ? r : r?.data || [])));
   }
 
   /**
@@ -217,6 +290,84 @@ export class PortalService {
     let params = new HttpParams();
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<PriceRow[]>(`${this.base}/catalog/products`, { params });
+  }
+
+  /**
+   * Productos que el customer ya compró (90d default), ordenados por frecuencia.
+   * Drive del chip "Reordenar" del portal. Si nunca compró → array vacío.
+   */
+  myCatalogHistory(warehouseId?: string, opts: { days?: number; limit?: number } = {}): Observable<CatalogHistoryRow[]> {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    if (opts.days) params = params.set('days', String(opts.days));
+    if (opts.limit) params = params.set('limit', String(opts.limit));
+    return this.http.get<CatalogHistoryRow[]>(`${this.base}/catalog/my-history`, { params });
+  }
+
+  /**
+   * Canasta IA del customer hidratada con precio/stock (D.4). Devuelve [] si
+   * el customer es nuevo sin pedidos previos (la heurística necesita historia).
+   */
+  myCatalogSuggested(warehouseId?: string): Observable<CatalogSuggestedRow[]> {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http.get<CatalogSuggestedRow[]>(`${this.base}/catalog/my-suggested`, { params });
+  }
+
+  /**
+   * Productos con promoción activa aplicable al customer. Devuelve [] si no
+   * hay promos vigentes que apunten a productos específicos (las de tipo
+   * `percent_off_basket` se filtran del lado backend).
+   */
+  myCatalogWithPromo(warehouseId?: string): Observable<CatalogWithPromoRow[]> {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http.get<CatalogWithPromoRow[]>(`${this.base}/catalog/with-promo`, { params });
+  }
+
+  /**
+   * Counts agregados del catálogo del customer (brand top-N, price buckets,
+   * stock with/without). Drive del panel de filtros sin requests adicionales.
+   */
+  catalogFacets(warehouseId?: string, brandsLimit?: number): Observable<CatalogFacets> {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    if (brandsLimit) params = params.set('brands_limit', String(brandsLimit));
+    return this.http.get<CatalogFacets>(`${this.base}/catalog/facets`, { params });
+  }
+
+  /**
+   * Catálogo paginado con filtros server-side. Diferencia clave vs
+   * `listCatalogProducts`: este SIEMPRE devuelve `{ data, pagination }` y
+   * recibe `page` + `pageSize`. Usado por el portal-catalog desde Capa 2
+   * paso 3 para evitar bajar los 7k SKUs de una.
+   */
+  listCatalogPage(opts: {
+    warehouseId?: string;
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    brandId?: string;
+    priceMin?: number;
+    priceMax?: number;
+    hasStock?: boolean;
+  }): Observable<{
+    data: PriceRow[];
+    pagination: { page: number; pageSize: number; total: number; pageCount: number };
+  }> {
+    let params = new HttpParams();
+    if (opts.warehouseId) params = params.set('warehouse_id', opts.warehouseId);
+    params = params.set('page', String(opts.page ?? 1));
+    params = params.set('pageSize', String(opts.pageSize ?? 60));
+    if (opts.q) params = params.set('q', opts.q);
+    if (opts.brandId) params = params.set('brand_id', opts.brandId);
+    if (opts.priceMin != null) params = params.set('price_min', String(opts.priceMin));
+    if (opts.priceMax != null) params = params.set('price_max', String(opts.priceMax));
+    if (opts.hasStock) params = params.set('has_stock', 'true');
+    return this.http.get<{
+      data: PriceRow[];
+      pagination: { page: number; pageSize: number; total: number; pageCount: number };
+    }>(`${this.base}/catalog/products`, { params });
   }
 
   listWarehouses() {
@@ -268,6 +419,39 @@ export class PortalService {
         quantity,
       })
       .pipe(tap(() => this.refreshCart()));
+  }
+
+  /**
+   * Add masivo (canasta IA / promociones). Una sola refrescada al final
+   * en vez de N (la versión 1:1 hacía N requests `refreshCart` que duplicaban
+   * carga del endpoint /orders/my). El backend serializa con FOR UPDATE
+   * sobre el draft, así que es seguro firearlas en paralelo.
+   */
+  addLinesBatch(
+    orderId: string,
+    items: Array<{ product_id: string; quantity: number; label?: string }>,
+  ): Observable<Array<{ ok: true; line: OrderLine; label?: string } | { ok: false; reason: string; label?: string }>> {
+    if (items.length === 0) return of([]);
+    return forkJoin(
+      items.map((it) =>
+        this.http
+          .post<OrderLine>(`${this.base}/orders/${orderId}/lines`, {
+            product_id: it.product_id,
+            quantity: it.quantity,
+          })
+          .pipe(
+            map((line) => ({ ok: true as const, line, label: it.label })),
+            catchError((err) =>
+              of({
+                ok: false as const,
+                label: it.label,
+                reason:
+                  err?.error?.message || err?.message || 'Error desconocido',
+              }),
+            ),
+          ),
+      ),
+    ).pipe(tap(() => this.refreshCart()));
   }
 
   updateLine(orderId: string, lineId: string, quantity: number): Observable<OrderLine> {

@@ -28,6 +28,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AdminCatalogsService } from './admin-catalogs.service';
+import { AdminRolesGridComponent } from './admin-roles-grid.component';
 import {
   AppSubject,
   PermissionsService,
@@ -59,6 +60,7 @@ const SCORING_TYPES: CatalogType[] = ['conceptos', 'ubicaciones', 'niveles'];
     ToastModule,
     ConfirmDialogModule,
     TooltipModule,
+    AdminRolesGridComponent,
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-catalogs.component.html',

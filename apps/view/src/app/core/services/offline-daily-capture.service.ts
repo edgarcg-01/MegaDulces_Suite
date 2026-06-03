@@ -92,6 +92,8 @@ export class OfflineDailyCaptureService {
        * garantiza que un 504-tras-commit en el server no produzca duplicado.
        */
       syncUuid?: string;
+      /** Fase V offline: foto del ticket a diferir. El OCR corre en el sync. */
+      ticketBlob?: Blob;
     }
   ): Promise<{
     exito: boolean;
@@ -130,6 +132,7 @@ export class OfflineDailyCaptureService {
         // Propagado desde saveCapturaTotal catchError para mantener
         // sync_uuid estable entre intento online y fallback offline.
         syncUuid: datosVisita.syncUuid,
+        ticketBlob: datosVisita.ticketBlob,
       };
 
       // Guardar usando el servicio de sincronización

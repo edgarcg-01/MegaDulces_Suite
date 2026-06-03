@@ -12,6 +12,7 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { Permission } from '../../../core/constants/permissions';
+import { PERMISSION_META } from '../../../core/constants/permission-meta';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -154,7 +155,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
                     @if (row.critical) {
                       <span class="status-chip status-bad" pTooltip="Permiso de alto impacto">Crítico</span>
                     }
-                    @if (isElevatedAndLocked(row.key, row.enabled)) {
+                    @if (isPermissionLocked(row.key, row.enabled)) {
                       <span class="text-[9px] uppercase tracking-wider text-content-faint border border-divider rounded px-1.5 py-0.5" pTooltip="No puedes otorgar este permiso porque tu rol no lo tiene">Bloqueado</span>
                     }
                   </span>
@@ -200,37 +201,9 @@ export class AdminRolesPermissionsComponent implements OnInit {
     );
   });
 
-  // Definición maestra de etiquetas y descripciones para el UI.
-  // Si el backend agrega un permiso al enum, sale acá con label = key raw.
-  private permissionMeta: Record<
-    string,
-    { label: string; description: string; category: string }
-  > = {
-    [Permission.USUARIOS_VER]: { label: 'Consultar Usuarios', description: 'Permite listar y ver el perfil de otros usuarios.', category: 'Usuarios' },
-    [Permission.USUARIOS_GESTIONAR]: { label: 'Gestionar Usuarios', description: 'Alta, baja y edición de usuarios.', category: 'Usuarios' },
-    [Permission.USUARIOS_PASSWORDS]: { label: 'Resetear Contraseñas', description: 'Permite cambiar contraseñas de cualquier usuario.', category: 'Usuarios' },
-    [Permission.USUARIOS_ASIGNAR_RUTA]: { label: 'Asignar Rutas', description: 'Permite definir la agenda semanal de rutas para el equipo.', category: 'Usuarios' },
-
-    [Permission.REPORTES_VER_PROPIO]: { label: 'Ver Reportes Propios', description: 'Acceso básico a sus propios indicadores.', category: 'Reportes' },
-    [Permission.REPORTES_VER_EQUIPO]: { label: 'Ver Reportes de Equipo', description: 'Acceso a indicadores de subordinados directos.', category: 'Reportes' },
-    [Permission.REPORTES_VER_GLOBAL]: { label: 'Ver Reporte Global', description: 'Acceso total a la data de la compañía. Concede manage:all.', category: 'Reportes' },
-    [Permission.REPORTES_EXPORTAR]: { label: 'Exportar Data (Excel/CSV)', description: 'Permite descargar crudos de información.', category: 'Reportes' },
-    [Permission.REPORTES_GESTIONAR]: { label: 'Gestionar Reportes', description: 'Permite eliminar reportes almacenados en el sistema.', category: 'Reportes' },
-
-    [Permission.VISITAS_REGISTRAR]: { label: 'Registrar Visitas', description: 'Habilita el formulario de check-in/visto bueno.', category: 'Operación' },
-    [Permission.VISITAS_VER]: { label: 'Ver Visitas', description: 'Acceso al listado y detalle de visitas registradas.', category: 'Operación' },
-    [Permission.VISITAS_AUDITAR]: { label: 'Auditar Visitas', description: 'Permite validar y cerrar visitas de otros.', category: 'Operación' },
-
-    [Permission.CATALOGO_GESTIONAR]: { label: 'Gestionar Catálogos', description: 'Control de conceptos, zonas y ubicaciones.', category: 'Configuración' },
-    [Permission.PLANOGRAMAS_GESTIONAR]: { label: 'Gestionar Planogramas', description: 'Creación de marcas y jerarquías de productos.', category: 'Configuración' },
-    [Permission.TIENDAS_VER]: { label: 'Ver Tiendas', description: 'Acceso al módulo de tiendas y sus detalles.', category: 'Configuración' },
-    [Permission.TIENDAS_CREAR]: { label: 'Crear Tiendas', description: 'Permite registrar nuevas tiendas desde la captura de visitas.', category: 'Configuración' },
-    [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: edita este panel de permisos para cualquier rol.', category: 'Configuración' },
-    [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
-    [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },
-
-    [Permission.VER_SEGUIMIENTO]: { label: 'Ver Seguimiento', description: 'Acceso al módulo de seguimiento de visitas y rutas en campo.', category: 'Seguimiento' },
-  };
+  // Labels / descripciones / categorías: fuente única compartida con la vista
+  // de roles (core/constants/permission-meta.ts).
+  private permissionMeta = PERMISSION_META;
 
   ngOnInit(): void {
     if (!this.perms.can('manage', 'roles_config')) {
@@ -257,23 +230,24 @@ export class AdminRolesPermissionsComponent implements OnInit {
   }
 
   /**
-   * Determina si el editor actual NO puede otorgar este permiso elevado y
-   * actualmente está apagado. Sirve para mostrar el badge "Bloqueado".
+   * El editor con `manage:all` (superadmin / reporte global) puede otorgar
+   * cualquier permiso — no aplica anti-escalation.
    */
-  isElevatedAndLocked(key: string, enabled: boolean): boolean {
-    if (enabled) return false;
-    if (!ELEVATED_PERMISSIONS.includes(key)) return false;
-    const editorPerms = this.authService.user()?.permissions ?? {};
-    return !editorPerms[key];
+  private isSuperEditor(): boolean {
+    return this.perms.can('manage', 'all');
   }
 
   /**
-   * Bloquea el checkbox si el editor no puede otorgar este permiso elevado.
-   * Cuando ya está habilitado, lo permitimos apagarlo (quitar privilegios
-   * siempre es seguro).
+   * Anti-escalation (espejo del backend): el editor solo puede OTORGAR
+   * permisos que él mismo posee. Si el permiso ya está habilitado, siempre se
+   * puede quitar. Sirve tanto para deshabilitar el checkbox como para el badge
+   * "Bloqueado".
    */
   isPermissionLocked(key: string, enabled: boolean): boolean {
-    return this.isElevatedAndLocked(key, enabled);
+    if (enabled) return false;
+    if (this.isSuperEditor()) return false;
+    const editorPerms = this.authService.user()?.permissions ?? {};
+    return !editorPerms[key];
   }
 
   togglePermission(key: string, enabled: boolean): void {
@@ -328,10 +302,12 @@ export class AdminRolesPermissionsComponent implements OnInit {
           for (const row of rows) snapshot[row.key] = row.enabled;
           this.originalPerms.set(snapshot);
 
-          // Audit info para mostrar "Última modificación".
+          // Audit info para mostrar "Última modificación". Preferimos el
+          // username legible; caemos al UUID solo si el join no resolvió.
           this.auditInfo.set({
             updatedAt: roleData.updated_at ?? null,
-            updatedBy: roleData.updated_by ?? null,
+            updatedBy:
+              roleData.updated_by_username ?? roleData.updated_by ?? null,
           });
         },
         error: (err: any) => {
@@ -396,7 +372,7 @@ export class AdminRolesPermissionsComponent implements OnInit {
             severity: 'success',
             summary: 'Éxito',
             detail:
-              'Funciones actualizadas. Los usuarios deben re-iniciar sesión para ver cambios.',
+              'Funciones actualizadas. El cambio aplica en segundos, sin re-iniciar sesión.',
           });
         },
         error: (err: any) => {

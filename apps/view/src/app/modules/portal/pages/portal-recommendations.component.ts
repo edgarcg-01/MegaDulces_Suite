@@ -1090,23 +1090,27 @@ export class PortalRecommendationsComponent implements AfterViewChecked {
         }
         this.portal.ensureDraft(customer.id, wh.id).subscribe({
           next: (draft) => {
-            let pending = suggestions.length;
-            let added = 0;
-            const failures: { name: string; reason: string }[] = [];
-            for (const s of suggestions) {
-              this.portal.addLine(draft.id, s.product_id, s.qty).subscribe({
-                next: () => {
-                  added++;
-                  if (--pending === 0) this.finishAdding(added, failures);
-                },
-                error: (err) => {
-                  const reason = err?.error?.message || err?.message || 'Error desconocido';
-                  failures.push({ name: s.product_name, reason });
-                  console.warn('[AI add] addLine FAIL', s.product_id, s.product_name, reason);
-                  if (--pending === 0) this.finishAdding(added, failures);
-                },
-              });
-            }
+            const batch = suggestions.map((s) => ({
+              product_id: s.product_id,
+              quantity: s.qty,
+              label: s.product_name,
+            }));
+            this.portal.addLinesBatch(draft.id, batch).subscribe({
+              next: (results) => {
+                const added = results.filter((r) => r.ok).length;
+                const failures = results
+                  .filter((r): r is { ok: false; reason: string; label?: string } => !r.ok)
+                  .map((r) => ({ name: r.label || '(sin nombre)', reason: r.reason }));
+                for (const f of failures) {
+                  console.warn('[AI add] addLine FAIL', f.name, f.reason);
+                }
+                this.finishAdding(added, failures);
+              },
+              error: (e) => {
+                this.adding.set(false);
+                this.toast.add({ severity: 'error', summary: 'Error al agregar', detail: e?.message || 'Error desconocido' });
+              },
+            });
           },
           error: (e) => {
             this.adding.set(false);

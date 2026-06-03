@@ -1165,15 +1165,21 @@ export class PortalPromotionsComponent implements OnInit {
     this.adding.update((a) => ({ ...a, [p.id]: true }));
     this.api.ensureDraft(this.customerId, this.warehouseId).subscribe({
       next: (draft) => {
-        let pending = lines.length;
-        let added = 0;
-        let failed = 0;
-        for (const ln of lines) {
-          this.api.addLine(draft.id, ln.product_id, ln.qty).subscribe({
-            next: () => { added++; if (--pending === 0) this.finish(p, added, failed); },
-            error: () => { failed++; if (--pending === 0) this.finish(p, added, failed); },
-          });
-        }
+        const batch = lines.map((ln) => ({
+          product_id: ln.product_id,
+          quantity: ln.qty,
+        }));
+        this.api.addLinesBatch(draft.id, batch).subscribe({
+          next: (results) => {
+            const added = results.filter((r) => r.ok).length;
+            const failed = results.length - added;
+            this.finish(p, added, failed);
+          },
+          error: (e) => {
+            this.adding.update((a) => ({ ...a, [p.id]: false }));
+            this.toast.add({ severity: 'error', summary: 'Error al agregar', detail: e?.error?.message || e?.message });
+          },
+        });
       },
       error: (e) => {
         this.adding.update((a) => ({ ...a, [p.id]: false }));
