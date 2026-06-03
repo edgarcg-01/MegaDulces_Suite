@@ -21,6 +21,39 @@ export interface VendorCustomer {
   active: boolean;
 }
 
+// ─── Cierre de ruta ───
+export type RouteTicketType = 'venta' | 'carga' | 'combustible';
+
+export interface RouteTicketFields {
+  route_code: string | null;
+  ticket_date: string | null;
+  total: number | null;
+  corte_number: string | null;
+  reference: string | null;
+  liters: number | null;
+}
+
+export interface ProcesarRouteTicketResult {
+  ticket_type: RouteTicketType;
+  cloudinary_public_id: string;
+  photo_url: string;
+  photo_preview_url: string;
+  fields: RouteTicketFields;
+}
+
+export interface RouteTicket {
+  id: string;
+  ticket_type: RouteTicketType;
+  route_code: string;
+  ticket_date: string;
+  total: number | null;
+  corte_number: string | null;
+  reference: string | null;
+  liters: number | null;
+  photo_url?: string | null;
+  created_at: string;
+}
+
 /**
  * Service del modo vendedor (colaborador). Reusa PortalService para
  * operaciones de carrito/orden — un vendedor en campo es esencialmente un
@@ -188,6 +221,50 @@ export class VendorService {
         const def = whs.find((w: any) => w.is_default) || whs[0];
         return def?.id || null;
       }),
+    );
+  }
+
+  // ─── Cierre de ruta: 3 tickets (venta/carga/combustible) ───
+
+  /** Sube la foto → OCR (Claude) → campos parseados SIN guardar (preview). */
+  procesarTicket(ticketType: RouteTicketType, file: File): Observable<ProcesarRouteTicketResult> {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('ticket_type', ticketType);
+    // No seteamos Content-Type: HttpClient pone el boundary multipart solo.
+    return this.http.post<ProcesarRouteTicketResult>(
+      `${this.base}/route-tickets/procesar`,
+      fd,
+    );
+  }
+
+  /** Guarda el ticket revisado. */
+  guardarTicket(dto: {
+    ticket_type: RouteTicketType;
+    route_code: string;
+    ticket_date: string;
+    total?: number | null;
+    corte_number?: string | null;
+    reference?: string | null;
+    liters?: number | null;
+    cloudinary_public_id?: string | null;
+    photo_url?: string | null;
+    photo_preview_url?: string | null;
+    ocr_json?: unknown;
+  }): Observable<RouteTicket> {
+    return this.http.post<RouteTicket>(`${this.base}/route-tickets`, dto);
+  }
+
+  /** Lista los tickets del propio vendedor. */
+  listTickets(opts: { ticket_type?: RouteTicketType; pageSize?: number } = {}): Observable<{
+    data: RouteTicket[];
+    total: number;
+  }> {
+    let p = new HttpParams().set('pageSize', String(opts.pageSize ?? 30));
+    if (opts.ticket_type) p = p.set('ticket_type', opts.ticket_type);
+    return this.http.get<{ data: RouteTicket[]; total: number }>(
+      `${this.base}/route-tickets`,
+      { params: p },
     );
   }
 }

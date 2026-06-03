@@ -37,6 +37,7 @@ export type AppSubject =
   | 'logistics_expenses'
   | 'logistics_payroll'
   | 'logistics_config'
-  | 'capture_ticket';
+  | 'capture_ticket'
+  | 'route_ticket';
 
 export type AppAbility = MongoAbility<[Action, AppSubject]>;

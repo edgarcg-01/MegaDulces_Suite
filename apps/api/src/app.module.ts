@@ -50,6 +50,8 @@ import { PortalAiOrderModule } from '@megadulces/commercial';
 import { CommercialCatalogSearchModule } from '@megadulces/commercial';
 // Fase E — Remote Manager / Televenta
 import { CommercialTeleventaModule } from '@megadulces/commercial';
+// Cierre de ruta — tickets venta/carga/combustible del vendedor (port Automation_RD)
+import { CommercialRouteControlModule } from '@megadulces/commercial';
 // Fase J — Logística
 import { LogisticsFleetModule } from '@megadulces/logistics';
 import { LogisticsConfigModule } from '@megadulces/logistics';
@@ -89,6 +91,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       PortalAiOrderModule,
       CommercialCatalogSearchModule,
       CommercialTeleventaModule,
+      CommercialRouteControlModule,
       // Binding del Port ANTES de logística (provee el token global que inyecta).
       OrderFulfillmentBindingModule,
       LogisticsFleetModule,

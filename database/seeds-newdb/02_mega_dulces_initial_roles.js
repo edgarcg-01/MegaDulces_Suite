@@ -74,6 +74,9 @@ exports.seed = async function (knex) {
     LOGISTICS_CONFIG_GESTIONAR: true,
     // Fase V — Vendedor con OCR de ticket
     CAPTURE_TICKET_USE: true,
+    // Comercial — Cierre de ruta
+    ROUTE_TICKET_CAPTURE: true,
+    ROUTE_CONTROL_VER: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -194,6 +197,7 @@ exports.seed = async function (knex) {
         SCORING_CONFIG_VER: true,
         VER_SEGUIMIENTO: true,
         CAPTURE_TICKET_USE: true,
+        ROUTE_TICKET_CAPTURE: true,
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_PRICING_VER: true,
         COMMERCIAL_INVENTORY_VER: true,

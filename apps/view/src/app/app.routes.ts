@@ -316,6 +316,13 @@ export const routes: Routes = [
             (m) => m.VendorTodayComponent,
           ),
       },
+      {
+        path: 'close-route',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-close-route.component').then(
+            (m) => m.VendorCloseRouteComponent,
+          ),
+      },
     ],
   },
   {

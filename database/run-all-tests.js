@@ -37,6 +37,9 @@ const TESTS = [
   { file: 'http-j10-order-tracking-test.js', label: 'J.10 order tracking (commercial/orders/:id/shipments)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
+  // Cierre de ruta (port Automation_RD)
+  { file: 'test-route-tickets-rls-smoke.js', label: 'RD route_tickets RLS isolation', needsApi: false },
+  { file: 'http-route-tickets-test.js', label: 'RD cierre de ruta E2E (3 tickets + reportes)', needsApi: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

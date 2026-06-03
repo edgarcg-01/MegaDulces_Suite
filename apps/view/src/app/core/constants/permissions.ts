@@ -58,6 +58,10 @@ export enum Permission {
   // Fase V — Vendedor con OCR de ticket
   CAPTURE_TICKET_USE = 'CAPTURE_TICKET_USE',
 
+  // Comercial — Cierre de ruta (tickets venta/carga/combustible)
+  ROUTE_TICKET_CAPTURE = 'ROUTE_TICKET_CAPTURE',
+  ROUTE_CONTROL_VER = 'ROUTE_CONTROL_VER',
+
   // Logística (Fase J)
   LOGISTICS_FLEET_VER = 'LOGISTICS_FLEET_VER',
   LOGISTICS_FLEET_GESTIONAR = 'LOGISTICS_FLEET_GESTIONAR',

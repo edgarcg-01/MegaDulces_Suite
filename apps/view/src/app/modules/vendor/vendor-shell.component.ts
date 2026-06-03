@@ -49,6 +49,10 @@ import { AuthService } from '../../core/services/auth.service';
           <i class="pi pi-calendar"></i>
           <span>Mi día</span>
         </a>
+        <a routerLink="close-route" routerLinkActive="active">
+          <i class="pi pi-check-circle"></i>
+          <span>Cierre</span>
+        </a>
       </nav>
     </div>
   `,

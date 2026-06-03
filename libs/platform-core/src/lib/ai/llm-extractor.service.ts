@@ -1,6 +1,19 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 /**
+ * Campos de cabecera extraídos de un ticket de ruta (cierre de ruta).
+ * `total`/`liters` numéricos o null; el resto string o null según el tipo.
+ */
+export interface RouteTicketFields {
+  route_code: string | null;
+  ticket_date: string | null; // ISO YYYY-MM-DD
+  total: number | null;
+  corte_number: string | null; // solo venta
+  reference: string | null; // solo combustible
+  liters: number | null; // solo combustible
+}
+
+/**
  * Wrapper de Anthropic Claude Haiku 4.5 — extracción estructurada de items
  * de producto desde texto crudo del colaborador.
  *
@@ -67,6 +80,36 @@ export class LlmExtractorService implements OnModuleInit {
     } catch (e: any) {
       this.logger.warn(`Claude vision ticket extract failed: ${e.message}`);
       return [];
+    }
+  }
+
+  /**
+   * "Cierre de ruta" — extrae los campos de CABECERA de un ticket de ruta
+   * (venta/carga/combustible) desde la foto. NO desglosa productos: estos
+   * tickets son documentos de control/totales. Reemplaza al OCR Mistral +
+   * parsers regex de Automation_RD por una sola llamada Claude vision.
+   *
+   * @returns Campos parseados (null donde no aplica / no se detecta).
+   */
+  async extractRouteTicket(
+    imageBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+    ticketType: 'venta' | 'carga' | 'combustible',
+  ): Promise<RouteTicketFields> {
+    const empty: RouteTicketFields = {
+      route_code: null, ticket_date: null, total: null,
+      corte_number: null, reference: null, liters: null,
+    };
+    if (!this.apiKey) {
+      this.logger.warn('Route ticket OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
+      return empty;
+    }
+    if (!imageBase64) return empty;
+    try {
+      return await this.callClaudeVisionRouteTicket(imageBase64, mediaType, ticketType);
+    } catch (e: any) {
+      this.logger.warn(`Claude route-ticket extract failed: ${e.message}`);
+      return empty;
     }
   }
 
@@ -348,5 +391,112 @@ export class LlmExtractorService implements OnModuleInit {
         normalized: it.normalized.trim(),
         quantity: Number.isInteger(it.quantity) && (it.quantity as number) >= 1 ? (it.quantity as number) : 1,
       }));
+  }
+
+  /**
+   * Vision para tickets de ruta. Pide a Claude los campos de cabecera según el
+   * tipo. `route_code` = el número que sigue a "RD" (ej. "12"). Fechas a ISO.
+   */
+  private async callClaudeVisionRouteTicket(
+    imageBase64: string,
+    mediaType: string,
+    ticketType: 'venta' | 'carga' | 'combustible',
+  ): Promise<RouteTicketFields> {
+    const perType: Record<typeof ticketType, string> = {
+      venta:
+        'Ticket de CORTE DE VENTA de una ruta (RD). Extrae: route_code (número tras "RD"), ' +
+        'ticket_date, total (monto vendido, el importe mayor), corte_number (el número que aparece tras "Numero"). ' +
+        'reference y liters van null.',
+      carga:
+        'Ticket de CARGA de mercancía a un camión de ruta (RD). Extrae: route_code (número tras "RD"), ' +
+        'ticket_date, total (valor total cargado). corte_number, reference y liters van null.',
+      combustible:
+        'Ticket de COMBUSTIBLE/gasolina de una ruta (RD). Extrae: route_code (número tras "RD"), ' +
+        'ticket_date, total (importe), liters (litros cargados), reference (folio/referencia del ticket). ' +
+        'corte_number va null.',
+    };
+
+    const ctrl = new AbortController();
+    const tId = setTimeout(() => ctrl.abort(), 30_000);
+
+    let res: Response;
+    try {
+      res = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          max_tokens: 512,
+          tool_choice: { type: 'tool', name: 'extract_route_ticket' },
+          tools: [
+            {
+              name: 'extract_route_ticket',
+              description:
+                'Extrae los campos de cabecera de un ticket de ruta. Usa null para cualquier campo ' +
+                'que no aplique al tipo o que no se distinga en la imagen. Fechas siempre en formato ISO YYYY-MM-DD.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  route_code: { type: ['string', 'null'], description: 'Número de ruta tras "RD" (ej. "12"). null si no se ve.' },
+                  ticket_date: { type: ['string', 'null'], description: 'Fecha del ticket en ISO YYYY-MM-DD. null si no se ve.' },
+                  total: { type: ['number', 'null'], description: 'Monto total en pesos (sin símbolo ni comas). null si no se ve.' },
+                  corte_number: { type: ['string', 'null'], description: 'Número de corte (solo venta). null en otros tipos.' },
+                  reference: { type: ['string', 'null'], description: 'Folio/referencia (solo combustible). null en otros tipos.' },
+                  liters: { type: ['number', 'null'], description: 'Litros (solo combustible). null en otros tipos.' },
+                },
+                required: ['route_code', 'ticket_date', 'total', 'corte_number', 'reference', 'liters'],
+              },
+            },
+          ],
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+                { type: 'text', text: perType[ticketType] + ' Usa la herramienta extract_route_ticket.' },
+              ],
+            },
+          ],
+        }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(tId);
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Anthropic route-ticket ${res.status}: ${body.slice(0, 300)}`);
+    }
+
+    const json = (await res.json()) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Partial<RouteTicketFields> }
+      >;
+    };
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'extract_route_ticket',
+    );
+    if (!toolUse) throw new Error('Claude route-ticket no devolvió tool_use');
+
+    const inp = toolUse.input || {};
+    const num = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? v : null;
+    const str = (v: unknown): string | null =>
+      typeof v === 'string' && v.trim() ? v.trim() : null;
+    return {
+      route_code: str(inp.route_code),
+      ticket_date: str(inp.ticket_date),
+      total: num(inp.total),
+      corte_number: ticketType === 'venta' ? str(inp.corte_number) : null,
+      reference: ticketType === 'combustible' ? str(inp.reference) : null,
+      liters: ticketType === 'combustible' ? num(inp.liters) : null,
+    };
   }
 }
