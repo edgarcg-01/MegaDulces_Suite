@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ORDER_FULFILLMENT_PORT } from '@megadulces/contracts';
-import { CommercialOrdersModule } from '../modules/commercial-orders/commercial-orders.module';
-import { CommercialOrdersService } from '../modules/commercial-orders/commercial-orders.service';
+import { CommercialOrdersModule } from '@megadulces/commercial';
+import { CommercialOrdersService } from '@megadulces/commercial';
 
 /**
  * Composition root del Port de fulfillment de órdenes.

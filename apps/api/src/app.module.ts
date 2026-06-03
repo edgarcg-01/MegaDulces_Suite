@@ -16,7 +16,7 @@ import { CatalogsModule } from '@megadulces/trade';
 // Fase K — AI product match en captures wizard paso 5.
 import { AiProductMatcherModule } from '@megadulces/platform-core';
 // Fase V — OCR del ticket del vendedor (Claude Haiku vision + matcher).
-import { TicketExtractorModule } from './modules/ticket-extractor/ticket-extractor.module';
+import { TicketExtractorModule } from '@megadulces/commercial';
 import { ScoringModule } from '@megadulces/trade';
 import { ScoringV2Module } from '@megadulces/trade';
 import { ReportsModule } from '@megadulces/trade';
@@ -36,20 +36,20 @@ import { JwtAuthGuard } from '@megadulces/platform-core';
 import { AuthMtModule } from './modules/auth-mt/auth-mt.module';
 import { TenantsAdminModule } from './modules/tenants-admin/tenants-admin.module';
 // Fase B — Core comercial (corre dentro del toggle multi-tenant)
-import { CommercialCustomersModule } from './modules/commercial-customers/commercial-customers.module';
-import { CommercialWarehousesModule } from './modules/commercial-warehouses/commercial-warehouses.module';
-import { CommercialPricingModule } from './modules/commercial-pricing/commercial-pricing.module';
-import { CommercialInventoryModule } from './modules/commercial-inventory/commercial-inventory.module';
-import { CommercialOrdersModule } from './modules/commercial-orders/commercial-orders.module';
-import { CommercialAnalyticsModule } from './modules/commercial-analytics/commercial-analytics.module';
-import { CommercialAlertsModule } from './modules/commercial-alerts/commercial-alerts.module';
-import { CommercialRecommendationsModule } from './modules/commercial-recommendations/commercial-recommendations.module';
-import { CommercialPromotionsModule } from './modules/commercial-promotions/commercial-promotions.module';
-import { CommercialProductsModule } from './modules/commercial-products/commercial-products.module';
-import { PortalAiOrderModule } from './modules/portal-ai-order/portal-ai-order.module';
-import { CommercialCatalogSearchModule } from './modules/commercial-catalog-search/commercial-catalog-search.module';
+import { CommercialCustomersModule } from '@megadulces/commercial';
+import { CommercialWarehousesModule } from '@megadulces/commercial';
+import { CommercialPricingModule } from '@megadulces/commercial';
+import { CommercialInventoryModule } from '@megadulces/commercial';
+import { CommercialOrdersModule } from '@megadulces/commercial';
+import { CommercialAnalyticsModule } from '@megadulces/commercial';
+import { CommercialAlertsModule } from '@megadulces/commercial';
+import { CommercialRecommendationsModule } from '@megadulces/commercial';
+import { CommercialPromotionsModule } from '@megadulces/commercial';
+import { CommercialProductsModule } from '@megadulces/commercial';
+import { PortalAiOrderModule } from '@megadulces/commercial';
+import { CommercialCatalogSearchModule } from '@megadulces/commercial';
 // Fase E — Remote Manager / Televenta
-import { CommercialTeleventaModule } from './modules/commercial-televenta/commercial-televenta.module';
+import { CommercialTeleventaModule } from '@megadulces/commercial';
 // Fase J — Logística
 import { LogisticsFleetModule } from '@megadulces/logistics';
 import { LogisticsConfigModule } from '@megadulces/logistics';
@@ -63,7 +63,7 @@ import { LogisticsChecklistsModule } from '@megadulces/logistics';
 import { LogisticsPhotosModule } from '@megadulces/logistics';
 import { LogisticsReportsModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
-import { MegaDulcesSyncModule } from './modules/mega-dulces-sync/mega-dulces-sync.module';
+import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
 import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';

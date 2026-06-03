@@ -1,0 +1,16 @@
+{
+  "name": "commercial",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/commercial/src",
+  "projectType": "library",
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["libs/commercial/**/*.ts"]
+      }
+    }
+  },
+  "tags": ["scope:commercial", "type:feature"]
+}
