@@ -79,5 +79,6 @@
         "passWithNoTests": true
       }
     }
-  }
+  },
+  "tags": ["scope:view", "type:app"]
 }

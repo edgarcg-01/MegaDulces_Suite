@@ -26,6 +26,7 @@ import { DailyAssignmentsModule } from './modules/daily-assignments/daily-assign
 import { CronModule } from './modules/cron/cron.module';
 import { DataModule } from './modules/data/data.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WebSocketModule } from './modules/websocket/websocket.module';
 // Multi-tenant modules (nueva DB) — registrados condicionalmente via ENABLE_MULTITENANT
 import { NewDatabaseModule } from './shared/database/new-database.module';
@@ -147,6 +148,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     DataModule,
     WebSocketModule,
     ScheduleModule.forRoot(),
+    // Bus de eventos in-process para side-effects cross-domain (síncrono).
+    // CONVENCIÓN: emitir SOLO post-commit (nunca dentro de una trx abierta).
+    EventEmitterModule.forRoot(),
     ...multitenantModules,
   ],
   controllers: [AppController],
