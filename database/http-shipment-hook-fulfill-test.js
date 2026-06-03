@@ -48,30 +48,48 @@ function check(name, cond, detail) {
   check('JWT recibido', !!token);
   if (!token) process.exit(1);
 
-  // 2. Setup: pedir customer + warehouse + producto con stock
+  // 2. Setup: pedir customer + warehouse + producto con stock Y precio.
   console.log('\n── 2. Setup data ──');
-  const customers = await req('GET', '/commercial/customers?pageSize=5', null, token);
-  const customer = (customers.body?.data || []).find((c) => c.active);
-  check('customer activo encontrado', !!customer?.id);
+  const customersResp = await req('GET', '/commercial/customers?pageSize=50', null, token);
+  const activeCustomers = (customersResp.body?.data || []).filter((c) => c.active);
+  check('hay customers activos', activeCustomers.length > 0);
 
   const warehouses = await req('GET', '/commercial/warehouses', null, token);
   const warehouse = (warehouses.body?.data || warehouses.body || []).find((w) => w.is_default);
   check('warehouse default encontrado', !!warehouse?.id);
 
-  // Buscar producto con stock disponible vía endpoint pricing (que devuelve productos con precio)
-  // Pickeamos uno con stock > 5 para tener margen
+  // Escanear customer × producto-con-stock hasta encontrar un combo con precio
+  // resuelto. La selección a ciegas (primer customer + primer stock) era frágil:
+  // los productos con stock no siempre tienen precio en el price_list del customer.
   const stockResp = await req(`GET`, `/commercial/inventory/stock?warehouse_id=${warehouse.id}&pageSize=50`, null, token);
   const stockRows = (stockResp.body?.data || stockResp.body || []);
-  const withStock = Array.isArray(stockRows)
-    ? stockRows.find((s) => Number(s.available_quantity || s.available || s.quantity || 0) > 5)
-    : undefined;
-  check('producto con stock > 5 encontrado', !!withStock, { count: stockRows.length });
+  const candidates = (Array.isArray(stockRows) ? stockRows : [])
+    .filter((s) => Number(s.available_quantity || s.available || s.quantity || 0) > 5);
+
+  let customer, withStock, productId, initialStock;
+  outer:
+  for (const cust of activeCustomers) {
+    for (const cand of candidates) {
+      const pid = cand.product_id;
+      const priceResp = await req('GET', `/commercial/products/${pid}/price?customer_id=${cust.id}`, null, token);
+      const p = priceResp.body;
+      if (priceResp.status === 200 && p?.price != null && (p.min_qty == null || Number(p.min_qty) <= 3)) {
+        customer = cust;
+        withStock = cand;
+        productId = pid;
+        initialStock = Number(cand.available_quantity || cand.available || cand.quantity);
+        break outer;
+      }
+    }
+  }
+  check('combo customer+producto con stock>5 Y precio encontrado', !!withStock, {
+    customers: activeCustomers.length, candidates: candidates.length,
+  });
   if (!withStock) {
-    console.error('  ⚠️ Sin productos con stock — correr testdata B.3.2 antes de este test.');
+    console.error('  ⚠️ Ningún combo customer×producto-con-stock tiene precio — correr testdata B.3.2 / configurar price_list.');
     process.exit(1);
   }
-  const productId = withStock.product_id;
-  const initialStock = Number(withStock.available_quantity || withStock.available || withStock.quantity);
+  console.log(`  Customer: ${customer.id}`);
   console.log(`  Producto: ${productId} | stock inicial: ${initialStock}`);
 
   // 3. Crear pedido draft + agregar línea
