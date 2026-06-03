@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-06-03 — Sprint aislamiento de módulos (`[iso.0]`–`[iso.5]`)
+
+**Objetivo (alineado con Edgar):** que un cambio en un dominio no pueda romper otro. Edgar pidió "microservicios"; tras aclarar, el objetivo real era **aislamiento de código + extraction-readiness**, manteniendo **1 solo deployable**. Decisión explícita: NO microservicios runtime ahora (el flujo orders→inventory→pricing y shipment→fulfill son atómicos; partirlos = sagas = retroceso para single dev). Caveat aceptado: 1 proceso → un crash sigue tumbando todo (aislamiento de código, no de proceso). Doc completo en [`docs/EXTRACTION-READINESS.md`](../EXTRACTION-READINESS.md).
+
+**Qué se hizo:** los 41 módulos NestJS se partieron en **libs Nx por dominio** con fronteras **enforced por `@nx/enforce-module-boundaries` (error)**.
+
+- **[iso.0]** Scaffolding: libs `platform-core` + `contracts` (no-buildable), tags `scope:*`/`type:*` en todos los proyectos, `depConstraints` por dominio (warn), `@nestjs/event-emitter` + `EventEmitterModule.forRoot()`, `nx.json` sharedGlobals.
+- **[iso.1]** `platform-core`: `git mv shared/*` (28 archivos) → lib + barrel `@megadulces/platform-core`. 201 import sites reescritos.
+- **[iso.2]** `trade`: 11 módulos (capturas, scoring, planogramas, reports, **websocket**, stores, visits, users, data, catalogs). `ai-product-matcher` → platform-core (infra AI compartida). websocket resultó infra interna de trade → se movió con trade (no se forzó evento).
+- **[iso.3]** `logistics`: 10 módulos. **Dep a commercial invertida vía `OrderFulfillmentPort`** (contracts) + `OrderFulfillmentBindingModule` @Global en composition root. logistics ya NO importa commercial; atomicidad del fulfill preservada (mismo `trx`).
+- **[iso.4]** `commercial`: 15 módulos (13 commercial-* + portal-ai-order + ticket-extractor + mega-dulces-sync). orders↔pricing↔inventory↔alerts quedan intra-domain (directo, atómico).
+- **[iso.5]** Regla → `error`. Test negativo: `commercial→logistics` rompe el lint ✓.
+
+**Grafo final:** ningún dominio depende de un hermano. `commercial→{platform-core}`, `logistics→{platform-core,contracts}`, `trade→{platform-core,shared}`, `api`(composition root)→todos. Quedan en `api`: auth, auth-mt, cron, tenants-admin.
+
+**Verificación:** `nx build api` verde tras cada fase (96→98 warnings preexistentes, 0 errores). Boundaries: 0 violaciones + test negativo OK. **PENDIENTE (runtime, lo corre Edgar):** `node database/run-all-tests.js` con API up + `ENABLE_MULTITENANT=true` + `THROTTLE_DISABLED=true` → debe seguir 19/19. Vigilar `http-shipment-hook-fulfill-test.js` (J.6.1) — único punto con riesgo runtime (Port DI-invertido). Frontend `apps/view` sin dividir (diferido).
+
+---
+
 ## 2026-06-02 — Corrección módulo de roles (admin) + seeds antiguos
 
 **Item revisado:** análisis del módulo `/admin/roles` (permisos dinámicos JSONB). Se encontraron desalineamientos entre el enum `Permission` actual, los seeds y la lógica de protección/escalation. Correcciones aplicadas:
