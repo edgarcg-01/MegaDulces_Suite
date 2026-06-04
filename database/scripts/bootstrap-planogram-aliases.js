@@ -1,11 +1,13 @@
 /**
- * Bootstrap de `trade.planogram_sku_aliases`: agrupa productos del set activo
- * ERP (inventory.products_active) a productos del planograma (852) por
- * CONTENCIÓN de tokens de nombre — el nombre activo contiene todos los tokens
- * del nombre del planograma (ej. "CANELS 4S SURTIDO DISPLAY 60P" ⊇ "CANELS 4S").
+ * Bootstrap de `trade.planogram_sku_aliases`: mapea productos del set activo
+ * ERP (inventory.products_active) a productos del planograma (852) SOLO cuando son
+ * el MISMO PRODUCTO — nombre completo normalizado idéntico (conservando tamaños y
+ * números: #5, 60gr, ½L), quitando únicamente el prefijo "IND " y el conteo de
+ * empaque final "/6". Ej: "IND TIC TAC MENTA" == "TIC TAC MENTA". NO usa fuzzy/
+ * contención (eso generaba falsos como "GUMMY RANITA POP'S" → "GUMMY POP").
  * Inserta alias source='bootstrap' (revisables/curables). NO toca los canónicos.
  *
- * Determinístico, conservador (contención total), sin Voyage. Idempotente.
+ * Determinístico, sin Voyage. Idempotente.
  * Uso (desde database/):  node scripts/bootstrap-planogram-aliases.js [--apply]
  *   sin --apply = dry-run (solo reporta cuántos mapearía).
  */
@@ -15,15 +17,21 @@ const knex = knexLib(k);
 const T = '00000000-0000-0000-0000-00000000d01c';
 const APPLY = process.argv.includes('--apply');
 
-const STOP = new Set(['de', 'la', 'el', 'con', 'sin', 'gr', 'ml', 'kg', 'pz', 'pza', 'c', 's']);
-function tokens(name) {
-  return new Set(
-    String(name || '')
-      .toLowerCase()
-      .replace(/^\s*ind\s+/i, '')
-      .split(/[^a-z0-9]+/i)
-      .filter((t) => t.length >= 2 && !STOP.has(t)),
-  );
+// Nombre completo normalizado, CONSERVANDO números y tamaños (#5, 60gr, 5l, ½).
+// Solo quita el prefijo "IND " y el conteo de empaque final "/6". Igualdad
+// exacta de este string = "producto completamente igual".
+function norm(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/^\s*\*+\s*/, '') // marcadores "***"
+    .replace(/^\s*ind\s+/i, '') // prefijo IND
+    .replace(/½/g, '12frac')
+    .replace(/¼/g, '14frac')
+    .replace(/¾/g, '34frac')
+    .replace(/\s*\/\s*\d+\s*$/, '') // conteo de empaque final "/6"
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 (async () => {
@@ -35,8 +43,8 @@ function tokens(name) {
     [T],
   );
   const plano = planoRows.rows
-    .map((r) => ({ sku: r.sku, product_id: r.product_id, toks: tokens(r.nombre), nombre: r.nombre }))
-    .filter((p) => p.toks.size > 0);
+    .map((r) => ({ sku: r.sku, product_id: r.product_id, key: norm(r.nombre), nombre: r.nombre }))
+    .filter((p) => p.key.length > 0);
   const canonicalSkus = new Set(plano.map((p) => p.sku));
   console.log(`planograma: ${plano.length} productos.`);
 
@@ -47,22 +55,24 @@ function tokens(name) {
     [T],
   );
 
+  // Índice del planograma por nombre normalizado. Si dos productos del planograma
+  // normalizan igual, es ambiguo → se descarta esa clave (no adivinamos).
+  const planoByKey = new Map();
+  const ambiguous = new Set();
+  for (const p of plano) {
+    if (planoByKey.has(p.key) && planoByKey.get(p.key).product_id !== p.product_id) ambiguous.add(p.key);
+    else planoByKey.set(p.key, p);
+  }
+  for (const k of ambiguous) planoByKey.delete(k);
+
   const aliases = [];
   for (const r of actRows.rows) {
     if (!r.sku || canonicalSkus.has(r.sku)) continue; // canónico ya cubierto
-    const at = tokens(r.name);
-    if (at.size === 0) continue;
-    // Mejor planograma cuyo set de tokens esté TODO contenido en el activo.
-    let best = null;
-    for (const p of plano) {
-      let allIn = true;
-      for (const t of p.toks) if (!at.has(t)) { allIn = false; break; }
-      if (!allIn) continue;
-      if (!best || p.toks.size > best.toks.size) best = p; // el más específico
-    }
-    if (best && best.toks.size >= 2) {
-      aliases.push({ erp_sku: r.sku, product_id: best.product_id, conf: best.toks.size / at.size });
-    }
+    const key = norm(r.name);
+    if (!key) continue;
+    // SOLO producto completamente igual: nombre normalizado idéntico al del planograma.
+    const p = planoByKey.get(key);
+    if (p) aliases.push({ erp_sku: r.sku, product_id: p.product_id, conf: 1 });
   }
   console.log(`alias bootstrap candidatos: ${aliases.length}`);
   console.log('ejemplos:', aliases.slice(0, 8).map((a) => a.erp_sku + '→' + a.product_id.slice(0, 8)).join(', '));
