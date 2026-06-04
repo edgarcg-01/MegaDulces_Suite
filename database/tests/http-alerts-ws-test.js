@@ -64,7 +64,7 @@ function wait(ms) {
 
 (async () => {
   // Setup tenant 2 via Knex directo
-  require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
+  require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
   const bcrypt = require('bcryptjs');
   const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW });
   const T2 = '00000000-0000-0000-0000-000000004444';

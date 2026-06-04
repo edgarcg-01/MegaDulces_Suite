@@ -6,7 +6,7 @@
 
 const BASE = 'http://localhost:3334/api';
 const bcrypt = require('bcryptjs');
-require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
 const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW });
 
 async function req(method, path, body, token) {

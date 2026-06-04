@@ -13,7 +13,7 @@
  *   6. Verificación final del estado del pedido y movimientos
  */
 
-require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
 const knex = require('knex')({
   client: 'pg',
   connection: process.env.DATABASE_URL_NEW_RUNTIME,

@@ -68,7 +68,7 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
       // Pequeña pausa entre suites HTTP para no agotar el tier short (10/s).
       await sleep(1_500);
     }
-    const filePath = path.join(root, t.file);
+    const filePath = path.join(root, 'tests', t.file);
     process.stdout.write(`\n━━━ ${t.label} (${t.file}) ━━━\n`);
     const start = Date.now();
     const r = spawnSync('node', [filePath], {

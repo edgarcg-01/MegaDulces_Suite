@@ -27,7 +27,7 @@ const db = knex({
     console.log(`  ${dbInfo.rows[0].v.split(',')[0]}`);
     console.log();
 
-    const seed = require(path.join(__dirname, 'seeds', '91_daily_captures_demo.js'));
+    const seed = require(path.join(__dirname, '..', 'seeds', '91_daily_captures_demo.js'));
     console.log('► Ejecutando seed 91_daily_captures_demo...\n');
     await seed.seed(db);
     console.log('\n✓ Seed completado.');

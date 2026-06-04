@@ -128,7 +128,7 @@ function check(name, cond, det) {
   console.log('\n── 5. Tenant isolation en MVs ──');
   // Setup mini-tenant 2 (vía conexión directa porque tenants-admin no tiene auth todavía)
   const bcrypt = require('bcryptjs');
-  require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
+  require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
   const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW });
   const T2 = '00000000-0000-0000-0000-000000003333';
   await knex('public.tenants')
