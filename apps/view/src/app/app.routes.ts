@@ -35,6 +35,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/dashboard/route-tickets/route-tickets.component').then(m => m.DashboardRouteTicketsComponent),
         canActivate: [permissionGuard(Permission.ROUTE_TICKET_CAPTURE)]
       },
+      {
+        // Captura diaria especial del vendedor: foto exhibidor + ticket OCR → venta + visita sin ponderación.
+        path: 'vendor-capture',
+        loadComponent: () => import('./modules/dashboard/vendor-capture/vendor-capture.component').then(m => m.VendorCaptureComponent),
+        canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)]
+      },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },

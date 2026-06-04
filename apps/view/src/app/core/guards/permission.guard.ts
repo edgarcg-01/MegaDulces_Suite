@@ -76,7 +76,8 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
     // + agregar ticket de ruta (cierre de ruta del vendedor).
     if (
       state.url.startsWith('/dashboard/captures') ||
-      state.url.startsWith('/dashboard/route-tickets')
+      state.url.startsWith('/dashboard/route-tickets') ||
+      state.url.startsWith('/dashboard/vendor-capture')
     ) {
       return true;
     }

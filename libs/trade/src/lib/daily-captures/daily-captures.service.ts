@@ -121,6 +121,30 @@ export class DailyCapturesService {
     }
   }
 
+  /** Igual que `hasRouteIdColumn` pero para `skip_scoring` (visita sin ponderación). */
+  private _hasSkipScoringColumn: boolean | null = null;
+  private _hasSkipScoringCheckedAt = 0;
+  private async hasSkipScoringColumn(): Promise<boolean> {
+    if (this._hasSkipScoringColumn === true) return true;
+    const stale =
+      this._hasSkipScoringColumn === false &&
+      Date.now() - this._hasSkipScoringCheckedAt < this.NEGATIVE_TTL_MS;
+    if (stale) return false;
+    try {
+      const exists = await this.knex.schema.hasColumn(
+        'daily_captures',
+        'skip_scoring',
+      );
+      this._hasSkipScoringColumn = exists;
+      this._hasSkipScoringCheckedAt = Date.now();
+      return exists;
+    } catch {
+      this._hasSkipScoringColumn = false;
+      this._hasSkipScoringCheckedAt = Date.now();
+      return false;
+    }
+  }
+
   async create(
     dto: CreateDailyCaptureDto,
     userId: string,
@@ -359,16 +383,20 @@ export class DailyCapturesService {
       }
     }
 
+    // Visita sin ponderación (captura del vendedor): no cuenta para scoring.
+    // Salta el cálculo y deja config_version_id/score_* en NULL.
+    const skipScoring = dto.skip_scoring === true;
+
     // Versión vigente del scoring (cacheada 5min para ahorrar la query en hot path).
-    const activeVersion = await this.getActiveVersionCached();
+    const activeVersion = skipScoring ? null : await this.getActiveVersionCached();
     const configVersionId = activeVersion?.id;
     const scoreMaximoVersion = Number(activeVersion?.score_maximo) || 0;
 
     // Recalcular los puntos puros con el Backend Engine y no de la app móvil
     const frontendTotal = Number(dto.stats.puntuacionTotal) || 0;
-    let puntosBackendTotales = frontendTotal;
+    let puntosBackendTotales = skipScoring ? 0 : frontendTotal;
 
-    if (configVersionId && processedExhibiciones.length > 0) {
+    if (!skipScoring && configVersionId && processedExhibiciones.length > 0) {
        try {
          const exhibicionesParaScoring = processedExhibiciones.map((ex) => ({
            posicion_id: ex.ubicacionId,
@@ -505,6 +533,9 @@ export class DailyCapturesService {
     }
     if (await this.hasRouteIdColumn()) {
       insertPayload.route_id = dto.route_id || null;
+    }
+    if (await this.hasSkipScoringColumn()) {
+      insertPayload.skip_scoring = skipScoring;
     }
 
     // INSERT con manejo unificado de colisiones por race condition.

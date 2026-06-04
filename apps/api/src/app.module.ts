@@ -52,6 +52,8 @@ import { CommercialCatalogSearchModule } from '@megadulces/commercial';
 import { CommercialTeleventaModule } from '@megadulces/commercial';
 // Cierre de ruta — tickets venta/carga/combustible del vendedor (port Automation_RD)
 import { CommercialRouteControlModule } from '@megadulces/commercial';
+// Captura del vendedor — líneas de venta (OCR ticket) ancladas a la tienda
+import { CommercialVendorSalesModule } from '@megadulces/commercial';
 // Fase J — Logística
 import { LogisticsFleetModule } from '@megadulces/logistics';
 import { LogisticsConfigModule } from '@megadulces/logistics';
@@ -92,6 +94,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialCatalogSearchModule,
       CommercialTeleventaModule,
       CommercialRouteControlModule,
+      CommercialVendorSalesModule,
       // Binding del Port ANTES de logística (provee el token global que inyecta).
       OrderFulfillmentBindingModule,
       LogisticsFleetModule,

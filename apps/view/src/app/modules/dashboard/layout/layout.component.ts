@@ -236,8 +236,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // Sección "Ruta": flujo del vendedor — captura + tickets venta/carga/combustible.
   private tradeMkRutaItems: NavItem[] = [
-    { label: 'Captura de vendedor', icon: 'pi pi-camera',  route: '/dashboard/captures',      permission: Permission.ROUTE_TICKET_CAPTURE },
-    { label: 'Agregar ticket',      icon: 'pi pi-receipt', route: '/dashboard/route-tickets', permission: Permission.ROUTE_TICKET_CAPTURE },
+    { label: 'Captura de vendedor', icon: 'pi pi-camera',  route: '/dashboard/vendor-capture', permission: Permission.CAPTURE_TICKET_USE  },
+    { label: 'Agregar ticket',      icon: 'pi pi-receipt', route: '/dashboard/route-tickets',  permission: Permission.ROUTE_TICKET_CAPTURE },
   ];
 
   private tradeMkAdminItems: NavItem[] = [

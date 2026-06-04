@@ -99,4 +99,11 @@ export class CreateDailyCaptureDto {
   })
   @IsOptional() @IsString()
   sync_uuid?: string;
+
+  @ApiProperty({
+    description: 'true = visita sin ponderación (no cuenta para scoring de auditoría). Usado por la captura del vendedor.',
+    required: false,
+  })
+  @IsOptional() @IsBoolean()
+  skip_scoring?: boolean;
 }
