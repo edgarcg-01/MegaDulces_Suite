@@ -492,10 +492,10 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         .filter((i) => i.confidence === 'high' || i.confidence === 'medium')
         .map((i) => i.product_id as string);
 
-      const concepto = this.svc.conceptos()[0];
-      const ubicacion = this.svc.ubicaciones()[0];
-      const nivel = this.svc.niveles()[0];
-      if (concepto && ubicacion && planogramPids.length > 0) {
+      // Visita sin ponderación: NO clasificamos el exhibidor (concepto/ubicación/
+      // nivel van vacíos a propósito — el vendedor no audita). El backend lo
+      // acepta porque skip_scoring=true.
+      if (planogramPids.length > 0) {
         const payload: any = {
           folio: this.makeFolio(),
           sync_uuid: this.syncUuid,
@@ -515,10 +515,6 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           },
           exhibiciones: [
             {
-              conceptoId: concepto.id,
-              ubicacionId: ubicacion.id,
-              nivelEjecucionId: nivel?.id,
-              nivelEjecucion: nivel?.value?.toLowerCase(),
               perteneceMegaDulces: true,
               productosMarcados: planogramPids,
               ticket_foto_url: this.ticketUrl,

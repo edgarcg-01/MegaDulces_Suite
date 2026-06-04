@@ -323,6 +323,20 @@ export class DailyCapturesService {
       }
     }
 
+    // Las capturas normales (con ponderación) DEBEN clasificar cada exhibición
+    // (concepto + ubicación). La captura del vendedor (skip_scoring) las deja
+    // vacías a propósito — esa validación vivía en el DTO (@IsNotEmpty), se movió
+    // acá para condicionarla al flag.
+    if (!dto.skip_scoring) {
+      for (const ex of processedExhibiciones) {
+        if (!ex.conceptoId || !ex.ubicacionId) {
+          throw new BadRequestException(
+            'Cada exhibición requiere conceptoId y ubicacionId.',
+          );
+        }
+      }
+    }
+
     // ── ENRIQUECIMIENTO: backfill nivelEjecucionId desde el string si falta ──
     // Esto resuelve el bug donde el frontend mandaba exhibiciones sin nivelEjecucionId.
     // Bulk lookup: una sola query por todos los nombres distintos de nivel faltantes.

@@ -14,8 +14,11 @@ import {
 
 export class ExhibicionDto {
   @IsOptional() @IsString() id?: string;
-  @IsString() @IsNotEmpty() conceptoId!: string;
-  @IsString() @IsNotEmpty() ubicacionId!: string;
+  // Opcionales a nivel DTO: la captura del vendedor (skip_scoring) las deja
+  // vacías a propósito. Para capturas normales, el service exige conceptoId y
+  // ubicacionId (guard en daily-captures.service cuando !skip_scoring).
+  @IsOptional() @IsString() conceptoId?: string;
+  @IsOptional() @IsString() ubicacionId?: string;
   @IsOptional() @IsString() nivelEjecucion?: string;
   @IsOptional() @IsString() nivelEjecucionId?: string;
   @IsOptional() @IsString() nivel_ejecucion_id?: string;
