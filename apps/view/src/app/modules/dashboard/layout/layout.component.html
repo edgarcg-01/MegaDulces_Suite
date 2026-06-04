@@ -93,7 +93,10 @@
     -->
     <nav class="flex-1 overflow-y-auto min-h-0 py-4" aria-label="Navegación lateral">
       @if (navItems().length > 0) {
-        <ng-container *ngTemplateOutlet="navSection; context: { title: 'Operaciones', items: navItems(), expanded: sidebarExpanded() }"></ng-container>
+        <ng-container *ngTemplateOutlet="navSection; context: { title: mainSectionTitle(), items: navItems(), expanded: sidebarExpanded() }"></ng-container>
+      }
+      @if (rutaItems().length > 0) {
+        <ng-container *ngTemplateOutlet="navSection; context: { title: 'Ruta', items: rutaItems(), expanded: sidebarExpanded(), marginTop: true }"></ng-container>
       }
       @if (adminItems().length > 0) {
         <ng-container *ngTemplateOutlet="navSection; context: { title: 'Administración', items: adminItems(), expanded: sidebarExpanded(), marginTop: true }"></ng-container>

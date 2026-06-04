@@ -224,15 +224,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // ── Nav items por proyecto ────────────────────────────────────────
   // Cada proyecto tiene su propio set. El shell elige cuál mostrar según
   // el URL prefix actual (/dashboard, /comercial, /admin).
+  // Sección "Trade": auditoría de ejecución en ruta (exhibiciones, scoring, reportes).
   private tradeMkNavItems: NavItem[] = [
     { label: 'Dashboard',         icon: 'pi pi-th-large',      route: '/dashboard',                      permission: Permission.REPORTES_VER_PROPIO,   exact: true },
     { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
-    { label: 'Captura de vendedor', icon: 'pi pi-camera',      route: '/dashboard/captures',             permission: Permission.ROUTE_TICKET_CAPTURE  },
-    { label: 'Agregar ticket',    icon: 'pi pi-receipt',       route: '/dashboard/route-tickets',        permission: Permission.ROUTE_TICKET_CAPTURE  },
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
+  ];
+
+  // Sección "Ruta": flujo del vendedor — captura + tickets venta/carga/combustible.
+  private tradeMkRutaItems: NavItem[] = [
+    { label: 'Captura de vendedor', icon: 'pi pi-camera',  route: '/dashboard/captures',      permission: Permission.ROUTE_TICKET_CAPTURE },
+    { label: 'Agregar ticket',      icon: 'pi pi-receipt', route: '/dashboard/route-tickets', permission: Permission.ROUTE_TICKET_CAPTURE },
   ];
 
   private tradeMkAdminItems: NavItem[] = [
@@ -322,6 +327,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
   });
 
+  /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */
+  mainSectionTitle = computed(() =>
+    this.currentProject() === 'trademk' ? 'Trade' : 'Operaciones',
+  );
+
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];
@@ -331,10 +341,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
       legacy?.[Permission.REPORTES_VER_EQUIPO] === true ||
       legacy?.[Permission.REPORTES_VER_GLOBAL] === true;
     if (!fullDashboard) {
-      // Colaborador/vendedor restringido: solo captura diaria + ticket de ruta.
-      const allowed = new Set(['/dashboard/captures', '/dashboard/route-tickets']);
+      // Colaborador restringido: la sección Trade se limita a captura diaria.
+      // (Los items de ruta viven en `rutaItems`, gateados por su propio permiso.)
       return this.dedupeByRoute(
-        this.tradeMkNavItems.filter((i) => allowed.has(i.route) && this.hasPermFor(i)),
+        this.tradeMkNavItems.filter(
+          (i) => i.route === '/dashboard/captures' && this.hasPermFor(i),
+        ),
       );
     }
     const project = this.currentProject();
@@ -347,6 +359,23 @@ export class LayoutComponent implements OnInit, OnDestroy {
         ? this.logisticaNavItems
         : this.tradeMkNavItems;
     return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
+  });
+
+  /**
+   * Sección "Ruta" — solo en Trade. Excluye rutas ya presentes en la sección
+   * Trade para no duplicar `/dashboard/captures`: el usuario full ve "Captura
+   * Diaria" en Trade y solo "Agregar ticket" en Ruta; el vendedor (sin
+   * VISITAS_REGISTRAR) ve "Captura de vendedor" + "Agregar ticket" en Ruta.
+   */
+  rutaItems = computed(() => {
+    const user = this.user();
+    if (!user || this.currentProject() !== 'trademk') return [];
+    const navRoutes = new Set(this.navItems().map((i) => i.route));
+    return this.dedupeByRoute(
+      this.tradeMkRutaItems.filter(
+        (i) => this.hasPermFor(i) && !navRoutes.has(i.route),
+      ),
+    );
   });
 
   /**
@@ -410,7 +439,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * usuarios con permisos válidos (p.ej. VER_SEGUIMIENTO).
    */
   isRestricted = computed(() => {
-    return this.navItems().length + this.adminItems().length <= 1;
+    return (
+      this.navItems().length + this.rutaItems().length + this.adminItems().length <= 1
+    );
   });
 
   /**
@@ -422,18 +453,21 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   bottomNavItems = computed(() => {
     if (!this.useBottomNav()) return [];
-    return this.navItems().slice(0, 4);
+    return [...this.navItems(), ...this.rutaItems()].slice(0, 4);
   });
 
   hasOverflowItems = computed(() => {
     if (!this.useBottomNav()) return false;
-    return this.navItems().length > 4 || this.adminItems().length > 0;
+    return (
+      this.navItems().length + this.rutaItems().length > 4 ||
+      this.adminItems().length > 0
+    );
   });
 
   // ── Page title (reactivo a NavigationEnd) ──────────────────────────
   currentPageTitle = computed(() => {
     const url = this.currentUrl();
-    const all = [...this.navItems(), ...this.adminItems()];
+    const all = [...this.navItems(), ...this.rutaItems(), ...this.adminItems()];
     // Match más laxo que ===: cubre query params, hijos y trailing slashes.
     const item =
       all.find((i) => url === i.route) ||
