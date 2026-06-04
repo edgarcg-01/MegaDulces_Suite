@@ -14,7 +14,7 @@
 
     <div class="flex items-center gap-4">
 
-      <div class="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg shrink-0">
+      <div class="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shrink-0">
 
         <span class="text-[10px] md:text-xs font-black text-black uppercase leading-none">Visita</span>
 
@@ -84,14 +84,14 @@
 
         <!-- Ruta activa: mostrar nombre + botón cambiar -->
         <div *ngIf="svc.activeRoute() && !changingRoute()" class="min-w-0">
-            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
+            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
             <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.activeRoute()?.name }}</div>
-            <button type="button" (click)="changingRoute.set(true)" class="text-[10px] sm:text-xs font-bold text-brand/80 hover:text-brand underline mt-0.5">Cambiar ruta</button>
+            <button type="button" (click)="changingRoute.set(true)" class="btn-ghost btn-ghost-brand mt-1 text-xs" aria-label="Cambiar ruta">Cambiar ruta</button>
         </div>
 
         <!-- Sin ruta activa o cambiando: selector -->
         <div *ngIf="!svc.activeRoute() || changingRoute()" class="min-w-0 flex-1">
-            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
+            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
             <p-select
                 [options]="svc.zoneRoutes()"
                 [ngModel]="svc.activeRoute()?.id"
@@ -130,7 +130,7 @@
         <i class="pi pi-check-circle text-lg sm:text-xl"></i>
       </div>
       <div class="min-w-0">
-        <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
+        <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
         <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.detectedStore()?.nombre }}</div>
       </div>
     </div>
