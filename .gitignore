@@ -22,3 +22,25 @@ apps/api/src/**/*.js.map
 apps/api/src/**/*.d.ts
 apps/view/src/**/*.js.map
 .gstack/
+
+# Herramientas/IDE auxiliares
+.continue/
+.opencode/
+.design-audit-tmp/
+
+# Docs autogeneradas (compodoc)
+documentation/
+
+# Artefactos de sesión / reportes one-off (no versionar)
+_auth.json
+*.tmp
+lh-dashboard*
+lh-slim.json
+prod-*.txt
+build-err*.txt
+WhatsApp*/
+WhatsApp*.zip
+database/*.jsonl
+
+# Carpeta de imágenes/exports sueltos en raíz absorbidos al proyecto
+_imported/
