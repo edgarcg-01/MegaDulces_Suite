@@ -90,8 +90,8 @@ import {
       :host ::ng-deep .p-card.kpi .p-card-body { padding: 0.875rem; }
       .k { text-align: center; display: flex; flex-direction: column; gap: 0.25rem; }
       .k .v { font-size: 1.25rem; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
-      .k .v.ok { color: var(--ok, #15803d); }
-      .k .v.bad { color: var(--bad, #b91c1c); }
+      .k .v.ok { color: var(--ok-soft-fg); }
+      .k .v.bad { color: var(--bad-soft-fg); }
       .k .l { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
       .num { text-align: right; font-variant-numeric: tabular-nums; }
       .empty { text-align: center; color: var(--text-muted); padding: 1.5rem; }

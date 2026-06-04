@@ -275,14 +275,14 @@ import { Permission } from '../../../core/constants/permissions';
     :host ::ng-deep .p-card.logistics-card { margin-top: 1.25rem; }
     .logistics-header { display:flex; justify-content:space-between; align-items:center; padding: 0 1rem; }
     .logistics-header i { margin-right: .35rem; color: var(--primary-color); }
-    .lines-banner { display:flex; gap:.5rem; align-items:flex-start; background: var(--info-soft-bg, rgba(59,130,246,.08)); color: var(--info-soft-fg, #1e40af); padding:.6rem .8rem; border-radius:6px; font-size:.85rem; margin-bottom:.75rem; }
+    .lines-banner { display:flex; gap:.5rem; align-items:flex-start; background: var(--info-soft-bg); color: var(--info-soft-fg); padding:.6rem .8rem; border-radius:6px; font-size:.85rem; margin-bottom:.75rem; }
     .lines-banner i { margin-top:.15rem; }
     .qty-edit { display:inline-flex; align-items:center; gap:.4rem; justify-content:flex-end; }
     :host ::ng-deep .qty-edit .qty-input { width: 4.5rem; text-align:right; }
     .saving-spinner { color: var(--primary-color); font-size:.85rem; }
     .stock-chip { display:inline-block; padding:.15rem .55rem; border-radius:999px; background: var(--surface-100); font-weight:500; font-size:.82rem; }
-    .stock-chip.is-short { background: var(--danger-soft-bg, rgba(239,68,68,.12)); color: var(--danger-fg, #b91c1c); font-weight:600; }
-    tr.line-shortfall { background: var(--danger-soft-bg, rgba(239,68,68,.06)); }
+    .stock-chip.is-short { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight:600; }
+    tr.line-shortfall { background: var(--bad-soft-bg); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

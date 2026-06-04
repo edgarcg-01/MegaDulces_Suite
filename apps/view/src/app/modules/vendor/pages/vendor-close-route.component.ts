@@ -163,8 +163,8 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.875rem; position: relative; }
       .field label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
       .field input { padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); font-size: 1rem; }
-      .badge { position: absolute; right: 0; top: 0; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .04em; color: var(--bad, #b91c1c); }
-      .badge.ok { color: var(--ok, #15803d); }
+      .badge { position: absolute; right: 0; top: 0; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .04em; color: var(--bad-soft-fg); }
+      .badge.ok { color: var(--ok-soft-fg); }
       .lines { margin: 0.5rem 0 1rem; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; }
       .lines-head { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; }
       .lines-head .hint { font-weight: 400; }
@@ -174,7 +174,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .line-name { flex: 1; font-size: 0.875rem; color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .line-name.off { color: var(--text-muted); text-decoration: line-through; }
       .line-row .qty { width: 70px; padding: 0.375rem 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-main); }
-      .warn { color: var(--bad, #b91c1c); font-size: 0.8rem; margin: 0 0 0.75rem; }
+      .warn { color: var(--bad-soft-fg); font-size: 0.8rem; margin: 0 0 0.75rem; }
       :host ::ng-deep .w-full { width: 100%; }
       .section-title { font-size: 1rem; color: var(--text-main); margin: 1.5rem 0 0.75rem; }
       .ticket-list { display: flex; flex-direction: column; gap: 0.5rem; }
