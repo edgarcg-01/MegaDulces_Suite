@@ -44,3 +44,6 @@ database/*.jsonl
 
 # Carpeta de imágenes/exports sueltos en raíz absorbidos al proyecto
 _imported/
+
+# Dumps de DB y exports de datos (data, NO código — contiene data de prod)
+database/backups/
