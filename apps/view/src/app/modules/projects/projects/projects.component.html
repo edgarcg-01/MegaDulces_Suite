@@ -48,45 +48,36 @@
       <p class="text-body text-content-dim mt-1">Estos son los proyectos asignados a tu cuenta.</p>
     </div>
 
-    <!-- Projects grouped by domain -->
-    <div *ngFor="let section of groupedProjects()" class="mb-10 last:mb-0">
+    <!-- Projects Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
-      <!-- Section header -->
-      <h3 class="text-label uppercase tracking-wider text-content-muted mb-4">
-        {{ section.label }}
-      </h3>
+      <div
+        *ngFor="let project of projects()"
+        (click)="navigateTo(project.route)"
+        class="group bg-surface-card rounded-xl border border-divider p-6 cursor-pointer transition-all duration-200 hover:border-content-muted hover:shadow-lg">
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-
-        <div
-          *ngFor="let project of section.projects"
-          (click)="navigateTo(project.route)"
-          class="group bg-surface-card rounded-xl border border-divider p-6 cursor-pointer transition-all duration-200 hover:border-content-muted hover:shadow-lg">
-
-          <!-- Card Header -->
-          <div class="flex items-start justify-between mb-4">
-            <div class="h-10 w-10 rounded-lg bg-surface-ground group-hover:bg-content-main flex items-center justify-center transition-colors">
-              <i [ngClass]="project.icon" class="text-content-main group-hover:text-surface-card text-lg transition-colors"></i>
-            </div>
-            <span class="inline-flex items-center rounded-full border border-divider bg-surface-ground px-2.5 py-0.5 text-label text-content-main">
-              {{ project.status }}
-            </span>
+        <!-- Card Header -->
+        <div class="flex items-start justify-between mb-4">
+          <div class="h-10 w-10 rounded-lg bg-surface-ground group-hover:bg-content-main flex items-center justify-center transition-colors">
+            <i [ngClass]="project.icon" class="text-content-main group-hover:text-surface-card text-lg transition-colors"></i>
           </div>
+          <span class="inline-flex items-center rounded-full border border-divider bg-surface-ground px-2.5 py-0.5 text-label text-content-main">
+            {{ project.status }}
+          </span>
+        </div>
 
-          <!-- Card Body -->
-          <h4 class="text-title text-content-main group-hover:underline underline-offset-4 mb-2">
-            {{ project.name }}
-          </h4>
-          <p class="text-body text-content-dim leading-relaxed">
-            {{ project.description }}
-          </p>
+        <!-- Card Body -->
+        <h3 class="text-title text-content-main group-hover:underline underline-offset-4 mb-2">
+          {{ project.name }}
+        </h3>
+        <p class="text-body text-content-dim leading-relaxed">
+          {{ project.description }}
+        </p>
 
-          <!-- Card Footer -->
-          <div class="mt-6 flex items-center text-body font-medium text-content-main">
-            Acceder
-            <i class="pi pi-arrow-right ml-2 text-xs transition-transform group-hover:translate-x-1"></i>
-          </div>
-
+        <!-- Card Footer -->
+        <div class="mt-6 flex items-center text-body font-medium text-content-main">
+          Acceder
+          <i class="pi pi-arrow-right ml-2 text-xs transition-transform group-hover:translate-x-1"></i>
         </div>
 
       </div>
