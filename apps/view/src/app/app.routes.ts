@@ -120,6 +120,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/dashboard/historical-analytics/historical-analytics.component').then(m => m.HistoricalAnalyticsComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
       },
+      {
+        // Cierre de ruta: control de tickets venta/carga/combustible de vendedores.
+        path: 'route-tickets',
+        loadComponent: () => import('./modules/comercial/pages/comercial-route-tickets.component').then(m => m.ComercialRouteTicketsComponent),
+        canActivate: [permissionGuard(Permission.ROUTE_CONTROL_VER)]
+      },
     ]
   },
   // ── Proyecto Logística (Fase J) ─────────────────────────────────────

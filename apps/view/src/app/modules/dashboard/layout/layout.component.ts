@@ -251,6 +251,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Listas de precios', icon: 'pi pi-tag',            route: '/comercial/pricing',        permission: Permission.COMMERCIAL_PRICING_VER },
     { label: 'Promociones',       icon: 'pi pi-gift',           route: '/comercial/promotions',     permission: Permission.COMMERCIAL_PROMOTIONS_VER },
     { label: 'Almacenes',         icon: 'pi pi-warehouse',      route: '/comercial/warehouses',     permission: Permission.COMMERCIAL_WAREHOUSES_VER },
+    { label: 'Cierre de ruta',    icon: 'pi pi-receipt',        route: '/comercial/route-tickets',  permission: Permission.ROUTE_CONTROL_VER },
     { label: 'Modo Vendedor',     icon: 'pi pi-briefcase',      route: '/vendor/customers',         permission: Permission.COMMERCIAL_ORDERS_CREAR },
   ];
 

@@ -266,6 +266,33 @@ export class CommercialRouteControlService {
     });
   }
 
+  /** Admin: lista TODOS los tickets del tenant (no scoped al vendedor). */
+  async listAll(q: ListRouteTicketsQuery) {
+    return this.tk.run(async (trx) => {
+      const page = Math.max(1, Number(q.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 30));
+      const base = trx('commercial.route_tickets as rt')
+        .leftJoin('public.users as u', function () {
+          this.on('u.tenant_id', 'rt.tenant_id').andOn('u.id', 'rt.vendor_user_id');
+        })
+        .whereNull('rt.deleted_at');
+      if (q.ticket_type) base.where('rt.ticket_type', q.ticket_type);
+      if (q.route_code) base.where('rt.route_code', q.route_code);
+      if (q.date_from && DATE_RE.test(q.date_from)) base.where('rt.ticket_date', '>=', q.date_from);
+      if (q.date_to && DATE_RE.test(q.date_to)) base.where('rt.ticket_date', '<=', q.date_to);
+
+      const [{ count }] = await base.clone().count<{ count: string }[]>('* as count');
+      const data = await base
+        .clone()
+        .select('rt.*', 'u.nombre as vendor_name', 'u.username as vendor_username')
+        .orderBy('rt.ticket_date', 'desc')
+        .orderBy('rt.created_at', 'desc')
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+      return { data, total: Number(count), page, pageSize };
+    });
+  }
+
   async getOne(id: string) {
     return this.tk.run(async (trx) => {
       const userId = this.requireUserId();

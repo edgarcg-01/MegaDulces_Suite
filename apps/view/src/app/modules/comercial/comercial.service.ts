@@ -529,4 +529,69 @@ export class ComercialService {
   deletePromotion(id: string) {
     return this.http.delete<{ ok: true }>(`${this.base}/promotions/${id}`);
   }
+
+  // ── Cierre de ruta (admin) ──
+  listRouteTickets(opts: {
+    ticket_type?: 'venta' | 'carga' | 'combustible';
+    route_code?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}): Observable<{ data: RouteTicketAdmin[]; total: number; page: number; pageSize: number }> {
+    let p = new HttpParams().set('pageSize', String(opts.pageSize ?? 50));
+    if (opts.page) p = p.set('page', String(opts.page));
+    if (opts.ticket_type) p = p.set('ticket_type', opts.ticket_type);
+    if (opts.route_code) p = p.set('route_code', opts.route_code);
+    if (opts.date_from) p = p.set('date_from', opts.date_from);
+    if (opts.date_to) p = p.set('date_to', opts.date_to);
+    return this.http.get<{ data: RouteTicketAdmin[]; total: number; page: number; pageSize: number }>(
+      `${this.base}/route-tickets/all`,
+      { params: p },
+    );
+  }
+
+  routeResumen(opts: { date_from?: string; date_to?: string } = {}): Observable<RouteResumen> {
+    let p = new HttpParams();
+    if (opts.date_from) p = p.set('date_from', opts.date_from);
+    if (opts.date_to) p = p.set('date_to', opts.date_to);
+    return this.http.get<RouteResumen>(`${this.base}/route-tickets/reports/resumen`, { params: p });
+  }
+
+  routePorRuta(opts: { date_from?: string; date_to?: string } = {}): Observable<RoutePorRutaRow[]> {
+    let p = new HttpParams();
+    if (opts.date_from) p = p.set('date_from', opts.date_from);
+    if (opts.date_to) p = p.set('date_to', opts.date_to);
+    return this.http.get<RoutePorRutaRow[]>(`${this.base}/route-tickets/reports/por-ruta`, { params: p });
+  }
+}
+
+export interface RouteTicketAdmin {
+  id: string;
+  ticket_type: 'venta' | 'carga' | 'combustible';
+  route_code: string;
+  ticket_date: string;
+  total: number | null;
+  corte_number: string | null;
+  reference: string | null;
+  liters: number | null;
+  vendor_user_id: string;
+  vendor_name?: string | null;
+  vendor_username?: string | null;
+  photo_url?: string | null;
+  created_at: string;
+}
+
+export interface RouteResumen {
+  por_tipo: { ticket_type: string; tickets: number; total: number }[];
+  ventas: number;
+  gasto: number;
+  rentabilidad: number;
+  tickets: number;
+}
+
+export interface RoutePorRutaRow {
+  route_code: string;
+  total: number | string;
+  tickets: number | string;
 }

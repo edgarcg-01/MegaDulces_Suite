@@ -66,6 +66,13 @@ export class CommercialRouteControlController {
   }
 
   // Reportes admin — declarados ANTES de :id para no colisionar.
+  @Get('all')
+  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @ApiOperation({ summary: 'Lista TODOS los tickets del tenant (admin).' })
+  listAll(@Query() q: ListRouteTicketsQuery) {
+    return this.service.listAll(q);
+  }
+
   @Get('reports/resumen')
   @RequirePermissions(Permission.ROUTE_CONTROL_VER)
   @ApiOperation({ summary: 'Resumen de ruta (ventas, gasto combustible, rentabilidad). carga excluido de gasto.' })
