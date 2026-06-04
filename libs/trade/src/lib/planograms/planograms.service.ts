@@ -39,12 +39,15 @@ export class PlanogramsService {
     );
     if (list.length === 0) return [];
     const tenantId = this.tenantCtx.requireTenantId();
-    const rows = await this.knex('trade.planogram_skus')
+    // Resuelve vía la tabla de alias (código ERP → producto canónico del
+    // planograma): incluye los canónicos (cada planogram_skus.sku) + los
+    // bootstrap/manual (variantes ERP agrupadas a un producto del planograma).
+    const rows = await this.knex('trade.planogram_sku_aliases')
       .where('tenant_id', tenantId)
       .whereNull('deleted_at')
-      .whereIn('sku', list)
-      .distinct('sku', 'product_id')
-      .select('sku', 'product_id');
+      .whereIn('erp_sku', list)
+      .distinct('erp_sku', 'product_id')
+      .select('erp_sku as sku', 'product_id');
     return rows.map((r) => ({ sku: r.sku, product_id: r.product_id }));
   }
 
