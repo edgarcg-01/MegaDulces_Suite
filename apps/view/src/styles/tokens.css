@@ -152,6 +152,14 @@
   --chip-competition-fg:     var(--neutral-700);
   --chip-competition-border: var(--neutral-300);
 
+  /* AI accent — para sugerencias/recomendaciones IA (chips "AI", banners de
+     recomendación). Usa info-fg (azul) para señalar "información sugerida"
+     dentro del lenguaje semántico, sin púrpura genérico de SaaS template. */
+  --ai-accent:           var(--info-fg);
+  --ai-accent-soft-bg:   var(--info-soft-bg);
+  --ai-accent-soft-fg:   var(--info-soft-fg);
+  --ai-accent-border:    var(--info-border);
+
   --chart-fill-low:       #C8C8D0;
   --chart-fill-mid:       #6B6B75;
   --chart-fill-high:      #1E1E22;

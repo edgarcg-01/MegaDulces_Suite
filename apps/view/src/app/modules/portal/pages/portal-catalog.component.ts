@@ -1051,13 +1051,13 @@ function initial(name: string): string {
         color: #fff;
       }
       .cat-chip-ai {
-        background: linear-gradient(135deg, color-mix(in srgb, var(--ai-accent, #8b5cf6) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
-        border-color: color-mix(in srgb, var(--ai-accent, #8b5cf6) 30%, var(--border-color));
+        background: linear-gradient(135deg, color-mix(in srgb, var(--ai-accent) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
+        border-color: color-mix(in srgb, var(--ai-accent) 30%, var(--border-color));
       }
-      .cat-chip-ai i { color: var(--ai-accent, #8b5cf6); }
+      .cat-chip-ai i { color: var(--ai-accent); }
       .cat-chip-ai.active {
-        background: var(--ai-accent, #8b5cf6);
-        border-color: var(--ai-accent, #8b5cf6);
+        background: var(--ai-accent);
+        border-color: var(--ai-accent);
         color: #fff;
       }
       .cat-chip-ai.active i { color: #fff; }
