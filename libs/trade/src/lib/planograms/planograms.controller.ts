@@ -55,6 +55,14 @@ export class PlanogramsController {
     return this.planogramsService.getVersion();
   }
 
+  @Post('match-skus')
+  @ApiOperation({
+    summary: 'Dado product_ids del catálogo, devuelve el subset que está en el planograma de trade.',
+  })
+  async matchSkus(@Body() body: { product_ids?: string[] }) {
+    return this.planogramsService.matchPlanogramSkus(body?.product_ids || []);
+  }
+
   @Post()
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({ summary: 'Crea una nueva marca' })

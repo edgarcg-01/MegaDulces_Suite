@@ -11,6 +11,9 @@ import { legacyTxStorage } from '@megadulces/platform-core';
 import { CreateBrandDto, UpdateBrandDto } from './dto/brand.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { EmbeddingsService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class PlanogramsService {
@@ -19,7 +22,30 @@ export class PlanogramsService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly embeddings: EmbeddingsService,
+    private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * Dado un set de product_id (del catálogo comercial, ej. los que devuelve el
+   * OCR del ticket), devuelve el SUBSET que pertenece al planograma de trade
+   * (`trade.planogram_skus`). Sirve para que la captura del vendedor relacione
+   * los productos vendidos con el planograma: solo los que matchean se registran
+   * en la visita (sin duplicados — DISTINCT). El catálogo (1179) y el planograma
+   * (curado, ~852) comparten `product_id`, así que el match es directo por id.
+   */
+  async matchPlanogramSkus(productIds: string[]): Promise<string[]> {
+    const ids = Array.from(
+      new Set((productIds || []).filter((id) => typeof id === 'string' && UUID_RE.test(id))),
+    );
+    if (ids.length === 0) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    const rows = await this.knex('trade.planogram_skus')
+      .where('tenant_id', tenantId)
+      .whereNull('deleted_at')
+      .whereIn('product_id', ids)
+      .distinct('product_id');
+    return rows.map((r) => r.product_id);
+  }
 
   /**
    * Fase K — re-embed síncrono del producto.

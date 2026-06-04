@@ -29,6 +29,7 @@ interface OcrItem {
   brand_name: string | null;
   confidence: string; // high|medium|low|no_match
   confirmed: boolean;
+  inPlanogram?: boolean; // matchea trade.planogram_skus → va a la visita
 }
 
 const ALLOWED_IMAGE_TYPES = [
@@ -188,9 +189,9 @@ const ALLOWED_IMAGE_TYPES = [
         <div class="bg-surface-card border border-divider rounded-2xl p-5 space-y-4">
           <header class="space-y-1">
             <h3 class="text-base font-semibold text-content-main">Ticket de venta</h3>
-            <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Confirmá cuáles van a la venta y la visita.</p>
+            <p class="text-xs text-content-muted leading-relaxed">Si el ticket es largo, tomá varias fotos para que se lea bien. La IA detecta los productos; solo los del planograma se registran en la visita.</p>
           </header>
-          <label *ngIf="!ticketPreview()"
+          <label *ngIf="!ticketPhotos().length"
                  class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
             <input type="file" accept="image/*" capture="environment" (change)="onTicket($event)"
                    class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" aria-label="Tomar fotografía del ticket">
@@ -201,15 +202,18 @@ const ALLOWED_IMAGE_TYPES = [
             <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
           </label>
 
-          <div *ngIf="ticketPreview()" class="space-y-3">
-            <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
-              <img [src]="ticketPreview()!" alt="Ticket" class="w-full max-h-64 object-cover">
+          <div *ngIf="ticketPhotos().length" class="space-y-3">
+            <div class="flex gap-2 flex-wrap">
+              <div *ngFor="let p of ticketPhotos(); let i = index" class="relative rounded-lg border border-divider overflow-hidden bg-black w-20 h-20">
+                <img [src]="p" alt="Ticket {{ i + 1 }}" class="w-full h-full object-cover">
+                <span class="absolute bottom-0 right-0 text-[9px] bg-black/60 text-white px-1 rounded-tl">{{ i + 1 }}</span>
+              </div>
             </div>
             <div class="flex justify-center">
               <label class="inline-flex">
                 <input type="file" accept="image/*" capture="environment" (change)="onTicket($event)" class="hidden" [disabled]="processing()">
                 <span class="p-button p-button-sm p-button-secondary p-button-outlined inline-flex items-center gap-2 cursor-pointer" [class.opacity-60]="processing()">
-                  <i class="pi pi-refresh"></i> Otro ticket
+                  <i class="pi pi-plus"></i> Agregar otra foto
                 </span>
               </label>
             </div>
@@ -223,6 +227,7 @@ const ALLOWED_IMAGE_TYPES = [
           <div *ngIf="items().length && !processing()" class="space-y-2">
             <div class="flex items-center justify-between text-sm">
               <span><strong>{{ confirmedCount() }}</strong> de {{ items().length }} confirmados</span>
+              <span class="text-xs text-content-muted">{{ planogramCount() }} en planograma</span>
             </div>
             <ul class="flex flex-col gap-1.5 list-none p-0 m-0 max-h-80 overflow-y-auto">
               <li *ngFor="let it of items(); let i = index"
@@ -238,6 +243,7 @@ const ALLOWED_IMAGE_TYPES = [
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
                       <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
                       <p-tag [severity]="confSeverity(it.confidence)" [value]="confLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
+                      <span *ngIf="it.inPlanogram" class="text-[9px] bg-brand/20 text-brand px-1.5 py-0 rounded font-semibold uppercase tracking-wide">Planograma</span>
                       <span *ngIf="it.quantity > 1" class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
                     </div>
                   </div>
@@ -301,7 +307,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly starting = signal(false);
   readonly exhibidorFile = signal<File | null>(null);
   readonly exhibidorPreview = signal<string | null>(null);
-  readonly ticketPreview = signal<string | null>(null);
+  readonly ticketPhotos = signal<string[]>([]); // previews; el vendedor puede tomar varias fotos del mismo ticket
   readonly processing = signal(false);
   readonly items = signal<OcrItem[]>([]);
   readonly saving = signal(false);
@@ -322,7 +328,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly visitaNumero = computed(() => this.svc.visitasHoy().length + 1);
   readonly confirmedCount = computed(() => this.items().filter((i) => i.confirmed && i.product_id).length);
   readonly planogramCount = computed(
-    () => this.items().filter((i) => i.confirmed && i.product_id && (i.confidence === 'high' || i.confidence === 'medium')).length,
+    () => this.items().filter((i) => i.confirmed && i.product_id && i.inPlanogram).length,
   );
 
   ngOnInit(): void {
@@ -400,7 +406,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => this.ticketPreview.set(reader.result as string);
+    reader.onload = () => this.ticketPhotos.update((p) => [...p, reader.result as string]);
     reader.readAsDataURL(file);
 
     this.processing.set(true);
@@ -408,8 +414,11 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       const fd = new FormData();
       fd.append('file', file, file.name || 'ticket.jpg');
       const res = await firstValueFrom(this.http.post<any>(`${this.apiUrl}/ai/ticket/extract`, fd));
-      this.ticketUrl = res?.ticket_url ?? null;
-      this.ticketPublicId = res?.ticket_public_id ?? null;
+      // Primera foto = ticket de referencia para la venta/visita.
+      if (!this.ticketUrl) {
+        this.ticketUrl = res?.ticket_url ?? null;
+        this.ticketPublicId = res?.ticket_public_id ?? null;
+      }
       const ocr: OcrItem[] = (res?.match?.items || []).map((it: any) => {
         const conf = it.suggested?.confidence ?? it.confidence ?? 'no_match';
         return {
@@ -422,7 +431,12 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           confirmed: !!it.suggested?.product_id && conf !== 'no_match',
         };
       });
-      this.items.set(ocr);
+      // Acumular entre fotos (un ticket grande se parte en varias): dedupe por
+      // product_id, quedándonos con la mayor cantidad (evita doble conteo si las
+      // fotos se solapan).
+      this.mergeOcrItems(ocr);
+      // Relacionar con el planograma de trade: solo los que matchean van a la visita.
+      await this.matchPlanogram();
       this.toast.add({
         severity: ocr.length ? 'success' : 'warn',
         summary: ocr.length ? `${ocr.length} productos detectados` : 'Ticket ilegible',
@@ -437,6 +451,43 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
   toggleItem(i: number, checked: boolean): void {
     this.items.update((arr) => arr.map((it, idx) => (idx === i ? { ...it, confirmed: checked } : it)));
+  }
+
+  /** Acumula items OCR de varias fotos: dedupe por product_id (mayor cantidad). */
+  private mergeOcrItems(incoming: OcrItem[]): void {
+    this.items.update((prev) => {
+      const result = prev.map((p) => ({ ...p }));
+      const byId = new Map<string, OcrItem>();
+      for (const r of result) if (r.product_id) byId.set(r.product_id, r);
+      for (const it of incoming) {
+        if (it.product_id && byId.has(it.product_id)) {
+          const d = byId.get(it.product_id)!;
+          d.quantity = Math.max(d.quantity, it.quantity);
+        } else {
+          const copy = { ...it };
+          result.push(copy);
+          if (copy.product_id) byId.set(copy.product_id, copy);
+        }
+      }
+      return result;
+    });
+  }
+
+  /** Marca qué items están en el planograma de trade (los demás no van a la visita). */
+  private async matchPlanogram(): Promise<void> {
+    const pids = Array.from(
+      new Set(this.items().map((i) => i.product_id).filter((x): x is string => !!x)),
+    );
+    if (pids.length === 0) return;
+    try {
+      const inPlan = await firstValueFrom(
+        this.http.post<string[]>(`${this.apiUrl}/planograms/brands/match-skus`, { product_ids: pids }),
+      );
+      const set = new Set(inPlan || []);
+      this.items.update((arr) => arr.map((it) => ({ ...it, inPlanogram: !!it.product_id && set.has(it.product_id) })));
+    } catch {
+      // best-effort: si falla, no taggeamos planograma (la visita quedará sin productos).
+    }
   }
 
   confSeverity(c: string): 'success' | 'warn' | 'danger' | 'secondary' {
@@ -487,10 +538,11 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         }),
       );
 
-      // 2) Visita sin ponderación — productos de planograma (high/medium).
-      const planogramPids = confirmed
-        .filter((i) => i.confidence === 'high' || i.confidence === 'medium')
-        .map((i) => i.product_id as string);
+      // 2) Visita sin ponderación — SOLO productos que matchean el planograma de
+      // trade (deduplicados). Los demás productos vendidos no van a la visita.
+      const planogramPids = Array.from(
+        new Set(confirmed.filter((i) => i.inPlanogram).map((i) => i.product_id as string)),
+      );
 
       // Visita sin ponderación: NO clasificamos el exhibidor (concepto/ubicación/
       // nivel van vacíos a propósito — el vendedor no audita). El backend lo
@@ -546,7 +598,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.svc.clearActiveState();
     this.exhibidorFile.set(null);
     this.exhibidorPreview.set(null);
-    this.ticketPreview.set(null);
+    this.ticketPhotos.set([]);
     this.items.set([]);
     this.changingStore.set(false);
     this.ticketUrl = null;
