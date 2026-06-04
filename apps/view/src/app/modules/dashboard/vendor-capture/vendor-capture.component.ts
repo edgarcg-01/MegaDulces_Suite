@@ -108,8 +108,8 @@ const ALLOWED_IMAGE_TYPES = [
         </div>
         <div *ngIf="visitaNumero() > 1" class="bg-surface-card px-3 py-2 rounded-xl border border-divider shadow-sm flex items-center gap-3 self-start sm:self-auto">
           <div class="flex flex-col items-end">
-            <span class="text-[8px] sm:text-[9px] font-black text-content-faint uppercase tracking-tighter">Progreso de Jornada</span>
-            <span class="text-xs sm:text-sm font-black text-content-main">Visita #{{ visitaNumero() }}</span>
+            <span class="text-[10px] sm:text-xs font-semibold text-content-faint uppercase tracking-[0.12em]">Progreso de Jornada</span>
+            <span class="text-xs sm:text-sm font-bold text-content-main">Visita #{{ visitaNumero() }}</span>
           </div>
         </div>
       </div>
