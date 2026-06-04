@@ -62,15 +62,15 @@ import { AuthService } from '../../core/services/auth.service';
         min-height: 100vh;
         display: flex;
         flex-direction: column;
-        background: var(--surface-100, #f3f4f6);
+        background: var(--neutral-100);
       }
       .televenta-header {
         display: flex;
         align-items: center;
         gap: 1.5rem;
         padding: 0.75rem 1.25rem;
-        background: var(--surface-card, white);
-        border-bottom: 1px solid var(--surface-border, #e5e7eb);
+        background: var(--card-bg);
+        border-bottom: 1px solid var(--border-color);
         position: sticky;
         top: 0;
         z-index: 10;
@@ -100,7 +100,7 @@ import { AuthService } from '../../core/services/auth.service';
         font-size: 0.875rem;
         min-height: 36px;
       }
-      .nav a:hover { background: var(--surface-100, #f9fafb); color: var(--text-color); }
+      .nav a:hover { background: var(--neutral-100); color: var(--text-color); }
       .nav a.active {
         background: var(--primary-color);
         color: white;

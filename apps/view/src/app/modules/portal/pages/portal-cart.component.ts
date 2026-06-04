@@ -349,12 +349,12 @@ function hashColor(key: string): string {
       }
       .ca-meta-item { display: inline-flex; align-items: center; gap: 0.25rem; }
       .ca-meta-promo {
-        background: var(--brand-50, #fef3c7);
-        color: var(--brand-800, #92400e);
+        background: var(--warn-soft-bg);
+        color: var(--warn-soft-fg);
         font-weight: 700;
         padding: 0.1rem 0.5rem;
         border-radius: 999px;
-        border: 1px solid var(--brand-200, #fde68a);
+        border: 1px solid var(--warn-border);
       }
 
       .ca-line-qty {
@@ -488,7 +488,7 @@ function hashColor(key: string): string {
       }
       .ca-summary-savings span,
       .ca-summary-savings b {
-        color: var(--good-fg, #15803d);
+        color: var(--ok-soft-fg);
         font-weight: 700;
       }
       .ca-summary-savings i { margin-right: 0.25rem; }
@@ -496,7 +496,7 @@ function hashColor(key: string): string {
       .ca-meta-promo em {
         font-style: normal;
         font-weight: 700;
-        color: var(--good-fg, #15803d);
+        color: var(--ok-soft-fg);
         margin-left: 0.375rem;
       }
       .ca-summary-total {

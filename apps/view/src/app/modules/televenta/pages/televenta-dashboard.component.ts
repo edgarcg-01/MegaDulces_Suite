@@ -190,29 +190,29 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
     .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; margin-bottom:1.5rem; }
     .kpi-card {
-      background: var(--surface-card, var(--surface-50));
-      border-left: 4px solid var(--surface-300);
+      background: var(--card-bg);
+      border-left: 4px solid var(--neutral-300);
       border-radius: 8px;
       padding: 1rem 1.25rem;
     }
-    .kpi-purple { border-left-color: #9333ea; }
-    .kpi-purple .kpi-icon { color: #9333ea; }
-    .kpi-green { border-left-color: #16a34a; }
-    .kpi-green .kpi-icon { color: #16a34a; }
-    .kpi-warn { border-left-color: #eab308; }
-    .kpi-warn .kpi-icon { color: #eab308; }
-    .kpi-info { border-left-color: #0ea5e9; }
-    .kpi-info .kpi-icon { color: #0ea5e9; }
+    .kpi-purple { border-left-color: var(--brand-orange); }
+    .kpi-purple .kpi-icon { color: var(--brand-orange); }
+    .kpi-green { border-left-color: var(--ok-fg); }
+    .kpi-green .kpi-icon { color: var(--ok-fg); }
+    .kpi-warn { border-left-color: var(--warn-fg); }
+    .kpi-warn .kpi-icon { color: var(--warn-fg); }
+    .kpi-info { border-left-color: var(--info-fg); }
+    .kpi-info .kpi-icon { color: var(--info-fg); }
     .kpi-icon { font-size:1.25rem; margin-bottom:.5rem; }
-    .kpi-label { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
+    .kpi-label { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-muted); }
     .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
-    .kpi-value.pos { color: #16a34a; }
+    .kpi-value.pos { color: var(--ok-fg); }
     .kpi-sub { font-size:.75rem; margin-top:.5rem; }
 
     .two-col { display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:1rem; }
     .two-col h3 { margin: 0 0 .75rem; font-size: 1rem; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .num.pos { color: #16a34a; font-weight: 600; }
+    .num.pos { color: var(--ok-fg); font-weight: 600; }
 
     .outcome-row { margin-bottom: .75rem; }
     .outcome-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: .25rem; }

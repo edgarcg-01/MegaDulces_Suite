@@ -156,8 +156,8 @@ interface CartRow {
       .search:focus { outline: 2px solid var(--primary-color); outline-offset: 1px; }
       .empty-mini { font-size: 0.85rem; color: var(--text-color-secondary); font-style: italic; padding: 1rem 0; text-align: center; }
       .grid { display: grid; grid-template-columns: 1fr; gap: 0.5rem; max-height: 60vh; overflow-y: auto; }
-      .prod { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--surface-50, #fafafa); border-radius: 10px; border: 1px solid transparent; min-height: 64px; }
-      .prod.selected { border-color: var(--primary-color); background: var(--primary-50, #eff6ff); }
+      .prod { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: var(--neutral-50); border-radius: 10px; border: 1px solid transparent; min-height: 64px; }
+      .prod.selected { border-color: var(--primary-color); background: var(--info-soft-bg); }
       .prod-info { flex: 1; min-width: 0; }
       .prod-name { font-size: 0.9rem; font-weight: 500; margin: 0; color: var(--text-color); }
       .prod-meta { font-size: 0.75rem; color: var(--text-color-secondary); margin: 0.15rem 0 0; display: flex; flex-wrap: wrap; gap: 0.75rem; }

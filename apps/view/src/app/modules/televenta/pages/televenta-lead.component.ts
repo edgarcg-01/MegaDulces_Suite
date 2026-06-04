@@ -270,24 +270,24 @@ const OUTCOMES: OutcomeOption[] = [
       .contact { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; }
       .contact a { color: var(--primary-color); text-decoration: none; font-size: 0.875rem; min-height: 28px; display: inline-flex; align-items: center; gap: 0.3rem; }
       .contact a:hover { text-decoration: underline; }
-      .reservation { background: var(--orange-50, #fff7ed); border: 1px solid var(--orange-200, #fed7aa); border-radius: 12px; padding: 0.75rem; text-align: right; }
-      .ttl-label { font-size: 0.7rem; color: var(--orange-700, #c2410c); margin: 0; }
-      .ttl { font-size: 1.1rem; font-weight: 700; color: var(--orange-600, #ea580c); margin: 0.1rem 0 0; }
+      .reservation { background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: 12px; padding: 0.75rem; text-align: right; }
+      .ttl-label { font-size: 0.7rem; color: var(--warn-soft-fg); margin: 0; }
+      .ttl { font-size: 1.1rem; font-weight: 700; color: var(--brand-700); margin: 0.1rem 0 0; }
       .actions-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin: 0; }
-      .kv > div { background: var(--surface-50, #fafafa); padding: 0.75rem; border-radius: 10px; }
+      .kv > div { background: var(--neutral-50); padding: 0.75rem; border-radius: 10px; }
       .kv dt { font-size: 0.7rem; color: var(--text-color-secondary); margin: 0; letter-spacing: 0.03em; }
       .kv dd { font-size: 1rem; font-weight: 600; margin: 0.2rem 0 0; color: var(--text-color); }
-      .kv dd.over { color: var(--red-600, #dc2626); }
-      .notes { font-size: 0.85rem; color: var(--text-color); background: var(--blue-50, #eff6ff); padding: 0.6rem; border-radius: 8px; margin: 0.75rem 0 0; display: flex; gap: 0.4rem; align-items: flex-start; }
-      .notes i { color: var(--blue-600, #2563eb); margin-top: 0.15rem; }
+      .kv dd.over { color: var(--bad-fg); }
+      .notes { font-size: 0.85rem; color: var(--text-color); background: var(--info-soft-bg); padding: 0.6rem; border-radius: 8px; margin: 0.75rem 0 0; display: flex; gap: 0.4rem; align-items: flex-start; }
+      .notes i { color: var(--info-fg); margin-top: 0.15rem; }
       .empty-mini { font-size: 0.85rem; color: var(--text-color-secondary); font-style: italic; }
       .orders, .calls { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-      .order { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; background: var(--surface-50, #fafafa); border-radius: 10px; flex-wrap: wrap; }
+      .order { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; background: var(--neutral-50); border-radius: 10px; flex-wrap: wrap; }
       .o-code { font-weight: 600; font-size: 0.85rem; font-family: ui-monospace, monospace; }
       .o-total { font-weight: 600; margin-left: auto; font-size: 0.95rem; }
       .o-date { font-size: 0.75rem; color: var(--text-color-secondary); }
-      .call { padding: 0.75rem; background: var(--surface-50, #fafafa); border-radius: 10px; }
+      .call { padding: 0.75rem; background: var(--neutral-50); border-radius: 10px; }
       .call-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
       .call-head time { font-size: 0.75rem; color: var(--text-color-secondary); }
       .call-notes { font-size: 0.85rem; margin: 0.5rem 0 0; color: var(--text-color); white-space: pre-wrap; }

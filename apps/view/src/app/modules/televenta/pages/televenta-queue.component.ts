@@ -156,14 +156,14 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
         padding: 0.75rem;
         border: 1px solid var(--surface-border);
         border-radius: 12px;
-        background: var(--surface-50, #fafafa);
+        background: var(--neutral-50);
         min-height: 64px;
       }
-      .my-item:hover, .queue-item:hover { background: var(--surface-100, #f3f4f6); }
+      .my-item:hover, .queue-item:hover { background: var(--neutral-100); }
       .my-info, .qi-info { flex: 1; min-width: 0; }
       .code { font-size: 0.7rem; color: var(--text-color-secondary); font-weight: 600; margin: 0; letter-spacing: 0.04em; }
       .name { font-size: 0.95rem; font-weight: 500; color: var(--text-color); margin: 0.1rem 0; }
-      .ttl { font-size: 0.75rem; color: var(--orange-600, #ea580c); margin: 0; }
+      .ttl { font-size: 0.75rem; color: var(--brand-700); margin: 0; }
       .meta { font-size: 0.75rem; color: var(--text-color-secondary); margin: 0.1rem 0 0; display: flex; flex-wrap: wrap; gap: 0.75rem; }
       .meta i { font-size: 0.75rem; margin-right: 0.1rem; }
       .my-actions, .qi-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
@@ -172,7 +172,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
       .queue-header h2 { margin: 0; }
       .queue-table { display: flex; flex-direction: column; gap: 0.5rem; }
       .empty { text-align: center; padding: 3rem 1rem; color: var(--text-color-secondary); }
-      .empty i { font-size: 2.5rem; color: var(--green-500, #22c55e); margin-bottom: 0.75rem; display: block; }
+      .empty i { font-size: 2.5rem; color: var(--ok-fg); margin-bottom: 0.75rem; display: block; }
       .empty p { font-size: 0.95rem; margin: 0; color: var(--text-color); }
       .empty small { font-size: 0.8rem; }
       @media (max-width: 640px) {
