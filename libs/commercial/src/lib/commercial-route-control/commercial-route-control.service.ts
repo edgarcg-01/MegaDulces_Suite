@@ -10,16 +10,20 @@ import {
   TenantContextService,
   CloudinaryService,
   LlmExtractorService,
+  AiProductMatcherService,
 } from '@megadulces/platform-core';
 import {
   GuardarRouteTicketDto,
   ListRouteTicketsQuery,
   ProcesarRouteTicketResult,
   RouteReportQuery,
+  RouteTicketLinePreview,
   RouteTicketType,
   ROUTE_TICKET_TYPES,
   UpdateRouteTicketDto,
 } from './dto/route-ticket.dto';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ACCEPTED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const MAX_BYTES = 8 * 1024 * 1024; // límite vision Anthropic
@@ -40,6 +44,7 @@ export class CommercialRouteControlService {
     private readonly tenantCtx: TenantContextService,
     private readonly cloudinary: CloudinaryService,
     private readonly llm: LlmExtractorService,
+    private readonly matcher: AiProductMatcherService,
   ) {}
 
   // ── 1) Procesar: OCR sin guardar (preview) ──────────────────────────────
@@ -62,6 +67,27 @@ export class CommercialRouteControlService {
     const base64 = file.buffer.toString('base64');
     const mediaType = file.mimetype as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
     const fields = await this.llm.extractRouteTicket(base64, mediaType, ticketType);
+
+    // Fase 2: carga descarga stock al camión → además del total, detectamos
+    // los productos (líneas) vía Claude vision + matcher contra catálogo.
+    let lines: RouteTicketLinePreview[] | undefined;
+    if (ticketType === 'carga') {
+      try {
+        const items = await this.llm.extractFromTicketImage(base64, mediaType);
+        const match = await this.matcher.matchExtractedItems(items, t0);
+        lines = match.items.map((it) => ({
+          raw: it.raw,
+          normalized: it.normalized,
+          quantity: it.quantity,
+          product_id: it.suggested?.product_id ?? null,
+          product_name: it.suggested?.product_name ?? null,
+          confidence: it.confidence,
+        }));
+      } catch (e: any) {
+        this.logger.warn(`[route-ticket] carga line-match falló: ${e.message}`);
+        lines = [];
+      }
+    }
     this.logger.log(`[route-ticket] ${ticketType} OCR (+${Date.now() - t0}ms)`);
 
     return {
@@ -70,6 +96,7 @@ export class CommercialRouteControlService {
       photo_url: uploaded.secure_url,
       photo_preview_url: uploaded.secure_url,
       fields,
+      lines,
     };
   }
 
@@ -103,8 +130,9 @@ export class CommercialRouteControlService {
         if (dup) throw new ConflictException(`Ya existe un ticket con referencia ${reference}`);
       }
 
+      let row;
       try {
-        const [row] = await trx('commercial.route_tickets')
+        [row] = await trx('commercial.route_tickets')
           .insert({
             tenant_id: trx.raw('public.current_tenant_id()'),
             vendor_user_id: userId,
@@ -124,12 +152,93 @@ export class CommercialRouteControlService {
             created_by: userId,
           })
           .returning('*');
-        return row;
       } catch (e: any) {
         if (e?.code === '23505')
           throw new ConflictException('Ticket duplicado (corte o referencia ya registrados)');
         throw e;
       }
+
+      // Fase 2: carga con líneas → descarga stock al camión del vendedor,
+      // ATÓMICO con el insert del ticket (mismo trx).
+      if (dto.ticket_type === 'carga' && dto.lines?.length) {
+        const lines = dto.lines.filter(
+          (l) => l && UUID_RE.test(l.product_id) && Number(l.quantity) > 0,
+        );
+        if (lines.length) {
+          const truckId = await this.ensureTruckWarehouse(trx, userId);
+          for (const l of lines) {
+            await this.stockInLine(trx, truckId, l.product_id, Number(l.quantity), row.id, userId);
+          }
+          return { ...row, warehouse_id: truckId, stocked_lines: lines.length };
+        }
+      }
+      return row;
+    });
+  }
+
+  /** Devuelve (o crea) el warehouse "camión" del vendedor. */
+  private async ensureTruckWarehouse(trx: any, vendorUserId: string): Promise<string> {
+    const existing = await trx('commercial.warehouses')
+      .where({ kind: 'truck', owner_user_id: vendorUserId })
+      .whereNull('deleted_at')
+      .first();
+    if (existing) return existing.id;
+    const [wh] = await trx('commercial.warehouses')
+      .insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        code: `TRUCK-${vendorUserId}`.slice(0, 50),
+        name: `Camión ${vendorUserId.slice(0, 8)}`,
+        kind: 'truck',
+        owner_user_id: vendorUserId,
+        is_default: false,
+        active: true,
+        created_by: vendorUserId,
+      })
+      .returning('id');
+    return wh.id;
+  }
+
+  /** Stock-in inline (mismo trx que el ticket) — solo el caso 'in', con lock. */
+  private async stockInLine(
+    trx: any,
+    warehouseId: string,
+    productId: string,
+    qty: number,
+    ticketId: string,
+    userId: string,
+  ): Promise<void> {
+    const stockRow = await trx('commercial.stock')
+      .where({ warehouse_id: warehouseId, product_id: productId })
+      .forUpdate()
+      .first();
+    const before = stockRow ? Number(stockRow.quantity) : 0;
+    const after = before + qty;
+    if (stockRow) {
+      await trx('commercial.stock')
+        .where({ id: stockRow.id })
+        .update({ quantity: after, updated_at: trx.fn.now(), updated_by: userId });
+    } else {
+      await trx('commercial.stock').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        warehouse_id: warehouseId,
+        product_id: productId,
+        quantity: after,
+        reserved_quantity: 0,
+        updated_by: userId,
+      });
+    }
+    await trx('commercial.stock_movements').insert({
+      tenant_id: trx.raw('public.current_tenant_id()'),
+      warehouse_id: warehouseId,
+      product_id: productId,
+      movement_type: 'in',
+      quantity: qty,
+      quantity_before: before,
+      quantity_after: after,
+      reference_type: 'route_ticket',
+      reference_id: ticketId,
+      notes: 'Carga de ruta',
+      created_by: userId,
     });
   }
 

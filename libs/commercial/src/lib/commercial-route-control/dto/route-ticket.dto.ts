@@ -2,6 +2,16 @@ export type RouteTicketType = 'venta' | 'carga' | 'combustible';
 
 export const ROUTE_TICKET_TYPES: RouteTicketType[] = ['venta', 'carga', 'combustible'];
 
+/** Línea de producto detectada en un ticket de CARGA (preview para revisión). */
+export interface RouteTicketLinePreview {
+  raw: string;
+  normalized: string;
+  quantity: number;
+  product_id: string | null;
+  product_name: string | null;
+  confidence: string; // high | medium | low | no_match
+}
+
 /** Resultado de OCR sin persistir (preview para revisión en UI). */
 export interface ProcesarRouteTicketResult {
   ticket_type: RouteTicketType;
@@ -16,6 +26,8 @@ export interface ProcesarRouteTicketResult {
     reference: string | null;
     liters: number | null;
   };
+  /** Solo en carga: productos detectados para descargar al camión. */
+  lines?: RouteTicketLinePreview[];
 }
 
 /** Payload de guardado (tras revisión del vendedor). */
@@ -32,6 +44,8 @@ export interface GuardarRouteTicketDto {
   photo_preview_url?: string | null;
   ocr_text?: string | null;
   ocr_json?: unknown;
+  /** Solo carga: líneas confirmadas a descargar al camión del vendedor. */
+  lines?: { product_id: string; quantity: number }[];
 }
 
 export interface UpdateRouteTicketDto {

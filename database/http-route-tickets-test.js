@@ -89,6 +89,28 @@ const stamp = Date.now().toString().slice(-6); // corte único por corrida (idem
   const rutaE2E = (porRuta.body || []).find((r) => r.route_code === RC);
   check('por-ruta incluye RD E2E (carga excluida del total)', !!rutaE2E, rutaE2E);
 
+  console.log('\n── 6. Fase 2: carga con líneas → stock-in al camión ──');
+  const stock = await req('GET', '/commercial/inventory/stock?pageSize=1', null, token);
+  const pid = (stock.body?.data || [])[0]?.product_id;
+  if (!pid) {
+    check('hay un producto para probar stock-in', false, 'sin productos con stock');
+  } else {
+    const QTY = 7;
+    const carga2 = await req('POST', '/commercial/route-tickets', {
+      ticket_type: 'carga', route_code: RC, ticket_date: '2026-06-03', total: 1500,
+      lines: [{ product_id: pid, quantity: QTY }],
+    }, token);
+    check('carga con líneas → 201', carga2.status === 201, { status: carga2.status });
+    check('respuesta trae warehouse_id (camión)', !!carga2.body?.warehouse_id, carga2.body);
+    check('respuesta trae stocked_lines = 1', carga2.body?.stocked_lines === 1, carga2.body?.stocked_lines);
+    const truck = carga2.body?.warehouse_id;
+    if (truck) {
+      const truckStock = await req('GET', `/commercial/inventory/stock?warehouse_id=${truck}&product_id=${pid}`, null, token);
+      const row = (truckStock.body?.data || [])[0];
+      check('stock del camión >= cantidad cargada', Number(row?.quantity || 0) >= QTY, { qty: row?.quantity });
+    }
+  }
+
   console.log(`\n════════ Total: ${pass} pass / ${fail} fail ════════`);
   if (fail) console.log('Failures:\n  - ' + failures.join('\n  - '));
   process.exit(fail === 0 ? 0 : 1);

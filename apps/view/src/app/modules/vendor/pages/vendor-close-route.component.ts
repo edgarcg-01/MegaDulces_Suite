@@ -22,6 +22,13 @@ import {
 
 type Step = 'pick' | 'review';
 
+interface EditableCargaLine {
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  include: boolean;
+}
+
 const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
   venta: { label: 'Corte de venta', icon: 'pi-receipt' },
   carga: { label: 'Carga', icon: 'pi-box' },
@@ -95,6 +102,22 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
         <input type="text" [(ngModel)]="form.reference" />
       </div>
 
+      <!-- Carga: productos detectados → descargan al camión -->
+      <div *ngIf="selectedType() === 'carga'" class="lines">
+        <div class="lines-head">
+          <span>Productos cargados al camión</span>
+          <span class="hint">{{ includedCount() }} de {{ cargaLines().length }}</span>
+        </div>
+        <p class="empty-lines" *ngIf="cargaLines().length === 0">
+          No se detectaron productos. Puedes guardar solo el total igual.
+        </p>
+        <div class="line-row" *ngFor="let l of cargaLines(); let i = index">
+          <input type="checkbox" [(ngModel)]="l.include" />
+          <span class="line-name" [class.off]="!l.include">{{ l.product_name }}</span>
+          <input class="qty" type="number" min="1" step="1" [(ngModel)]="l.quantity" [disabled]="!l.include" />
+        </div>
+      </div>
+
       <p class="warn" *ngIf="!canSave()">Faltan datos obligatorios (ruta y fecha). Corrige o vuelve a tomar la foto.</p>
 
       <button
@@ -142,6 +165,15 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .field input { padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); font-size: 1rem; }
       .badge { position: absolute; right: 0; top: 0; font-size: 0.65rem; text-transform: uppercase; letter-spacing: .04em; color: var(--bad, #b91c1c); }
       .badge.ok { color: var(--ok, #15803d); }
+      .lines { margin: 0.5rem 0 1rem; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; }
+      .lines-head { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; }
+      .lines-head .hint { font-weight: 400; }
+      .empty-lines { font-size: 0.8rem; color: var(--text-muted); margin: 0.25rem 0; }
+      .line-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0; border-top: 1px solid var(--border-color); }
+      .line-row:first-of-type { border-top: none; }
+      .line-name { flex: 1; font-size: 0.875rem; color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .line-name.off { color: var(--text-muted); text-decoration: line-through; }
+      .line-row .qty { width: 70px; padding: 0.375rem 0.5rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-main); }
       .warn { color: var(--bad, #b91c1c); font-size: 0.8rem; margin: 0 0 0.75rem; }
       :host ::ng-deep .w-full { width: 100%; }
       .section-title { font-size: 1rem; color: var(--text-main); margin: 1.5rem 0 0.75rem; }
@@ -172,6 +204,7 @@ export class VendorCloseRouteComponent implements OnInit {
   readonly photoPreview = signal<string | null>(null);
   readonly tickets = signal<RouteTicket[]>([]);
   readonly loadingList = signal(true);
+  readonly cargaLines = signal<EditableCargaLine[]>([]); // productos detectados en carga
 
   private lastResult: ProcesarRouteTicketResult | null = null;
   form: {
@@ -221,6 +254,17 @@ export class VendorCloseRouteComponent implements OnInit {
               reference: res.fields.reference,
               liters: res.fields.liters,
             };
+            // carga: precargar productos detectados (solo los matcheados).
+            this.cargaLines.set(
+              (res.lines ?? [])
+                .filter((l) => !!l.product_id)
+                .map((l) => ({
+                  product_id: l.product_id as string,
+                  product_name: l.product_name ?? l.normalized,
+                  quantity: l.quantity || 1,
+                  include: true,
+                })),
+            );
             this.processing.set(false);
             this.step.set('review');
           },
@@ -239,10 +283,20 @@ export class VendorCloseRouteComponent implements OnInit {
     return !!this.form.route_code?.trim() && !!this.form.ticket_date;
   }
 
+  includedCount(): number {
+    return this.cargaLines().filter((l) => l.include).length;
+  }
+
   save(): void {
     const type = this.selectedType();
     if (!type || !this.canSave()) return;
     this.saving.set(true);
+    const lines =
+      type === 'carga'
+        ? this.cargaLines()
+            .filter((l) => l.include && l.product_id && Number(l.quantity) > 0)
+            .map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity) }))
+        : undefined;
     this.api
       .guardarTicket({
         ticket_type: type,
@@ -256,6 +310,7 @@ export class VendorCloseRouteComponent implements OnInit {
         photo_url: this.lastResult?.photo_url ?? null,
         photo_preview_url: this.lastResult?.photo_preview_url ?? null,
         ocr_json: this.lastResult?.fields ?? null,
+        lines,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -277,6 +332,7 @@ export class VendorCloseRouteComponent implements OnInit {
     this.selectedType.set(null);
     this.photoPreview.set(null);
     this.lastResult = null;
+    this.cargaLines.set([]);
     this.form = this.emptyForm();
   }
 

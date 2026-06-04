@@ -33,12 +33,22 @@ export interface RouteTicketFields {
   liters: number | null;
 }
 
+export interface RouteTicketLinePreview {
+  raw: string;
+  normalized: string;
+  quantity: number;
+  product_id: string | null;
+  product_name: string | null;
+  confidence: string;
+}
+
 export interface ProcesarRouteTicketResult {
   ticket_type: RouteTicketType;
   cloudinary_public_id: string;
   photo_url: string;
   photo_preview_url: string;
   fields: RouteTicketFields;
+  lines?: RouteTicketLinePreview[]; // solo carga
 }
 
 export interface RouteTicket {
@@ -251,6 +261,7 @@ export class VendorService {
     photo_url?: string | null;
     photo_preview_url?: string | null;
     ocr_json?: unknown;
+    lines?: { product_id: string; quantity: number }[]; // solo carga
   }): Observable<RouteTicket> {
     return this.http.post<RouteTicket>(`${this.base}/route-tickets`, dto);
   }
