@@ -6,6 +6,18 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ButtonModule } from 'primeng/button';
 
+/** Grupos temáticos del selector. El orden acá define el orden de render. */
+type ProjectGroup = 'ventas' | 'ejecucion' | 'operaciones' | 'sistema';
+
+const GROUP_LABELS: Record<ProjectGroup, string> = {
+  ventas: 'Ventas',
+  ejecucion: 'Ejecución',
+  operaciones: 'Operaciones',
+  sistema: 'Sistema',
+};
+
+const GROUP_ORDER: ProjectGroup[] = ['ventas', 'ejecucion', 'operaciones', 'sistema'];
+
 interface ProjectCard {
   id: string;
   name: string;
@@ -13,6 +25,7 @@ interface ProjectCard {
   icon: string;
   route: string;
   status: string;
+  group: ProjectGroup;
   /** Si el usuario tiene CUALQUIERA de estas perms, ve el proyecto. */
   anyOf: Permission[];
   /** Si está set, además del anyOf el rol debe estar en esta lista. */
@@ -38,11 +51,12 @@ export class ProjectsComponent implements OnInit {
   private readonly allProjects: ProjectCard[] = [
     {
       id: 'trade-marketing',
-      name: 'Trade Marketing',
-      description: 'Auditoría de ejecución en PdV: captura diaria, exhibiciones, scoring y reportes operativos.',
+      name: 'Auditoría en Ruta',
+      description: 'Auditoría de ejecución en ruta: captura diaria, exhibiciones, scoring y reportes operativos.',
       icon: 'pi pi-chart-bar',
       route: '/dashboard',
       status: 'Activo',
+      group: 'ejecucion',
       anyOf: [
         Permission.VISITAS_REGISTRAR,
         Permission.REPORTES_VER_PROPIO,
@@ -57,11 +71,12 @@ export class ProjectsComponent implements OnInit {
     },
     {
       id: 'comercial',
-      name: 'Comercial',
-      description: 'Venta B2B: pedidos, clientes, almacenes, pricing, inventario y analytics commercial.',
+      name: 'Ventas',
+      description: 'Back-office de venta B2B: pedidos, clientes, almacenes, pricing, inventario y analytics.',
       icon: 'pi pi-shopping-cart',
       route: '/comercial',
       status: 'Activo',
+      group: 'ventas',
       anyOf: [
         Permission.COMMERCIAL_ORDERS_VER,
         Permission.COMMERCIAL_ORDERS_CREAR,
@@ -78,11 +93,12 @@ export class ProjectsComponent implements OnInit {
     },
     {
       id: 'vendedor',
-      name: 'Modo Vendedor',
+      name: 'Vendedor en Campo',
       description: 'Tomá pedidos en campo: lista de clientes, catálogo con precio por cliente, y "Mi día" con tus pedidos del día.',
       icon: 'pi pi-briefcase',
       route: '/vendor/customers',
       status: 'Activo',
+      group: 'ventas',
       anyOf: [Permission.COMMERCIAL_ORDERS_CREAR],
       // Restringido a roles que realmente toman pedidos en campo. Admins/
       // superadmins lo ven también (testing). tele_operator usa /televenta.
@@ -95,6 +111,7 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-headphones',
       route: '/televenta',
       status: 'Activo',
+      group: 'ventas',
       anyOf: [
         Permission.COMMERCIAL_TELEVENTA_OPERATE,
         Permission.COMMERCIAL_TELEVENTA_VER,
@@ -107,6 +124,7 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-truck',
       route: '/logistica',
       status: 'Activo',
+      group: 'operaciones',
       anyOf: [
         Permission.LOGISTICS_SHIPMENTS_VER,
         Permission.LOGISTICS_FLEET_VER,
@@ -121,6 +139,7 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-cog',
       route: '/admin',
       status: 'Activo',
+      group: 'sistema',
       anyOf: [Permission.USUARIOS_GESTIONAR, Permission.ROLES_CONFIGURAR],
     },
     {
@@ -130,6 +149,7 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-shop',
       route: '/portal',
       status: 'Super-admin',
+      group: 'ventas',
       anyOf: [Permission.USUARIOS_GESTIONAR, Permission.ROLES_CONFIGURAR],
       roleOnly: ['superadmin'],
     },
@@ -148,6 +168,18 @@ export class ProjectsComponent implements OnInit {
       if (p.hideForRoles && role && p.hideForRoles.includes(role)) return false;
       return p.anyOf.some((perm) => legacyPerms[perm] === true);
     });
+  });
+
+  /**
+   * Proyectos visibles agrupados por dominio, en el orden de GROUP_ORDER.
+   * Grupos sin proyectos visibles no se renderizan.
+   */
+  readonly groupedProjects = computed(() => {
+    const visible = this.projects();
+    return GROUP_ORDER.map((group) => ({
+      label: GROUP_LABELS[group],
+      projects: visible.filter((p) => p.group === group),
+    })).filter((g) => g.projects.length > 0);
   });
 
   ngOnInit(): void {
