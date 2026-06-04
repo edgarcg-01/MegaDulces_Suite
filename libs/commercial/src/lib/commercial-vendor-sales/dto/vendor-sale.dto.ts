@@ -14,6 +14,7 @@ export interface VendorSaleLineInput {
 export interface CrearVendorSaleDto {
   store_id: string;
   sale_date: string; // YYYY-MM-DD
+  route_id?: string; // ruta asignada del vendedor (catalogs rutas)
   capture_ref?: string; // UUID generado en el cliente; reusar en retry = idempotente
   daily_capture_id?: string; // back-link suave a la visita sin ponderación
   ticket_photo_url?: string | null;

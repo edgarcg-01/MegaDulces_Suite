@@ -51,6 +51,8 @@ export class CommercialVendorSalesService {
       throw new BadRequestException('capture_ref inválido (UUID)');
     if (dto.daily_capture_id && !UUID_RE.test(dto.daily_capture_id))
       throw new BadRequestException('daily_capture_id inválido (UUID)');
+    if (dto.route_id && !UUID_RE.test(dto.route_id))
+      throw new BadRequestException('route_id inválido (UUID)');
 
     const captureRef = dto.capture_ref || randomUUID();
 
@@ -79,6 +81,7 @@ export class CommercialVendorSalesService {
             capture_ref: captureRef,
             vendor_user_id: userId,
             store_id: dto.store_id,
+            route_id: dto.route_id ?? null,
             sale_date: dto.sale_date,
             product_id: l.product_id,
             product_name: l.product_name,
@@ -176,6 +179,24 @@ export class CommercialVendorSalesService {
           'vsl.sale_date',
         )
         .orderBy('vsl.sale_date', 'desc');
+    });
+  }
+
+  /** Reporte admin: venta por ruta. */
+  async porRuta(q: VendorSalesReportQuery) {
+    return this.tk.run(async (trx) => {
+      const base = trx('commercial.vendor_sale_lines')
+        .whereNull('deleted_at')
+        .whereNotNull('route_id');
+      this.applyDateRange(base, q);
+      return base
+        .clone()
+        .select('route_id')
+        .countDistinct('capture_ref as capturas')
+        .count('* as lineas')
+        .sum('quantity as unidades')
+        .groupBy('route_id')
+        .orderBy('unidades', 'desc');
     });
   }
 

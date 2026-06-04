@@ -21,8 +21,6 @@ import { AuthService } from '../../../core/services/auth.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
 import { buildVisitFormData } from '../../../core/http/visit-form-data';
 
-type Step = 'start' | 'exhibidor' | 'ticket' | 'review';
-
 interface OcrItem {
   raw: string;
   quantity: number;
@@ -33,21 +31,19 @@ interface OcrItem {
   confirmed: boolean;
 }
 
-const STEP_INDEX: Record<Step, number> = { start: 1, exhibidor: 2, ticket: 3, review: 4 };
-
 const ALLOWED_IMAGE_TYPES = [
   'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
 ];
 
 /**
- * Captura diaria especial del vendedor. Flujo: tienda (GPS) → foto exhibidor →
- * foto ticket de venta (OCR) → guardar. Los productos detectados van a DOS
- * destinos (2 llamadas, no atómicas por boundaries):
- *   - venta: POST /commercial/vendor-sales (todas las líneas confirmadas)
- *   - visita SIN ponderación: POST /daily-captures (skip_scoring=true) con los
- *     productos de planograma (confidence high/medium).
- * Reusa DailyCaptureService solo para GPS/tienda/catálogos. El diseño replica
- * el wizard de /captures (mismos tokens content/surface/brand-orange).
+ * Captura diaria especial del vendedor. Replica el layout de /captures (header
+ * VISITA + banner RUTA DE HOY + empty-state + banner Tienda Detectada). Flujo:
+ * iniciar (GPS+tienda) → foto exhibidor + foto ticket (OCR) → guardar. Los
+ * productos van a DOS destinos (2 llamadas, no atómicas por boundaries):
+ *   - venta: POST /commercial/vendor-sales (líneas confirmadas)
+ *   - visita SIN ponderación: POST /daily-captures (skip_scoring=true), productos
+ *     de planograma (confidence high/medium).
+ * Reusa DailyCaptureService para GPS/tienda/ruta/catálogos.
  */
 @Component({
   selector: 'app-vendor-capture',
@@ -57,222 +53,251 @@ const ALLOWED_IMAGE_TYPES = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p-toast></p-toast>
-    <div class="max-w-xl mx-auto px-4 py-6">
-      <header class="mb-5">
-        <h1 class="text-xl font-bold text-content-main">Captura de vendedor</h1>
-        <p class="text-sm text-content-muted mt-0.5">Foto del exhibidor + ticket de venta. Los productos alimentan tu venta del día y la visita.</p>
-      </header>
+    <div class="px-6 pt-6 pb-6 space-y-6">
 
-      <div class="bg-surface-card border border-divider rounded-2xl p-5">
+      <!-- Encabezado -->
+      <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg shrink-0">
+            <span class="text-[10px] md:text-xs font-black text-black uppercase leading-none">Visita</span>
+            <span class="text-xl md:text-2xl font-black text-black">#{{ visitaNumero() }}</span>
+          </div>
+          <div>
+            <h2 class="text-xl md:text-2xl font-bold text-content-main leading-tight tracking-tighter flex items-center gap-3">
+              <i class="pi pi-file-edit text-content-main"></i> Captura de Vendedor
+            </h2>
+            <p class="text-xs md:text-sm text-content-dim">
+              Capturador: <span class="font-bold text-content-main">{{ user()?.username }}</span>
+              <span class="mx-2 opacity-30">|</span>
+              <ng-container *ngIf="store(); else noStoreSub">Tienda: <span class="font-bold text-content-main">{{ store()?.nombre }}</span></ng-container>
+              <ng-template #noStoreSub>Inicio: <span class="font-bold text-content-main">—</span></ng-template>
+            </p>
+          </div>
+        </div>
+        <div class="flex gap-2 w-full md:w-auto">
+          <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar captura" icon="pi pi-play"
+                    (onClick)="start()" [disabled]="needsRoute() || starting()"
+                    styleClass="p-button-brand w-full md:w-auto"></p-button>
+          <p-button *ngIf="svc.hasActiveVisit()" label="Cancelar" icon="pi pi-times"
+                    severity="secondary" [outlined]="true" (onClick)="cancel()"
+                    [disabled]="saving()" styleClass="w-full md:w-auto"></p-button>
+        </div>
+      </div>
 
-        <!-- Progress -->
-        <div class="mb-6 mt-1 px-2">
-          <div class="flex justify-between items-center relative" role="progressbar"
-               [attr.aria-valuenow]="stepIndex()" aria-valuemin="1" aria-valuemax="4"
-               [attr.aria-label]="'Paso ' + stepIndex() + ' de 4'">
-            <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
-            <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300"
-                 [style.width]="((stepIndex() - 1) / 3) * 100 + '%'" aria-hidden="true"></div>
-            <div *ngFor="let s of [1, 2, 3, 4]"
-                 class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold bg-surface-card motion-safe:transition-colors z-10 border"
-                 [ngClass]="s < stepIndex() ? 'border-brand-orange bg-brand-orange text-white'
-                           : s === stepIndex() ? 'border-brand-orange text-brand-orange'
-                           : 'border-divider text-content-muted'"
-                 [attr.aria-current]="s === stepIndex() ? 'step' : null">{{ s }}</div>
+      <!-- Ruta de hoy -->
+      <div class="bg-brand/10 border border-brand/20 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand/20 flex items-center justify-center text-brand shrink-0">
+            <i class="pi pi-map text-lg sm:text-xl"></i>
+          </div>
+          <div *ngIf="route() && !changingRoute()" class="min-w-0">
+            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
+            <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ route()?.name }}</div>
+            <button type="button" (click)="changingRoute.set(true)" class="text-[10px] sm:text-xs font-bold text-brand/80 hover:text-brand underline mt-0.5">Cambiar ruta</button>
+          </div>
+          <div *ngIf="!route() || changingRoute()" class="min-w-0 flex-1">
+            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
+            <select [ngModel]="route()?.id || ''" (ngModelChange)="onSelectRoute($event)"
+                    class="w-full sm:w-64 rounded-lg border border-divider bg-surface-card text-content-main text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand">
+              <option value="" disabled>Seleccioná tu ruta</option>
+              <option *ngFor="let r of zoneRoutes()" [value]="r.value">{{ r.label }}</option>
+            </select>
+            <div *ngIf="zoneRoutes().length === 0" class="text-[10px] sm:text-xs text-content-muted mt-1">No hay rutas para tu zona. Avisá a tu supervisor.</div>
+          </div>
+        </div>
+        <div *ngIf="visitaNumero() > 1" class="bg-surface-card px-3 py-2 rounded-xl border border-divider shadow-sm flex items-center gap-3 self-start sm:self-auto">
+          <div class="flex flex-col items-end">
+            <span class="text-[8px] sm:text-[9px] font-black text-content-faint uppercase tracking-tighter">Progreso de Jornada</span>
+            <span class="text-xs sm:text-sm font-black text-content-main">Visita #{{ visitaNumero() }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banner de Tienda Detectada -->
+      <div *ngIf="svc.hasActiveVisit() && store()"
+           class="bg-ok-soft-bg border border-ok-border p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-surface-card border border-ok-border flex items-center justify-center text-ok-fg shrink-0">
+            <i class="pi pi-check-circle text-lg sm:text-xl"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
+            <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ store()?.nombre }}</div>
+          </div>
+        </div>
+        <button *ngIf="nearby().length > 1" type="button" (click)="changingStore.set(!changingStore())"
+                class="text-xs font-bold text-ok-fg/80 hover:text-ok-fg underline self-start sm:self-auto">Cambiar tienda</button>
+      </div>
+      <div *ngIf="svc.hasActiveVisit() && changingStore() && nearby().length > 1" class="-mt-3">
+        <select [ngModel]="store()?.id" (ngModelChange)="onSelectStore($event)"
+                class="w-full rounded-lg border border-divider bg-surface-card text-content-main text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand">
+          <option *ngFor="let s of nearby()" [value]="s.id">{{ s.nombre }} ({{ s.distance }} m)</option>
+        </select>
+      </div>
+
+      <!-- Sin tienda tras iniciar -->
+      <div *ngIf="svc.hasActiveVisit() && !store()"
+           class="bg-amber-500/5 border border-amber-500/30 p-3 sm:p-4 rounded-2xl flex items-center gap-3">
+        <i class="pi pi-exclamation-triangle text-amber-500 text-xl" aria-hidden="true"></i>
+        <div class="text-sm text-content-main">No se detectó una tienda cercana. Acercate al PdV y tocá <strong>Cancelar</strong> y reintentá.</div>
+      </div>
+
+      <!-- Empty state (sin visita activa) -->
+      <ng-container *ngIf="!svc.hasActiveVisit()">
+        <div class="p-12 text-center bg-surface-card border border-divider rounded-xl">
+          <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
+            <i class="pi pi-map-marker text-2xl"></i>
+          </div>
+          <h3 class="text-lg font-bold text-content-main mb-2">Listo para iniciar tu ruta</h3>
+          <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">Tomá la foto del exhibidor y el ticket de venta. El sistema capturará tu ubicación GPS.</p>
+          <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="start()"
+                    [disabled]="needsRoute() || starting()" styleClass="p-button-brand"></p-button>
+        </div>
+      </ng-container>
+
+      <!-- Flujo de captura (visita activa con tienda) -->
+      <ng-container *ngIf="svc.hasActiveVisit() && store()">
+
+        <!-- Foto del exhibidor -->
+        <div class="bg-surface-card border border-divider rounded-2xl p-5 space-y-4">
+          <header class="space-y-1">
+            <h3 class="text-base font-semibold text-content-main">Evidencia fotográfica</h3>
+            <p class="text-xs text-content-muted leading-relaxed">Una foto del exhibidor es obligatoria para registrar la visita.</p>
+          </header>
+          <label *ngIf="!exhibidorPreview()"
+                 class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
+            <input type="file" accept="image/*" capture="environment" (change)="onExhibidor($event)"
+                   class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" aria-label="Tomar fotografía del exhibidor">
+            <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
+              <i class="pi pi-camera text-2xl" aria-hidden="true"></i>
+            </div>
+            <p class="text-sm font-medium text-content-main">Tomar fotografía</p>
+            <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
+          </label>
+          <div *ngIf="exhibidorPreview()" class="space-y-3">
+            <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
+              <img [src]="exhibidorPreview()!" alt="Vista previa del exhibidor" class="w-full h-64 object-cover">
+            </div>
+            <div class="flex justify-center">
+              <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" (onClick)="removeExhibidor()"></p-button>
+            </div>
           </div>
         </div>
 
-        <div class="py-2 px-1" style="min-height: 320px;">
-
-          <!-- Paso 1: tienda -->
-          <div *ngIf="step() === 'start'" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-            <header class="space-y-1">
-              <h2 class="text-base font-semibold text-content-main">¿En qué tienda estás?</h2>
-              <p class="text-xs text-content-muted leading-relaxed">Detectamos tu tienda por GPS. Si hay varias cerca, podés elegir.</p>
-            </header>
-
-            <div *ngIf="store() as s; else noStore"
-                 class="flex items-center gap-3 p-4 rounded-xl border border-divider bg-surface-ground/40">
-              <div class="w-12 h-12 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
-                <i class="pi pi-map-marker text-xl" aria-hidden="true"></i>
-              </div>
-              <div class="min-w-0">
-                <div class="text-sm font-semibold text-content-main truncate">{{ s.nombre }}</div>
-                <div class="text-xs text-content-muted">a {{ s.distance }} m</div>
-              </div>
+        <!-- Ticket de venta -->
+        <div class="bg-surface-card border border-divider rounded-2xl p-5 space-y-4">
+          <header class="space-y-1">
+            <h3 class="text-base font-semibold text-content-main">Ticket de venta</h3>
+            <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Confirmá cuáles van a la venta y la visita.</p>
+          </header>
+          <label *ngIf="!ticketPreview()"
+                 class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
+            <input type="file" accept="image/*" capture="environment" (change)="onTicket($event)"
+                   class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" aria-label="Tomar fotografía del ticket">
+            <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
+              <i class="pi pi-receipt text-2xl" aria-hidden="true"></i>
             </div>
-            <ng-template #noStore>
-              <div class="border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40">
-                <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
-                  <i class="pi text-2xl" [ngClass]="starting() ? 'pi-spin pi-spinner' : 'pi-map-marker'" aria-hidden="true"></i>
-                </div>
-                <p class="text-sm font-medium text-content-main">{{ starting() ? 'Detectando ubicación…' : 'Sin tienda detectada' }}</p>
-                <p class="text-xs text-content-muted mt-1">Tocá “Iniciar captura” para detectar.</p>
-              </div>
-            </ng-template>
+            <p class="text-sm font-medium text-content-main">Tomar foto del ticket</p>
+            <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
+          </label>
 
-            <div *ngIf="nearby().length > 1" class="space-y-1.5">
-              <label class="text-xs font-medium text-content-muted">Cambiar tienda</label>
-              <select [ngModel]="store()?.id" (ngModelChange)="onSelectStore($event)"
-                      class="w-full rounded-lg border border-divider bg-surface-card text-content-main text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-orange">
-                <option *ngFor="let s of nearby()" [value]="s.id">{{ s.nombre }} ({{ s.distance }} m)</option>
-              </select>
+          <div *ngIf="ticketPreview()" class="space-y-3">
+            <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
+              <img [src]="ticketPreview()!" alt="Ticket" class="w-full max-h-64 object-cover">
+            </div>
+            <div class="flex justify-center">
+              <label class="inline-flex">
+                <input type="file" accept="image/*" capture="environment" (change)="onTicket($event)" class="hidden" [disabled]="processing()">
+                <span class="p-button p-button-sm p-button-secondary p-button-outlined inline-flex items-center gap-2 cursor-pointer" [class.opacity-60]="processing()">
+                  <i class="pi pi-refresh"></i> Otro ticket
+                </span>
+              </label>
             </div>
           </div>
 
-          <!-- Paso 2: foto exhibidor -->
-          <div *ngIf="step() === 'exhibidor'" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-            <header class="space-y-1">
-              <h2 class="text-base font-semibold text-content-main">Evidencia fotográfica</h2>
-              <p class="text-xs text-content-muted leading-relaxed">Una foto del exhibidor es obligatoria para registrar la visita.</p>
-            </header>
-
-            <label *ngIf="!exhibidorPreview()"
-                   class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
-              <input type="file" accept="image/*" capture="environment" (change)="onExhibidor($event)"
-                     class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" aria-label="Tomar fotografía del exhibidor">
-              <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
-                <i class="pi pi-camera text-2xl" aria-hidden="true"></i>
-              </div>
-              <p class="text-sm font-medium text-content-main">Tomar fotografía</p>
-              <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
-            </label>
-
-            <div *ngIf="exhibidorPreview()" class="space-y-3">
-              <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
-                <img [src]="exhibidorPreview()!" alt="Vista previa del exhibidor" class="w-full h-64 object-cover">
-              </div>
-              <div class="flex justify-center">
-                <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" (onClick)="removeExhibidor()"></p-button>
-              </div>
-            </div>
+          <div *ngIf="processing()" class="flex items-center gap-3 p-4 bg-surface-ground rounded-xl">
+            <i class="pi pi-spin pi-spinner text-brand-orange text-xl"></i>
+            <span class="text-sm text-content-muted">Leyendo ticket…</span>
           </div>
 
-          <!-- Paso 3: ticket + OCR -->
-          <div *ngIf="step() === 'ticket'" class="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-            <header class="space-y-1">
-              <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
-              <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Vos confirmás cuáles van a la venta y la visita.</p>
-            </header>
-
-            <label *ngIf="!ticketPreview()"
-                   class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
-              <input type="file" accept="image/*" capture="environment" (change)="onTicket($event)"
-                     class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" aria-label="Tomar fotografía del ticket">
-              <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
-                <i class="pi pi-receipt text-2xl" aria-hidden="true"></i>
-              </div>
-              <p class="text-sm font-medium text-content-main">Tomar foto del ticket</p>
-              <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
-            </label>
-
-            <div *ngIf="ticketPreview()" class="space-y-3">
-              <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
-                <img [src]="ticketPreview()!" alt="Ticket" class="w-full max-h-64 object-cover">
-              </div>
-              <div class="flex justify-center">
-                <label class="inline-flex">
-                  <input type="file" accept="image/*" capture="environment" (change)="onTicket($event)" class="hidden" [disabled]="processing()">
-                  <span class="p-button p-button-sm p-button-secondary p-button-outlined inline-flex items-center gap-2 cursor-pointer"
-                        [class.opacity-60]="processing()">
-                    <i class="pi pi-refresh"></i> Otro ticket
-                  </span>
-                </label>
-              </div>
+          <div *ngIf="items().length && !processing()" class="space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span><strong>{{ confirmedCount() }}</strong> de {{ items().length }} confirmados</span>
             </div>
-
-            <!-- Loading -->
-            <div *ngIf="processing()" class="flex items-center gap-3 p-4 bg-surface-ground rounded-xl">
-              <i class="pi pi-spin pi-spinner text-brand-orange text-xl"></i>
-              <span class="text-sm text-content-muted">Leyendo ticket…</span>
-            </div>
-
-            <!-- Resultados OCR -->
-            <div *ngIf="items().length && !processing()" class="space-y-2">
-              <div class="flex items-center justify-between text-sm">
-                <span><strong>{{ confirmedCount() }}</strong> de {{ items().length }} confirmados</span>
-              </div>
-              <ul class="flex flex-col gap-1.5 list-none p-0 m-0 max-h-80 overflow-y-auto">
-                <li *ngFor="let it of items(); let i = index"
-                    class="rounded-lg p-2.5 border"
-                    [ngClass]="it.confirmed ? 'border-brand-orange/40 bg-brand-orange/5'
-                              : !it.product_id ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
-                  <label class="flex gap-3 items-start cursor-pointer">
-                    <input type="checkbox" [ngModel]="it.confirmed" [disabled]="!it.product_id"
-                           (ngModelChange)="toggleItem(i, $event)" class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
-                    <div class="flex-1 min-w-0">
-                      <div class="text-sm font-medium text-content-main truncate">{{ it.product_name || '— sin match —' }}</div>
-                      <div class="text-xs text-content-muted mt-0.5" *ngIf="it.brand_name">{{ it.brand_name }}</div>
-                      <div class="flex items-center gap-1.5 mt-1 flex-wrap">
-                        <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
-                        <p-tag [severity]="confSeverity(it.confidence)" [value]="confLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
-                        <span *ngIf="it.quantity > 1" class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
-                      </div>
+            <ul class="flex flex-col gap-1.5 list-none p-0 m-0 max-h-80 overflow-y-auto">
+              <li *ngFor="let it of items(); let i = index"
+                  class="rounded-lg p-2.5 border"
+                  [ngClass]="it.confirmed ? 'border-brand-orange/40 bg-brand-orange/5'
+                            : !it.product_id ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
+                <label class="flex gap-3 items-start cursor-pointer">
+                  <input type="checkbox" [ngModel]="it.confirmed" [disabled]="!it.product_id"
+                         (ngModelChange)="toggleItem(i, $event)" class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-content-main truncate">{{ it.product_name || '— sin match —' }}</div>
+                    <div class="text-xs text-content-muted mt-0.5" *ngIf="it.brand_name">{{ it.brand_name }}</div>
+                    <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
+                      <p-tag [severity]="confSeverity(it.confidence)" [value]="confLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
+                      <span *ngIf="it.quantity > 1" class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
                     </div>
-                  </label>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <!-- Paso 4: revisar + guardar -->
-          <div *ngIf="step() === 'review'" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-            <header class="space-y-1">
-              <h2 class="text-base font-semibold text-content-main">Resumen</h2>
-              <p class="text-xs text-content-muted leading-relaxed">Revisá antes de guardar. La visita se registra sin ponderación.</p>
-            </header>
-            <ul class="flex flex-col gap-2 list-none p-0 m-0">
-              <li class="flex items-center gap-3 p-3 rounded-xl border border-divider bg-surface-ground/40">
-                <i class="pi pi-map-marker text-brand-orange w-5 text-center" aria-hidden="true"></i>
-                <span class="text-sm text-content-main">{{ store()?.nombre }}</span>
-              </li>
-              <li class="flex items-center gap-3 p-3 rounded-xl border border-divider bg-surface-ground/40">
-                <i class="pi pi-shopping-cart text-brand-orange w-5 text-center" aria-hidden="true"></i>
-                <span class="text-sm text-content-main">Venta: <strong>{{ confirmedCount() }}</strong> líneas</span>
-              </li>
-              <li class="flex items-center gap-3 p-3 rounded-xl border border-divider bg-surface-ground/40">
-                <i class="pi pi-images text-brand-orange w-5 text-center" aria-hidden="true"></i>
-                <span class="text-sm text-content-main">Visita (planograma, sin ponderación): <strong>{{ planogramCount() }}</strong> productos</span>
+                  </div>
+                </label>
               </li>
             </ul>
           </div>
-
         </div>
 
-        <!-- Navegación -->
-        <nav class="flex justify-between items-center gap-2 pt-5 mt-2 border-t border-divider" aria-label="Navegación de la captura">
-          <p-button label="Atrás" icon="pi pi-arrow-left" severity="secondary" [text]="true"
-                    [disabled]="step() === 'start' || saving()" (onClick)="back()"></p-button>
-
-          <p-button *ngIf="step() === 'start' && !store()" label="Iniciar captura"
-                    [icon]="starting() ? 'pi pi-spin pi-spinner' : 'pi pi-play'" iconPos="right"
-                    styleClass="p-button-brand" [disabled]="starting()" (onClick)="start()"></p-button>
-          <p-button *ngIf="step() === 'start' && store()" label="Continuar" icon="pi pi-arrow-right" iconPos="right"
-                    styleClass="p-button-brand" (onClick)="step.set('exhibidor')"></p-button>
-
-          <p-button *ngIf="step() === 'exhibidor'" label="Continuar" icon="pi pi-arrow-right" iconPos="right"
-                    styleClass="p-button-brand" [disabled]="!exhibidorFile()" (onClick)="step.set('ticket')"></p-button>
-
-          <p-button *ngIf="step() === 'ticket'" label="Revisar" icon="pi pi-arrow-right" iconPos="right"
-                    styleClass="p-button-brand" [disabled]="!items().length || processing()" (onClick)="step.set('review')"></p-button>
-
-          <p-button *ngIf="step() === 'review'" label="Guardar captura" icon="pi pi-check"
-                    styleClass="p-button-brand" [loading]="saving()" [disabled]="saving() || confirmedCount() === 0"
+        <!-- Guardar -->
+        <div class="bg-surface-card border border-divider rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div class="text-sm text-content-dim">
+            Venta: <strong class="text-content-main">{{ confirmedCount() }}</strong> líneas
+            <span class="mx-2 opacity-30">|</span>
+            Visita (planograma): <strong class="text-content-main">{{ planogramCount() }}</strong>
+          </div>
+          <p-button label="Guardar captura" icon="pi pi-check" styleClass="p-button-brand w-full sm:w-auto"
+                    [loading]="saving()" [disabled]="saving() || !exhibidorFile() || confirmedCount() === 0"
                     (onClick)="save()"></p-button>
-        </nav>
+        </div>
+      </ng-container>
 
+      <!-- Historial de capturas de hoy -->
+      <div *ngIf="visitasHoy().length" class="mt-6">
+        <div class="flex items-center gap-2 mb-4">
+          <i class="pi pi-history text-brand-orange"></i>
+          <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Capturas de Hoy</h3>
+        </div>
+        <div class="bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider text-left">
+                <th class="px-4 py-2">Folio</th>
+                <th class="px-4 py-2">Productos</th>
+                <th class="px-4 py-2">Hora</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let v of visitasHoy()" class="border-b border-divider last:border-0">
+                <td class="px-4 py-2 font-mono font-bold text-content-main">#{{ v.folio }}</td>
+                <td class="px-4 py-2 text-content-dim">{{ v.exhibiciones?.length || 0 }} items</td>
+                <td class="px-4 py-2 text-content-dim">{{ v.horaFin }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
+
     </div>
   `,
 })
 export class VendorCaptureComponent implements OnInit, OnDestroy {
-  private readonly svc = inject(DailyCaptureService);
+  readonly svc = inject(DailyCaptureService);
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly apiUrl = environment.apiUrl;
 
-  readonly step = signal<Step>('start');
+  readonly user = this.auth.user;
+
   readonly starting = signal(false);
   readonly exhibidorFile = signal<File | null>(null);
   readonly exhibidorPreview = signal<string | null>(null);
@@ -280,6 +305,8 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly processing = signal(false);
   readonly items = signal<OcrItem[]>([]);
   readonly saving = signal(false);
+  readonly changingRoute = signal(false);
+  readonly changingStore = signal(false);
 
   private ticketUrl: string | null = null;
   private ticketPublicId: string | null = null;
@@ -287,37 +314,37 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
   readonly store = this.svc.detectedStore;
   readonly nearby = this.svc.nearbyStores;
+  readonly route = this.svc.activeRoute;
+  readonly zoneRoutes = this.svc.zoneRoutes;
+  readonly visitasHoy = this.svc.visitasHoy;
+  readonly needsRoute = computed(() => !this.svc.activeRoute());
 
-  readonly stepIndex = computed(() => STEP_INDEX[this.step()]);
+  readonly visitaNumero = computed(() => this.svc.visitasHoy().length + 1);
   readonly confirmedCount = computed(() => this.items().filter((i) => i.confirmed && i.product_id).length);
   readonly planogramCount = computed(
     () => this.items().filter((i) => i.confirmed && i.product_id && (i.confidence === 'high' || i.confidence === 'medium')).length,
   );
 
   ngOnInit(): void {
-    this.svc.refreshAll(); // carga catálogos (conceptos/ubicaciones/niveles) + tiendas
+    this.svc.refreshAll(); // catálogos + tiendas + asignación de ruta
   }
 
   ngOnDestroy(): void {
-    // Liberar el estado de visita del service singleton para no dejar una
-    // visita "activa" colgada si el usuario navega a /captures.
     this.svc.clearActiveState();
-  }
-
-  back(): void {
-    const s = this.step();
-    if (s === 'exhibidor') this.step.set('start');
-    else if (s === 'ticket') this.step.set('exhibidor');
-    else if (s === 'review') this.step.set('ticket');
   }
 
   async start(): Promise<void> {
     if (this.starting()) return;
+    if (this.needsRoute()) {
+      this.toast.add({ severity: 'warn', summary: 'Elegí tu ruta', detail: 'Seleccioná tu ruta de hoy antes de iniciar.' });
+      return;
+    }
     this.starting.set(true);
     try {
       await this.svc.iniciarVisita();
-      if (this.store()) this.step.set('exhibidor');
-      else this.toast.add({ severity: 'warn', summary: 'Sin tienda', detail: 'No se detectó una tienda cercana. Acercate al PdV e intentá de nuevo.' });
+      if (!this.store()) {
+        this.toast.add({ severity: 'warn', summary: 'Sin tienda', detail: 'No se detectó una tienda cercana. Acercate al PdV e intentá de nuevo.' });
+      }
     } catch (e: any) {
       this.toast.add({ severity: 'error', summary: 'Error de GPS', detail: e?.message || 'No se pudo capturar la ubicación.' });
     } finally {
@@ -325,9 +352,24 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     }
   }
 
+  cancel(): void {
+    this.reset();
+  }
+
   onSelectStore(id: string): void {
     const s = this.nearby().find((x) => x.id === id);
     if (s) this.svc.selectStore(s);
+    this.changingStore.set(false);
+  }
+
+  onSelectRoute(id: string): void {
+    if (!id) {
+      this.svc.setActiveRoute(null);
+      return;
+    }
+    const opt = this.zoneRoutes().find((r) => r.value === id);
+    this.svc.setActiveRoute(opt ? { id: opt.value, name: opt.label } : { id, name: id });
+    this.changingRoute.set(false);
   }
 
   onExhibidor(ev: Event): void {
@@ -415,6 +457,10 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       this.toast.add({ severity: 'error', summary: 'Sin GPS', detail: 'Re-iniciá la captura para tomar ubicación.' });
       return;
     }
+    if (!this.exhibidorFile()) {
+      this.toast.add({ severity: 'warn', summary: 'Falta foto', detail: 'Tomá la foto del exhibidor.' });
+      return;
+    }
 
     const confirmed = this.items().filter((i) => i.confirmed && i.product_id);
     if (confirmed.length === 0) return;
@@ -423,11 +469,12 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.syncUuid = this.syncUuid || this.newUuid();
     const today = this.todayMx();
     try {
-      // 1) Venta — todas las líneas confirmadas.
+      // 1) Venta — líneas confirmadas.
       const sale = await firstValueFrom(
         this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
           store_id: store.id,
           sale_date: today,
+          route_id: this.route()?.id ?? null,
           capture_ref: this.syncUuid,
           ticket_photo_url: this.ticketUrl,
           ticket_cloudinary_public_id: this.ticketPublicId,
@@ -457,6 +504,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           latitud: lat,
           longitud: lng,
           store_id: store.id,
+          route_id: this.route()?.id ?? null,
           skip_scoring: true,
           stats: {
             totalExhibiciones: 1,
@@ -500,11 +548,11 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
   private reset(): void {
     this.svc.clearActiveState();
-    this.step.set('start');
     this.exhibidorFile.set(null);
     this.exhibidorPreview.set(null);
     this.ticketPreview.set(null);
     this.items.set([]);
+    this.changingStore.set(false);
     this.ticketUrl = null;
     this.ticketPublicId = null;
     this.syncUuid = null;

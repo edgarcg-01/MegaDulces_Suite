@@ -50,4 +50,11 @@ export class CommercialVendorSalesController {
   porCaptura(@Query() q: VendorSalesReportQuery) {
     return this.service.porCaptura(q);
   }
+
+  @Get('reports/por-ruta')
+  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @ApiOperation({ summary: 'Venta por ruta del vendedor.' })
+  porRuta(@Query() q: VendorSalesReportQuery) {
+    return this.service.porRuta(q);
+  }
 }
