@@ -3,7 +3,29 @@
     "allow": [
       "Bash(curl -s -i \"http://localhost:3334/api/health\")",
       "Bash(curl -s -i \"http://localhost:3334/\")",
-      "Bash(curl -s -i \"http://localhost:3334/socket.io/?EIO=4&transport=polling\")"
+      "Bash(curl -s -i \"http://localhost:3334/socket.io/?EIO=4&transport=polling\")",
+      "Bash(node -e ' *)",
+      "Bash(python -c \"import sys,json; r=json.load\\(sys.stdin\\); items = r if isinstance\\(r,list\\) else r.get\\('data',[]\\); print\\('total:', len\\(items\\)\\); print\\('keys[0]:', list\\(items[0].keys\\(\\)\\) if items else 'empty'\\); imgs=[i for i in items if i.get\\('image_url'\\)]; print\\('with image:', len\\(imgs\\)\\)\")",
+      "Bash(awk '/async listAllProducts/,/const selects = \\\\[/' dist/apps/api/main.js)",
+      "Bash(curl -s http://localhost:9229/json/list)",
+      "Bash(python -c \"import sys,json; r=json.load\\(sys.stdin\\); items = r if isinstance\\(r,list\\) else r.get\\('data',[]\\); print\\('total:', len\\(items\\)\\); print\\('keys:', list\\(items[0].keys\\(\\)\\) if items else 'empty'\\); print\\('has image_url:', 'image_url' in \\(items[0] if items else {}\\)\\); imgs=[i for i in items if i.get\\('image_url'\\)]; print\\('with image:', len\\(imgs\\)\\)\")",
+      "Bash(awk '/const selects = \\\\[/{flag=1} flag{print; if\\(/^\\\\s*if \\\\\\(paginated\\\\\\)/\\){exit}}' dist/apps/api/main.js)",
+      "Bash(sed -n '740,770p' libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts)",
+      "Bash(sed -n '825,855p' libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts)",
+      "Skill(design-consultation)",
+      "Skill(design-consultation:*)",
+      "WebFetch(domain:ecomm.design)",
+      "Bash(VECTOR_DATABASE_URL='postgresql://postgres:gZSTGBSjgyJdgVMBlFfhIXgEbEaOmnPz@acela.proxy.rlwy.net:37056/railway' node scripts/init-vector-db.js)",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Sistemas\\\\.gstack\\\\projects\\\\edgarcg-01-Trade_marketing\\\\designs\\\\portal-redesign-20260604\\\\mercado-preview.html\")",
+      "PowerShell(\"opened\")",
+      "PowerShell(\"reopened\")",
+      "Bash(VECTOR_DATABASE_URL='postgresql://postgres:gZSTGBSjgyJdgVMBlFfhIXgEbEaOmnPz@acela.proxy.rlwy.net:37056/railway' node scripts/embed-active-products.js)",
+      "Bash(git commit -m 'style\\(design\\): F4+F6+F9 - tipografia 10-12px, font-weight hierarchy, shadow decorativa fuera *)",
+      "PowerShell(npx nx build view --skip-nx-cache 2>&1)",
+      "Bash(git commit -m 'style\\(design\\): G2 - codemod hex pass 2 sobre portal/cart + televenta/* *)",
+      "PowerShell(npx knex migrate:up 20260604180000_commercial_promotions_banner_url.js --knexfile database/knexfile-newdb.js 2>&1)",
+      "PowerShell(node database/scripts/tmp-list-promos.js 2>&1)",
+      "Bash(git commit -m 'style\\(design\\): G2.extra - codemod hex pass 2 sobre comercial/* y vendor/* *)"
     ]
   }
 }

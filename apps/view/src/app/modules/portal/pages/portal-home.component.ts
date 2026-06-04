@@ -45,6 +45,16 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </a>
     </div>
 
+    <!-- [1.5] BANNER DE MARKETING (arte propio de una promo activa) -->
+    <a
+      *ngIf="bannerPromo() as bp"
+      class="ph-banner"
+      routerLink="/portal/promotions"
+      [attr.aria-label]="'Ver promoción: ' + bp.name"
+    >
+      <img [src]="bp.banner_url" [alt]="bp.name" class="ph-banner-img" />
+    </a>
+
     <!-- [2] HERO EDITORIAL — display + ilustración SVG propia -->
     <section
       class="ph-hero"
@@ -80,11 +90,11 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           }
         </p>
         <div class="ph-hero-actions">
-          <button type="button" class="ph-btn-primary" (click)="goCatalog(); $event.stopPropagation()">
+          <button type="button" class="portal-btn-hero portal-btn-pill" (click)="goCatalog(); $event.stopPropagation()">
             <i class="pi pi-shopping-cart" aria-hidden="true"></i>
             Ver catálogo
           </button>
-          <button *ngIf="featuredPromo()" type="button" class="ph-btn-ghost" (click)="goPromos(); $event.stopPropagation()">
+          <button *ngIf="featuredPromo()" type="button" class="portal-btn-ghost portal-btn-pill ph-btn-ghost" (click)="goPromos(); $event.stopPropagation()">
             Ver promo
             <i class="pi pi-arrow-right" aria-hidden="true"></i>
           </button>
@@ -258,14 +268,15 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           </span>
           <span class="ph-shortcut-label">Catálogo</span>
         </button>
-        <button *ngIf="lastFulfilled()" type="button" class="ph-shortcut" (click)="goLastOrder()">
+        <button *ngIf="lastFulfilled()" type="button" class="ph-shortcut" (click)="goLastOrder()" [disabled]="reordering()">
           <span class="ph-shortcut-icon">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <svg *ngIf="!reordering()" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
               <path d="M3 3v5h5"/>
             </svg>
+            <i *ngIf="reordering()" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
           </span>
-          <span class="ph-shortcut-label">Repetir último</span>
+          <span class="ph-shortcut-label">{{ reordering() ? 'Agregando…' : 'Repetir último' }}</span>
         </button>
         <button type="button" class="ph-shortcut" routerLink="/portal/orders">
           <span class="ph-shortcut-icon">
@@ -299,7 +310,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       <div *ngIf="orders().length === 0" class="ph-empty">
         <h3>Aún no tenés pedidos</h3>
         <p>Explorá el catálogo y armá tu primer pedido en minutos.</p>
-        <button type="button" class="ph-btn-primary" (click)="goCatalog()">
+        <button type="button" class="portal-btn-hero portal-btn-pill" (click)="goCatalog()">
           Explorar catálogo
           <i class="pi pi-arrow-right" aria-hidden="true"></i>
         </button>
@@ -390,7 +401,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         flex-shrink: 0;
       }
       .ph-ribbon-dot.is-live {
-        background: var(--c-ok, #16a34a);
+        background: var(--ok-fg);
         animation: phPulse 2.4s ease-in-out infinite;
       }
       @keyframes phPulse {
@@ -419,6 +430,23 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         transform: translateX(2px);
       }
       .ph-ribbon-live i { font-size: 0.7rem; }
+
+      /* ── [1.5] BANNER DE MARKETING ──────────────────────────────── */
+      .ph-banner {
+        display: block;
+        width: 100%;
+        margin-bottom: 2rem;
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid var(--neutral-200);
+        cursor: pointer;
+        transition: transform 220ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
+      }
+      .ph-banner:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.22);
+      }
+      .ph-banner-img { display: block; width: 100%; height: auto; }
 
       /* ── [2] HERO EDITORIAL ─────────────────────────────────────── */
       .ph-hero {
@@ -496,46 +524,8 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         flex-wrap: wrap;
       }
 
-      .ph-btn-primary {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.875rem 1.5rem;
-        background: var(--neutral-950);
-        color: var(--brand-400);
-        border: none;
-        border-radius: 999px;
-        font-family: var(--font-body);
-        font-size: 0.9375rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: transform 180ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
-      }
-      .ph-btn-primary:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 12px 26px -10px rgba(0, 0, 0, 0.4);
-      }
-      .ph-btn-primary i { font-size: 0.9rem; }
-
-      .ph-btn-ghost {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        padding: 0.875rem 1.25rem;
-        background: transparent;
-        color: var(--neutral-950);
-        border: 1px solid var(--neutral-300);
-        border-radius: 999px;
-        font-family: var(--font-body);
-        font-size: 0.9375rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: background 180ms var(--ease-standard), border-color 180ms var(--ease-standard);
-      }
-      .ph-btn-ghost:hover {
-        background: var(--brand-50);
-        border-color: var(--brand-700);
-      }
+      /* Botones del hero usan los átomos .portal-btn-hero / .portal-btn-ghost
+         (ver styles.css). Acá solo la microinteracción del ícono del ghost. */
       .ph-btn-ghost i { font-size: 0.7rem; transition: transform 180ms var(--ease-standard); }
       .ph-btn-ghost:hover i { transform: translateX(3px); }
 
@@ -914,11 +904,11 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         color: var(--text-main);
         flex-shrink: 0;
       }
-      .ph-history-status.is-fulfilled { background: rgba(22, 163, 74, 0.10); color: var(--c-ok, #16a34a); }
+      .ph-history-status.is-fulfilled { background: rgba(22, 163, 74, 0.10); color: var(--ok-fg); }
       .ph-history-status.is-confirmed { background: var(--brand-50); color: var(--brand-700); }
-      .ph-history-status.is-pending_approval { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+      .ph-history-status.is-pending_approval { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
       .ph-history-status.is-draft { background: var(--neutral-100); color: var(--text-muted); }
-      .ph-history-status.is-cancelled { background: rgba(220, 38, 38, 0.08); color: #dc2626; }
+      .ph-history-status.is-cancelled { background: var(--bad-soft-bg); color: var(--bad-fg); }
       .ph-history-status i { font-size: 0.9rem; }
       .ph-history-info { display: flex; flex-direction: column; min-width: 0; }
       .ph-history-summary {
@@ -1024,6 +1014,7 @@ export class PortalHomeComponent {
   readonly promotions = signal<PromotionRow[]>([]);
   readonly loadingOrders = signal(true);
   readonly loadingPromos = signal(true);
+  readonly reordering = signal(false);
 
   /** Chips trending bajo el search — mock por ahora. */
   readonly trendingChips = [
@@ -1044,6 +1035,8 @@ export class PortalHomeComponent {
 
   readonly featuredPromo = computed(() => this.promotions()[0] || null);
   readonly secondaryPromos = computed(() => this.promotions().slice(1));
+  /** Promo con arte de marketing propio → banner destacado arriba del home. */
+  readonly bannerPromo = computed(() => this.promotions().find((p) => !!p.banner_url) || null);
 
   /** Title-case con respeto a conectores ES (de, en, del, la, etc.) y números/SKUs.
    *  "3x2 en BOLIS SURTIDOS 24PZ" → "3x2 en Bolis Surtidos 24pz". */
@@ -1171,9 +1164,21 @@ export class PortalHomeComponent {
 
   goLastOrder(): void {
     const l = this.lastFulfilled();
-    if (!l) return;
+    if (!l || this.reordering()) return;
     this.haptic.selection();
-    this.router.navigate(['/portal/orders', l.id]);
+    this.reordering.set(true);
+    // Repetir en 1 tap: clona las líneas del último pedido al carrito y lleva
+    // directo al carrito. Si nada quedó disponible, cae al detalle del pedido.
+    this.portal.reorder(l).subscribe({
+      next: ({ added }) => {
+        this.reordering.set(false);
+        this.router.navigate(added > 0 ? ['/portal/cart'] : ['/portal/orders', l.id]);
+      },
+      error: () => {
+        this.reordering.set(false);
+        this.router.navigate(['/portal/orders', l.id]);
+      },
+    });
   }
 
   statusLabel(s: string): string {

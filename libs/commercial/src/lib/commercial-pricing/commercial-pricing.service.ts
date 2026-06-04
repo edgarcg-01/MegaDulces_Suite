@@ -55,7 +55,7 @@ export class CommercialPricingService {
     const ctx = this.tenantCtx.get();
     if (ctx?.roleName !== 'customer_b2b') return null;
 
-    const userRow = await trx('public.users')
+    const userRow = await trx('identity.users')
       .where({ id: ctx.userId })
       .select('customer_id')
       .first();
@@ -246,23 +246,29 @@ export class CommercialPricingService {
         throw new ForbiddenException('No tenés acceso a esta price list');
       }
 
-      // Source of truth: `public.products` (catálogo completo).
+      // Source of truth: `catalog.products` (catálogo completo).
       // `commercial.product_prices` se une por LEFT JOIN para traer el precio del
       // price_list del customer si existe — null si no hay (frontend ya maneja
       // ese caso ocultando el botón "agregar" y mostrando "Sin precio").
       const buildBaseQuery = () => {
-        let q = trx('public.products as p')
+        let q = trx('catalog.products as p')
           .leftJoin('commercial.product_prices as pp', function () {
             this.on('pp.product_id', '=', 'p.id')
               .andOn('pp.tenant_id', '=', 'p.tenant_id')
               .andOnVal('pp.price_list_id', priceListId)
               .andOnNull('pp.deleted_at');
           })
-          .leftJoin('public.brands as b', function () {
+          .leftJoin('catalog.brands as b', function () {
             this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
           })
-          .leftJoin('public.categories as cat', function () {
+          .leftJoin('catalog.categories as cat', function () {
             this.on('cat.id', '=', 'p.category_id').andOn('cat.tenant_id', '=', 'p.tenant_id');
+          })
+          // Imagen del producto vive en inventory.products_active (no en catalog.products
+          // que solo es el planograma). JOIN por SKU, fallback a `articulo` en rows
+          // de Railway donde sku está NULL (drift histórico del ERP).
+          .leftJoin('inventory.products_active as ipa', function () {
+            this.on(trx.raw('ipa.sku = COALESCE(p.sku, p.articulo)'));
           })
           .whereNull('p.deleted_at');
 
@@ -313,7 +319,7 @@ export class CommercialPricingService {
         'p.cost_with_tax',
         'p.location',
         'p.loyalty_points',
-        'p.image_url',
+        'ipa.image_url as image_url',
         'pp.price',
         'pp.tax_rate',
         trx.raw('COALESCE(pp.min_qty, 1) AS min_qty'),
@@ -348,9 +354,11 @@ export class CommercialPricingService {
   }
 
   /**
-   * Top sellers para una price_list. Lee de la MATERIALIZED VIEW
-   * `public.products_top_sellers` (refrescada cada 15min por AnalyticsRefreshService)
-   * y joinea con `commercial.product_prices` del price_list para devolver el
+   * Top sellers para una price_list. Lee de la TABLE
+   * `catalog.products_top_sellers` (sincronizada manualmente desde el ERP
+   * mientras el FDW al ERP sea inalcanzable desde Railway — ver L.2 / hotfix
+   * 2026-06-03 que convirtió la MV a TABLE).
+   * Joinea con `commercial.product_prices` del price_list para devolver el
    * precio del customer + sales_rank + units_sold.
    *
    * Customer_b2b sólo puede pedirla sobre SU price_list (allowedPriceListIdsForCtx).
@@ -379,19 +387,21 @@ export class CommercialPricingService {
       // precio configurado en la price_list del customer. Garantiza que cada
       // card del portal sea comprable (sin "Sin precio"). MV ya viene filtrada
       // por productos_activos del ERP, así que no requiere brand.is_commercial.
-      let q = trx('public.products_top_sellers as ts')
+      let q = trx('catalog.products_top_sellers as ts')
         .innerJoin('commercial.product_prices as pp', function () {
           this.on('pp.product_id', '=', 'ts.id')
             .andOn('pp.tenant_id', '=', 'ts.tenant_id')
             .andOnVal('pp.price_list_id', priceListId)
             .andOnNull('pp.deleted_at');
         })
-        .leftJoin('public.brands as b', function () {
+        .leftJoin('catalog.brands as b', function () {
           this.on('b.id', '=', 'ts.brand_id').andOn('b.tenant_id', '=', 'ts.tenant_id');
         })
-        .leftJoin('public.categories as cat', function () {
+        .leftJoin('catalog.categories as cat', function () {
           this.on('cat.id', '=', 'ts.category_id').andOn('cat.tenant_id', '=', 'ts.tenant_id');
-        });
+        })
+        // Imagen desde inventory.products_active (single source of truth para fotos)
+        .leftJoin('inventory.products_active as ipa', 'ipa.sku', 'ts.sku');
 
       if (warehouseId) {
         q = q.leftJoin('commercial.stock as s', function () {
@@ -412,7 +422,7 @@ export class CommercialPricingService {
         'ts.category_id',
         'cat.name as category_name',
         'ts.cost_base',
-        'ts.image_url',
+        'ipa.image_url as image_url',
         'pp.price',
         'pp.tax_rate',
         trx.raw('COALESCE(pp.min_qty, 1) AS min_qty'),
@@ -511,7 +521,7 @@ export class CommercialPricingService {
       // pasando ?customer_id=<otro_uuid> — leak de pricing competitivo.
       const ctx = this.tenantCtx.get();
       if (ctx?.roleName === 'customer_b2b') {
-        const userRow = await trx('public.users')
+        const userRow = await trx('identity.users')
           .where({ id: ctx.userId })
           .select('customer_id')
           .first();

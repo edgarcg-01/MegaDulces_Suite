@@ -97,7 +97,7 @@ function initial(name: string): string {
           Lista de precios de <b>{{ customerName() }}</b>
         </p>
       </div>
-      <button type="button" class="cat-ai-btn" (click)="goAi()">
+      <button type="button" class="portal-btn-ember portal-btn-pill" (click)="goAi()">
         <i class="pi pi-sparkles" aria-hidden="true"></i>
         <span>Recomendado para ti</span>
       </button>
@@ -272,6 +272,26 @@ function initial(name: string): string {
         <i class="pi pi-times" aria-hidden="true"></i>
         Limpiar
       </button>
+      <div class="cat-viewtog" role="group" aria-label="Vista del catálogo">
+        <button
+          type="button"
+          class="cat-viewtog-btn"
+          [class.active]="viewMode() === 'grid'"
+          (click)="setViewMode('grid')"
+          [attr.aria-pressed]="viewMode() === 'grid'"
+          pTooltip="Vista cuadrícula"
+          aria-label="Vista cuadrícula"
+        ><i class="pi pi-th-large" aria-hidden="true"></i></button>
+        <button
+          type="button"
+          class="cat-viewtog-btn"
+          [class.active]="viewMode() === 'list'"
+          (click)="setViewMode('list')"
+          [attr.aria-pressed]="viewMode() === 'list'"
+          pTooltip="Vista lista"
+          aria-label="Vista lista"
+        ><i class="pi pi-list" aria-hidden="true"></i></button>
+      </div>
       <span class="cat-toolbar-meta">{{ visibleProducts().length }} de {{ prices().length }}</span>
     </div>
 
@@ -443,7 +463,7 @@ function initial(name: string): string {
           <p>No hay productos que coincidan.</p>
         </div>
 
-        <div class="cat-grid" *ngIf="visibleProducts().length > 0">
+        <div class="cat-grid" [class.cat-grid-list]="viewMode() === 'list'" *ngIf="visibleProducts().length > 0">
           <article
             *ngFor="let p of visibleProducts(); trackBy: trackByProduct"
             class="cat-card"
@@ -829,29 +849,6 @@ function initial(name: string): string {
         margin: 0;
         color: var(--neutral-950);
       }
-      .cat-ai-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        padding: 0.625rem 1.125rem;
-        background: linear-gradient(135deg, var(--neutral-950) 0%, var(--neutral-900) 100%);
-        color: var(--brand-400);
-        border: none;
-        border-radius: 999px;
-        font-family: var(--font-body);
-        font-size: 0.875rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: transform 180ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
-        box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.3);
-        white-space: nowrap;
-      }
-      .cat-ai-btn:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.4),
-                    0 0 0 3px rgba(253, 231, 7, 0.18);
-      }
-      .cat-ai-btn i { font-size: 0.95rem; }
 
       /* ── Hero mini con trust signals contextualizados ─────────────── */
       .cat-hero {
@@ -1040,7 +1037,7 @@ function initial(name: string): string {
         padding-bottom: 0;
       }
       .cat-chip-quick {
-        background: linear-gradient(135deg, var(--accent-soft-bg, #fde68a22) 0%, var(--card-bg) 100%);
+        background: linear-gradient(135deg, var(--warn-soft-bg) 0%, var(--card-bg) 100%);
         border-color: var(--accent-border, var(--neutral-300));
       }
       .cat-chip-quick i { font-size: 0.85rem; opacity: 0.8; }
@@ -1062,13 +1059,13 @@ function initial(name: string): string {
       }
       .cat-chip-ai.active i { color: #fff; }
       .cat-chip-promo {
-        background: linear-gradient(135deg, color-mix(in srgb, var(--promo-accent, #ef4444) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
-        border-color: color-mix(in srgb, var(--promo-accent, #ef4444) 30%, var(--border-color));
+        background: linear-gradient(135deg, color-mix(in srgb, var(--bad-fg) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
+        border-color: color-mix(in srgb, var(--bad-fg) 30%, var(--border-color));
       }
-      .cat-chip-promo i { color: var(--promo-accent, #ef4444); }
+      .cat-chip-promo i { color: var(--bad-fg); }
       .cat-chip-promo.active {
-        background: var(--promo-accent, #ef4444);
-        border-color: var(--promo-accent, #ef4444);
+        background: var(--bad-fg);
+        border-color: var(--bad-fg);
         color: #fff;
       }
       .cat-chip-promo.active i { color: #fff; }
@@ -1084,7 +1081,7 @@ function initial(name: string): string {
         border-radius: 999px;
         font-size: 0.7rem;
         font-weight: 600;
-        background: var(--promo-accent, #ef4444);
+        background: var(--bad-fg);
         color: #fff;
         z-index: 2;
         box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -1154,6 +1151,95 @@ function initial(name: string): string {
         color: var(--text-muted);
         font-variant-numeric: tabular-nums;
       }
+
+      /* ── View toggle (grid / lista) ── */
+      .cat-viewtog {
+        margin-left: auto;
+        display: inline-flex;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--card-bg);
+      }
+      .cat-viewtog-btn {
+        width: 34px;
+        height: 34px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        font-size: 0.85rem;
+        transition: background-color 120ms var(--ease-standard), color 120ms var(--ease-standard);
+      }
+      .cat-viewtog-btn:hover:not(.active) { color: var(--text-main); }
+      .cat-viewtog-btn.active {
+        background: var(--neutral-900);
+        color: #fff;
+      }
+      .cat-viewtog-btn:focus-visible {
+        outline: 2px solid var(--brand-500);
+        outline-offset: -2px;
+      }
+
+      /* ── Vista LISTA densa (reusa .cat-card en layout de fila) ── */
+      .cat-grid-list {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+      .cat-grid-list .cat-card {
+        flex-direction: row;
+        align-items: stretch;
+        border-radius: 10px;
+        padding-right: 12px;
+      }
+      .cat-grid-list .cat-card:hover { transform: none; }
+      .cat-grid-list .cat-card-img {
+        width: 60px;
+        flex-shrink: 0;
+        aspect-ratio: auto;
+        border-bottom: none;
+        border-right: 1px solid var(--border-color);
+      }
+      .cat-grid-list .cat-card-img-initials { font-size: 1.1rem; }
+      .cat-grid-list .cat-card-stock-pill,
+      .cat-grid-list .cat-card-score-pill,
+      .cat-grid-list .cat-card-promo-pill { display: none; }
+      .cat-grid-list .cat-card-body {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        grid-template-areas:
+          'brand price action'
+          'name  price action';
+        align-items: center;
+        column-gap: 14px;
+        row-gap: 0;
+        padding: 8px 0 8px 12px;
+        min-width: 0;
+      }
+      .cat-grid-list .cat-card-brand { grid-area: brand; }
+      .cat-grid-list .cat-card-name {
+        grid-area: name;
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .cat-grid-list .cat-card-price-row {
+        grid-area: price;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0;
+      }
+      .cat-grid-list .cat-add,
+      .cat-grid-list .cat-stepper {
+        position: static;
+        grid-area: action;
+        align-self: center;
+      }
+      .cat-grid-list .cat-stepper { animation: none; }
 
       /* ── Panel de filtros (drawer side-right) ── */
       .cat-filters-backdrop {
@@ -1385,7 +1471,7 @@ function initial(name: string): string {
       .cat-bestseller-card:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
       .cat-bestseller-rank { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: .65rem; font-weight: 700; padding: .15rem .4rem; background: var(--neutral-950); color: var(--brand-400); border-radius: 999px; }
       .cat-bestseller-img { position: relative; aspect-ratio: 1/1; background: var(--brand-50); display: grid; place-items: center; overflow: hidden; }
-      .cat-bestseller-img.has-photo { background: var(--surface-card,#fff); }
+      .cat-bestseller-img.has-photo { background: var(--card-bg); }
       .cat-bestseller-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 6px; }
       .cat-bestseller-img-initials { font-weight: 800; font-size: 1.4rem; color: var(--brand-700); opacity: .5; }
       .cat-bestseller-body { padding: .5rem .625rem .625rem; display: flex; flex-direction: column; gap: .2rem; }
@@ -1442,7 +1528,7 @@ function initial(name: string): string {
         border-bottom: 1px solid var(--border-color);
       }
       .cat-card-img.has-photo {
-        background: var(--surface-card, #fff) !important;
+        background: var(--card-bg) !important;
       }
       .cat-card-img-real {
         position: absolute;
@@ -1711,8 +1797,8 @@ function initial(name: string): string {
         right: 0.625rem;
         bottom: 0.625rem;
         z-index: 3;
-        width: 38px;
-        height: 38px;
+        width: 44px;
+        height: 44px;
         border-radius: 999px;
         border: none;
         background: var(--neutral-950);
@@ -1742,8 +1828,8 @@ function initial(name: string): string {
         align-items: center;
         justify-content: space-between;
         width: auto;
-        min-width: 116px;
-        height: 36px;
+        min-width: 132px;
+        height: 44px;
         padding: 0;
         background: var(--neutral-900);
         color: var(--brand-400);
@@ -1757,8 +1843,8 @@ function initial(name: string): string {
         to   { opacity: 1; transform: scale(1); }
       }
       .cat-stepper-btn {
-        width: 32px;
-        height: 36px;
+        width: 44px;
+        height: 44px;
         background: transparent;
         border: none;
         color: var(--brand-400);
@@ -2137,7 +2223,7 @@ function initial(name: string): string {
         pointer-events: none;
       }
       .cat-sheet-img.has-photo {
-        background: var(--surface-card, #fff) !important;
+        background: var(--card-bg) !important;
       }
       .cat-sheet-img-real {
         position: absolute;
@@ -2350,6 +2436,19 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
    * Atajo personalizado activo. `null` = catálogo completo + brand filter.
    */
   readonly quickFilter = signal<'reorder' | 'suggested' | 'promo' | null>(null);
+
+  /** Vista del catálogo: grid (default) o lista densa. Persistida por usuario. */
+  readonly viewMode = signal<'grid' | 'list'>(
+    (typeof localStorage !== 'undefined' &&
+      localStorage.getItem('portal_catalog_view') === 'list')
+      ? 'list'
+      : 'grid',
+  );
+
+  setViewMode(mode: 'grid' | 'list'): void {
+    this.viewMode.set(mode);
+    try { localStorage.setItem('portal_catalog_view', mode); } catch { /* private mode */ }
+  }
 
   /**
    * Top sellers del tenant (MV products_top_sellers — top 1000 últimos 90d).

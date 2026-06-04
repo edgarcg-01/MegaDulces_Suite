@@ -132,9 +132,17 @@ interface FilterChip {
           <div class="po-card-total">
             <span class="po-total-label">Total</span>
             <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-            <span class="po-card-arrow">
-              Ver detalle <i class="pi pi-arrow-right"></i>
-            </span>
+            <button
+              *ngIf="o.status !== 'draft'"
+              type="button"
+              class="po-reorder"
+              [disabled]="reorderingId() === o.id"
+              (click)="reorder(o, $event)"
+              [attr.aria-label]="'Repetir pedido ' + o.code"
+            >
+              <i [class]="reorderingId() === o.id ? 'pi pi-spin pi-spinner' : 'pi pi-replay'"></i>
+              {{ reorderingId() === o.id ? 'Agregando…' : 'Repetir' }}
+            </button>
           </div>
         </a>
       </div>
@@ -361,6 +369,29 @@ interface FilterChip {
         color: var(--text-main);
         transform: translateX(2px);
       }
+
+      .po-reorder {
+        margin-top: 0.5rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.4rem 0.75rem;
+        border: 1.5px solid var(--action, var(--brand-700));
+        background: transparent;
+        color: var(--action, var(--brand-700));
+        border-radius: 999px;
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background-color 150ms var(--ease-standard), color 150ms var(--ease-standard);
+      }
+      .po-reorder:hover:not(:disabled) {
+        background: var(--action, var(--brand-700));
+        color: #fff;
+      }
+      .po-reorder:disabled { opacity: 0.6; cursor: progress; }
+      .po-reorder i { font-size: 0.75rem; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -434,6 +465,27 @@ export class PortalOrdersComponent implements OnInit {
 
   goCatalog(): void {
     this.router.navigateByUrl('/portal/catalog');
+  }
+
+  /** Pedido cuyo reorder está en vuelo (para spinner por-card). */
+  readonly reorderingId = signal<string | null>(null);
+
+  /**
+   * Repetir en 1 tap desde la lista. El card es un <a> a /orders/:id, así que
+   * frenamos la navegación para clonar el pedido al carrito y llevar al cart.
+   */
+  reorder(o: Order, ev: Event): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (this.reorderingId()) return;
+    this.reorderingId.set(o.id);
+    this.api.reorder(o).subscribe({
+      next: ({ added }) => {
+        this.reorderingId.set(null);
+        if (added > 0) this.router.navigate(['/portal/cart']);
+      },
+      error: () => this.reorderingId.set(null),
+    });
   }
 
   trackByOrder = (_i: number, o: Order) => o.id;

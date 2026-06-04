@@ -454,6 +454,41 @@ export class PortalService {
     ).pipe(tap(() => this.refreshCart()));
   }
 
+  /**
+   * Repetir pedido completo en 1 tap (patrón q-commerce). Clona las líneas de
+   * un pedido existente al carrito (draft activo) en una sola operación. Si no
+   * hay draft, lo crea con el mismo customer/warehouse del pedido origen.
+   * AGREGA al carrito (no reemplaza) — comportamiento tipo "añadir al carrito".
+   * Si el pedido viene sin `lines` (list endpoint), las trae con orderById.
+   */
+  reorder(order: Order): Observable<{ added: number; failed: number }> {
+    const src$ =
+      order.lines && order.lines.length ? of(order) : this.orderById(order.id);
+    return src$.pipe(
+      switchMap((full) => {
+        const lines = (full.lines || []).filter((l) => Number(l.quantity) > 0);
+        if (lines.length === 0) return of({ added: 0, failed: 0 });
+        return this.ensureDraft(full.customer_id, full.warehouse_id).pipe(
+          switchMap((draft) =>
+            this.addLinesBatch(
+              draft.id,
+              lines.map((l) => ({
+                product_id: l.product_id,
+                quantity: Number(l.quantity),
+                label: l.product_id,
+              })),
+            ).pipe(
+              map((results) => ({
+                added: results.filter((r) => r.ok).length,
+                failed: results.filter((r) => !r.ok).length,
+              })),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
   updateLine(orderId: string, lineId: string, quantity: number): Observable<OrderLine> {
     return this.http
       .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, { quantity })
@@ -559,6 +594,7 @@ export interface PromotionRow {
   code: string;
   name: string;
   description?: string | null;
+  banner_url?: string | null;
   promotion_type: string;
   starts_at?: string | null;
   ends_at?: string | null;

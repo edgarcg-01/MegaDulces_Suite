@@ -274,6 +274,7 @@ export interface Promotion {
   code: string;
   name: string;
   description?: string | null;
+  banner_url?: string | null;
   promotion_type: PromotionType;
   rules: PromotionRules;
   priority: number;

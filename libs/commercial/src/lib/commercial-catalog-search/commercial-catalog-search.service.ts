@@ -13,7 +13,7 @@ interface SearchInput {
   limit: number;
   /**
    * Si viene null/undefined, el service intenta resolver el customer del JWT
-   * via `public.users.customer_id`. Si tampoco hay (admin/superadmin sin
+   * via `identity.users.customer_id`. Si tampoco hay (admin/superadmin sin
    * customer linkeado), cae al price_list default del tenant.
    */
   customerId?: string | null;
@@ -78,10 +78,10 @@ export class CommercialCatalogSearchService {
           NULL::int         AS stock_available,
           1 - (p.embedding <=> ?::vector) AS score
         FROM commercial.product_prices pp
-        JOIN public.products p
+        JOIN catalog.products p
           ON p.id = pp.product_id
          AND p.tenant_id = pp.tenant_id
-        LEFT JOIN public.brands b
+        LEFT JOIN catalog.brands b
           ON b.id = p.brand_id
          AND b.tenant_id = p.tenant_id
         WHERE pp.price_list_id = ?
@@ -119,7 +119,7 @@ export class CommercialCatalogSearchService {
    *   2. Fallback: precio del price_list default del tenant.
    *   3. Si ninguno → realmente sin precio (badge "Sin precio").
    *
-   * Anchor sigue siendo `public.products` para que aparezcan TODOS los SKUs
+   * Anchor sigue siendo `catalog.products` para que aparezcan TODOS los SKUs
    * activos, no solo los que tienen precio explícito.
    */
   async listAllProducts(input: {
@@ -156,9 +156,14 @@ export class CommercialCatalogSearchService {
     const onlyWithPrice = input.onlyWithPrice !== false;
 
     return this.tk.run(async (trx) => {
-      let q = trx('public.products as p')
-        .leftJoin('public.brands as b', function () {
+      let q = trx('catalog.products as p')
+        .leftJoin('catalog.brands as b', function () {
           this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
+        })
+        // Imagen desde inventory.products_active (catalog.products no debe tener foto).
+        // JOIN por SKU con fallback a `articulo` para data Railway con sku NULL.
+        .leftJoin('inventory.products_active as ipa', function () {
+          this.on(trx.raw('ipa.sku = COALESCE(p.sku, p.articulo)'));
         });
 
       // LEFT JOIN precio del price_list del customer (puede no haberlo configurado).
@@ -198,6 +203,7 @@ export class CommercialCatalogSearchService {
         'p.nombre as product_name',
         'p.brand_id as brand_id',
         trx.raw('COALESCE(b.display_name, b.nombre) as brand_name'),
+        'ipa.image_url as image_url',
       ];
 
       // COALESCE: si el customer tiene precio, gana; sino, default del tenant.
@@ -366,6 +372,7 @@ export class CommercialCatalogSearchService {
       product_name: r.product_name,
       brand_id: r.brand_id,
       brand_name: r.brand_name,
+      image_url: r.image_url || null,
       price: r.price == null ? null : Number(r.price),
       tax_rate: r.tax_rate == null ? null : Number(r.tax_rate),
       min_qty: Number(r.min_qty || 1),
@@ -537,8 +544,8 @@ export class CommercialCatalogSearchService {
     return this.tk.run(async (trx) => {
       // Base query: misma estructura de listAllProducts pero sin select/order
       // — solo construimos el universo filtrado para que count/group corra encima.
-      const baseFrom = trx('public.products as p').leftJoin(
-        'public.brands as b',
+      const baseFrom = trx('catalog.products as p').leftJoin(
+        'catalog.brands as b',
         function () {
           this.on('b.id', '=', 'p.brand_id').andOn(
             'b.tenant_id',
@@ -744,14 +751,14 @@ export class CommercialCatalogSearchService {
 
   /**
    * Resuelve el customer_id linkeado al user del JWT (tenantCtx.userId →
-   * public.users.customer_id). Mismo patrón que orders.service. Devuelve null
+   * identity.users.customer_id). Mismo patrón que orders.service. Devuelve null
    * para users sin link (admin/superadmin) — el caller decide fallback.
    */
   private async resolveCustomerIdFromCtx(): Promise<string | null> {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) return null;
     return this.tk.run(async (trx) => {
-      const row = await trx('public.users').where({ id: userId }).select('customer_id').first();
+      const row = await trx('identity.users').where({ id: userId }).select('customer_id').first();
       return row?.customer_id || null;
     });
   }
@@ -795,10 +802,10 @@ export class CommercialCatalogSearchService {
     const term = `%${query.replace(/[%_]/g, '\\$&')}%`;
     return this.tk.run(async (trx) => {
       const rows = await trx('commercial.product_prices as pp')
-        .leftJoin('public.products as p', function () {
+        .leftJoin('catalog.products as p', function () {
           this.on('p.id', '=', 'pp.product_id').andOn('p.tenant_id', '=', 'pp.tenant_id');
         })
-        .leftJoin('public.brands as b', function () {
+        .leftJoin('catalog.brands as b', function () {
           this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
         })
         .where('pp.price_list_id', priceListId)

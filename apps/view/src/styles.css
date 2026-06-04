@@ -1863,72 +1863,114 @@ input:focus, textarea:focus, select:focus {
 }
 .portal-eyebrow i { font-size: 0.65rem; opacity: 0.85; }
 
-/* ─── PRIMARY CTA (botón negro estandarizado) ──────────────── */
-.portal-btn-primary {
-  background: var(--neutral-900);
-  color: #fff;
+/* ════════════════════════════════════════════════════════════════
+   ÁTOMO: Botón del portal (ver DESIGN.md → Atomic Design).
+   Jerarquía única de acción:
+     .portal-btn-primary  → sunset (acción principal)
+     .portal-btn-ghost    → secundaria neutra (outline)
+     .portal-btn-ember    → superficie IA (gradiente ámbar→sunset)
+     .portal-btn-hero     → CTA de marca en storefront (negro + amarillo)
+   Todos: min 44px (ley de Fitts) + estados hover/active/disabled/focus.
+   No re-estilar botones a mano por componente: usar estas clases.
+   ════════════════════════════════════════════════════════════════ */
+.portal-btn-primary,
+.portal-btn-ghost,
+.portal-btn-ember,
+.portal-btn-hero {
   border: none;
   border-radius: 10px;
-  padding: 0.625rem 1rem;
+  padding: 0.625rem 1.125rem;
+  font-family: var(--font-body);
   font-weight: 700;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  min-height: 38px;
-  transition: filter 150ms var(--ease-standard), transform 120ms var(--ease-standard);
+  gap: 0.45rem;
+  min-height: 44px;
+  transition: background-color 150ms var(--ease-standard),
+              border-color 150ms var(--ease-standard),
+              transform 120ms var(--ease-standard),
+              box-shadow 180ms var(--ease-standard),
+              filter 150ms var(--ease-standard);
 }
-.portal-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
-}
-.portal-btn-primary:active:not(:disabled) { transform: translateY(0); }
-.portal-btn-primary:focus-visible {
+.portal-btn-primary:active:not(:disabled),
+.portal-btn-ghost:active:not(:disabled),
+.portal-btn-ember:active:not(:disabled),
+.portal-btn-hero:active:not(:disabled) { transform: translateY(0); }
+.portal-btn-primary:focus-visible,
+.portal-btn-ghost:focus-visible,
+.portal-btn-ember:focus-visible,
+.portal-btn-hero:focus-visible {
   outline: 2px solid var(--brand-500);
   outline-offset: 2px;
 }
-.portal-btn-primary:disabled {
+.portal-btn-primary:disabled,
+.portal-btn-ghost:disabled,
+.portal-btn-ember:disabled,
+.portal-btn-hero:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+}
+
+/* PRIMARY — sunset (acción principal) */
+.portal-btn-primary {
+  background: var(--action, #F05A28);
+  color: var(--action-ink, #fff);
+  box-shadow: 0 6px 16px -8px var(--action-ring, rgba(240, 90, 40, 0.3));
+}
+.portal-btn-primary:hover:not(:disabled) {
+  background: var(--action-hover, #D2451C);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -10px var(--action-ring, rgba(240, 90, 40, 0.3));
+}
+
+/* GHOST — secundaria neutra */
+.portal-btn-ghost {
+  background: transparent;
+  color: var(--text-main);
+  border: 1.5px solid var(--border-color);
+}
+.portal-btn-ghost:hover:not(:disabled) {
+  background: var(--hover-bg, var(--neutral-100));
+  border-color: var(--action, var(--neutral-300));
+}
+
+/* EMBER — superficie IA */
+.portal-btn-ember {
+  background: var(--ember-grad, linear-gradient(135deg, #F8B400, #F05A28));
+  color: #fff;
+  box-shadow: 0 8px 20px -10px var(--action-ring, rgba(240, 90, 40, 0.3));
+}
+.portal-btn-ember:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+/* HERO — CTA de marca en storefront (negro + amarillo sello) */
+.portal-btn-hero {
+  background: var(--neutral-950);
+  color: var(--brand-400);
+}
+.portal-btn-hero:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -10px rgba(0, 0, 0, 0.4);
 }
 
 /* Variante grande: confirmaciones críticas (carrito, etc.) */
 .portal-btn-primary-lg {
   width: 100%;
   border-radius: 12px;
-  padding: 0.875rem 1.125rem;
+  padding: 0.875rem 1.25rem;
   font-size: 0.9375rem;
   min-height: 48px;
-  box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.2);
 }
-
-/* Variante outline: acción secundaria neutra */
-.portal-btn-ghost {
-  background: transparent;
-  color: var(--text-main);
-  border: 1.5px solid var(--border-color);
-  border-radius: 10px;
-  padding: 0.5rem 0.875rem;
-  font-weight: 600;
-  font-size: 0.8125rem;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  min-height: 38px;
-  transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard);
-}
-.portal-btn-ghost:hover:not(:disabled) {
-  background: var(--neutral-100);
-  border-color: var(--neutral-300);
-}
-.portal-btn-ghost:focus-visible {
-  outline: 2px solid var(--brand-500);
-  outline-offset: 2px;
-}
+/* Variante block: ancho completo */
+.portal-btn-block { width: 100%; }
+/* Variante pill: radio completo (storefront / IA) */
+.portal-btn-pill { border-radius: 999px; }
 
 /* ─── SECTION HEAD (entre subsecciones de una página) ──────── */
 .portal-section-head {

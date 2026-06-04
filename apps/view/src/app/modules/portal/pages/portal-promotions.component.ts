@@ -185,6 +185,19 @@ interface OfferCard {
     </div>
 
     <ng-container *ngIf="!loading() && filteredPromos().length > 0">
+      <!-- BANNER DE MARKETING (si la promo tiene arte propio) -->
+      <a
+        *ngIf="bannerPromo() as bp"
+        class="pp-banner"
+        (click)="onBentoClick(bp)"
+        role="button"
+        tabindex="0"
+        [attr.aria-label]="'Ver promoción: ' + bp.name"
+        (keydown.enter)="onBentoClick(bp)"
+      >
+        <img [src]="bp.banner_url" [alt]="bp.name" class="pp-banner-img" />
+      </a>
+
       <!-- HERO BENTO GRID (top 3 promos protagonistas) -->
       <section class="pp-bento" aria-label="Promociones destacadas">
         <!-- Main featured (large) -->
@@ -452,6 +465,27 @@ interface OfferCard {
         background: rgba(255,255,255,0.22);
         color: #fff;
       }
+
+      /* ── BANNER DE MARKETING (arte propio de la promo) ────────── */
+      .pp-banner {
+        display: block;
+        width: 100%;
+        margin-bottom: 1.5rem;
+        border-radius: 16px;
+        overflow: hidden;
+        cursor: pointer;
+        border: 1px solid var(--border-color);
+        transition: transform 200ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
+      }
+      .pp-banner:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 14px 30px -14px rgba(0, 0, 0, 0.22);
+      }
+      .pp-banner:focus-visible {
+        outline: 2px solid var(--action, var(--brand-500));
+        outline-offset: 2px;
+      }
+      .pp-banner-img { display: block; width: 100%; height: auto; }
 
       /* ── BENTO GRID HERO ──────────────────────────────────────── */
       .pp-bento {
@@ -789,12 +823,12 @@ interface OfferCard {
         justify-content: space-between;
         border: 1.5px solid var(--border-color);
         border-radius: 10px;
-        height: 36px;
+        height: 44px;
         overflow: hidden;
         background: var(--card-bg);
       }
       .pp-offer-step {
-        width: 36px;
+        width: 44px;
         height: 100%;
         border: none;
         background: transparent;
@@ -818,8 +852,6 @@ interface OfferCard {
       }
       .pp-offer-add {
         width: 100%;
-        height: 36px;
-        min-height: 36px;
         padding: 0 0.75rem;
         font-size: 0.8125rem;
       }
@@ -943,6 +975,8 @@ export class PortalPromotionsComponent implements OnInit {
   });
 
   readonly featuredPromo = computed(() => this.filteredPromos()[0] || null);
+  /** Primera promo con arte de marketing propio (banner_url) → hero full-width. */
+  readonly bannerPromo = computed(() => this.filteredPromos().find((p) => !!p.banner_url) || null);
   readonly secondaryPromos = computed(() => this.filteredPromos().slice(1, 3));
   readonly basketPromos = computed(() =>
     this.filteredPromos().filter((p) => p.promotion_type === 'percent_off_basket' && p !== this.featuredPromo() && !this.secondaryPromos().includes(p))

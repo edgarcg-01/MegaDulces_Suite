@@ -34,6 +34,8 @@ export interface CreatePromotionDto {
   description?: string;
   promotion_type: PromotionType;
   rules: Record<string, any>;
+  /** URL del banner de marketing (Cloudinary). Opcional. */
+  banner_url?: string | null;
   priority?: number;
   starts_at?: string | null;
   ends_at?: string | null;
@@ -87,6 +89,7 @@ export class CommercialPromotionsService {
           description: dto.description?.trim() || null,
           promotion_type: dto.promotion_type,
           rules: JSON.stringify(dto.rules),
+          banner_url: dto.banner_url?.trim() || null,
           priority: dto.priority ?? 100,
           starts_at: dto.starts_at || null,
           ends_at: dto.ends_at || null,
@@ -193,6 +196,7 @@ export class CommercialPromotionsService {
       if (dto.code !== undefined) patch.code = dto.code;
       if (dto.name !== undefined) patch.name = dto.name.trim();
       if (dto.description !== undefined) patch.description = dto.description?.trim() || null;
+      if (dto.banner_url !== undefined) patch.banner_url = dto.banner_url?.trim() || null;
       if (dto.promotion_type !== undefined) patch.promotion_type = dto.promotion_type;
       if (dto.rules !== undefined) patch.rules = JSON.stringify(dto.rules);
       if (dto.priority !== undefined) patch.priority = dto.priority;
@@ -288,6 +292,11 @@ export class CommercialPromotionsService {
   private validateCommonFields(dto: Partial<CreatePromotionDto>): void {
     if (dto.priority !== undefined && (dto.priority < 0 || dto.priority > 1000)) {
       throw new BadRequestException('priority debe estar entre 0 y 1000');
+    }
+    if (dto.banner_url !== undefined && dto.banner_url !== null && dto.banner_url.trim()) {
+      if (!/^https:\/\/.+/i.test(dto.banner_url.trim())) {
+        throw new BadRequestException('banner_url debe ser una URL https válida');
+      }
     }
     if (dto.applies_to === 'specific_customers') {
       if (!Array.isArray(dto.applies_to_customer_ids) || dto.applies_to_customer_ids.length === 0) {

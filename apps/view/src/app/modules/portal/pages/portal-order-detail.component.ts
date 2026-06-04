@@ -7,7 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -89,6 +89,25 @@ function hashColor(key: string): string {
           <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
         </div>
       </section>
+
+      <!-- Repetir pedido (1 tap → clona líneas al carrito) -->
+      <div class="od-actions" *ngIf="o.status !== 'draft' && (o.lines || []).length > 0">
+        <button
+          type="button"
+          class="portal-btn-primary od-reorder-btn"
+          [disabled]="reordering()"
+          (click)="reorder(o)"
+        >
+          <i [class]="reordering() ? 'pi pi-spin pi-spinner' : 'pi pi-replay'" aria-hidden="true"></i>
+          {{ reordering() ? 'Agregando al carrito…' : 'Repetir pedido' }}
+        </button>
+        <span class="od-actions-hint">
+          Agrega los {{ (o.lines || []).length }} producto(s) de este pedido a tu carrito.
+        </span>
+      </div>
+      <p *ngIf="reorderError()" class="od-actions-error" role="alert">
+        <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ reorderError() }}
+      </p>
 
       <div class="od-layout">
         <!-- Lines -->
@@ -349,6 +368,34 @@ function hashColor(key: string): string {
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.015em;
         color: var(--text-main);
+      }
+
+      /* ── ACTIONS (repetir pedido) ──────────────────────────────── */
+      .od-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+      }
+      .od-reorder-btn { flex-shrink: 0; }
+      .od-actions-hint {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        line-height: 1.4;
+      }
+      .od-actions-error {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin: -0.75rem 0 1.25rem;
+        padding: 0.625rem 0.875rem;
+        background: var(--bad-soft-bg);
+        color: var(--bad-soft-fg);
+        border: 1px solid var(--bad-border);
+        border-radius: 10px;
+        font-size: 0.8125rem;
+        font-weight: 600;
       }
 
       /* ── LAYOUT ────────────────────────────────────────────────── */
@@ -707,12 +754,37 @@ function hashColor(key: string): string {
 export class PortalOrderDetailComponent implements OnInit {
   private readonly api = inject(PortalService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly loading = signal(true);
   readonly order = signal<Order | null>(null);
   readonly history = signal<OrderHistoryEntry[]>([]);
   readonly shipments = signal<OrderShipmentEntry[]>([]);
+  readonly reordering = signal(false);
+  readonly reorderError = signal<string | null>(null);
+
+  reorder(o: Order): void {
+    if (this.reordering()) return;
+    this.reordering.set(true);
+    this.reorderError.set(null);
+    this.api.reorder(o).subscribe({
+      next: ({ added }) => {
+        this.reordering.set(false);
+        if (added === 0) {
+          this.reorderError.set(
+            'Ningún producto de este pedido está disponible para reordenar.',
+          );
+          return;
+        }
+        this.router.navigate(['/portal/cart']);
+      },
+      error: () => {
+        this.reordering.set(false);
+        this.reorderError.set('No pudimos repetir el pedido. Intentá de nuevo.');
+      },
+    });
+  }
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');

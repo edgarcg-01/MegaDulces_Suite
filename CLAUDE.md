@@ -220,3 +220,9 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 - **Al cerrar item**: marcar `[x]` + cambiar símbolo a ✅ + fecha de cierre.
 - **Al cerrar sprint**: entry en `03_LOG_REVISIONES.md` con resumen + lessons learned.
 - **Finding nuevo no listado**: agregar a `AUDITORIA_BASE_INICIAL.md` con código nuevo.
+
+---
+
+## Design System (Portal B2B)
+
+Antes de cualquier decisión visual/UI en **`/portal`**, leer [`DESIGN.md`](DESIGN.md) — fuente de verdad de la dirección **"Mercado"** (Fraunces + Hanken Grotesk + Geist Mono, naranja-sunset como acción, neutrales Stone cálidos, dark espresso, identidad IA "ember" sin morado). Tokens en [`apps/view/src/styles/tokens.css`](apps/view/src/styles/tokens.css). No desviarse sin aprobación. En QA, marcar código que no respete `DESIGN.md`. Alcance actual: solo `/portal`.

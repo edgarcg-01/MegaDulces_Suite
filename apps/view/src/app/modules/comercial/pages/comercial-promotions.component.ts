@@ -283,6 +283,23 @@ interface ProductOption {
             <span>Descripción</span>
             <textarea pTextarea formControlName="description" rows="2" placeholder="Visible en reportes y al cliente."></textarea>
           </label>
+          <label class="full">
+            <span>Banner (URL de imagen)</span>
+            <input pInputText formControlName="banner_url" placeholder="https://res.cloudinary.com/.../banner.png" />
+            <small class="comm-muted is-small">Opcional. Se muestra como portada en el portal (home + promociones). Subí la imagen a Cloudinary y pegá la URL.</small>
+          </label>
+          <div class="full" *ngIf="form.value.banner_url">
+            <img
+              [src]="form.value.banner_url"
+              alt="Vista previa del banner"
+              class="promo-banner-preview"
+              (error)="bannerPreviewError.set(true)"
+              (load)="bannerPreviewError.set(false)"
+            />
+            <small class="comm-muted is-small" *ngIf="bannerPreviewError()">
+              No se pudo cargar la imagen. Verificá la URL.
+            </small>
+          </div>
 
           <!-- Type-specific fields -->
           <ng-container [ngSwitch]="selectedType()">
@@ -460,6 +477,16 @@ interface ProductOption {
   `,
   styles: [`
     :host { display:block; }
+
+    .promo-banner-preview {
+      width: 100%;
+      max-height: 160px;
+      object-fit: contain;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: var(--neutral-100);
+      margin-top: .25rem;
+    }
 
     .pm-head-actions { display:flex; gap:.5rem; align-items:center; }
     .pm-divider { opacity: 0.4; }
@@ -779,6 +806,7 @@ export class ComercialPromotionsComponent {
   readonly selectedType = signal<PromotionType | null>(null);
   readonly editing = signal<Promotion | null>(null);
   readonly saving = signal(false);
+  readonly bannerPreviewError = signal(false);
 
   // Tiers para volume_discount (manejados fuera del form porque son array dinámico).
   tiersValue: Array<{ min_qty: number; percent: number }> = [];
@@ -932,6 +960,7 @@ export class ComercialPromotionsComponent {
       code: [{ value: p?.code ?? '', disabled: !!p }, [Validators.required, Validators.pattern(/^[A-Z0-9_-]{2,50}$/)]],
       name: [p?.name ?? '', Validators.required],
       description: [p?.description ?? ''],
+      banner_url: [p?.banner_url ?? ''],
       starts_at: [p?.starts_at ? new Date(p.starts_at) : null],
       ends_at: [p?.ends_at ? new Date(p.ends_at) : null],
       priority: [p?.priority ?? 100, [Validators.min(0), Validators.max(1000)]],
@@ -1037,6 +1066,7 @@ export class ComercialPromotionsComponent {
       code: raw.code,
       name: raw.name,
       description: raw.description || undefined,
+      banner_url: raw.banner_url?.trim() || null,
       promotion_type: t,
       rules,
       priority: raw.priority,

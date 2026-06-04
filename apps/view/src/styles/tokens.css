@@ -248,3 +248,71 @@ body.theme-monochrome {
   --chip-competition-fg:     var(--neutral-300);
   --chip-competition-border: rgba(255, 255, 255, 0.15);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   PORTAL B2B — dirección "Mercado" (ver DESIGN.md).
+   Primitivas globales additivas + overrides SCOPEADOS al subtree del
+   portal (.portal-shell = páginas auth, .pl-wrap = login). El resto de
+   la app no se ve afectado.
+   ════════════════════════════════════════════════════════════════════ */
+:root {
+  --stone-50:#FBF9F6; --stone-100:#F5F1EA; --stone-200:#E8E2D7; --stone-300:#D8CFC0;
+  --stone-400:#B0A595; --stone-500:#837A6C; --stone-600:#5E564B; --stone-700:#463F36;
+  --stone-800:#2B2620; --stone-900:#1A1611; --stone-950:#100D09;
+
+  --action:       #F05A28;
+  --action-hover: #D2451C;
+  --action-press: #B83C15;
+  --action-ink:   #FFFFFF;
+  --action-ring:  rgba(240, 90, 40, 0.30);
+
+  --ember-from:   #F8B400;
+  --ember-to:     #F05A28;
+  --ember-grad:   linear-gradient(135deg, #F8B400 0%, #F05A28 100%);
+  --ember-soft:   rgba(248, 180, 0, 0.12);
+  --ember-border: rgba(240, 90, 40, 0.30);
+}
+
+.portal-shell,
+.pl-wrap {
+  --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --neutral-50:  var(--stone-50);
+  --neutral-100: var(--stone-100);
+  --neutral-200: var(--stone-200);
+  --neutral-300: var(--stone-300);
+  --neutral-400: var(--stone-400);
+  --neutral-500: var(--stone-500);
+  --neutral-600: var(--stone-600);
+  --neutral-700: var(--stone-700);
+  --neutral-800: var(--stone-800);
+  --neutral-900: var(--stone-900);
+  --neutral-950: var(--stone-950);
+
+  --surface-ground: var(--stone-50);
+  --layout-bg:      var(--stone-100);
+  --card-bg:        #FFFFFF;
+  --hover-bg:       var(--stone-100);
+  --border-color:   var(--stone-200);
+  --text-main:      var(--stone-950);
+  --text-muted:     var(--stone-600);
+  --text-faint:     var(--stone-400);
+
+  --ai-accent: #F8B400;
+}
+
+body.theme-monochrome .portal-shell,
+body.theme-monochrome .pl-wrap {
+  --surface-ground: #1A1611;
+  --layout-bg:      #16130F;
+  --card-bg:        #1F1A14;
+  --sidebar-bg:     #1F1A14;
+  --hover-bg:       #2B2620;
+  --border-color:   #352E25;
+  --text-main:      #FBF4E9;
+  --text-muted:     #B0A595;
+  --text-faint:     #837A6C;
+  --ember-soft:     rgba(248, 180, 0, 0.16);
+  --ai-accent:      #F8B400;
+}
