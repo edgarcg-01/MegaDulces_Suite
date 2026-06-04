@@ -13,8 +13,6 @@ import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { EmbeddingsService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 @Injectable()
 export class PlanogramsService {
   private readonly logger = new Logger(PlanogramsService.name);
@@ -26,25 +24,28 @@ export class PlanogramsService {
   ) {}
 
   /**
-   * Dado un set de product_id (del catálogo comercial, ej. los que devuelve el
-   * OCR del ticket), devuelve el SUBSET que pertenece al planograma de trade
-   * (`trade.planogram_skus`). Sirve para que la captura del vendedor relacione
-   * los productos vendidos con el planograma: solo los que matchean se registran
-   * en la visita (sin duplicados — DISTINCT). El catálogo (1179) y el planograma
-   * (curado, ~852) comparten `product_id`, así que el match es directo por id.
+   * Dado un set de SKUs (del set activo ERP, ej. los que devuelve el OCR del
+   * ticket del vendedor), devuelve el SUBSET que pertenece al planograma de
+   * trade (`trade.planogram_skus`) con su `product_id` canónico (catalog UUID).
+   * Sirve para relacionar lo vendido con el planograma por SKU (mismo producto,
+   * distinto nombre: "IND CHICLE CANELS 4S /20" ↔ "CANELS 4S") y registrar en
+   * la visita el producto canónico, sin duplicados (DISTINCT por sku).
    */
-  async matchPlanogramSkus(productIds: string[]): Promise<string[]> {
-    const ids = Array.from(
-      new Set((productIds || []).filter((id) => typeof id === 'string' && UUID_RE.test(id))),
+  async matchPlanogramSkus(
+    skus: string[],
+  ): Promise<{ sku: string; product_id: string }[]> {
+    const list = Array.from(
+      new Set((skus || []).filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim())),
     );
-    if (ids.length === 0) return [];
+    if (list.length === 0) return [];
     const tenantId = this.tenantCtx.requireTenantId();
     const rows = await this.knex('trade.planogram_skus')
       .where('tenant_id', tenantId)
       .whereNull('deleted_at')
-      .whereIn('product_id', ids)
-      .distinct('product_id');
-    return rows.map((r) => r.product_id);
+      .whereIn('sku', list)
+      .distinct('sku', 'product_id')
+      .select('sku', 'product_id');
+    return rows.map((r) => ({ sku: r.sku, product_id: r.product_id }));
   }
 
   /**

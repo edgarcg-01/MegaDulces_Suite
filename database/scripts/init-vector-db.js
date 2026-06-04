@@ -64,8 +64,30 @@ const db = knex({
     `);
     console.log('✓ índice tenant');
 
+    // ── Corpus ACTIVO ERP (inventory.products_active) — keyed por SKU ──────
+    // Tabla SEPARADA del catalog (product_embeddings). La usa SOLO el matcher
+    // del ticket del vendedor (source='active'). Sin UUID: el ERP identifica
+    // por sku. Sin tenant (ERP global del tenant Mega Dulces).
+    await db.raw(`
+      CREATE TABLE IF NOT EXISTS active_product_embeddings (
+        sku            text PRIMARY KEY,
+        product_name   text NOT NULL,
+        category       text,
+        source_text    text NOT NULL,
+        embedding      vector(${EMBED_DIM}) NOT NULL,
+        updated_at     timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    console.log('✓ tabla active_product_embeddings');
+    await db.raw(`
+      CREATE INDEX IF NOT EXISTS idx_active_product_embeddings_hnsw
+        ON active_product_embeddings USING hnsw (embedding vector_cosine_ops)
+    `);
+    console.log('✓ índice HNSW activo (vector_cosine_ops)');
+
     const cnt = await db('product_embeddings').count('* as n').first();
-    console.log(`\nListo. product_embeddings tiene ${cnt.n} filas. dim=${EMBED_DIM}`);
+    const cntA = await db('active_product_embeddings').count('* as n').first();
+    console.log(`\nListo. product_embeddings=${cnt.n}, active_product_embeddings=${cntA.n}. dim=${EMBED_DIM}`);
   } catch (e) {
     console.error('\n✗ Error:', e.message);
     process.exitCode = 1;

@@ -73,10 +73,22 @@ export class AiProductMatcherController {
   @HttpCode(200)
   @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
   @ApiOperation({
-    summary: 'Fuerza un tick del scanner de sincronización (re-embed manual de hasta 50 stale)',
+    summary: 'Fuerza un tick del scanner de sincronización (re-embed manual de hasta tickBatch stale)',
   })
   @ApiResponse({ status: 200, description: '{ processed, failed, pending }' })
   async syncNow() {
     return this.sync.syncBatch();
+  }
+
+  /** Re-embed manual del corpus ACTIVO ERP (inventory.products_active, ticket vendedor). */
+  @Post('sync-active-now')
+  @HttpCode(200)
+  @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Fuerza re-embed del corpus activo ERP (active_product_embeddings, hasta tickBatch stale)',
+  })
+  @ApiResponse({ status: 200, description: '{ processed, failed, deleted, pending }' })
+  async syncActiveNow() {
+    return this.sync.syncActiveBatch();
   }
 }

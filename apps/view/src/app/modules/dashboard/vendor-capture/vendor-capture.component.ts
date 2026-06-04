@@ -24,12 +24,13 @@ import { buildVisitFormData } from '../../../core/http/visit-form-data';
 interface OcrItem {
   raw: string;
   quantity: number;
-  product_id: string | null;
+  sku: string | null; // identificador del set activo ERP (match del ticket)
   product_name: string | null;
   brand_name: string | null;
   confidence: string; // high|medium|low|no_match
   confirmed: boolean;
-  inPlanogram?: boolean; // matchea trade.planogram_skus → va a la visita
+  inPlanogram?: boolean; // su sku está en trade.planogram_skus → va a la visita
+  planogramProductId?: string | null; // catalog UUID canónico (para productosMarcados de la visita)
 }
 
 const ALLOWED_IMAGE_TYPES = [
@@ -59,7 +60,7 @@ const ALLOWED_IMAGE_TYPES = [
       <!-- Encabezado -->
       <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div class="flex items-center gap-4">
-          <div class="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shadow-lg shrink-0">
+          <div class="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-brand border border-divider flex flex-col items-center justify-center shrink-0">
             <span class="text-[10px] md:text-xs font-black text-black uppercase leading-none">Visita</span>
             <span class="text-xl md:text-2xl font-black text-black">#{{ visitaNumero() }}</span>
           </div>
@@ -92,12 +93,12 @@ const ALLOWED_IMAGE_TYPES = [
             <i class="pi pi-map text-lg sm:text-xl"></i>
           </div>
           <div *ngIf="route() && !changingRoute()" class="min-w-0">
-            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
+            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
             <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ route()?.name }}</div>
-            <button type="button" (click)="changingRoute.set(true)" class="text-[10px] sm:text-xs font-bold text-brand/80 hover:text-brand underline mt-0.5">Cambiar ruta</button>
+            <button type="button" (click)="changingRoute.set(true)" class="btn-ghost btn-ghost-brand mt-1 text-xs" aria-label="Cambiar ruta">Cambiar ruta</button>
           </div>
           <div *ngIf="!route() || changingRoute()" class="min-w-0 flex-1">
-            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
+            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
             <select [ngModel]="route()?.id || ''" (ngModelChange)="onSelectRoute($event)"
                     class="w-full sm:w-64 rounded-lg border border-divider bg-surface-card text-content-main text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand">
               <option value="" disabled>Seleccioná tu ruta</option>
@@ -122,12 +123,12 @@ const ALLOWED_IMAGE_TYPES = [
             <i class="pi pi-check-circle text-lg sm:text-xl"></i>
           </div>
           <div class="min-w-0">
-            <div class="text-[10px] sm:text-xs font-black uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
+            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
             <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ store()?.nombre }}</div>
           </div>
         </div>
         <button *ngIf="nearby().length > 1" type="button" (click)="changingStore.set(!changingStore())"
-                class="text-xs font-bold text-ok-fg/80 hover:text-ok-fg underline self-start sm:self-auto">Cambiar tienda</button>
+                class="btn-ghost btn-ghost-ok text-xs self-start sm:self-auto" aria-label="Cambiar tienda">Cambiar tienda</button>
       </div>
       <div *ngIf="svc.hasActiveVisit() && changingStore() && nearby().length > 1" class="-mt-3">
         <select [ngModel]="store()?.id" (ngModelChange)="onSelectStore($event)"
@@ -233,9 +234,9 @@ const ALLOWED_IMAGE_TYPES = [
               <li *ngFor="let it of items(); let i = index"
                   class="rounded-lg p-2.5 border"
                   [ngClass]="it.confirmed ? 'border-brand-orange/40 bg-brand-orange/5'
-                            : !it.product_id ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
+                            : !it.sku ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
                 <label class="flex gap-3 items-start cursor-pointer">
-                  <input type="checkbox" [ngModel]="it.confirmed" [disabled]="!it.product_id"
+                  <input type="checkbox" [ngModel]="it.confirmed" [disabled]="!it.sku"
                          (ngModelChange)="toggleItem(i, $event)" class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
                   <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium text-content-main truncate">{{ it.product_name || '— sin match —' }}</div>
@@ -326,9 +327,9 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly needsRoute = computed(() => !this.svc.activeRoute());
 
   readonly visitaNumero = computed(() => this.svc.visitasHoy().length + 1);
-  readonly confirmedCount = computed(() => this.items().filter((i) => i.confirmed && i.product_id).length);
+  readonly confirmedCount = computed(() => this.items().filter((i) => i.confirmed && i.sku).length);
   readonly planogramCount = computed(
-    () => this.items().filter((i) => i.confirmed && i.product_id && i.inPlanogram).length,
+    () => this.items().filter((i) => i.confirmed && i.inPlanogram && i.planogramProductId).length,
   );
 
   ngOnInit(): void {
@@ -424,11 +425,11 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         return {
           raw: it.raw,
           quantity: Number(it.quantity) || 1,
-          product_id: it.suggested?.product_id ?? null,
+          sku: it.suggested?.sku ?? null,
           product_name: it.suggested?.product_name ?? null,
           brand_name: it.suggested?.brand_name ?? null,
           confidence: conf,
-          confirmed: !!it.suggested?.product_id && conf !== 'no_match',
+          confirmed: !!it.suggested?.sku && conf !== 'no_match',
         };
       });
       // Acumular entre fotos (un ticket grande se parte en varias): dedupe por
@@ -453,38 +454,52 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.items.update((arr) => arr.map((it, idx) => (idx === i ? { ...it, confirmed: checked } : it)));
   }
 
-  /** Acumula items OCR de varias fotos: dedupe por product_id (mayor cantidad). */
+  /** Acumula items OCR de varias fotos: dedupe por sku (mayor cantidad). */
   private mergeOcrItems(incoming: OcrItem[]): void {
     this.items.update((prev) => {
       const result = prev.map((p) => ({ ...p }));
       const byId = new Map<string, OcrItem>();
-      for (const r of result) if (r.product_id) byId.set(r.product_id, r);
+      for (const r of result) if (r.sku) byId.set(r.sku, r);
       for (const it of incoming) {
-        if (it.product_id && byId.has(it.product_id)) {
-          const d = byId.get(it.product_id)!;
+        if (it.sku && byId.has(it.sku)) {
+          const d = byId.get(it.sku)!;
           d.quantity = Math.max(d.quantity, it.quantity);
         } else {
           const copy = { ...it };
           result.push(copy);
-          if (copy.product_id) byId.set(copy.product_id, copy);
+          if (copy.sku) byId.set(copy.sku, copy);
         }
       }
       return result;
     });
   }
 
-  /** Marca qué items están en el planograma de trade (los demás no van a la visita). */
+  /**
+   * Relaciona los productos vendidos (sku del set activo) con el planograma de
+   * trade. Respuesta [{sku, product_id}] — marca inPlanogram + guarda el
+   * product_id canónico (catalog) para la visita. Los que no matchean no van a
+   * la visita (evita dulces fuera de planograma / duplicados en reportes).
+   */
   private async matchPlanogram(): Promise<void> {
-    const pids = Array.from(
-      new Set(this.items().map((i) => i.product_id).filter((x): x is string => !!x)),
+    const skus = Array.from(
+      new Set(this.items().map((i) => i.sku).filter((x): x is string => !!x)),
     );
-    if (pids.length === 0) return;
+    if (skus.length === 0) return;
     try {
-      const inPlan = await firstValueFrom(
-        this.http.post<string[]>(`${this.apiUrl}/planograms/brands/match-skus`, { product_ids: pids }),
+      const matched = await firstValueFrom(
+        this.http.post<{ sku: string; product_id: string }[]>(
+          `${this.apiUrl}/planograms/brands/match-skus`,
+          { skus },
+        ),
       );
-      const set = new Set(inPlan || []);
-      this.items.update((arr) => arr.map((it) => ({ ...it, inPlanogram: !!it.product_id && set.has(it.product_id) })));
+      const bySku = new Map((matched || []).map((m) => [m.sku, m.product_id]));
+      this.items.update((arr) =>
+        arr.map((it) => ({
+          ...it,
+          inPlanogram: !!it.sku && bySku.has(it.sku),
+          planogramProductId: it.sku ? bySku.get(it.sku) ?? null : null,
+        })),
+      );
     } catch {
       // best-effort: si falla, no taggeamos planograma (la visita quedará sin productos).
     }
@@ -513,7 +528,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const confirmed = this.items().filter((i) => i.confirmed && i.product_id);
+    const confirmed = this.items().filter((i) => i.confirmed && i.sku);
     if (confirmed.length === 0) return;
 
     this.saving.set(true);
@@ -530,7 +545,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           ticket_photo_url: this.ticketUrl,
           ticket_cloudinary_public_id: this.ticketPublicId,
           lines: confirmed.map((i) => ({
-            product_id: i.product_id,
+            sku: i.sku,
             product_name: i.product_name,
             quantity: i.quantity,
             confidence: i.confidence,
@@ -539,9 +554,14 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       );
 
       // 2) Visita sin ponderación — SOLO productos que matchean el planograma de
-      // trade (deduplicados). Los demás productos vendidos no van a la visita.
+      // trade (deduplicados), usando el product_id CANÓNICO (catalog) del
+      // planograma, no el del set activo. Los demás vendidos no van a la visita.
       const planogramPids = Array.from(
-        new Set(confirmed.filter((i) => i.inPlanogram).map((i) => i.product_id as string)),
+        new Set(
+          confirmed
+            .filter((i) => i.inPlanogram && i.planogramProductId)
+            .map((i) => i.planogramProductId as string),
+        ),
       );
 
       // Visita sin ponderación: NO clasificamos el exhibidor (concepto/ubicación/

@@ -57,10 +57,10 @@ export class PlanogramsController {
 
   @Post('match-skus')
   @ApiOperation({
-    summary: 'Dado product_ids del catálogo, devuelve el subset que está en el planograma de trade.',
+    summary: 'Dado SKUs (del set activo ERP), devuelve [{sku, product_id}] de los que están en el planograma de trade.',
   })
-  async matchSkus(@Body() body: { product_ids?: string[] }) {
-    return this.planogramsService.matchPlanogramSkus(body?.product_ids || []);
+  async matchSkus(@Body() body: { skus?: string[] }) {
+    return this.planogramsService.matchPlanogramSkus(body?.skus || []);
   }
 
   @Post()

@@ -37,6 +37,9 @@ export class EmbeddingSyncService implements OnModuleInit {
   private readonly tickBatch = Number(process.env.VECTOR_SYNC_TICK_BATCH) || 200;
   /** Voyage acepta hasta 128 inputs por request. */
   private readonly embedChunk = 100;
+  /** No-productos del ERP a excluir del corpus activo (servicios/financieros). */
+  private readonly JUNK_RE =
+    /descuento|comision|administrativo|tiempo aire|\bflete\b|servicio|redondeo|bonific|anticipo|\babono\b|no usar|cancelad/i;
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
@@ -72,7 +75,14 @@ export class EmbeddingSyncService implements OnModuleInit {
       const r = await this.syncBatch();
       if (r.processed > 0 || r.deleted > 0) {
         this.logger.log(
-          `tick(): ${r.processed} embebidos, ${r.deleted} borrados, ${r.failed} fallidos, ${r.pending} pendientes.`,
+          `tick(): catalog ${r.processed} embebidos, ${r.deleted} borrados, ${r.failed} fallidos, ${r.pending} pendientes.`,
+        );
+      }
+      // Corpus activo ERP (inventory.products_active) para el ticket del vendedor.
+      const ra = await this.syncActiveBatch();
+      if (ra.processed > 0 || ra.deleted > 0) {
+        this.logger.log(
+          `tick(): active ${ra.processed} embebidos, ${ra.deleted} borrados, ${ra.failed} fallidos, ${ra.pending} pendientes.`,
         );
       }
     } catch (e: any) {
@@ -216,6 +226,106 @@ export class EmbeddingSyncService implements OnModuleInit {
             this.logger.warn(
               `syncBatch: upsert falló para ${chunk[j].id}: ${e.message}`,
             );
+          }
+        }
+      });
+    }
+
+    return { processed, failed, deleted, pending };
+  }
+
+  /**
+   * Sync del corpus ACTIVO ERP (`inventory.products_active`, 6489) hacia
+   * `active_product_embeddings` (vector DB, keyed por **sku**). Es un corpus
+   * SEPARADO del catalog (`product_embeddings`) — lo usa SOLO el matcher del
+   * ticket del vendedor (`/ai/ticket/extract`, source='active'); captures y
+   * route-control siguen sobre catalog. Filtra no-productos (servicios).
+   */
+  async syncActiveBatch(): Promise<{
+    processed: number;
+    failed: number;
+    deleted: number;
+    pending: number;
+  }> {
+    if (!this.vectorDb) {
+      throw new Error('VECTOR_DATABASE_URL no configurada — no hay DB vector destino.');
+    }
+
+    const rows: { sku: string; product_name: string; category: string | null }[] =
+      await this.knex('inventory.products_active').select(
+        'sku',
+        'nombre as product_name',
+        'categoria as category',
+      );
+    const active = rows.filter(
+      (r) => r.sku && r.product_name && !this.JUNK_RE.test(r.product_name),
+    );
+    const activeSkus = new Set(active.map((p) => p.sku));
+
+    const existingRows: { sku: string; source_text: string }[] =
+      await this.vectorDb('active_product_embeddings').select('sku', 'source_text');
+    const existing = new Map(existingRows.map((r) => [r.sku, r.source_text]));
+
+    // Borrar los que ya no están activos (anti-wipe >30%).
+    const toDelete = existingRows.map((r) => r.sku).filter((s) => !activeSkus.has(s));
+    let deleted = 0;
+    const wipeRatio = existingRows.length > 0 ? toDelete.length / existingRows.length : 0;
+    if (toDelete.length > 0 && wipeRatio > 0.3) {
+      this.logger.error(
+        `syncActiveBatch: el delete eliminaría ${toDelete.length}/${existingRows.length} (${Math.round(wipeRatio * 100)}%) — SALTANDO (fuente probablemente incompleta).`,
+      );
+    } else if (toDelete.length > 0) {
+      for (let i = 0; i < toDelete.length; i += 500) {
+        deleted += await this.vectorDb('active_product_embeddings')
+          .whereIn('sku', toDelete.slice(i, i + 500))
+          .del();
+      }
+    }
+
+    // Stale: nuevos o renombrados (source_text difiere). Source text = nombre ERP.
+    const staleAll = active.filter(
+      (p) => existing.get(p.sku) !== this.sourceText(null, p.product_name),
+    );
+    const pending = Math.max(0, staleAll.length - this.tickBatch);
+    const batch = staleAll.slice(0, this.tickBatch);
+    if (batch.length === 0) return { processed: 0, failed: 0, deleted, pending: 0 };
+
+    let processed = 0;
+    let failed = 0;
+    for (let i = 0; i < batch.length; i += this.embedChunk) {
+      const chunk = batch.slice(i, i + this.embedChunk);
+      const texts = chunk.map((p) => this.sourceText(null, p.product_name));
+      let vectors: number[][];
+      try {
+        vectors = await this.embeddings.embedBatch(texts, 'document');
+      } catch (e: any) {
+        this.logger.warn(`syncActiveBatch: Voyage embedBatch falló (${e.message}).`);
+        failed += chunk.length;
+        continue;
+      }
+      await this.vectorDb.transaction(async (trx) => {
+        for (let j = 0; j < chunk.length; j++) {
+          try {
+            const p = chunk[j];
+            const vecLiteral = `[${vectors[j].join(',')}]`;
+            await trx.raw(
+              `
+              INSERT INTO active_product_embeddings
+                (sku, product_name, category, source_text, embedding, updated_at)
+              VALUES (?, ?, ?, ?, ?::vector, now())
+              ON CONFLICT (sku) DO UPDATE SET
+                product_name = EXCLUDED.product_name,
+                category     = EXCLUDED.category,
+                source_text  = EXCLUDED.source_text,
+                embedding    = EXCLUDED.embedding,
+                updated_at   = now()
+              `,
+              [p.sku, p.product_name, p.category, texts[j], vecLiteral],
+            );
+            processed++;
+          } catch (e: any) {
+            failed++;
+            this.logger.warn(`syncActiveBatch: upsert falló para sku ${chunk[j].sku}: ${e.message}`);
           }
         }
       });

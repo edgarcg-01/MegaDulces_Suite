@@ -37,15 +37,15 @@ export class CommercialVendorSalesService {
       throw new BadRequestException('lines requerido (al menos 1)');
 
     const lines = dto.lines
-      .filter((l) => l && UUID_RE.test(l.product_id) && Number(l.quantity) > 0)
+      .filter((l) => l && typeof l.sku === 'string' && l.sku.trim() && Number(l.quantity) > 0)
       .map((l) => ({
-        product_id: l.product_id,
+        sku: l.sku.trim(),
         product_name: l.product_name ?? null,
         quantity: Number(l.quantity),
         confidence: l.confidence ?? null,
       }));
     if (lines.length === 0)
-      throw new BadRequestException('Ninguna línea válida (product_id UUID + quantity > 0)');
+      throw new BadRequestException('Ninguna línea válida (sku + quantity > 0)');
 
     if (dto.capture_ref && !UUID_RE.test(dto.capture_ref))
       throw new BadRequestException('capture_ref inválido (UUID)');
@@ -74,6 +74,15 @@ export class CommercialVendorSalesService {
       const store = await trx('trade.stores').where({ id: dto.store_id }).first();
       if (!store) throw new BadRequestException(`Tienda ${dto.store_id} no encontrada`);
 
+      // Resolver catalog product_id por sku (opcional, para BI comercial). El
+      // sku es el identificador principal; product_id solo se setea si el sku
+      // existe en el catálogo comercial (catalog.products).
+      const catRows = await trx('catalog.products')
+        .whereIn('sku', lines.map((l) => l.sku))
+        .whereNull('deleted_at')
+        .select('id', 'sku');
+      const skuToProductId = new Map<string, string>(catRows.map((r: any) => [r.sku, r.id]));
+
       const rows = await trx('commercial.vendor_sale_lines')
         .insert(
           lines.map((l) => ({
@@ -83,7 +92,8 @@ export class CommercialVendorSalesService {
             store_id: dto.store_id,
             route_id: dto.route_id ?? null,
             sale_date: dto.sale_date,
-            product_id: l.product_id,
+            sku: l.sku,
+            product_id: skuToProductId.get(l.sku) ?? null,
             product_name: l.product_name,
             quantity: l.quantity,
             confidence: l.confidence,

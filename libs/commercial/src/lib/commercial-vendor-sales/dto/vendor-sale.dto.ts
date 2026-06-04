@@ -1,9 +1,10 @@
 /** Una línea de venta detectada por OCR en el ticket del vendedor. */
 export interface VendorSaleLineInput {
-  product_id: string;
+  sku: string; // identificador principal (inventory.products_active)
   product_name?: string | null;
   quantity: number;
   confidence?: string | null;
+  product_id?: string | null; // opcional: catalog UUID si el sku ∈ catalog.products
 }
 
 /**

@@ -16,6 +16,12 @@ export interface MatchedProduct {
   brand_name: string | null;
   product_name: string;
   score: number; // 0..1 (cosine similarity)
+  /**
+   * Solo en el path `active` (matcher del ticket del vendedor contra
+   * `inventory.products_active`): SKU del producto ERP. En el path `catalog`
+   * queda null (los consumidores ahí usan `product_id` UUID).
+   */
+  sku?: string | null;
 }
 
 export type MatchConfidence = 'high' | 'medium' | 'low' | 'no_match';
@@ -147,7 +153,43 @@ export class AiProductMatcherService {
    * `product_embeddings` (denormalizada, sin join). Si no, cae a la fuente
    * legacy `products.embedding` con join a brands.
    */
-  private async knnCandidates(vecLiteral: string): Promise<MatchedProduct[]> {
+  private async knnCandidates(
+    vecLiteral: string,
+    source: 'catalog' | 'active' = 'catalog',
+  ): Promise<MatchedProduct[]> {
+    // Path `active`: ticket del vendedor contra `inventory.products_active`
+    // (6489), keyed por sku, en su PROPIA tabla del vector store
+    // (`active_product_embeddings`). Aislado del corpus catalog (1199) que usan
+    // captures y route-control. Requiere vector DB dedicada (sin fallback).
+    if (source === 'active') {
+      if (!this.vectorDb) {
+        this.logger.warn(
+          'knnCandidates(active) sin vector DB — no hay corpus de inventory.products_active. Devuelve vacío.',
+        );
+        return [];
+      }
+      const rows = await this.vectorDb.raw(
+        `
+        SELECT sku,
+               product_name,
+               category,
+               ROUND((1 - (embedding <=> ?::vector))::numeric, 4) AS score
+        FROM active_product_embeddings
+        ORDER BY embedding <=> ?::vector
+        LIMIT ${RERANK_TOP_K}
+        `,
+        [vecLiteral, vecLiteral],
+      );
+      return rows.rows.map((r: any) => ({
+        product_id: '', // el path active identifica por sku, no UUID
+        sku: r.sku,
+        brand_id: null,
+        brand_name: r.category ?? null,
+        product_name: r.product_name,
+        score: Number(r.score),
+      }));
+    }
+
     if (this.vectorDb) {
       const rows = await this.vectorDb.raw(
         `
@@ -168,6 +210,7 @@ export class AiProductMatcherService {
         brand_name: r.brand_name,
         product_name: r.product_name,
         score: Number(r.score),
+        sku: null,
       }));
     }
 
@@ -221,6 +264,7 @@ export class AiProductMatcherService {
   async matchExtractedItems(
     extracted: { raw: string; normalized: string; quantity: number }[],
     t0: number = Date.now(),
+    source: 'catalog' | 'active' = 'catalog',
   ): Promise<MatchResponse> {
     if (extracted.length === 0) {
       return {
@@ -252,7 +296,7 @@ export class AiProductMatcherService {
           const vec = vectors[idx];
           const vecLiteral = `[${vec.join(',')}]`;
 
-          const candidates = await this.knnCandidates(vecLiteral);
+          const candidates = await this.knnCandidates(vecLiteral, source);
 
           const rerankedFull = this.rerankCandidates(it.normalized, candidates);
           const reranked = rerankedFull.slice(0, RETURN_TOP_N);
@@ -272,6 +316,7 @@ export class AiProductMatcherService {
             top && decision.confidence !== 'no_match'
               ? {
                   product_id: top.product_id,
+                  sku: top.sku ?? null,
                   brand_id: top.brand_id,
                   brand_name: top.brand_name,
                   product_name: top.product_name,

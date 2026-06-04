@@ -81,8 +81,9 @@ export class TicketExtractorService {
       `[ticket] vision extrajo ${items.length} líneas (+${Date.now() - t0}ms)`,
     );
 
-    // 3) Match contra catálogo.
-    const match = await this.matcher.matchExtractedItems(items, t0);
+    // 3) Match contra el set activo ERP (inventory.products_active, 6489) por sku.
+    //    Aislado del corpus catalog (1199) que usan captures y route-control.
+    const match = await this.matcher.matchExtractedItems(items, t0, 'active');
     this.logger.log(
       `[ticket] match completo: ${match.items.length} items, ` +
         `${match.items.filter((i) => i.suggested?.autoConfirm).length} autoConfirm ` +
