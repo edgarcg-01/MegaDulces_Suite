@@ -29,6 +29,12 @@ export const routes: Routes = [
       { path: '', loadComponent: () => import('./modules/dashboard/home/home.component').then(m => m.HomeComponent) },
       { path: 'dashboard', loadComponent: () => import('./modules/dashboard/reports/graphics/dashboard.component').then(m => m.DashboardComponent) },
       { path: 'captures', loadComponent: () => import('./modules/dashboard/captures/captures.component').then(m => m.CapturesComponent) },
+      {
+        // Agregar ticket de ruta (venta/carga/combustible) — reusa el flujo del vendedor.
+        path: 'route-tickets',
+        loadComponent: () => import('./modules/dashboard/route-tickets/route-tickets.component').then(m => m.DashboardRouteTicketsComponent),
+        canActivate: [permissionGuard(Permission.ROUTE_TICKET_CAPTURE)]
+      },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },

@@ -227,6 +227,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private tradeMkNavItems: NavItem[] = [
     { label: 'Dashboard',         icon: 'pi pi-th-large',      route: '/dashboard',                      permission: Permission.REPORTES_VER_PROPIO,   exact: true },
     { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
+    { label: 'Captura de vendedor', icon: 'pi pi-camera',      route: '/dashboard/captures',             permission: Permission.ROUTE_TICKET_CAPTURE  },
+    { label: 'Agregar ticket',    icon: 'pi pi-receipt',       route: '/dashboard/route-tickets',        permission: Permission.ROUTE_TICKET_CAPTURE  },
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
@@ -329,8 +331,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       legacy?.[Permission.REPORTES_VER_EQUIPO] === true ||
       legacy?.[Permission.REPORTES_VER_GLOBAL] === true;
     if (!fullDashboard) {
-      return this.tradeMkNavItems.filter(
-        (i) => i.route === '/dashboard/captures' && this.hasPermFor(i),
+      // Colaborador/vendedor restringido: solo captura diaria + ticket de ruta.
+      const allowed = new Set(['/dashboard/captures', '/dashboard/route-tickets']);
+      return this.dedupeByRoute(
+        this.tradeMkNavItems.filter((i) => allowed.has(i.route) && this.hasPermFor(i)),
       );
     }
     const project = this.currentProject();
@@ -342,8 +346,23 @@ export class LayoutComponent implements OnInit, OnDestroy {
         : project === 'logistica'
         ? this.logisticaNavItems
         : this.tradeMkNavItems;
-    return items.filter((i) => this.hasPermFor(i));
+    return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
   });
+
+  /**
+   * Dedupe por route preservando el primero que pasó el filtro de permisos.
+   * Evita dos items al mismo destino (ej. "Captura Diaria" y "Captura de
+   * vendedor" → /dashboard/captures): el usuario full ve "Captura Diaria",
+   * el vendedor sin VISITAS_REGISTRAR ve "Captura de vendedor".
+   */
+  private dedupeByRoute(items: NavItem[]): NavItem[] {
+    const seen = new Set<string>();
+    return items.filter((i) => {
+      if (seen.has(i.route)) return false;
+      seen.add(i.route);
+      return true;
+    });
+  }
 
   adminItems = computed(() => {
     const user = this.user();

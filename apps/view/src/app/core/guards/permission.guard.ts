@@ -72,8 +72,12 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
   const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
 
   if (!canAccessFullDashboard && !hasFallback) {
-    // Colaborador restringido: único destino permitido = captura diaria.
-    if (state.url.startsWith('/dashboard/captures')) {
+    // Colaborador/vendedor restringido: destinos permitidos = captura diaria
+    // + agregar ticket de ruta (cierre de ruta del vendedor).
+    if (
+      state.url.startsWith('/dashboard/captures') ||
+      state.url.startsWith('/dashboard/route-tickets')
+    ) {
       return true;
     }
     router.navigate(['/dashboard/captures']);
