@@ -300,7 +300,7 @@ export class DailyCaptureService {
     return true;
   }
 
-  async detectarTiendaCercana(radius = 50) {
+  async detectarTiendaCercana(radius = 30) {
     const lat = this._latitud();
     const lng = this._longitud();
     if (!lat || !lng) return;

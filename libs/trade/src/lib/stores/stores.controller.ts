@@ -48,7 +48,7 @@ export class StoresController {
     return this.storesService.findNearby(
       parseFloat(lat),
       parseFloat(lng),
-      radius ? parseFloat(radius) : 50,
+      radius ? parseFloat(radius) : 30,
       user,
     );
   }

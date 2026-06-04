@@ -61,7 +61,7 @@ export class StoresService {
   async findNearby(
     lat: number,
     lng: number,
-    radiusMeters = 50,
+    radiusMeters = 30,
     requester?: RequesterContext,
   ) {
     const latDelta = radiusMeters / 111_320;
