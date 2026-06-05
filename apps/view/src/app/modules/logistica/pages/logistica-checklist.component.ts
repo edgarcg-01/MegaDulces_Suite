@@ -35,13 +35,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row" *ngIf="shipment() as s">
-      <div>
+    <header class="surf-page-head" *ngIf="shipment() as s">
+      <div class="surf-page-head-text">
         <a [routerLink]="['/logistica/shipments', s.id]" class="back"><i class="pi pi-arrow-left"></i> Volver al embarque</a>
-        <h2>Checklists — <code>{{ s.folio }}</code></h2>
-        <p class="muted">Estado actual: <p-tag [value]="s.status" [severity]="severityStatus(s.status)"></p-tag></p>
+        <h1>Checklists — <code>{{ s.folio }}</code></h1>
+        <p class="surf-page-sub">Estado actual: <p-tag [value]="s.status" [severity]="severityStatus(s.status)"></p-tag></p>
       </div>
-    </div>
+    </header>
 
     <!-- Crear nuevo checklist -->
     <p-card *ngIf="shipment() as s">
@@ -129,8 +129,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; }
-    .header-row h2 { margin:.25rem 0; font-size:1.25rem; }
     .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
     .new-row { display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }

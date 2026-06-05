@@ -37,10 +37,10 @@ import {
   template: `
     <p-toast></p-toast>
 
-    <div class="header-row">
-      <div>
-        <h2>Dashboard Operativo</h2>
-        <p class="muted">Vista en tiempo real del período. Refrescá si querés data actualizada.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Dashboard Operativo</h1>
+        <p class="surf-page-sub">Vista en tiempo real del período. Refrescá si querés data actualizada.</p>
       </div>
       <div class="filter-bar">
         <div class="filter-daterange" role="group" aria-label="Rango de fechas">
@@ -52,7 +52,7 @@ import {
         </div>
         <button pButton icon="pi pi-refresh" label="Actualizar" severity="contrast" (click)="reload()" [loading]="loading()"></button>
       </div>
-    </div>
+    </header>
 
     <!-- KPI Grid (4 columns) -->
     <div class="kpi-grid">
@@ -236,8 +236,6 @@ import {
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
     .filter-bar { display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap; }
     .filter-daterange {

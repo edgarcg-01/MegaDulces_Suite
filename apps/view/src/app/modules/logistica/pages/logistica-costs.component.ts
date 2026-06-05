@@ -43,17 +43,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <p-toast></p-toast>
 
-    <div class="header-row">
-      <div>
-        <h2>Control de Costos</h2>
-        <p class="muted">Desglose financiero por embarque. Combustible, casetas, viáticos, maniobras.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Control de Costos</h1>
+        <p class="surf-page-sub">Desglose financiero por embarque. Combustible, casetas, viáticos, maniobras.</p>
       </div>
       <div class="filter-bar">
         <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
         <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
         <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
       </div>
-    </div>
+    </header>
 
     <!-- KPIs -->
     <div class="kpi-grid">
@@ -201,8 +201,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
     .small { font-size:.75rem; }
     .filter-bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }

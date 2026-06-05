@@ -48,13 +48,13 @@ function severityLiq(s: LiquidationStatus): Severity {
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Liquidaciones por período</h2>
-        <p class="muted">Catorcenas, cálculo automático de comisiones + viáticos por colaborador.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Liquidaciones por período</h1>
+        <p class="surf-page-sub">Catorcenas, cálculo automático de comisiones + viáticos por colaborador.</p>
       </div>
       <button pButton icon="pi pi-plus" label="Nuevo período" (click)="openCreatePeriod()"></button>
-    </div>
+    </header>
 
     <div class="grid">
       <p-card class="periods-card" header="Períodos">
@@ -223,8 +223,6 @@ function severityLiq(s: LiquidationStatus): Severity {
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
     .grid { display:grid; grid-template-columns: 1fr 2fr; gap:1rem; align-items: flex-start; }
     @media (max-width: 1024px) { .grid { grid-template-columns: 1fr; } }

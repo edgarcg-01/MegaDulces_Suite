@@ -30,15 +30,15 @@ import {
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row" *ngIf="shipment() as s">
-      <div>
+    <header class="surf-page-head" *ngIf="shipment() as s">
+      <div class="surf-page-head-text">
         <a [routerLink]="['/logistica/shipments', s.id]" class="back">
           <i class="pi pi-arrow-left"></i> Volver al embarque
         </a>
-        <h2>Fotos — <code>{{ s.folio }}</code></h2>
-        <p class="muted">Sube fotos categorizadas. GPS y captura desde cámara disponibles en mobile.</p>
+        <h1>Fotos — <code>{{ s.folio }}</code></h1>
+        <p class="surf-page-sub">Sube fotos categorizadas. GPS y captura desde cámara disponibles en mobile.</p>
       </div>
-    </div>
+    </header>
 
     <!-- Upload form -->
     <p-card>
@@ -117,8 +117,6 @@ import {
   `,
   styles: [`
     :host { display:block; }
-    .header-row { margin-bottom:1rem; }
-    .header-row h2 { margin:.25rem 0; font-size:1.25rem; }
     .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; }
     h3 { margin:0 0 .75rem; font-size:1rem; }

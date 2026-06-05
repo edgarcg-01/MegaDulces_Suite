@@ -44,12 +44,12 @@ interface GuideRow extends DeliveryGuide {
   template: `
     <p-toast></p-toast>
 
-    <div class="header-row">
-      <div>
-        <h2>Guías de entrega</h2>
-        <p class="muted">Listado global de todas las guías. Para crear una, abrí el embarque correspondiente.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Guías de entrega</h1>
+        <p class="surf-page-sub">Listado global de todas las guías. Para crear una, abrí el embarque correspondiente.</p>
       </div>
-    </div>
+    </header>
 
     <!-- KPIs por estado -->
     <div class="kpi-grid">
@@ -128,7 +128,6 @@ interface GuideRow extends DeliveryGuide {
   `,
   styles: [`
     :host { display:block; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; }
     .small { font-size:.75rem; }
 

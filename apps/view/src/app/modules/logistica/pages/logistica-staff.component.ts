@@ -43,13 +43,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Personal</h2>
-        <p class="muted">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Personal</h1>
+        <p class="surf-page-sub">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
       </div>
       <button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openCreate()"></button>
-    </div>
+    </header>
 
     <!-- KPI cards -->
     <div class="kpi-grid">
@@ -199,8 +199,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; flex-wrap:wrap; gap:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
 
     .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:1rem; margin-bottom:1rem; }
