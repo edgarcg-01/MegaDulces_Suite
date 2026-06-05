@@ -85,9 +85,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
   /** Menú del avatar de usuario en el topbar (sincronizado con onShow/onHide). */
   userMenuOpen = signal(false);
 
-  isMobile = signal(
-    typeof window !== 'undefined' && window.innerWidth < 1024,
-  );
+  private readonly mobileMql =
+    typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 1023.98px)')
+      : null;
+
+  isMobile = signal(this.mobileMql?.matches ?? false);
+
+  private readonly mobileMqlListener = (e: MediaQueryListEvent): void => {
+    this.isMobile.set(e.matches);
+  };
 
   /**
    * "Expandido" = se muestran labels + secciones completas.
@@ -129,11 +136,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.dataUpdateService.init();
+    this.mobileMql?.addEventListener('change', this.mobileMqlListener);
   }
 
   ngOnDestroy(): void {
     this.dataUpdateService.destroy();
-    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.mobileMql?.removeEventListener('change', this.mobileMqlListener);
   }
 
   // ── Data Update Methods ────────────────────────────────────────────
@@ -147,15 +155,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   // ── Listeners ────────────────────────────────────────────────────
-  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
-  @HostListener('window:resize')
-  onResize(): void {
-    if (this.resizeTimer) clearTimeout(this.resizeTimer);
-    this.resizeTimer = setTimeout(() => {
-      this.isMobile.set(window.innerWidth < 1024);
-    }, 150);
-  }
-
   /**
    * Escape listener: short-circuit en el primer check, evita procesar la
    * tecla cuando el sidebar mobile no está abierto. Esto importa porque
