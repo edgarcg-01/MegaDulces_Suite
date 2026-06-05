@@ -100,7 +100,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <th class="num">Viáticos</th>
             <th class="num">Maniobras</th>
             <th class="num">Operativo</th>
-            <th class="num">Costo / km</th>
+            <th class="num">$/km</th>
             <th class="num">TOTAL</th>
             <th>Estado</th>
             <th></th>
@@ -130,7 +130,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="14" class="muted">Sin costos registrados en el período.</td></tr>
+          <tr>
+            <td colspan="14">
+              <div class="empty-state">
+                <i class="pi pi-receipt empty-state-icon" aria-hidden="true"></i>
+                <div class="empty-state-text">
+                  <strong>Sin costos en este rango.</strong>
+                  <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
+                </div>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
     </p-card>
@@ -214,11 +224,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
     .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
 
+    .empty-state { display:flex; gap:.875rem; align-items:flex-start; padding:1.5rem 1rem; }
+    .empty-state-icon { font-size:1.75rem; color: var(--text-color-secondary); margin-top:.125rem; }
+    .empty-state-text { display:flex; flex-direction:column; gap:.25rem; line-height:1.4; }
+    .empty-state-text strong { font-size:.9rem; }
+
     .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
     .filter-row input { min-width: 240px; }
 
     .num { text-align:right; }
     .num.strong { font-weight: 600; color: var(--primary-color); }
+    th.num { white-space: nowrap; }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
     code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
 
