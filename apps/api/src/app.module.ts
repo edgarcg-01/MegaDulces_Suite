@@ -54,6 +54,8 @@ import { CommercialTeleventaModule } from '@megadulces/commercial';
 import { CommercialRouteControlModule } from '@megadulces/commercial';
 // Captura del vendedor — líneas de venta (OCR ticket) ancladas a la tienda
 import { CommercialVendorSalesModule } from '@megadulces/commercial';
+// Observabilidad del Portal B2B (Web Vitals, errores, funnel)
+import { CommercialTelemetryModule } from '@megadulces/commercial';
 // Fase J — Logística
 import { LogisticsFleetModule } from '@megadulces/logistics';
 import { LogisticsConfigModule } from '@megadulces/logistics';
@@ -95,6 +97,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialTeleventaModule,
       CommercialRouteControlModule,
       CommercialVendorSalesModule,
+      CommercialTelemetryModule,
       // Binding del Port ANTES de logística (provee el token global que inyecta).
       OrderFulfillmentBindingModule,
       LogisticsFleetModule,
