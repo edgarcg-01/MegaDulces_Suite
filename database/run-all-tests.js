@@ -40,6 +40,8 @@ const TESTS = [
   // Cierre de ruta (port Automation_RD)
   { file: 'test-route-tickets-rls-smoke.js', label: 'RD route_tickets RLS isolation', needsApi: false },
   { file: 'http-route-tickets-test.js', label: 'RD cierre de ruta E2E (3 tickets + reportes)', needsApi: true },
+  // Captura de vendedor — cadena post-OCR (bridge alias + venta + visita sin ponderación)
+  { file: 'http-vendor-capture-e2e-test.js', label: 'VC captura vendedor E2E (alias código→planograma + venta + visita)', needsApi: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
