@@ -1,10 +1,19 @@
 /**
- * Bootstrap de `trade.planogram_sku_aliases`: mapea productos del set activo
- * ERP (inventory.products_active) a productos del planograma (852) SOLO cuando son
- * el MISMO PRODUCTO — nombre completo normalizado idéntico (conservando tamaños y
- * números: #5, 60gr, ½L), quitando únicamente el prefijo "IND " y el conteo de
- * empaque final "/6". Ej: "IND TIC TAC MENTA" == "TIC TAC MENTA". NO usa fuzzy/
- * contención (eso generaba falsos como "GUMMY RANITA POP'S" → "GUMMY POP").
+ * Bootstrap de `trade.planogram_sku_aliases`: mapea códigos del set activo ERP
+ * (inventory.products_active) a productos del planograma (852) cuando son EL MISMO
+ * PRODUCTO, incluyendo variantes/formatos.
+ *
+ * Regla = FRASE CONTIGUA (no bolsa de tokens): el nombre del planograma debe
+ * aparecer como secuencia contigua de tokens (en orden) dentro del nombre del
+ * activo. El orden + contigüidad es lo que distingue una variante real de un
+ * falso amigo que solo comparte marca/token:
+ *   ✅ "KINDER HUEVO DINO 8P"      ⊇ "kinder huevo" contiguo  → KINDER HUEVO
+ *   ✅ "GOMA GUMMY POP /25"        ⊇ "gummy pop"   contiguo  → GUMMY POP
+ *   ✅ "CANELS 4S TUTTI-FRUTTI"    ⊇ "canels 4s"   contiguo  → CANELS 4S
+ *   ❌ "GUMMY RANITA POP'S NEON"   → gummy y pop NO contiguos (ranita en medio)
+ *   ❌ "CHOC HUEVO MASHA Y EL OSO KINDER" → "kinder huevo" no aparece contiguo
+ * Conserva tamaños/números (#9, 60gr, ½L) y elige el planograma MÁS específico
+ * (frase más larga). Excluye no-productos (JUNK) y promos/bundles (PROMO).
  * Inserta alias source='bootstrap' (revisables/curables). NO toca los canónicos.
  *
  * Determinístico, sin Voyage. Idempotente.
@@ -17,65 +26,78 @@ const knex = knexLib(k);
 const T = '00000000-0000-0000-0000-00000000d01c';
 const APPLY = process.argv.includes('--apply');
 
-// Nombre completo normalizado, CONSERVANDO números y tamaños (#5, 60gr, 5l, ½).
-// Solo quita el prefijo "IND " y el conteo de empaque final "/6". Igualdad
-// exacta de este string = "producto completamente igual".
-function norm(name) {
+// No-productos del ERP (servicios/financieros) y promos/bundles (mismas reglas
+// que EmbeddingSyncService para mantener un solo criterio de basura).
+const JUNK =
+  /descuento|comision|administrativo|tiempo aire|\bflete\b|servicio|redondeo|bonific|anticipo|\babono\b|no usar|cancelad/i;
+const PROMO = /=\s*gratis|\bgratis\b|\bexh\b|^\s*\d+\s*(cj|cjs|reja|exh|caja|bls|pz|pza|disp)\b/i;
+
+// Tokens ORDENADOS, conservando números y tamaños. Quita prefijo IND/*** y el
+// conteo de empaque final "/6" (presentación, no identidad del producto).
+function toks(name) {
   return String(name || '')
     .toLowerCase()
-    .replace(/^\s*\*+\s*/, '') // marcadores "***"
-    .replace(/^\s*ind\s+/i, '') // prefijo IND
+    .replace(/^[\s*]+/, '')
+    .replace(/^ind\s+/, '')
     .replace(/½/g, '12frac')
     .replace(/¼/g, '14frac')
     .replace(/¾/g, '34frac')
-    .replace(/\s*\/\s*\d+\s*$/, '') // conteo de empaque final "/6"
-    .replace(/[^a-z0-9]+/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/\s*\/\s*\d+\s*$/, '')
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 1);
+}
+
+// Posición donde `needle` (tokens del planograma) aparece como subsecuencia
+// CONTIGUA dentro de `hay` (tokens del activo); -1 si no está.
+function findPhrase(needle, hay) {
+  if (needle.length > hay.length) return -1;
+  for (let i = 0; i + needle.length <= hay.length; i++) {
+    let ok = true;
+    for (let j = 0; j < needle.length; j++)
+      if (hay[i + j] !== needle[j]) { ok = false; break; }
+    if (ok) return i;
+  }
+  return -1;
 }
 
 (async () => {
-  // Planograma: producto canónico (catalog) + tokens.
   const planoRows = await knex.raw(
     `SELECT ps.sku, ps.product_id, cp.nombre FROM trade.planogram_skus ps
      JOIN catalog.products cp ON cp.id = ps.product_id
      WHERE ps.tenant_id = ? AND ps.deleted_at IS NULL`,
     [T],
   );
+  // >=2 tokens: un planograma de 1 token genérico generaría matches débiles.
   const plano = planoRows.rows
-    .map((r) => ({ sku: r.sku, product_id: r.product_id, key: norm(r.nombre), nombre: r.nombre }))
-    .filter((p) => p.key.length > 0);
-  const canonicalSkus = new Set(plano.map((p) => p.sku));
-  console.log(`planograma: ${plano.length} productos.`);
+    .map((r) => ({ product_id: r.product_id, t: toks(r.nombre), nombre: r.nombre }))
+    .filter((p) => p.t.length >= 2);
+  const canonicalSkus = new Set(planoRows.rows.map((r) => r.sku));
+  console.log(`planograma: ${plano.length} productos (>=2 tokens).`);
 
-  // Activos con nombre limpio (preferir catálogo).
+  // in_cat: si el sku está en el catálogo curado, NO aplicar el filtro PROMO
+  // (un sku curado es producto legítimo aunque su nombre ERP parezca promo).
   const actRows = await knex.raw(
-    `SELECT ia.sku, COALESCE(cp.nombre, ia.nombre) AS name FROM inventory.products_active ia
-     LEFT JOIN catalog.products cp ON cp.sku = ia.sku AND cp.tenant_id = ? AND cp.deleted_at IS NULL`,
+    `SELECT ia.sku, COALESCE(cp.nombre, ia.nombre) AS name, cp.sku AS in_cat
+       FROM inventory.products_active ia
+       LEFT JOIN catalog.products cp ON cp.sku = ia.sku AND cp.tenant_id = ? AND cp.deleted_at IS NULL`,
     [T],
   );
-
-  // Índice del planograma por nombre normalizado. Si dos productos del planograma
-  // normalizan igual, es ambiguo → se descarta esa clave (no adivinamos).
-  const planoByKey = new Map();
-  const ambiguous = new Set();
-  for (const p of plano) {
-    if (planoByKey.has(p.key) && planoByKey.get(p.key).product_id !== p.product_id) ambiguous.add(p.key);
-    else planoByKey.set(p.key, p);
-  }
-  for (const k of ambiguous) planoByKey.delete(k);
 
   const aliases = [];
   for (const r of actRows.rows) {
     if (!r.sku || canonicalSkus.has(r.sku)) continue; // canónico ya cubierto
-    const key = norm(r.name);
-    if (!key) continue;
-    // SOLO producto completamente igual: nombre normalizado idéntico al del planograma.
-    const p = planoByKey.get(key);
-    if (p) aliases.push({ erp_sku: r.sku, product_id: p.product_id, conf: 1 });
+    if (JUNK.test(r.name)) continue;
+    if (!r.in_cat && PROMO.test(r.name)) continue;
+    const at = toks(r.name);
+    if (at.length < 2) continue;
+    // Planograma más específico (frase más larga) que sea contiguo en el activo.
+    let best = null;
+    for (const p of plano) {
+      if (findPhrase(p.t, at) >= 0 && (!best || p.t.length > best.t.length)) best = p;
+    }
+    if (best) aliases.push({ erp_sku: r.sku, product_id: best.product_id });
   }
   console.log(`alias bootstrap candidatos: ${aliases.length}`);
-  console.log('ejemplos:', aliases.slice(0, 8).map((a) => a.erp_sku + '→' + a.product_id.slice(0, 8)).join(', '));
 
   if (!APPLY) {
     console.log('\n(dry-run) usar --apply para insertar.');
@@ -95,7 +117,6 @@ function norm(name) {
       erp_sku: a.erp_sku,
       product_id: a.product_id,
       source: 'bootstrap',
-      confidence: Number(a.conf.toFixed(3)),
     });
     ins++;
   }
