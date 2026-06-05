@@ -11,7 +11,7 @@ import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
-import { getDataScope } from '@megadulces/platform-core';
+import { getDataScope, TenantContextService } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
@@ -22,7 +22,10 @@ const ELEVATED_ROLES = new Set(['superadmin', 'admin']);
 
 @Injectable()
 export class UsersService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
 
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
     if (!zonaName) return null;
@@ -133,6 +136,7 @@ export class UsersService {
     const [user] = await this.knex('users')
       .insert({
         ...rest,
+        tenant_id: this.tenantCtx.requireTenantId(),
         zona_id,
         password_hash,
         role_name: normalizedRoleName,
