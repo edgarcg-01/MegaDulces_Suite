@@ -1,0 +1,2758 @@
+@import 'primeicons/primeicons.css';
+/*
+ * Design system tokens — fuente única de verdad para colores, surfaces,
+ * text, charts, avatares y aliases legacy. Light + dark mode viven ahí.
+ * Cualquier color nuevo se agrega en tokens.css, NO en este archivo.
+ */
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * PWA safe areas — iOS notch / Dynamic Island, Android punch-hole, iPad
+ * home indicator. Activos cuando el meta viewport tiene `viewport-fit=cover`
+ * (ver index.html).
+ *
+ * IMPORTANTE — gotcha de cascade:
+ *   Estas clases SETEAN `padding-top/bottom/left/right` directamente. Si
+ *   las combinás con `py-4`, `px-6` u otro padding utility de Tailwind,
+ *   la última declaración gana — ESTAS clases reemplazan el padding, NO
+ *   suman al base. En navegador regular `env(safe-area-inset-*)` retorna
+ *   0, por lo que el elemento queda SIN padding ese eje.
+ *
+ *   Para SUMAR safe-area al padding base, usar Tailwind arbitrary value:
+ *     pt-[calc(1rem+env(safe-area-inset-top))]
+ *     pb-[calc(3rem+env(safe-area-inset-bottom))]
+ *
+ *   Estas clases (`safe-top`, etc.) son apropiadas cuando el elemento NO
+ *   tiene padding base (usa flex centering / min-h) o querés que el padding
+ *   sea exactamente el inset sin más.
+ *
+ * Reglas de uso:
+ *   - Topbar/sticky header con `min-h-X` + items flex-centered → `safe-top` OK.
+ *   - Header con `py-X` y contenido que necesita breathing room → calc() inline.
+ *   - Bottom nav fixed/sticky abajo → `safe-bottom` OK.
+ *   - Drawers/modals full-height sin padding propio → `safe-y` OK.
+ *   - Landscape notched devices → `safe-x` para edges laterales.
+ */
+/*
+ * PrimeNG Toast — override global de safe-area. p-toast por default usa
+ * `top: 0` (o `bottom: 0`) sin saber del notch / home indicator. Sin esto,
+ * en PWA standalone iPhone los toasts top tapan la status bar (vivido
+ * 2026-05-30 en /dashboard/captures cuando aparece "Visita Iniciada").
+ */
+.p-toast.p-toast-top-center,
+.p-toast.p-toast-top-right,
+.p-toast.p-toast-top-left {
+  top: calc(env(safe-area-inset-top) + 0.75rem) !important;
+}
+.p-toast.p-toast-bottom-center,
+.p-toast.p-toast-bottom-right,
+.p-toast.p-toast-bottom-left {
+  bottom: calc(env(safe-area-inset-bottom) + 0.75rem) !important;
+}
+/*
+ * Ancho responsive. p-toast default = `width: 25rem` fijo → en mobile <400px
+ * el toast sobresale o se ve cortado (vivido en /dashboard/captures al
+ * disparar "Visita Iniciada"). min() colapsa al ancho disponible sin media
+ * queries; safe-area-inset-* cubre landscape notched.
+ */
+.p-toast {
+  width: min(25rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right))) !important;
+}
+.p-toast.p-toast-top-right,
+.p-toast.p-toast-bottom-right {
+  right: calc(env(safe-area-inset-right) + 0.75rem) !important;
+}
+.p-toast.p-toast-top-left,
+.p-toast.p-toast-bottom-left {
+  left: calc(env(safe-area-inset-left) + 0.75rem) !important;
+}
+.p-toast .p-toast-message {
+  max-width: 100%;
+}
+
+/*
+ * FAB consciente del bottom nav. Cuando la página vive dentro del layout
+ * shell que tiene bottom nav (mobile only), un FAB con `bottom: 1rem` tapa
+ * los items del nav. Esta utility suma 56px del nav + safe-bottom + gap.
+ *
+ * Si la página NO tiene bottom nav (modales fullscreen, vendor, portal),
+ * override con `.fab-bottom-nonav` que NO suma los 56px.
+ */
+.fab-bottom {
+  position: fixed;
+  right: calc(1rem + env(safe-area-inset-right));
+  bottom: calc(56px + env(safe-area-inset-bottom) + 1rem);
+  z-index: 30;
+}
+.fab-bottom-nonav {
+  position: fixed;
+  right: calc(1rem + env(safe-area-inset-right));
+  bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  z-index: 30;
+}
+
+.safe-top    { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-left   { padding-left: env(safe-area-inset-left); }
+.safe-right  { padding-right: env(safe-area-inset-right); }
+.safe-x      { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.safe-y      { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+.safe-all    {
+  padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+}
+
+/* Margins (cuando el padding propio del elemento no se puede usar). */
+.safe-mt { margin-top: env(safe-area-inset-top); }
+.safe-mb { margin-bottom: env(safe-area-inset-bottom); }
+
+/* Insets para fixed positioning (theme toggle, FAB, install prompt). */
+.safe-fixed-top    { top: env(safe-area-inset-top); }
+.safe-fixed-bottom { bottom: env(safe-area-inset-bottom); }
+
+/* Altura segura: descuenta safe-area-top + safe-area-bottom del 100dvh,
+   útil para containers full-screen que tienen header + footer sticky. */
+.min-h-screen-safe {
+  min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/*
+ * Mobile baseline — patrones universales de apps top (FB / Instagram / Twitter /
+ * WhatsApp). Aplica a TODA app por default; los componentes individuales no
+ * tienen que recordar estos detalles.
+ *
+ *   - `tap-highlight: transparent`: elimina el flash gris/azul al tocar.
+ *   - `touch-action: manipulation`: mata el delay de 300ms del doble-tap
+ *     historic de iOS Safari.
+ *   - `user-select: none` en botones: evita selección accidental al hacer long-press.
+ *   - Tap targets: cualquier elemento interactivo apunta a 44×44 min via min-h/min-w
+ *     en las utilities de Tailwind (no global porque puede romper inputs/links inline).
+ */
+a, button, input[type="button"], input[type="submit"], [role="button"], [role="tab"], [role="menuitem"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button, [role="button"], [role="tab"] {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/*
+ * iOS auto-zoom kill: inputs <16px detonan auto-zoom de Safari mobile que
+ * desencaja layout y molesta. Forzamos 16px en mobile para los inputs.
+ */
+@media (max-width: 768px) {
+  input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/*
+ * Motion curves estandarizadas. Reemplaza los cubic-bezier hardcoded
+ * repartidos por la app. Convención Material 3 + adaptado.
+ *
+ *   --ease-standard:    movimiento general (sidebar slide, hover lift)
+ *   --ease-decelerate:  entrada en pantalla (fade in, scale up de modal)
+ *   --ease-accelerate:  salida de pantalla (close modal, dismiss toast)
+ *   --ease-spring:      energía iOS-style (liquid tabs, swipe-back)
+ *   --ease-emphasized:  Material 3 emphasized — destaca acción importante
+ */
+:root {
+  --ease-standard:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-decelerate:  cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring:      cubic-bezier(0.34, 1.4, 0.5, 1);
+  --ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);
+
+  /* ─────────────────────────────────────────────────────────────
+   * TYPE SCALE — escala estricta major-third (1.25 ratio).
+   * Solo estos tamaños se usan en /comercial y /portal.
+   * Cualquier font-size que NO sea uno de estos es un bug.
+   * ───────────────────────────────────────────────────────────── */
+  --fs-display: 2.5rem;   /* 40px — headline metric ONE per view */
+  --fs-h1:      1.875rem; /* 30px — page hero title */
+  --fs-h2:      1.25rem;  /* 20px — page standard title */
+  --fs-h3:      1rem;     /* 16px — panel title (cuando es necesario) */
+  --fs-body:    0.875rem; /* 14px — body default */
+  --fs-sm:      0.8125rem;/* 13px — cell body / table cell */
+  --fs-xs:      0.75rem;  /* 12px — small text / sub */
+  --fs-micro:   0.6875rem;/* 11px — uppercase label / chip */
+  --fs-nano:    0.625rem; /* 10px — micro label (último recurso) */
+
+  /* ─────────────────────────────────────────────────────────────
+   * WEIGHT — solo 4 pesos. No mezclar.
+   * ───────────────────────────────────────────────────────────── */
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-bold:    700;
+  --fw-black:   800;  /* solo en headline metric */
+
+  /* ─────────────────────────────────────────────────────────────
+   * COLOR ROLES — disciplina 3 capas + 1 acento + semánticos.
+   * Alias unificados sobre los tokens existentes del proyecto
+   * (--text-main, --brand-*, --ok-fg, etc.). Usar SIEMPRE estos
+   * aliases en nuevo código; reemplazan a:
+   *  - text-color-secondary (PrimeNG)
+   *  - text-color-primary (PrimeNG)
+   *  - primary-color (PrimeNG, azul leak)
+   *  - text-faint (legado)
+   * ───────────────────────────────────────────────────────────── */
+  --c-text-1: var(--text-main);                     /* fuerte: negro casi puro */
+  --c-text-2: var(--text-color-secondary, #6b7280); /* secundario: gris medio */
+  --c-text-3: var(--text-faint, #9ca3af);           /* muted: gris claro */
+
+  --c-surface-0: var(--layout-bg, #fafafa);         /* fondo de página */
+  --c-surface-1: var(--card-bg, #fff);              /* fondo de celda/panel */
+  --c-surface-2: var(--neutral-100, #f4f4f5);       /* hover, subtle bg */
+
+  --c-divider:   var(--border-color, #e4e4e7);      /* hairline 1px */
+
+  /* ÚNICO acento de marca — uso restricto:
+   *   1. Headline metric (1 por vista)
+   *   2. Active tab/chip
+   *   3. Hover row left-stripe
+   *   4. Focus ring
+   * Nunca en backgrounds amplios ni text body. */
+  --c-accent:    var(--brand-500, #F8B400);
+  --c-accent-fg: var(--brand-700, #B7860E);
+
+  /* SEMÁNTICOS — solo en pills, deltas, status dots, chart bars. */
+  --c-ok:    var(--ok-fg,   #16A34A);
+  --c-warn:  var(--warn-fg, #F59E0B);
+  --c-bad:   var(--bad-fg,  #DC2626);
+  --c-info:  var(--info-fg, #2563EB);
+}
+
+/*
+ * ROOT LAYOUT — sólo geometría base. Los tokens viven en tokens.css.
+ */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) var(--layout-bg);
+}
+
+html {
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--layout-bg);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+
+/* ============================================================
+ * UTILITIES: GHOST BUTTONS (color reveal on hover)
+ *
+ * Patrón: botones discretos (texto/icono en gris neutro, fondo
+ * transparente) que REVELAN su color semántico al hover. Útil
+ * para acciones de fila (delete, edit, view, archive) donde el
+ * color cargado constante saturaría visualmente la tabla.
+ *
+ * Uso:
+ *   <button class="btn-ghost btn-ghost-bad">Eliminar</button>
+ *   <button class="btn-ghost btn-ghost-ok">Aprobar</button>
+ *   <button class="btn-ghost btn-ghost-info">Editar</button>
+ *   <button class="btn-ghost btn-ghost-warn">Archivar</button>
+ *   <button class="btn-ghost btn-ghost-brand">Destacar</button>
+ *
+ * Variante icon-only (sin fondo soft, sólo recolorea el icono):
+ *   <button class="icon-btn-ghost icon-btn-ghost-bad">
+ *     <i class="pi pi-trash"></i>
+ *   </button>
+ * ============================================================ */
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  background-color: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
+}
+
+.btn-ghost:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-main);
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost:disabled,
+.btn-ghost[aria-disabled="true"] {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.btn-ghost:disabled:hover,
+.btn-ghost[aria-disabled="true"]:hover {
+  background-color: transparent;
+  color: var(--text-disabled);
+}
+
+/* ─── Semantic reveal modifiers ─── */
+
+.btn-ghost-bad:hover {
+  color: var(--bad-fg);
+  background-color: var(--bad-soft-bg);
+  border-color: var(--bad-border);
+}
+.btn-ghost-bad:focus-visible {
+  outline: 2px solid var(--bad-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-ok:hover {
+  color: var(--ok-fg);
+  background-color: var(--ok-soft-bg);
+  border-color: var(--ok-border);
+}
+.btn-ghost-ok:focus-visible {
+  outline: 2px solid var(--ok-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-warn:hover {
+  color: var(--warn-fg);
+  background-color: var(--warn-soft-bg);
+  border-color: var(--warn-border);
+}
+.btn-ghost-warn:focus-visible {
+  outline: 2px solid var(--warn-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-info:hover {
+  color: var(--info-fg);
+  background-color: var(--info-soft-bg);
+  border-color: var(--info-border);
+}
+.btn-ghost-info:focus-visible {
+  outline: 2px solid var(--info-fg);
+  outline-offset: 2px;
+}
+
+.btn-ghost-brand:hover {
+  color: var(--brand-900);
+  background-color: var(--brand-100);
+  border-color: var(--brand-200);
+}
+.btn-ghost-brand:focus-visible {
+  outline: 2px solid var(--brand-600);
+  outline-offset: 2px;
+}
+
+/* En dark mode el brand-900 es ilegible sobre fondo brand-100 translúcido —
+ * usamos brand-300 (amarillo más claro) para mantener legibilidad. */
+.theme-monochrome .btn-ghost-brand:hover {
+  color: var(--brand-300);
+}
+
+/* ─── Icon-only variant (acción densa en tablas/listas) ─── */
+
+.icon-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /*
+   * 44×44 cumple Apple HIG (44pt) y se aproxima a Material 48dp.
+   * Antes era 32×32 → falla touch targets en mobile. Si el caller necesita
+   * un visual más chico, puede sobrescribir con w-X h-X pero el tap area
+   * sigue siendo el del padding interno.
+   */
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.625rem;
+  background-color: transparent;
+  color: var(--text-faint);
+  border: none;
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease, transform 100ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.icon-btn-ghost:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-main);
+}
+
+.icon-btn-ghost:active {
+  transform: scale(0.92);
+}
+
+.icon-btn-ghost:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  background-color: transparent;
+}
+
+.icon-btn-ghost-bad:hover  { color: var(--bad-fg);  background-color: var(--bad-soft-bg);  }
+.icon-btn-ghost-ok:hover   { color: var(--ok-fg);   background-color: var(--ok-soft-bg);   }
+.icon-btn-ghost-warn:hover { color: var(--warn-fg); background-color: var(--warn-soft-bg); }
+.icon-btn-ghost-info:hover { color: var(--info-fg); background-color: var(--info-soft-bg); }
+.icon-btn-ghost-brand:hover {
+  color: var(--brand-700);
+  background-color: var(--brand-100);
+}
+.theme-monochrome .icon-btn-ghost-brand:hover {
+  color: var(--brand-300);
+}
+
+.icon-btn-ghost-bad:focus-visible,
+.icon-btn-ghost-ok:focus-visible,
+.icon-btn-ghost-warn:focus-visible,
+.icon-btn-ghost-info:focus-visible,
+.icon-btn-ghost-brand:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/*
+ * UTILITIES: SEMANTIC STATUS
+ * Uso:
+ *   <span class="status-chip status-warn">Atención</span>
+ *   <div class="status-border-left status-ok">…</div>
+ *   <div class="status-fill status-bad" style="--pct:42%"></div>
+ * Las clases base (`status-chip`, `status-border-left`, `status-fill`,
+ * `status-text`, `status-dot`) toman el color del modificador
+ * (`status-ok` / `status-warn` / `status-bad`).
+ */
+.status-ok    { --status-fg: var(--status-ok-fg);    --status-soft-bg: var(--status-ok-soft-bg);    --status-soft-fg: var(--status-ok-soft-fg);    --status-border: var(--status-ok-border); }
+.status-warn  { --status-fg: var(--status-warn-fg);  --status-soft-bg: var(--status-warn-soft-bg);  --status-soft-fg: var(--status-warn-soft-fg);  --status-border: var(--status-warn-border); }
+.status-bad   { --status-fg: var(--status-bad-fg);   --status-soft-bg: var(--status-bad-soft-bg);   --status-soft-fg: var(--status-bad-soft-fg);   --status-border: var(--status-bad-border); }
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background-color: var(--status-soft-bg);
+  color: var(--status-soft-fg);
+  border: 1px solid var(--status-border);
+}
+
+.status-border-left {
+  border-left: 4px solid var(--status-fg);
+}
+
+.status-fill {
+  background-color: var(--status-fg);
+}
+
+.status-text {
+  color: var(--status-fg);
+}
+
+.status-soft-bg {
+  background-color: var(--status-soft-bg);
+}
+
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background-color: var(--status-fg);
+}
+
+/*
+ * UTILITIES: CHIPS NEUTRALES (no-status)
+ * Para tags informativos que NO comunican un semáforo (cliente, GPS,
+ * Mega Dulces, Competencia). Tematizables y legibles en dark.
+ *   <span class="chip-info">GPS</span>
+ *   <span class="chip-brand">Mega Dulces</span>
+ *   <span class="chip-warn-soft">Competencia</span>
+ */
+.chip-info, .chip-warn-soft, .chip-brand, .chip-competition {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 11px;
+  font-weight: 600;
+  border-width: 1px;
+  border-style: solid;
+}
+.chip-info       { background-color: var(--chip-info-bg);       color: var(--chip-info-fg);       border-color: var(--chip-info-border); }
+.chip-warn-soft  { background-color: var(--chip-warn-soft-bg);  color: var(--chip-warn-soft-fg);  border-color: var(--chip-warn-soft-border); }
+.chip-brand      { background-color: var(--chip-brand-bg);      color: var(--chip-brand-fg);      border-color: var(--chip-brand-border); }
+.chip-competition { background-color: var(--chip-competition-bg); color: var(--chip-competition-fg); border-color: var(--chip-competition-border); }
+
+/*
+ * Close button para overlays sobre imágenes (fondo negro). Usa el accent
+ * azul del theme — antes estaba hardcoded como #185FA5.
+ */
+.btn-close-overlay {
+  background-color: var(--checkbox-accent);
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+.btn-close-overlay:hover {
+  background-color: var(--checkbox-accent-hover);
+}
+
+/*
+ * UTILITIES: BRAND ACCENTS
+ */
+.card-premium-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-premium-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: var(--accent-brand);
+  z-index: 10;
+}
+
+.text-brand {
+  color: var(--accent-brand) !important;
+}
+
+.bg-brand {
+  background-color: var(--accent-brand) !important;
+}
+
+.border-brand {
+  border-color: var(--accent-brand) !important;
+}
+
+/* Brand Gradient Utilities */
+.bg-gradient-brand {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-orange) 50%, var(--brand-sunset) 100%) !important;
+}
+
+.bg-gradient-brand-subtle {
+  background: linear-gradient(135deg, var(--brand-light) 0%, rgba(253, 231, 7, 0.3) 100%) !important;
+}
+
+.bg-gradient-brand-horizontal {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+}
+
+.text-brand-orange {
+  color: var(--brand-orange) !important;
+}
+
+.text-brand-sunset {
+  color: var(--brand-sunset) !important;
+}
+
+.text-brand-gradient {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-sunset) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.border-brand-orange {
+  border-color: var(--brand-orange) !important;
+}
+
+.border-brand-sunset {
+  border-color: var(--brand-sunset) !important;
+}
+
+/* Score/Status colors using brand palette instead of green/blue */
+.text-score-high {
+  color: var(--brand-orange) !important;
+}
+
+.text-score-medium {
+  color: var(--brand-sunset) !important;
+}
+
+.text-score-low {
+  color: #dc2626 !important;
+}
+
+.bg-score-high {
+  background-color: rgba(246, 143, 30, 0.15) !important;
+  color: var(--brand-orange) !important;
+}
+
+.bg-score-medium {
+  background-color: rgba(240, 90, 40, 0.15) !important;
+  color: var(--brand-sunset) !important;
+}
+
+/* Progress bars with brand colors */
+.progress-bar-brand {
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+}
+
+.progress-bar-orange {
+  background: linear-gradient(90deg, var(--brand-orange) 0%, var(--brand-sunset) 100%) !important;
+}
+
+.p-button.p-button-brand {
+  background: var(--accent-brand) !important;
+  border-color: var(--accent-brand) !important;
+  color: #000 !important;
+  font-weight: 700 !important;
+}
+
+.p-button.p-button-brand:hover {
+  filter: brightness(1.1);
+}
+
+/* Enhanced interactions */
+.p-button {
+  transition: all 0.2s ease !important;
+}
+
+.p-button:active {
+  transform: scale(0.98) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: 2px solid var(--accent-brand) !important;
+  outline-offset: 2px !important;
+}
+
+/* Override PrimeNG fonts to use Inter */
+.p-component {
+  font-family: 'Inter', sans-serif !important;
+}
+
+/* Force PrimeNG tables to use theme colors in dark mode */
+.theme-monochrome .p-datatable .p-datatable-thead > tr > th {
+  background: var(--surface-ground) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr:nth-child(even) {
+  background: var(--surface-ground) !important;
+}
+
+.theme-monochrome .p-datatable .p-datatable-tbody > tr > td {
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-paginator {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page {
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page:hover {
+  background: var(--hover-bg) !important;
+}
+
+.theme-monochrome .p-paginator .p-paginator-pages .p-paginator-page.p-highlight {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+}
+
+/* Responsive table styles */
+.p-datatable-responsive {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.p-datatable-responsive .p-datatable-wrapper {
+  min-width: 100% !important;
+}
+
+/* Mobile table optimizations */
+@media (max-width: 768px) {
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    padding: 0.5rem 0.75rem !important;
+    font-size: 0.75rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    min-width: 120px !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    min-width: 100px !important;
+    position: sticky !important;
+    right: 0 !important;
+    background: inherit !important;
+    box-shadow: -4px 0 8px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .p-datatable.p-datatable-sm .p-datatable-thead > tr > th,
+  .p-datatable.p-datatable-sm .p-datatable-tbody > tr > td {
+    padding: 0.375rem 0.5rem !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Hide less important columns on very small screens */
+  .p-datatable .p-datatable-thead > tr > th:nth-child(n+6),
+  .p-datatable .p-datatable-tbody > tr > td:nth-child(n+6) {
+    display: none !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    display: table-cell !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    min-width: 100px !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* Show only essential columns on very small screens */
+  .p-datatable .p-datatable-thead > tr > th:nth-child(n+4),
+  .p-datatable .p-datatable-tbody > tr > td:nth-child(n+4) {
+    display: none !important;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th:last-child,
+  .p-datatable .p-datatable-tbody > tr > td:last-child {
+    display: table-cell !important;
+  }
+}
+
+/* Force PrimeNG tabs to use theme colors in dark mode */
+.theme-monochrome .p-tabview .p-tabview-nav {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li a {
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li a:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-nav li.p-highlight a {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+  border-color: var(--active-bg) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-panels {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabview .p-tabview-panel {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* Override hardcoded bg-white in tab content */
+.theme-monochrome .p-tabpanel .bg-white {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-emerald-600 {
+  color: var(--accent-brand) !important;
+}
+
+.theme-monochrome .p-tabpanel .text-blue-600 {
+  color: var(--accent-brand) !important;
+}
+
+/* Modern styling for PrimeNG p-tabs (both light and dark modes) */
+.p-tabs,
+.p-tabs.p-component,
+.p-tabs[data-pc-name="tabs"] {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.p-tablist,
+.p-tablist.p-component,
+.p-tablist[data-pc-name="tablist"] {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid var(--border-color, #e5e7eb) !important;
+  padding: 0 !important;
+  margin-bottom: 1.5rem !important;
+  box-shadow: none !important;
+}
+
+.p-tablist-content,
+.p-tablist-content[data-pc-name="tablistcontent"] {
+  background: transparent !important;
+}
+
+.p-tablist-tab-list,
+.p-tablist-tab-list[data-pc-name="tablisttablist"] {
+  display: flex !important;
+  gap: 0 !important;
+  background: transparent !important;
+}
+
+.p-tab,
+.p-tab.p-component,
+.p-tab.p-ripple,
+.p-tab[data-pc-name="tab"],
+.p-tab[data-pc-section="tab"] {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0.75rem 1.5rem !important;
+  margin: 0 !important;
+  position: relative !important;
+  transition: all 0.2s ease !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  color: var(--text-muted, #6b7280) !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  outline: none !important;
+  text-decoration: none !important;
+  min-height: auto !important;
+  line-height: 1.5 !important;
+}
+
+.p-tab:hover,
+.p-tab.p-component:hover,
+.p-tab.p-ripple:hover,
+.p-tab[data-pc-name="tab"]:hover,
+.p-tab[data-pc-section="tab"]:hover {
+  background: transparent !important;
+  color: var(--text-main, #111827) !important;
+  box-shadow: none !important;
+}
+
+.p-tab.p-tab-active,
+.p-tab.p-component.p-tab-active,
+.p-tab.p-ripple.p-tab-active,
+.p-tab[data-pc-name="tab"][data-p-active="true"],
+.p-tab[data-pc-section="tab"][aria-selected="true"] {
+  background: transparent !important;
+  color: var(--accent-brand, #3b82f6) !important;
+  border-bottom: 3px solid var(--accent-brand, #3b82f6) !important;
+  margin-bottom: -2px !important;
+  box-shadow: none !important;
+}
+
+.p-tabpanels,
+.p-tabpanels.p-component,
+.p-tabpanels[data-pc-name="tabpanels"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+.p-tabpanel,
+.p-tabpanel.p-component,
+.p-tabpanel[data-pc-name="tabpanel"] {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Force PrimeNG p-tabs (newer version) to use theme colors in dark mode */
+.theme-monochrome .p-tabs {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tablist {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tablist-content {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tablist-tab-list {
+  background: var(--card-bg) !important;
+}
+
+.theme-monochrome .p-tab {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tab:hover {
+  background: var(--hover-bg) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tab.p-tab-active {
+  background: var(--active-bg) !important;
+  color: var(--active-text) !important;
+  border-color: var(--active-bg) !important;
+}
+
+.theme-monochrome .p-tabpanels {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.theme-monochrome .p-tabpanel {
+  background: var(--card-bg) !important;
+  color: var(--text-main) !important;
+}
+
+/* More specific overrides for hardcoded styles */
+.theme-monochrome .p-tabpanel div.bg-white {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-main) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-zinc-500 {
+  color: var(--text-muted) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-emerald-600 {
+  color: var(--accent-brand) !important;
+}
+
+.theme-monochrome .p-tabpanel div.text-blue-600 {
+  color: var(--accent-brand) !important;
+}
+
+/* ============================================================
+   OVERRIDES PARA CLASSES HARDCODEADAS EN MODO OSCURO
+   ============================================================ */
+
+/* Green colors - Ok status */
+.theme-monochrome .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.2) !important;
+}
+
+.theme-monochrome .bg-green-500 {
+  background-color: rgba(34, 197, 94, 0.8) !important;
+}
+
+.theme-monochrome .text-green-600,
+.theme-monochrome .text-green-700 {
+  color: #4ade80 !important;
+}
+
+.theme-monochrome .text-green-800 {
+  color: #86efac !important;
+}
+
+.theme-monochrome .border-green-400 {
+  border-color: #4ade80 !important;
+}
+
+/* Amber colors - Warn status */
+.theme-monochrome .bg-amber-100 {
+  background-color: rgba(251, 191, 36, 0.2) !important;
+}
+
+.theme-monochrome .bg-amber-400 {
+  background-color: rgba(251, 191, 36, 0.8) !important;
+}
+
+.theme-monochrome .text-amber-500,
+.theme-monochrome .text-amber-700 {
+  color: #fbbf24 !important;
+}
+
+.theme-monochrome .text-amber-800 {
+  color: #fcd34d !important;
+}
+
+.theme-monochrome .border-amber-400 {
+  border-color: #fbbf24 !important;
+}
+
+/* Red colors - Bad status */
+.theme-monochrome .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+.theme-monochrome .bg-red-500 {
+  background-color: rgba(239, 68, 68, 0.8) !important;
+}
+
+.theme-monochrome .text-red-500,
+.theme-monochrome .text-red-700 {
+  color: #f87171 !important;
+}
+
+.theme-monochrome .text-red-800 {
+  color: #fca5a5 !important;
+}
+
+.theme-monochrome .border-red-400 {
+  border-color: #f87171 !important;
+}
+
+/* Blue colors - GPS and other */
+.theme-monochrome .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+.theme-monochrome .text-blue-700 {
+  color: #60a5fa !important;
+}
+
+.theme-monochrome .border-blue-100 {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+/* Ring colors */
+.theme-monochrome .ring-blue-400 {
+  --tw-ring-color: rgba(96, 165, 250, 0.5) !important;
+}
+
+/* ============================================================
+   ANIMACIONES SUTILES
+   ============================================================ */
+
+/* Fade in con movimiento suave hacia arriba */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+
+/* Pulse sutil para indicadores activos */
+@keyframes subtlePulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+.animate-subtle-pulse {
+  animation: subtlePulse 2s ease-in-out infinite;
+}
+
+/* Slide in desde la izquierda para sidebar */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+/* Efecto shimmer monocromático */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.03) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.theme-monochrome .animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+}
+
+/* Hover lift effect suave */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Focus ring con marca */
+.focus-brand:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-primary), 0 0 0 4px white;
+}
+
+/* ============================================================
+   12 MEJORAS MODERNAS, SUTILES Y MONOCRÓMATICAS
+   ============================================================ */
+
+/* 1. MICRO-SOMBRAS DE PROFUNDIDAD (Elevation) */
+.elevation-1 {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 3px 0 rgba(0, 0, 0, 0.02);
+}
+
+.elevation-2 {
+  box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+}
+
+.elevation-3 {
+  box-shadow: 0 4px 6px -2px rgba(0, 0, 0, 0.05), 0 2px 8px -1px rgba(0, 0, 0, 0.03);
+}
+
+.elevation-hover {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.elevation-hover:hover {
+  box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
+}
+
+/* 2. BORDES "GHOST" (Fantasma) */
+.border-ghost {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.border-ghost:hover {
+  border-color: rgba(0, 0, 0, 0.25);
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.theme-monochrome .border-ghost {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-monochrome .border-ghost:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* 3. GLASSMORPHISM MONOCRÓMATICO */
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.theme-monochrome .glass {
+  background: rgba(17, 17, 17, 0.85);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 4. EFECTO SPOTLIGHT/HALO - Monocromático sutil */
+.spotlight {
+  position: relative;
+  overflow: hidden;
+}
+
+.spotlight::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.03) 0%, transparent 70%);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.4s ease;
+  pointer-events: none;
+}
+
+.spotlight:hover::before {
+  transform: translate(-50%, -50%) scale(2);
+}
+
+.theme-monochrome .spotlight::before {
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.04) 0%, transparent 70%);
+}
+
+/* 5. MORPHING DE BORDES */
+.morph-borders {
+  border-radius: 8px;
+  transition: border-radius 0.3s ease, background-color 0.25s ease;
+}
+
+.morph-borders:hover {
+  border-radius: 12px;
+}
+
+/* 6. MAGNETIC BUTTONS (Sutil) - CSS-only approximation */
+.magnetic {
+  transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.magnetic:hover {
+  transform: translateY(-2px) scale(1.02);
+}
+
+.magnetic:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* 7. TEXT REVEAL PROGRESIVO */
+@keyframes textReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.text-reveal > * {
+  animation: textReveal 0.5s ease forwards;
+  opacity: 0;
+}
+
+.text-reveal > *:nth-child(1) { animation-delay: 0ms; }
+.text-reveal > *:nth-child(2) { animation-delay: 50ms; }
+.text-reveal > *:nth-child(3) { animation-delay: 100ms; }
+.text-reveal > *:nth-child(4) { animation-delay: 150ms; }
+.text-reveal > *:nth-child(5) { animation-delay: 200ms; }
+
+/* 8. FOCUS RING ANIMADO */
+@keyframes focusRingDraw {
+  from {
+    box-shadow: 0 0 0 0 var(--brand-primary);
+  }
+  to {
+    box-shadow: 0 0 0 3px var(--brand-primary), 0 0 0 6px rgba(253, 231, 7, 0.2);
+  }
+}
+
+.focus-ring-animated:focus {
+  outline: none;
+  animation: focusRingDraw 0.3s ease forwards;
+}
+
+/* 9. PARALLAX SUTIL EN CARDS */
+.parallax-card {
+  transform-style: preserve-3d;
+  transition: transform 0.1s ease-out;
+}
+
+.parallax-card:hover {
+  transform: perspective(1000px) rotateX(1deg) rotateY(-1deg) translateZ(10px);
+}
+
+/* 10. NOISE/GRAIN TEXTURE */
+.noise-bg {
+  position: relative;
+}
+
+.noise-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.015;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}
+
+.theme-monochrome .noise-bg::after {
+  opacity: 0.03;
+}
+
+/* 11. SCROLL PROGRESS INDICATOR - Monocromático */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  transition: width 0.1s linear;
+}
+
+.theme-monochrome .scroll-progress {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* 12. SMOOTH PAGE TRANSITIONS */
+.page-transition-enter {
+  animation: pageEnter 0.3s ease forwards;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-transition-exit {
+  animation: pageExit 0.2s ease forwards;
+}
+
+@keyframes pageExit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* ============================================================
+   SISTEMA TIPOGRÁFICO CONSISTENTE - Inter
+   ============================================================ */
+
+/* Escala tipográfica estandarizada */
+.text-display {
+  font-size: 2.25rem;    /* 36px */
+  line-height: 2.5rem;   /* 40px */
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.text-headline {
+  font-size: 1.5rem;     /* 24px */
+  line-height: 2rem;     /* 32px */
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.text-title {
+  font-size: 1.25rem;    /* 20px */
+  line-height: 1.75rem;  /* 28px */
+  font-weight: 600;
+}
+
+.text-body-large {
+  font-size: 1rem;       /* 16px */
+  line-height: 1.5rem;   /* 24px */
+  font-weight: 400;
+}
+
+.text-body {
+  font-size: 0.875rem;   /* 14px */
+  line-height: 1.25rem;  /* 20px */
+  font-weight: 400;
+}
+
+.text-label {
+  font-size: 0.75rem;    /* 12px */
+  line-height: 1rem;     /* 16px */
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Tablas - consistencia */
+.table-header {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.table-cell {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+
+.table-cell-strong {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .text-display {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+
+  .text-headline {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+
+  .text-title {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+  }
+}
+
+/* ============================================================
+   CLASES PARA REPORTS - CONTENT COLORS
+   ============================================================ */
+
+.text-content-main {
+  color: var(--text-main);
+}
+
+.text-content-muted {
+  color: var(--text-muted);
+}
+
+.text-content-faint {
+  color: var(--text-faint);
+}
+
+/* Surface colors */
+.bg-surface-layout {
+  background-color: var(--layout-bg);
+}
+
+.bg-surface-ground {
+  background-color: var(--surface-ground);
+}
+
+.bg-surface-card {
+  background-color: var(--card-bg);
+}
+
+.bg-surface-hover {
+  background-color: var(--hover-bg);
+}
+
+/* Border colors */
+.border-divider {
+  border-color: var(--border-color);
+}
+
+/* ============================================================
+   CARD PREMIUM - Para reports y dashboard
+   ============================================================ */
+
+.card-premium {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: var(--shadow-light);
+  transition: all 0.2s ease;
+}
+
+.card-premium:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.theme-monochrome .card-premium {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+}
+
+/* Card con acento superior */
+.card-premium-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-premium-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--brand-primary) 0%, var(--brand-orange) 100%);
+  z-index: 10;
+}
+
+/* ============================================================
+   MODERN TABS WRAPPER
+   ============================================================ */
+
+.modern-tabs-wrapper {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.theme-monochrome .modern-tabs-wrapper {
+  background: var(--card-bg);
+  border-color: var(--border-color);
+}
+
+/* ============================================================
+   TABLAS MODERNAS
+   ============================================================ */
+
+.p-datatable-modern {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.p-datatable-modern .p-datatable-thead > tr > th {
+  background: var(--surface-ground);
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.p-datatable-modern .p-datatable-tbody > tr {
+  background: var(--card-bg);
+  transition: background-color 0.15s ease;
+}
+
+.p-datatable-modern .p-datatable-tbody > tr:hover {
+  background: var(--hover-bg);
+}
+
+.p-datatable-modern .p-datatable-tbody > tr > td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+/* PrimeNG Button Brand */
+.p-button-brand {
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-orange) 100%) !important;
+  border: none !important;
+  color: #000 !important;
+  font-weight: 600 !important;
+}
+
+.p-button-brand:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+ * Liquid Tabs estilo iOS 26 (blob deslizante)
+ *
+ * Uso:
+ *   <div class="modern-tabs-wrapper liquid-tabs-host">
+ *     <div class="liquid-tabs" role="tablist"
+ *          [style.--liquid-tab-count]="N"
+ *          [style.--liquid-tab-active]="activeIndex">
+ *       <span class="liquid-tabs-indicator"></span>
+ *       <button class="liquid-tab" [class.is-active]="..." ...>Label</button>
+ *       ...
+ *     </div>
+ *   </div>
+ *
+ * Truco: tabs `flex: 1` (ancho uniforme), indicator pill `width: 100% / N`
+ * absoluto, `translateX(activeIndex * 100%)` mueve por su propio ancho =
+ * exactamente 1/N del container. Spring easing en transform da bounce.
+ *
+ * Si hay `p-tabs` interno que conserva los `p-tabpanels`, agregar
+ * `.liquid-tabs-hide-tablist` para ocultar el tablist nativo.
+ * ============================================================ */
+
+.liquid-tabs-host {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.liquid-tabs {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  max-width: 100%;
+  padding: 4px;
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+  /* Scroll horizontal en mobile cuando los tabs no caben. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+  /* Indicator absolute requiere height definido en el flex parent. */
+  min-height: 44px;
+}
+
+.liquid-tabs::-webkit-scrollbar { display: none; }
+
+.theme-monochrome .liquid-tabs {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.liquid-tabs-indicator {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  height: calc(100% - 8px);
+  /* width y transform los setea el componente vía JS (syncLiquidIndicator).
+     Fallback inicial mientras AfterViewInit no ha corrido: 0 width. */
+  width: 0;
+  transform: translate3d(0, 0, 0);
+  background: var(--card-bg);
+  border-radius: 9999px;
+  transition:
+    transform 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    width 520ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    background-color 320ms ease,
+    box-shadow 320ms ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 16px rgba(0, 0, 0, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform, width;
+}
+
+.theme-monochrome .liquid-tabs-indicator {
+  background: var(--neutral-700);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.liquid-tab {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 9999px;
+  transition:
+    color 320ms cubic-bezier(0.34, 1.4, 0.5, 1),
+    transform 180ms ease;
+}
+
+/* En viewports anchos, repartir el espacio uniformemente. En mobile cada
+   tab toma su ancho intrínseco y el container scrollea horizontal. */
+@media (min-width: 768px) {
+  .liquid-tab {
+    flex: 1 1 0;
+  }
+  .liquid-tabs {
+    overflow: hidden;
+  }
+}
+
+.liquid-tab.is-active {
+  color: var(--text-main);
+}
+
+.liquid-tab:hover:not(.is-active) {
+  color: var(--text-main);
+}
+
+.liquid-tab:active {
+  transform: scale(0.96);
+}
+
+.liquid-tab:focus-visible {
+  outline: 2px solid var(--brand-400);
+  outline-offset: 2px;
+}
+
+/* Oculta el tablist nativo de PrimeNG cuando usamos nuestro liquid custom
+   pero mantenemos el `p-tabs/p-tabpanels` para que los contenidos sigan
+   resolviéndose por `[value]`. */
+.liquid-tabs-hide-tablist > .p-tablist,
+.liquid-tabs-hide-tablist .p-tablist {
+  display: none !important;
+}
+
+.liquid-tabs-host .p-tabs.liquid-tabs-hide-tablist,
+.liquid-tabs-host .liquid-tabs-hide-tablist.p-tabs {
+  background: transparent !important;
+  border: none !important;
+}
+
+.liquid-tabs-host .liquid-tabs-hide-tablist .p-tabpanels,
+.liquid-tabs-host .liquid-tabs-hide-tablist .p-tabpanel {
+  background: transparent !important;
+  border: none !important;
+  padding: 1rem 0 0 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-tabs-indicator,
+  .liquid-tab {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+ * PORTAL UI PRIMITIVES — clases utilitarias globales para
+ * mantener consistencia visual entre las 7 páginas del portal.
+ * Cualquier página de /portal/* DEBE usar estos building blocks
+ * antes de crear estilos custom.
+ *
+ * Jerarquía de radii:
+ *   xs (8px): pill / chip / tag pequeño
+ *   sm (10px): botón / input / qty stepper
+ *   md (14px): card estándar (tarjeta de pedido, línea, item)
+ *   lg (18px): hero / surface destacado (banner promo, modal)
+ *
+ * Jerarquía de spacing entre bloques:
+ *   compact: 0.75rem (dentro de cards)
+ *   default: 1.25rem (entre secciones del mismo nivel)
+ *   loose:   2rem    (entre secciones de distinta jerarquía)
+ * ============================================================ */
+
+/* ─── PAGE HEADER ──────────────────────────────────────────── */
+.portal-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.portal-page-head-text { min-width: 0; flex: 1; }
+.portal-page-head h1 {
+  margin: 0 0 0.25rem;
+  font-size: clamp(1.375rem, 3.5vw, 1.75rem);
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.portal-page-head .portal-page-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* ─── EYEBROW (chip mini sobre H1) ─────────────────────────── */
+.portal-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: var(--neutral-100);
+  border: 1px solid var(--border-color);
+  padding: 0.2rem 0.625rem;
+  border-radius: var(--r-pill);
+  margin-bottom: 0.5rem;
+}
+.portal-eyebrow i { font-size: 0.65rem; opacity: 0.85; }
+
+/* ════════════════════════════════════════════════════════════════
+   ÁTOMO: Botón del portal (ver DESIGN.md → Atomic Design).
+   Jerarquía única de acción:
+     .portal-btn-primary  → sunset (acción principal)
+     .portal-btn-ghost    → secundaria neutra (outline)
+     .portal-btn-ember    → superficie IA (gradiente ámbar→sunset)
+     .portal-btn-hero     → CTA de marca en storefront (negro + amarillo)
+   Todos: min 44px (ley de Fitts) + estados hover/active/disabled/focus.
+   No re-estilar botones a mano por componente: usar estas clases.
+   ════════════════════════════════════════════════════════════════ */
+.portal-btn-primary,
+.portal-btn-ghost,
+.portal-btn-ember,
+.portal-btn-hero {
+  border: none;
+  border-radius: var(--r-md);
+  padding: 0.625rem 1.125rem;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  transition: background-color 150ms var(--ease-standard),
+              border-color 150ms var(--ease-standard),
+              transform 120ms var(--ease-standard),
+              box-shadow 180ms var(--ease-standard),
+              filter 150ms var(--ease-standard);
+}
+.portal-btn-primary:active:not(:disabled),
+.portal-btn-ghost:active:not(:disabled),
+.portal-btn-ember:active:not(:disabled),
+.portal-btn-hero:active:not(:disabled) { transform: translateY(0); }
+.portal-btn-primary:focus-visible,
+.portal-btn-ghost:focus-visible,
+.portal-btn-ember:focus-visible,
+.portal-btn-hero:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+.portal-btn-primary:disabled,
+.portal-btn-ghost:disabled,
+.portal-btn-ember:disabled,
+.portal-btn-hero:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* PRIMARY — sunset (acción principal) */
+.portal-btn-primary {
+  background: var(--action, #F05A28);
+  color: var(--action-ink, #fff);
+  box-shadow: 0 6px 16px -8px var(--action-ring, rgba(240, 90, 40, 0.3));
+}
+.portal-btn-primary:hover:not(:disabled) {
+  background: var(--action-hover, #D2451C);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -10px var(--action-ring, rgba(240, 90, 40, 0.3));
+}
+
+/* GHOST — secundaria neutra */
+.portal-btn-ghost {
+  background: transparent;
+  color: var(--text-main);
+  border: 1.5px solid var(--border-color);
+}
+.portal-btn-ghost:hover:not(:disabled) {
+  background: var(--hover-bg, var(--neutral-100));
+  border-color: var(--action, var(--neutral-300));
+}
+
+/* EMBER — superficie IA */
+.portal-btn-ember {
+  background: var(--ember-grad, linear-gradient(135deg, #F8B400, #F05A28));
+  color: #fff;
+  box-shadow: 0 8px 20px -10px var(--action-ring, rgba(240, 90, 40, 0.3));
+}
+.portal-btn-ember:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+/* HERO — CTA de marca en storefront (negro + amarillo sello) */
+.portal-btn-hero {
+  background: var(--neutral-950);
+  color: var(--brand-400);
+}
+.portal-btn-hero:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -10px rgba(0, 0, 0, 0.4);
+}
+
+/* Variante grande: confirmaciones críticas (carrito, etc.) */
+.portal-btn-primary-lg {
+  width: 100%;
+  border-radius: var(--r-md);
+  padding: 0.875rem 1.25rem;
+  font-size: 0.9375rem;
+  min-height: 48px;
+}
+/* Variante block: ancho completo */
+.portal-btn-block { width: 100%; }
+/* Variante pill: radio completo (storefront / IA) */
+.portal-btn-pill { border-radius: var(--r-pill); }
+
+/* ─── SECTION HEAD (entre subsecciones de una página) ──────── */
+.portal-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.875rem;
+}
+.portal-section-head h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-main);
+  letter-spacing: -0.005em;
+}
+.portal-section-head h2 i { color: var(--text-muted); font-size: 0.95rem; }
+.portal-section-link {
+  font-size: 0.8125rem;
+  color: var(--text-main);
+  text-decoration: underline;
+  text-decoration-color: var(--brand-500);
+  text-underline-offset: 3px;
+  font-weight: 600;
+  text-decoration-thickness: 2px;
+}
+.portal-section-count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── SURFACE CARD (radius 14, hover lift sutil) ───────────── */
+.portal-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  transition: border-color 150ms var(--ease-standard), box-shadow 200ms var(--ease-standard), transform 180ms var(--ease-standard);
+}
+.portal-card-hoverable:hover {
+  border-color: var(--neutral-300);
+  box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.10);
+  transform: translateY(-2px);
+}
+
+/* ─── EMPTY STATE consistente entre páginas ────────────────── */
+.portal-empty {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  background: var(--card-bg);
+  border: 1px dashed var(--border-color);
+  border-radius: 16px;
+  max-width: 480px;
+  margin: 2rem auto;
+}
+.portal-empty-icon {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 1rem;
+  border-radius: 18px;
+  background: var(--neutral-100);
+  color: var(--text-main);
+  display: grid;
+  place-items: center;
+  font-size: 1.875rem;
+}
+.portal-empty h2 {
+  margin: 0 0 0.375rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+.portal-empty p {
+  margin: 0 0 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+.portal-empty-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ─── STATUS PILL (estados de pedido en cualquier página) ──── */
+.portal-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--neutral-100);
+  color: var(--text-main);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.portal-status-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.portal-status-pill.is-draft     { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
+.portal-status-pill.is-pending   { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
+.portal-status-pill.is-confirmed { background: rgba(37, 99, 235, 0.12);  color: var(--info-fg); }
+.portal-status-pill.is-fulfilled { background: rgba(22, 163, 74, 0.12);  color: var(--ok-fg); }
+.portal-status-pill.is-cancelled { background: rgba(220, 38, 38, 0.12);  color: var(--bad-fg); }
+
+/* ─── INFO BANNER (admin warning, hint, etc.) ──────────────── */
+.portal-banner {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 12px;
+  background: var(--warn-soft-bg);
+  border: 1px solid var(--warn-border, var(--border-color));
+  color: var(--warn-soft-fg, var(--warn-fg));
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.portal-banner i { font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-card,
+  .portal-card-hoverable,
+  .portal-btn-primary,
+  .portal-btn-ghost {
+    transition-duration: 0.01ms !important;
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+ * COMMERCIAL UI PRIMITIVES — utilidades globales para las páginas
+ * admin de /comercial/*. Layout más denso que /portal (table-heavy,
+ * form-heavy, dialog-heavy). Comparten:
+ *
+ *   .comm-page-head    — header con título + sub + acción
+ *   .comm-page-sub     — subtítulo gris debajo del H2
+ *   .comm-filters      — barra de filtros sobre p-table
+ *   .comm-form         — form vertical dentro de p-dialog
+ *   .comm-form-grid    — form 2 columnas
+ *   .comm-num          — celdas numéricas right-aligned, tabular
+ *   .comm-actions      — celda de acciones (pencil/trash/eye)
+ *   .comm-strong       — celda con peso 600
+ *   .comm-muted        — texto secundario gris
+ *   .comm-code         — chip <code> en celda de tabla
+ *
+ * Si /comercial/foo necesita estilos custom propios, agregarlos
+ * a su archivo local. Pero **no** redefinir estas utilidades.
+ * ============================================================ */
+
+/* ── PAGE WRAPPER spacing scale ──
+ * Aplicar en host wrapper si la página quiere max-width consistente. */
+.comm-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.comm-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.comm-page-head-text { min-width: 0; flex: 1; }
+.comm-page-head h1,
+.comm-page-head h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+.comm-page-sub {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-color-secondary);
+  line-height: 1.45;
+}
+
+.comm-filters {
+  display: flex;
+  gap: 0.875rem 1.25rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.comm-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-secondary);
+}
+
+.comm-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.comm-num.is-strong { font-weight: 600; }
+
+.comm-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+.comm-strong { font-weight: 600; }
+.comm-cell-strong { font-weight: 600; color: var(--text-main); }
+
+.comm-muted {
+  color: var(--text-color-secondary);
+  font-size: 0.8125rem;
+  margin: 0;
+}
+.comm-muted.is-small { font-size: 0.7rem; line-height: 1.35; }
+
+/* ── STATUS PILLS extendidos para celdas (Active/Inactive/Default) ──
+ * Estilo monocromo con accent. Reemplaza <p-tag severity="success/danger/info">
+ * para Activo/Inactivo/Default en tablas de comercial. */
+.comm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.comm-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.comm-pill.is-active     { background: rgba(22, 163, 74, 0.10);  color: var(--ok-fg); }
+.comm-pill.is-inactive   { background: var(--neutral-100);        color: var(--text-color-secondary); }
+.comm-pill.is-default    { background: rgba(37, 99, 235, 0.10);  color: var(--info-fg); }
+.comm-pill.is-warn       { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
+.comm-pill.is-bad        { background: rgba(220, 38, 38, 0.12);  color: var(--bad-fg); }
+.comm-pill.is-neutral    { background: var(--neutral-100);        color: var(--text-main); }
+.comm-pill.is-brand      { background: rgba(248, 180, 0, 0.16);   color: var(--brand-700, var(--text-main)); }
+/* Pill sin punto (para chips de tipo de promoción, etc.) */
+.comm-pill.no-dot::before { display: none; }
+
+/* ── STAT CARD (info-card en order-detail u otros 3-cols) ─── */
+.comm-stat-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.comm-stat-card .comm-stat-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-secondary);
+}
+.comm-stat-card .comm-stat-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.25;
+  word-break: break-word;
+}
+.comm-stat-card .comm-stat-value.is-big {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+.comm-stat-card .comm-stat-sub {
+  font-size: 0.7rem;
+  color: var(--text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── TABLE refinos globales ──
+ * Aplica a TODA p-table dentro de páginas /comercial via descendant selectors.
+ * Tipografía de header más densa, hover sutil, sticky header opcional. */
+:where(.comm-page, app-comercial-orders, app-comercial-customers,
+       app-comercial-inventory, app-comercial-warehouses, app-comercial-pricing,
+       app-comercial-promotions, app-comercial-order-detail) .p-datatable thead th {
+  font-size: 0.7rem !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--text-color-secondary) !important;
+  padding: 0.6rem 0.75rem !important;
+}
+:where(.comm-page, app-comercial-orders, app-comercial-customers,
+       app-comercial-inventory, app-comercial-warehouses, app-comercial-pricing,
+       app-comercial-promotions, app-comercial-order-detail) .p-datatable tbody td {
+  padding: 0.55rem 0.75rem !important;
+  font-size: 0.8125rem !important;
+  vertical-align: middle;
+}
+:where(app-comercial-orders, app-comercial-customers) .p-datatable tbody tr:hover {
+  background: var(--neutral-100) !important;
+}
+
+.comm-row-clickable { cursor: pointer; }
+
+code.comm-code,
+.comm-code {
+  background: var(--surface-100);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.comm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.comm-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-color-secondary);
+}
+.comm-form em {
+  color: var(--bad-fg);
+  font-style: normal;
+}
+.comm-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+}
+.comm-form-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-color-secondary);
+}
+.comm-form-grid > label.full { grid-column: span 2; }
+.comm-form-grid em {
+  color: var(--bad-fg);
+  font-style: normal;
+}
+.comm-form .checkbox-line,
+.comm-form-grid .checkbox-line {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+.comm-form-hint {
+  background: var(--info-soft-bg);
+  color: var(--info-soft-fg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.comm-form-grid > .comm-form-hint.full,
+.comm-form-grid > .full {
+  grid-column: span 2;
+}
+
+/* ============================================================
+ * SURFACE / PANEL / METRIC — sistema nuevo data-first para
+ * dashboards densos (command-center, analytics). Diseñado para
+ * REEMPLAZAR <p-card> en /comercial y maximizar uso de pantalla.
+ *
+ * Reglas:
+ *  - Chrome mínimo: 1px hairline border, 0 shadow base, radius 10px.
+ *  - Edge-to-edge: page padding solo lateral, no max-width artificial.
+ *  - Tipografía dramática: numbers 3x el tamaño del label.
+ *  - Color discipline: brand-500 solo en activo/primario; neutrals
+ *    para todo lo demás.
+ * ============================================================ */
+
+/* PAGE wrapper sin max-width (aprovecha 100% viewport).
+   Padding solo horizontal, top y bottom controlados por
+   gap entre paneles. */
+.surf-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0 1.5rem 2rem;
+  width: 100%;
+}
+@media (max-width: 768px) {
+  .surf-page { padding: 0 1rem 1.5rem; }
+}
+
+/* PAGE HEAD edge-to-edge */
+.surf-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  padding: 1rem 0 0.5rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+.surf-page-head-text { min-width: 0; flex: 1; }
+/* TITLE ROLES — un único H1 por página (page-head).
+ * Tamaño: --fs-h1 standard, --fs-display si es página tipo "centro de control" hero. */
+.surf-page-head h1,
+.surf-page-head h2 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-bold);
+  color: var(--c-text-1);
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+.surf-page-sub {
+  margin: 0.375rem 0 0;
+  font-size: var(--fs-sm);
+  color: var(--c-text-2);
+  line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* GRID 12 cols sistema panel */
+.surf-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 0.75rem;
+}
+.panel-col-3  { grid-column: span 12; }
+.panel-col-4  { grid-column: span 12; }
+.panel-col-6  { grid-column: span 12; }
+.panel-col-8  { grid-column: span 12; }
+.panel-col-12 { grid-column: span 12; }
+@media (min-width: 720px) {
+  .panel-col-3 { grid-column: span 6; }
+  .panel-col-4 { grid-column: span 6; }
+  .panel-col-6 { grid-column: span 12; }
+  .panel-col-8 { grid-column: span 12; }
+}
+@media (min-width: 1080px) {
+  .panel-col-3 { grid-column: span 3; }
+  .panel-col-4 { grid-column: span 4; }
+  .panel-col-6 { grid-column: span 6; }
+  .panel-col-8 { grid-column: span 8; }
+}
+
+/* PANEL: superficie base sin chrome de framework */
+.surf-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.surf-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--card-bg);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.surf-panel-head h3 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-secondary);
+}
+.surf-panel-head h3 i {
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+}
+.surf-panel-body { padding: 1rem; }
+.surf-panel-body.is-flush { padding: 0; }
+
+/* METRIC TILE: número grande dramatico, label muy pequeño */
+.metric-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.125rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  min-height: 110px;
+  overflow: hidden;
+}
+.metric-tile::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--neutral-300, var(--border-color));
+}
+.metric-tile.is-brand::before { background: var(--brand-500); }
+.metric-tile.is-ok::before    { background: var(--ok-fg); }
+.metric-tile.is-warn::before  { background: var(--warn-fg); }
+.metric-tile.is-bad::before   { background: var(--bad-fg); }
+.metric-tile.is-info::before  { background: var(--info-fg); }
+
+.metric-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-color-secondary);
+  line-height: 1;
+}
+.metric-value {
+  font-size: 1.875rem;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.025em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.metric-sub {
+  font-size: 0.7rem;
+  color: var(--text-color-secondary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  margin-top: auto;
+}
+
+/* DATA TABLE: chrome-free, hairlines, sticky header, row hover lateral */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--c-surface-1);
+  z-index: 1;
+  text-align: left;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-2);
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--c-divider);
+  white-space: nowrap;
+}
+.data-table tbody td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--c-divider);
+  color: var(--c-text-1);
+  vertical-align: middle;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr {
+  position: relative;
+  transition: background-color 80ms ease;
+}
+.data-table tbody tr:hover {
+  background: var(--neutral-100, var(--surface-100));
+}
+.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--brand-500);
+}
+.data-table .num { text-align: right; }
+.data-table .strong { font-weight: 600; color: var(--text-main); }
+.data-table .muted { color: var(--text-color-secondary); }
+.data-table .small { font-size: 0.7rem; }
+
+/* DATA TABLE scroll container con sticky header funcional */
+.data-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-table tbody tr { transition: none; }
+}
+
+/* ============================================================
+ * SHEET / CELL — dashboard BI clásico estilo Salesforce/Tableau.
+ * Celdas pegadas, divididas por hairlines 1px (NO gap visual,
+ * NO radius interior). Un único panel grande dividido.
+ *
+ * Trick: parent bg = border-color, children bg = card-bg,
+ * gap: 1px → el gap "revela" el bg parent = hairline divider.
+ * ============================================================ */
+
+.sheet {
+  display: grid;
+  gap: 1px;
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.sheet.cols-2  { grid-template-columns: repeat(2, 1fr); }
+.sheet.cols-3  { grid-template-columns: repeat(3, 1fr); }
+.sheet.cols-4  { grid-template-columns: repeat(4, 1fr); }
+.sheet.cols-12 { grid-template-columns: repeat(12, 1fr); }
+
+/* Span helpers para sheets de 12 cols */
+.cell-span-2  { grid-column: span 12; }
+.cell-span-3  { grid-column: span 12; }
+.cell-span-4  { grid-column: span 12; }
+.cell-span-5  { grid-column: span 12; }
+.cell-span-6  { grid-column: span 12; }
+.cell-span-7  { grid-column: span 12; }
+.cell-span-8  { grid-column: span 12; }
+.cell-span-12 { grid-column: span 12; }
+.cell-row-2   { grid-row: span 1; }
+@media (min-width: 720px) {
+  .cell-span-2  { grid-column: span 6; }
+  .cell-span-3  { grid-column: span 6; }
+  .cell-span-4  { grid-column: span 6; }
+  .cell-span-5  { grid-column: span 12; }
+  .cell-span-6  { grid-column: span 12; }
+  .cell-span-7  { grid-column: span 12; }
+  .cell-span-8  { grid-column: span 12; }
+}
+@media (min-width: 1080px) {
+  .cell-span-2  { grid-column: span 2; }
+  .cell-span-3  { grid-column: span 3; }
+  .cell-span-4  { grid-column: span 4; }
+  .cell-span-5  { grid-column: span 5; }
+  .cell-span-6  { grid-column: span 6; }
+  .cell-span-7  { grid-column: span 7; }
+  .cell-span-8  { grid-column: span 8; }
+  .cell-row-2   { grid-row: span 2; }
+}
+
+.cell {
+  position: relative;
+  background: var(--card-bg);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-width: 0;
+  min-height: 100%;
+}
+.cell.is-flush { padding: 0; }
+.cell.is-tight { padding: 1rem 1.125rem; }
+
+/* CELL ICON: badge cuadrado top-right, semántico opcional.
+ * Comunica el tipo de métrica de un vistazo sin saturar visualmente. */
+.cell-icon {
+  position: absolute;
+  top: 1.125rem;
+  right: 1.25rem;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+.cell-icon.is-accent { background: rgba(248, 180, 0, 0.15); color: var(--c-accent-fg); }
+.cell-icon.is-ok     { background: rgba(22, 163, 74, 0.12); color: var(--c-ok); }
+.cell-icon.is-warn   { background: rgba(245, 158, 11, 0.14); color: var(--c-warn); }
+.cell-icon.is-bad    { background: rgba(220, 38, 38, 0.12); color: var(--c-bad); }
+.cell-icon.is-info   { background: rgba(37, 99, 235, 0.12); color: var(--c-info); }
+
+/* Reservar espacio para el icono en el header label */
+.cell-icon ~ .cell-label,
+.cell:has(.cell-icon) .cell-label { padding-right: 2.5rem; }
+
+/* CELL LABEL: el "header" inline — micro caps. */
+.cell-label {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-text-2);
+  line-height: 1.2;
+  margin: 0;
+}
+
+/* CELL VALUE: número grande, escala estricta.
+ *   - default:    --fs-h1   (1.875rem) bold neutro
+ *   - is-headline:--fs-display (2.5rem) black + accent (1 por vista)
+ *   - is-medium:  --fs-h2   (1.25rem) bold
+ *   - is-small:   --fs-h3   (1rem) bold
+ */
+.cell-value {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.025em;
+  color: var(--c-text-1);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+.cell-value.is-headline {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-black);
+  color: var(--c-accent-fg);
+  letter-spacing: -0.03em;
+}
+.cell-value.is-medium { font-size: var(--fs-h2); }
+.cell-value.is-small  { font-size: var(--fs-h3); }
+
+/* CELL SUB: subtítulo bajo el valor */
+.cell-sub {
+  font-size: var(--fs-xs);
+  color: var(--c-text-2);
+  line-height: 1.4;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* CELL HEAD: variante para celdas con encabezado + table inside */
+.cell-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.cell-head .cell-label { margin: 0; }
+
+/* Tables dentro de celdas (sin chrome adicional) */
+.cell .data-table { font-size: 0.8125rem; }
+.cell .data-table thead th {
+  background: var(--card-bg);
+  padding: 0.5rem 1.25rem;
+}
+.cell .data-table tbody td {
+  padding: 0.6rem 1.25rem;
+}

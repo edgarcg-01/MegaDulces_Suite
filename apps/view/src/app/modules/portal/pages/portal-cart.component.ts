@@ -101,8 +101,8 @@ function hashColor(key: string): string {
             >{{ line.line_number }}</div>
 
             <div class="ca-line-body">
-              <span class="ca-line-label">Producto</span>
-              <code class="ca-line-id">{{ shortId(line.product_id) }}</code>
+              <span class="ca-line-brand" *ngIf="line.brand_name">{{ line.brand_name }}</span>
+              <span class="ca-line-name">{{ line.product_name || shortId(line.product_id) }}</span>
               <div class="ca-line-meta">
                 <span class="ca-meta-item">
                   <i class="pi pi-tag"></i>
@@ -273,7 +273,7 @@ function hashColor(key: string): string {
         align-items: center;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 0.75rem 0.875rem;
         transition: border-color 150ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
       }
@@ -305,7 +305,7 @@ function hashColor(key: string): string {
       .ca-line-avatar {
         width: 56px;
         height: 56px;
-        border-radius: 12px;
+        border-radius: var(--r-md);
         color: #fff;
         display: grid;
         place-items: center;
@@ -332,14 +332,18 @@ function hashColor(key: string): string {
         font-weight: 700;
         color: var(--text-faint);
       }
-      .ca-line-id {
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.8125rem;
+      .ca-line-brand {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+      }
+      .ca-line-name {
+        font-size: 0.9375rem;
+        font-weight: 700;
         color: var(--text-main);
-        background: var(--neutral-100);
-        padding: 0.125rem 0.5rem;
-        border-radius: 6px;
-        align-self: flex-start;
+        line-height: 1.25;
       }
       .ca-line-meta {
         display: flex;
@@ -353,7 +357,7 @@ function hashColor(key: string): string {
         color: var(--warn-soft-fg);
         font-weight: 700;
         padding: 0.1rem 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         border: 1px solid var(--warn-border);
       }
 
@@ -361,9 +365,9 @@ function hashColor(key: string): string {
         display: flex;
         align-items: center;
         border: 1.5px solid var(--border-color);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         overflow: hidden;
-        height: 36px;
+        height: 44px;
         background: var(--card-bg);
       }
       .ca-line-qty input {
@@ -386,7 +390,7 @@ function hashColor(key: string): string {
       .ca-qty-btn {
         background: var(--surface-ground);
         border: none;
-        width: 32px;
+        width: 40px;
         height: 100%;
         cursor: pointer;
         color: var(--text-main);
@@ -422,7 +426,7 @@ function hashColor(key: string): string {
         border: none;
         background: transparent;
         color: var(--text-faint);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         cursor: pointer;
         display: grid;
         place-items: center;
@@ -438,7 +442,7 @@ function hashColor(key: string): string {
         padding: 2rem 1rem;
         background: var(--card-bg);
         border: 1px dashed var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         color: var(--text-muted);
       }
       .ca-no-lines i { font-size: 1.5rem; display: block; margin-bottom: 0.5rem; }
@@ -459,7 +463,7 @@ function hashColor(key: string): string {
       .ca-summary-inner {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1.25rem;
         box-shadow: 0 8px 24px -10px rgba(0,0,0,0.08);
       }
@@ -507,7 +511,7 @@ function hashColor(key: string): string {
         background: var(--neutral-100);
         border: 1px solid var(--border-color);
         border-left: 3px solid var(--brand-500);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         margin-bottom: 0.875rem;
       }
       .ca-summary-total span {
@@ -535,7 +539,7 @@ function hashColor(key: string): string {
         font-size: 0.8125rem;
         cursor: pointer;
         margin-top: 0.5rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         display: inline-flex;
         align-items: center;
         justify-content: center;

@@ -127,8 +127,8 @@ function hashColor(key: string): string {
               >{{ l.line_number }}</div>
 
               <div class="od-line-body">
-                <span class="od-line-label">Producto</span>
-                <code class="od-line-id">{{ shortId(l.product_id) }}</code>
+                <span class="od-line-brand" *ngIf="l.brand_name">{{ l.brand_name }}</span>
+                <span class="od-line-name">{{ l.product_name || shortId(l.product_id) }}</span>
                 <div class="od-line-meta">
                   <span class="od-meta-item">
                     <i class="pi pi-shopping-cart"></i>
@@ -267,7 +267,7 @@ function hashColor(key: string): string {
         font-size: 0.8125rem;
         font-weight: 600;
         padding: 0.375rem 0.625rem;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         transition: background-color 150ms var(--ease-standard), color 150ms var(--ease-standard);
       }
       .od-back:hover { background: var(--neutral-100); color: var(--text-main); }
@@ -280,7 +280,7 @@ function hashColor(key: string): string {
         gap: 1.25rem;
         align-items: center;
         padding: 1.25rem 1.5rem;
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         margin-bottom: 1.5rem;
         color: var(--text-main);
         background: var(--card-bg);
@@ -317,7 +317,7 @@ function hashColor(key: string): string {
       .od-hero-icon {
         width: 64px;
         height: 64px;
-        border-radius: 16px;
+        border-radius: var(--r-lg);
         background: var(--neutral-100);
         color: var(--text-main);
         display: grid;
@@ -393,7 +393,7 @@ function hashColor(key: string): string {
         background: var(--bad-soft-bg);
         color: var(--bad-soft-fg);
         border: 1px solid var(--bad-border);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         font-size: 0.8125rem;
         font-weight: 600;
       }
@@ -447,13 +447,13 @@ function hashColor(key: string): string {
         align-items: center;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         padding: 0.75rem 0.875rem;
       }
       .od-line-avatar {
         width: 48px;
         height: 48px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         color: #fff;
         display: grid;
         place-items: center;
@@ -475,14 +475,18 @@ function hashColor(key: string): string {
         font-weight: 700;
         color: var(--text-faint);
       }
-      .od-line-id {
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.75rem;
+      .od-line-brand {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+      }
+      .od-line-name {
+        font-size: 0.9375rem;
+        font-weight: 700;
         color: var(--text-main);
-        background: var(--neutral-100);
-        padding: 0.1rem 0.45rem;
-        border-radius: 6px;
-        align-self: flex-start;
+        line-height: 1.25;
       }
       .od-line-meta {
         display: flex;
@@ -516,7 +520,7 @@ function hashColor(key: string): string {
       .od-totals {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         padding: 1rem 1.125rem;
         display: flex;
         flex-direction: column;
@@ -567,7 +571,7 @@ function hashColor(key: string): string {
         background: var(--bad-soft-bg);
         margin-top: 0.5rem;
         padding: 0.5rem 0.75rem;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
       }
       .od-totals-due span,
       .od-totals-due b {
@@ -579,7 +583,7 @@ function hashColor(key: string): string {
         grid-column: 1 / -1;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1rem 1.125rem 1.125rem;
         margin-bottom: 1rem;
       }
@@ -593,7 +597,7 @@ function hashColor(key: string): string {
         padding: 0.75rem 0.875rem;
         background: var(--neutral-50, var(--card-bg));
         border: 1px solid var(--border-color);
-        border-radius: 10px;
+        border-radius: var(--r-md);
       }
       .od-shipment.is-en_ruta { border-color: var(--info-fg); background: var(--info-soft-bg); }
       .od-shipment.is-entregado,
@@ -618,7 +622,7 @@ function hashColor(key: string): string {
         align-items: center;
         gap: 0.375rem;
         padding: 0.25rem 0.625rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-size: 0.75rem;
         font-weight: 700;
         background: var(--neutral-100);
@@ -647,7 +651,7 @@ function hashColor(key: string): string {
       .od-timeline-section {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1rem 1.125rem 1.125rem;
       }
 

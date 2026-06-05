@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageModule } from 'primeng/message';
 import { AuthService } from '../../../core/services/auth.service';
@@ -13,7 +12,6 @@ import { AuthService } from '../../../core/services/auth.service';
   imports: [
     CommonModule,
     ReactiveFormsModule,
-    ButtonModule,
     InputTextModule,
     MessageModule,
   ],
@@ -62,7 +60,7 @@ import { AuthService } from '../../../core/services/auth.service';
         </header>
 
         <form [formGroup]="form" (ngSubmit)="submit()" class="pl-form" novalidate>
-          <div class="pl-field">
+          <div class="pl-field" *ngIf="showTenant()">
             <label for="tenant">Empresa</label>
             <input
               pInputText
@@ -77,6 +75,15 @@ import { AuthService } from '../../../core/services/auth.service';
               enterkeyhint="next"
             />
           </div>
+          <button
+            *ngIf="!showTenant()"
+            type="button"
+            class="pl-tenant-toggle"
+            (click)="showTenant.set(true)"
+          >
+            <i class="pi pi-building" aria-hidden="true"></i>
+            ¿Tu cuenta es de otra empresa? Cambiar
+          </button>
 
           <div class="pl-field">
             <label for="user">Usuario</label>
@@ -120,13 +127,13 @@ import { AuthService } from '../../../core/services/auth.service';
           ></p-message>
 
           <button
-            pButton
             type="submit"
-            [label]="loading() ? 'Ingresando…' : 'Ingresar al portal'"
-            [icon]="loading() ? 'pi pi-spin pi-spinner' : 'pi pi-arrow-right'"
+            class="portal-btn-primary portal-btn-block portal-btn-primary-lg pl-submit"
             [disabled]="loading() || form.invalid"
-            class="pl-submit"
-          ></button>
+          >
+            <i [class]="loading() ? 'pi pi-spin pi-spinner' : 'pi pi-arrow-right'" aria-hidden="true"></i>
+            {{ loading() ? 'Ingresando…' : 'Ingresar al portal' }}
+          </button>
 
           <p class="pl-foot">
             ¿No tienes acceso?
@@ -202,7 +209,7 @@ import { AuthService } from '../../../core/services/auth.service';
         width: 88px;
         height: 88px;
         object-fit: contain;
-        border-radius: 18px;
+        border-radius: var(--r-lg);
         background: rgba(255,255,255,0.95);
         padding: 10px;
         margin-bottom: 1.5rem;
@@ -210,11 +217,13 @@ import { AuthService } from '../../../core/services/auth.service';
       }
 
       .pl-hero-title {
+        font-family: var(--font-display);
+        font-optical-sizing: auto;
         font-size: clamp(2rem, 3.5vw, 2.75rem);
-        font-weight: 800;
-        line-height: 1.1;
+        font-weight: 700;
+        line-height: 1.08;
         margin: 0 0 0.875rem 0;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.01em;
       }
       .pl-hero-accent {
         color: #fff;
@@ -281,7 +290,7 @@ import { AuthService } from '../../../core/services/auth.service';
         width: 56px;
         height: 56px;
         object-fit: contain;
-        border-radius: 14px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         padding: 6px;
         margin-bottom: 1rem;
@@ -300,15 +309,17 @@ import { AuthService } from '../../../core/services/auth.service';
         background: var(--neutral-100);
         border: 1px solid var(--border-color);
         padding: 0.25rem 0.625rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         margin-bottom: 0.875rem;
       }
       .pl-form-title {
+        font-family: var(--font-display);
+        font-optical-sizing: auto;
         font-size: 1.75rem;
-        font-weight: 800;
-        line-height: 1.15;
+        font-weight: 700;
+        line-height: 1.12;
         margin: 0 0 0.375rem 0;
-        letter-spacing: -0.015em;
+        letter-spacing: -0.01em;
         color: var(--text-main);
       }
       .pl-form-sub {
@@ -340,7 +351,7 @@ import { AuthService } from '../../../core/services/auth.service';
         width: 100%;
         padding: 0.75rem 0.875rem;
         font-size: 0.9375rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         border: 1.5px solid var(--border-color);
         background: var(--card-bg);
         color: var(--text-main);
@@ -350,9 +361,9 @@ import { AuthService } from '../../../core/services/auth.service';
         border-color: var(--neutral-300);
       }
       .pl-field :deep(input.p-inputtext:focus) {
-        border-color: var(--neutral-700);
+        border-color: var(--action);
         outline: none;
-        box-shadow: 0 0 0 3px rgba(253, 231, 7, 0.18);
+        box-shadow: 0 0 0 3px var(--action-ring);
       }
 
       .pl-label-row {
@@ -369,8 +380,8 @@ import { AuthService } from '../../../core/services/auth.service';
         cursor: pointer;
         padding: 0.5rem 0.75rem;
         min-width: 44px;
-        min-height: 32px;
-        border-radius: 8px;
+        min-height: 44px;
+        border-radius: var(--r-sm);
       }
       .pl-show-pass:hover {
         background: var(--neutral-100);
@@ -383,34 +394,30 @@ import { AuthService } from '../../../core/services/auth.service';
 
       .pl-error { width: 100%; }
 
-      .pl-submit {
-        margin-top: 0.5rem;
-        width: 100%;
+      /* El submit usa el átomo .portal-btn-primary (sunset). Acá solo el margen. */
+      .pl-submit { margin-top: 0.5rem; }
+
+      /* Toggle "otra empresa" — campo Empresa colapsado por default. */
+      .pl-tenant-toggle {
+        align-self: flex-start;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0.5rem 0;
+        min-height: 44px;
       }
-      .pl-submit :deep(.p-button) {
-        width: 100%;
-        background: var(--neutral-900) !important;
-        border: none !important;
-        color: #fff !important;
-        font-weight: 700 !important;
-        padding: 0.875rem 1.25rem !important;
-        font-size: 0.9375rem !important;
-        border-radius: 10px !important;
-        box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.25) !important;
-        transition: transform 150ms var(--ease-standard), box-shadow 200ms var(--ease-standard), filter 150ms var(--ease-standard) !important;
-      }
-      .pl-submit :deep(.p-button:not(:disabled):hover) {
-        filter: brightness(1.18);
-        box-shadow: 0 6px 18px -4px rgba(0, 0, 0, 0.3) !important;
-        transform: translateY(-1px);
-      }
-      .pl-submit :deep(.p-button:not(:disabled):active) {
-        transform: translateY(0);
-      }
-      .pl-submit :deep(.p-button:disabled) {
-        opacity: 0.55;
-        box-shadow: none !important;
-        cursor: not-allowed;
+      .pl-tenant-toggle:hover { color: var(--text-main); }
+      .pl-tenant-toggle i { font-size: 0.8rem; }
+      .pl-tenant-toggle:focus-visible {
+        outline: 2px solid var(--action);
+        outline-offset: 2px;
+        border-radius: 6px;
       }
 
       .pl-foot {
@@ -439,6 +446,8 @@ export class PortalLoginComponent {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly showPass = signal(false);
+  /** Campo "Empresa" colapsado por default (beta single-tenant, prefilled mega_dulces). */
+  readonly showTenant = signal(false);
 
   form = this.fb.group({
     tenant_slug: ['mega_dulces', Validators.required],

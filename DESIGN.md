@@ -150,7 +150,7 @@ Negro puro bajo una marca cálida se ve duro/barato; el espresso conserva la cal
 - **Reorder rail:** strip horizontal de los más pedidos (90d) arriba del catálogo.
 - **Sticky cart bar:** pill flotante con conteo + total tabular + CTA (tool mode).
 - **Max content width:** 1180–1280px. **Mobile:** tab bar flotante (pill) + sidebar desktop (ya implementado).
-- **Border radius:** sm 8px · md 12px · lg 16px · xl 22px · pill 999px.
+- **Border radius (tokens en `tokens.css`):** `--r-sm` 8px · `--r-md` 12px (controles/botones) · `--r-lg` 16px (tarjetas) · `--r-xl` 20px (tarjetas grandes) · `--r-2xl` 24px (hero) · `--r-pill` 999px. Usar siempre el token, no el valor hardcodeado.
 
 ## Motion
 - **Enfoque:** intencional, rápido. No decorativo.
@@ -270,3 +270,20 @@ Antes de inventar interacciones, respetar:
 ⬜ **Pendiente (próximas fases):**
 - #1 (resto): extraer **`ProductCard`** (unifica `cat-card`/`cat-bestseller-card`/`pp-offer`/`po-card`) + **`SearchBar`** + **`Pill/Badge`** + **`Stepper`** + **`EmptyState`** como componentes Angular. El budget CSS del catálogo (31.9 kB) confirma que extraer `ProductCard` aliviana mucho.
 - #4 (Hick): abrir el catálogo con curaduría (categorías + reorder + sugeridos) antes del grid completo.
+
+### Revisión paso-a-paso del portal (2026-06-04) — outcomes
+
+Auditoría módulo por módulo (tipografía al detalle + densidad + bordes + a11y + código). Aplicado:
+- **Login**: títulos → Fraunces; submit → átomo sunset (se eliminó un p-button con 8 `!important`); focus → `--action-ring`; campo "Empresa" colapsado; radios a escala; show-pass 44px.
+- **Shell**: 🔴 bug dark-mode del tab bar flotante (estaba `rgba(255,255,255,.85)` hardcodeado) → tokens; nav móvil **6→5 tabs + FAB IA eliminado** (duplicaba el tab); tamaños/borders a escala.
+- **Home**: tracking display -0.035/-0.025 → -0.02 + `font-optical-sizing`; eyebrows → 0.08em; **fast-path subido** (Atajos arriba de Promos).
+- **Catálogo**: tracking/eyebrow; drawer del carrito con **nombres de producto**; flag: extraer ProductCard + declutter de cabecera (hero-mini).
+- **Carrito**: `--font-mono` (era JetBrains hardcoded); qty 44px; 🔴 **muestra nombre+marca real** (no UUID — el dato ya venía del backend `findById`, el front lo ignoraba).
+- **Promociones**: bento hero → Fraunces.
+- **Recomendaciones (IA)**: 🟡 **identidad ember aplicada** (iconos/avatares ámbar→sunset); acciones a sunset/ember; focus token; steppers a 40px.
+- **Detalle de pedido**: nombres de producto + `--font-mono`.
+- **Pedidos / Guard / Service / Notif-prefs**: revisados, sin deuda relevante.
+
+Hallazgo transversal resuelto: **líneas de pedido mostraban UUID en vez del nombre** (carrito, detalle, drawer). Fix 100% frontend — el backend `commercial-orders.findById` ya hacía el join `p.nombre as product_name`.
+
+Pendientes de esta revisión (no bloqueantes): radios de tarjeta a escala (tokenizar 16/20/24), `.portal-section-head h2` global → Fraunces en páginas storefront, declutter de cabecera del catálogo, y la extracción de `ProductCard`.

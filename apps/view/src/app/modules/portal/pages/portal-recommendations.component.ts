@@ -286,14 +286,14 @@ function hashColor(key: string): string {
         margin: 0 auto;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 18px;
+        border-radius: var(--r-lg);
         overflow: hidden;
         box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.1);
       }
       @media (max-width: 900px) {
         .ai-chat {
           height: calc(100dvh - 200px);
-          border-radius: 14px;
+          border-radius: var(--r-lg);
         }
       }
 
@@ -324,9 +324,9 @@ function hashColor(key: string): string {
       .ai-head-icon {
         width: 56px;
         height: 56px;
-        border-radius: 14px;
-        background: var(--neutral-900);
-        color: var(--brand-400);
+        border-radius: var(--r-lg);
+        background: var(--ember-grad);
+        color: #fff;
         display: grid;
         place-items: center;
         font-size: 1.5rem;
@@ -361,7 +361,7 @@ function hashColor(key: string): string {
         font-weight: 600;
         font-size: 0.75rem;
         padding: 0.5rem 0.75rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -401,9 +401,9 @@ function hashColor(key: string): string {
         width: 80px;
         height: 80px;
         margin: 0 auto 1rem;
-        border-radius: 22px;
-        background: var(--neutral-900);
-        color: var(--brand-400);
+        border-radius: var(--r-xl);
+        background: var(--ember-grad);
+        color: #fff;
         display: grid;
         place-items: center;
         font-size: 2rem;
@@ -457,7 +457,7 @@ function hashColor(key: string): string {
       .ai-ex-chip {
         background: var(--card-bg);
         border: 1.5px solid var(--border-color);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         padding: 0.5rem 0.875rem;
         font-size: 0.8125rem;
         font-weight: 500;
@@ -497,9 +497,9 @@ function hashColor(key: string): string {
       .ai-avatar {
         width: 36px;
         height: 36px;
-        border-radius: 12px;
-        background: var(--neutral-900);
-        color: var(--brand-400);
+        border-radius: var(--r-md);
+        background: var(--ember-grad);
+        color: #fff;
         display: grid;
         place-items: center;
         font-size: 0.95rem;
@@ -526,7 +526,7 @@ function hashColor(key: string): string {
       .ai-bubble {
         max-width: 85%;
         padding: 0.75rem 0.875rem;
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         background: var(--card-bg);
         border: 1px solid var(--border-color);
         align-self: flex-start;
@@ -551,7 +551,7 @@ function hashColor(key: string): string {
       .ai-sug-block {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         margin-top: 0.5rem;
         overflow: hidden;
         max-width: 100%;
@@ -603,7 +603,7 @@ function hashColor(key: string): string {
       .ai-sug-avatar {
         width: 44px;
         height: 44px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         color: #fff;
         display: grid;
         place-items: center;
@@ -665,15 +665,15 @@ function hashColor(key: string): string {
         display: flex;
         align-items: center;
         border: 1.5px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         overflow: hidden;
-        height: 32px;
+        height: 40px;
         background: var(--card-bg);
       }
       .ai-qty-btn {
         background: var(--surface-ground);
         border: none;
-        width: 28px;
+        width: 38px;
         height: 100%;
         cursor: pointer;
         color: var(--text-main);
@@ -721,7 +721,7 @@ function hashColor(key: string): string {
         cursor: pointer;
         width: 28px;
         height: 28px;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         display: grid;
         place-items: center;
         transition: background-color 150ms var(--ease-standard), color 150ms var(--ease-standard);
@@ -763,7 +763,7 @@ function hashColor(key: string): string {
         color: var(--text-main);
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         cursor: pointer;
         transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard), color 150ms var(--ease-standard);
       }
@@ -799,23 +799,25 @@ function hashColor(key: string): string {
       }
 
       .ai-add-cart {
-        background: var(--neutral-900);
+        background: var(--ember-grad);
         color: #fff;
         border: none;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         padding: 0.625rem 1rem;
+        min-height: 44px;
         font-weight: 700;
         font-size: 0.8125rem;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
         gap: 0.375rem;
+        box-shadow: 0 8px 20px -10px var(--action-ring);
         transition: filter 150ms var(--ease-standard), transform 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
       }
       .ai-add-cart:hover:not(:disabled) {
-        filter: brightness(1.18);
+        filter: brightness(1.05);
         transform: translateY(-1px);
-        box-shadow: inset 0 -2px 0 var(--brand-500);
+        box-shadow: 0 12px 26px -10px var(--action-ring);
       }
       .ai-add-cart:disabled {
         opacity: 0.5;
@@ -837,7 +839,7 @@ function hashColor(key: string): string {
         padding: 0.875rem 1rem;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
       }
       .ai-typing-dot {
         width: 6px;
@@ -871,7 +873,7 @@ function hashColor(key: string): string {
         line-height: 1.4;
         padding: 0.625rem 0.875rem;
         border: 1.5px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         background: var(--surface-ground);
         color: var(--text-main);
         outline: none;
@@ -880,30 +882,30 @@ function hashColor(key: string): string {
         transition: border-color 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard), background-color 150ms var(--ease-standard);
       }
       .ai-input-field:focus {
-        border-color: var(--neutral-700);
+        border-color: var(--action);
         background: var(--card-bg);
-        box-shadow: 0 0 0 3px rgba(253, 231, 7, 0.16);
+        box-shadow: 0 0 0 3px var(--action-ring);
       }
       .ai-input-field:disabled { opacity: 0.6; cursor: not-allowed; }
 
       .ai-input-send {
-        width: 42px;
-        height: 42px;
-        border-radius: 12px;
+        width: 44px;
+        height: 44px;
+        border-radius: var(--r-md);
         border: none;
-        background: var(--neutral-900);
-        color: #fff;
+        background: var(--action);
+        color: var(--action-ink, #fff);
         font-size: 1rem;
         cursor: pointer;
         display: grid;
         place-items: center;
-        transition: filter 150ms var(--ease-standard), transform 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
+        transition: background-color 150ms var(--ease-standard), transform 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
         flex-shrink: 0;
       }
       .ai-input-send:hover:not(:disabled) {
-        filter: brightness(1.18);
+        background: var(--action-hover);
         transform: translateY(-1px);
-        box-shadow: inset 0 -2px 0 var(--brand-500);
+        box-shadow: 0 8px 18px -8px var(--action-ring);
       }
       .ai-input-send:active:not(:disabled) { transform: translateY(0) scale(0.94); }
       .ai-input-send:disabled {

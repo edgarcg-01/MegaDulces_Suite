@@ -164,7 +164,7 @@ interface FilterChip {
         flex-shrink: 0;
         background: var(--card-bg);
         border: 1.5px solid var(--border-color);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         padding: 0.375rem 0.75rem;
         font-size: 0.8125rem;
         font-weight: 600;
@@ -190,7 +190,7 @@ interface FilterChip {
         font-size: 0.7rem;
         font-weight: 700;
         padding: 0.1rem 0.45rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-variant-numeric: tabular-nums;
       }
       .po-filter.active .po-filter-count {
@@ -203,7 +203,7 @@ interface FilterChip {
         padding: 2.25rem 1rem;
         background: var(--card-bg);
         border: 1px dashed var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         color: var(--text-muted);
       }
       .po-no-match i {
@@ -223,7 +223,7 @@ interface FilterChip {
         font-weight: 600;
         font-size: 0.8125rem;
         padding: 0.5rem 0.875rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -249,7 +249,7 @@ interface FilterChip {
         align-items: center;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1rem 1rem 1rem 1.25rem;
         text-decoration: none;
         color: inherit;
@@ -379,7 +379,7 @@ interface FilterChip {
         border: 1.5px solid var(--action, var(--brand-700));
         background: transparent;
         color: var(--action, var(--brand-700));
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-family: var(--font-body);
         font-size: 0.75rem;
         font-weight: 700;
