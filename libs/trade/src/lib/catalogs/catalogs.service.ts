@@ -14,6 +14,7 @@ import { legacyTxStorage } from '@megadulces/platform-core';
 import { ScoringV2Service } from '../scoring/scoring-v2.service';
 import { Permission } from '@megadulces/platform-core';
 import { PermissionsCacheService } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { UpdateCatalogItemDto } from './dto/update-catalog-item.dto';
 
@@ -83,6 +84,7 @@ export class CatalogsService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly scoringV2Service: ScoringV2Service,
     private readonly permsCache: PermissionsCacheService,
+    private readonly tenantCtx: TenantContextService,
   ) {}
 
   async getByType(type: string, parentId?: string, includeInactive = false) {
@@ -159,6 +161,7 @@ export class CatalogsService {
       try {
         const [item] = await this.knex('zones')
           .insert({
+            tenant_id: this.tenantCtx.requireTenantId(),
             name: data.value,
             orden: data.orden ?? 0,
             created_by: requesterId,
@@ -191,6 +194,7 @@ export class CatalogsService {
         const [item] = await this.knex('role_permissions')
           .insert({
             id: randomUUID(),
+            tenant_id: this.tenantCtx.requireTenantId(),
             role_name: name,
             permissions: {},
             updated_by: requesterId,
@@ -214,6 +218,7 @@ export class CatalogsService {
     }
 
     const insertData: Record<string, any> = {
+      tenant_id: this.tenantCtx.requireTenantId(),
       catalog_id: type,
       value: data.value,
       orden: data.orden ?? 0,
