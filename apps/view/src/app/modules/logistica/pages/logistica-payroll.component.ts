@@ -10,11 +10,13 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   LiquidationStatus, Liquidation, LogisticaService, PayrollPeriod, PeriodStatus,
+  AdjustmentType, PayrollAdjustment,
 } from '../logistica.service';
 
 const PERIOD_STATUS_OPTIONS: { label: string; value: PeriodStatus }[] = [
@@ -39,7 +41,7 @@ function severityLiq(s: LiquidationStatus): Severity {
     CommonModule, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, DatePickerModule, SelectModule,
-    TagModule, ToastModule, ConfirmDialogModule,
+    TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -105,6 +107,8 @@ function severityLiq(s: LiquidationStatus): Severity {
               <td class="num grand">\${{ l.net_amount | number:'1.2-2' }}</td>
               <td><p-tag [severity]="sevLiq(l.status)" [value]="l.status"></p-tag></td>
               <td class="actions">
+                <button pButton icon="pi pi-list" size="small" severity="secondary" [text]="true"
+                        pTooltip="Ajustes (anticipos / bonos / multas)" (click)="openAdjustments(l)"></button>
                 <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEditLiquidation(l)"></button>
               </td>
             </tr>
@@ -115,6 +119,65 @@ function severityLiq(s: LiquidationStatus): Severity {
         </p-table>
       </p-card>
     </div>
+
+    <!-- Adjustments dialog -->
+    <p-dialog [(visible)]="adjDialog" [modal]="true" [draggable]="false" [style]="{ width: '720px' }"
+              [header]="'Ajustes · ' + (adjDriverName() || '')">
+      <div *ngIf="editingLiq() as l" class="adj-summary">
+        <div><span class="label">Subtotal devengado</span><strong class="num">\${{ l.subtotal | number:'1.2-2' }}</strong></div>
+        <div><span class="label">Bonos</span><strong class="num pos">+\${{ l.bonuses | number:'1.2-2' }}</strong></div>
+        <div><span class="label">Deducciones</span><strong class="num neg">-\${{ l.deductions | number:'1.2-2' }}</strong></div>
+        <div><span class="label">Neto</span><strong class="num grand">\${{ l.net_amount | number:'1.2-2' }}</strong></div>
+      </div>
+
+      <p-table [value]="adjustments()" [loading]="loadingAdj()" styleClass="p-datatable-sm adj-table">
+        <ng-template pTemplate="header">
+          <tr>
+            <th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th>Notas</th><th></th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-a>
+          <tr>
+            <td class="muted">{{ a.date | date:'shortDate' }}</td>
+            <td><p-tag [severity]="sevAdj(a.type)" [value]="a.type"></p-tag></td>
+            <td class="num">\${{ a.amount | number:'1.2-2' }}</td>
+            <td class="muted">{{ a.notes || '—' }}</td>
+            <td class="actions">
+              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
+                      (click)="deleteAdjustment(a)" [disabled]="periodLocked()"></button>
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr><td colspan="5" class="muted">Sin ajustes registrados para este colaborador en el período.</td></tr>
+        </ng-template>
+      </p-table>
+
+      <form [formGroup]="adjForm" class="form adj-form" *ngIf="!periodLocked()">
+        <div class="row">
+          <label><span>Tipo <em>*</em></span>
+            <p-select formControlName="type" [options]="adjTypeOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
+          </label>
+          <label><span>Monto <em>*</em></span>
+            <p-inputNumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" [min]="0.01"></p-inputNumber>
+          </label>
+        </div>
+        <div class="row">
+          <label><span>Fecha <em>*</em></span>
+            <p-datePicker formControlName="date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker>
+          </label>
+          <label><span>Notas</span><input pInputText formControlName="notes" /></label>
+        </div>
+        <div class="adj-form-actions">
+          <button pButton label="Agregar ajuste" icon="pi pi-plus" [loading]="savingAdj()" [disabled]="adjForm.invalid" (click)="createAdjustment()"></button>
+        </div>
+      </form>
+      <div *ngIf="periodLocked()" class="muted adj-locked">Período pagado/cerrado — no se pueden agregar ni borrar ajustes.</div>
+
+      <ng-template pTemplate="footer">
+        <button pButton label="Cerrar" severity="secondary" [outlined]="true" (click)="adjDialog = false"></button>
+      </ng-template>
+    </p-dialog>
 
     <!-- Period dialog -->
     <p-dialog [(visible)]="periodDialog" [modal]="true" [draggable]="false" [style]="{ width: '500px' }" header="Nuevo período">
@@ -176,6 +239,15 @@ function severityLiq(s: LiquidationStatus): Severity {
     .info-grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:.75rem; padding:.75rem; background: var(--surface-100); border-radius:6px; }
     .info-grid > div { display:flex; flex-direction:column; }
     .info-grid .label { font-size:.7rem; color: var(--text-color-secondary); }
+    .adj-summary { display:grid; grid-template-columns: repeat(4, 1fr); gap:.75rem; padding:.75rem 1rem; background: var(--surface-100); border-radius:6px; margin-bottom:1rem; }
+    .adj-summary > div { display:flex; flex-direction:column; }
+    .adj-summary .label { font-size:.7rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing:.05em; }
+    .adj-summary .pos { color: #16a34a; }
+    .adj-summary .neg { color: #dc2626; }
+    .adj-table { margin-bottom:1rem; }
+    .adj-form { padding-top:1rem; border-top: 1px solid var(--surface-border); }
+    .adj-form-actions { display:flex; justify-content:flex-end; }
+    .adj-locked { padding:.75rem; background: var(--surface-100); border-radius:6px; text-align:center; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -192,10 +264,14 @@ export class LogisticaPayrollComponent {
   readonly savingL = signal(false);
   readonly calculatingId = signal<string | null>(null);
   readonly editingLiq = signal<Liquidation | null>(null);
+  readonly adjustments = signal<PayrollAdjustment[]>([]);
+  readonly loadingAdj = signal(false);
+  readonly savingAdj = signal(false);
 
   selectedPeriod: PayrollPeriod | null = null;
   periodDialog = false;
   liqDialog = false;
+  adjDialog = false;
 
   readonly liqHeader = computed(() => {
     const p = this.selectedPeriod;
@@ -208,6 +284,27 @@ export class LogisticaPayrollComponent {
     { label: 'Pagado', value: 'pagado' },
     { label: 'Anulado', value: 'anulado' },
   ];
+
+  readonly adjTypeOptions: { label: string; value: AdjustmentType }[] = [
+    { label: 'Anticipo', value: 'anticipo' },
+    { label: 'Préstamo', value: 'prestamo' },
+    { label: 'Multa', value: 'multa' },
+    { label: 'Falta', value: 'falta' },
+    { label: 'Bono', value: 'bono' },
+  ];
+
+  readonly adjDriverName = computed(() => this.editingLiq()?.driver_name || '');
+  readonly periodLocked = computed(() => {
+    const s = this.selectedPeriod?.status;
+    return s === 'pagado' || s === 'cerrado';
+  });
+
+  adjForm: FormGroup = this.fb.group({
+    type: ['anticipo' as AdjustmentType, Validators.required],
+    amount: [null as number | null, [Validators.required, Validators.min(0.01)]],
+    date: [null as Date | null, Validators.required],
+    notes: [''],
+  });
 
   periodForm: FormGroup = this.fb.group({
     year: [new Date().getFullYear(), Validators.required],
@@ -314,6 +411,75 @@ export class LogisticaPayrollComponent {
       error: (err) => {
         this.savingL.set(false);
         this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' });
+      },
+    });
+  }
+
+  // ── Adjustments ────────────────────────────────────────────────────────
+  sevAdj(t: AdjustmentType): Severity {
+    return t === 'bono' ? 'success' : t === 'falta' ? 'warn' : 'danger';
+  }
+
+  openAdjustments(l: Liquidation) {
+    this.editingLiq.set(l);
+    this.adjForm.reset({
+      type: 'anticipo', amount: null, date: new Date(), notes: '',
+    });
+    this.adjDialog = true;
+    this.loadAdjustments();
+  }
+
+  loadAdjustments() {
+    const l = this.editingLiq();
+    if (!l) return;
+    this.loadingAdj.set(true);
+    this.api.listAdjustments({ driver_id: l.driver_id, period_id: l.period_id }).subscribe({
+      next: (r) => { this.adjustments.set(r || []); this.loadingAdj.set(false); },
+      error: () => {
+        this.loadingAdj.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se cargaron ajustes' });
+      },
+    });
+  }
+
+  createAdjustment() {
+    if (this.adjForm.invalid) return;
+    const l = this.editingLiq();
+    if (!l) return;
+    const raw = this.adjForm.value;
+    const fmt = (d: Date | null) => (d instanceof Date ? d.toISOString().slice(0, 10) : d);
+    this.savingAdj.set(true);
+    this.api.createAdjustment({
+      driver_id: l.driver_id,
+      period_id: l.period_id,
+      type: raw.type,
+      amount: raw.amount,
+      date: fmt(raw.date) as string,
+      notes: raw.notes || undefined,
+    }).subscribe({
+      next: () => {
+        this.savingAdj.set(false);
+        this.toast.add({ severity: 'success', summary: 'Ajuste registrado' });
+        this.adjForm.reset({ type: 'anticipo', amount: null, date: new Date(), notes: '' });
+        this.loadAdjustments();
+        this.onPeriodSelect();
+      },
+      error: (err) => {
+        this.savingAdj.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' });
+      },
+    });
+  }
+
+  deleteAdjustment(a: PayrollAdjustment) {
+    this.api.deleteAdjustment(a.id).subscribe({
+      next: () => {
+        this.toast.add({ severity: 'success', summary: 'Ajuste eliminado' });
+        this.loadAdjustments();
+        this.onPeriodSelect();
+      },
+      error: (err) => {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' });
       },
     });
   }

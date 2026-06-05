@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -13,6 +14,7 @@ import {
   CreatePeriodDto,
   UpdatePeriodDto,
   UpdateLiquidationDto,
+  CreateAdjustmentDto,
 } from './logistics-payroll.service';
 
 @ApiTags('logistics-payroll')
@@ -64,5 +66,28 @@ export class LogisticsPayrollController {
   @ApiOperation({ summary: 'Editar liquidación (bonuses/deductions/status). Recalcula net_amount.' })
   updateLiquidation(@Param('id') id: string, @Body() body: UpdateLiquidationDto) {
     return this.service.updateLiquidation(id, body);
+  }
+
+  // ── Adjustments (anticipos / préstamos / multas / faltas / bonos) ────────
+
+  @Post('adjustments')
+  @ApiOperation({ summary: 'Registrar ajuste de nómina por persona y período. Recomputa la liquidación si existe.' })
+  createAdjustment(@Body() body: CreateAdjustmentDto) {
+    return this.service.createAdjustment(body);
+  }
+
+  @Get('adjustments')
+  @ApiOperation({ summary: 'Listar ajustes (filtrá por driver_id y/o period_id)' })
+  listAdjustments(
+    @Query('driver_id') driver_id?: string,
+    @Query('period_id') period_id?: string,
+  ) {
+    return this.service.listAdjustments({ driver_id, period_id });
+  }
+
+  @Delete('adjustments/:id')
+  @ApiOperation({ summary: 'Eliminar ajuste. Recomputa la liquidación. Solo si el período no está pagado/cerrado.' })
+  deleteAdjustment(@Param('id') id: string) {
+    return this.service.deleteAdjustment(id);
   }
 }

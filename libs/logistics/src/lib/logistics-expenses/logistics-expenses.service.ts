@@ -27,9 +27,11 @@ export type UpsertExpenseDto = Partial<Record<CostField, number>> & {
   extras?: Array<{ label: string; amount: number }>;
   notes?: string;
   /**
-   * Si true, lee `config_finance.costo_km_estandar` para el fixed_cost_per_km
-   * usado en el cálculo de total_cost (= operating_subtotal + actual_km * costo_km).
-   * Si false o ausente, usa el último fixed_cost_per_km guardado (o 0 si nunca).
+   * Si true, lee el costo $/km del catálogo `config_finance` (categoría
+   * `costo_km`). Intenta primero match por modelo del vehículo del shipment
+   * (ej. `costo_km_hino_500` para vehicle.model='HINO 500'); fallback a
+   * `costo_km_estandar`. Se aplica a `fixed_cost_per_km` usado en
+   * `total_cost = operating_subtotal + actual_km × fixed_cost_per_km`.
    */
   apply_config_km?: boolean;
 };
@@ -91,8 +93,7 @@ export class LogisticsExpensesService {
       // Fixed cost per km: configurable o último valor
       let fixed_cost_per_km = existing ? Number(existing.fixed_cost_per_km) : 0;
       if (dto.apply_config_km) {
-        const v = await this.config.getValueByKey('costo_km_estandar');
-        if (v !== null) fixed_cost_per_km = v;
+        fixed_cost_per_km = await this.resolveCostoKmForShipment(trx, shipment.vehicle_id);
       }
 
       const km_cost =
@@ -195,5 +196,59 @@ export class LogisticsExpensesService {
       for (const k of Object.keys(agg)) out[k] = Number(agg[k]) || 0;
       return out;
     });
+  }
+
+  /**
+   * Resuelve el `costo_km` del catálogo intentando match por modelo del
+   * vehículo del shipment (`costo_km_<slug>`) y haciendo fallback a
+   * `costo_km_estandar`. Retorna 0 si nada matchea.
+   *
+   * El slug se construye normalizando brand+model: "HINO 500" → "hino_500",
+   * "INTERNATIONAL II" → "international_ii".
+   */
+  private async resolveCostoKmForShipment(trx: any, vehicleId: string | null): Promise<number> {
+    if (vehicleId) {
+      const v = await trx('logistics.vehicles').where({ id: vehicleId }).first();
+      if (v) {
+        const slugCandidates = this.buildCostoKmSlugs(v.brand, v.model);
+        if (slugCandidates.length) {
+          const row = await trx('logistics.config_finance')
+            .where({ category: 'costo_km', active: true })
+            .whereIn('key', slugCandidates)
+            .orderByRaw(`array_position(ARRAY[${slugCandidates.map(() => '?').join(',')}]::text[], key)`, slugCandidates)
+            .first();
+          if (row) return Number(row.value) || 0;
+        }
+      }
+    }
+    const fallback = await this.config.getValueByKey('costo_km_estandar');
+    return fallback ?? 0;
+  }
+
+  /**
+   * Genera lista priorizada de keys candidatas en config_finance:
+   *   1. costo_km_<brand>_<model>  (mejor match)
+   *   2. costo_km_<model>          (sin brand)
+   *   3. costo_km_<brand>          (genérico por marca)
+   */
+  private buildCostoKmSlugs(brand?: string | null, model?: string | null): string[] {
+    // Reglas para matchear los slugs ya seedeados en config_finance:
+    //   "HINO 500"            → "hino_500"   (espacios → _)
+    //   "F-350"               → "f350"       (guiones se eliminan)
+    //   "RAM 4000 MORELIA"    → "ram_4000_morelia"
+    const norm = (s?: string | null) => (s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/-/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    const b = norm(brand);
+    const m = norm(model);
+    const out: string[] = [];
+    if (b && m) out.push(`costo_km_${b}_${m}`);
+    if (m) out.push(`costo_km_${m}`);
+    if (b) out.push(`costo_km_${b}`);
+    return [...new Set(out)];
   }
 }

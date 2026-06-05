@@ -175,6 +175,11 @@ const CONFIG_FINANCE = [
   // Tarifas Maniobra
   { key: 'tarifa_maniobra_carga', category: 'tarifa_maniobra', value: 30.00, unit: 'mxn', description: 'Carga por persona' },
   { key: 'tarifa_maniobra_descarga', category: 'tarifa_maniobra', value: 1.00, unit: 'mxn', description: 'Descarga por caja' },
+  // Viáticos por persona (montos del checklist de guías)
+  { key: 'viatico_cafe',     category: 'viatico', value: 50,  unit: 'mxn', description: 'Café — salida antes 6:00 am' },
+  { key: 'viatico_desayuno', category: 'viatico', value: 100, unit: 'mxn', description: 'Desayuno — salida antes 7:00 am' },
+  { key: 'viatico_comida',   category: 'viatico', value: 100, unit: 'mxn', description: 'Comida — llegada después 3:00 pm' },
+  { key: 'viatico_cena',     category: 'viatico', value: 100, unit: 'mxn', description: 'Cena — duerme fuera o llegada después 8:00 pm' },
 ];
 
 // ───────────────────────── helpers ─────────────────────────

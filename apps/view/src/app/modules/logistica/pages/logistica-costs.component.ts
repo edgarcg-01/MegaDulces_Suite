@@ -12,6 +12,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import {
@@ -36,7 +37,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     CommonModule, FormsModule, ReactiveFormsModule, RouterLink,
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, DatePickerModule, SelectModule,
-    TagModule, ToastModule,
+    TagModule, TooltipModule, ToastModule,
   ],
   providers: [MessageService],
   template: `
@@ -183,7 +184,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
         </label>
         <label class="full">
-          Aplicar costo km del config (recalcula total con km del embarque)
+          Aplicar costo $/km del catálogo (intenta match por modelo del vehículo: HINO 500, INTERNATIONAL, etc. — si no encuentra, usa <code>costo_km_estandar</code>)
           <p-select formControlName="apply_config_km" [options]="boolOptions" optionLabel="label" optionValue="value"></p-select>
         </label>
         <label class="full">

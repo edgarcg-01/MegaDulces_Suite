@@ -9,6 +9,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { TabsModule } from 'primeng/tabs';
 import { ToastModule } from 'primeng/toast';
@@ -50,7 +51,7 @@ function severityForDriverStatus(s: string): Severity {
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
-    InputTextModule, InputNumberModule, SelectModule, MultiSelectModule,
+    InputTextModule, InputNumberModule, SelectModule, MultiSelectModule, DatePickerModule,
     TagModule, TabsModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],

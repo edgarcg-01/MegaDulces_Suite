@@ -26,6 +26,18 @@ export interface UpdateLiquidationDto {
   notes?: string;
 }
 
+export type AdjustmentType = 'anticipo' | 'prestamo' | 'multa' | 'falta' | 'bono';
+
+export interface CreateAdjustmentDto {
+  driver_id: string;
+  period_id: string;
+  type: AdjustmentType;
+  amount: number;
+  date: string;
+  notes?: string;
+}
+
+const ADJUSTMENT_TYPES: AdjustmentType[] = ['anticipo', 'prestamo', 'multa', 'falta', 'bono'];
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
@@ -185,13 +197,26 @@ export class LogisticsPayrollService {
         const load_unload = Number(loadRow.total) + Number(unloadRow.total);
         const computed_subtotal = commissions + per_diem + load_unload;
 
-        // 3. UPSERT — respeta bonuses/deductions/notes existentes
+        // 3. Sumar adjustments del período por tipo (bono vs no-bono)
+        const [adjRow] = await trx.raw(
+          `
+          SELECT
+            COALESCE(SUM(CASE WHEN type = 'bono' THEN amount ELSE 0 END), 0)::numeric AS bonuses_sum,
+            COALESCE(SUM(CASE WHEN type <> 'bono' THEN amount ELSE 0 END), 0)::numeric AS deductions_sum
+          FROM logistics.payroll_adjustments
+          WHERE driver_id = ? AND period_id = ?
+          `,
+          [d.id, periodId],
+        ).then((r: any) => r.rows);
+
+        const bonuses = Number(adjRow.bonuses_sum);
+        const deductions = Number(adjRow.deductions_sum);
+
+        // 4. UPSERT — bonuses/deductions ahora son derivadas de adjustments
         const existing = await trx('logistics.liquidations')
           .where({ driver_id: d.id, period_id: periodId })
           .first();
 
-        const bonuses = existing ? Number(existing.bonuses) : 0;
-        const deductions = existing ? Number(existing.deductions) : 0;
         const net_amount = computed_subtotal + bonuses - deductions;
 
         if (existing) {
@@ -205,14 +230,15 @@ export class LogisticsPayrollService {
               per_diem_amount: per_diem,
               commissions_amount: commissions,
               load_unload_amount: load_unload,
+              bonuses,
+              deductions,
               subtotal: computed_subtotal,
               net_amount,
               status: 'calculado',
               updated_at: trx.fn.now(),
             });
           results.push({ driver_id: d.id, full_name: d.full_name, subtotal: computed_subtotal, net_amount, action: 'updated' });
-        } else if (computed_subtotal > 0) {
-          // Solo crear liquidación si tiene algo que cobrar
+        } else if (computed_subtotal > 0 || bonuses > 0 || deductions > 0) {
           await trx('logistics.liquidations')
             .insert({
               tenant_id: trx.raw('public.current_tenant_id()'),
@@ -221,8 +247,8 @@ export class LogisticsPayrollService {
               per_diem_amount: per_diem,
               commissions_amount: commissions,
               load_unload_amount: load_unload,
-              bonuses: 0,
-              deductions: 0,
+              bonuses,
+              deductions,
               subtotal: computed_subtotal,
               net_amount,
               status: 'calculado',
@@ -287,6 +313,122 @@ export class LogisticsPayrollService {
         .returning('*');
       return row;
     });
+  }
+
+  // ── Payroll adjustments ──────────────────────────────────────────────────
+
+  async createAdjustment(dto: CreateAdjustmentDto) {
+    if (!UUID_REGEX.test(dto.driver_id)) throw new BadRequestException('driver_id inválido');
+    if (!UUID_REGEX.test(dto.period_id)) throw new BadRequestException('period_id inválido');
+    if (!ADJUSTMENT_TYPES.includes(dto.type)) {
+      throw new BadRequestException(`type inválido. Permitidos: ${ADJUSTMENT_TYPES.join(', ')}`);
+    }
+    if (typeof dto.amount !== 'number' || dto.amount <= 0) {
+      throw new BadRequestException('amount debe ser numero > 0');
+    }
+    if (!dto.date) throw new BadRequestException('date requerido');
+
+    return this.tk.run(async (trx) => {
+      const period = await trx('logistics.payroll_periods').where({ id: dto.period_id }).first();
+      if (!period) throw new NotFoundException(`Período ${dto.period_id} no encontrado`);
+      if (['pagado', 'cerrado'].includes(period.status)) {
+        throw new ConflictException(`Período ${period.year}/${period.number} está ${period.status}, no admite nuevos ajustes.`);
+      }
+
+      const driver = await trx('logistics.drivers')
+        .where({ id: dto.driver_id })
+        .whereNull('deleted_at')
+        .first();
+      if (!driver) throw new NotFoundException(`Driver ${dto.driver_id} no encontrado`);
+
+      const [row] = await trx('logistics.payroll_adjustments')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          driver_id: dto.driver_id,
+          period_id: dto.period_id,
+          type: dto.type,
+          amount: dto.amount,
+          date: dto.date,
+          notes: dto.notes || null,
+        })
+        .returning('*');
+
+      await this.recomputeLiquidationTotals(trx, dto.driver_id, dto.period_id);
+      return row;
+    });
+  }
+
+  async listAdjustments(filters: { driver_id?: string; period_id?: string }) {
+    return this.tk.run(async (trx) => {
+      let q = trx('logistics.payroll_adjustments as a')
+        .leftJoin('logistics.drivers as d', 'd.id', 'a.driver_id')
+        .select('a.*', 'd.full_name as driver_name')
+        .orderBy('a.date', 'desc')
+        .orderBy('a.created_at', 'desc');
+      if (filters.driver_id) {
+        if (!UUID_REGEX.test(filters.driver_id)) throw new BadRequestException('driver_id inválido');
+        q = q.where('a.driver_id', filters.driver_id);
+      }
+      if (filters.period_id) {
+        if (!UUID_REGEX.test(filters.period_id)) throw new BadRequestException('period_id inválido');
+        q = q.where('a.period_id', filters.period_id);
+      }
+      return q;
+    });
+  }
+
+  async deleteAdjustment(id: string) {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+    return this.tk.run(async (trx) => {
+      const adj = await trx('logistics.payroll_adjustments').where({ id }).first();
+      if (!adj) throw new NotFoundException(`Adjustment ${id} no encontrado`);
+
+      const period = await trx('logistics.payroll_periods').where({ id: adj.period_id }).first();
+      if (period && ['pagado', 'cerrado'].includes(period.status)) {
+        throw new ConflictException(`Período ${period.year}/${period.number} está ${period.status}, no admite borrar ajustes.`);
+      }
+
+      await trx('logistics.payroll_adjustments').where({ id }).delete();
+      await this.recomputeLiquidationTotals(trx, adj.driver_id, adj.period_id);
+      return { deleted: true, id };
+    });
+  }
+
+  /**
+   * Re-computa bonuses/deductions/net en la liquidación correspondiente
+   * sumando todos los adjustments del (driver, period). Solo actúa si la
+   * liquidación existe y está en estado editable.
+   */
+  private async recomputeLiquidationTotals(trx: any, driverId: string, periodId: string) {
+    const [adjRow] = await trx.raw(
+      `
+      SELECT
+        COALESCE(SUM(CASE WHEN type = 'bono' THEN amount ELSE 0 END), 0)::numeric AS bonuses_sum,
+        COALESCE(SUM(CASE WHEN type <> 'bono' THEN amount ELSE 0 END), 0)::numeric AS deductions_sum
+      FROM logistics.payroll_adjustments
+      WHERE driver_id = ? AND period_id = ?
+      `,
+      [driverId, periodId],
+    ).then((r: any) => r.rows);
+
+    const bonuses = Number(adjRow.bonuses_sum);
+    const deductions = Number(adjRow.deductions_sum);
+
+    const liq = await trx('logistics.liquidations')
+      .where({ driver_id: driverId, period_id: periodId })
+      .first();
+    if (!liq) return;
+    if (['pagado', 'anulado'].includes(liq.status)) return;
+
+    const net = Number(liq.subtotal) + bonuses - deductions;
+    await trx('logistics.liquidations')
+      .where({ id: liq.id })
+      .update({
+        bonuses,
+        deductions,
+        net_amount: net,
+        updated_at: trx.fn.now(),
+      });
   }
 
   private validatePeriod(dto: CreatePeriodDto): void {

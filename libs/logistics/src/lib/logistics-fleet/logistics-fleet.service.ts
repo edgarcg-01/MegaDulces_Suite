@@ -30,6 +30,8 @@ export interface ListVehiclesQuery {
 
 export type DriverRole = 'chofer' | 'ayudante' | 'cargador';
 
+export type BloodType = 'O+' | 'O-' | 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-';
+
 export interface CreateDriverDto {
   full_name: string;
   roles: DriverRole[];
@@ -38,8 +40,15 @@ export interface CreateDriverDto {
   nss?: string;
   phone?: string;
   emergency_contact?: string;
+  emergency_phone?: string;
   user_id?: string;
   notes?: string;
+  curp?: string;
+  rfc?: string;
+  blood_type?: BloodType;
+  federal_license?: string;
+  hire_date?: string;
+  base_salary_biweekly?: number;
 }
 export type UpdateDriverDto = Partial<CreateDriverDto> & { active?: boolean };
 
@@ -54,6 +63,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const VALID_DRIVER_ROLES: DriverRole[] = ['chofer', 'ayudante', 'cargador'];
 const VALID_VEHICLE_STATUS = ['disponible', 'en_ruta', 'mantenimiento', 'baja'];
 const VALID_DRIVER_STATUS = ['activo', 'inactivo', 'suspendido'];
+const VALID_BLOOD_TYPES: BloodType[] = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+const CURP_REGEX = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z\d]\d$/;
+const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{2,3}$/;
 
 @Injectable()
 export class LogisticsFleetService {
@@ -184,8 +196,15 @@ export class LogisticsFleetService {
           nss: dto.nss || null,
           phone: dto.phone || null,
           emergency_contact: dto.emergency_contact || null,
+          emergency_phone: dto.emergency_phone || null,
           user_id: dto.user_id || null,
           notes: dto.notes || null,
+          curp: dto.curp?.toUpperCase() || null,
+          rfc: dto.rfc?.toUpperCase() || null,
+          blood_type: dto.blood_type || null,
+          federal_license: dto.federal_license || null,
+          hire_date: dto.hire_date || null,
+          base_salary_biweekly: dto.base_salary_biweekly ?? null,
           active: true,
         })
         .returning('*');
@@ -242,8 +261,15 @@ export class LogisticsFleetService {
       if (dto.nss !== undefined) patch.nss = dto.nss || null;
       if (dto.phone !== undefined) patch.phone = dto.phone || null;
       if (dto.emergency_contact !== undefined) patch.emergency_contact = dto.emergency_contact || null;
+      if (dto.emergency_phone !== undefined) patch.emergency_phone = dto.emergency_phone || null;
       if (dto.user_id !== undefined) patch.user_id = dto.user_id || null;
       if (dto.notes !== undefined) patch.notes = dto.notes || null;
+      if (dto.curp !== undefined) patch.curp = dto.curp ? dto.curp.toUpperCase() : null;
+      if (dto.rfc !== undefined) patch.rfc = dto.rfc ? dto.rfc.toUpperCase() : null;
+      if (dto.blood_type !== undefined) patch.blood_type = dto.blood_type || null;
+      if (dto.federal_license !== undefined) patch.federal_license = dto.federal_license || null;
+      if (dto.hire_date !== undefined) patch.hire_date = dto.hire_date || null;
+      if (dto.base_salary_biweekly !== undefined) patch.base_salary_biweekly = dto.base_salary_biweekly ?? null;
       if (dto.active !== undefined) patch.active = dto.active;
 
       const [row] = await trx('logistics.drivers')
@@ -473,6 +499,18 @@ export class LogisticsFleetService {
     }
     if (dto.user_id !== undefined && dto.user_id && !UUID_REGEX.test(dto.user_id)) {
       throw new BadRequestException('user_id debe ser UUID válido o null');
+    }
+    if (dto.curp && !CURP_REGEX.test(dto.curp.toUpperCase())) {
+      throw new BadRequestException('curp inválida (formato XXXX######XXXXXX##)');
+    }
+    if (dto.rfc && !RFC_REGEX.test(dto.rfc.toUpperCase())) {
+      throw new BadRequestException('rfc inválido (formato persona física)');
+    }
+    if (dto.blood_type && !VALID_BLOOD_TYPES.includes(dto.blood_type)) {
+      throw new BadRequestException(`blood_type inválido. Permitidos: ${VALID_BLOOD_TYPES.join(', ')}`);
+    }
+    if (dto.base_salary_biweekly !== undefined && dto.base_salary_biweekly !== null && dto.base_salary_biweekly < 0) {
+      throw new BadRequestException('base_salary_biweekly no puede ser negativo');
     }
   }
 
