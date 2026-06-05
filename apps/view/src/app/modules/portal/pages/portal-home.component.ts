@@ -214,44 +214,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </div>
     </section>
 
-    <!-- [5] PROMOS DEL MES — 1 feature + 2 secondary -->
-    <section *ngIf="!loadingPromos() && promotions().length > 0" class="ph-section">
-      <header class="ph-section-head">
-        <h2>Promos del mes</h2>
-        <a routerLink="/portal/promotions" class="ph-section-link">Ver todas →</a>
-      </header>
-      <div class="ph-promos-grid" *ngIf="promotions().length > 0">
-        <article
-          *ngIf="featuredPromo() as fp"
-          class="ph-promo ph-promo-feature"
-          routerLink="/portal/promotions"
-        >
-          <span class="ph-promo-badge">{{ tileBadge(fp) }}</span>
-          <h3>{{ fp.name }}</h3>
-          <p *ngIf="fp.description">{{ fp.description }}</p>
-          <span class="ph-promo-cta">
-            Aprovechar
-            <i class="pi pi-arrow-right" aria-hidden="true"></i>
-          </span>
-        </article>
-        <article
-          *ngFor="let p of secondaryPromos().slice(0, 2)"
-          class="ph-promo ph-promo-side"
-          routerLink="/portal/promotions"
-        >
-          <span class="ph-promo-badge ph-promo-badge-side">{{ tileBadge(p) }}</span>
-          <h3>{{ p.name }}</h3>
-          <p *ngIf="p.description">{{ p.description }}</p>
-          <footer *ngIf="p.ends_at">Hasta {{ p.ends_at | date:'dd MMM' }}</footer>
-        </article>
-      </div>
-    </section>
-
-    <div *ngIf="loadingPromos()" class="ph-skel-grid">
-      <p-skeleton width="100%" height="200px" borderRadius="20px"></p-skeleton>
-    </div>
-
-    <!-- [6] ATAJOS OPERATIVOS — 4 tiles compactos -->
+    <!-- [4.5] ATAJOS OPERATIVOS — fast-path arriba (el que vuelve reordena ya) -->
     <section class="ph-section">
       <header class="ph-section-head">
         <h2>Atajos rápidos</h2>
@@ -299,6 +262,43 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         </button>
       </div>
     </section>
+
+    <!-- [5] PROMOS DEL MES — 1 feature + 2 secondary -->
+    <section *ngIf="!loadingPromos() && promotions().length > 0" class="ph-section">
+      <header class="ph-section-head">
+        <h2>Promos del mes</h2>
+        <a routerLink="/portal/promotions" class="ph-section-link">Ver todas →</a>
+      </header>
+      <div class="ph-promos-grid" *ngIf="promotions().length > 0">
+        <article
+          *ngIf="featuredPromo() as fp"
+          class="ph-promo ph-promo-feature"
+          routerLink="/portal/promotions"
+        >
+          <span class="ph-promo-badge">{{ tileBadge(fp) }}</span>
+          <h3>{{ fp.name }}</h3>
+          <p *ngIf="fp.description">{{ fp.description }}</p>
+          <span class="ph-promo-cta">
+            Aprovechar
+            <i class="pi pi-arrow-right" aria-hidden="true"></i>
+          </span>
+        </article>
+        <article
+          *ngFor="let p of secondaryPromos().slice(0, 2)"
+          class="ph-promo ph-promo-side"
+          routerLink="/portal/promotions"
+        >
+          <span class="ph-promo-badge ph-promo-badge-side">{{ tileBadge(p) }}</span>
+          <h3>{{ p.name }}</h3>
+          <p *ngIf="p.description">{{ p.description }}</p>
+          <footer *ngIf="p.ends_at">Hasta {{ p.ends_at | date:'dd MMM' }}</footer>
+        </article>
+      </div>
+    </section>
+
+    <div *ngIf="loadingPromos()" class="ph-skel-grid">
+      <p-skeleton width="100%" height="200px" borderRadius="20px"></p-skeleton>
+    </div>
 
     <!-- [7] HISTORIAL — últimos 3 pedidos compactos -->
     <section class="ph-section" *ngIf="!loadingOrders()">
@@ -420,7 +420,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         color: var(--brand-700);
         background: var(--brand-50);
         border: 1px solid var(--brand-100);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         padding: 0.375rem 0.875rem;
         transition: background 180ms var(--ease-standard), transform 180ms var(--ease-standard);
       }
@@ -436,7 +436,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         display: block;
         width: 100%;
         margin-bottom: 2rem;
-        border-radius: 20px;
+        border-radius: var(--r-xl);
         overflow: hidden;
         border: 1px solid var(--neutral-200);
         cursor: pointer;
@@ -462,7 +462,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           radial-gradient(ellipse at top right, var(--brand-100) 0%, transparent 60%),
           var(--brand-50);
         border: 1px solid var(--brand-100);
-        border-radius: 24px;
+        border-radius: var(--r-2xl);
         cursor: pointer;
         transition: transform 220ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
       }
@@ -484,15 +484,16 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         font-weight: 800;
         color: var(--brand-700);
         text-transform: uppercase;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.08em;
         margin-bottom: 1rem;
       }
       .ph-hero-eyebrow i { font-size: 0.7rem; }
       .ph-hero-h1 {
         font-family: var(--font-display);
+        font-optical-sizing: auto;
         font-size: var(--text-display-xl);
         font-weight: 800;
-        letter-spacing: -0.035em;
+        letter-spacing: -0.02em;
         line-height: 1.02;
         margin: 0 0 1rem;
         color: var(--neutral-950);
@@ -506,7 +507,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         background: rgba(255, 255, 255, 0.55);
         border: 1px solid var(--brand-100);
         padding: 0.375rem 0.875rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         margin: 0 0 1rem;
         letter-spacing: -0.005em;
       }
@@ -555,7 +556,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         margin-bottom: 0.75rem;
         background: var(--card-bg);
         border: 1.5px solid var(--neutral-200);
-        border-radius: 16px;
+        border-radius: var(--r-lg);
         cursor: pointer;
         font-family: var(--font-body);
         text-align: left;
@@ -597,7 +598,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         padding: 0.4rem 0.875rem;
         background: transparent;
         border: 1px solid var(--neutral-200);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-family: var(--font-body);
         font-size: 0.8125rem;
         font-weight: 600;
@@ -621,7 +622,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         margin-bottom: 2.5rem;
         background: var(--card-bg);
         border: 1px solid var(--neutral-200);
-        border-radius: 18px;
+        border-radius: var(--r-lg);
       }
       .ph-trust-item {
         display: inline-flex;
@@ -633,7 +634,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         flex-shrink: 0;
         width: 38px;
         height: 38px;
-        border-radius: 12px;
+        border-radius: var(--r-md);
         background: var(--brand-50);
         color: var(--brand-700);
         display: grid;
@@ -675,9 +676,10 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       }
       .ph-section-head h2 {
         font-family: var(--font-display);
+        font-optical-sizing: auto;
         font-size: var(--text-display-lg);
         font-weight: 700;
-        letter-spacing: -0.025em;
+        letter-spacing: -0.02em;
         color: var(--neutral-950);
         margin: 0;
         line-height: 1.1;
@@ -703,7 +705,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         position: relative;
         overflow: hidden;
         padding: 1.75rem 1.75rem 1.5rem;
-        border-radius: 20px;
+        border-radius: var(--r-xl);
         cursor: pointer;
         transition: transform 200ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
         display: flex;
@@ -785,9 +787,9 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         font-size: 0.65rem;
         font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         padding: 0.3rem 0.75rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         background: rgba(255,255,255,0.18);
         color: #fff;
         backdrop-filter: blur(4px);
@@ -827,7 +829,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         padding: 1.5rem 0.75rem;
         background: var(--card-bg);
         border: 1px solid var(--neutral-200);
-        border-radius: 18px;
+        border-radius: var(--r-lg);
         cursor: pointer;
         font-family: var(--font-body);
         color: var(--neutral-950);
@@ -841,7 +843,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-shortcut-icon {
         width: 52px;
         height: 52px;
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         background: var(--brand-50);
         color: var(--brand-700);
         display: grid;
@@ -881,7 +883,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         padding: 0.875rem 1.125rem;
         background: var(--card-bg);
         border: 1px solid var(--neutral-200);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         cursor: pointer;
         transition: border-color 180ms var(--ease-standard), transform 180ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
       }
@@ -897,7 +899,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-history-status {
         width: 36px;
         height: 36px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         display: grid;
         place-items: center;
         background: var(--neutral-100);
@@ -953,7 +955,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         padding: 2.5rem 1.5rem;
         background: var(--card-bg);
         border: 1px dashed var(--neutral-200);
-        border-radius: 18px;
+        border-radius: var(--r-lg);
       }
       .ph-empty h3 {
         font-family: var(--font-display);
@@ -982,7 +984,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         font-size: 0.7rem;
         font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         color: var(--text-muted);
       }
       .ph-foot-item span {

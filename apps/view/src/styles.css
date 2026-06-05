@@ -1858,7 +1858,7 @@ input:focus, textarea:focus, select:focus {
   background: var(--neutral-100);
   border: 1px solid var(--border-color);
   padding: 0.2rem 0.625rem;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   margin-bottom: 0.5rem;
 }
 .portal-eyebrow i { font-size: 0.65rem; opacity: 0.85; }
@@ -1878,7 +1878,7 @@ input:focus, textarea:focus, select:focus {
 .portal-btn-ember,
 .portal-btn-hero {
   border: none;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 0.625rem 1.125rem;
   font-family: var(--font-body);
   font-weight: 700;
@@ -1962,7 +1962,7 @@ input:focus, textarea:focus, select:focus {
 /* Variante grande: confirmaciones críticas (carrito, etc.) */
 .portal-btn-primary-lg {
   width: 100%;
-  border-radius: 12px;
+  border-radius: var(--r-md);
   padding: 0.875rem 1.25rem;
   font-size: 0.9375rem;
   min-height: 48px;
@@ -1970,7 +1970,7 @@ input:focus, textarea:focus, select:focus {
 /* Variante block: ancho completo */
 .portal-btn-block { width: 100%; }
 /* Variante pill: radio completo (storefront / IA) */
-.portal-btn-pill { border-radius: 999px; }
+.portal-btn-pill { border-radius: var(--r-pill); }
 
 /* ─── SECTION HEAD (entre subsecciones de una página) ──────── */
 .portal-section-head {

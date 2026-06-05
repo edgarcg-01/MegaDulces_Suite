@@ -35,6 +35,7 @@ import {
   CatalogFacets,
 } from '../portal.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { PortalProductCardComponent } from '../ui/portal-product-card.component';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 
@@ -79,6 +80,7 @@ function initial(name: string): string {
     InputTextModule,
     TagModule,
     TooltipModule,
+    PortalProductCardComponent,
   ],
   template: `
     <div *ngIf="isAdmin()" class="portal-banner" role="status">
@@ -103,13 +105,9 @@ function initial(name: string): string {
       </button>
     </header>
 
-    <!-- Hero mini: trust signals contextualizados al cliente -->
+    <!-- Mini strip operativo (SKUs · entrega · mínimo). "Tu cartera" se removió:
+         ya está en el subtítulo del page-head ("Lista de precios de ..."). -->
     <section class="cat-hero" *ngIf="!loading() && prices().length > 0" aria-label="Información de tu cuenta">
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Tu cartera</span>
-        <strong>{{ customerName() || 'Mi tienda' }}</strong>
-      </div>
-      <div class="cat-hero-divider" aria-hidden="true"></div>
       <div class="cat-hero-item">
         <span class="cat-hero-label">Productos</span>
         <strong>{{ prices().length }} SKUs</strong>
@@ -464,120 +462,21 @@ function initial(name: string): string {
         </div>
 
         <div class="cat-grid" [class.cat-grid-list]="viewMode() === 'list'" *ngIf="visibleProducts().length > 0">
-          <article
+          <portal-product-card
             *ngFor="let p of visibleProducts(); trackBy: trackByProduct"
-            class="cat-card"
-            [class.cat-card-active]="hasQty(p)"
-            (click)="openSheet(p)"
-            tabindex="0"
-            role="button"
-            [attr.aria-label]="'Ver detalles de ' + p.product_name"
-            (keydown.enter)="openSheet(p)"
-            (keydown.space)="openSheet(p); $event.preventDefault()"
-          >
-            <div
-              class="cat-card-img"
-              [class.has-photo]="hasImg(p)"
-              [style.background]="cardGradient(p)"
-            >
-              <img
-                *ngIf="hasImg(p)"
-                [src]="p.image_url"
-                [alt]="p.product_name"
-                loading="lazy"
-                decoding="async"
-                class="cat-card-img-real"
-                (error)="onImgError(p)"
-              />
-              <span *ngIf="!hasImg(p)" class="cat-card-img-initials">{{ productInitials(p) }}</span>
-              <span
-                *ngIf="promoByProductId()[p.product_id] as promo"
-                class="cat-card-promo-pill"
-                [attr.title]="promo.promo_name"
-              >
-                <i class="pi pi-tag"></i>
-                {{ promoLabel(promo.promo_type) }}
-              </span>
-              <span
-                *ngIf="p.stock_available != null && p.stock_available <= 5"
-                class="cat-card-stock-pill"
-              >
-                <i class="pi pi-exclamation-circle"></i>
-                {{ p.stock_available }} en stock
-              </span>
-              <span
-                *ngIf="productScore(p) as score"
-                class="cat-card-score-pill"
-                [attr.title]="'Relevancia semántica: ' + score + '%'"
-              >
-                <i class="pi pi-bolt"></i>
-                {{ score }}%
-              </span>
-            </div>
-
-            <div class="cat-card-body">
-              <span class="cat-card-brand">
-                {{ p.brand_name || 'Sin marca' }}
-              </span>
-              <h3 class="cat-card-name" [title]="p.product_name">{{ p.product_name }}</h3>
-
-              <div class="cat-card-price-row">
-                <span class="cat-card-price" *ngIf="p.price != null">
-                  {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                </span>
-                <span class="cat-card-price cat-card-price-na" *ngIf="p.price == null">
-                  Sin precio
-                </span>
-                <span class="cat-card-min" *ngIf="p.min_qty > 1">
-                  mín {{ p.min_qty }}
-                </span>
-              </div>
-
-              <!-- Botón "+" agrega directo al carrito (con stopPropagation para no abrir el sheet del card) -->
-              <button
-                *ngIf="!isInCart(p)"
-                type="button"
-                class="cat-add"
-                [disabled]="!!adding[p.product_id] || isAdmin() || p.price == null"
-                (click)="$event.stopPropagation(); addToCart(p)"
-                [attr.aria-label]="'Agregar ' + p.product_name + ' al carrito'"
-                [pTooltip]="isAdmin() ? 'Solo lectura (admin)' : (p.price == null ? 'Producto sin precio configurado' : 'Agregar al carrito')"
-              >
-                <i [class]="adding[p.product_id] ? 'pi pi-spin pi-spinner' : 'pi pi-plus'"></i>
-              </button>
-
-              <!-- Stepper inline cuando ya está en carrito (también no propaga) -->
-              <div
-                *ngIf="isInCart(p)"
-                class="cat-stepper"
-                role="group"
-                (click)="$event.stopPropagation()"
-                [attr.aria-label]="'Ajustar cantidad de ' + p.product_name"
-              >
-                <button
-                  type="button"
-                  class="cat-stepper-btn"
-                  [disabled]="!!adding[p.product_id] || isAdmin()"
-                  (click)="$event.stopPropagation(); decrementCartLine(p)"
-                  [attr.aria-label]="cartLineQty(p) <= 1 ? 'Quitar del carrito' : 'Disminuir'"
-                >
-                  <i [class]="cartLineQty(p) <= 1 ? 'pi pi-trash' : 'pi pi-minus'"></i>
-                </button>
-                <span class="cat-stepper-val" aria-live="polite">
-                  {{ adding[p.product_id] ? '…' : cartLineQty(p) }}
-                </span>
-                <button
-                  type="button"
-                  class="cat-stepper-btn"
-                  [disabled]="!!adding[p.product_id] || isAdmin()"
-                  (click)="$event.stopPropagation(); incrementCartLine(p)"
-                  aria-label="Aumentar"
-                >
-                  <i class="pi pi-plus"></i>
-                </button>
-              </div>
-            </div>
-          </article>
+            [product]="p"
+            [list]="viewMode() === 'list'"
+            [inCart]="isInCart(p)"
+            [qty]="cartLineQty(p)"
+            [adding]="!!adding[p.product_id]"
+            [isAdmin]="isAdmin()"
+            [promo]="promoByProductId()[p.product_id] || null"
+            [score]="productScore(p)"
+            (open)="openSheet(p)"
+            (add)="addToCart(p)"
+            (inc)="incrementCartLine(p)"
+            (dec)="decrementCartLine(p)"
+          ></portal-product-card>
         </div>
 
         <!-- Sentinel para infinite scroll: el IntersectionObserver dispara
@@ -768,7 +667,7 @@ function initial(name: string): string {
                 [style.background]="lineGradient(l.product_id)"
               >{{ l.line_number }}</div>
               <div class="cat-drawer-line-info">
-                <span class="cat-drawer-line-id">{{ shortId(l.product_id) }}</span>
+                <span class="cat-drawer-line-id">{{ l.product_name || shortId(l.product_id) }}</span>
                 <span class="cat-drawer-line-price">
                   {{ +l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
                 </span>
@@ -842,9 +741,10 @@ function initial(name: string): string {
       }
       .cat-h1 {
         font-family: var(--font-display, inherit);
+        font-optical-sizing: auto;
         font-size: clamp(1.875rem, 4vw, 2.25rem);
         font-weight: 700;
-        letter-spacing: -0.025em;
+        letter-spacing: -0.02em;
         line-height: 1.1;
         margin: 0;
         color: var(--neutral-950);
@@ -853,14 +753,14 @@ function initial(name: string): string {
       /* ── Hero mini con trust signals contextualizados ─────────────── */
       .cat-hero {
         display: grid;
-        grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+        grid-template-columns: 1fr auto 1fr auto 1fr;
         align-items: center;
         gap: 1rem;
-        padding: 1.125rem 1.5rem;
+        padding: 0.875rem 1.25rem;
         margin: 0.5rem 0 1.25rem;
         background: var(--brand-50, var(--card-bg));
         border: 1px solid var(--brand-100, var(--border-color));
-        border-radius: 16px;
+        border-radius: var(--r-lg);
       }
       .cat-hero-item {
         display: flex;
@@ -872,7 +772,7 @@ function initial(name: string): string {
         font-size: 0.65rem;
         font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         color: var(--text-muted, var(--neutral-600));
       }
       .cat-hero-item strong {
@@ -905,7 +805,7 @@ function initial(name: string): string {
         padding: 0.5rem 1rem;
         background: var(--card-bg);
         border: 1.5px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         display: flex;
         align-items: center;
         transition: border-color 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard);
@@ -923,7 +823,7 @@ function initial(name: string): string {
         font-size: 0.75rem;
         font-weight: 700;
         padding: 0.3rem 0.625rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -967,7 +867,7 @@ function initial(name: string): string {
         border: none;
         width: 28px;
         height: 28px;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         color: var(--text-muted);
         cursor: pointer;
         display: grid;
@@ -1008,7 +908,7 @@ function initial(name: string): string {
         border: 1px solid var(--border-color);
         background: var(--card-bg);
         color: var(--text-main);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-size: 0.8125rem;
         font-weight: 500;
         cursor: pointer;
@@ -1078,7 +978,7 @@ function initial(name: string): string {
         align-items: center;
         gap: 0.25rem;
         padding: 0.2rem 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-size: 0.7rem;
         font-weight: 600;
         background: var(--bad-fg);
@@ -1108,7 +1008,7 @@ function initial(name: string): string {
         border: 1px solid var(--border-color);
         background: var(--card-bg);
         color: var(--text-main);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-size: 0.85rem;
         font-weight: 500;
         cursor: pointer;
@@ -1127,7 +1027,7 @@ function initial(name: string): string {
         min-width: 1.25rem;
         height: 1.25rem;
         padding: 0 0.35rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         background: rgba(255,255,255,0.25);
         font-size: 0.7rem;
         font-weight: 700;
@@ -1140,7 +1040,7 @@ function initial(name: string): string {
         border: 1px solid transparent;
         background: transparent;
         color: var(--text-muted);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-size: 0.8rem;
         cursor: pointer;
       }
@@ -1157,7 +1057,7 @@ function initial(name: string): string {
         margin-left: auto;
         display: inline-flex;
         border: 1px solid var(--border-color);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         overflow: hidden;
         background: var(--card-bg);
       }
@@ -1191,7 +1091,7 @@ function initial(name: string): string {
       .cat-grid-list .cat-card {
         flex-direction: row;
         align-items: stretch;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         padding-right: 12px;
       }
       .cat-grid-list .cat-card:hover { transform: none; }
@@ -1314,7 +1214,7 @@ function initial(name: string): string {
         width: 100%;
         padding: 0.45rem 0.75rem 0.45rem 2rem;
         border: 1px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         background: var(--surface-ground);
         color: var(--text-main);
         font-size: 0.85rem;
@@ -1339,7 +1239,7 @@ function initial(name: string): string {
         border: 1px solid transparent;
         background: transparent;
         color: var(--text-main);
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         font-size: 0.85rem;
         cursor: pointer;
         text-align: left;
@@ -1373,7 +1273,7 @@ function initial(name: string): string {
         border: 1px solid var(--border-color);
         background: transparent;
         color: var(--text-main);
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         font-size: 0.85rem;
         cursor: pointer;
       }
@@ -1384,7 +1284,7 @@ function initial(name: string): string {
         border: 0;
         background: var(--neutral-900);
         color: #fff;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         font-size: 0.85rem;
         font-weight: 600;
         cursor: pointer;
@@ -1466,10 +1366,10 @@ function initial(name: string): string {
       .cat-bestsellers-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(160px,180px); gap: .625rem; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; padding-bottom: .5rem; scrollbar-width: thin; }
       .cat-bestsellers-strip::-webkit-scrollbar { height: 6px; }
       .cat-bestsellers-strip::-webkit-scrollbar-thumb { background: var(--neutral-300); border-radius: 3px; }
-      .cat-bestseller-card { position: relative; scroll-snap-align: start; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform .2s var(--ease-standard), box-shadow .2s var(--ease-standard), border-color .2s var(--ease-standard); }
+      .cat-bestseller-card { position: relative; scroll-snap-align: start; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform .2s var(--ease-standard), box-shadow .2s var(--ease-standard), border-color .2s var(--ease-standard); }
       .cat-bestseller-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px -8px rgba(0,0,0,.12); border-color: var(--neutral-300); }
       .cat-bestseller-card:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
-      .cat-bestseller-rank { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: .65rem; font-weight: 700; padding: .15rem .4rem; background: var(--neutral-950); color: var(--brand-400); border-radius: 999px; }
+      .cat-bestseller-rank { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: .65rem; font-weight: 700; padding: .15rem .4rem; background: var(--neutral-950); color: var(--brand-400); border-radius: var(--r-pill); }
       .cat-bestseller-img { position: relative; aspect-ratio: 1/1; background: var(--brand-50); display: grid; place-items: center; overflow: hidden; }
       .cat-bestseller-img.has-photo { background: var(--card-bg); }
       .cat-bestseller-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 6px; }
@@ -1490,7 +1390,7 @@ function initial(name: string): string {
         position: relative;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -1561,7 +1461,7 @@ function initial(name: string): string {
         background: var(--warn-soft-bg);
         color: var(--warn-soft-fg);
         border: 1px solid var(--warn-border);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
       }
       .cat-card-stock-pill i { font-size: 0.7rem; }
       .cat-card-score-pill {
@@ -1578,7 +1478,7 @@ function initial(name: string): string {
         background: var(--card-bg);
         color: var(--text-main);
         border: 1px solid var(--border-color);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-variant-numeric: tabular-nums;
       }
       .cat-card-score-pill i { font-size: 0.6rem; color: var(--brand-700); }
@@ -1588,7 +1488,7 @@ function initial(name: string): string {
         padding: 0.625rem 0.875rem;
         background: var(--card-bg);
         border: 1px dashed var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
       }
       .cat-history-label {
         display: inline-flex;
@@ -1614,7 +1514,7 @@ function initial(name: string): string {
         font-size: 0.75rem;
         font-weight: 600;
         padding: 0.25rem 0.625rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         cursor: pointer;
         transition: background-color 150ms var(--ease-standard), transform 120ms var(--ease-standard);
       }
@@ -1628,7 +1528,7 @@ function initial(name: string): string {
         color: var(--text-faint);
         width: 24px;
         height: 24px;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         cursor: pointer;
         display: grid;
         place-items: center;
@@ -1654,12 +1554,12 @@ function initial(name: string): string {
         align-items: center;
         padding: 0.5rem;
         border: 1px solid var(--border-color);
-        border-radius: 10px;
+        border-radius: var(--r-md);
       }
       .cat-drawer-line-avatar {
         width: 36px;
         height: 36px;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         color: #fff;
         display: grid;
         place-items: center;
@@ -1674,13 +1574,14 @@ function initial(name: string): string {
         min-width: 0;
       }
       .cat-drawer-line-id {
-        font-family: 'JetBrains Mono', ui-monospace, monospace;
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
         color: var(--text-main);
-        background: var(--neutral-100);
-        padding: 0.05rem 0.4rem;
-        border-radius: 5px;
-        align-self: flex-start;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
       }
       .cat-drawer-line-price {
         font-size: 0.7rem;
@@ -1789,7 +1690,7 @@ function initial(name: string): string {
         color: var(--text-muted);
         background: var(--neutral-100);
         padding: 0.1rem 0.5rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
       }
 
       .cat-add {
@@ -1799,7 +1700,7 @@ function initial(name: string): string {
         z-index: 3;
         width: 44px;
         height: 44px;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         border: none;
         background: var(--neutral-950);
         color: var(--brand-400);
@@ -1833,7 +1734,7 @@ function initial(name: string): string {
         padding: 0;
         background: var(--neutral-900);
         color: var(--brand-400);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         box-shadow: 0 4px 12px -3px rgba(0, 0, 0, 0.25);
         overflow: hidden;
         animation: stepperIn 240ms cubic-bezier(0.34, 1.4, 0.5, 1) both;
@@ -1852,7 +1753,7 @@ function initial(name: string): string {
         display: grid;
         place-items: center;
         font-size: 0.85rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         transition: background-color 120ms var(--ease-standard), transform 120ms var(--ease-standard);
       }
       .cat-stepper-btn:hover:not(:disabled) {
@@ -1894,7 +1795,7 @@ function initial(name: string): string {
         background: var(--neutral-950);
         color: #fff;
         border: 1px solid rgba(63, 63, 70, 0.6);
-        border-radius: 9999px;
+        border-radius: var(--r-pill);
         font-weight: 700;
         font-size: 0.8125rem;
         cursor: pointer;
@@ -1939,7 +1840,7 @@ function initial(name: string): string {
         min-width: 16px;
         height: 16px;
         line-height: 16px;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         padding: 0 4px;
         text-align: center;
         font-variant-numeric: tabular-nums;
@@ -2040,7 +1941,7 @@ function initial(name: string): string {
       .cat-drawer-close {
         width: 36px;
         height: 36px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         border: none;
         cursor: pointer;
@@ -2078,7 +1979,7 @@ function initial(name: string): string {
         padding: 1rem;
         background: var(--neutral-100);
         border: 1px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
         border-left: 3px solid var(--brand-500);
       }
       .cat-drawer-total span {
@@ -2106,7 +2007,7 @@ function initial(name: string): string {
         justify-content: center;
         gap: 0.375rem;
         padding: 0.75rem 1rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         font-weight: 700;
         font-size: 0.875rem;
         cursor: pointer;
@@ -2171,7 +2072,7 @@ function initial(name: string): string {
           top: 50%;
           width: min(440px, 90vw);
           max-height: 86dvh;
-          border-radius: 18px;
+          border-radius: var(--r-lg);
           transform: translate(-50%, calc(-50% + 24px));
           opacity: 0;
           transition: transform 320ms cubic-bezier(0.34, 1.4, 0.5, 1), opacity 220ms ease;
@@ -2278,7 +2179,7 @@ function initial(name: string): string {
         color: var(--text-muted);
         background: var(--neutral-100);
         padding: 0.3rem 0.625rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
       }
       .cat-sheet-meta-item i { font-size: 0.7rem; }
       .cat-sheet-meta-warn {
@@ -2293,7 +2194,7 @@ function initial(name: string): string {
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
         background: var(--neutral-100);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         margin-top: 0.25rem;
       }
       .cat-sheet-qty-label {
@@ -2307,7 +2208,7 @@ function initial(name: string): string {
         height: 42px;
         background: var(--card-bg);
         border: 1.5px solid var(--border-color);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         overflow: hidden;
       }
       .cat-sheet-stepper-btn {
@@ -2342,7 +2243,7 @@ function initial(name: string): string {
         padding: 0.875rem 1rem;
         background: var(--neutral-100);
         border-left: 3px solid var(--brand-500);
-        border-radius: 10px;
+        border-radius: var(--r-md);
       }
       .cat-sheet-subtotal span {
         font-size: 0.75rem;
@@ -2371,7 +2272,7 @@ function initial(name: string): string {
         justify-content: center;
         gap: 0.375rem;
         padding: 0.875rem 1rem;
-        border-radius: 12px;
+        border-radius: var(--r-md);
         font-weight: 700;
         font-size: 0.875rem;
         cursor: pointer;

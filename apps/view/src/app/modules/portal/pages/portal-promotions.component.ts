@@ -381,7 +381,7 @@ interface OfferCard {
         align-items: center;
         background: var(--card-bg);
         border: 1.5px solid var(--border-color);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         padding: 0 0.75rem;
         margin-bottom: 1rem;
         max-width: 640px;
@@ -412,7 +412,7 @@ interface OfferCard {
         border: none;
         width: 28px;
         height: 28px;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         color: var(--text-muted);
         cursor: pointer;
         display: grid;
@@ -434,7 +434,7 @@ interface OfferCard {
         flex-shrink: 0;
         background: var(--card-bg);
         border: 1.5px solid var(--border-color);
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         padding: 0.45rem 1rem;
         font-size: 0.875rem;
         font-weight: 600;
@@ -458,7 +458,7 @@ interface OfferCard {
         font-size: 0.7rem;
         font-weight: 700;
         padding: 0.1rem 0.45rem;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         font-variant-numeric: tabular-nums;
       }
       .pp-chip.active .pp-chip-count {
@@ -471,7 +471,7 @@ interface OfferCard {
         display: block;
         width: 100%;
         margin-bottom: 1.5rem;
-        border-radius: 16px;
+        border-radius: var(--r-lg);
         overflow: hidden;
         cursor: pointer;
         border: 1px solid var(--border-color);
@@ -514,7 +514,7 @@ interface OfferCard {
         overflow: hidden;
         background: linear-gradient(135deg, var(--neutral-950) 0%, var(--neutral-900) 100%);
         border: 1px solid var(--neutral-900);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1.75rem;
         color: #fff;
         min-height: 240px;
@@ -566,10 +566,12 @@ interface OfferCard {
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
       }
       .pp-bento-main-title {
+        font-family: var(--font-display);
+        font-optical-sizing: auto;
         font-size: clamp(1.5rem, 5vw, 2.75rem);
-        font-weight: 800;
+        font-weight: 700;
         margin: 0 0 0.5rem;
-        letter-spacing: -0.025em;
+        letter-spacing: -0.02em;
         line-height: 1.05;
       }
       .pp-bento-main-desc {
@@ -603,7 +605,7 @@ interface OfferCard {
       .pp-bento-side {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1.25rem 1.5rem;
         display: flex;
         flex-direction: column;
@@ -625,7 +627,7 @@ interface OfferCard {
       .pp-bento-side-icon {
         width: 44px;
         height: 44px;
-        border-radius: 12px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         color: var(--text-main);
         display: grid;
@@ -709,7 +711,7 @@ interface OfferCard {
       .pp-offer {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 0.875rem;
         display: flex;
         flex-direction: column;
@@ -726,7 +728,7 @@ interface OfferCard {
         position: relative;
         aspect-ratio: 1;
         background: var(--neutral-100);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         overflow: hidden;
         display: grid;
         place-items: center;
@@ -822,7 +824,7 @@ interface OfferCard {
         align-items: center;
         justify-content: space-between;
         border: 1.5px solid var(--border-color);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         height: 44px;
         overflow: hidden;
         background: var(--card-bg);
@@ -874,7 +876,7 @@ interface OfferCard {
         background: var(--card-bg);
         border: 1px solid var(--border-color);
         border-left: 3px solid var(--brand-500);
-        border-radius: 14px;
+        border-radius: var(--r-lg);
         padding: 1rem 1.125rem;
         transition: border-color 150ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
       }
@@ -885,7 +887,7 @@ interface OfferCard {
       .pp-basket-icon {
         width: 48px;
         height: 48px;
-        border-radius: 12px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         color: var(--text-main);
         display: grid;

@@ -226,12 +226,44 @@ interface RouteOption {
           <div class="row two">
             <label>
               Viáticos totales
-              <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+              <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2" [readonly]="autoPerDiem()"></p-inputnumber>
             </label>
             <label class="checkbox-label">
               <p-checkbox formControlName="overnight" [binary]="true" inputId="overnight"></p-checkbox>
               Pernocta (chofer duerme fuera)
             </label>
+          </div>
+
+          <!-- Viáticos: checklist auto-cálculo -->
+          <div class="per-diem-toggle">
+            <label class="checkbox-label">
+              <p-checkbox [(ngModel)]="autoPerDiemModel" [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="auto-per-diem" (onChange)="onAutoPerDiemToggle($event.checked)"></p-checkbox>
+              Calcular viáticos automáticamente desde checklist (café / desayuno / comida / cena por persona)
+            </label>
+          </div>
+          <div class="per-diem-checklist" *ngIf="autoPerDiem()">
+            <table class="pd-table">
+              <thead>
+                <tr>
+                  <th>Persona</th>
+                  <th *ngFor="let m of mealColumns" class="meal-col">
+                    {{ m.label }}<br>
+                    <small>\${{ viaticoRate(m.key) | number:'1.2-2' }}</small>
+                  </th>
+                  <th class="num">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let p of personRows">
+                  <td>{{ p.label }}</td>
+                  <td *ngFor="let m of mealColumns" class="meal-col">
+                    <p-checkbox [(ngModel)]="perDiemCheck()[p.key][m.key]" [ngModelOptions]="{ standalone: true }" [binary]="true" (onChange)="recalcPerDiem()"></p-checkbox>
+                  </td>
+                  <td class="num">\${{ perDiemSubtotal(p.key) | number:'1.2-2' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="muted small">Tarifas de <code>config_finance.viatico_*</code>. El backend recalcula al guardar — este preview es solo informativo.</p>
           </div>
         </div>
 
@@ -307,6 +339,16 @@ interface RouteOption {
     @media (max-width: 600px) {
       .row.two, .row.three { grid-template-columns: 1fr; }
     }
+
+    .per-diem-toggle { background: var(--surface-100); padding: .65rem .85rem; border-radius: 6px; margin-top: .5rem; }
+    .per-diem-checklist { background: var(--surface-50); padding: .85rem; border-radius: 6px; margin-top: .5rem; }
+    .pd-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .pd-table th { text-align: center; padding: .5rem; font-weight: 600; color: var(--text-color-secondary); font-size: .8rem; }
+    .pd-table th small { font-weight: 400; font-size: .7rem; color: var(--text-color-secondary); }
+    .pd-table td { padding: .5rem; text-align: center; border-top: 1px solid var(--surface-border); }
+    .pd-table td:first-child { text-align: left; font-weight: 500; }
+    .pd-table .meal-col { width: 5rem; }
+    .pd-table .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -329,6 +371,26 @@ export class ShipmentFormDialogComponent {
   readonly vehicles = signal<{ id: string; plate: string; model?: string | null }[]>([]);
   readonly routes = signal<RouteOption[]>([]);
   readonly includeGuide = signal(false);
+  readonly autoPerDiem = signal(false);
+  autoPerDiemModel = false;
+  readonly viaticoRates = signal<Record<string, number>>({ cafe: 0, desayuno: 0, comida: 0, cena: 0 });
+  readonly perDiemCheck = signal<Record<'driver' | 'helper1' | 'helper2', Record<'cafe' | 'desayuno' | 'comida' | 'cena', boolean>>>({
+    driver:  { cafe: false, desayuno: false, comida: false, cena: false },
+    helper1: { cafe: false, desayuno: false, comida: false, cena: false },
+    helper2: { cafe: false, desayuno: false, comida: false, cena: false },
+  });
+
+  readonly personRows = [
+    { key: 'driver',  label: 'Chofer' },
+    { key: 'helper1', label: 'Ayudante 1' },
+    { key: 'helper2', label: 'Ayudante 2' },
+  ] as const;
+  readonly mealColumns = [
+    { key: 'cafe',     label: '☕ Café' },
+    { key: 'desayuno', label: '🍳 Desayuno' },
+    { key: 'comida',   label: '🍽️ Comida' },
+    { key: 'cena',     label: '🌙 Cena' },
+  ] as const;
 
   readonly typeOptions: { label: string; value: ShipmentType }[] = [
     { label: 'Entrega', value: 'entrega' },
@@ -389,19 +451,32 @@ export class ShipmentFormDialogComponent {
     forkJoin({
       drivers: this.api.listDrivers({ active: true }),
       vehicles: this.api.listVehicles({ active: true }),
-      routes: this.api.listConfig('factor'), // placeholder — usar endpoint específico
+      routes: this.api.listRoutes({ active: true }),
+      viatico: this.api.listConfig('viatico'),
     }).subscribe({
-      next: ({ drivers, vehicles }) => {
+      next: ({ drivers, vehicles, routes, viatico }) => {
         this.drivers.set(drivers || []);
         this.vehicles.set(vehicles || []);
+        this.routes.set(
+          (routes || []).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            driver_commission: Number(r.driver_commission) || 0,
+            helper_commission: Number(r.helper_commission) || 0,
+            estimated_km: r.estimated_km != null ? Number(r.estimated_km) : null,
+          })),
+        );
+        const rates: Record<string, number> = { cafe: 0, desayuno: 0, comida: 0, cena: 0 };
+        for (const v of (viatico as ConfigItem[]) || []) {
+          const meal = v.key.replace(/^viatico_/, '');
+          rates[meal] = Number(v.value) || 0;
+        }
+        this.viaticoRates.set(rates);
       },
       error: () => {
         this.toast.add({ severity: 'warn', summary: 'Carga parcial', detail: 'Algunos catálogos no se cargaron' });
       },
     });
-    // Routes via config-finance no aplica; usamos endpoint dedicado si existe
-    // Por simplicidad, dejamos routes vacío hasta que haya un endpoint /logistics/routes.
-    // Si lo agregamos, se reemplaza el listConfig por listRoutes.
 
     // Effect: pre-fill order_id desde input
     effect(() => {
@@ -454,6 +529,30 @@ export class ShipmentFormDialogComponent {
     this.includeGuide.set(v);
   }
 
+  // ── Auto per-diem helpers ──────────────────────────────────────────────
+  onAutoPerDiemToggle(on: boolean): void {
+    this.autoPerDiem.set(!!on);
+    if (on) this.recalcPerDiem();
+  }
+  viaticoRate(meal: string): number {
+    return this.viaticoRates()[meal] || 0;
+  }
+  perDiemSubtotal(person: 'driver' | 'helper1' | 'helper2'): number {
+    const checks = this.perDiemCheck()[person];
+    let s = 0;
+    for (const m of ['cafe', 'desayuno', 'comida', 'cena'] as const) {
+      if (checks[m]) s += this.viaticoRates()[m] || 0;
+    }
+    return s;
+  }
+  recalcPerDiem(): void {
+    if (!this.autoPerDiem()) return;
+    // Force signal re-emission (object mutation no triggers it)
+    this.perDiemCheck.set({ ...this.perDiemCheck() });
+    const total = this.perDiemSubtotal('driver') + this.perDiemSubtotal('helper1') + this.perDiemSubtotal('helper2');
+    this.form.get('guide')?.patchValue({ per_diem_total: total });
+  }
+
   cancel(): void {
     this.visibleChange.emit(false);
     this.form.reset({
@@ -471,6 +570,13 @@ export class ShipmentFormDialogComponent {
       },
     });
     this.includeGuide.set(false);
+    this.autoPerDiem.set(false);
+    this.autoPerDiemModel = false;
+    this.perDiemCheck.set({
+      driver:  { cafe: false, desayuno: false, comida: false, cena: false },
+      helper1: { cafe: false, desayuno: false, comida: false, cena: false },
+      helper2: { cafe: false, desayuno: false, comida: false, cena: false },
+    });
   }
 
   submit(): void {
@@ -502,7 +608,11 @@ export class ShipmentFormDialogComponent {
       next: (ship) => {
         // Si incluyó guide, crearla
         if (this.includeGuide() && raw.guide?.driver_id) {
-          const guideBody: Partial<DeliveryGuide> & { shipment_id: string } = {
+          const guideBody: Partial<DeliveryGuide> & {
+            shipment_id: string;
+            auto_per_diem?: boolean;
+            per_diem_breakdown?: any;
+          } = {
             shipment_id: ship.id,
             driver_id: raw.guide.driver_id,
             driver_commission: Number(raw.guide.driver_commission) || 0,
@@ -513,6 +623,10 @@ export class ShipmentFormDialogComponent {
             per_diem_total: Number(raw.guide.per_diem_total) || 0,
             overnight: raw.guide.overnight || false,
           };
+          if (this.autoPerDiem()) {
+            guideBody.auto_per_diem = true;
+            guideBody.per_diem_breakdown = this.perDiemCheck();
+          }
           this.api.createGuide(guideBody).subscribe({
             next: () => {
               this.saving.set(false);

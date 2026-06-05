@@ -28,10 +28,18 @@ export interface CreateGuideDto {
    * route.helper_commission (NO toca valores que vengan explícitamente en el dto).
    */
   auto_commissions?: boolean;
+  /**
+   * Si true, computa `per_diem_total` y enriquece `per_diem_breakdown` con
+   * `subtotal` por persona a partir del checklist café/desayuno/comida/cena
+   * × tarifas de `config_finance` categoría `viatico`. Sobrescribe el
+   * `per_diem_total` del dto si auto=true.
+   */
+  auto_per_diem?: boolean;
 }
 
-export interface UpdateGuideDto extends Partial<Omit<CreateGuideDto, 'shipment_id' | 'auto_commissions'>> {
+export interface UpdateGuideDto extends Partial<Omit<CreateGuideDto, 'shipment_id' | 'auto_commissions' | 'auto_per_diem'>> {
   status?: GuideStatus;
+  auto_per_diem?: boolean;
 }
 
 export interface CreateRecipientDto {
@@ -95,6 +103,15 @@ export class LogisticsGuidesService {
       // Auto-calc comisiones desde route si se pidió y la guía no override
       const commissions = await this.resolveCommissions(trx, shipment.route_id, dto);
 
+      // Auto-calc viáticos desde checklist si se pidió
+      let perDiemTotal = dto.per_diem_total ?? 0;
+      let perDiemBreakdown: any = dto.per_diem_breakdown || null;
+      if (dto.auto_per_diem && perDiemBreakdown) {
+        const r = await this.computePerDiemFromChecklist(trx, perDiemBreakdown);
+        perDiemTotal = r.total;
+        perDiemBreakdown = r.enriched;
+      }
+
       const number = await this.nextGuideFolio(trx);
 
       const [row] = await trx('logistics.delivery_guides')
@@ -111,9 +128,9 @@ export class LogisticsGuidesService {
           helper2_id: dto.helper2_id || null,
           helper2_commission: commissions.helper2,
           overnight: dto.overnight ?? false,
-          per_diem_total: dto.per_diem_total ?? 0,
-          per_diem_breakdown: dto.per_diem_breakdown
-            ? JSON.stringify(dto.per_diem_breakdown)
+          per_diem_total: perDiemTotal,
+          per_diem_breakdown: perDiemBreakdown
+            ? JSON.stringify(perDiemBreakdown)
             : null,
           notes: dto.notes || null,
         })
@@ -187,6 +204,17 @@ export class LogisticsGuidesService {
         patch.per_diem_breakdown = dto.per_diem_breakdown
           ? JSON.stringify(dto.per_diem_breakdown)
           : null;
+      }
+      // Auto-calc viáticos si se pidió y hay breakdown (en dto o existente)
+      if (dto.auto_per_diem) {
+        const breakdown = dto.per_diem_breakdown !== undefined
+          ? dto.per_diem_breakdown
+          : (existing.per_diem_breakdown || null);
+        if (breakdown) {
+          const r = await this.computePerDiemFromChecklist(trx, breakdown);
+          patch.per_diem_total = r.total;
+          patch.per_diem_breakdown = JSON.stringify(r.enriched);
+        }
       }
 
       const [row] = await trx('logistics.delivery_guides')
@@ -323,6 +351,48 @@ export class LogisticsGuidesService {
       helper1: dto.helper1_commission ?? (dto.helper1_id ? routeHelper : 0),
       helper2: dto.helper2_commission ?? (dto.helper2_id ? routeHelper : 0),
     };
+  }
+
+  /**
+   * Calcula el monto total de viáticos a partir del checklist por persona
+   * y las tarifas del catálogo `config_finance` (categoría 'viatico').
+   *
+   * Estructura esperada de `breakdown`:
+   *   {
+   *     driver: { cafe: bool, desayuno: bool, comida: bool, cena: bool },
+   *     helper1: { ... },
+   *     helper2: { ... },
+   *   }
+   *
+   * Si el checklist no incluye alguna persona, asume false en todos los meals.
+   * Retorna { total, breakdown_enriched } donde breakdown_enriched agrega
+   * el campo `subtotal` calculado por persona.
+   */
+  async computePerDiemFromChecklist(
+    trx: any,
+    breakdown: any,
+  ): Promise<{ total: number; enriched: any }> {
+    const rates: Record<string, number> = {};
+    const rows = await trx('logistics.config_finance')
+      .where({ category: 'viatico', active: true })
+      .select('key', 'value');
+    for (const r of rows) {
+      const meal = r.key.replace(/^viatico_/, '');
+      rates[meal] = Number(r.value) || 0;
+    }
+
+    const enriched: any = {};
+    let total = 0;
+    for (const person of ['driver', 'helper1', 'helper2']) {
+      const checks = breakdown?.[person] || {};
+      let subtotal = 0;
+      for (const meal of ['cafe', 'desayuno', 'comida', 'cena']) {
+        if (checks[meal] === true) subtotal += rates[meal] || 0;
+      }
+      enriched[person] = { ...checks, subtotal };
+      total += subtotal;
+    }
+    return { total, enriched };
   }
 
   private async assertDriverActive(trx: any, driverId: string, field: string): Promise<void> {

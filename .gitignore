@@ -48,3 +48,5 @@ _imported/
 
 # Dumps de DB y exports de datos (data, NO código — contiene data de prod)
 database/backups/
+
+.angular

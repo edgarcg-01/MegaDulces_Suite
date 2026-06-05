@@ -15,15 +15,15 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
+      "@megadulces/commercial": ["libs/commercial/src/index.ts"],
+      "@megadulces/contracts": ["libs/contracts/src/index.ts"],
+      "@megadulces/logistics": ["libs/logistics/src/index.ts"],
+      "@megadulces/platform-core": ["libs/platform-core/src/index.ts"],
       "@megadulces/shared-auth": ["libs/shared-auth/index.ts"],
       "@megadulces/shared-auth/core": ["libs/shared-auth/core/index.ts"],
       "@megadulces/shared-auth/ui": ["libs/shared-auth/ui/index.ts"],
       "@megadulces/shared-scoring": ["libs/shared-scoring/index.ts"],
-      "@megadulces/contracts": ["libs/contracts/src/index.ts"],
-      "@megadulces/platform-core": ["libs/platform-core/src/index.ts"],
-      "@megadulces/trade": ["libs/trade/src/index.ts"],
-      "@megadulces/logistics": ["libs/logistics/src/index.ts"],
-      "@megadulces/commercial": ["libs/commercial/src/index.ts"]
+      "@megadulces/trade": ["libs/trade/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist"]

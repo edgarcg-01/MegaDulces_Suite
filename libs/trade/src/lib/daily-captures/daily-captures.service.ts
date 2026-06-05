@@ -69,7 +69,10 @@ export class DailyCapturesService {
       Date.now() - this._hasSyncUuidCheckedAt < this.NEGATIVE_TTL_MS;
     if (stale) return false;
     try {
-      const exists = await this.knex.schema.hasColumn(
+      // withSchema('trade'): hasColumn solo mira current_schema() (= 'identity',
+      // primer schema del search_path), donde daily_captures no existe → daba
+      // SIEMPRE false y sync_uuid/route_id/skip_scoring nunca se persistían.
+      const exists = await this.knex.schema.withSchema('trade').hasColumn(
         'daily_captures',
         'sync_uuid',
       );
@@ -107,7 +110,7 @@ export class DailyCapturesService {
       Date.now() - this._hasRouteIdCheckedAt < this.NEGATIVE_TTL_MS;
     if (stale) return false;
     try {
-      const exists = await this.knex.schema.hasColumn(
+      const exists = await this.knex.schema.withSchema('trade').hasColumn(
         'daily_captures',
         'route_id',
       );
@@ -131,7 +134,7 @@ export class DailyCapturesService {
       Date.now() - this._hasSkipScoringCheckedAt < this.NEGATIVE_TTL_MS;
     if (stale) return false;
     try {
-      const exists = await this.knex.schema.hasColumn(
+      const exists = await this.knex.schema.withSchema('trade').hasColumn(
         'daily_captures',
         'skip_scoring',
       );

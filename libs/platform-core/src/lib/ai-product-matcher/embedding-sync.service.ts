@@ -40,6 +40,20 @@ export class EmbeddingSyncService implements OnModuleInit {
   /** No-productos del ERP a excluir del corpus activo (servicios/financieros). */
   private readonly JUNK_RE =
     /descuento|comision|administrativo|tiempo aire|\bflete\b|servicio|redondeo|bonific|anticipo|\babono\b|no usar|cancelad/i;
+  /** Promos/bundles del ERP (se excluyen solo si el sku NO está en el catálogo curado). */
+  private readonly PROMO_RE =
+    /=\s*gratis|\bgratis\b|\bexh\b|^\s*\d+\s*(cj|cjs|reja|exh|caja|bls|pz|pza|disp)\b/i;
+  /** Tenant Mega Dulces — para resolver el nombre limpio del catálogo en el sync activo. */
+  private readonly MEGA_TENANT = '00000000-0000-0000-0000-00000000d01c';
+
+  /** Limpia el nombre ERP: quita prefijo "IND ", sufijo "/20", colapsa espacios. */
+  private cleanProductName(s: string | null): string {
+    return String(s || '')
+      .replace(/^\s*ind\s+/i, '')
+      .replace(/\s*\/\s*\d+\s*$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
@@ -251,15 +265,25 @@ export class EmbeddingSyncService implements OnModuleInit {
       throw new Error('VECTOR_DATABASE_URL no configurada — no hay DB vector destino.');
     }
 
-    const rows: { sku: string; product_name: string; category: string | null }[] =
-      await this.knex('inventory.products_active').select(
-        'sku',
-        'nombre as product_name',
-        'categoria as category',
-      );
-    const active = rows.filter(
-      (r) => r.sku && r.product_name && !this.JUNK_RE.test(r.product_name),
+    // Preferir el nombre LIMPIO del catálogo (catalog.products) cuando el sku
+    // existe ahí: "CANELS 4S" en vez del nombre ERP ruidoso "2 CJ CANELS 4S
+    // ...GRATIS". Así el ticket matchea el sku correcto y entra a la visita si
+    // está en planograma. Para skus solo en inventory: limpiar + excluir promos.
+    const rawRows = await this.knex.raw(
+      `SELECT ia.sku, ia.nombre AS erp_name, ia.categoria AS category, cp.nombre AS cat_name
+       FROM inventory.products_active ia
+       LEFT JOIN catalog.products cp ON cp.sku = ia.sku AND cp.tenant_id = ? AND cp.deleted_at IS NULL`,
+      [this.MEGA_TENANT],
     );
+    const active: { sku: string; product_name: string; category: string | null }[] = [];
+    for (const r of rawRows.rows) {
+      if (!r.sku) continue;
+      const inCatalog = !!r.cat_name;
+      const name = this.cleanProductName(inCatalog ? r.cat_name : r.erp_name);
+      if (!name || this.JUNK_RE.test(name)) continue;
+      if (!inCatalog && this.PROMO_RE.test(r.erp_name)) continue;
+      active.push({ sku: r.sku, product_name: name, category: r.category });
+    }
     const activeSkus = new Set(active.map((p) => p.sku));
 
     const existingRows: { sku: string; source_text: string }[] =

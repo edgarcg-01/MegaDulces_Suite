@@ -6,8 +6,10 @@ import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { TextareaModule } from 'primeng/textarea';
 import { SelectModule } from 'primeng/select';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { CheckboxModule } from 'primeng/checkbox';
 import { TagModule } from 'primeng/tag';
@@ -15,7 +17,7 @@ import { AvatarModule } from 'primeng/avatar';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { Driver, DriverRole, LogisticaService } from '../logistica.service';
+import { Driver, DriverRole, BloodType, LogisticaService } from '../logistica.service';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -33,7 +35,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
-    InputTextModule, TextareaModule, SelectModule, MultiSelectModule, CheckboxModule,
+    InputTextModule, InputNumberModule, TextareaModule, SelectModule, MultiSelectModule, CheckboxModule, DatePickerModule,
     TagModule, AvatarModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
@@ -148,10 +150,41 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           NSS
           <input pInputText formControlName="nss" />
         </label>
-        <label class="full">
-          Contacto emergencia
+        <label>
+          Contacto emergencia (nombre)
           <input pInputText formControlName="emergency_contact" />
         </label>
+        <label>
+          Teléfono emergencia
+          <input pInputText formControlName="emergency_phone" inputmode="tel" />
+        </label>
+
+        <div class="form-section full">Datos legales / IMSS</div>
+        <label>
+          CURP
+          <input pInputText formControlName="curp" maxlength="18" style="text-transform: uppercase;" />
+        </label>
+        <label>
+          RFC
+          <input pInputText formControlName="rfc" maxlength="13" style="text-transform: uppercase;" />
+        </label>
+        <label>
+          Tipo de sangre
+          <p-select formControlName="blood_type" [options]="bloodTypeOptions" optionLabel="label" optionValue="value" [showClear]="true" placeholder="—"></p-select>
+        </label>
+        <label>
+          Licencia federal (choferes)
+          <input pInputText formControlName="federal_license" />
+        </label>
+        <label>
+          Fecha de ingreso
+          <input pInputText type="date" formControlName="hire_date" />
+        </label>
+        <label>
+          Sueldo base catorcenal ($)
+          <input pInputText type="number" min="0" step="0.01" formControlName="base_salary_biweekly" />
+        </label>
+
         <label class="full">
           Notas
           <textarea pTextarea rows="2" formControlName="notes"></textarea>
@@ -188,6 +221,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem; }
     .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-color-secondary); }
     .form-grid .full { grid-column: 1 / -1; }
+    .form-section { grid-column: 1 / -1; font-size:.7rem; text-transform: uppercase; letter-spacing:.1em; color: var(--text-color-secondary); border-bottom: 1px solid var(--surface-border); padding-bottom: .25rem; margin-top: .5rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -221,6 +255,12 @@ export class LogisticaStaffComponent {
     { label: 'Inactivo', value: 'inactivo' },
     { label: 'Suspendido', value: 'suspendido' },
   ];
+  readonly bloodTypeOptions: { label: string; value: BloodType }[] = [
+    { label: 'O+', value: 'O+' }, { label: 'O-', value: 'O-' },
+    { label: 'A+', value: 'A+' }, { label: 'A-', value: 'A-' },
+    { label: 'B+', value: 'B+' }, { label: 'B-', value: 'B-' },
+    { label: 'AB+', value: 'AB+' }, { label: 'AB-', value: 'AB-' },
+  ];
 
   form = this.fb.group({
     full_name: ['', Validators.required],
@@ -230,6 +270,13 @@ export class LogisticaStaffComponent {
     phone: [''],
     nss: [''],
     emergency_contact: [''],
+    emergency_phone: [''],
+    curp: [''],
+    rfc: [''],
+    blood_type: [null as BloodType | null],
+    federal_license: [''],
+    hire_date: [''],
+    base_salary_biweekly: [null as number | null],
     notes: [''],
   });
 
@@ -264,7 +311,9 @@ export class LogisticaStaffComponent {
     this.editing.set(null);
     this.form.reset({
       full_name: '', roles: [], employee_type: 'interno', status: 'activo',
-      phone: '', nss: '', emergency_contact: '', notes: '',
+      phone: '', nss: '', emergency_contact: '', emergency_phone: '',
+      curp: '', rfc: '', blood_type: null, federal_license: '',
+      hire_date: '', base_salary_biweekly: null, notes: '',
     });
     this.dialogVisible = true;
   }
@@ -279,6 +328,13 @@ export class LogisticaStaffComponent {
       phone: d.phone || '',
       nss: d.nss || '',
       emergency_contact: d.emergency_contact || '',
+      emergency_phone: d.emergency_phone || '',
+      curp: d.curp || '',
+      rfc: d.rfc || '',
+      blood_type: d.blood_type || null,
+      federal_license: d.federal_license || '',
+      hire_date: d.hire_date || '',
+      base_salary_biweekly: d.base_salary_biweekly ?? null,
       notes: d.notes || '',
     });
     this.dialogVisible = true;

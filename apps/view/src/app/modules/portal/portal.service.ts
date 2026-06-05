@@ -100,6 +100,10 @@ export interface OrderLine {
   id: string;
   order_id: string;
   product_id: string;
+  /** Backend (orderById) hace join con products/brands — disponibles al leer el pedido. */
+  product_name?: string | null;
+  brand_name?: string | null;
+  stock_available?: number | null;
   line_number: number;
   quantity: number | string;
   unit_price: number | string;

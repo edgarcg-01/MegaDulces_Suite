@@ -25,7 +25,31 @@
       "Bash(git commit -m 'style\\(design\\): G2 - codemod hex pass 2 sobre portal/cart + televenta/* *)",
       "PowerShell(npx knex migrate:up 20260604180000_commercial_promotions_banner_url.js --knexfile database/knexfile-newdb.js 2>&1)",
       "PowerShell(node database/scripts/tmp-list-promos.js 2>&1)",
-      "Bash(git commit -m 'style\\(design\\): G2.extra - codemod hex pass 2 sobre comercial/* y vendor/* *)"
+      "Bash(git commit -m 'style\\(design\\): G2.extra - codemod hex pass 2 sobre comercial/* y vendor/* *)",
+      "Bash(node database/scripts/diff-railway-vs-local.js)",
+      "Bash(git commit -m ' *)",
+      "Bash(node scripts/bootstrap-planogram-aliases.js)",
+      "Bash(node scripts/bootstrap-planogram-aliases.js --apply)",
+      "Bash(mkdir -p _imported/logistica && cp \"C:/Users/Sistemas/Downloads/megadulces_beta \\(14\\) \\(2\\).html\" _imported/logistica/beta_v1.html && ls -la _imported/logistica/)",
+      "Bash(PGPASSWORD=superoot psql -h localhost -p 5433 -U postgres -d postgres_platform -c \"\\\\dt logistics.*\")",
+      "Bash(node -e \"const { Client } = require\\('pg'\\); \\(async \\(\\) => { const c = new Client\\({ connectionString: 'postgresql://postgres:superoot@localhost:5433/postgres_platform' }\\); await c.connect\\(\\); const r = await c.query\\(\\\\`SELECT table_name FROM information_schema.tables WHERE table_schema='logistics' ORDER BY table_name\\\\`\\); console.log\\('logistics.* tables:'\\); r.rows.forEach\\(x => console.log\\('  -', x.table_name\\)\\); await c.end\\(\\); }\\)\\(\\).catch\\(e => { console.error\\(e.message\\); process.exit\\(1\\); }\\);\")",
+      "Bash(curl -s -m 4 http://localhost:3000/api/health)",
+      "Bash(curl -s -m 4 http://localhost:3000/api)",
+      "Bash(curl -s -m 5 -o /dev/null -w \"API :3334 -> HTTP %{http_code}\\\\n\" http://localhost:3334/api)",
+      "Bash(curl -s -m 5 http://localhost:3334/api/health)",
+      "Bash(node database/importers/logistics_baseline.js --help)",
+      "Bash(node database/importers/logistics_baseline.js --tenant-slug=mega_dulces)",
+      "Bash(xargs grep -nE \"function buildVisitFormData|append|JSON.stringify|_photoBlob|foto\")",
+      "PowerShell(npx nx g @nx/angular:application apps/portal --routing --style=css --bundler=esbuild --unitTestRunner=none --e2eTestRunner=none --prefix=app --no-interactive --dry-run 2>&1)",
+      "PowerShell(npx nx g @nx/angular:application apps/portal --routing --style=css --bundler=esbuild --unitTestRunner=none --e2eTestRunner=none --prefix=app --no-interactive 2>&1)",
+      "Bash(node database/tests/http-vendor-capture-e2e-test.js)",
+      "Bash(sed -n '124,147p' libs/trade/src/lib/daily-captures/daily-captures.service.ts)",
+      "Bash(xargs grep -l \"auto_per_diem\\\\|apply_config_km\")",
+      "Bash(gh pr create --base main --head feat/portal-app --title 'feat\\([D.3.1]\\): Portal B2B como app desplegable aparte + sprint UX del portal' --body ' *)",
+      "PowerShell($g = Get-Command gh -ErrorAction SilentlyContinue; if \\($g\\) { \"gh: $\\($g.Source\\)\"; gh auth status 2>&1 | Select-Object -First 3 } else { \"gh NO instalado\" })"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Sistemas\\Downloads"
     ]
   }
 }

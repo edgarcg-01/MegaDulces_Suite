@@ -38,6 +38,8 @@ export interface Vehicle {
   notes?: string | null;
 }
 
+export type BloodType = 'O+' | 'O-' | 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-';
+
 export interface Driver {
   id: string;
   full_name: string;
@@ -47,9 +49,16 @@ export interface Driver {
   nss?: string | null;
   phone?: string | null;
   emergency_contact?: string | null;
+  emergency_phone?: string | null;
   user_id?: string | null;
   active: boolean;
   notes?: string | null;
+  curp?: string | null;
+  rfc?: string | null;
+  blood_type?: BloodType | null;
+  federal_license?: string | null;
+  hire_date?: string | null;
+  base_salary_biweekly?: number | null;
 }
 
 export interface ConfigItem {
@@ -197,6 +206,29 @@ export interface Liquidation {
   status: LiquidationStatus;
   paid_at?: string | null;
   notes?: string | null;
+}
+
+export type AdjustmentType = 'anticipo' | 'prestamo' | 'multa' | 'falta' | 'bono';
+
+export interface PayrollAdjustment {
+  id: string;
+  driver_id: string;
+  driver_name?: string;
+  period_id: string;
+  type: AdjustmentType;
+  amount: number;
+  date: string;
+  notes?: string | null;
+  created_at?: string;
+}
+
+export interface CreateAdjustmentBody {
+  driver_id: string;
+  period_id: string;
+  type: AdjustmentType;
+  amount: number;
+  date: string;
+  notes?: string;
 }
 
 // ── J.8 (migración repo origen) ──────────────────────────────────────────
@@ -714,7 +746,12 @@ export class LogisticaService {
   getGuide(id: string) {
     return this.http.get<DeliveryGuide>(`${this.base}/guides/${id}`);
   }
-  createGuide(body: Partial<DeliveryGuide> & { shipment_id: string; auto_commissions?: boolean }) {
+  createGuide(body: Partial<DeliveryGuide> & {
+    shipment_id: string;
+    auto_commissions?: boolean;
+    auto_per_diem?: boolean;
+    per_diem_breakdown?: any;
+  }) {
     return this.http.post<DeliveryGuide>(`${this.base}/guides`, body);
   }
   updateGuide(id: string, body: Partial<DeliveryGuide>) {
@@ -767,5 +804,19 @@ export class LogisticaService {
   }
   updateLiquidation(id: string, body: Partial<Liquidation>) {
     return this.http.patch<Liquidation>(`${this.base}/payroll/liquidations/${id}`, body);
+  }
+
+  // ── Payroll adjustments ────────────────────────────────────────────────
+  listAdjustments(filters: { driver_id?: string; period_id?: string }): Observable<PayrollAdjustment[]> {
+    let p = new HttpParams();
+    if (filters.driver_id) p = p.set('driver_id', filters.driver_id);
+    if (filters.period_id) p = p.set('period_id', filters.period_id);
+    return this.http.get<PayrollAdjustment[]>(`${this.base}/payroll/adjustments`, { params: p });
+  }
+  createAdjustment(body: CreateAdjustmentBody) {
+    return this.http.post<PayrollAdjustment>(`${this.base}/payroll/adjustments`, body);
+  }
+  deleteAdjustment(id: string) {
+    return this.http.delete<{ deleted: boolean; id: string }>(`${this.base}/payroll/adjustments/${id}`);
   }
 }

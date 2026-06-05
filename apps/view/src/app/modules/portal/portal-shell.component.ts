@@ -154,15 +154,6 @@ interface NavItem {
           </a>
         </nav>
 
-        <!-- FAB AI Assistant (mobile only, shortcut al chat) -->
-        <a
-          routerLink="recommendations"
-          routerLinkActive="hidden"
-          class="portal-fab-ai"
-          aria-label="Abrir asistente IA"
-        >
-          <i class="pi pi-bolt"></i>
-        </a>
       </div>
 
       <!-- ── SETTINGS PANEL (slide-in derecha) ────────────────────── -->
@@ -330,7 +321,7 @@ interface NavItem {
       .portal-brand-text { display: flex; flex-direction: column; line-height: 1.1; min-width: 0; }
       .portal-brand-name {
         font-weight: 700;
-        font-size: 0.95rem;
+        font-size: 0.9375rem;
         color: var(--text-main);
       }
       .portal-brand-sub {
@@ -443,7 +434,7 @@ interface NavItem {
         overflow: hidden;
       }
       .portal-user-name {
-        font-size: 0.85rem;
+        font-size: 0.875rem;
         font-weight: 600;
         color: var(--text-main);
         overflow: hidden;
@@ -534,8 +525,8 @@ interface NavItem {
         width: 92%;
         max-width: 480px;
         z-index: 40;
-        background: rgba(255, 255, 255, 0.85);
-        border: 1px solid rgba(228, 228, 231, 0.6);
+        background: color-mix(in srgb, var(--card-bg) 86%, transparent);
+        border: 1px solid var(--border-color);
         border-radius: 9999px;
         padding: 0.375rem;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
@@ -593,28 +584,6 @@ interface NavItem {
         display: none;
       }
 
-      /* ── FAB AI Assistant (mobile, sobre el tab bar) ─────────── */
-      .portal-fab-ai {
-        display: none;
-        position: fixed;
-        right: max(1rem, env(safe-area-inset-right));
-        bottom: calc(5.25rem + env(safe-area-inset-bottom));
-        z-index: 41;
-        width: 52px;
-        height: 52px;
-        border-radius: 50%;
-        background: var(--neutral-950);
-        border: 1px solid rgba(63, 63, 70, 0.6);
-        color: var(--brand-400);
-        display: grid;
-        place-items: center;
-        font-size: 1.25rem;
-        text-decoration: none;
-        box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.4);
-        transition: transform 220ms cubic-bezier(0.34, 1.4, 0.5, 1);
-      }
-      .portal-fab-ai:active { transform: scale(0.9); }
-      .portal-fab-ai.hidden { display: none !important; }
       .portal-cart-badge-mobile {
         position: absolute;
         top: -6px;
@@ -638,7 +607,6 @@ interface NavItem {
         .portal-sidebar { display: none; }
         .portal-header-mobile { display: flex; }
         .portal-tabbar { display: flex; }
-        .portal-fab-ai { display: grid; }
         .portal-main {
           /* 5rem tabbar + 1rem margen + safe-area garantizan que el contenido
              no quede oculto detrás del tabbar flotante (Stitch style). */
@@ -652,7 +620,6 @@ interface NavItem {
         .ps-panel,
         .ps-backdrop,
         .portal-tab,
-        .portal-fab-ai,
         .ps-switch-thumb { transition: none !important; animation: none !important; }
       }
 
@@ -1012,7 +979,6 @@ export class PortalShellComponent {
     { path: 'home', label: 'Inicio', icon: 'pi pi-home' },
     { path: 'catalog', label: 'Catálogo', icon: 'pi pi-th-large' },
     { path: 'promotions', label: 'Promos', icon: 'pi pi-megaphone' },
-    { path: 'recommendations', label: 'IA', icon: 'pi pi-bolt' },
     { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
     { path: 'orders', label: 'Pedidos', icon: 'pi pi-receipt' },
   ];
