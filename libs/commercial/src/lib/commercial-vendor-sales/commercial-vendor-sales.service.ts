@@ -74,14 +74,30 @@ export class CommercialVendorSalesService {
       const store = await trx('trade.stores').where({ id: dto.store_id }).first();
       if (!store) throw new BadRequestException(`Tienda ${dto.store_id} no encontrada`);
 
-      // Resolver catalog product_id por sku (opcional, para BI comercial). El
-      // sku es el identificador principal; product_id solo se setea si el sku
-      // existe en el catálogo comercial (catalog.products).
-      const catRows = await trx('catalog.products')
-        .whereIn('sku', lines.map((l) => l.sku))
+      // Resolver product_id canónico (catalog) por sku, para BI comercial. El
+      // sku ERP del OCR no coincide con el sku del catálogo, así que se resuelve
+      // PRIMERO vía el alias ERP→catalog del planograma (mismo mapeo que usa la
+      // visita) y, para los que no estén aliasados, fallback por sku directo en
+      // catalog.products. product_id queda null solo si no se encuentra en
+      // ninguno (la línea igual se guarda — el sku es el identificador principal).
+      const skuList = lines.map((l) => l.sku);
+      const aliasRows = await trx('trade.planogram_sku_aliases')
+        .whereIn('erp_sku', skuList)
         .whereNull('deleted_at')
-        .select('id', 'sku');
-      const skuToProductId = new Map<string, string>(catRows.map((r: any) => [r.sku, r.id]));
+        .select('erp_sku', 'product_id');
+      const skuToProductId = new Map<string, string>(
+        aliasRows.map((r: any) => [r.erp_sku, r.product_id]),
+      );
+      const unresolved = skuList.filter((s) => !skuToProductId.has(s));
+      if (unresolved.length) {
+        const catRows = await trx('catalog.products')
+          .whereIn('sku', unresolved)
+          .whereNull('deleted_at')
+          .select('id', 'sku');
+        for (const r of catRows as any[]) {
+          if (!skuToProductId.has(r.sku)) skuToProductId.set(r.sku, r.id);
+        }
+      }
 
       const rows = await trx('commercial.vendor_sale_lines')
         .insert(
