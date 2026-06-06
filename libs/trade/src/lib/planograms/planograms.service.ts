@@ -25,11 +25,16 @@ export class PlanogramsService {
 
   /**
    * Dado un set de SKUs (del set activo ERP, ej. los que devuelve el OCR del
-   * ticket del vendedor), devuelve el SUBSET que pertenece al planograma de
-   * trade (`trade.planogram_skus`) con su `product_id` canónico (catalog UUID).
-   * Sirve para relacionar lo vendido con el planograma por SKU (mismo producto,
-   * distinto nombre: "IND CHICLE CANELS 4S /20" ↔ "CANELS 4S") y registrar en
-   * la visita el producto canónico, sin duplicados (DISTINCT por sku).
+   * ticket del vendedor), resuelve cada uno a su `product_id` canónico (catalog
+   * UUID) — el universo que usa el reporte (catalog.products por id).
+   *
+   * Resolución en dos pasos:
+   *   1. `trade.planogram_sku_aliases` (erp_sku → product_id): maneja variantes
+   *      ERP agrupadas a un producto del planograma (distinto nombre/sku).
+   *   2. Fallback `catalog.products.sku` directo: el sku del set activo comparte
+   *      namespace con catalog.products.sku, así que la mayoría resuelve directo
+   *      aunque NO esté aliaseado (solo ~9% lo está). Sin este fallback la visita
+   *      quedaba vacía para productos no-aliaseados aunque sí están en catálogo.
    */
   async matchPlanogramSkus(
     skus: string[],
@@ -39,16 +44,27 @@ export class PlanogramsService {
     );
     if (list.length === 0) return [];
     const tenantId = this.tenantCtx.requireTenantId();
-    // Resuelve vía la tabla de alias (código ERP → producto canónico del
-    // planograma): incluye los canónicos (cada planogram_skus.sku) + los
-    // bootstrap/manual (variantes ERP agrupadas a un producto del planograma).
-    const rows = await this.knex('trade.planogram_sku_aliases')
+    const map = new Map<string, string>();
+
+    const aliasRows = await this.knex('trade.planogram_sku_aliases')
       .where('tenant_id', tenantId)
       .whereNull('deleted_at')
       .whereIn('erp_sku', list)
       .distinct('erp_sku', 'product_id')
       .select('erp_sku as sku', 'product_id');
-    return rows.map((r) => ({ sku: r.sku, product_id: r.product_id }));
+    for (const r of aliasRows) map.set(r.sku, r.product_id);
+
+    const unresolved = list.filter((s) => !map.has(s));
+    if (unresolved.length) {
+      const catRows = await this.knex('catalog.products')
+        .where('tenant_id', tenantId)
+        .whereNull('deleted_at')
+        .whereIn('sku', unresolved)
+        .select('id', 'sku');
+      for (const r of catRows) if (!map.has(r.sku)) map.set(r.sku, r.id);
+    }
+
+    return Array.from(map.entries()).map(([sku, product_id]) => ({ sku, product_id }));
   }
 
   /**
