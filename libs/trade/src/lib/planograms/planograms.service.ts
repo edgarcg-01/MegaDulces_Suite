@@ -56,12 +56,20 @@ export class PlanogramsService {
 
     const unresolved = list.filter((s) => !map.has(s));
     if (unresolved.length) {
+      // El código ERP del producto puede estar en `sku` (entorno local enriquecido)
+      // o en `articulo` (prod: el sku quedó null y el código vive en articulo).
+      // Matcheamos por ambas columnas para cubrir los dos casos.
       const catRows = await this.knex('catalog.products')
         .where('tenant_id', tenantId)
         .whereNull('deleted_at')
-        .whereIn('sku', unresolved)
-        .select('id', 'sku');
-      for (const r of catRows) if (!map.has(r.sku)) map.set(r.sku, r.id);
+        .where((qb) =>
+          qb.whereIn('sku', unresolved).orWhereIn('articulo', unresolved),
+        )
+        .select('id', 'sku', 'articulo');
+      for (const r of catRows) {
+        if (r.sku && !map.has(r.sku)) map.set(r.sku, r.id);
+        if (r.articulo && !map.has(r.articulo)) map.set(r.articulo, r.id);
+      }
     }
 
     return Array.from(map.entries()).map(([sku, product_id]) => ({ sku, product_id }));
