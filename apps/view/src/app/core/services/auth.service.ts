@@ -24,6 +24,8 @@ export interface LoginResponse {
   expires_in: number;
 }
 
+const STORAGE_KEY = 'auth_token';
+
 @Injectable({
   providedIn: 'root',
 })
@@ -37,15 +39,28 @@ export class AuthService {
     private http: HttpClient,
     private perms: PermissionsService,
   ) {
-    this.restoreSessionFromCookie();
+    this.restoreSession();
   }
 
-  private restoreSessionFromCookie() {
-    const tokenMatch = document.cookie.match(
-      /(^|;)\s*auth_token\s*=\s*([^;]+)/,
-    );
-    if (tokenMatch && tokenMatch[2]) {
-      this.setSession(tokenMatch[2], false);
+  private restoreSession() {
+    // El JWT con `rules` CASL embebidas supera los 4 KB que un cookie soporta
+    // en la mayoría de navegadores (Chrome/Edge silently drop >4096 bytes).
+    // Usamos localStorage que permite hasta 5 MB y no se trunca silenciosamente.
+    let stored: string | null = null;
+    try {
+      stored = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    } catch {
+      stored = null;
+    }
+    if (!stored) {
+      // Fallback retro-compatibilidad: leer cookie si quedó alguno de antes.
+      const m = typeof document !== 'undefined'
+        ? document.cookie.match(/(^|;)\s*auth_token\s*=\s*([^;]+)/)
+        : null;
+      stored = m?.[2] ?? null;
+    }
+    if (stored) {
+      this.setSession(stored, false);
     }
   }
 
@@ -89,10 +104,14 @@ export class AuthService {
     this.token.set(null);
     this.user.set(null);
     this.perms.clear();
-    document.cookie = 'auth_token=; max-age=0; path=/; SameSite=Lax;';
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* no-op */ }
+    // Limpiar cookie legacy si quedó alguno
+    if (typeof document !== 'undefined') {
+      document.cookie = 'auth_token=; max-age=0; path=/; SameSite=Lax;';
+    }
   }
 
-  private setSession(token: string, writeCookie: boolean = true): void {
+  private setSession(token: string, persist: boolean = true): void {
     try {
       const payloadBase64 = token.split('.')[1];
       const payload = JSON.parse(atob(payloadBase64)) as JwtPayload & { rol?: string; role_name?: string; permissions?: Record<string, boolean>; rules?: any[] };
@@ -106,10 +125,8 @@ export class AuthService {
         this.perms.loadRules(payload.rules);
       }
 
-      if (writeCookie) {
-        const d = new Date();
-        d.setTime(d.getTime() + (1 * 24 * 60 * 60 * 1000));
-        document.cookie = `auth_token=${token}; expires=${d.toUTCString()}; path=/; SameSite=Lax;`;
+      if (persist) {
+        try { localStorage.setItem(STORAGE_KEY, token); } catch { /* quota / privacy mode */ }
       }
     } catch (error) {
       console.error('Invalid token format', error);

@@ -218,6 +218,9 @@ export class OfflineSyncService {
 
   /** Audit #25: chequear que haya sesión antes de tirar requests a la API. */
   private hasAuthToken(): boolean {
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')) return true;
+    } catch { /* no-op */ }
     if (typeof document === 'undefined') return false;
     return /(^|;)\s*auth_token\s*=/.test(document.cookie);
   }
