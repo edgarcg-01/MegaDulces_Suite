@@ -136,7 +136,7 @@
                 #rla="routerLinkActive"
                 [routerLinkActiveOptions]="{ exact: item.exact === true }"
                 (click)="onNavClick()"
-                class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium motion-safe:transition-colors duration-200 relative group cursor-pointer no-underline"
+                class="flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium motion-safe:transition-colors duration-200 relative group cursor-pointer no-underline"
                 [class.text-content-muted]="!rla.isActive"
                 [class.hover:bg-surface-hover]="!rla.isActive"
                 [class.hover:text-content-main]="!rla.isActive"
@@ -170,7 +170,7 @@
       <button
         (click)="goToProjects()"
         title="Proyectos"
-        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
+        class="flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
         aria-label="Cambiar proyecto"
       >
         <i class="pi pi-arrow-right-arrow-left shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
@@ -185,7 +185,7 @@
       -->
       <button
         (click)="toggleTheme()"
-        class="flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium transition-colors text-content-muted hover:bg-surface-hover hover:text-content-main"
+        class="flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium transition-colors text-content-muted hover:bg-surface-hover hover:text-content-main"
         [attr.aria-label]="themeService.isMonochrome() ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'"
       >
         <i
@@ -207,7 +207,7 @@
       -->
       <button
         (click)="logout()"
-        class="status-bad flex items-center w-full px-2 py-2 rounded-xl text-sm font-medium status-text hover:bg-[color-mix(in_srgb,var(--status-fg)_10%,transparent)] transition-colors"
+        class="status-bad flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium status-text hover:bg-[color-mix(in_srgb,var(--status-fg)_10%,transparent)] transition-colors"
         aria-label="Cerrar sesión"
       >
         <i class="pi pi-sign-out shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
@@ -312,7 +312,7 @@
         <button
           type="button"
           (click)="userMenuRef.toggle($event)"
-          class="flex items-center gap-3 p-1 pr-1.5 rounded-xl hover:bg-surface-hover transition-colors
+          class="flex items-center gap-3 p-1 pr-1.5 min-h-11 rounded-xl hover:bg-surface-hover transition-colors
                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
           aria-haspopup="menu"
           [attr.aria-expanded]="userMenuOpen()"
