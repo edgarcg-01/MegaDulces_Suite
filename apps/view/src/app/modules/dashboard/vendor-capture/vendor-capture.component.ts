@@ -535,13 +535,58 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.syncUuid = this.syncUuid || this.newUuid();
     const today = this.todayMx();
     try {
-      // 1) Venta — líneas confirmadas.
+      // Productos que matchean el planograma de trade (dedup), con su product_id
+      // CANÓNICO (catalog). Puede quedar vacío: la visita igual se crea.
+      const planogramPids = Array.from(
+        new Set(
+          confirmed
+            .filter((i) => i.inPlanogram && i.planogramProductId)
+            .map((i) => i.planogramProductId as string),
+        ),
+      );
+
+      // 1) Visita PRIMERO y SIEMPRE — captura foto del exhibidor + GPS como
+      // evidencia, aunque ningún producto matchee el planograma. skip_scoring
+      // porque el vendedor no audita. Crearla primero permite linkear la venta
+      // con su daily_capture_id.
+      const visitPayload: any = {
+        folio: this.makeFolio(),
+        sync_uuid: this.syncUuid,
+        horaInicio: this.svc.horaInicio() || new Date().toISOString(),
+        horaFin: new Date().toISOString(),
+        latitud: lat,
+        longitud: lng,
+        store_id: store.id,
+        route_id: this.route()?.id ?? null,
+        skip_scoring: true,
+        stats: {
+          totalExhibiciones: 1,
+          totalProductosMarcados: planogramPids.length,
+          puntuacionTotal: 0,
+          ventaTotal: 0,
+          ventaAdicional: 0,
+        },
+        exhibiciones: [
+          {
+            perteneceMegaDulces: true,
+            productosMarcados: planogramPids,
+            ticket_foto_url: this.ticketUrl,
+            _photoBlob: this.exhibidorFile(),
+          },
+        ],
+      };
+      const visit = await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/daily-captures`, buildVisitFormData(visitPayload)),
+      );
+
+      // 2) Venta — líneas confirmadas, linkeada a la visita por daily_capture_id.
       const sale = await firstValueFrom(
         this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
           store_id: store.id,
           sale_date: today,
           route_id: this.route()?.id ?? null,
           capture_ref: this.syncUuid,
+          daily_capture_id: visit?.id ?? null,
           ticket_photo_url: this.ticketUrl,
           ticket_cloudinary_public_id: this.ticketPublicId,
           lines: confirmed.map((i) => ({
@@ -552,50 +597,6 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           })),
         }),
       );
-
-      // 2) Visita sin ponderación — SOLO productos que matchean el planograma de
-      // trade (deduplicados), usando el product_id CANÓNICO (catalog) del
-      // planograma, no el del set activo. Los demás vendidos no van a la visita.
-      const planogramPids = Array.from(
-        new Set(
-          confirmed
-            .filter((i) => i.inPlanogram && i.planogramProductId)
-            .map((i) => i.planogramProductId as string),
-        ),
-      );
-
-      // Visita sin ponderación: NO clasificamos el exhibidor (concepto/ubicación/
-      // nivel van vacíos a propósito — el vendedor no audita). El backend lo
-      // acepta porque skip_scoring=true.
-      if (planogramPids.length > 0) {
-        const payload: any = {
-          folio: this.makeFolio(),
-          sync_uuid: this.syncUuid,
-          horaInicio: this.svc.horaInicio() || new Date().toISOString(),
-          horaFin: new Date().toISOString(),
-          latitud: lat,
-          longitud: lng,
-          store_id: store.id,
-          route_id: this.route()?.id ?? null,
-          skip_scoring: true,
-          stats: {
-            totalExhibiciones: 1,
-            totalProductosMarcados: planogramPids.length,
-            puntuacionTotal: 0,
-            ventaTotal: 0,
-            ventaAdicional: 0,
-          },
-          exhibiciones: [
-            {
-              perteneceMegaDulces: true,
-              productosMarcados: planogramPids,
-              ticket_foto_url: this.ticketUrl,
-              _photoBlob: this.exhibidorFile(),
-            },
-          ],
-        };
-        await firstValueFrom(this.http.post<any>(`${this.apiUrl}/daily-captures`, buildVisitFormData(payload)));
-      }
 
       this.toast.add({
         severity: 'success',
