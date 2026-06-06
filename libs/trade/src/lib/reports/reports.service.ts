@@ -563,7 +563,15 @@ export class ReportsService {
       // Product Analysis Aggregation (only if include has 'products')
       exhibiciones.forEach((ex: any) => {
         const conceptoId = ex.conceptoId || 'otros';
-        const conceptoName = conceptoMap[conceptoId] || conceptoId;
+        const rawName = conceptoMap[conceptoId];
+        // Si el conceptoId no resuelve (UUID huérfano de un catálogo
+        // desincronizado, o null) NO volcamos el valor crudo → "Sin clasificar".
+        // Si resuelve, normalizamos variantes del mismo concepto colapsando
+        // guion bajo→espacio ("Sin_exhibidor" ↔ "Sin exhibidor") para no
+        // fragmentar el conteo en filas separadas.
+        const conceptoName = rawName
+          ? rawName.replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+          : 'Sin clasificar';
         const productosMarcados = ex.productosMarcados || [];
 
         const val = String(ex.nivelEjecucion).toLowerCase();
