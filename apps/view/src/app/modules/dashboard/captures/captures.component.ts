@@ -180,6 +180,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly ticketResult = signal<any | null>(null);
   readonly ticketConfirmed = signal<Set<number>>(new Set());
   /**
+   * sku ERP → product_id canónico (catalog). El OCR del ticket matchea contra
+   * el corpus `active` (inventory.products_active), que devuelve `product_id=''`
+   * (identifica por sku). Sin remapear el sku al product_id del planograma,
+   * `productosMarcados` quedaba VACÍO aunque el item estuviera confirmado.
+   */
+  private ticketSkuToPid = new Map<string, string>();
+  /**
    * Fase V offline: el ticket se tomó SIN red. Se guarda la foto y el OCR se
    * difiere al sync. Permite finalizar la visita sin OCR (distinto de
    * `ticketSkipped`, que descarta el ticket; acá la foto SÍ se conserva).
@@ -1506,6 +1513,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.ticketResult.set({ ...existing, match: { ...existing.match, items: merged } });
         this.ticketConfirmed.set(auto);
       }
+      // Resolver sku ERP → product_id canónico del planograma (igual que
+      // /vendor-capture). Imprescindible: el corpus `active` da product_id=''.
+      await this.resolveTicketSkus();
       this.applyTicketProductsToExhibicion();
       const total = this.ticketResult()?.match?.items?.length || 0;
       this.toast.add({
@@ -1561,17 +1571,55 @@ export class CapturesComponent implements OnInit, OnDestroy {
     return this.ticketConfirmed().has(idx);
   }
 
+  /**
+   * Resuelve los SKUs de los items del ticket a product_id canónico (catalog)
+   * vía el planograma — mismo mapeo que /vendor-capture. El corpus `active`
+   * devuelve product_id='' (key por sku), así que sin esto productosMarcados
+   * quedaría vacío. Best-effort: si falla, se cae al product_id directo (legacy).
+   */
+  private async resolveTicketSkus(): Promise<void> {
+    const res = this.ticketResult();
+    const skus = Array.from(
+      new Set(
+        (res?.match?.items || [])
+          .map((it: any) => it?.suggested?.sku)
+          .filter((s: any): s is string => !!s),
+      ),
+    );
+    if (!skus.length) return;
+    try {
+      const matched = await firstValueFrom(
+        this.http.post<{ sku: string; product_id: string }[]>(
+          `${environment.apiUrl}/planograms/brands/match-skus`,
+          { skus },
+        ),
+      );
+      for (const m of matched || []) {
+        if (m?.sku && m?.product_id) this.ticketSkuToPid.set(m.sku, m.product_id);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
   /** Aplica la selección actual del ticket al campo `productosMarcados` de la exhibición. */
   private applyTicketProductsToExhibicion(): void {
     const res = this.ticketResult();
     if (!res) return;
     const set = this.ticketConfirmed();
     const pids: string[] = (res.match?.items || [])
-      .map((it: any, i: number) =>
-        set.has(i) && it.suggested?.product_id ? (it.suggested.product_id as string) : null,
-      )
+      .map((it: any, i: number) => {
+        if (!set.has(i)) return null;
+        // Preferir el product_id canónico resuelto por sku (corpus active);
+        // fallback al product_id directo (corpus catalog, UUID válido).
+        const bySku = it.suggested?.sku ? this.ticketSkuToPid.get(it.suggested.sku) : null;
+        return bySku || (it.suggested?.product_id || null);
+      })
       .filter((x: string | null): x is string => !!x);
-    this.currentExhibicion.update((curr) => ({ ...curr, productosMarcados: pids }));
+    this.currentExhibicion.update((curr) => ({
+      ...curr,
+      productosMarcados: Array.from(new Set(pids)),
+    }));
   }
 
   clearTicket(): void {
@@ -1579,6 +1627,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.ticketPreview.set(null);
     this.ticketResult.set(null);
     this.ticketConfirmed.set(new Set());
+    this.ticketSkuToPid.clear();
     this.ticketSkipped.set(false);
     this.ticketDeferred.set(false);
     this.svc.setDeferredTicket(null);
@@ -1934,7 +1983,13 @@ export class CapturesComponent implements OnInit, OnDestroy {
       // se permite finalizar con la foto del ticket como evidencia.
       if (tr && !this.ticketSkipped() && !this.ticketDeferred()) {
         const items = tr.match?.items || [];
-        const hasMatchable = items.some((it: any) => it?.suggested?.product_id);
+        // Matcheable = resuelve a product_id por sku (corpus active) o directo
+        // (corpus catalog). product_id directo es '' en active, por eso no basta.
+        const hasMatchable = items.some(
+          (it: any) =>
+            (it?.suggested?.sku && this.ticketSkuToPid.has(it.suggested.sku)) ||
+            it?.suggested?.product_id,
+        );
         const markedCount = ex.productosMarcados?.length || 0;
         if (hasMatchable && markedCount === 0) {
           this.toast.add({
