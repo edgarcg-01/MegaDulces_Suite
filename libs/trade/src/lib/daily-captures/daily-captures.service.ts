@@ -804,17 +804,22 @@ export class DailyCapturesService {
   }
 
   async findOne(id: string) {
-    const dailyCapture = await this.knex('daily_captures').where({ id }).first();
-    if (!dailyCapture) {
-      // Intentar por folio
-      const fallback = await this.knex('daily_captures').where({ folio: id }).first();
-      if (fallback) return fallback;
-
+    // `id` puede ser el UUID o el folio. Consultar la columna uuid con un folio
+    // (no-uuid) tira 22P02 y abortaba el handler con 500 antes de probar folio.
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let row = isUuid
+      ? await this.knex('daily_captures').where({ id }).first()
+      : null;
+    if (!row) {
+      row = await this.knex('daily_captures').where({ folio: id }).first();
+    }
+    if (!row) {
       throw new NotFoundException(
         `Validación fallida: Captura con identificador ${id} no encontrada`,
       );
     }
-    return dailyCapture;
+    return row;
   }
 
   async remove(

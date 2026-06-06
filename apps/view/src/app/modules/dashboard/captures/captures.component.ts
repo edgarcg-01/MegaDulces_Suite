@@ -1928,8 +1928,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.wizardStep = 7;
         return;
       }
-      // Persistir URL del ticket dentro del JSONB de la exhibición.
       const tr = this.ticketResult();
+      // Si el OCR procesó el ticket y detectó productos matcheables (≥1 item con
+      // product_id), exigir al menos uno confirmado. Si el OCR no matcheó nada,
+      // se permite finalizar con la foto del ticket como evidencia.
+      if (tr && !this.ticketSkipped() && !this.ticketDeferred()) {
+        const items = tr.match?.items || [];
+        const hasMatchable = items.some((it: any) => it?.suggested?.product_id);
+        const markedCount = ex.productosMarcados?.length || 0;
+        if (hasMatchable && markedCount === 0) {
+          this.toast.add({
+            severity: 'warn',
+            summary: 'Confirmá productos',
+            detail:
+              'El ticket tiene productos detectados. Marcá al menos uno antes de finalizar.',
+          });
+          this.wizardStep = 7;
+          return;
+        }
+      }
+      // Persistir URL del ticket dentro del JSONB de la exhibición.
       (ex as any).ticket_foto_url = tr?.ticket_url || null;
       (ex as any).ticket_foto_public_id = tr?.ticket_public_id || null;
       (ex as any).ticket_skipped = this.ticketSkipped();
