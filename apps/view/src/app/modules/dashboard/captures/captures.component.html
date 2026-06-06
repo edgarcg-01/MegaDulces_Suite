@@ -1232,7 +1232,7 @@
 
         <header class="space-y-1">
           <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Vos confirmás cuáles van al exhibidor.</p>
+          <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Si el ticket es largo, tomá varias fotos del mismo ticket: los productos se acumulan. Vos confirmás cuáles van al exhibidor.</p>
         </header>
 
         <!-- Upload state -->
@@ -1256,8 +1256,15 @@
           <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
             <img [src]="ticketPreview()" alt="Ticket" class="w-full max-h-64 object-cover">
           </div>
-          <div class="flex justify-center gap-2">
-            <p-button icon="pi pi-refresh" label="Otro ticket" severity="secondary" [outlined]="true" size="small"
+          <p class="text-xs text-content-muted text-center">¿Ticket largo? Agregá más fotos del mismo ticket y los productos se suman.</p>
+          <div class="flex justify-center items-center gap-2">
+            <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-divider text-sm font-medium text-content-main cursor-pointer hover:bg-surface-ground motion-safe:transition-colors focus-within:ring-2 focus-within:ring-brand-orange"
+                   [class.opacity-50]="ticketExtracting()" [class.pointer-events-none]="ticketExtracting()">
+              <input type="file" accept="image/*" capture="environment" (change)="onTicketSelected($event)"
+                     class="hidden" [disabled]="ticketExtracting()" aria-label="Agregar otra foto del ticket">
+              <i class="pi pi-plus" aria-hidden="true"></i> Agregar otra foto del ticket
+            </label>
+            <p-button icon="pi pi-trash" label="Reiniciar" severity="secondary" [text]="true" size="small"
                       [disabled]="ticketExtracting()"
                       (onClick)="clearTicket()"></p-button>
           </div>
