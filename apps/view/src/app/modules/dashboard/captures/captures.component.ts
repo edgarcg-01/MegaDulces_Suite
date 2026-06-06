@@ -1455,31 +1455,64 @@ export class CapturesComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Sube el ticket al endpoint Fase V y marca productos auto-confirmados. */
+  /**
+   * Sube una foto del ticket al endpoint Fase V y ACUMULA los productos del
+   * MISMO ticket: si ya hay items de una foto previa, anexa los nuevos (dedupe
+   * por sku, mayor cantidad). Anexar deja válidos los índices ya confirmados.
+   */
   private async extractTicket(file: File): Promise<void> {
     this.ticketExtracting.set(true);
-    this.ticketResult.set(null);
-    this.ticketConfirmed.set(new Set());
     try {
       const fd = new FormData();
       fd.append('file', file, file.name || 'ticket.jpg');
       const res = await firstValueFrom(
         this.http.post<any>(`${environment.apiUrl}/ai/ticket/extract`, fd),
       );
-      this.ticketResult.set(res);
-      // Pre-confirmar items con autoConfirm=true del backend.
-      const auto = new Set<number>();
-      const items = res?.match?.items || [];
-      items.forEach((it: any, i: number) => {
-        if (it.suggested?.autoConfirm) auto.add(i);
-      });
-      this.ticketConfirmed.set(auto);
+      const newItems: any[] = res?.match?.items || [];
+      const existing = this.ticketResult();
+      if (!existing) {
+        // Primera foto del ticket.
+        this.ticketResult.set(res);
+        const auto = new Set<number>();
+        newItems.forEach((it, i) => {
+          if (it.suggested?.autoConfirm) auto.add(i);
+        });
+        this.ticketConfirmed.set(auto);
+      } else {
+        // Foto adicional del mismo ticket: acumular. Conservamos ticket_url de
+        // la primera foto (referencia de la visita).
+        const merged: any[] = [...(existing.match?.items || [])];
+        const bySku = new Map<string, number>();
+        merged.forEach((it, i) => {
+          const s = it.suggested?.sku;
+          if (s) bySku.set(s, i);
+        });
+        const auto = new Set<number>(this.ticketConfirmed());
+        for (const it of newItems) {
+          const sku = it.suggested?.sku;
+          if (sku && bySku.has(sku)) {
+            const idx = bySku.get(sku)!;
+            merged[idx] = {
+              ...merged[idx],
+              quantity: Math.max(Number(merged[idx].quantity) || 0, Number(it.quantity) || 0),
+            };
+          } else {
+            const newIdx = merged.length;
+            merged.push(it);
+            if (sku) bySku.set(sku, newIdx);
+            if (it.suggested?.autoConfirm) auto.add(newIdx);
+          }
+        }
+        this.ticketResult.set({ ...existing, match: { ...existing.match, items: merged } });
+        this.ticketConfirmed.set(auto);
+      }
       this.applyTicketProductsToExhibicion();
+      const total = this.ticketResult()?.match?.items?.length || 0;
       this.toast.add({
-        severity: items.length ? 'success' : 'warn',
-        summary: items.length ? `${items.length} líneas detectadas` : 'Ticket ilegible',
-        detail: items.length
-          ? `${auto.size} listas para confirmar`
+        severity: newItems.length ? 'success' : 'warn',
+        summary: newItems.length ? `${newItems.length} líneas detectadas` : 'Ticket ilegible',
+        detail: newItems.length
+          ? `${total} productos en el ticket · ${this.ticketConfirmed().size} confirmados`
           : 'No se reconocieron productos. Tomá la foto con mejor luz.',
         life: 2500,
       });
