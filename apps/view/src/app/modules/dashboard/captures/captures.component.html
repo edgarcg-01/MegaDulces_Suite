@@ -1232,7 +1232,7 @@
 
         <header class="space-y-1">
           <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Capturamos el ticket y la IA detecta los productos. Si el ticket es largo, tomá varias fotos del mismo ticket: los productos se acumulan. Vos confirmás cuáles van al exhibidor.</p>
+          <p class="text-xs text-content-muted leading-relaxed">Tomá la foto del ticket y la IA detecta los productos automáticamente. Con una foto alcanza; si el ticket es muy largo podés agregar más (opcional). Vos confirmás cuáles van al exhibidor.</p>
         </header>
 
         <!-- Upload state -->
@@ -1251,22 +1251,24 @@
           <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
         </label>
 
-        <!-- Preview + extracting -->
-        <div *ngIf="ticketPreview()" class="space-y-3">
+        <!-- Preview + acciones secundarias (opcionales) -->
+        <div *ngIf="ticketPreview()" class="space-y-2">
           <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
             <img [src]="ticketPreview()" alt="Ticket" class="w-full max-h-64 object-cover">
           </div>
-          <p class="text-xs text-content-muted text-center">¿Ticket largo? Agregá más fotos del mismo ticket y los productos se suman.</p>
-          <div class="flex justify-center items-center gap-2">
-            <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-divider text-sm font-medium text-content-main cursor-pointer hover:bg-surface-ground motion-safe:transition-colors focus-within:ring-2 focus-within:ring-brand-orange"
+          <div class="flex justify-center items-center gap-5 text-xs">
+            <label class="inline-flex items-center gap-1.5 text-content-muted hover:text-brand-orange cursor-pointer motion-safe:transition-colors"
                    [class.opacity-50]="ticketExtracting()" [class.pointer-events-none]="ticketExtracting()">
               <input type="file" accept="image/*" capture="environment" (change)="onTicketSelected($event)"
-                     class="hidden" [disabled]="ticketExtracting()" aria-label="Agregar otra foto del ticket">
-              <i class="pi pi-plus" aria-hidden="true"></i> Agregar otra foto del ticket
+                     class="hidden" [disabled]="ticketExtracting()" aria-label="Agregar otra foto del ticket (opcional)">
+              <i class="pi pi-plus" aria-hidden="true"></i> Agregar otra foto (opcional)
             </label>
-            <p-button icon="pi pi-trash" label="Reiniciar" severity="secondary" [text]="true" size="small"
-                      [disabled]="ticketExtracting()"
-                      (onClick)="clearTicket()"></p-button>
+            <button type="button"
+                    class="inline-flex items-center gap-1.5 text-content-muted hover:text-content-main cursor-pointer disabled:opacity-50"
+                    [disabled]="ticketExtracting()"
+                    (click)="clearTicket()">
+              <i class="pi pi-refresh" aria-hidden="true"></i> Volver a tomar
+            </button>
           </div>
         </div>
 
@@ -1274,18 +1276,6 @@
         <div *ngIf="ticketExtracting()" class="flex items-center gap-3 p-4 bg-surface-ground rounded-xl">
           <i class="pi pi-spin pi-spinner text-brand-orange text-xl"></i>
           <span class="text-sm text-content-muted">Leyendo ticket...</span>
-        </div>
-
-        <!-- Skipped state -->
-        <div *ngIf="ticketSkipped() && !ticketExtracting()"
-             class="flex items-start gap-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/5">
-          <i class="pi pi-exclamation-triangle text-amber-500 text-xl mt-0.5" aria-hidden="true"></i>
-          <div class="text-sm">
-            <div class="font-semibold text-content-main">Ticket saltado</div>
-            <div class="text-xs text-content-muted mt-0.5">
-              La visita se guardará solo con la foto del exhibidor. Si tenés red ahora, podés tomar la foto del ticket y se procesará.
-            </div>
-          </div>
         </div>
 
         <!-- Deferred state (sin red): foto guardada, OCR diferido al sync -->
@@ -1393,20 +1383,11 @@
                   [disabled]="!currentExhibicion().fotoBase64"
                   (onClick)="nextStep()"></p-button>
 
-        <!-- Skip ticket: red mala / ticket no legible. Solo si NO está procesando ni diferido. -->
-        <p-button *ngIf="wizardStep === 7 && !ticketResult() && !ticketSkipped() && !ticketDeferred()"
-                  label="Saltar ticket"
-                  icon="pi pi-forward"
-                  severity="secondary"
-                  [text]="true"
-                  [disabled]="ticketExtracting()"
-                  (onClick)="skipTicket()"></p-button>
-
         <p-button *ngIf="wizardStep === 7"
                   label="Finalizar"
                   icon="pi pi-check"
                   styleClass="p-button-brand"
-                  [disabled]="(!ticketResult() && !ticketSkipped() && !ticketDeferred()) || ticketExtracting()"
+                  [disabled]="(!ticketResult() && !ticketDeferred()) || ticketExtracting()"
                   (onClick)="finishWizard(false)"></p-button>
       </ng-container>
     </nav>
