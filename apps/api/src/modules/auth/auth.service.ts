@@ -42,10 +42,11 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const { username, password } = loginDto;
+    const normalizedUsername = username?.toLowerCase().trim();
 
     const user = await this.knex('users as u')
       .leftJoin('zones as z', 'u.zona_id', 'z.id')
-      .where({ 'u.username': username, 'u.activo': true })
+      .where({ 'u.username': normalizedUsername, 'u.activo': true })
       .select('u.*', 'z.name as zona')
       .first();
 

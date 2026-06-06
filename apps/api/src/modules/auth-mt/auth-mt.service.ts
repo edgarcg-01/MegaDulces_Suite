@@ -76,7 +76,7 @@ export class AuthMtService {
     const { user, rolePermissions, zonaName } = await this.knex.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${tenant.id}'`);
       const u = await trx('users')
-        .where({ username: dto.username, activo: true })
+        .where({ username: dto.username.toLowerCase().trim(), activo: true })
         .first();
       if (!u) return { user: null, rolePermissions: null, zonaName: null };
       const rp = await trx('role_permissions')
