@@ -1078,17 +1078,28 @@ export class DailyCaptureService {
   }
 
   /**
-   * Carga las rutas para el selector. Prefiere scopear a la zona del usuario,
-   * pero si esa zona no tiene rutas (la data real de Mega Dulces tiene las
-   * rutas SIN zona — parent_id NULL) o el usuario no tiene zona, cae a mostrar
-   * TODAS las rutas. Así el selector nunca queda vacío teniendo rutas en el
-   * catálogo. El backend `assertRouteValidForUser` solo valida zona cuando la
-   * ruta tiene parent_id, así que aceptar rutas sin zona es seguro.
+   * Roles globales que ven TODAS las rutas (supervisión/testing cross-zona).
+   * El resto se scopea estrictamente a su zona — un colaborador/vendedor nunca
+   * ve rutas de otra zona.
+   */
+  private static readonly GLOBAL_ROUTE_ROLES = new Set([
+    'superadmin',
+    'jefe_marketing',
+  ]);
+
+  /**
+   * Carga las rutas para el selector. Colaboradores/vendedores: solo las rutas
+   * de su zona + las rutas sin zona (parent_id NULL, legacy). Nunca rutas de
+   * OTRAS zonas. Roles globales (superadmin/jefe_marketing): todas las rutas.
    */
   loadZoneRoutes(): void {
     const user = this.auth.user();
     if (!user) return;
     const zonaName = (user as any).zona as string | undefined;
+    const roleName = ((user as any).role_name as string | undefined)?.toLowerCase();
+    const seesAllRoutes = roleName
+      ? DailyCaptureService.GLOBAL_ROUTE_ROLES.has(roleName)
+      : false;
 
     const setFrom = (rutas: any[]) => {
       this._zoneRoutes.set(
@@ -1121,13 +1132,17 @@ export class DailyCaptureService {
         .get<any[]>(`${this.apiUrl}/catalogs/rutas`)
         .pipe(catchError(() => of([] as any[]))),
     }).subscribe(({ zonas, rutas }) => {
+      if (seesAllRoutes) {
+        setFrom(rutas || []);
+        return;
+      }
       const zoneId = (zonas || []).find(
         (z) => (z.value || z.name) === zonaName,
       )?.id;
-      const zoned = zoneId
-        ? (rutas || []).filter((r) => r.parent_id === zoneId)
-        : [];
-      setFrom(zoned.length > 0 ? zoned : rutas || []);
+      const scoped = (rutas || []).filter(
+        (r) => r.parent_id === zoneId || !r.parent_id,
+      );
+      setFrom(scoped);
     });
   }
 
