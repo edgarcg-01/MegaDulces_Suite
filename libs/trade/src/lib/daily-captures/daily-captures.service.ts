@@ -148,6 +148,33 @@ export class DailyCapturesService {
     }
   }
 
+  /**
+   * Mapa de aliases de conceptos (id viejo → id vigente) cacheado por tenant.
+   * Resuelve conceptoId de clientes con catálogo desincronizado al ingestar la
+   * captura, así no se guardan IDs muertos. Defensivo: si la tabla no existe
+   * (entorno legacy) devuelve {} y el remap es no-op.
+   */
+  private _conceptoAliasCache = new Map<string, { map: Record<string, string>; at: number }>();
+  private async getConceptoAliasMap(tenantId: string): Promise<Record<string, string>> {
+    const cached = this._conceptoAliasCache.get(tenantId);
+    if (cached && Date.now() - cached.at < 300_000) return cached.map;
+    let map: Record<string, string> = {};
+    try {
+      const rows = (await this.knexRaw.transaction(async (tx) => {
+        await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+        return tx('trade.catalog_aliases')
+          .where({ catalog_id: 'conceptos' })
+          .whereNull('deleted_at')
+          .select('old_id', 'current_id');
+      })) as unknown as Array<{ old_id: string; current_id: string }>;
+      map = Object.fromEntries(rows.map((r) => [r.old_id, r.current_id]));
+    } catch {
+      /* tabla ausente en este entorno → sin remap */
+    }
+    this._conceptoAliasCache.set(tenantId, { map, at: Date.now() });
+    return map;
+  }
+
   async create(
     dto: CreateDailyCaptureDto,
     userId: string,
@@ -310,6 +337,11 @@ export class DailyCapturesService {
     // la trx la abría el interceptor para TODA la request (incluyendo
     // Cloudinary upload) → 30s+ idle → pool exhausted o
     // idle_in_transaction_timeout. Audit #3.
+    // Remap de conceptoId viejo → vigente para clientes con catálogo
+    // desincronizado (ver trade.catalog_aliases). Así la captura se guarda con
+    // el id actual y no queda huérfana en reportes/scoring.
+    const conceptoAliases = await this.getConceptoAliasMap(tenantId);
+
     const dbWork = async () => {
 
     // ── Sanitización JSONB (audit #14): productosMarcados debe ser array de
@@ -317,6 +349,7 @@ export class DailyCapturesService {
     // joinean con products.id.
     const UUID_LIKE = /^[a-z0-9-]{8,}$/i;
     for (const ex of processedExhibiciones) {
+      if (conceptoAliases[ex.conceptoId]) ex.conceptoId = conceptoAliases[ex.conceptoId];
       if (Array.isArray(ex.productosMarcados)) {
         ex.productosMarcados = ex.productosMarcados.filter(
           (p: any) => typeof p === 'string' && UUID_LIKE.test(p),

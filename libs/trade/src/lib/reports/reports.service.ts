@@ -482,6 +482,20 @@ export class ReportsService {
     conceptos.forEach((c) => {
       conceptoMap[c.id] = c.value; // Guardamos el nombre original para display
     });
+    // Red de seguridad: IDs viejos de clientes con catálogo desincronizado
+    // (trade.catalog_aliases old_id → current_id) resuelven al concepto vigente.
+    // Defensivo: la tabla no existe en entornos legacy.
+    try {
+      const aliases = await this.knex('catalog_aliases')
+        .where({ catalog_id: 'conceptos' })
+        .whereNull('deleted_at')
+        .select('old_id', 'current_id');
+      aliases.forEach((a) => {
+        if (conceptoMap[a.current_id]) conceptoMap[a.old_id] = conceptoMap[a.current_id];
+      });
+    } catch {
+      /* tabla catalog_aliases ausente en este entorno */
+    }
 
     // Get all products and brands for mapping IDs to names (only if include has 'products')
     const includeProducts = include.includes('products');
