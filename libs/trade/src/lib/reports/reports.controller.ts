@@ -115,6 +115,35 @@ export class ReportsController {
     return this.reportsService.getStoresData(filters, user);
   }
 
+  // ── Apartado "Rutas" (análisis: tiendas por ruta, tiempos, trazabilidad) ──
+  @Get('routes/:routeId/visits')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Visitas de una ruta (tienda, hora_inicio/fin, duración min, GPS, score) ordenadas por hora — tiempos + trazabilidad',
+  })
+  getRouteVisits(
+    @ReqUser() user: any,
+    @Param('routeId') routeId: string,
+    @Query() filters: ReportsFilterDto,
+  ) {
+    return this.reportsService.getRouteVisits(routeId, filters, user);
+  }
+
+  @Get('routes/:routeId/stores')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Tiendas asignadas a una ruta (stores.ruta_id) con coords + flag visited (cobertura)',
+  })
+  getRouteStores(
+    @ReqUser() user: any,
+    @Param('routeId') routeId: string,
+    @Query() filters: ReportsFilterDto,
+  ) {
+    return this.reportsService.getRouteStores(routeId, filters, user);
+  }
+
   @Get('export')
   @RequirePermissions(Permission.REPORTES_EXPORTAR)
   @ApiOperation({
