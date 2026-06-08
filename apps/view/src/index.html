@@ -25,9 +25,12 @@
   <link rel="icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
   <link rel="shortcut icon" type="image/png" href="assets/logos/mega-dulces-logo.png">
 
-  <!-- Theme color (amarillo Mega Dulces). Tema claro = brand-400; el browser
-       puede usar uno distinto en dark mode si declarás media. -->
-  <meta name="theme-color" content="#FDE707" media="(prefers-color-scheme: light)">
+  <!-- Theme color del chrome del PWA. Estos son FALLBACK pre-boot (siguen al
+       SO via prefers-color-scheme). Apenas Angular monta, ThemeService los
+       elimina y deja un único meta dinámico que matchea el tema de la APP
+       (no el del SO) — evita la línea amarilla cuando el SO está en claro
+       pero la app forzada a oscuro. Neutros para no destellar amarillo. -->
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)">
   <meta name="msapplication-TileColor" content="#FDE707">
 

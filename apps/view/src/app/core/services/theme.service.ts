@@ -131,5 +131,31 @@ export class ThemeService {
       document.body.classList.remove('theme-monochrome');
       root.classList.remove('theme-monochrome');
     }
+    this.updateThemeColorMeta(isMonochrome);
+  }
+
+  /**
+   * Sincroniza `<meta name="theme-color">` con el tema de la APP (no el del
+   * sistema). Sin esto, iOS pinta el chrome del PWA (status bar + franja del
+   * home indicator) según `prefers-color-scheme` del SO: si el iPhone está en
+   * claro pero la app forzada a oscuro, salía una línea amarilla (#FDE707)
+   * debajo del bottom nav. Eliminamos las variantes con `media=` del index.html
+   * y dejamos un único meta dinámico que matchea el tema real de la app.
+   */
+  private updateThemeColorMeta(isMonochrome: boolean) {
+    if (typeof document === 'undefined') return;
+    const color = isMonochrome ? '#111111' : '#FFFFFF';
+    document.querySelectorAll('meta[name="theme-color"]').forEach((el) => {
+      if (el.getAttribute('media')) el.remove();
+    });
+    let meta = document.querySelector(
+      'meta[name="theme-color"]:not([media])',
+    ) as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', color);
   }
 }
