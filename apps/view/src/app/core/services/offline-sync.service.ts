@@ -366,6 +366,15 @@ export class OfflineSyncService {
       // Sincronizar visitas — fuente real de verdad del trabajo del usuario.
       resultadoVisitas = await this.sincronizarVisitas();
 
+      // vendor-capture: reintentar ventas huérfanas (visita ya sincronizada pero
+      // POST /commercial/vendor-sales pendiente). Best-effort, no afecta el
+      // resultado del sync de visitas.
+      try {
+        await this.sincronizarVentasHuerfanas();
+      } catch (vErr) {
+        console.warn('[OfflineSync] Ventas huérfanas error (no bloquea sync):', vErr);
+      }
+
       console.log('[OfflineSync] Sincronización completada:', resultadoVisitas);
       return resultadoVisitas;
     } catch (error) {
@@ -664,10 +673,8 @@ export class OfflineSyncService {
       // foto de ticket sin red, corremos el OCR ahora (con conexión) y aplicamos
       // los productos detectados a la exhibición. Best-effort: si falla, la
       // captura igual se postea (no se pierde la visita).
-      const exhibicionesFinal = await this.analizarTicketDiferidoSiAplica(
-        visita,
-        exhibicionesHidratadas,
-      );
+      const { exhibiciones: exhibicionesFinal, ocrItems, ticketMeta } =
+        await this.analizarTicketDiferidoSiAplica(visita, exhibicionesHidratadas);
 
       // Preparar payload para el backend (mismo formato que daily-captures).
       //
@@ -741,6 +748,13 @@ export class OfflineSyncService {
       // Reset contador de retries transient: la visita se sincronizó OK.
       this._transientCount.delete(visita.id);
 
+      // vendor-capture offline: postear venta pendiente si la visita la tiene.
+      // Best-effort: si falla, no afecta el estado sincronizado de la visita;
+      // el próximo ciclo reintenta solo la venta.
+      if (visita.pendingSale) {
+        await this.postPendingSale(visita, response, ocrItems, ticketMeta);
+      }
+
       // Notificar a UI (DailyCaptureService recarga `_captures` → desaparece
       // el badge -PEND que antes se quedaba forever hasta refresh manual).
       this._visitasSincronizadas$.next();
@@ -811,17 +825,26 @@ export class OfflineSyncService {
    * sin revisión (decisión del flujo offline) + marca `ticket_analyzed_offline`.
    * Best-effort: si el OCR falla, deja las exhibiciones intactas y marca
    * `ticket_ocr_failed` — la captura se postea igual (no se pierde la visita).
+   *
+   * Retorna también `ocrItems` (raw del OCR) y `ticketMeta` (cloudinary) para
+   * que el flujo posterior (vendor-capture pendingSale) los reuse sin re-correr
+   * el OCR.
    */
   private async analizarTicketDiferidoSiAplica(
     visita: VisitaPendiente,
     exhibiciones: any[],
-  ): Promise<any[]> {
+  ): Promise<{
+    exhibiciones: any[];
+    ocrItems: any[];
+    ticketMeta: { ticket_url: string | null; ticket_public_id: string | null };
+  }> {
+    const empty = { exhibiciones, ocrItems: [] as any[], ticketMeta: { ticket_url: null, ticket_public_id: null } };
     if (!visita.ticketPendingAnalysis || !visita.ticketPhotoBlobId) {
-      return exhibiciones;
+      return empty;
     }
     try {
       const photo = await this.db.getPhoto(visita.ticketPhotoBlobId);
-      if (!photo) return exhibiciones;
+      if (!photo) return empty;
       const fd = new FormData();
       fd.append('file', photo.blob, 'ticket.jpg');
       const res: any = await firstValueFrom(
@@ -836,10 +859,17 @@ export class OfflineSyncService {
       if (visita.stats && typeof visita.stats === 'object') {
         visita.stats.ticket_analyzed_offline = true;
       }
-      // Aplica a la primera exhibición (modo vendedor = 1 exhibición + ticket).
-      return exhibiciones.map((ex, i) =>
-        i === 0 ? { ...ex, productosMarcados: productIds } : ex,
-      );
+      const ticketMeta = {
+        ticket_url: (res?.ticket_url ?? null) as string | null,
+        ticket_public_id: (res?.ticket_public_id ?? null) as string | null,
+      };
+      return {
+        exhibiciones: exhibiciones.map((ex, i) =>
+          i === 0 ? { ...ex, productosMarcados: productIds } : ex,
+        ),
+        ocrItems: items,
+        ticketMeta,
+      };
     } catch (err) {
       console.warn(
         '[OfflineSync] OCR diferido del ticket falló; la captura se postea sin productos del ticket:',
@@ -848,7 +878,135 @@ export class OfflineSyncService {
       if (visita.stats && typeof visita.stats === 'object') {
         visita.stats.ticket_ocr_failed = true;
       }
-      return exhibiciones;
+      return empty;
+    }
+  }
+
+  /**
+   * vendor-capture offline: postea la venta pendiente a /commercial/vendor-sales
+   * tras sync exitoso de la visita. Si la venta venía marcada como diferida
+   * desde el ticket, construye las `lines` a partir de los items OCR auto-
+   * confirmables (confidence high/medium con sku). Si la venta queda sin
+   * líneas, no se POSTea (la visita-evidencia ya quedó registrada).
+   *
+   * Best-effort: una falla acá NO retira la visita de su estado "sincronizada"
+   * y NO cuenta como intento fallido. La venta se reintenta sola en el próximo
+   * ciclo mientras `pendingSale` siga en la visita (el sync solo la limpia en
+   * éxito o si la visita ya no existe).
+   */
+  private async postPendingSale(
+    visita: VisitaPendiente,
+    dailyCaptureResponse: any,
+    ocrItems: any[],
+    ticketMetaFromOcr: { ticket_url: string | null; ticket_public_id: string | null },
+  ): Promise<void> {
+    if (!visita.pendingSale) return;
+    const dailyCaptureId = dailyCaptureResponse?.id ?? null;
+
+    let lines = visita.pendingSale.lines || [];
+    if (visita.pendingSale.deferredFromTicket && lines.length === 0) {
+      // Auto-construir desde OCR: items con sku y confidence != no_match.
+      lines = ocrItems
+        .filter((it: any) => it?.suggested?.sku && (it?.suggested?.confidence ?? it?.confidence) !== 'no_match')
+        .map((it: any) => ({
+          sku: it.suggested.sku as string,
+          product_name: (it.suggested.product_name ?? null) as string | null,
+          quantity: Number(it.quantity) || 1,
+          confidence: (it.suggested.confidence ?? it.confidence ?? 'low') as string,
+        }));
+    }
+
+    if (lines.length === 0) {
+      console.log(`[OfflineSync] pendingSale de visita ${visita.id} sin líneas — skip POST venta.`);
+      // Limpiar para no reintentar eternamente.
+      await this.db.visitas.update(visita.id, { pendingSale: undefined as any });
+      return;
+    }
+
+    const ticketUrl = visita.pendingSale.ticket_photo_url ?? ticketMetaFromOcr.ticket_url;
+    const ticketPublicId =
+      visita.pendingSale.ticket_cloudinary_public_id ?? ticketMetaFromOcr.ticket_public_id;
+
+    // Persistir líneas resueltas + daily_capture_id ANTES del POST. Si este POST
+    // falla, `sincronizarVentasHuerfanas` reintenta solo la venta sin re-correr
+    // OCR; necesita daily_capture_id ya persistido para linkear.
+    const resolvedSale = {
+      ...visita.pendingSale,
+      lines,
+      daily_capture_id: dailyCaptureId,
+      ticket_photo_url: ticketUrl,
+      ticket_cloudinary_public_id: ticketPublicId,
+      deferredFromTicket: false,
+    };
+    await this.db.visitas.update(visita.id, { pendingSale: resolvedSale });
+
+    try {
+      await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
+          store_id: resolvedSale.store_id,
+          sale_date: resolvedSale.sale_date,
+          route_id: resolvedSale.route_id,
+          capture_ref: resolvedSale.capture_ref,
+          daily_capture_id: resolvedSale.daily_capture_id,
+          ticket_photo_url: resolvedSale.ticket_photo_url,
+          ticket_cloudinary_public_id: resolvedSale.ticket_cloudinary_public_id,
+          lines: resolvedSale.lines,
+        }).pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+      );
+      await this.db.visitas.update(visita.id, { pendingSale: undefined as any });
+      console.log(`[OfflineSync] Venta pendiente de visita ${visita.id} sincronizada (${lines.length} líneas)`);
+    } catch (err: any) {
+      console.warn(
+        `[OfflineSync] POST /commercial/vendor-sales falló para visita ${visita.id} (status=${err?.status}): se reintentará en próximo ciclo.`,
+        err?.error?.message || err?.message,
+      );
+      // No re-throw: la visita ya está marcada sincronizada; la venta queda
+      // como huérfana para el próximo ciclo via sincronizarVentasHuerfanas.
+    }
+  }
+
+  /**
+   * Reintenta ventas de vendor-capture que quedaron pendientes después de que
+   * la visita ya se sincronizó. Caso típico: POST /daily-captures OK pero POST
+   * /commercial/vendor-sales falló (404, throttle, server bug transitorio).
+   *
+   * Solo procesa visitas con `pendingSale.daily_capture_id` populado — eso
+   * garantiza que la visita ya existe en el server y podemos linkear la venta.
+   * Best-effort total: no afecta contadores de visita ni cuenta como intento.
+   */
+  private async sincronizarVentasHuerfanas(): Promise<void> {
+    try {
+      const todas = await this.db.visitas.toArray();
+      const huerfanas = todas.filter(
+        (v) => v.pendingSale && v.pendingSale.daily_capture_id && (v.pendingSale.lines?.length || 0) > 0,
+      );
+      if (huerfanas.length === 0) return;
+      console.log(`[OfflineSync] Reintentando ${huerfanas.length} ventas huérfanas`);
+      for (const visita of huerfanas) {
+        const sale = visita.pendingSale!;
+        try {
+          await firstValueFrom(
+            this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
+              store_id: sale.store_id,
+              sale_date: sale.sale_date,
+              route_id: sale.route_id,
+              capture_ref: sale.capture_ref,
+              daily_capture_id: sale.daily_capture_id,
+              ticket_photo_url: sale.ticket_photo_url,
+              ticket_cloudinary_public_id: sale.ticket_cloudinary_public_id,
+              lines: sale.lines,
+            }).pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+          );
+          await this.db.visitas.update(visita.id, { pendingSale: undefined as any });
+          console.log(`[OfflineSync] Venta huérfana de visita ${visita.id} sincronizada`);
+        } catch (err: any) {
+          console.warn(
+            `[OfflineSync] Venta huérfana ${visita.id} falló (status=${err?.status}): se reintentará en próximo ciclo`,
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('[OfflineSync] sincronizarVentasHuerfanas error:', err);
     }
   }
 
@@ -949,6 +1107,19 @@ export class OfflineSyncService {
           });
         } catch (tErr) {
           console.warn('[OfflineSync] Error persistiendo ticket Blob (visita sin ticket diferido):', tErr);
+        }
+      }
+
+      // vendor-capture offline: venta pendiente para POST a /commercial/vendor-sales
+      // tras sync exitoso de la visita. Si `deferredFromTicket: true` y `lines`
+      // viene vacío, el sync las construye desde el OCR diferido.
+      if (datosVisita.pendingSale) {
+        try {
+          await this.db.visitas.update(visitaId, {
+            pendingSale: datosVisita.pendingSale,
+          });
+        } catch (sErr) {
+          console.warn('[OfflineSync] Error persistiendo pendingSale (visita sin venta diferida):', sErr);
         }
       }
 

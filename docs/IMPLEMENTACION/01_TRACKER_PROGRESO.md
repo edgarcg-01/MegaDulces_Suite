@@ -551,6 +551,23 @@ _(vacío)_
 
 ---
 
+## 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08)
+
+> Hardening de `/dashboard/vendor-capture` (módulo "fuente de verdad" del vendedor de campo según memoria 2026-06-04). Stack offline Dexie + sync queue ya estaba maduro pero el componente hacía POSTs directos sin fallback. Opción A del análisis devex aplicada.
+
+- [x] **[VC.1]** ✅ Dexie schema v4: nueva interface `PendingVendorSale` + campo `pendingSale?` en `VisitaPendiente`. Migración no destructiva (mismas tablas, campo libre sin index). Visitas v3 siguen funcionando (2026-06-08).
+- [x] **[VC.2]** ✅ `OfflineSyncService.guardarVisitaOffline` acepta `datosVisita.pendingSale` y lo persiste tras crear la visita (2026-06-08).
+- [x] **[VC.3]** ✅ `analizarTicketDiferidoSiAplica` refactor: retorna `{ exhibiciones, ocrItems, ticketMeta }` (antes solo `exhibiciones[]`). `ocrItems` alimenta construcción de líneas en `postPendingSale` cuando `deferredFromTicket` (2026-06-08).
+- [x] **[VC.4]** ✅ `postPendingSale(visita, response, ocrItems, ticketMeta)`: corre tras POST exitoso de `/daily-captures`. Auto-construye `lines` desde OCR si `deferredFromTicket && lines vacío` (filter `sku` + `confidence != no_match`). Persiste `daily_capture_id` + lines resueltas ANTES del POST a `/commercial/vendor-sales`. Si POST de venta falla → estado queda recuperable (2026-06-08).
+- [x] **[VC.5]** ✅ `sincronizarVentasHuerfanas()` corre tras `sincronizarVisitas()`. Procesa visitas con `pendingSale.daily_capture_id != null` (visita ya en server, venta pendiente). Best-effort, no afecta contadores (2026-06-08).
+- [x] **[VC.6]** ✅ `vendor-capture.onTicket()` offline-first: si `!navigator.onLine` o POST a `/ai/ticket/extract` falla transient (`[0, 408, 500, 502, 503, 504, 522, 524]`), guarda Blob crudo en `ticketBlob` + marca `ticketOcrDeferred(true)`. Banner amber visible en UI (2026-06-08).
+- [x] **[VC.7]** ✅ `vendor-capture.save()` con 3 paths: (1) online happy igual que antes, (2) offline puro vía `guardarVisitaOffline` con `pendingSale` + `ticketBlob`, (3) online → catchError transient → fallback offline reusando `syncUuid` (dedup server-side garantizado) (2026-06-08).
+- [x] **[VC.8]** ✅ Botón Save habilitado con `confirmedCount() === 0 && ticketOcrDeferred()` — el escenario "vendedor sin red toma foto de ticket" ya no queda bloqueado por UI (2026-06-08).
+- [x] **[VC.9]** ✅ `nx build view` OK (solo warnings CommonJS preexistentes ajenos) (2026-06-08).
+- [ ] **[VC.10]** ⬜ TODO: verificación visual con DevTools offline mode (no automatizable desde CLI). Suite regression `database/run-all-tests.js` debería seguir 20/20 (cero cambios backend).
+
+---
+
 ## 📋 BACKLOG — Fases E, F, G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

@@ -1,8 +1,19 @@
-# Design System — Portal B2B Mega Dulces ("Mercado")
+# Design System — Mega Dulces ("Mercado")
 
-> Fuente de verdad para el módulo **`/portal`** (Portal Web B2B en `apps/view/src/app/modules/portal`).
-> Dirección **"Mercado" — Warm Editorial Utilitarian**, creada por `/design-consultation` (2026-06-04).
+> Fuente de verdad de UI para toda la app.
+> Dirección **"Mercado"**, creada por `/design-consultation` (2026-06-04, extendida 2026-06-08).
 > Los tokens viven en [`apps/view/src/styles/tokens.css`](apps/view/src/styles/tokens.css). Este archivo manda sobre cualquier valor hardcodeado.
+
+## Surfaces — dos modes del mismo sistema
+
+| Surface | Alcance | Mode | Decoración | Display font |
+|---|---|---|---|---|
+| **Storefront** | `/portal/*` (Portal Web B2B) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Fraunces + Hanken Grotesk + Geist Mono |
+| **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta` | **solo tool** | nula | Hanken Grotesk + Geist Mono (sin Fraunces) |
+
+Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, dark espresso, escala de radios, tokens semánticos. Lo que **Operations** descarta: Fraunces, ilustraciones, momentos editoriales, densidad comfortable.
+
+La regla 1-línea: Operations es el portal pero sin storefront. Mismo lenguaje, menos drama.
 
 ---
 
@@ -196,9 +207,117 @@ Preview de referencia: `~/.gstack/projects/edgarcg-01-Trade_marketing/designs/po
 
 ---
 
+---
+
+## Mercado / Operations — surface interno
+
+> Alcance: `/dashboard/*` (Trade Marketing), `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/televenta/*`. Usuario tipo: supervisor PdV, vendedor, gerente comercial / logística, admin de tenant. NO es el cliente B2B (eso es Storefront).
+
+### Tesis Operations
+Una herramienta de operación que se siente de Mega Dulces, no de Salesforce. **McMaster-Carr LATAM**: densa, instantánea, keyboard-first, cifras alineadas. La calidez viene del color y la tipografía; la velocidad viene del layout y la disciplina. "Esto es serio."
+
+### Memorable thing
+Un supervisor que entra una vez recuerda: **velocidad y densidad** — está usando software profesional, no un dashboard pintado.
+
+### Decisiones del sistema (delta vs Storefront)
+
+| Dimensión | Operations | Storefront |
+|---|---|---|
+| Display font | NO Fraunces. Page-head = Hanken Bold + tracking tight | Fraunces |
+| Body font | Hanken Grotesk 13/14/16 | Hanken Grotesk 14/15/16 |
+| Data font | Geist Mono + `tabular-nums` obligatorio | Geist Mono |
+| Neutrales | Stone cálido (igual que portal) | Stone |
+| Acción | `--action` sunset (igual que portal) | Sunset |
+| IA | Ember `--ember-grad` (mata `--ai-accent` azul actual) | Ember |
+| Dark | Espresso `#16130F` (mata `#000` puro actual) | Espresso |
+| Density | **compact++** (más denso que tool-mode portal) | compact / comfortable |
+| Primary organism | **Tabla densa + master-detail**. Cards solo para KPIs minimal | Card grid |
+| Decoración | nula (sin ilustraciones SVG dulces — son del storefront) | intencional |
+| Motion | minimal-functional | intencional |
+
+### Type scale Operations
+| Token (sugerido) | Value | Uso |
+|---|---|---|
+| `--text-page-head` | 18px / 700 / -0.01em | h1 de cada apartado (`Rutas`, `Pedidos`, etc.) |
+| `--text-section-head` | 14px / 600 | h2 dentro de cards (`Visitas y tiempos`) |
+| `--text-body` | 14px / 400 | filas de tabla, párrafos |
+| `--text-data` | 14px / 500 (mono, `tabular-nums`) | cifras, SKU, folios, horas |
+| `--text-data-lg` | 18px / 600 (mono, `tabular-nums`) | KPI value |
+| `--text-meta` | 12px / 400 / muted | hint, helper, hora secundaria |
+| `--text-label` | 11px / 500 / `uppercase 0.06em` / muted | column header, KPI label |
+
+### Color semántico de Trade (estado de visita / ejecución)
+- **visitada / fulfilled**: `--ok-soft-bg/fg` (verde)
+- **parcial / pending_approval**: `--warn-soft-bg/fg` (ámbar)
+- **sin visitar / draft**: chip neutral Stone-200
+- **atípica / out-of-range**: `--bad-soft-bg/fg` (rojo) — visita > 2× duración promedio, captura sin geofence, expirada
+- **cancelada / fallida**: `--bad-soft-bg/fg` muted
+- **sugerencia IA**: ember (`--ember-soft` bg + `--ember-border`)
+
+Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex inline.
+
+### Patrones canónicos Operations
+1. **Master-Detail** — Rutas, Pedidos, Clientes, Embarques, Tickets. Aside 280-320px sticky + section flex-1. Mobile: stack con back-button (patrón implementado en `/dashboard/routes` 2026-06-08 — referencia).
+2. **KPI Strip** — 4-5 metrics en row, mono-tabular, delta vs target con color semántico. SIN íconos en círculos de color (eso es AI slop).
+3. **Tabla densa** — row 40px desktop / 56px mobile, sticky header, scroll horizontal con primera columna pegada, sort visible en header, paginación abajo. PrimeNG `p-table` con `styleClass="p-datatable-sm"`.
+4. **Empty state operacional** — ícono PrimeIcon mediano + título neutral + descripción + CTA accionable. NUNCA "No items found." sin más. Voz: técnica, no editorial. Ejemplo correcto: "Ninguna ruta registra actividad entre 01/06/26 y 08/06/26. [Ampliar a 30 días]".
+5. **Mapa Leaflet** — pin numerado sequence (sunset `--action`), pin gris en pendientes (`--neutral-400`), polyline dashed sunset para recorrido. Token canónico: `var(--action)`, no `var(--brand)`.
+6. **Filtros** — rango de fechas top-right del header del apartado, filtros secundarios contextualizados en el card específico que filtran (NO banda global de filtros mid-page que parece ruido).
+7. **Status pills** — `p-tag` con severity mapeada al color semántico arriba. Nunca hardcodear bg/fg.
+8. **Navegación** — sidebar hover-expand desktop (patrón VS Code) + bottom-nav mobile 4 items + drawer overflow (patrón FB / IG / Slack). Ya implementado en `LayoutComponent`.
+9. **Acción única** — `--action` sunset para CTA primario en formularios, modales, headers. Secundaria = ghost. Destructiva = `--bad-fg` ghost (botón ghost-bad pattern de la memoria `feedback_ghost_buttons_pattern`).
+10. **A11y línea base** — `focus-visible:ring-2 ring-action`, `aria-current="true"` en master selection, `aria-label` rica en botones sin texto, labels `for/id` formales en inputs, touch targets ≥ 44px mobile.
+
+### SAFE choices (no inventar — es categoría operacional)
+- Master-detail patrón
+- Tabla como primary organism (no card grids)
+- Sidebar desktop hover-expand + bottom-nav mobile
+- Status semantics clásico verde/ámbar/rojo
+
+### RISK choices (donde Mega Dulces se diferencia de cualquier ERP)
+1. **Stone + sunset + ember en backoffice**: 95% de tools internas son Zinc/blue/Inter. Mover Operations a la paleta del portal hace que el supervisor sienta que es la MISMA empresa, no "el portal por un lado y la herramienta de trabajo por otro". Costo: swap de tokens. Win: identidad cross-app.
+2. **No Fraunces ni decoración en internal**: muchos ERPs meten serif en empty states para no verse crudos. Aquí vamos full grotesque honesto. Costo: empties visualmente más fríos. Win: refuerza la promesa "esto es serio".
+3. **IA ember preventivo en backoffice**: cuando Trade agregue scoring assist / anomaly detection / product match (Fase K extension), ya tiene identidad coherente con portal. Costo: nada hoy. Win: evita el reflejo "azul SaaS" o "morado AI" cuando aparezca el primer feature IA en operations.
+
+### Plan de migración Operations (tokens-only, sin tocar componentes)
+
+Costo bajo: casi todo es swap de tokens en `tokens.css`. **NO aplicado todavía — pendiente de aprobación del diff.**
+
+1. `--font-body` → Hanken Grotesk globalmente en `:root` (hoy `Inter`).
+2. `--font-mono` → Geist Mono globalmente (hoy `JetBrains Mono`).
+3. Aliasar `--neutral-50..950` → `--stone-50..950` en `:root`. El portal ya lo hace localmente; será no-op para él.
+4. `--ai-accent` → `--action` sólido (o `--ember-grad` para chips que soporten gradiente). Mata el `#2563EB` azul tibio actual.
+5. `--active-bg: var(--neutral-950)` → revaluar: ¿negro hard o stone-950? Bajo paleta cálida el negro puro se ve agresivo. Recomendación: stone-950 light, stone-50 dark.
+6. Dark mode `:root` → espresso: copiar el bloque `.portal-shell body.theme-monochrome` al `body.theme-monochrome` global.
+7. Cargar Hanken + Geist Mono en `index.html` sin scope (ya están cargados — verificar).
+8. Pin tokenizado en [`MapComponent`](apps/view/src/app/shared/components/map/map.component.ts): `var(--brand, #f97316)` → `var(--action)`. Aplica también a [`routes-analysis`](apps/view/src/app/modules/dashboard/routes-analysis/routes-analysis.component.ts) que tiene el mismo fallback inline.
+9. `--focus-ring` → `--action-ring` globalmente.
+10. NUNCA Fraunces fuera de `.portal-shell` ni `.pl-wrap` — regla explícita.
+
+QA tras migrar:
+- Contraste AA en `--action` sobre `--card-bg` light + dark.
+- `tabular-nums` en TODO precio, cantidad, hora, score, folio.
+- Dark espresso no rompe la paleta de charts (`--chart-1..8` dark ya redefinida — verificar contra fondo espresso).
+- Smoke visual: `/dashboard`, `/dashboard/routes`, `/comercial/command-center`, `/comercial/orders`, `/logistica/dashboard`, `/admin/users`.
+
+### Antipatrones para Operations (flag en review)
+- Inter como `--font-body` en cualquier surface (es default de convergencia).
+- Cards con íconos en círculos de color como decoración (AI slop #3).
+- 3-column feature grid (AI slop #2) — aquí no aplica porque es tool, pero alguien podría caer en eso para un dashboard de KPIs.
+- `#000` puro en dark mode.
+- `--ai-accent: #8b5cf6` morado o `#2563EB` azul.
+- Hex inline en color de pin Leaflet u otros componentes compartidos.
+- Centered everything en empties.
+- Empty state "No items found." sin contexto ni CTA.
+
+---
+
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-06-08 | Extender "Mercado" como sistema único con 2 surfaces (Storefront + Operations) | Coherencia cross-app: cliente B2B y operador interno ven la MISMA empresa visual. Costo: tokens-only. Win: identidad de marca y reuso del trabajo del portal. |
+| 2026-06-08 | Operations = tool-mode-only (sin Fraunces ni decoración) | El usuario interno no tiene "storefront moments". Type bold + density + mono cifras = tesis "esto es serio". |
+| 2026-06-08 | Operations hereda Stone, sunset action, ember IA, espresso dark de Storefront | Reuso completo de paleta. Evita 2 fuentes de verdad. Migración es swap de tokens en `:root`. |
 | 2026-06-04 | Dirección "Mercado" (Warm Editorial Utilitarian) para `/portal` | Hueco de mercado: velocidad utilitaria + textura premium + IA no-genérica, para un comprador prosumer |
 | 2026-06-04 | Inter → Hanken Grotesk (body), JetBrains Mono → Geist Mono (data) | Evitar el default de convergencia; calidez + tabular-nums para precios |
 | 2026-06-04 | Fraunces se conserva como display, disciplinado a storefront mode | Serif óptico cálido ya presente y de calidad |

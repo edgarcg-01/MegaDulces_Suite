@@ -6,6 +6,49 @@
 
 ---
 
+## 2026-06-08 — Offline-first en `/vendor-capture` (option A del análisis devex)
+
+**Contexto:** auditoría del flujo de captura del vendedor mostró que `/dashboard/vendor-capture` (la "fuente de verdad" del modo vendedor, memoria 2026-06-04) hacía los 2 POSTs (`/daily-captures` + `/commercial/vendor-sales`) sin fallback offline, pese a que toda la infra Dexie + sync queue ya estaba madura (usada por `/captures` legacy). Pérdida silenciosa de evidencia + venta sin red en el módulo que más la necesita (vendedor de campo, zonas sin señal).
+
+**Decisión:** opción A del análisis — patrón offline-first del `captures.component` replicado dentro de `vendor-capture`, con OCR + match de planograma diferidos al sync.
+
+**Implementación:**
+
+- **Dexie schema v4** ([`offline-database.service.ts`](apps/view/src/app/core/services/offline-database.service.ts)): nueva interface `PendingVendorSale` + campo `pendingSale?: PendingVendorSale` en `VisitaPendiente`. Sin nuevos índices (campo libre). `version(4)` no destructiva: las visitas v3 siguen funcionando.
+- **Sync service** ([`offline-sync.service.ts`](apps/view/src/app/core/services/offline-sync.service.ts)):
+  - `analizarTicketDiferidoSiAplica` ahora devuelve `{ exhibiciones, ocrItems, ticketMeta }` (antes solo `exhibiciones[]`) — `ocrItems` alimenta la construcción de líneas de venta cuando `deferredFromTicket`.
+  - Nuevo `postPendingSale(visita, response, ocrItems, ticketMeta)`: corre tras POST exitoso de `/daily-captures`. Si `deferredFromTicket && lines vacío`, auto-construye `lines` desde OCR (items con `sku` y `confidence != no_match`). Persiste `daily_capture_id` + lines resueltas ANTES del POST a `/commercial/vendor-sales` → si esto último falla, el estado queda recuperable.
+  - Nuevo `sincronizarVentasHuerfanas()`: corre después de `sincronizarVisitas()` en cada ciclo. Busca visitas con `pendingSale.daily_capture_id` populado (visita ya sincronizada pero venta pendiente) y reintenta solo el POST de venta. Best-effort total, no afecta contadores de visita.
+  - `guardarVisitaOffline` ahora persiste `datosVisita.pendingSale` si viene en el payload.
+- **Component** ([`vendor-capture.component.ts`](apps/view/src/app/modules/dashboard/vendor-capture/vendor-capture.component.ts)):
+  - `onTicket()`: si `!navigator.onLine` o el POST a `/ai/ticket/extract` falla con transient (`[0, 408, 500, 502, 503, 504, 522, 524]`), no bloquea — marca `ticketOcrDeferred` y guarda el Blob crudo del archivo en `this.ticketBlob` para que el sync lo procese.
+  - `save()`: 3 paths. (1) Online happy: POST visita + POST venta como antes. (2) Offline puro (`!navigator.onLine`): llama `offlineSync.guardarVisitaOffline` con `ticketBlob` (si OCR diferido) + `pendingSale`. (3) Online → POST falla transient: fallback offline manteniendo `syncUuid` (dedup server-side garantizado).
+  - Botón Save ahora permite guardar con `confirmedCount() === 0 && ticketOcrDeferred()` (el escenario "vendedor sin red al tomar el ticket" ya no queda bloqueado por UI).
+  - Banner amber visible cuando el OCR está diferido.
+  - `reset()` limpia `ticketBlob` + `ticketOcrDeferred`.
+
+**Escenarios cubiertos:**
+1. **Online completo** → flujo anterior intacto, sin regresiones.
+2. **Sin red de entrada (vendedor en zona muerta)** → toma foto exhibidor + foto ticket → banner "Reconocimiento diferido" → guarda offline. Sync corre OCR del ticket, populá `productosMarcados` de la exhibición, POSTea visita, construye líneas desde OCR y POSTea venta. Todo idempotente vía `sync_uuid` + `capture_ref`.
+3. **Red murió mid-save (online → 504)** → catchError detecta transient → fallback offline con MISMO `syncUuid` → si el server ya guardó la visita en el POST fallido, en el sync next el server dedupea por `sync_uuid` y no duplica.
+4. **Visita sincronizó OK pero venta falló (404 / throttle)** → `daily_capture_id` queda persistido en Dexie → `sincronizarVentasHuerfanas` reintenta solo el POST de venta cada ciclo hasta éxito.
+
+**Decisiones técnicas:**
+- **OCR no se intenta offline.** Es el approach del sync que existía en `captures` legacy y se respeta acá: si no hay red al tomar la foto del ticket, no se intenta `/ai/ticket/extract` — sería un round-trip seguro de fallar.
+- **Líneas de venta = OCR auto-construído.** Cuando OCR es diferido, el vendedor no puede confirmar items manualmente (no los tiene). Decisión: el sync auto-confirma todo lo que tenga `sku` + `confidence != no_match`. Mismo criterio que el server usaría online.
+- **Ventas huérfanas son best-effort silenciosas.** No cuentan como `intentos_fallidos` de la visita. No hay UI para "ventas atascadas" (a diferencia de "visitas muertas"). Si se acumulan, console.warn — agregar surface UX si emerge un caso real.
+- **`isVendedor()` legacy en `/captures` NO se tocó.** Memoria 2026-06-04 lo marca como legado a limpiar tras consolidación; este sprint solo agrega offline al módulo "fuente de verdad" sin tocar el legacy.
+
+**Verificación:** `nx build view` ✅. **Pendiente:** prueba visual con DevTools offline mode (no automatizable desde CLI), validación E2E del sync diferido contra API real, suite de regresión `database/run-all-tests.js` (cero cambios en backend → no debería regresar nada, pero correr antes de cerrar).
+
+**Deferred del análisis devex:**
+- **Opción B** (extender atomicidad visita+venta a una transacción en server): requeriría endpoint `/daily-captures/with-sale` nuevo. Hoy la atomicidad es lado cliente (pendingSale en Dexie); si el sync es interrumpido entre POST visita y POST venta, queda venta huérfana pero recuperable.
+- **Opción C** (mergear `/vendor-capture` y `/captures`): refactor mayor. La consolidación natural ocurre al limpiar `isVendedor()` legacy de `/captures`.
+- **Opción D** (solo OCR diferido sin venta): cubierta por A como subset.
+- **Offline para `/vendor/*` (toma de pedidos B2B)**: distinto bounded context (no hay foto + GPS, son drafts/orders). Sigue deferred (D.2.3 del roadmap).
+
+---
+
 ## 2026-06-03 — Sprint aislamiento de módulos (`[iso.0]`–`[iso.5]`)
 
 **Objetivo (alineado con Edgar):** que un cambio en un dominio no pueda romper otro. Edgar pidió "microservicios"; tras aclarar, el objetivo real era **aislamiento de código + extraction-readiness**, manteniendo **1 solo deployable**. Decisión explícita: NO microservicios runtime ahora (el flujo orders→inventory→pricing y shipment→fulfill son atómicos; partirlos = sagas = retroceso para single dev). Caveat aceptado: 1 proceso → un crash sigue tumbando todo (aislamiento de código, no de proceso). Doc completo en [`docs/EXTRACTION-READINESS.md`](../EXTRACTION-READINESS.md).

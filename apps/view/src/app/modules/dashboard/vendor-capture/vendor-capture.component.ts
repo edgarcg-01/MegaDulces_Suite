@@ -20,6 +20,12 @@ import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
 import { buildVisitFormData } from '../../../core/http/visit-form-data';
+import { OfflineSyncService } from '../../../core/services/offline-sync.service';
+import type { PendingVendorSale } from '../../../core/services/offline-database.service';
+
+const TRANSIENT_STATUSES = new Set([0, 408, 500, 502, 503, 504, 522, 524]);
+const isTransientStatus = (status: number | undefined): boolean =>
+  status === undefined || TRANSIENT_STATUSES.has(status);
 
 interface OcrItem {
   raw: string;
@@ -254,15 +260,25 @@ const ALLOWED_IMAGE_TYPES = [
           </div>
         </div>
 
+        <!-- OCR diferido (sin red al tomar el ticket) -->
+        <div *ngIf="ticketOcrDeferred()" class="bg-amber-500/5 border border-amber-500/30 p-3 rounded-2xl flex items-center gap-3">
+          <i class="pi pi-clock text-amber-500 text-xl" aria-hidden="true"></i>
+          <div class="text-sm text-content-main">
+            <strong>Reconocimiento diferido.</strong> Sin conexión al tomar el ticket: se guardará la foto y el reconocimiento se procesará al sincronizar.
+          </div>
+        </div>
+
         <!-- Guardar -->
         <div class="bg-surface-card border border-divider rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div class="text-sm text-content-dim">
             Venta: <strong class="text-content-main">{{ confirmedCount() }}</strong> líneas
             <span class="mx-2 opacity-30">|</span>
             Visita (planograma): <strong class="text-content-main">{{ planogramCount() }}</strong>
+            <span *ngIf="ticketOcrDeferred()" class="ml-2 text-amber-500 text-xs uppercase tracking-wider font-semibold">· OCR diferido</span>
           </div>
           <p-button label="Guardar captura" icon="pi pi-check" styleClass="p-button-brand w-full sm:w-auto"
-                    [loading]="saving()" [disabled]="saving() || !exhibidorFile() || confirmedCount() === 0"
+                    [loading]="saving()"
+                    [disabled]="saving() || !exhibidorFile() || (confirmedCount() === 0 && !ticketOcrDeferred())"
                     (onClick)="save()"></p-button>
         </div>
       </ng-container>
@@ -301,6 +317,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
+  private readonly offlineSync = inject(OfflineSyncService);
   private readonly apiUrl = environment.apiUrl;
 
   readonly user = this.auth.user;
@@ -314,10 +331,14 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly saving = signal(false);
   readonly changingRoute = signal(false);
   readonly changingStore = signal(false);
+  /** OCR del ticket diferido al sync (sin red al tomar la foto). */
+  readonly ticketOcrDeferred = signal(false);
 
   private ticketUrl: string | null = null;
   private ticketPublicId: string | null = null;
   private syncUuid: string | null = null;
+  /** Blob crudo del ticket para offline path (sync hace OCR diferido). */
+  private ticketBlob: Blob | null = null;
 
   readonly store = this.svc.detectedStore;
   readonly nearby = this.svc.nearbyStores;
@@ -410,6 +431,21 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     reader.onload = () => this.ticketPhotos.update((p) => [...p, reader.result as string]);
     reader.readAsDataURL(file);
 
+    // Guardamos SIEMPRE el Blob de la primera foto: si luego el save cae a
+    // offline (red murió entre OCR y save), el sync diferido lo necesita.
+    if (!this.ticketBlob) this.ticketBlob = file;
+
+    // Offline-first: si no hay red, no intentamos OCR — se difiere al sync.
+    if (!navigator.onLine) {
+      this.ticketOcrDeferred.set(true);
+      this.toast.add({
+        severity: 'info',
+        summary: 'Sin conexión',
+        detail: 'La foto del ticket se guardará. El reconocimiento se procesará al sincronizar.',
+      });
+      return;
+    }
+
     this.processing.set(true);
     try {
       const fd = new FormData();
@@ -432,19 +468,27 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           confirmed: !!it.suggested?.sku && conf !== 'no_match',
         };
       });
-      // Acumular entre fotos (un ticket grande se parte en varias): dedupe por
-      // product_id, quedándonos con la mayor cantidad (evita doble conteo si las
-      // fotos se solapan).
       this.mergeOcrItems(ocr);
-      // Relacionar con el planograma de trade: solo los que matchean van a la visita.
       await this.matchPlanogram();
+      this.ticketOcrDeferred.set(false);
       this.toast.add({
         severity: ocr.length ? 'success' : 'warn',
         summary: ocr.length ? `${ocr.length} productos detectados` : 'Ticket ilegible',
         detail: ocr.length ? `${this.confirmedCount()} confirmados` : 'Tomá la foto con mejor luz.',
       });
     } catch (e: any) {
-      this.toast.add({ severity: 'error', summary: 'OCR falló', detail: e?.error?.message || 'Intentá de nuevo.' });
+      // Si la falla es transient (red caída mid-flight, 500/504 del server),
+      // no bloqueamos: la foto ya está en ticketBlob y el sync diferirá el OCR.
+      if (isTransientStatus(e?.status)) {
+        this.ticketOcrDeferred.set(true);
+        this.toast.add({
+          severity: 'warn',
+          summary: 'OCR no disponible',
+          detail: 'La foto se guardará y el reconocimiento se procesará al sincronizar.',
+        });
+      } else {
+        this.toast.add({ severity: 'error', summary: 'OCR falló', detail: e?.error?.message || 'Intentá de nuevo.' });
+      }
     } finally {
       this.processing.set(false);
     }
@@ -529,82 +573,168 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     }
 
     const confirmed = this.items().filter((i) => i.confirmed && i.sku);
-    if (confirmed.length === 0) return;
+    // OCR diferido (sin red al tomar ticket): permitimos guardar sin items
+    // si hay ticketBlob — el sync correrá OCR y populará la venta automáticamente.
+    const ocrDeferred = this.ticketOcrDeferred() && !!this.ticketBlob;
+    if (confirmed.length === 0 && !ocrDeferred) return;
 
     this.saving.set(true);
     this.syncUuid = this.syncUuid || this.newUuid();
     const today = this.todayMx();
-    try {
-      // Productos que matchean el planograma de trade (dedup), con su product_id
-      // CANÓNICO (catalog). Puede quedar vacío: la visita igual se crea.
-      const planogramPids = Array.from(
-        new Set(
-          confirmed
-            .filter((i) => i.inPlanogram && i.planogramProductId)
-            .map((i) => i.planogramProductId as string),
-        ),
-      );
+    const userId = this.auth.user()?.sub || '';
 
-      // 1) Visita PRIMERO y SIEMPRE — captura foto del exhibidor + GPS como
-      // evidencia, aunque ningún producto matchee el planograma. skip_scoring
-      // porque el vendedor no audita. Crearla primero permite linkear la venta
-      // con su daily_capture_id.
-      const visitPayload: any = {
-        folio: this.makeFolio(),
-        sync_uuid: this.syncUuid,
-        horaInicio: this.svc.horaInicio() || new Date().toISOString(),
-        horaFin: new Date().toISOString(),
-        latitud: lat,
-        longitud: lng,
-        store_id: store.id,
-        route_id: this.route()?.id ?? null,
-        skip_scoring: true,
-        stats: {
-          totalExhibiciones: 1,
-          totalProductosMarcados: planogramPids.length,
-          puntuacionTotal: 0,
-          ventaTotal: 0,
-          ventaAdicional: 0,
+    // Productos que matchean el planograma de trade (dedup), con su product_id
+    // CANÓNICO (catalog). En modo OCR-diferido va vacío y el sync lo rellena.
+    const planogramPids = Array.from(
+      new Set(
+        confirmed
+          .filter((i) => i.inPlanogram && i.planogramProductId)
+          .map((i) => i.planogramProductId as string),
+      ),
+    );
+
+    const visitPayload: any = {
+      folio: this.makeFolio(),
+      sync_uuid: this.syncUuid,
+      horaInicio: this.svc.horaInicio() || new Date().toISOString(),
+      horaFin: new Date().toISOString(),
+      latitud: lat,
+      longitud: lng,
+      store_id: store.id,
+      route_id: this.route()?.id ?? null,
+      skip_scoring: true,
+      stats: {
+        totalExhibiciones: 1,
+        totalProductosMarcados: planogramPids.length,
+        puntuacionTotal: 0,
+        ventaTotal: 0,
+        ventaAdicional: 0,
+      },
+      exhibiciones: [
+        {
+          perteneceMegaDulces: true,
+          productosMarcados: planogramPids,
+          ticket_foto_url: this.ticketUrl,
+          _photoBlob: this.exhibidorFile(),
         },
-        exhibiciones: [
-          {
-            perteneceMegaDulces: true,
-            productosMarcados: planogramPids,
-            ticket_foto_url: this.ticketUrl,
-            _photoBlob: this.exhibidorFile(),
-          },
-        ],
-      };
+      ],
+    };
+
+    const buildPendingSale = (): PendingVendorSale => ({
+      store_id: store.id,
+      sale_date: today,
+      route_id: this.route()?.id ?? null,
+      capture_ref: this.syncUuid!,
+      ticket_photo_url: this.ticketUrl,
+      ticket_cloudinary_public_id: this.ticketPublicId,
+      lines: confirmed.map((i) => ({
+        sku: i.sku as string,
+        product_name: i.product_name,
+        quantity: i.quantity,
+        confidence: i.confidence,
+      })),
+      deferredFromTicket: ocrDeferred,
+    });
+
+    const saveOffline = async (motivo: 'sin-red' | 'falló-online'): Promise<void> => {
+      await this.offlineSync.guardarVisitaOffline(
+        store.id,
+        userId,
+        {
+          horaInicio: visitPayload.horaInicio,
+          horaFin: visitPayload.horaFin,
+          exhibiciones: visitPayload.exhibiciones,
+          stats: visitPayload.stats,
+          syncUuid: this.syncUuid,
+          // ticketBlob solo se persiste si necesitamos OCR diferido (offline al
+          // tomar el ticket). Si OCR ya corrió online, la venta lleva las líneas.
+          ticketBlob: ocrDeferred ? this.ticketBlob : undefined,
+          pendingSale: buildPendingSale(),
+        },
+        { lat, lng, precision: 0 },
+      );
+      this.toast.add({
+        severity: 'info',
+        summary: motivo === 'sin-red' ? 'Guardada sin conexión' : 'Guardada para sync',
+        detail: ocrDeferred
+          ? 'El ticket se procesará automáticamente cuando vuelva la conexión.'
+          : 'Se sincronizará automáticamente apenas vuelva la conexión.',
+        life: 6000,
+      });
+      this.reset();
+    };
+
+    // Path offline puro: sin red, no intentamos POST online.
+    if (!navigator.onLine) {
+      try {
+        await saveOffline('sin-red');
+      } catch (offErr: any) {
+        this.toast.add({
+          severity: 'error',
+          summary: 'No se pudo guardar offline',
+          detail: offErr?.message || 'Storage local no disponible. Reintentá.',
+        });
+      } finally {
+        this.saving.set(false);
+      }
+      return;
+    }
+
+    // Path online: visita + venta. Si falla por transient → fallback offline.
+    try {
       const visit = await firstValueFrom(
         this.http.post<any>(`${this.apiUrl}/daily-captures`, buildVisitFormData(visitPayload)),
       );
 
-      // 2) Venta — líneas confirmadas, linkeada a la visita por daily_capture_id.
-      const sale = await firstValueFrom(
-        this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
-          store_id: store.id,
-          sale_date: today,
-          route_id: this.route()?.id ?? null,
-          capture_ref: this.syncUuid,
-          daily_capture_id: visit?.id ?? null,
-          ticket_photo_url: this.ticketUrl,
-          ticket_cloudinary_public_id: this.ticketPublicId,
-          lines: confirmed.map((i) => ({
-            sku: i.sku,
-            product_name: i.product_name,
-            quantity: i.quantity,
-            confidence: i.confidence,
-          })),
-        }),
-      );
+      // Venta solo si hay líneas confirmadas (si OCR diferido sin items, no
+      // tenemos qué postear — pero al estar online el OCR debería haber corrido,
+      // así que `ocrDeferred && online` es improbable).
+      let saleLines = 0;
+      if (confirmed.length > 0) {
+        const sale = await firstValueFrom(
+          this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
+            store_id: store.id,
+            sale_date: today,
+            route_id: this.route()?.id ?? null,
+            capture_ref: this.syncUuid,
+            daily_capture_id: visit?.id ?? null,
+            ticket_photo_url: this.ticketUrl,
+            ticket_cloudinary_public_id: this.ticketPublicId,
+            lines: confirmed.map((i) => ({
+              sku: i.sku,
+              product_name: i.product_name,
+              quantity: i.quantity,
+              confidence: i.confidence,
+            })),
+          }),
+        );
+        saleLines = sale?.lines ?? confirmed.length;
+      }
 
       this.toast.add({
         severity: 'success',
         summary: 'Captura guardada',
-        detail: `Venta: ${sale?.lines ?? confirmed.length} líneas · Visita: ${planogramPids.length} productos`,
+        detail: `Venta: ${saleLines} líneas · Visita: ${planogramPids.length} productos`,
       });
       this.reset();
     } catch (e: any) {
+      // Si fue transient (red murió mid-POST), fallback offline. El syncUuid
+      // permite dedup server-side cuando el sync reintenté: si el server ya
+      // grabó la visita en el POST fallido, devuelve la fila existente.
+      if (isTransientStatus(e?.status)) {
+        try {
+          await saveOffline('falló-online');
+          return;
+        } catch (offErr: any) {
+          this.toast.add({
+            severity: 'error',
+            summary: 'No se pudo guardar',
+            detail: `Red inestable y storage local también falló: ${offErr?.message || 'desconocido'}`,
+          });
+          return;
+        }
+      }
+      // Error no-transient (validación, FK inválida, etc): mostrar al user.
       this.toast.add({
         severity: 'error',
         summary: 'No se pudo guardar',
@@ -625,6 +755,8 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.ticketUrl = null;
     this.ticketPublicId = null;
     this.syncUuid = null;
+    this.ticketBlob = null;
+    this.ticketOcrDeferred.set(false);
   }
 
   private makeFolio(): string {

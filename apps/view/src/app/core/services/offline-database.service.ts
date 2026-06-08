@@ -32,6 +32,31 @@ export interface VisitaPendiente {
   // se difiere al sync — ahí se llenan los productosMarcados de la exhibición.
   ticketPhotoBlobId?: string; // FK a photos.id (tabla de blobs Dexie v2)
   ticketPendingAnalysis?: boolean;
+  // v4: venta del vendor-capture pendiente de POST a /commercial/vendor-sales.
+  // El sync la postea DESPUÉS del POST exitoso a /daily-captures (necesita el
+  // daily_capture_id devuelto por server para linkear). Si deferredFromTicket
+  // y lines está vacío, el sync construye las líneas desde el OCR diferido.
+  pendingSale?: PendingVendorSale;
+}
+
+export interface PendingVendorSale {
+  store_id: string;
+  sale_date: string;
+  route_id: string | null;
+  capture_ref: string;
+  ticket_photo_url: string | null;
+  ticket_cloudinary_public_id: string | null;
+  lines: Array<{
+    sku: string;
+    product_name: string | null;
+    quantity: number;
+    confidence: string;
+  }>;
+  deferredFromTicket?: boolean;
+  // Populado tras sync exitoso de la visita (response.id de /daily-captures).
+  // Permite reintentar la venta sola si el POST de /commercial/vendor-sales
+  // falla pero la visita ya quedó persistida en el server.
+  daily_capture_id?: string;
 }
 
 export interface CatalogoOffline {
@@ -121,6 +146,17 @@ export class OfflineDatabaseService extends Dexie {
     // El sync las POSTea primero y luego remappea visitas pendientes que
     // apuntaban al ID local hacia el serverId recibido.
     this.version(3).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+    });
+
+    // v4: campo pendingSale en visitas (sin index — propiedad libre).
+    // Misma definición de stores que v3; Dexie sube versión sin re-indexar.
+    this.version(4).stores({
       tiendas: 'id, nombre, zona, ultima_sincronizacion',
       visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
       catalogos: 'id, tipo, version, ultima_sincronizacion',
