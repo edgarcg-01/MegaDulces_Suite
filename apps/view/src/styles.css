@@ -255,8 +255,16 @@ html, body {
 html {
   overflow-y: scroll;
   /* iOS PWA + viewport-fit=cover: el <html> extiende hasta los bordes físicos
-     de la pantalla. Sin background aquí, el safe-area-bottom queda negro. */
+     de la pantalla. Sin background aquí, el safe-area-bottom queda negro.
+     NOTA: --layout-bg viene de :root (light). El override dark queda abajo. */
   background-color: var(--layout-bg);
+}
+
+/* ThemeService agrega .theme-monochrome a <html> además de <body>.
+   Sin este bloque, html lee --layout-bg de :root (stone-100, cálido)
+   aunque body esté en dark mode → safe-area-bottom se ve amarillento. */
+html.theme-monochrome {
+  background-color: #111111;
 }
 
 body {
