@@ -10,8 +10,8 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        sans: ['Hanken Grotesk', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['Geist Mono', 'ui-monospace', 'monospace'],
       },
       colors: {
         /*
@@ -20,6 +20,30 @@ module.exports = {
          * Las claves legacy (primary/orange/sunset/light) siguen
          * funcionando porque resuelven a la misma var().
          */
+        /*
+         * Action — único acento interactivo (sunset naranja).
+         * Uso: bg-action, text-action, ring-action, hover:bg-action-hover, etc.
+         */
+        action: {
+          DEFAULT: 'var(--action)',
+          hover:   'var(--action-hover)',
+          press:   'var(--action-press)',
+          ink:     'var(--action-ink)',
+          ring:    'var(--action-ring)',
+        },
+
+        /*
+         * Ember — identidad IA (ámbar→sunset). Chips "Sugeridos", scores, banners IA.
+         * Mata el morado/azul SaaS genérico.
+         */
+        ember: {
+          DEFAULT: 'var(--ember-from)',
+          from:    'var(--ember-from)',
+          to:      'var(--ember-to)',
+          soft:    'var(--ember-soft)',
+          border:  'var(--ember-border)',
+        },
+
         brand: {
           DEFAULT: 'var(--brand-400)',
           50:  'var(--brand-50)',
@@ -157,6 +181,7 @@ module.exports = {
         content: {
           main:     'var(--text-main)',
           muted:    'var(--text-muted)',
+          soft:     'var(--text-muted)',   // alias — secondary labels, captions
           faint:    'var(--text-faint)',
           dim:      'var(--text-faint)',
           disabled: 'var(--text-disabled)',

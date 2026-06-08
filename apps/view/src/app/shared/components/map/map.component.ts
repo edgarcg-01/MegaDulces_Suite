@@ -14,7 +14,7 @@ export interface MapMarker {
   lat: number;
   lng: number;
   title?: string;
-  /** color del pin (token CSS o hex); default brand. */
+  /** color del pin (token CSS o hex); default action (sunset). */
   color?: string;
   /** número de secuencia a mostrar dentro del pin (recorrido). */
   seq?: number;
@@ -75,7 +75,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     const line = this.path().filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
     for (const m of pts) {
-      const color = m.color || 'var(--brand, #f97316)';
+      const color = m.color || 'var(--action, #F05A28)';
       const html = `<span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${m.seq ?? ''}</span>`;
       const icon = L.divIcon({ html, className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
       const marker = L.marker([m.lat, m.lng], { icon });
@@ -86,7 +86,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (line.length >= 2) {
       L.polyline(
         line.map((p) => [p.lat, p.lng] as [number, number]),
-        { color: 'var(--brand, #f97316)', weight: 3, opacity: 0.7, dashArray: '6 6' },
+        { color: 'var(--action, #F05A28)', weight: 3, opacity: 0.7, dashArray: '6 6' },
       ).addTo(this.layer);
     }
 

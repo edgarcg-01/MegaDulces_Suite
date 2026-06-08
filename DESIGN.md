@@ -3,6 +3,7 @@
 > Fuente de verdad de UI para toda la app.
 > Dirección **"Mercado"**, creada por `/design-consultation` (2026-06-04, extendida 2026-06-08).
 > Los tokens viven en [`apps/view/src/styles/tokens.css`](apps/view/src/styles/tokens.css). Este archivo manda sobre cualquier valor hardcodeado.
+> **Fundamentos (el *por qué* + estado del arte, con citas):** [`docs/DESIGN_FOUNDATIONS.md`](docs/DESIGN_FOUNDATIONS.md) — color perceptual (OKLCH/APCA), tokens DTCG, tipografía óptica, densidad, WCAG 2.2, motion. Este archivo es operativo; ése es la base teórica.
 
 ## Surfaces — dos modes del mismo sistema
 

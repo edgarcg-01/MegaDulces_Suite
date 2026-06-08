@@ -257,7 +257,7 @@ html {
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   background-color: var(--layout-bg);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
@@ -656,9 +656,9 @@ input:focus, textarea:focus, select:focus {
   outline-offset: 2px !important;
 }
 
-/* Override PrimeNG fonts to use Inter */
+/* Override PrimeNG fonts to use design-system body font */
 .p-component {
-  font-family: 'Inter', sans-serif !important;
+  font-family: var(--font-body) !important;
 }
 
 /* Force PrimeNG tables to use theme colors in dark mode */
@@ -2318,7 +2318,7 @@ code.comm-code,
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-size: 0.85rem;
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .comm-form {
@@ -2761,4 +2761,42 @@ code.comm-code,
 }
 .cell .data-table tbody td {
   padding: 0.6rem 1.25rem;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * REDUCED MOTION — global authoritative block.
+ * Principio: reducir/REEMPLAZAR, no eliminar.
+ * Transforms grandes (slide, scale, parallax) → opacity fade discreta.
+ * Microinteracciones esenciales de feedback (focus, tap) se preservan.
+ * Ver docs/DESIGN_FOUNDATIONS.md §7.2 + WCAG 2.2 SC 2.3.3 / C39.
+ * Los bloques locales en componentes complementan; este es la base.
+ * ══════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  /* Kill large transforms — replace with opacity */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Preserve opacity transitions (subtle, non-vestibular) */
+  .fade-in,
+  .portal-card,
+  .portal-card-hoverable,
+  [class*="skeleton"] {
+    transition-property: opacity !important;
+    transition-duration: 150ms !important;
+  }
+
+  /* Kill slide/scale specifically */
+  .liquid-tabs-indicator { transition: none !important; }
+  .portal-btn-primary,
+  .portal-btn-ghost,
+  .portal-btn-ember,
+  .portal-btn-hero { transform: none !important; }
+  .btn-ghost:active,
+  .icon-btn-ghost:active { transform: none !important; }
 }

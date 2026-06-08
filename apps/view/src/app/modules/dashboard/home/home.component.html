@@ -1,17 +1,16 @@
-<div class="dashboard-container w-full min-h-[100dvh] text-content-main px-6 pt-8 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-8">
+<div class="surf-page">
 
-  <header class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
-    <div>
-      <h1 class="title-premium flex items-center gap-3"><i class="pi pi-th-large text-content-main"></i> Dashboard Estratégico</h1>
-      <div class="flex items-center gap-3 mt-2 flex-wrap">
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <h1>Dashboard Estratégico</h1>
+      <div class="flex items-center gap-3 flex-wrap">
         @if (lastUpdatedAt(); as t) {
-          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase"
-                style="background: var(--accent-brand-light); color: var(--neutral-950);">
+          <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase bg-ok-soft-bg text-ok-soft-fg border border-ok-border">
             <span class="status-dot status-ok"></span>
-            <span>Actualizado {{ t | date:'shortTime' }}</span>
+            Actualizado {{ t | date:'shortTime' }}
           </span>
         }
-        <p class="text-xs text-content-muted font-medium">Visión de campo · Mensual</p>
+        <p class="surf-page-sub">Visión de campo · Mensual</p>
       </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap">
@@ -39,7 +38,7 @@
     1 row abajo derecha. En sm: 2 cols planas. En mobile: stack.
     Las clases lg:col-span / lg:row-span están en cada card por su índice.
   -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 lg:grid-rows-2 gap-4 mb-8 w-full">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 lg:grid-rows-2 gap-4 w-full">
     @if (summaryMonthlyLoading()) {
       <div class="card-premium card-flat animate-pulse lg:col-span-6 lg:row-span-2 h-[180px] lg:h-auto flex items-center justify-center p-5">
         <p-skeleton width="80%" height="6rem"></p-skeleton>
@@ -228,21 +227,23 @@
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:auto-rows-min">
 
     <!-- Quick Actions: mobile order 1 / desktop col 9-12 row 3 -->
-    <div class="card-premium card-flat order-1 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-3">
-      <h3 class="stat-label mb-4">Operativa directa</h3>
-      <div class="space-y-2">
-        @for (a of quickActions(); track a.route) {
-          <a [routerLink]="a.route"
-             class="flex items-center justify-between p-3 min-h-11 rounded-xl bg-surface-layout hover:bg-surface-hover motion-safe:transition-colors no-underline group border border-transparent hover:border-divider">
-            <div class="flex items-center gap-3">
-              <div class="w-9 h-9 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors">
-                <i [class]="a.icon"></i>
+    <div class="surf-panel order-1 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-3">
+      <div class="surf-panel-head"><h3>Operativa directa</h3></div>
+      <div class="surf-panel-body">
+        <div class="space-y-2">
+          @for (a of quickActions(); track a.route) {
+            <a [routerLink]="a.route"
+               class="flex items-center justify-between p-3 min-h-11 rounded-xl bg-surface-layout hover:bg-surface-hover motion-safe:transition-colors no-underline group border border-transparent hover:border-divider">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-surface-card border border-divider flex items-center justify-center text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors">
+                  <i [class]="a.icon"></i>
+                </div>
+                <span class="text-xs font-bold">{{ a.label }}</span>
               </div>
-              <span class="text-xs font-bold">{{ a.label }}</span>
-            </div>
-            <i class="pi pi-chevron-right text-xs text-content-faint group-hover:translate-x-1 transition-transform"></i>
-          </a>
-        }
+              <i class="pi pi-chevron-right text-xs text-content-faint group-hover:translate-x-1 transition-transform"></i>
+            </a>
+          }
+        </div>
       </div>
     </div>
 
@@ -256,62 +257,60 @@
         <!-- Placeholder con el MISMO header (incluye slot vacío para la
              leyenda) y altura de chart 320px que la versión real. Esto evita
              que al hidratarse el chart se empuje el contenido siguiente. -->
-        <div class="card-premium card-flat">
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <h3 class="text-base font-bold text-content-main">Ejecución Semanal</h3>
-              <p class="text-xs text-content-muted mt-1">Visitas por día de la semana (acumulado)</p>
-            </div>
-            <!-- Reserva del espacio de la leyenda para igualar la altura
-                 del header real. `invisible` mantiene el layout. -->
-            <div class="invisible flex items-center gap-4 text-[11px]">
+        <div class="surf-panel">
+          <div class="surf-panel-head">
+            <h3>Ejecución Semanal</h3>
+            <div class="invisible flex items-center gap-4 text-[11px] text-content-muted">
               <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full"></span>Alto Score</span>
               <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full"></span>Medio</span>
               <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full"></span>Bajo</span>
             </div>
           </div>
-          <p-skeleton height="320px"></p-skeleton>
+          <div class="surf-panel-body">
+            <p-skeleton height="320px"></p-skeleton>
+          </div>
         </div>
       }
     </div>
 
     <!-- Tabla cumplimiento diario: mobile order 3 / desktop col 1-8 row 2 -->
-    <div class="card-premium card-flat order-3 lg:order-none lg:col-span-8 lg:col-start-1 lg:row-start-2">
-      <div class="flex items-center justify-between mb-6 pb-3 border-b border-divider">
-        <h3 class="stat-label">Cumplimiento diario <span class="text-[10px] text-content-faint font-normal normal-case tracking-normal ml-1">· datos del día</span></h3>
-        <span class="text-[10px] text-content-faint uppercase tracking-widest">Vs metas configuradas</span>
+    <div class="surf-panel order-3 lg:order-none lg:col-span-8 lg:col-start-1 lg:row-start-2">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-table" aria-hidden="true"></i> Cumplimiento diario</h3>
+        <span class="text-[10px] text-content-faint uppercase tracking-widest">Hoy · vs metas</span>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full border-collapse">
+      <div class="surf-panel-body is-flush">
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
             <thead>
               <tr class="text-[10px] text-content-muted font-black uppercase border-b border-divider">
-                <th class="pb-3 text-left">Activo</th>
-                <th class="pb-3 text-center">Realizado</th>
-                <th class="pb-3 text-center">Meta</th>
-                <th class="pb-3 text-center">Estado</th>
-                <th class="pb-3 text-right pr-4">Avance</th>
+                <th class="px-4 pb-3 pt-3 text-left">Activo</th>
+                <th class="pb-3 pt-3 text-center">Realizado</th>
+                <th class="pb-3 pt-3 text-center">Meta</th>
+                <th class="pb-3 pt-3 text-center">Estado</th>
+                <th class="pb-3 pt-3 text-right pr-4">Avance</th>
               </tr>
             </thead>
             <tbody>
               @for (row of furnitureRows(); track row.label) {
                 <tr class="border-b border-divider hover:bg-surface-layout motion-safe:transition-colors"
                     [class]="'status-' + row.status">
-                  <td class="py-4">
+                  <td class="py-3 px-4">
                     <div class="flex items-center gap-3">
-                      <div class="w-9 h-9 rounded-xl bg-surface-layout border border-divider flex items-center justify-center">
-                        <i [class]="row.icon" class="text-content-muted"></i>
+                      <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center">
+                        <i [class]="row.icon" class="text-content-muted text-sm"></i>
                       </div>
                       <span class="text-sm font-bold">{{ row.label }}</span>
                     </div>
                   </td>
-                  <td class="py-4 text-center font-mono font-bold">{{ row.actual }}</td>
-                  <td class="py-4 text-center font-mono text-content-muted">{{ row.target }}</td>
-                  <td class="py-4 text-center">
+                  <td class="py-3 text-center font-mono font-bold">{{ row.actual }}</td>
+                  <td class="py-3 text-center font-mono text-content-muted">{{ row.target }}</td>
+                  <td class="py-3 text-center">
                     <span class="status-chip uppercase">{{ statusLabel(row.status) }}</span>
                   </td>
-                  <td class="py-4 pr-4">
+                  <td class="py-3 pr-4">
                     <div class="flex items-center justify-end gap-3">
-                      <div class="w-28 h-1.5 bg-surface-layout rounded-full overflow-hidden">
+                      <div class="w-24 h-1.5 bg-surface-layout rounded-full overflow-hidden">
                         <div class="h-full rounded-full status-fill" [style.width.%]="row.pct"></div>
                       </div>
                       <span class="text-xs font-mono font-bold w-9 text-right">{{ row.pct }}%</span>
@@ -323,66 +322,69 @@
           </table>
         </div>
       </div>
+    </div>
 
-    <!-- Monochrome highlight: always-dark en ambos temas. -->
-    <div class="card-premium card-flat monochrome-highlight shadow-2xl order-5 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-1">
-      <div class="flex items-center justify-between mb-6">
-        <div class="stat-label text-dim-strong tracking-widest text-xs">Ejecución crítica</div>
-        <div class="h-2 w-2 rounded-full bg-white animate-pulse"></div>
+    <!-- Ejecución crítica -->
+    <div class="surf-panel order-5 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-1">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-bolt" aria-hidden="true"></i> Ejecución crítica</h3>
+        <div class="h-2 w-2 rounded-full bg-ok animate-pulse"></div>
       </div>
-      <div class="space-y-4">
-        <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
-          <p class="text-[10px] uppercase font-black tracking-widest text-dim mb-1">Mejor ejecutivo</p>
-          <h4 class="text-xl font-extrabold tracking-tighter text-white">
-            {{ summaryMonthly()?.mejor_ejecutivo || 'N/A' }}
-          </h4>
-        </div>
-        <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
-          <p class="text-[10px] uppercase font-black tracking-widest text-dim mb-1">Evidencias verificadas</p>
-          <div class="flex items-end gap-2">
-            <span class="text-4xl font-extrabold tracking-tighter">{{ summaryMonthly()?.total_fotos ?? 0 }}</span>
-            <span class="text-xs text-dim mb-1">fotos</span>
+      <div class="surf-panel-body">
+        <div class="space-y-3">
+          <div class="p-3 border border-divider rounded-xl bg-surface-layout">
+            <p class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1">Mejor ejecutivo</p>
+            <h4 class="text-xl font-extrabold tracking-tight text-content-main leading-none">
+              {{ summaryMonthly()?.mejor_ejecutivo || 'N/A' }}
+            </h4>
+          </div>
+          <div class="p-3 border border-divider rounded-xl bg-surface-layout">
+            <p class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1">Evidencias verificadas</p>
+            <div class="flex items-end gap-2">
+              <span class="text-4xl font-extrabold tracking-tight text-content-main leading-none">{{ summaryMonthly()?.total_fotos ?? 0 }}</span>
+              <span class="text-xs text-content-muted mb-0.5">fotos</span>
+            </div>
           </div>
         </div>
+        @if (lastUpdatedAt(); as t) {
+          <div class="mt-4 pt-3 border-t border-divider flex justify-between items-center">
+            <span class="text-[10px] font-mono uppercase text-content-faint">Sync · {{ t | date:'shortTime' }}</span>
+            <i class="pi pi-shield text-content-faint"></i>
+          </div>
+        }
       </div>
-      @if (lastUpdatedAt(); as t) {
-        <div class="mt-8 pt-4 border-t border-white/10 flex justify-between items-center">
-          <span class="text-[10px] font-mono text-dim uppercase">Sync · {{ t | date:'shortTime' }}</span>
-          <i class="pi pi-shield text-dim"></i>
-        </div>
-      }
     </div>
 
     <!-- Actividad reciente: mobile order 4 / desktop col 9-12 row 2 -->
-    <div class="card-premium card-flat order-4 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-2">
-      <div class="flex items-center justify-between mb-6 pb-3 border-b border-divider">
-        <h3 class="stat-label">Actividad reciente</h3>
+    <div class="surf-panel order-4 lg:order-none lg:col-span-4 lg:col-start-9 lg:row-start-2">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-history" aria-hidden="true"></i> Actividad reciente</h3>
         <p-button icon="pi pi-external-link" [text]="true" severity="secondary" size="small"
                   routerLink="/dashboard/reports"
                   ariaLabel="Abrir reportes detallados"></p-button>
       </div>
-      <!-- min-h reservado para 5 items × ~52px (height) + 4 gaps × 16px (space-y-4)
-           ≈ 320px. Evita CLS cuando la lista llega de empty → 5 visitas. -->
-      <div class="space-y-4 min-h-[320px]">
-        @for (cap of recentCaptures(); track cap.id) {
-          <div class="flex items-start gap-3 group">
-            <div class="h-9 w-9 shrink-0 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-black uppercase ring-2 ring-surface-layout">
-              {{ cap.captured_by_username?.charAt(0) }}
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-2 mb-0.5">
-                <span class="text-xs font-bold truncate">{{ cap.captured_by_username }}</span>
-                <span class="text-[9px] font-mono text-content-faint">{{ cap.hora_inicio | date:'shortTime' }}</span>
+      <div class="surf-panel-body">
+        <div class="space-y-4 min-h-[320px]">
+          @for (cap of recentCaptures(); track cap.id) {
+            <div class="flex items-start gap-3 group">
+              <div class="h-9 w-9 shrink-0 rounded-full bg-surface-active text-content-active flex items-center justify-center text-xs font-black uppercase ring-2 ring-surface-layout">
+                {{ cap.captured_by_username?.charAt(0) }}
               </div>
-              <div class="flex items-center justify-between">
-                <span class="text-[10px] text-content-muted uppercase tracking-tight">{{ cap.zona_captura }}</span>
-                <span class="text-xs font-black status-text" [class]="'status-' + cap._scoreStatus">
-                  {{ fmtScore(cap._score) }}
-                </span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2 mb-0.5">
+                  <span class="text-xs font-bold truncate">{{ cap.captured_by_username }}</span>
+                  <span class="text-[9px] font-mono text-content-faint">{{ cap.hora_inicio | date:'shortTime' }}</span>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] text-content-muted uppercase tracking-tight">{{ cap.zona_captura }}</span>
+                  <span class="text-xs font-black status-text" [class]="'status-' + cap._scoreStatus">
+                    {{ fmtScore(cap._score) }}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        }
+          }
+        </div>
       </div>
     </div>
 

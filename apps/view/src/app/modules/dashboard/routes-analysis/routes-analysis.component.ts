@@ -49,224 +49,444 @@ interface RouteVisit {
   selector: 'app-routes-analysis',
   standalone: true,
   imports: [CommonModule, FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent],
+  styles: [`
+    /* ── layout ──────────────────────────────────────────────── */
+    .ru-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      align-items: start;
+    }
+    @media (min-width: 1024px) {
+      .ru-layout { grid-template-columns: 272px 1fr; }
+    }
+
+    /* ── sidebar ─────────────────────────────────────────────── */
+    .ru-sidebar { overflow: hidden; }
+    @media (min-width: 1024px) {
+      .ru-sidebar { max-height: 75vh; overflow-y: auto; }
+    }
+    .ru-sidebar--hidden { display: none; }
+    @media (min-width: 1024px) { .ru-sidebar--hidden { display: block; } }
+
+    /* ── route list ──────────────────────────────────────────── */
+    .ru-route-list { list-style: none; margin: 0; padding: 0.25rem; }
+    .ru-route-item {
+      width: 100%; text-align: left; background: none; border: none;
+      cursor: pointer; padding: 0.6rem 0.75rem; border-radius: 7px;
+      display: flex; flex-direction: column; gap: 0.15rem;
+      transition: background-color 100ms ease;
+    }
+    .ru-route-item:hover:not(.is-selected) { background: var(--hover-bg); }
+    .ru-route-item.is-selected { background: var(--action); color: #fff; }
+    .ru-route-item.is-selected .ru-route-zona { opacity: 0.7; }
+    .ru-route-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 0; border-radius: 7px; }
+    .ru-route-item-main { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .ru-route-name { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ru-route-badge {
+      font-size: 0.6875rem; font-weight: 600; font-variant-numeric: tabular-nums;
+      background: var(--surface-ground); color: var(--text-muted);
+      border-radius: 999px; padding: 0.1rem 0.45rem; flex-shrink: 0; line-height: 1.4;
+    }
+    .ru-route-item.is-selected .ru-route-badge { background: rgba(255,255,255,.22); color: #fff; }
+    .ru-route-zona { font-size: 0.6875rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ru-route-item.is-selected .ru-route-zona { color: inherit; }
+
+    /* ── detail pane ─────────────────────────────────────────── */
+    .ru-detail { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+    .ru-detail--hidden { display: none; }
+    @media (min-width: 1024px) { .ru-detail--hidden { display: flex; } }
+
+    /* ── filter bar ──────────────────────────────────────────── */
+    .ru-filter-bar { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
+    .ru-date-field { display: flex; flex-direction: column; gap: 0.25rem; }
+    .ru-date-label {
+      font-size: 0.6875rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-faint);
+    }
+    .ru-date-input {
+      height: 32px; padding: 0 0.625rem;
+      border: 1px solid var(--border-color); border-radius: 7px;
+      background: var(--card-bg); color: var(--text-main);
+      font-size: 0.8125rem; font-family: inherit; outline: none;
+    }
+    .ru-date-input:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 0; }
+
+    /* ── empty / placeholder states ──────────────────────────── */
+    .ru-empty, .ru-placeholder {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0.5rem; padding: 2.5rem 1.5rem; text-align: center;
+    }
+    .ru-empty-icon { font-size: 1.625rem; color: var(--text-faint); margin-bottom: 0.125rem; }
+    .ru-empty-title { font-size: 0.8125rem; font-weight: 700; color: var(--text-main); margin: 0; }
+    .ru-empty-msg { font-size: 0.75rem; color: var(--text-muted); margin: 0; max-width: 280px; }
+    .ru-link-btn {
+      margin-top: 0.25rem; font-size: 0.75rem; color: var(--action);
+      background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0;
+    }
+    .ru-link-btn:hover { opacity: 0.8; }
+
+    /* ── skeleton padding ────────────────────────────────────── */
+    .ru-list-skeleton { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
+
+    /* ── map legend ──────────────────────────────────────────── */
+    .ru-legend { display: flex; align-items: center; gap: 0.875rem; }
+    .ru-legend-item {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      font-size: 0.6875rem; color: var(--text-faint);
+    }
+    .ru-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .ru-map-empty { padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
+
+    /* ── table helpers ───────────────────────────────────────── */
+    .ru-table-empty { text-align: center; color: var(--text-muted); font-size: 0.8125rem; padding: 1.5rem; }
+    .ru-cell-strong { font-weight: 600; color: var(--text-main); }
+    .ru-cell-link { color: inherit; text-decoration: none; }
+    .ru-cell-link:hover { color: var(--action); text-decoration: underline; }
+    .ru-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── back button (mobile) ────────────────────────────────── */
+    .ru-back-btn {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      font-size: 0.8125rem; color: var(--text-muted);
+      background: none; border: none; cursor: pointer; padding: 0;
+    }
+    .ru-back-btn:hover { color: var(--text-main); }
+    @media (min-width: 1024px) { .ru-back-btn { display: none; } }
+
+    /* ── KPI grid: 4 individual cards con icon badge ────────── */
+    .ru-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+    }
+    @media (min-width: 900px) { .ru-kpi-grid { grid-template-columns: repeat(4, 1fr); } }
+
+    .ru-kpi {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 1rem 1.125rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.875rem;
+      min-height: 84px;
+      position: relative;
+      overflow: hidden;
+    }
+    /* Franja izquierda sutil */
+    .ru-kpi::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      background: var(--border-color);
+    }
+    .ru-kpi.is-ok::before  { background: var(--ok-fg); }
+    .ru-kpi.is-warn::before { background: var(--warn-fg); }
+    .ru-kpi.is-bad::before  { background: var(--bad-fg); }
+
+    .ru-kpi-icon {
+      width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+      background: var(--surface-ground); color: var(--action);
+      display: grid; place-items: center; font-size: 1rem;
+      margin-top: 0.1rem;
+    }
+    .ru-kpi.is-ok   .ru-kpi-icon { background: rgba(22,163,74,.14);  color: var(--ok-fg); }
+    .ru-kpi.is-warn .ru-kpi-icon { background: rgba(245,158,11,.16); color: var(--warn-fg); }
+    .ru-kpi.is-bad  .ru-kpi-icon { background: rgba(220,38,38,.14);  color: var(--bad-fg); }
+
+    .ru-kpi-body { flex: 1; min-width: 0; }
+    .ru-kpi-label {
+      font-size: 0.6875rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-faint); line-height: 1.2; margin: 0 0 0.35rem;
+    }
+    .ru-kpi-value {
+      font-size: 1.75rem; font-weight: 800; letter-spacing: -0.03em;
+      color: var(--text-main); line-height: 1; font-variant-numeric: tabular-nums;
+    }
+    .ru-kpi-sub {
+      font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;
+      font-variant-numeric: tabular-nums; line-height: 1.3;
+    }
+    .ru-kpi-sub.is-ok   { color: var(--ok-fg); }
+    .ru-kpi-sub.is-warn { color: var(--warn-fg); }
+    .ru-kpi-sub.is-bad  { color: var(--bad-fg); }
+
+    /* ── map row: selector izq + mapa der ───────────────────── */
+    .ru-map-row {
+      display: grid;
+      grid-template-columns: 272px 1fr;
+      gap: 1rem;
+      align-items: start;
+    }
+    @media (max-width: 1023px) {
+      .ru-map-row { grid-template-columns: 1fr; }
+    }
+
+    /* ── sidebar min height ──────────────────────────────────── */
+    .ru-sidebar { min-height: 120px; }
+  `],
   template: `
-    <div class="p-4 md:p-6 space-y-4">
-      <header class="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 class="text-xl font-semibold text-content-main">Rutas</h1>
-          <p class="text-sm text-content-soft">Tiendas por ruta, tiempos de visita y trazabilidad del recorrido.</p>
+    <div class="surf-page">
+
+      <!-- PAGE HEADER ─────────────────────────────────────────────── -->
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Rutas</h1>
+          <p class="surf-page-sub">Cobertura de tiendas, tiempos de visita y trazabilidad del recorrido.</p>
         </div>
-        <div class="flex items-end gap-2">
-          <label for="routes-date-from" class="text-xs text-content-soft">Desde
-            <input id="routes-date-from" type="date" [(ngModel)]="startDate" (change)="reload()"
-              class="block mt-1 px-2 py-1.5 rounded-md border border-divider bg-surface-card text-content-main text-sm
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-brand" />
+        <div class="ru-filter-bar">
+          <label class="ru-date-field" for="routes-date-from">
+            <span class="ru-date-label">Desde</span>
+            <input id="routes-date-from" type="date" [(ngModel)]="startDate" (change)="reload()" class="ru-date-input" />
           </label>
-          <label for="routes-date-to" class="text-xs text-content-soft">Hasta
-            <input id="routes-date-to" type="date" [(ngModel)]="endDate" (change)="reload()"
-              class="block mt-1 px-2 py-1.5 rounded-md border border-divider bg-surface-card text-content-main text-sm
-                focus:outline-none focus-visible:ring-2 focus-visible:ring-brand" />
+          <label class="ru-date-field" for="routes-date-to">
+            <span class="ru-date-label">Hasta</span>
+            <input id="routes-date-to" type="date" [(ngModel)]="endDate" (change)="reload()" class="ru-date-input" />
           </label>
         </div>
       </header>
 
-      <div class="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
-        <!-- Maestro: lista de rutas (mobile: oculto cuando hay selecci&oacute;n) -->
-        <aside [class.hidden]="selectedId()"
-          class="lg:!block bg-surface-card border border-divider rounded-lg p-2 lg:max-h-[70vh] overflow-auto">
-          @if (loadingMaster()) {
-            <p-skeleton height="2.5rem" styleClass="mb-2" *ngFor="let _ of [1,2,3,4,5]"></p-skeleton>
-          } @else if (routes().length === 0) {
-            <div class="p-4 text-center space-y-2">
-              <i class="pi pi-map text-2xl text-content-soft opacity-50"></i>
-              <p class="text-sm text-content-soft">Ninguna ruta registra actividad entre {{ fmtDateShort(startDate) }} y {{ fmtDateShort(endDate) }}.</p>
-              <button type="button" (click)="widenRange()"
-                class="text-xs text-brand hover:underline">Ampliar a 30 d&iacute;as</button>
-            </div>
-          } @else {
-            @for (r of routes(); track r.id) {
-              <button type="button" (click)="select(r.id)"
-                [attr.aria-current]="r.id === selectedId() ? 'true' : null"
-                [attr.aria-label]="r.name + ', ' + r.visitas + ' visitas, zona ' + (r.zona || 'sin zona')"
-                class="w-full text-left px-3 py-2 rounded-md mb-1 transition-colors
-                  focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
-                [class.bg-brand]="r.id === selectedId()"
-                [class.text-white]="r.id === selectedId()"
-                [class.hover:bg-surface-hover]="r.id !== selectedId()">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="font-medium truncate">{{ r.name }}</span>
-                  <span class="text-xs opacity-80">{{ r.visitas }} vis</span>
-                </div>
-                <div class="text-xs opacity-70 truncate">{{ r.zona || '—' }}</div>
-              </button>
-            }
-          }
-        </aside>
+      <!-- DETAIL — full width ─────────────────────────────────────── -->
+      <section class="ru-detail">
 
-        <!-- Detalle de la ruta seleccionada (mobile: oculto sin selecci&oacute;n) -->
-        <section [class.hidden]="!selectedId()" class="lg:!block space-y-4 min-w-0">
-          @if (selectedId()) {
-            <button type="button" (click)="clearSelection()"
-              class="lg:hidden inline-flex items-center gap-1 text-xs text-content-soft hover:text-content-main">
-              <i class="pi pi-arrow-left"></i> Volver al listado
-            </button>
-          }
+          <!-- Placeholder: ninguna ruta seleccionada -->
           @if (!selectedId()) {
-            <div class="bg-surface-card border border-divider rounded-lg p-8 text-center space-y-2">
-              <i class="pi pi-arrow-left text-2xl text-content-soft opacity-50"></i>
-              <p class="text-sm text-content-main font-medium">Eleg&iacute; una ruta del listado</p>
-              <p class="text-xs text-content-soft">Ver&aacute;s cobertura (tiendas asignadas vs visitadas), tiempos de cada visita y el recorrido del vendedor en el mapa.</p>
-            </div>
-          } @else if (hasNoActivity()) {
-            <div class="bg-surface-card border border-divider rounded-lg p-8 text-center space-y-2">
-              <i class="pi pi-calendar-times text-2xl text-content-soft opacity-50"></i>
-              <p class="text-sm text-content-main font-medium">Sin actividad en el rango</p>
-              <p class="text-xs text-content-soft">Esta ruta no tiene visitas ni tiendas asignadas entre {{ fmtDateShort(startDate) }} y {{ fmtDateShort(endDate) }}.</p>
-              <button type="button" (click)="widenRange()"
-                class="text-xs text-brand hover:underline">Ampliar a 30 d&iacute;as</button>
-            </div>
-          } @else {
-            <!-- KPIs -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div class="bg-surface-card border border-divider rounded-lg p-3">
-                <div class="text-xs text-content-soft">Tiendas</div>
-                <div class="text-lg font-semibold text-content-main">{{ stores().length }}</div>
+            <div class="surf-panel">
+              <div class="ru-placeholder">
+                <i class="pi pi-map ru-empty-icon" aria-hidden="true"></i>
+                <p class="ru-empty-title">Seleccioná una ruta</p>
+                <p class="ru-empty-msg">Verás cobertura de tiendas, tiempos de cada visita y el recorrido en el mapa.</p>
               </div>
-              <div class="bg-surface-card border border-divider rounded-lg p-3">
-                <div class="text-xs text-content-soft">Cobertura</div>
-                <div class="text-lg font-semibold text-content-main">{{ coveragePct() }}%</div>
-                <div class="text-xs text-content-soft">{{ visitedCount() }}/{{ stores().length }} visitadas</div>
-              </div>
-              <div class="bg-surface-card border border-divider rounded-lg p-3">
-                <div class="text-xs text-content-soft">Visitas</div>
-                <div class="text-lg font-semibold text-content-main">{{ filteredVisits().length }}</div>
-                @if (vendorFilter()) {
-                  <div class="text-xs text-content-soft">de {{ visits().length }} totales</div>
-                }
-              </div>
-              <div class="bg-surface-card border border-divider rounded-lg p-3">
-                <div class="text-xs text-content-soft">Tiempo prom.</div>
-                <div class="text-lg font-semibold text-content-main">{{ avgDuration() }} min</div>
-                @if (avgDeltaVsTarget() != null) {
-                  <div class="text-xs"
-                    [class.text-green-600]="avgSeverity() === 'good'"
-                    [class.text-amber-600]="avgSeverity() === 'neutral'"
-                    [class.text-red-600]="avgSeverity() === 'bad'">
-                    {{ avgDeltaVsTarget()! > 0 ? '+' : '' }}{{ avgDeltaVsTarget() }} vs {{ targetMinutes }} min target
-                  </div>
-                }
-              </div>
-            </div>
-
-            <!-- Mapa: recorrido + cobertura -->
-            <div class="bg-surface-card border border-divider rounded-lg p-2">
-              <div class="flex items-center justify-between px-2 py-1">
-                <h2 class="text-sm font-semibold text-content-main">Recorrido y cobertura</h2>
-                <div class="flex items-center gap-3 text-xs text-content-soft">
-                  <span class="inline-flex items-center gap-1"><i class="w-3 h-3 rounded-full inline-block" style="background:var(--brand,#f97316)"></i>visitada (en orden)</span>
-                  <span class="inline-flex items-center gap-1"><i class="w-3 h-3 rounded-full inline-block" style="background:#9ca3af"></i>sin visitar</span>
-                </div>
-              </div>
-              @if (loadingDetail()) {
-                <p-skeleton height="420px"></p-skeleton>
-              } @else if (mapMarkers().length === 0) {
-                <div class="p-8 text-center text-content-soft text-sm">Sin coordenadas para mapear en esta ruta.</div>
-              } @else {
-                <app-map [markers]="mapMarkers()" [path]="mapPath()" height="420px"></app-map>
-              }
-            </div>
-
-            <!-- Tiempos por visita -->
-            <div class="bg-surface-card border border-divider rounded-lg overflow-hidden">
-              <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-divider">
-                <h2 class="text-sm font-semibold text-content-main">Visitas y tiempos</h2>
-                @if (vendorOptions().length > 1) {
-                  <p-select
-                    [options]="vendorOptions()"
-                    [ngModel]="vendorFilter()"
-                    (ngModelChange)="vendorFilter.set($event)"
-                    placeholder="Todos los vendedores"
-                    [showClear]="true"
-                    styleClass="text-xs"
-                    appendTo="body"></p-select>
-                }
-              </div>
-              <p-table [value]="filteredVisits()" [loading]="loadingDetail()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="320px" sortField="hora_inicio" [sortOrder]="1">
-                <ng-template pTemplate="header">
-                  <tr>
-                    <th>#</th>
-                    <th>Tienda</th>
-                    <th>Vendedor</th>
-                    <th pSortableColumn="hora_inicio">Inicio <p-sortIcon field="hora_inicio"></p-sortIcon></th>
-                    <th>Fin</th>
-                    <th pSortableColumn="duration_min">Duraci&oacute;n <p-sortIcon field="duration_min"></p-sortIcon></th>
-                    <th pSortableColumn="score">Score <p-sortIcon field="score"></p-sortIcon></th>
-                  </tr>
-                </ng-template>
-                <ng-template pTemplate="body" let-v let-i="rowIndex">
-                  <tr>
-                    <td>{{ i + 1 }}</td>
-                    <td>
-                      <a [routerLink]="['/dashboard/stores']" [queryParams]="{ q: v.store_nombre }"
-                        class="font-medium text-content-main hover:text-brand hover:underline">
-                        {{ v.store_nombre }}
-                      </a>
-                    </td>
-                    <td class="text-content-soft">{{ v.captured_by_username }}</td>
-                    <td>{{ fmtTime(v.hora_inicio) }}</td>
-                    <td>{{ fmtTime(v.hora_fin) }}</td>
-                    <td>{{ v.duration_min != null ? v.duration_min + ' min' : '—' }}</td>
-                    <td>{{ v.score }}</td>
-                  </tr>
-                </ng-template>
-                <ng-template pTemplate="emptymessage">
-                  <tr><td colspan="7" class="text-center text-content-soft py-4">
-                    @if (stores().length > 0) {
-                      0 visitas registradas. Las {{ stores().length }} tiendas asignadas siguen visibles abajo.
-                    } @else {
-                      Sin visitas en este rango.
-                    }
-                  </td></tr>
-                </ng-template>
-              </p-table>
-            </div>
-
-            <!-- Cobertura: tiendas asignadas -->
-            <div class="bg-surface-card border border-divider rounded-lg overflow-hidden">
-              <h2 class="text-sm font-semibold text-content-main px-3 py-2 border-b border-divider">Tiendas de la ruta</h2>
-              <p-table [value]="stores()" [loading]="loadingDetail()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="320px">
-                <ng-template pTemplate="header">
-                  <tr><th>Tienda</th><th>Zona</th><th>Estado</th></tr>
-                </ng-template>
-                <ng-template pTemplate="body" let-s>
-                  <tr>
-                    <td>
-                      <a [routerLink]="['/dashboard/stores']" [queryParams]="{ q: s.nombre }"
-                        class="font-medium text-content-main hover:text-brand hover:underline">
-                        {{ s.nombre }}
-                      </a>
-                    </td>
-                    <td class="text-content-soft">{{ s.zona_name || '—' }}</td>
-                    <td>
-                      <p-tag [value]="s.visited ? 'Visitada' : 'Sin visitar'"
-                        [severity]="s.visited ? 'success' : 'secondary'"></p-tag>
-                    </td>
-                  </tr>
-                </ng-template>
-                <ng-template pTemplate="emptymessage">
-                  <tr><td colspan="3" class="text-center text-content-soft py-4">
-                    @if (visits().length > 0) {
-                      Visitas registradas sin maestro de tiendas asociado. Revisar asignaci&oacute;n formal de la ruta.
-                    } @else {
-                      Esta ruta no tiene tiendas asignadas.
-                    }
-                  </td></tr>
-                </ng-template>
-              </p-table>
             </div>
           }
-        </section>
-      </div>
+
+          <!-- Sin actividad en el rango -->
+          @else if (hasNoActivity()) {
+            <div class="surf-panel">
+              <div class="ru-placeholder">
+                <i class="pi pi-calendar-times ru-empty-icon" aria-hidden="true"></i>
+                <p class="ru-empty-title">Sin actividad en el rango</p>
+                <p class="ru-empty-msg">Esta ruta no tiene visitas entre {{ fmtDateShort(startDate) }} y {{ fmtDateShort(endDate) }}.</p>
+                <button type="button" class="ru-link-btn" (click)="widenRange()">Ampliar a 30 días</button>
+              </div>
+            </div>
+          }
+
+          @else {
+
+            <!-- KPI STRIP ─── 4 cards individuales ─────────── -->
+            <div class="ru-kpi-grid">
+              <div class="ru-kpi">
+                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-shop"></i></div>
+                <div class="ru-kpi-body">
+                  <div class="ru-kpi-label">Tiendas</div>
+                  <div class="ru-kpi-value">{{ stores().length }}</div>
+                  <div class="ru-kpi-sub">asignadas a la ruta</div>
+                </div>
+              </div>
+              <div class="ru-kpi">
+                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></div>
+                <div class="ru-kpi-body">
+                  <div class="ru-kpi-label">Cobertura</div>
+                  <div class="ru-kpi-value">{{ coveragePct() }}%</div>
+                  <div class="ru-kpi-sub">{{ visitedCount() }}/{{ stores().length }} visitadas</div>
+                </div>
+              </div>
+              <div class="ru-kpi">
+                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-flag"></i></div>
+                <div class="ru-kpi-body">
+                  <div class="ru-kpi-label">Visitas</div>
+                  <div class="ru-kpi-value">{{ filteredVisits().length }}</div>
+                  <div class="ru-kpi-sub">
+                    @if (vendorFilter()) { de {{ visits().length }} totales }
+                    @else { en el período }
+                  </div>
+                </div>
+              </div>
+              <div class="ru-kpi"
+                [class.is-ok]="avgSeverity() === 'good'"
+                [class.is-warn]="avgSeverity() === 'neutral'"
+                [class.is-bad]="avgSeverity() === 'bad'">
+                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-clock"></i></div>
+                <div class="ru-kpi-body">
+                  <div class="ru-kpi-label">Tiempo prom.</div>
+                  <div class="ru-kpi-value">{{ avgDuration() }} min</div>
+                  <div class="ru-kpi-sub"
+                    [class.is-ok]="avgSeverity() === 'good'"
+                    [class.is-warn]="avgSeverity() === 'neutral'"
+                    [class.is-bad]="avgSeverity() === 'bad'">
+                    @if (avgDeltaVsTarget() != null) {
+                      {{ avgDeltaVsTarget()! > 0 ? '+' : '' }}{{ avgDeltaVsTarget() }} vs {{ targetMinutes }} min target
+                    } @else { objetivo {{ targetMinutes }} min }
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- MAP ROW: selector izquierdo + mapa ────────────── -->
+            <div class="ru-map-row">
+
+              <!-- SELECTOR DE RUTAS -->
+              <aside class="surf-panel">
+                <div class="surf-panel-head">
+                  <h3><i class="pi pi-map" aria-hidden="true"></i>&nbsp;Rutas</h3>
+                  @if (routes().length > 0) {
+                    <span class="text-[10px] text-content-faint uppercase tracking-widest">{{ routes().length }} rutas</span>
+                  }
+                </div>
+                <div class="surf-panel-body is-flush" style="max-height:428px;overflow-y:auto">
+                  @if (loadingMaster()) {
+                    <div class="ru-list-skeleton">
+                      @for (_ of [1,2,3,4,5]; track _) {
+                        <p-skeleton height="2.25rem"></p-skeleton>
+                      }
+                    </div>
+                  } @else {
+                    <ul class="ru-route-list" role="listbox" aria-label="Rutas disponibles">
+                      @for (r of routes(); track r.id) {
+                        <li role="option" [attr.aria-selected]="r.id === selectedId()">
+                          <button type="button" class="ru-route-item" (click)="select(r.id)"
+                            [class.is-selected]="r.id === selectedId()"
+                            [attr.aria-label]="r.name + ', ' + r.visitas + ' visitas, zona ' + (r.zona || 'sin zona')">
+                            <div class="ru-route-item-main">
+                              <span class="ru-route-name">{{ r.name }}</span>
+                              <span class="ru-route-badge">{{ r.visitas }} vis</span>
+                            </div>
+                            <span class="ru-route-zona">{{ r.zona || '—' }}</span>
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </div>
+              </aside>
+
+              <!-- MAPA -->
+              <div class="surf-panel">
+                <div class="surf-panel-head">
+                  <h3><i class="pi pi-map" aria-hidden="true"></i>&nbsp;Recorrido y cobertura</h3>
+                  <div class="ru-legend">
+                    <span class="ru-legend-item">
+                      <i class="ru-legend-dot" style="background:var(--action)" aria-hidden="true"></i>Visitada
+                    </span>
+                    <span class="ru-legend-item">
+                      <i class="ru-legend-dot" style="background:var(--neutral-400)" aria-hidden="true"></i>Sin visitar
+                    </span>
+                  </div>
+                </div>
+                <div class="surf-panel-body is-flush">
+                  @if (loadingDetail()) {
+                    <p-skeleton height="420px"></p-skeleton>
+                  } @else if (mapMarkers().length === 0) {
+                    <div class="ru-map-empty">Sin coordenadas para mapear en esta ruta.</div>
+                  } @else {
+                    <app-map [markers]="mapMarkers()" [path]="mapPath()" height="420px"></app-map>
+                  }
+                </div>
+              </div>
+
+            </div>
+
+          }
+      </section>
+
+      <!-- TABLAS full-width ───────────────────────────────────────── -->
+      @if (selectedId() && !hasNoActivity()) {
+
+        <!-- VISITAS TABLE -->
+        <div class="surf-panel">
+          <div class="surf-panel-head">
+            <h3><i class="pi pi-list" aria-hidden="true"></i>&nbsp;Visitas y tiempos</h3>
+            @if (vendorOptions().length > 1) {
+              <p-select [options]="vendorOptions()" [ngModel]="vendorFilter()"
+                (ngModelChange)="vendorFilter.set($event)"
+                placeholder="Todos los vendedores" [showClear]="true"
+                styleClass="text-xs" appendTo="body"></p-select>
+            }
+          </div>
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="filteredVisits()" [loading]="loadingDetail()"
+              styleClass="p-datatable-sm"
+              sortField="hora_inicio" [sortOrder]="1">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th style="width:2.5rem">#</th>
+                  <th>Tienda</th>
+                  <th>Vendedor</th>
+                  <th pSortableColumn="hora_inicio">Inicio <p-sortIcon field="hora_inicio"></p-sortIcon></th>
+                  <th>Fin</th>
+                  <th pSortableColumn="duration_min">Dur. <p-sortIcon field="duration_min"></p-sortIcon></th>
+                  <th pSortableColumn="score" style="text-align:right">Score <p-sortIcon field="score"></p-sortIcon></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-v let-i="rowIndex">
+                <tr>
+                  <td class="comm-muted" style="font-size:0.75rem">{{ i + 1 }}</td>
+                  <td>
+                    <a [routerLink]="['/dashboard/stores']" [queryParams]="{ q: v.store_nombre }"
+                      class="ru-cell-link ru-cell-strong">{{ v.store_nombre }}</a>
+                  </td>
+                  <td class="comm-muted">{{ v.captured_by_username }}</td>
+                  <td><code class="comm-code">{{ fmtTime(v.hora_inicio) }}</code></td>
+                  <td><code class="comm-code">{{ fmtTime(v.hora_fin) }}</code></td>
+                  <td><code class="comm-code">{{ v.duration_min != null ? v.duration_min + ' min' : '—' }}</code></td>
+                  <td class="ru-num">{{ v.score }}</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="7" class="ru-table-empty">
+                  @if (stores().length > 0) { 0 visitas — {{ stores().length }} tiendas asignadas aparecen abajo. }
+                  @else { Sin visitas en este rango. }
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </div>
+
+        <!-- TIENDAS TABLE -->
+        <div class="surf-panel">
+          <div class="surf-panel-head">
+            <h3><i class="pi pi-building" aria-hidden="true"></i>&nbsp;Tiendas de la ruta</h3>
+            <span class="comm-muted is-small">{{ stores().length }} asignadas</span>
+          </div>
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="stores()" [loading]="loadingDetail()"
+              styleClass="p-datatable-sm">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th>Tienda</th>
+                  <th>Zona</th>
+                  <th style="width:7rem">Estado</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-s>
+                <tr>
+                  <td>
+                    <a [routerLink]="['/dashboard/stores']" [queryParams]="{ q: s.nombre }"
+                      class="ru-cell-link ru-cell-strong">{{ s.nombre }}</a>
+                  </td>
+                  <td class="comm-muted">{{ s.zona_name || '—' }}</td>
+                  <td>
+                    <p-tag [value]="s.visited ? 'Visitada' : 'Sin visitar'"
+                      [severity]="s.visited ? 'success' : 'secondary'"></p-tag>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="3" class="ru-table-empty">
+                  @if (visits().length > 0) { Visitas sin maestro de tiendas — revisar asignación de la ruta. }
+                  @else { Esta ruta no tiene tiendas asignadas. }
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </div>
+
+      }
+
     </div>
   `,
 })
@@ -326,11 +546,11 @@ export class RoutesAnalysisComponent implements OnInit {
     const out: MapMarker[] = [];
     this.filteredVisits().forEach((v, i) => {
       if (v.latitud != null && v.longitud != null)
-        out.push({ lat: v.latitud, lng: v.longitud, seq: i + 1, color: 'var(--brand, #f97316)', title: `${i + 1}. ${v.store_nombre} · ${this.fmtTime(v.hora_inicio)}` });
+        out.push({ lat: v.latitud, lng: v.longitud, seq: i + 1, color: 'var(--action)', title: `${i + 1}. ${v.store_nombre} · ${this.fmtTime(v.hora_inicio)}` });
     });
     this.stores().filter((s) => !s.visited).forEach((s) => {
       if (s.latitud != null && s.longitud != null)
-        out.push({ lat: s.latitud, lng: s.longitud, color: '#9ca3af', title: `${s.nombre} (sin visitar)` });
+        out.push({ lat: s.latitud, lng: s.longitud, color: 'var(--neutral-400)', title: `${s.nombre} (sin visitar)` });
     });
     return out;
   });
