@@ -273,7 +273,7 @@ interface RouteVisit {
 export class RoutesAnalysisComponent implements OnInit {
   private http = inject(HttpClient);
 
-  startDate = isoOffset(-7);
+  startDate = isoOffset(0);
   endDate = isoOffset(0);
 
   loadingMaster = signal(false);
