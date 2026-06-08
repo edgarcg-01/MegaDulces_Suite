@@ -565,6 +565,20 @@ export class ComercialService {
     if (opts.date_to) p = p.set('date_to', opts.date_to);
     return this.http.get<RoutePorRutaRow[]>(`${this.base}/route-tickets/reports/por-ruta`, { params: p });
   }
+
+  // ── Ventas de vendedor (ticket OCR de la captura) ──
+  vendorSalesPorCaptura(opts: { date_from?: string; date_to?: string; store_id?: string } = {}): Observable<VendorSaleCapture[]> {
+    let p = new HttpParams();
+    if (opts.date_from) p = p.set('date_from', opts.date_from);
+    if (opts.date_to) p = p.set('date_to', opts.date_to);
+    if (opts.store_id) p = p.set('store_id', opts.store_id);
+    return this.http.get<VendorSaleCapture[]>(`${this.base}/vendor-sales/reports/por-captura`, { params: p });
+  }
+
+  vendorSaleLines(captureRef: string): Observable<VendorSaleLine[]> {
+    const p = new HttpParams().set('capture_ref', captureRef);
+    return this.http.get<VendorSaleLine[]>(`${this.base}/vendor-sales/reports/captura-lines`, { params: p });
+  }
 }
 
 export interface RouteTicketAdmin {
@@ -595,4 +609,30 @@ export interface RoutePorRutaRow {
   route_code: string;
   total: number | string;
   tickets: number | string;
+}
+
+export interface VendorSaleCapture {
+  capture_ref: string;
+  store_id: string;
+  store_name?: string | null;
+  route_id?: string | null;
+  route_name?: string | null;
+  vendor_user_id: string;
+  vendor_name?: string | null;
+  vendor_username?: string | null;
+  sale_date: string;
+  lineas: number | string;
+  unidades: number | string;
+  ticket_photo_url?: string | null;
+  daily_capture_id?: string | null;
+  created_at?: string;
+}
+
+export interface VendorSaleLine {
+  id: string;
+  sku: string;
+  product_name?: string | null;
+  quantity: number | string;
+  confidence?: string | null;
+  product_id?: string | null;
 }

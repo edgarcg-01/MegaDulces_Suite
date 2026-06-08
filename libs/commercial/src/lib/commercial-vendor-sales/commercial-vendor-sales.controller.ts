@@ -57,4 +57,11 @@ export class CommercialVendorSalesController {
   porRuta(@Query() q: VendorSalesReportQuery) {
     return this.service.porRuta(q);
   }
+
+  @Get('reports/captura-lines')
+  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @ApiOperation({ summary: 'Líneas de una captura/ticket específico (drill-down).' })
+  capturaLines(@Query('capture_ref') captureRef: string) {
+    return this.service.linesByCapture(captureRef);
+  }
 }

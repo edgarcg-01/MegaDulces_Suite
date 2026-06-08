@@ -180,14 +180,20 @@ export class CommercialVendorSalesService {
         .leftJoin('trade.stores as s', function () {
           this.on('s.tenant_id', 'vsl.tenant_id').andOn('s.id', 'vsl.store_id');
         })
+        .leftJoin('trade.catalogs as r', function () {
+          this.on('r.tenant_id', 'vsl.tenant_id').andOn('r.id', 'vsl.route_id');
+        })
         .whereNull('vsl.deleted_at');
       this.applyDateRange(base, q, 'vsl');
+      if (q.store_id && UUID_RE.test(q.store_id)) base.where('vsl.store_id', q.store_id);
       return base
         .clone()
         .select(
           'vsl.capture_ref',
           'vsl.store_id',
           's.nombre as store_name',
+          'vsl.route_id',
+          'r.value as route_name',
           'vsl.vendor_user_id',
           'u.nombre as vendor_name',
           'u.username as vendor_username',
@@ -195,17 +201,35 @@ export class CommercialVendorSalesService {
         )
         .count('* as lineas')
         .sum('vsl.quantity as unidades')
+        .max('vsl.ticket_photo_url as ticket_photo_url')
+        .max('vsl.created_at as created_at')
         .groupBy(
           'vsl.capture_ref',
           'vsl.store_id',
           's.nombre',
+          'vsl.route_id',
+          'r.value',
           'vsl.vendor_user_id',
           'u.nombre',
           'u.username',
           'vsl.sale_date',
         )
-        .orderBy('vsl.sale_date', 'desc');
+        .orderBy('vsl.sale_date', 'desc')
+        .orderBy('created_at', 'desc');
     });
+  }
+
+  /** Líneas de una captura/ticket específico (drill-down del reporte admin). */
+  async linesByCapture(captureRef: string) {
+    if (!captureRef || !UUID_RE.test(captureRef))
+      throw new BadRequestException('capture_ref requerido (UUID)');
+    return this.tk.run(async (trx) =>
+      trx('commercial.vendor_sale_lines')
+        .where({ capture_ref: captureRef })
+        .whereNull('deleted_at')
+        .select('id', 'sku', 'product_name', 'quantity', 'confidence', 'product_id')
+        .orderBy('product_name'),
+    );
   }
 
   /** Reporte admin: venta por ruta. */

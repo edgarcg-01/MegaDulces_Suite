@@ -144,6 +144,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-route-tickets.component').then(m => m.ComercialRouteTicketsComponent),
         canActivate: [permissionGuard(Permission.ROUTE_CONTROL_VER)]
       },
+      {
+        // Ventas de vendedor: parte comercial del ticket OCR de la captura.
+        path: 'vendor-sales',
+        loadComponent: () => import('./modules/comercial/pages/comercial-vendor-sales.component').then(m => m.ComercialVendorSalesComponent),
+        canActivate: [permissionGuard(Permission.ROUTE_CONTROL_VER)]
+      },
     ]
   },
   // ── Proyecto Logística (Fase J) ─────────────────────────────────────

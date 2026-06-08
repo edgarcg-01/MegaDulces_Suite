@@ -34,4 +34,9 @@ export interface ListVendorSalesQuery {
 export interface VendorSalesReportQuery {
   date_from?: string;
   date_to?: string;
+  store_id?: string;
+}
+
+export interface VendorSaleLinesQuery {
+  capture_ref: string;
 }
