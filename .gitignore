@@ -53,3 +53,4 @@ database/backups/
 
 # Excel maestro de clientes/rutas (Kepler) — data sensible, no versionar
 database/*.xlsx
+database/_cli.json
