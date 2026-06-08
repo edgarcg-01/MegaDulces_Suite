@@ -50,3 +50,6 @@ _imported/
 database/backups/
 
 .angular
+
+# Excel maestro de clientes/rutas (Kepler) — data sensible, no versionar
+database/*.xlsx
