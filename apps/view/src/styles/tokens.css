@@ -169,21 +169,21 @@
   --chart-fill-high:      #2B2620; /* stone-800 */
 }
 
-/* Dark mode — espresso cálido (#16130F). Mata #000 puro bajo marca cálida.
-   Negro puro se ve duro/barato bajo paleta Stone; el espresso conserva la calidez.
-   Ver docs/DESIGN_FOUNDATIONS.md §1.1 — WCAG 2.x miente más en colores oscuros;
-   calibrar contraste de texto con APCA en este modo. */
+/* Dark mode — Operations surface: zinc neutro (#111111).
+   El Storefront (/portal) mantiene el espresso cálido via el override abajo.
+   Operations ("esto es serio") usa neutro puro: sin tinte cálido visible.
+   Ver docs/DESIGN_FOUNDATIONS.md §1.1 — calibrar contraste con APCA. */
 body.theme-monochrome {
-  --layout-bg:     #16130F;
-  --sidebar-bg:    #1F1A14;
-  --card-bg:       #1F1A14;
-  --surface-ground:#1A1611;
-  --hover-bg:      #2B2620;
+  --layout-bg:     #111111;
+  --sidebar-bg:    #1A1A1A;
+  --card-bg:       #1A1A1A;
+  --surface-ground:#141414;
+  --hover-bg:      #252525;
   --active-bg:     #FBF4E9;
-  --active-text:   #16130F;
+  --active-text:   #111111;
 
-  --border-color:  #352E25;
-  --table-border:  #2B2620;
+  --border-color:  #2A2A2A;
+  --table-border:  #222222;
   --table-hover:   rgba(251, 249, 246, 0.06);
 
   --text-main:     #FBF4E9;
@@ -193,7 +193,7 @@ body.theme-monochrome {
 
   --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
   --shadow-hover:  0 0 20px rgba(251, 244, 233, 0.08);
-  --skeleton-bg:   #352E25;
+  --skeleton-bg:   #2A2A2A;
 
   --accent-brand-light: rgba(253, 231, 7, 0.2);
 
