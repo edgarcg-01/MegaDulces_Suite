@@ -690,6 +690,11 @@ export class DailyCapturesService {
       stats: dailyCapture.stats,
     });
 
+    // Hook: si la captura declaró ruta y la tienda no tiene ruta asignada,
+    // la heredamos (apartado Rutas agrupa por stores.ruta_id). Best-effort
+    // post-commit — no debe afectar el resultado de la captura.
+    void this.maybeAssignStoreRoute(dto.store_id, dto.route_id, tenantId);
+
     // Surfacear resultado de upload de fotos al cliente. Permite que la UI
     // muestre un warning explícito si alguna foto no llegó a Cloudinary, en
     // lugar de dejar al usuario asumiendo "todo se guardó OK".
@@ -701,6 +706,28 @@ export class DailyCapturesService {
         fallidas: fotosFallidas,
       },
     };
+  }
+
+  /**
+   * Hereda la ruta declarada en la captura a la tienda cuando esta no tiene
+   * ruta asignada. Trx corta con tenant context (RLS). Best-effort: no propaga
+   * errores para no afectar la captura ya commiteada.
+   */
+  private async maybeAssignStoreRoute(
+    storeId?: string,
+    routeId?: string,
+    tenantId?: string,
+  ): Promise<void> {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!storeId || !routeId || !tenantId || !UUID.test(storeId) || !UUID.test(routeId)) return;
+    try {
+      await this.knexRaw.transaction(async (tx) => {
+        await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
+        await tx('stores').where({ id: storeId }).whereNull('ruta_id').update({ ruta_id: routeId });
+      });
+    } catch (e: any) {
+      this.logger.warn(`maybeAssignStoreRoute store=${storeId} route=${routeId}: ${e?.message || e}`);
+    }
   }
 
   /**
