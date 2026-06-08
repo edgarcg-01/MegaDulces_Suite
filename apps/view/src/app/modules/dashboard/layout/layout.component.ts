@@ -340,11 +340,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
       legacy?.[Permission.REPORTES_VER_EQUIPO] === true ||
       legacy?.[Permission.REPORTES_VER_GLOBAL] === true;
     if (!fullDashboard) {
-      // Colaborador restringido: la sección Trade se limita a captura diaria.
-      // (Los items de ruta viven en `rutaItems`, gateados por su propio permiso.)
+      // El vendedor (CAPTURE_TICKET_USE) NO ve "Captura Diaria": su flujo de
+      // captura es "Captura de vendedor" (sección Ruta). El colaborador sin esa
+      // capacidad sí ve Captura Diaria. (Los items de ruta viven en `rutaItems`.)
+      const isVendor = legacy?.[Permission.CAPTURE_TICKET_USE] === true;
       return this.dedupeByRoute(
         this.tradeMkNavItems.filter(
-          (i) => i.route === '/dashboard/captures' && this.hasPermFor(i),
+          (i) => i.route === '/dashboard/captures' && !isVendor && this.hasPermFor(i),
         ),
       );
     }
