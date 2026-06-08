@@ -240,15 +240,20 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
+  max-width: 100%;
   height: 100%;
   box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) var(--layout-bg);
+  /* Mata el pan/rubber-band horizontal en PWA móvil. El scroll real ocurre en
+     contenedores internos (<main> overflow-y-auto), así que el clip x acá +
+     overscroll evita que toda la pantalla se deslice de lado. */
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
 
 html {
   overflow-y: scroll;
-  overflow-x: hidden;
 }
 
 body {
