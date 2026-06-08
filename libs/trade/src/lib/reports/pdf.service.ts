@@ -27,9 +27,15 @@ export class PdfService {
   async render(opts: RenderOptions): Promise<Buffer> {
     const html = this.compile(opts.template)(opts.data);
 
+    // En contenedor (Docker/Railway) usamos el chromium del SO (apt-get install chromium).
+    // PUPPETEER_EXECUTABLE_PATH lo setea el Dockerfile = /usr/bin/chromium.
+    // En dev local sin esa env var, puppeteer usa su Chrome bundled habitual.
     const browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      ...(process.env.PUPPETEER_EXECUTABLE_PATH
+        ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+        : {}),
     });
 
     try {

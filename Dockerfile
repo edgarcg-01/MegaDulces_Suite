@@ -27,7 +27,8 @@ WORKDIR /app
 ENV NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false \
-    CI=true
+    CI=true \
+    PUPPETEER_SKIP_DOWNLOAD=true
 
 # Solo los archivos que afectan a `npm ci`: el resto del código no debe
 # invalidar esta capa.
@@ -118,7 +119,10 @@ RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-apt-cache,targe
         nginx-light \
         gettext-base \
         tini \
-        tzdata && \
+        tzdata \
+        chromium \
+        fonts-liberation \
+        fonts-noto-color-emoji && \
     ln -sf /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
     sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
     chown -R node:node /var/log/nginx /var/lib/nginx /usr/share/nginx/html /etc/nginx/sites-available
@@ -127,11 +131,16 @@ WORKDIR /app
 RUN chown node:node /app
 
 # PORT lo inyecta Railway (≈10000); API_PORT es interno fijo. NO deben coincidir.
+# PUPPETEER_EXECUTABLE_PATH apunta al chromium del SO (apt-get install -y chromium).
+# Evita que puppeteer intente descargar chrome a ~/.cache/puppeteer en runtime
+# (que ni siquiera tendría permisos como user `node`).
 ENV NODE_ENV=production \
     API_PORT=3333 \
     API_PREFIX=api \
     PORT=10000 \
-    TZ=America/Mexico_City
+    TZ=America/Mexico_City \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PUPPETEER_SKIP_DOWNLOAD=true
 
 # Artefactos de los stages previos.
 #   - dist/apps/api → corre con node (start.sh).
