@@ -254,6 +254,9 @@ html, body {
 
 html {
   overflow-y: scroll;
+  /* iOS PWA + viewport-fit=cover: el <html> extiende hasta los bordes físicos
+     de la pantalla. Sin background aquí, el safe-area-bottom queda negro. */
+  background-color: var(--layout-bg);
 }
 
 body {
