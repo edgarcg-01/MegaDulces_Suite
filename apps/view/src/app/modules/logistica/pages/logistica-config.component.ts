@@ -44,12 +44,12 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Configuración logística</h2>
-        <p class="muted">Parametrización del sistema. Cambios aplicables a próximos embarques.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Configuración logística</h1>
+        <p class="surf-page-sub">Parametrización del sistema. Cambios aplicables a próximos embarques.</p>
       </div>
-    </div>
+    </header>
 
     <p-tabs value="routes">
       <p-tablist>
@@ -209,7 +209,6 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
   `,
   styles: [`
     :host { display:block; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; }
     .small { font-size:.75rem; }
     code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }

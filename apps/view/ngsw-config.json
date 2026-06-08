@@ -40,7 +40,10 @@
         "/api/daily-captures",
         "/api/daily-captures?**",
         "/api/daily-assignments",
-        "/api/daily-assignments?**"
+        "/api/daily-assignments?**",
+        "/api/catalogs/**",
+        "/api/zones/**",
+        "/api/commercial/customers/**"
       ],
       "cacheConfig": {
         "strategy": "freshness",
@@ -52,14 +55,11 @@
     {
       "name": "api-performance",
       "urls": [
-        "/api/catalogs/**",
         "/api/stores/**",
         "/api/planograms/**",
-        "/api/zones/**",
         "/api/users/**",
         "/api/scoring/active-version",
         "/api/scoring/config-versions/**",
-        "/api/commercial/customers/**",
         "/api/commercial/warehouses/**",
         "/api/commercial/pricing/**"
       ],

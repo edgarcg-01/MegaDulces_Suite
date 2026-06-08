@@ -43,6 +43,7 @@ export const routes: Routes = [
       },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
+      { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
       { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
@@ -51,6 +52,11 @@ export const routes: Routes = [
         path: 'admin/catalogs/:type',
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
+      },
+      {
+        path: 'admin/scoring',
+        loadComponent: () => import('./modules/dashboard/admin-scoring/admin-scoring.component').then(m => m.AdminScoringComponent),
+        canActivate: [permissionGuard(Permission.SCORING_CONFIG_VER)]
       },
       {
         path: 'admin/planograma',

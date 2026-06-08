@@ -1191,6 +1191,167 @@ export class ReportsService {
     };
   }
 
+  private static readonly UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /**
+   * Detalle de visitas de UNA ruta (apartado Rutas). Por cada captura: tienda,
+   * hora_inicio/fin, duración (min, derivada), GPS y score; ORDER BY hora_inicio
+   * ASC para reconstruir el recorrido del día. Scope own/team/all + tenant +
+   * fechas en TZ MX, consistente con getRoutesData (agrupa por stores.ruta_id).
+   */
+  async getRouteVisits(
+    routeId: string,
+    filters: { startDate?: string; endDate?: string },
+    user: any,
+  ) {
+    if (!ReportsService.UUID_RE.test(routeId || '')) return [];
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+
+    let q = this.knex('daily_captures as dc')
+      .join('stores as s', 's.id', 'dc.store_id')
+      .where('s.ruta_id', routeId)
+      .whereNotNull('dc.store_id')
+      .select(
+        'dc.id as capture_id',
+        'dc.folio',
+        'dc.store_id',
+        's.nombre as store_nombre',
+        'dc.user_id',
+        'dc.captured_by_username',
+        'dc.hora_inicio',
+        'dc.hora_fin',
+        'dc.latitud',
+        'dc.longitud',
+      )
+      .select(
+        this.knex.raw(
+          'EXTRACT(EPOCH FROM (dc.hora_fin - dc.hora_inicio)) / 60 as duration_min',
+        ),
+      )
+      .select(
+        this.knex.raw(
+          "COALESCE(NULLIF((dc.stats->>'puntuacionTotal')::float, 0), dc.score_final_pct, 0) as score",
+        ),
+      )
+      .orderBy('dc.hora_inicio', 'asc');
+
+    if (tenantId) q = q.where('dc.tenant_id', tenantId);
+    if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'dc.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+
+    if (filters.startDate)
+      q.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [filters.startDate],
+      );
+    if (filters.endDate)
+      q.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [filters.endDate],
+      );
+
+    const rows = await q;
+    return rows.map((r: any) => ({
+      capture_id: r.capture_id,
+      folio: r.folio,
+      store_id: r.store_id,
+      store_nombre: r.store_nombre,
+      user_id: r.user_id,
+      captured_by_username: r.captured_by_username,
+      hora_inicio: r.hora_inicio,
+      hora_fin: r.hora_fin,
+      duration_min:
+        r.duration_min != null ? Math.round(Number(r.duration_min) * 10) / 10 : null,
+      latitud: r.latitud != null ? Number(r.latitud) : null,
+      longitud: r.longitud != null ? Number(r.longitud) : null,
+      score: Math.round(Number(r.score) || 0),
+    }));
+  }
+
+  /**
+   * Cobertura de UNA ruta: tiendas ASIGNADAS (stores.ruta_id) con coords +
+   * flag `visited` (si tuvo al menos una captura en el rango/scope). Responde
+   * "tiendas por ruta" mostrando también cuáles faltaron.
+   */
+  async getRouteStores(
+    routeId: string,
+    filters: { startDate?: string; endDate?: string },
+    user: any,
+  ) {
+    if (!ReportsService.UUID_RE.test(routeId || '')) return [];
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+
+    let sQ = this.knex('stores as s')
+      .leftJoin('zones as z', 'z.id', 's.zona_id')
+      .where('s.ruta_id', routeId)
+      .whereNull('s.deleted_at')
+      .select(
+        's.id',
+        's.nombre',
+        's.direccion',
+        's.latitud',
+        's.longitud',
+        'z.name as zona_name',
+      )
+      .orderBy('s.nombre', 'asc');
+    if (tenantId) sQ = sQ.where('s.tenant_id', tenantId);
+    const stores = await sQ;
+
+    // store_ids visitados en el rango (mismo scope que las visitas).
+    let vQ = this.knex('daily_captures as dc')
+      .join('stores as s2', 's2.id', 'dc.store_id')
+      .where('s2.ruta_id', routeId)
+      .whereNotNull('dc.store_id')
+      .distinct('dc.store_id');
+    if (tenantId) vQ = vQ.where('dc.tenant_id', tenantId);
+    if (scope.type === 'own') vQ = vQ.where('dc.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      vQ = vQ.whereIn(
+        'dc.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+    if (filters.startDate)
+      vQ.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [filters.startDate],
+      );
+    if (filters.endDate)
+      vQ.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [filters.endDate],
+      );
+    const visited = new Set((await vQ).map((r: any) => r.store_id));
+
+    return stores.map((s: any) => ({
+      id: s.id,
+      nombre: s.nombre,
+      direccion: s.direccion,
+      zona_name: s.zona_name || '',
+      latitud: s.latitud != null ? Number(s.latitud) : null,
+      longitud: s.longitud != null ? Number(s.longitud) : null,
+      visited: visited.has(s.id),
+    }));
+  }
+
   async getStoresData(
     filters: {
       startDate?: string;

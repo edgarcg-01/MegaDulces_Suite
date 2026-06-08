@@ -20,6 +20,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { HttpClient, HttpParams } from '@angular/common/http';
+import { ActivatedRoute } from '@angular/router';
 import {
   takeUntilDestroyed,
   toObservable,
@@ -99,6 +100,7 @@ export class StoresComponent implements OnInit {
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
   private destroyRef = inject(DestroyRef);
+  private route = inject(ActivatedRoute);
 
   loading = signal(false);
   deletingId = signal<string | null>(null);
@@ -172,6 +174,8 @@ export class StoresComponent implements OnInit {
 
   ngOnInit(): void {
     this.initialized = false;
+    const q = this.route.snapshot.queryParamMap.get('q');
+    if (q) this.searchQuery.set(q);
     this.loadAllRoutes();
     this.loadZones();
   }

@@ -25,6 +25,7 @@ const subjectMap: Record<string, string> = {
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',
   [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
   [Permission.VER_SEGUIMIENTO]: 'seguimiento',
+  [Permission.RUTAS_VER]: 'routes_analytics',
 };
 
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {
@@ -48,7 +49,9 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
       if (legacyScope || perms.can('read', 'reports_team') || perms.can('read', 'reports_global')) {
         router.navigate(['/dashboard']);
       } else {
-        router.navigate(['/dashboard/captures']);
+        // El vendedor (CAPTURE_TICKET_USE) aterriza en su captura, no en la diaria.
+        const isVendor = legacyPerms ? legacyPerms[Permission.CAPTURE_TICKET_USE] === true : false;
+        router.navigate([isVendor ? '/dashboard/vendor-capture' : '/dashboard/captures']);
       }
       return false;
     }
@@ -72,16 +75,17 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
   const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
 
   if (!canAccessFullDashboard && !hasFallback) {
-    // Colaborador/vendedor restringido: destinos permitidos = captura diaria
-    // + agregar ticket de ruta (cierre de ruta del vendedor).
-    if (
-      state.url.startsWith('/dashboard/captures') ||
-      state.url.startsWith('/dashboard/route-tickets') ||
-      state.url.startsWith('/dashboard/vendor-capture')
-    ) {
+    // El vendedor (CAPTURE_TICKET_USE) usa "Captura de vendedor", NO la diaria:
+    // su set permitido excluye /captures y su home es /vendor-capture. El
+    // colaborador sin esa capacidad mantiene /captures como captura y home.
+    const isVendor = legacyPerms ? legacyPerms[Permission.CAPTURE_TICKET_USE] === true : false;
+    const allowed = isVendor
+      ? ['/dashboard/vendor-capture', '/dashboard/route-tickets']
+      : ['/dashboard/captures', '/dashboard/route-tickets', '/dashboard/vendor-capture'];
+    if (allowed.some((p) => state.url.startsWith(p))) {
       return true;
     }
-    router.navigate(['/dashboard/captures']);
+    router.navigate([isVendor ? '/dashboard/vendor-capture' : '/dashboard/captures']);
     return false;
   }
 

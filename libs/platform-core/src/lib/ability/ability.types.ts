@@ -23,6 +23,7 @@ export type AppSubject =
   | 'kpi_goals'
   | 'team_management'
   | 'seguimiento'
+  | 'routes_analytics'
   | 'commercial_customers'
   | 'commercial_warehouses'
   | 'commercial_pricing'

@@ -31,6 +31,9 @@ export enum Permission {
   // Seguimiento
   VER_SEGUIMIENTO = 'VER_SEGUIMIENTO',
 
+  // Rutas (análisis: tiendas por ruta, tiempos de visita, trazabilidad)
+  RUTAS_VER = 'RUTAS_VER',
+
   // Comercial (Fase B+C)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',

@@ -43,17 +43,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <p-toast></p-toast>
 
-    <div class="header-row">
-      <div>
-        <h2>Control de Costos</h2>
-        <p class="muted">Desglose financiero por embarque. Combustible, casetas, viáticos, maniobras.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Control de Costos</h1>
+        <p class="surf-page-sub">Desglose financiero por embarque. Combustible, casetas, viáticos, maniobras.</p>
       </div>
       <div class="filter-bar">
         <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
         <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
         <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
       </div>
-    </div>
+    </header>
 
     <!-- KPIs -->
     <div class="kpi-grid">
@@ -73,7 +73,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <div class="kpi-label">Casetas</div>
         <div class="kpi-value">\${{ summary()?.tolls || 0 | number:'1.2-2' }}</div>
       </div>
-      <div class="kpi-card kpi-purple">
+      <div class="kpi-card kpi-secondary">
         <div class="kpi-label">Viáticos chofer</div>
         <div class="kpi-value">\${{ summary()?.driver_per_diem || 0 | number:'1.2-2' }}</div>
       </div>
@@ -100,7 +100,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <th class="num">Viáticos</th>
             <th class="num">Maniobras</th>
             <th class="num">Operativo</th>
-            <th class="num">Costo / km</th>
+            <th class="num">$/km</th>
             <th class="num">TOTAL</th>
             <th>Estado</th>
             <th></th>
@@ -130,7 +130,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="14" class="muted">Sin costos registrados en el período.</td></tr>
+          <tr>
+            <td colspan="14">
+              <div class="empty-state">
+                <i class="pi pi-receipt empty-state-icon" aria-hidden="true"></i>
+                <div class="empty-state-text">
+                  <strong>Sin costos en este rango.</strong>
+                  <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
+                </div>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
     </p-card>
@@ -201,26 +211,30 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
     .small { font-size:.75rem; }
     .filter-bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
 
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:1rem; margin-bottom:1rem; }
-    .kpi-card { background: var(--surface-card, var(--surface-50)); border-left: 4px solid var(--surface-300); border-radius: 8px; padding:.75rem 1rem; }
-    .kpi-orange { border-left-color: #f5a623; }
-    .kpi-info { border-left-color: #0ea5e9; }
-    .kpi-warn { border-left-color: #eab308; }
-    .kpi-purple { border-left-color: #9333ea; }
-    .kpi-label { font-size:.7rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.5rem; font-weight:700; margin-top:.25rem; }
+    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1rem; }
+    .kpi-card { background: var(--surface-card, var(--surface-50)); border: 1px solid var(--surface-border, var(--neutral-200)); border-radius: 12px; padding: 1.125rem 1.25rem; }
+    .kpi-orange    { border-left: 3px solid #f5a623; }
+    .kpi-info      { border-left: 3px solid #0ea5e9; }
+    .kpi-warn      { border-left: 3px solid #eab308; }
+    .kpi-secondary { border-left: 3px solid var(--surface-400); }
+    .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
+    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
+
+    .empty-state { display:flex; gap:.875rem; align-items:flex-start; padding:1.5rem 1rem; }
+    .empty-state-icon { font-size:1.75rem; color: var(--text-color-secondary); margin-top:.125rem; }
+    .empty-state-text { display:flex; flex-direction:column; gap:.25rem; line-height:1.4; }
+    .empty-state-text strong { font-size:.9rem; }
 
     .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
     .filter-row input { min-width: 240px; }
 
     .num { text-align:right; }
     .num.strong { font-weight: 600; color: var(--primary-color); }
+    th.num { white-space: nowrap; }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
     code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
 

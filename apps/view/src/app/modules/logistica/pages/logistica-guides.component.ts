@@ -44,12 +44,12 @@ interface GuideRow extends DeliveryGuide {
   template: `
     <p-toast></p-toast>
 
-    <div class="header-row">
-      <div>
-        <h2>Guías de entrega</h2>
-        <p class="muted">Listado global de todas las guías. Para crear una, abrí el embarque correspondiente.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Guías de entrega</h1>
+        <p class="surf-page-sub">Listado global de todas las guías. Para crear una, abrí el embarque correspondiente.</p>
       </div>
-    </div>
+    </header>
 
     <!-- KPIs por estado -->
     <div class="kpi-grid">
@@ -128,18 +128,17 @@ interface GuideRow extends DeliveryGuide {
   `,
   styles: [`
     :host { display:block; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; }
     .small { font-size:.75rem; }
 
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:1rem; margin:1rem 0; }
-    .kpi-card { background: var(--surface-card, var(--surface-50)); border-left: 4px solid var(--surface-300); border-radius: 8px; padding: .75rem 1rem; }
-    .kpi-info { border-left-color: #0ea5e9; }
-    .kpi-warn { border-left-color: #eab308; }
-    .kpi-orange { border-left-color: #f5a623; }
-    .kpi-green { border-left-color: #16a34a; }
-    .kpi-label { font-size:.7rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.5rem; font-weight:700; margin-top:.25rem; }
+    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin:1rem 0; }
+    .kpi-card { background: var(--surface-card, var(--surface-50)); border: 1px solid var(--surface-border, var(--neutral-200)); border-radius: 12px; padding: 1.125rem 1.25rem; }
+    .kpi-info  { border-left: 3px solid #0ea5e9; }
+    .kpi-warn  { border-left: 3px solid #eab308; }
+    .kpi-orange { border-left: 3px solid #f5a623; }
+    .kpi-green { border-left: 3px solid var(--ok-fg); }
+    .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
+    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
 
     .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
     .filter-row input { min-width: 220px; }

@@ -10,6 +10,7 @@ import { TenantContextService } from '@megadulces/platform-core';
 import { CommercialPricingService } from '../commercial-pricing/commercial-pricing.service';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { AlertsService } from '../commercial-alerts/alerts.service';
+import { CommercialPushService } from '../commercial-push/commercial-push.service';
 
 // ─────────── tipos ───────────
 
@@ -67,7 +68,18 @@ export class CommercialOrdersService {
     private readonly pricing: CommercialPricingService,
     private readonly inventory: CommercialInventoryService,
     private readonly alerts: AlertsService,
+    private readonly push: CommercialPushService,
   ) {}
+
+  /**
+   * Push fire-and-forget al cliente del pedido (Fase 3). Nunca lanza ni bloquea
+   * la operación de la orden — la notificación es best-effort.
+   */
+  private notifyCustomer(customerId: string, orderId: string, title: string, body: string): void {
+    void this.push
+      .sendToCustomer(customerId, { title, body, url: `/portal/orders/${orderId}`, tag: `order-${orderId}` })
+      .catch(() => void 0);
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // Crear draft
@@ -440,6 +452,13 @@ export class CommercialOrdersService {
         total,
       });
 
+      this.notifyCustomer(
+        order.customer_id,
+        orderId,
+        'Pedido recibido',
+        `Recibimos tu pedido ${updated.code}. Te avisamos cuando se confirme.`,
+      );
+
       return updated;
     });
   }
@@ -489,6 +508,13 @@ export class CommercialOrdersService {
         customer_name: customerName,
         total,
       });
+
+      this.notifyCustomer(
+        order.customer_id,
+        orderId,
+        'Pedido confirmado ✓',
+        `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
+      );
 
       return updated;
     });

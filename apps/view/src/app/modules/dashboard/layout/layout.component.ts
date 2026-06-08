@@ -85,9 +85,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
   /** Menú del avatar de usuario en el topbar (sincronizado con onShow/onHide). */
   userMenuOpen = signal(false);
 
-  isMobile = signal(
-    typeof window !== 'undefined' && window.innerWidth < 1024,
-  );
+  private readonly mobileMql =
+    typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 1023.98px)')
+      : null;
+
+  isMobile = signal(this.mobileMql?.matches ?? false);
+
+  private readonly mobileMqlListener = (e: MediaQueryListEvent): void => {
+    this.isMobile.set(e.matches);
+  };
 
   /**
    * "Expandido" = se muestran labels + secciones completas.
@@ -129,11 +136,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.dataUpdateService.init();
+    this.mobileMql?.addEventListener('change', this.mobileMqlListener);
   }
 
   ngOnDestroy(): void {
     this.dataUpdateService.destroy();
-    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.mobileMql?.removeEventListener('change', this.mobileMqlListener);
   }
 
   // ── Data Update Methods ────────────────────────────────────────────
@@ -147,15 +155,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   // ── Listeners ────────────────────────────────────────────────────
-  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
-  @HostListener('window:resize')
-  onResize(): void {
-    if (this.resizeTimer) clearTimeout(this.resizeTimer);
-    this.resizeTimer = setTimeout(() => {
-      this.isMobile.set(window.innerWidth < 1024);
-    }, 150);
-  }
-
   /**
    * Escape listener: short-circuit en el primer check, evita procesar la
    * tecla cuando el sidebar mobile no está abierto. Esto importa porque
@@ -230,6 +229,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
+    { label: 'Rutas',             icon: 'pi pi-map',           route: '/dashboard/routes',               permission: Permission.RUTAS_VER             },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
   ];
@@ -241,11 +241,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   private tradeMkAdminItems: NavItem[] = [
-    { label: 'Conceptos',   icon: 'pi pi-box',        route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
-    { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR    },
-    { label: 'Niveles',     icon: 'pi pi-bolt',       route: '/dashboard/admin/catalogs/niveles',     permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Catálogos',   icon: 'pi pi-sliders-h',  route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
     { label: 'Planograma',  icon: 'pi pi-list',       route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR },
-    { label: 'Zonas',       icon: 'pi pi-globe',      route: '/dashboard/admin/catalogs/zonas',       permission: Permission.CATALOGO_GESTIONAR    },
   ];
 
   private comercialNavItems: NavItem[] = [
@@ -291,6 +288,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     [Permission.ROLES_CONFIGURAR]: 'roles_config',
     [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
     [Permission.VER_SEGUIMIENTO]: 'seguimiento',
+    [Permission.RUTAS_VER]: 'routes_analytics',
   };
 
   /**
@@ -341,11 +339,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
       legacy?.[Permission.REPORTES_VER_EQUIPO] === true ||
       legacy?.[Permission.REPORTES_VER_GLOBAL] === true;
     if (!fullDashboard) {
-      // Colaborador restringido: la sección Trade se limita a captura diaria.
-      // (Los items de ruta viven en `rutaItems`, gateados por su propio permiso.)
+      // El vendedor (CAPTURE_TICKET_USE) NO ve "Captura Diaria": su flujo de
+      // captura es "Captura de vendedor" (sección Ruta). El colaborador sin esa
+      // capacidad sí ve Captura Diaria. (Los items de ruta viven en `rutaItems`.)
+      const isVendor = legacy?.[Permission.CAPTURE_TICKET_USE] === true;
       return this.dedupeByRoute(
         this.tradeMkNavItems.filter(
-          (i) => i.route === '/dashboard/captures' && this.hasPermFor(i),
+          (i) => i.route === '/dashboard/captures' && !isVendor && this.hasPermFor(i),
         ),
       );
     }

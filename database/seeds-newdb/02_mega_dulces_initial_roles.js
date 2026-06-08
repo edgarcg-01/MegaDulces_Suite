@@ -40,6 +40,7 @@ exports.seed = async function (knex) {
     SCORING_CONFIG_VER: true,
     SCORING_CONFIG_GESTIONAR: true,
     VER_SEGUIMIENTO: true,
+    RUTAS_VER: true,
     // Fase B — Comercial
     COMMERCIAL_CUSTOMERS_VER: true,
     COMMERCIAL_CUSTOMERS_GESTIONAR: true,
@@ -106,6 +107,7 @@ exports.seed = async function (knex) {
         TIENDAS_CREAR: true,
         SCORING_CONFIG_VER: true,
         VER_SEGUIMIENTO: true,
+        RUTAS_VER: true,
         // Comercial: lectura completa + cancelar/fulfill pedidos del equipo
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_WAREHOUSES_VER: true,
@@ -132,6 +134,7 @@ exports.seed = async function (knex) {
         TIENDAS_VER: true,
         SCORING_CONFIG_VER: true,
         VER_SEGUIMIENTO: true,
+        RUTAS_VER: true,
         // Comercial: solo lectura (rol enfocado en marketing/análisis)
         // Promociones SÍ gestiona — marketing es quien las define.
         COMMERCIAL_CUSTOMERS_VER: true,
@@ -217,6 +220,7 @@ exports.seed = async function (knex) {
         COMMERCIAL_PRICING_VER: true,       // ver SU lista de precio
         COMMERCIAL_INVENTORY_VER: true,     // ver stock disponible
         COMMERCIAL_WAREHOUSES_VER: true,    // portal B2B usa default warehouse para el carrito
+        COMMERCIAL_PROMOTIONS_VER: true,    // portal B2B muestra promos activas en Home/Promos
         COMMERCIAL_ORDERS_VER: true,        // ver SUS pedidos
         COMMERCIAL_ORDERS_CREAR: true,      // crear pedidos
         COMMERCIAL_ORDERS_CANCELAR: true,   // cancelar SUS propios drafts

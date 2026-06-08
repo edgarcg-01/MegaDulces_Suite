@@ -43,13 +43,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <div class="header-row">
-      <div>
-        <h2>Personal</h2>
-        <p class="muted">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Personal</h1>
+        <p class="surf-page-sub">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
       </div>
       <button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openCreate()"></button>
-    </div>
+    </header>
 
     <!-- KPI cards -->
     <div class="kpi-grid">
@@ -199,17 +199,15 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; flex-wrap:wrap; gap:1rem; }
-    .header-row h2 { margin:0 0 .25rem; font-size:1.25rem; }
     .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
 
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:1rem; margin-bottom:1rem; }
-    .kpi-card { background: var(--surface-card, var(--surface-50)); border-left: 4px solid var(--surface-300); border-radius: 8px; padding: .75rem 1rem; }
-    .kpi-green { border-left-color: var(--ok-fg); }
-    .kpi-orange { border-left-color: var(--warn-fg); }
-    .kpi-secondary { border-left-color: var(--surface-400); }
-    .kpi-label { font-size:.7rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.5rem; font-weight:700; margin-top:.25rem; }
+    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1rem; }
+    .kpi-card { background: var(--surface-card, var(--surface-50)); border: 1px solid var(--surface-border, var(--neutral-200)); border-radius: 12px; padding: 1.125rem 1.25rem; }
+    .kpi-green     { border-left: 3px solid var(--ok-fg); }
+    .kpi-orange    { border-left: 3px solid var(--warn-fg); }
+    .kpi-secondary { border-left: 3px solid var(--surface-400); }
+    .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
+    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
 
     .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
     .filter-row input { min-width: 200px; }

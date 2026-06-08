@@ -22,6 +22,9 @@ export * from './lib/commercial-vendor-sales/commercial-vendor-sales.module';
 export * from './lib/portal-ai-order/portal-ai-order.module';
 export * from './lib/ticket-extractor/ticket-extractor.module';
 export * from './lib/mega-dulces-sync/mega-dulces-sync.module';
+export * from './lib/commercial-telemetry/commercial-telemetry.module';
+export * from './lib/commercial-push/commercial-push.module';
+export * from './lib/commercial-push/commercial-push.service';
 
 // Servicio expuesto para el composition root (OrderFulfillmentBindingModule).
 export * from './lib/commercial-orders/commercial-orders.service';
