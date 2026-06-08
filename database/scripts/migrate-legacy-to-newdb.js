@@ -20,6 +20,11 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 const knex = require('knex');
+const { assertEnv, logTarget } = require('./_lib/preflight');
+
+assertEnv(['LEGACY_DATABASE_URL', 'DATABASE_URL_NEW'], { script: __filename });
+logTarget('LEGACY_DATABASE_URL');
+logTarget('DATABASE_URL_NEW');
 
 const TENANT_ID = '00000000-0000-0000-0000-00000000d01c'; // Mega Dulces
 const SUPEROOT_USER_ID = '00000000-0000-0000-0000-00000000d0aa';

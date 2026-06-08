@@ -1,0 +1,76 @@
+# Local dev stack: Postgres 18 (legacy + multi-tenant), pgvector (Fase K), Redis (Fase F+).
+# NO usar en producción. Datos persisten en volumes nombrados — borrar con: docker compose -f docker-compose.dev.yml down -v
+#
+# Uso:
+#   docker compose -f docker-compose.dev.yml up -d
+#   # o vía npm: npm run dev:up
+#
+# Tras el up, la API arranca con:
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/megadulces_logistica
+#   DATABASE_URL_NEW=postgresql://postgres:postgres@localhost:5432/postgres_platform
+#   DATABASE_URL_NEW_RUNTIME=postgresql://app_runtime:app_runtime@localhost:5432/postgres_platform
+#   VECTOR_DATABASE_URL=postgresql://postgres:postgres@localhost:5433/vector_db
+#   REDIS_URL=redis://localhost:6379
+
+services:
+  # Postgres 18 — hospeda DB legacy (megadulces_logistica) + DB multi-tenant (postgres_platform).
+  postgres:
+    image: postgres:18-alpine
+    container_name: tm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      # Crea ambas DBs al boot. La script en initdb las inicializa.
+      POSTGRES_DB: megadulces_logistica
+    ports:
+      - "5432:5432"
+    volumes:
+      - tm_postgres_data:/var/lib/postgresql/data
+      - ./database/docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d megadulces_logistica"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Postgres + pgvector — Fase K (AI product match). Aislado en :5433 para no chocar
+  # con el principal. Imagen oficial con extension precompilada.
+  pgvector:
+    image: pgvector/pgvector:pg18
+    container_name: tm-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vector_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - tm_pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vector_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis — Socket.IO redis-adapter (multi-instance WS) + BullMQ queues (Fase F+).
+  redis:
+    image: redis:7-alpine
+    container_name: tm-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - tm_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  tm_postgres_data:
+  tm_pgvector_data:
+  tm_redis_data:

@@ -36,20 +36,15 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', 
 const knex = require('knex');
 const { spawnSync } = require('child_process');
 const path = require('path');
+const { assertEnv, logTarget } = require('./_lib/preflight');
+
+assertEnv(['DATABASE_URL_NEW'], { script: __filename });
+logTarget('DATABASE_URL_NEW');
 
 const TARGET_URL = process.env.DATABASE_URL_NEW;
 const SKIP_SEEDS = process.argv.includes('--skip-seeds');
 const SKIP_BASELINE = process.argv.includes('--skip-baseline');
 const FORCE = process.argv.includes('--force-not-empty');
-
-if (!TARGET_URL) {
-  console.error('❌ ERROR: Falta env var DATABASE_URL_NEW');
-  console.error('');
-  console.error('Uso:');
-  console.error('  DATABASE_URL_NEW="postgresql://user:pass@host:port/dbname" \\');
-  console.error('    node database/cutover-to-railway.js');
-  process.exit(1);
-}
 
 const SSL_REQUIRED = TARGET_URL.includes('railway') || TARGET_URL.includes('rds.amazonaws') || TARGET_URL.includes('supabase');
 

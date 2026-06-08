@@ -102,5 +102,49 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
     else failCount++;
   }
   console.log(`\nTotal: ${okCount}/${results.length} suites verde, ${failCount} fallaron.`);
+
+  if (failCount > 0) {
+    console.log('\n┌── HINTS MEMORIALES (si viste alguno de estos patterns arriba) ──────────');
+    console.log('│');
+    console.log('│  Connection refused / ECONNREFUSED');
+    console.log('│    → API no está arriba en :3334. nx serve api con ENABLE_MULTITENANT=true.');
+    console.log('│');
+    console.log('│  23502 not-null violation column "tenant_id"');
+    console.log('│    → trigger auto_populate_tenant_id no aplicado en la tabla. Ver memoria');
+    console.log('│      feedback_auto_populate_trigger_prod. Fix: migración 20260606000000.');
+    console.log('│');
+    console.log('│  25P02 in_failed_sql_transaction');
+    console.log('│    → un catch que tragó error DB dejó la trx en estado falla y siguió.');
+    console.log('│      Ver memoria feedback_global_request_tx_25p02. Fix: savepoint.');
+    console.log('│');
+    console.log('│  permission denied for table / RLS 0 rows con data presente');
+    console.log('│    → request handler no usa TenantKnexService.run() → app_runtime ve 0.');
+    console.log('│      Ver memoria feedback_tenant_knex_rls. Fix: envolver query en run().');
+    console.log('│');
+    console.log('│  403 "permisos dinámicos" para rol con permiso correcto en JWT');
+    console.log('│    → permission nuevo SIN map en permissionToSubject / permissionToAction');
+    console.log('│      en apps/api/.../ability.factory.ts. Ver memoria feedback_ability_factory_mapping.');
+    console.log('│');
+    console.log('│  column "activo" can only be updated to DEFAULT');
+    console.log('│    → writes a columna GENERATED ALWAYS AS (deleted_at IS NULL). Fix:');
+    console.log('│      usar deleted_at:NOW() / null. Ver memoria feedback_activo_generated_pattern.');
+    console.log('│');
+    console.log('│  429 Too Many Requests / ThrottlerException');
+    console.log('│    → tier short (10/s) o long (10/60s) agotado. Correr con THROTTLE_DISABLED=true');
+    console.log('│      o agregar la suite a NEEDS_THROTTLE_COOLDOWN en run-all-tests.js.');
+    console.log('│');
+    console.log('│  401 / JWT secret invalid / signature verification failed');
+    console.log('│    → JWT_SECRET mismatch entre cliente y server. Arrancar API con');
+    console.log('│      JWT_SECRET= explícito en env hasta fix de boot order. Ver memoria');
+    console.log('│      project_trade_marketing_b2b_evolution (gaps verificación HTTP E2E).');
+    console.log('│');
+    console.log('│  "directory corrupt" durante migrate / knex_migrations mismatch');
+    console.log('│    → fila en knex_migrations sin archivo en filesystem. Ver memoria');
+    console.log('│      feedback_no_manual_knex_migrations_prod. NUNCA INSERT manual.');
+    console.log('│');
+    console.log('│  ¿Otro patron? Buscá en ~/.claude/projects/.../memory/ con grep antes de debuggear.');
+    console.log('└─────────────────────────────────────────────────────────────────────────');
+  }
+
   process.exit(failCount === 0 ? 0 : 1);
 })();

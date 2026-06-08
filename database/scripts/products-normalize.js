@@ -21,9 +21,12 @@
  *   DATABASE_URL='...' node database/products-normalize.js --execute    # aplica
  */
 const knex = require('knex');
+const { assertEnv, logTarget } = require('./_lib/preflight');
+
+assertEnv(['DATABASE_URL'], { script: __filename });
+logTarget('DATABASE_URL');
 
 const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) { console.error('falta DATABASE_URL'); process.exit(1); }
 const EXECUTE = process.argv.includes('--execute');
 
 const db = knex({

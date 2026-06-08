@@ -139,6 +139,7 @@ O alternativamente: cutover a Railway (operacional, A.0mt.5.3-7), JwtAuthGuard f
 | [`02_DECISIONES_ARQUITECTURA.md`](docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md) | Al tomar decisión técnica relevante (crear ADR) |
 | [`03_LOG_REVISIONES.md`](docs/IMPLEMENTACION/03_LOG_REVISIONES.md) | Al cerrar un sprint o checkpoint |
 | [`AUDITORIA_BASE_INICIAL.md`](docs/IMPLEMENTACION/AUDITORIA_BASE_INICIAL.md) | Si aparece finding nuevo no listado |
+| [`/CHANGELOG.md`](CHANGELOG.md) | Al cerrar feature/sprint relevante. Vista "qué cambió las últimas N semanas" sin abrir git log. Una entry por fecha + categorías Added/Changed/Fixed/Internal. |
 
 **Estados granulares por item:**
 - ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD · ⚠️ BLOCKED · ❌ REVERTED
