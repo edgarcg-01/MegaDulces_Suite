@@ -25,6 +25,7 @@ const subjectMap: Record<string, string> = {
   [Permission.SCORING_CONFIG_VER]: 'scoring_config',
   [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
   [Permission.VER_SEGUIMIENTO]: 'seguimiento',
+  [Permission.RUTAS_VER]: 'routes_analytics',
 };
 
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {

@@ -290,6 +290,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     [Permission.ROLES_CONFIGURAR]: 'roles_config',
     [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
     [Permission.VER_SEGUIMIENTO]: 'seguimiento',
+    [Permission.RUTAS_VER]: 'routes_analytics',
   };
 
   /**

@@ -29,6 +29,9 @@ export enum Permission {
   // Módulo: Seguimiento
   VER_SEGUIMIENTO = 'VER_SEGUIMIENTO',
 
+  // Módulo: Rutas (análisis: tiendas por ruta, tiempos de visita, trazabilidad)
+  RUTAS_VER = 'RUTAS_VER',
+
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',

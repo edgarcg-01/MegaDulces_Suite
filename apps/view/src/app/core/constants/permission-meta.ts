@@ -45,6 +45,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
 
   // Seguimiento
   [Permission.VER_SEGUIMIENTO]: { label: 'Ver Seguimiento', description: 'Acceso al módulo de seguimiento de visitas y rutas en campo.', category: 'Seguimiento' },
+  [Permission.RUTAS_VER]: { label: 'Ver Rutas', description: 'Apartado de análisis de rutas: tiendas por ruta, tiempos de visita y trazabilidad del recorrido.', category: 'Seguimiento' },
 
   // Comercial — clientes, almacenes, pricing, inventario
   [Permission.COMMERCIAL_CUSTOMERS_VER]: { label: 'Ver Clientes', description: 'Consultar la cartera de clientes B2B.', category: 'Comercial' },
