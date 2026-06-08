@@ -57,11 +57,36 @@ export class PdfService {
 
   private compile(templateName: string): HandlebarsTemplateDelegate {
     if (this.templateCache[templateName]) return this.templateCache[templateName];
-    const templatePath = path.join(process.cwd(), 'apps', 'api', 'templates', `${templateName}.hbs`);
+    const templatePath = this.resolveTemplatePath(templateName);
     const templateHtml = fs.readFileSync(templatePath, 'utf8');
     const compiled = hbs.compile(templateHtml);
     this.templateCache[templateName] = compiled;
     return compiled;
+  }
+
+  /**
+   * Resuelve el path del template probando varias ubicaciones para soportar
+   * tanto dev (templates en source tree) como prod (templates copiados al dist
+   * por webpack assets).
+   *   - Dev (cwd = repo root): apps/api/templates/X.hbs
+   *   - Prod (cwd = /app, __dirname = /app/dist/apps/api): __dirname/templates/X.hbs
+   *   - Fallback prod sin cwd-friendly: /app/dist/apps/api/templates/X.hbs
+   */
+  private resolveTemplatePath(templateName: string): string {
+    const file = `${templateName}.hbs`;
+    const candidates = [
+      path.join(__dirname, 'templates', file),
+      path.join(__dirname, '..', 'templates', file),
+      path.join(process.cwd(), 'apps', 'api', 'templates', file),
+      path.join(process.cwd(), 'dist', 'apps', 'api', 'templates', file),
+      path.join(process.cwd(), 'templates', file),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return p;
+    }
+    throw new Error(
+      `Template "${templateName}" no encontrado. Buscado en: ${candidates.join(', ')}`,
+    );
   }
 
   private registerHelpers() {

@@ -24,6 +24,11 @@
             "glob": "**/*",
             "input": "database/seeds",
             "output": "database/seeds"
+          },
+          {
+            "glob": "**/*.hbs",
+            "input": "apps/api/templates",
+            "output": "templates"
           }
         ]
       },
