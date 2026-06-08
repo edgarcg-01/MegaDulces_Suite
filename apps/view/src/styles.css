@@ -1,4 +1,5 @@
 @import 'primeicons/primeicons.css';
+@import 'leaflet/dist/leaflet.css';
 /*
  * Design system tokens — fuente única de verdad para colores, surfaces,
  * text, charts, avatares y aliases legacy. Light + dark mode viven ahí.

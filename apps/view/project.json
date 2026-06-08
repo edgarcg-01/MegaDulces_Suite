@@ -22,6 +22,7 @@
         ],
         "styles": ["apps/view/src/styles.css"],
         "scripts": [],
+        "allowedCommonJsDependencies": ["leaflet"],
         "serviceWorker": true,
         "ngswConfigPath": "apps/view/ngsw-config.json"
       },
