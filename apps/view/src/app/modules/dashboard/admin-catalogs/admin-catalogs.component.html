@@ -28,9 +28,14 @@
         </h1>
         <p class="text-sm text-content-muted">Configura los parámetros maestros y puntuación de auditoría en tiempo real.</p>
       </div>
-      @if (canManageCurrent()) {
-        <p-button [label]="selectedType() === 'roles' ? 'Nuevo Rol' : 'Nuevo Ítem'" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
-      }
+      <div class="flex items-center gap-2">
+        @if (hasScoring() && canManageCurrent()) {
+          <p-button label="Configurar fórmula" icon="pi pi-percentage" severity="secondary" [outlined]="true" (onClick)="goToScoringFormula()"></p-button>
+        }
+        @if (canManageCurrent()) {
+          <p-button [label]="selectedType() === 'roles' ? 'Nuevo Rol' : 'Nuevo Ítem'" icon="pi pi-plus" (onClick)="openAddDialog()" styleClass="p-button-brand"></p-button>
+        }
+      </div>
     </div>
 
     <!-- Selector de catálogo: liquid tabs estilo iOS 26 (blob deslizante). -->

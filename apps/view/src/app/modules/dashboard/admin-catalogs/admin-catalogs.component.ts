@@ -210,6 +210,11 @@ export class AdminCatalogsComponent implements OnInit, AfterViewInit {
       });
   }
 
+  /** Abre el configurador de la fórmula de scoring (pesos y factores). */
+  goToScoringFormula(): void {
+    this.router.navigate(['/dashboard/admin/scoring']);
+  }
+
   ngAfterViewInit(): void {
     queueMicrotask(() => this.syncLiquidIndicator());
     if (typeof ResizeObserver !== 'undefined' && this.liquidTabsContainer) {

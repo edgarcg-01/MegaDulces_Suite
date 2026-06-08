@@ -241,9 +241,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   private tradeMkAdminItems: NavItem[] = [
-    { label: 'Conceptos',   icon: 'pi pi-box',        route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
-    { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/dashboard/admin/catalogs/ubicaciones', permission: Permission.CATALOGO_GESTIONAR    },
-    { label: 'Niveles',     icon: 'pi pi-bolt',       route: '/dashboard/admin/catalogs/niveles',     permission: Permission.CATALOGO_GESTIONAR    },
+    { label: 'Scoring',     icon: 'pi pi-sliders-h',  route: '/dashboard/admin/catalogs/conceptos',   permission: Permission.CATALOGO_GESTIONAR    },
     { label: 'Planograma',  icon: 'pi pi-list',       route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR },
     { label: 'Zonas',       icon: 'pi pi-globe',      route: '/dashboard/admin/catalogs/zonas',       permission: Permission.CATALOGO_GESTIONAR    },
   ];

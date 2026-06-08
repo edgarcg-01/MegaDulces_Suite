@@ -54,6 +54,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
       },
       {
+        path: 'admin/scoring',
+        loadComponent: () => import('./modules/dashboard/admin-scoring/admin-scoring.component').then(m => m.AdminScoringComponent),
+        canActivate: [permissionGuard(Permission.SCORING_CONFIG_VER)]
+      },
+      {
         path: 'admin/planograma',
         loadComponent: () => import('./modules/dashboard/admin-planograma/admin-planograma.component').then(m => m.AdminPlanogramaComponent),
         canActivate: [permissionGuard(Permission.PLANOGRAMAS_GESTIONAR)]
