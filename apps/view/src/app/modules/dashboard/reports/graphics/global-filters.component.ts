@@ -106,6 +106,7 @@ interface DropOption {
     </div>
   `,
   styles: [`
+    :host { display: block; }
     :host ::ng-deep .filter-label {
         font-size: 9px;
         font-weight: 700;

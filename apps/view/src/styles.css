@@ -645,20 +645,6 @@ body {
   .health-box-fill { transition: none; }
 }
 
-/*
- * SEGUIMIENTO — barra de búsqueda responsiva. El p-iconfield es inline por
- * default y el input no tomaba ancho → en mobile se apretaba/desbordaba.
- * Forzamos block + 100% dentro del contenedor (full en mobile, fijo en sm+).
- */
-.seg-search { width: 100%; }
-@media (min-width: 640px) { .seg-search { width: 18rem; } }
-.seg-search p-iconfield,
-.seg-search .p-iconfield,
-.seg-search .p-inputicon-wrapper {
-  display: block;
-  width: 100%;
-}
-.seg-search input { width: 100%; }
 
 /*
  * UTILITIES: CHIPS NEUTRALES (no-status)
