@@ -690,9 +690,10 @@ export class DailyCapturesService {
       stats: dailyCapture.stats,
     });
 
-    // Hook: si la captura declaró ruta y la tienda no tiene ruta asignada,
-    // la heredamos (apartado Rutas agrupa por stores.ruta_id). Best-effort
-    // post-commit — no debe afectar el resultado de la captura.
+    // Hook: la tienda se asigna a la ruta que la capturó (ruta-hogar,
+    // última gana). El apartado Rutas agrupa por stores.ruta_id, así que
+    // cada captura actualiza la ruta-hogar de la tienda a la ruta declarada.
+    // Best-effort post-commit — no debe afectar el resultado de la captura.
     void this.maybeAssignStoreRoute(dto.store_id, dto.route_id, tenantId);
 
     // Surfacear resultado de upload de fotos al cliente. Permite que la UI
@@ -709,9 +710,12 @@ export class DailyCapturesService {
   }
 
   /**
-   * Hereda la ruta declarada en la captura a la tienda cuando esta no tiene
-   * ruta asignada. Trx corta con tenant context (RLS). Best-effort: no propaga
-   * errores para no afectar la captura ya commiteada.
+   * Asigna a la tienda la ruta declarada en la captura (ruta-hogar, última
+   * gana): cada captura mueve `stores.ruta_id` a la ruta que la capturó. Si
+   * dos rutas comparten la tienda, queda la más reciente. Solo escribe cuando
+   * el valor cambia (evita writes redundantes). Trx corta con tenant context
+   * (RLS). Best-effort: no propaga errores para no afectar la captura ya
+   * commiteada.
    */
   private async maybeAssignStoreRoute(
     storeId?: string,
@@ -723,7 +727,10 @@ export class DailyCapturesService {
     try {
       await this.knexRaw.transaction(async (tx) => {
         await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
-        await tx('stores').where({ id: storeId }).whereNull('ruta_id').update({ ruta_id: routeId });
+        await tx('stores')
+          .where({ id: storeId })
+          .whereRaw('ruta_id IS DISTINCT FROM ?', [routeId])
+          .update({ ruta_id: routeId });
       });
     } catch (e: any) {
       this.logger.warn(`maybeAssignStoreRoute store=${storeId} route=${routeId}: ${e?.message || e}`);
