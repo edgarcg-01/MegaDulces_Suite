@@ -170,10 +170,14 @@ export class ReportsController {
   }
 
   @Post('route-pings')
-  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  // Solo requiere autenticación: cubre a CUALQUIER rol de campo (colaborador con
+  // VISITAS_REGISTRAR y vendedor con CAPTURE_TICKET_USE) sin churn de permisos.
+  // Telemetría self-scoped: tenant_id/user_id salen del JWT (no del body), así
+  // que un usuario solo puede insertar SUS propios pings. Las lecturas
+  // (/routes/:id/idle, /idle/summary) siguen gateadas por RUTAS_VER.
   @ApiOperation({
     summary:
-      'Ingesta bulk de breadcrumbs GPS del vendedor (idempotente por client_uuid) — Fase 2 tiempos muertos',
+      'Ingesta bulk de breadcrumbs GPS del usuario de campo (idempotente por client_uuid) — Fase 2 tiempos muertos',
   })
   ingestRoutePings(@ReqUser() user: any, @Body() batch: RoutePingsBatchDto) {
     return this.reportsService.ingestRoutePings(batch, user);
