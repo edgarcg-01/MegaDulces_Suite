@@ -26,6 +26,13 @@ export interface ProcesarRouteTicketResult {
     reference: string | null;
     liters: number | null;
   };
+  /**
+   * Resolución de la ruta detectada contra el catálogo de rutas de la zona del
+   * vendedor. El usuario NO edita la ruta: si `route_matched` es false, el
+   * ticket no se puede guardar (la regla se reaplica en guardar()).
+   */
+  route_matched: boolean;
+  route_value: string | null; // nombre canónico, ej. "RUTA 321"
   /** Solo en carga: productos detectados para descargar al camión. */
   lines?: RouteTicketLinePreview[];
 }

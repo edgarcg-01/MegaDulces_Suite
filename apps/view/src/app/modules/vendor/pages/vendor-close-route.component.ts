@@ -89,13 +89,19 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
         <img *ngIf="photoPreview()" [src]="photoPreview()!" class="crt-preview" alt="Ticket capturado" />
 
         <div class="crt-fields">
-          <label class="crt-field">
-            <span class="crt-field-label">Ruta (RD)</span>
-            <div class="crt-input-wrap">
-              <input type="text" [(ngModel)]="form.route_code" placeholder="ej. 12" />
-              <span class="crt-detect" [class.ok]="!!form.route_code">{{ form.route_code ? 'detectado' : 'sin detectar' }}</span>
+          <!-- Ruta: NO editable. La detecta el OCR y la valida el backend contra
+               las rutas reales de la zona del vendedor. -->
+          <div class="crt-field">
+            <span class="crt-field-label">Ruta</span>
+            <div class="crt-route" [class.ok]="routeMatched()" [class.bad]="!routeMatched()">
+              <i class="pi" [ngClass]="routeMatched() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
+              <span class="crt-route-name">{{ routeMatched() ? routeValue() : 'Ruta no reconocida' }}</span>
+              <span class="crt-route-tag">{{ routeMatched() ? 'detectada' : 'reintenta' }}</span>
             </div>
-          </label>
+            <p class="crt-route-hint" *ngIf="!routeMatched()">
+              La ruta del ticket no coincide con ninguna ruta de tu zona. Vuelve a tomar la foto con la ruta visible.
+            </p>
+          </div>
 
           <label class="crt-field">
             <span class="crt-field-label">Fecha</span>
@@ -237,6 +243,14 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .crt-detect { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 999px; background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
       .crt-detect.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
 
+      /* Ruta read-only (resuelta por backend, no editable) */
+      .crt-route { display: flex; align-items: center; gap: 0.5rem; padding: 0.6875rem 0.875rem; border-radius: 0.75rem; border: 1px solid var(--border-color); font-weight: 700; }
+      .crt-route.ok { background: var(--ok-soft-bg); border-color: var(--ok-border, var(--ok-soft-bg)); color: var(--ok-soft-fg); }
+      .crt-route.bad { background: var(--bad-soft-bg); border-color: var(--bad-border, var(--bad-soft-bg)); color: var(--bad-soft-fg); }
+      .crt-route-name { flex: 1; font-size: 0.9375rem; }
+      .crt-route-tag { font-size: 0.5625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); }
+      .crt-route-hint { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--bad-soft-fg); }
+
       /* ── carga lines ── */
       .crt-lines { margin-top: 1.25rem; border: 1px solid var(--border-color); border-radius: 1rem; padding: 0.875rem 1rem; }
       .crt-lines-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8125rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; }
@@ -302,6 +316,9 @@ export class VendorCloseRouteComponent implements OnInit {
   readonly tickets = signal<RouteTicket[]>([]);
   readonly loadingList = signal(true);
   readonly cargaLines = signal<EditableCargaLine[]>([]); // productos detectados en carga
+  // Ruta resuelta por el backend (el usuario NO la edita). Sin match → no se guarda.
+  readonly routeMatched = signal(false);
+  readonly routeValue = signal<string | null>(null);
 
   private lastResult: ProcesarRouteTicketResult | null = null;
   form: {
@@ -351,6 +368,9 @@ export class VendorCloseRouteComponent implements OnInit {
               reference: res.fields.reference,
               liters: res.fields.liters,
             };
+            // Ruta resuelta por el backend contra el catálogo de su zona.
+            this.routeMatched.set(!!res.route_matched);
+            this.routeValue.set(res.route_value ?? null);
             // carga: precargar productos detectados (solo los matcheados).
             this.cargaLines.set(
               (res.lines ?? [])
@@ -377,7 +397,8 @@ export class VendorCloseRouteComponent implements OnInit {
   }
 
   canSave(): boolean {
-    return !!this.form.route_code?.trim() && !!this.form.ticket_date;
+    // La ruta debe haber matcheado una ruta real de su zona (no editable).
+    return this.routeMatched() && !!this.form.ticket_date;
   }
 
   includedCount(): number {
@@ -430,6 +451,8 @@ export class VendorCloseRouteComponent implements OnInit {
     this.photoPreview.set(null);
     this.lastResult = null;
     this.cargaLines.set([]);
+    this.routeMatched.set(false);
+    this.routeValue.set(null);
     this.form = this.emptyForm();
   }
 

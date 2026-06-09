@@ -90,14 +90,51 @@ export class CommercialRouteControlService {
     }
     this.logger.log(`[route-ticket] ${ticketType} OCR (+${Date.now() - t0}ms)`);
 
+    // La ruta NO la edita el usuario: resolvemos lo que detectó el OCR contra
+    // las rutas reales de SU zona. Si no matchea, el front bloquea el guardado.
+    const resolved = await this.resolveZoneRoute(fields.route_code);
+
     return {
       ticket_type: ticketType,
       cloudinary_public_id: uploaded.public_id,
       photo_url: uploaded.secure_url,
       photo_preview_url: uploaded.secure_url,
-      fields,
+      fields: { ...fields, route_code: resolved.code ?? fields.route_code },
+      route_matched: resolved.matched,
+      route_value: resolved.value,
       lines,
     };
+  }
+
+  /**
+   * Resuelve un `route_code` crudo del OCR ("RD 21", "ruta 21", "21", "unknown")
+   * contra las rutas del catálogo de la ZONA del vendedor (catalogs rutas:
+   * parent_id = zona del vendedor, o sin zona). Match por NÚMERO ("RUTA 21" ⇆ 21).
+   * Devuelve el código canónico (número) + el nombre ("RUTA 21") o matched=false.
+   */
+  private async resolveZoneRoute(
+    raw: string | null | undefined,
+  ): Promise<{ matched: boolean; code: string | null; value: string | null }> {
+    const digits = String(raw ?? '').match(/\d+/)?.[0] ?? null;
+    if (!digits) return { matched: false, code: null, value: null };
+    return this.tk.run(async (trx) => {
+      const userId = this.requireUserId();
+      const user = await trx('users').where({ id: userId }).first('zona_id');
+      const zonaId = user?.zona_id ?? null;
+      const routes = await trx('catalogs')
+        .where({ catalog_id: 'rutas' })
+        .whereNull('deleted_at')
+        .modify((q: any) => {
+          // Solo rutas de su zona (+ rutas sin zona, legacy), como Captura Diaria.
+          if (zonaId) q.where((b: any) => b.where('parent_id', zonaId).orWhereNull('parent_id'));
+          else q.whereNull('parent_id');
+        })
+        .select('id', 'value');
+      const hit = routes.find((r: any) => (String(r.value).match(/\d+/)?.[0] ?? null) === digits);
+      return hit
+        ? { matched: true, code: digits, value: hit.value as string }
+        : { matched: false, code: digits, value: null };
+    });
   }
 
   // ── 2) Guardar (tras revisión) ──────────────────────────────────────────
@@ -106,6 +143,17 @@ export class CommercialRouteControlService {
     if (!dto.route_code?.trim()) throw new BadRequestException('route_code requerido');
     if (!dto.ticket_date || !DATE_RE.test(dto.ticket_date))
       throw new BadRequestException('ticket_date requerido (YYYY-MM-DD)');
+
+    // Garantía dura (independiente del front): la ruta del ticket debe coincidir
+    // con una ruta real de la zona del vendedor. "unknown" y rutas inexistentes
+    // se rechazan; el código se normaliza al número canónico ("RD 21" → "21").
+    const route = await this.resolveZoneRoute(dto.route_code);
+    if (!route.matched || !route.code) {
+      throw new BadRequestException(
+        `Ruta no reconocida: "${dto.route_code}". Debe coincidir con una ruta registrada de tu zona (ej. RUTA 21). Vuelve a tomar la foto.`,
+      );
+    }
+    const canonicalRouteCode = route.code;
 
     const corte = dto.ticket_type === 'venta' ? dto.corte_number?.trim() || null : null;
     const reference = dto.ticket_type === 'combustible' ? dto.reference?.trim() || null : null;
@@ -137,7 +185,7 @@ export class CommercialRouteControlService {
             tenant_id: trx.raw('public.current_tenant_id()'),
             vendor_user_id: userId,
             ticket_type: dto.ticket_type,
-            route_code: dto.route_code.trim(),
+            route_code: canonicalRouteCode,
             ticket_date: dto.ticket_date,
             total: dto.total ?? null,
             corte_number: corte,

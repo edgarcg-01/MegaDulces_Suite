@@ -48,6 +48,9 @@ export interface ProcesarRouteTicketResult {
   photo_url: string;
   photo_preview_url: string;
   fields: RouteTicketFields;
+  /** Resolución de la ruta detectada contra el catálogo de la zona del vendedor. */
+  route_matched: boolean;
+  route_value: string | null; // nombre canónico, ej. "RUTA 321"
   lines?: RouteTicketLinePreview[]; // solo carga
 }
 
