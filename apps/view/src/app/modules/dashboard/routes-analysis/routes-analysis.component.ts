@@ -36,6 +36,25 @@ interface RouteVisit {
   longitud: number | null;
   score: number;
 }
+interface RouteIdleSegment {
+  user_id: string;
+  vendor: string;
+  from_capture_id: string;
+  to_capture_id: string;
+  from_store: string;
+  to_store: string;
+  gap_min: number;
+  dist_km: number | null;
+  travel_est_min: number | null;
+  idle_min: number;
+  is_dead: boolean;
+}
+interface RouteIdle {
+  segments: RouteIdleSegment[];
+  total_idle_min: number;
+  total_travel_min: number;
+  dead_count: number;
+}
 
 /**
  * Apartado "Rutas": análisis de ejecución por ruta.
@@ -144,6 +163,14 @@ interface RouteVisit {
     .ru-cell-link { color: inherit; text-decoration: none; }
     .ru-cell-link:hover { color: var(--action); text-decoration: underline; }
     .ru-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .ru-idle-tag {
+      font-size: 0.6875rem; font-weight: 600; font-variant-numeric: tabular-nums;
+      background: var(--surface-ground); color: var(--text-muted);
+      border-radius: 999px; padding: 0.1rem 0.45rem; line-height: 1.4; white-space: nowrap;
+    }
+    .ru-idle-tag.is-dead {
+      background: var(--bad-soft-bg); color: var(--bad-soft-fg);
+    }
 
     /* ── back button (mobile) ────────────────────────────────── */
     .ru-back-btn {
@@ -160,7 +187,7 @@ interface RouteVisit {
       grid-template-columns: repeat(2, 1fr);
       gap: 0.75rem;
     }
-    @media (min-width: 900px) { .ru-kpi-grid { grid-template-columns: repeat(4, 1fr); } }
+    @media (min-width: 900px) { .ru-kpi-grid { grid-template-columns: repeat(5, 1fr); } }
 
     .ru-kpi {
       background: var(--card-bg);
@@ -324,6 +351,17 @@ interface RouteVisit {
                   </div>
                 </div>
               </div>
+              <div class="ru-kpi" [class.is-bad]="deadCount() > 0">
+                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-hourglass"></i></div>
+                <div class="ru-kpi-body">
+                  <div class="ru-kpi-label">Tiempo muerto</div>
+                  <div class="ru-kpi-value">{{ totalIdleMin() }} min</div>
+                  <div class="ru-kpi-sub" [class.is-bad]="deadCount() > 0">
+                    @if (deadCount() > 0) { {{ deadCount() }} gap{{ deadCount() === 1 ? '' : 's' }} > {{ idleThreshold }} min }
+                    @else { sin gaps muertos }
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- MAP ROW: selector izquierdo + mapa ────────────── -->
@@ -419,6 +457,7 @@ interface RouteVisit {
                   <th pSortableColumn="hora_inicio">Inicio <p-sortIcon field="hora_inicio"></p-sortIcon></th>
                   <th>Fin</th>
                   <th pSortableColumn="duration_min">Dur. <p-sortIcon field="duration_min"></p-sortIcon></th>
+                  <th>Muerto antes</th>
                   <th pSortableColumn="score" style="text-align:right">Score <p-sortIcon field="score"></p-sortIcon></th>
                 </tr>
               </ng-template>
@@ -433,11 +472,19 @@ interface RouteVisit {
                   <td><code class="comm-code">{{ fmtTime(v.hora_inicio) }}</code></td>
                   <td><code class="comm-code">{{ fmtTime(v.hora_fin) }}</code></td>
                   <td><code class="comm-code">{{ v.duration_min != null ? v.duration_min + ' min' : '—' }}</code></td>
+                  <td>
+                    @if (idleBeforeMap().get(v.capture_id); as seg) {
+                      <span [class]="seg.is_dead ? 'ru-idle-tag is-dead' : 'ru-idle-tag'"
+                        [attr.title]="'Gap ' + seg.gap_min + ' min · traslado est. ' + (seg.travel_est_min ?? '—') + ' min · ' + (seg.dist_km ?? '—') + ' km'">
+                        {{ seg.idle_min }} min
+                      </span>
+                    } @else { <span class="comm-muted">—</span> }
+                  </td>
                   <td class="ru-num">{{ v.score }}</td>
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="7" class="ru-table-empty">
+                <tr><td colspan="8" class="ru-table-empty">
                   @if (stores().length > 0) { 0 visitas — {{ stores().length }} tiendas asignadas aparecen abajo. }
                   @else { Sin visitas en este rango. }
                 </td></tr>
@@ -502,8 +549,10 @@ export class RoutesAnalysisComponent implements OnInit {
   selectedId = signal<string | null>(null);
   stores = signal<RouteStore[]>([]);
   visits = signal<RouteVisit[]>([]);
+  idle = signal<RouteIdle>({ segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 });
   vendorFilter = signal<string | null>(null);
   readonly targetMinutes = 15;
+  readonly idleThreshold = 20;
 
   vendorOptions = computed(() => {
     const set = new Set(this.visits().map((v) => v.captured_by_username).filter(Boolean));
@@ -515,6 +564,22 @@ export class RoutesAnalysisComponent implements OnInit {
   filteredVisits = computed(() => {
     const f = this.vendorFilter();
     return f ? this.visits().filter((v) => v.captured_by_username === f) : this.visits();
+  });
+
+  // Tiempos muertos — filtrados por el mismo vendedor que la tabla de visitas.
+  filteredIdle = computed(() => {
+    const f = this.vendorFilter();
+    return f ? this.idle().segments.filter((s) => s.vendor === f) : this.idle().segments;
+  });
+  totalIdleMin = computed(() =>
+    Math.round(this.filteredIdle().reduce((a, s) => a + s.idle_min, 0)),
+  );
+  deadCount = computed(() => this.filteredIdle().filter((s) => s.is_dead).length);
+  /** Mapa to_capture_id → segmento, para mostrar "muerto antes" por fila de visita. */
+  idleBeforeMap = computed(() => {
+    const m = new Map<string, RouteIdleSegment>();
+    for (const s of this.filteredIdle()) m.set(s.to_capture_id, s);
+    return m;
   });
 
   visitedCount = computed(() => this.stores().filter((s) => s.visited).length);
@@ -611,14 +676,18 @@ export class RoutesAnalysisComponent implements OnInit {
     this.loadingDetail.set(true);
     this.stores.set([]);
     this.visits.set([]);
+    this.idle.set({ segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 });
     const params = this.dateParams();
-    let pending = 2;
+    let pending = 3;
     const done = () => { if (--pending === 0) this.loadingDetail.set(false); };
     this.http.get<RouteStore[]>(`${environment.apiUrl}/reports/routes/${id}/stores`, { params }).subscribe({
       next: (r) => { this.stores.set(r || []); done(); }, error: done,
     });
     this.http.get<RouteVisit[]>(`${environment.apiUrl}/reports/routes/${id}/visits`, { params }).subscribe({
       next: (r) => { this.visits.set(r || []); done(); }, error: done,
+    });
+    this.http.get<RouteIdle>(`${environment.apiUrl}/reports/routes/${id}/idle`, { params }).subscribe({
+      next: (r) => { this.idle.set(r || { segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 }); done(); }, error: done,
     });
   }
 

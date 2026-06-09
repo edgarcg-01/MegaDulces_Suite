@@ -144,6 +144,20 @@ export class ReportsController {
     return this.reportsService.getRouteStores(routeId, filters, user);
   }
 
+  @Get('routes/:routeId/idle')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Tiempos muertos de una ruta: gaps entre visitas consecutivas del mismo vendedor (gap − traslado estimado) + totales',
+  })
+  getRouteIdle(
+    @ReqUser() user: any,
+    @Param('routeId') routeId: string,
+    @Query() filters: ReportsFilterDto,
+  ) {
+    return this.reportsService.getRouteIdle(routeId, filters, user);
+  }
+
   @Get('export')
   @RequirePermissions(Permission.REPORTES_EXPORTAR)
   @ApiOperation({

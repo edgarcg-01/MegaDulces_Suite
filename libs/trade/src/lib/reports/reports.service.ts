@@ -1352,6 +1352,153 @@ export class ReportsService {
     }));
   }
 
+  // ── Tiempos muertos (Fase 1: derivado de hora_inicio/hora_fin + coords) ──
+  /** Velocidad urbana supuesta para estimar el traslado entre tiendas (km/h). */
+  static readonly IDLE_SPEED_KMH = 25;
+  /** Gaps por debajo de esto son ruido (encadenado de capturas), se ignoran. */
+  static readonly IDLE_MIN_GAP_MIN = 5;
+  /** idle por encima de esto se marca como "muerto". */
+  static readonly IDLE_DEAD_THRESHOLD_MIN = 20;
+
+  /** Haversine en km entre dos coords. null si falta alguna. */
+  private static haversineKm(
+    lat1?: number | null,
+    lng1?: number | null,
+    lat2?: number | null,
+    lng2?: number | null,
+  ): number | null {
+    if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return null;
+    const R = 6371;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * Cómputo puro de segmentos de tiempo muerto a partir de capturas ORDENADAS
+   * por (user_id, hora_inicio). Para cada par consecutivo del MISMO vendedor:
+   *   gap   = hora_inicio[i+1] − hora_fin[i]
+   *   trasl = haversine(tienda[i], tienda[i+1]) / velocidad supuesta
+   *   idle  = max(0, gap − trasl)   (si no hay coords: idle = gap, sin estimar traslado)
+   * Reutilizado por el endpoint /idle y por el job de persistencia.
+   */
+  static computeIdleSegments(rows: any[]): any[] {
+    const out: any[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const cur = rows[i];
+      if (prev.user_id !== cur.user_id) continue; // no cruzar vendedores
+      const fin = prev.hora_fin ? new Date(prev.hora_fin).getTime() : null;
+      const ini = cur.hora_inicio ? new Date(cur.hora_inicio).getTime() : null;
+      if (fin == null || ini == null) continue;
+      const gapMin = (ini - fin) / 60000;
+      if (gapMin < ReportsService.IDLE_MIN_GAP_MIN) continue; // ruido / solapado
+
+      const distKm = ReportsService.haversineKm(
+        prev.lat != null ? Number(prev.lat) : null,
+        prev.lng != null ? Number(prev.lng) : null,
+        cur.lat != null ? Number(cur.lat) : null,
+        cur.lng != null ? Number(cur.lng) : null,
+      );
+      const travelEstMin =
+        distKm != null ? (distKm / ReportsService.IDLE_SPEED_KMH) * 60 : null;
+      const idleMin =
+        travelEstMin != null ? Math.max(0, gapMin - travelEstMin) : gapMin;
+      const r2 = (n: number) => Math.round(n * 10) / 10;
+
+      out.push({
+        user_id: cur.user_id,
+        vendor: cur.captured_by_username,
+        from_capture_id: prev.id,
+        to_capture_id: cur.id,
+        from_store: prev.nombre,
+        to_store: cur.nombre,
+        prev_hora_fin: prev.hora_fin,
+        next_hora_inicio: cur.hora_inicio,
+        gap_min: r2(gapMin),
+        dist_km: distKm != null ? r2(distKm) : null,
+        travel_est_min: travelEstMin != null ? r2(travelEstMin) : null,
+        idle_min: r2(idleMin),
+        is_dead: idleMin > ReportsService.IDLE_DEAD_THRESHOLD_MIN,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Tiempos muertos de UNA ruta: segmentos entre visitas consecutivas del mismo
+   * vendedor + totales. Mismo scope/tenant/fechas (TZ MX) que getRouteVisits.
+   * Usa coords de la captura y cae a las de la tienda si faltan.
+   */
+  async getRouteIdle(
+    routeId: string,
+    filters: { startDate?: string; endDate?: string },
+    user: any,
+  ) {
+    const empty = { segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 };
+    if (!ReportsService.UUID_RE.test(routeId || '')) return empty;
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+
+    let q = this.knex('daily_captures as dc')
+      .join('stores as s', 's.id', 'dc.store_id')
+      .where('s.ruta_id', routeId)
+      .whereNotNull('dc.store_id')
+      .select(
+        'dc.id',
+        'dc.store_id',
+        's.nombre',
+        'dc.user_id',
+        'dc.captured_by_username',
+        'dc.hora_inicio',
+        'dc.hora_fin',
+      )
+      .select(this.knex.raw('COALESCE(dc.latitud, s.latitud) as lat'))
+      .select(this.knex.raw('COALESCE(dc.longitud, s.longitud) as lng'))
+      .orderBy('dc.user_id', 'asc')
+      .orderBy('dc.hora_inicio', 'asc');
+
+    if (tenantId) q = q.where('dc.tenant_id', tenantId);
+    if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'dc.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+    if (filters.startDate)
+      q.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [filters.startDate],
+      );
+    if (filters.endDate)
+      q.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [filters.endDate],
+      );
+
+    const rows = await q;
+    const segments = ReportsService.computeIdleSegments(rows);
+    const r2 = (n: number) => Math.round(n * 10) / 10;
+    return {
+      segments,
+      total_idle_min: r2(segments.reduce((a, s) => a + s.idle_min, 0)),
+      total_travel_min: r2(
+        segments.reduce((a, s) => a + (s.travel_est_min || 0), 0),
+      ),
+      dead_count: segments.filter((s) => s.is_dead).length,
+    };
+  }
+
   async getStoresData(
     filters: {
       startDate?: string;
