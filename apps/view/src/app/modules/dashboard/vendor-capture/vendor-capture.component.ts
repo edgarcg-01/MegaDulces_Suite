@@ -20,6 +20,7 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
 import { DailyCaptureService } from '../captures/daily-capture.service';
+import { RoutePingService } from '../../../core/services/route-ping.service';
 import { buildVisitFormData } from '../../../core/http/visit-form-data';
 import { OfflineSyncService } from '../../../core/services/offline-sync.service';
 import type { PendingVendorSale } from '../../../core/services/offline-database.service';
@@ -322,6 +323,8 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly svc = inject(DailyCaptureService);
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
+  // Instancia el tracker de breadcrumbs GPS (se autoarranca con la ruta activa).
+  private readonly routePing = inject(RoutePingService);
   private readonly toast = inject(MessageService);
   private readonly offlineSync = inject(OfflineSyncService);
   private readonly apiUrl = environment.apiUrl;

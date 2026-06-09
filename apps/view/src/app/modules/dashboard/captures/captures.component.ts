@@ -35,6 +35,7 @@ import { HlmLabelDirective } from '@spartan-ng/helm/label';
 
 // Local
 import { DailyCaptureService } from './daily-capture.service';
+import { RoutePingService } from '../../../core/services/route-ping.service';
 import {
   VisitaSnapshot,
   RANGOS_COMPRA,
@@ -89,6 +90,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
   readonly svc = inject(DailyCaptureService);
   readonly themeService = inject(ThemeService);
   readonly authService = inject(AuthService);
+  // Instancia el tracker de breadcrumbs GPS (se autoarranca con la ruta activa).
+  private readonly routePing = inject(RoutePingService);
   readonly toast = inject(MessageService);
   private readonly haptic = inject(HapticService);
   readonly confirmSvc = inject(ConfirmationService);
