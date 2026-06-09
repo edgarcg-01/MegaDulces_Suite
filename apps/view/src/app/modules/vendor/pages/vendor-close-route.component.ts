@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -17,7 +18,7 @@ import {
   ProcesarRouteTicketResult,
 } from '../vendor.service';
 
-type Step = 'pick' | 'review';
+type Step = 'pick' | 'review' | 'success';
 
 interface EditableCargaLine {
   product_id: string;
@@ -59,6 +60,31 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         hidden
         (change)="onFile($event)"
       />
+
+      <!-- Requisitos del día: venta + carga obligatorios -->
+      <div *ngIf="step() === 'pick' && !loadingList()" class="crt-reqs" [class.done]="requiredDone()">
+        <div class="crt-reqs-head">
+          <span class="crt-reqs-title">
+            <i class="pi" [ngClass]="requiredDone() ? 'pi-check-circle' : 'pi-flag'" aria-hidden="true"></i>
+            {{ requiredDone() ? 'Cierre completo' : 'Para cerrar tu día' }}
+          </span>
+          <span class="crt-reqs-status">{{ requiredDone() ? '✓ listo' : 'faltan obligatorios' }}</span>
+        </div>
+        <div class="crt-reqs-items">
+          <span class="crt-req" [class.done]="hasVenta()">
+            <i class="pi" [ngClass]="hasVenta() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
+            Venta <em>obligatorio</em>
+          </span>
+          <span class="crt-req" [class.done]="hasCarga()">
+            <i class="pi" [ngClass]="hasCarga() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
+            Carga <em>obligatorio</em>
+          </span>
+          <span class="crt-req opt" [class.done]="hasCombustible()">
+            <i class="pi" [ngClass]="hasCombustible() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
+            Combustible <em>opcional</em>
+          </span>
+        </div>
+      </div>
 
       <!-- Paso 1: elegir tipo -->
       <div *ngIf="step() === 'pick'" class="crt-pick">
@@ -171,6 +197,31 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         <button type="button" class="crt-save" [disabled]="!canSave() || saving()" (click)="save()">
           <i class="pi" [ngClass]="saving() ? 'pi-spin pi-spinner' : 'pi-check'" aria-hidden="true"></i>
           Guardar ticket
+        </button>
+      </div>
+
+      <!-- Paso 3: éxito (card animada) -->
+      <div *ngIf="step() === 'success' && savedSummary() as s" class="crt-success">
+        <div class="crt-check" aria-hidden="true">
+          <svg viewBox="0 0 52 52">
+            <circle class="crt-check-ring" cx="26" cy="26" r="24" fill="none"/>
+            <path class="crt-check-mark" fill="none" d="M14 27l8 8 16-17"/>
+          </svg>
+        </div>
+        <h2 class="crt-success-title">¡Ticket guardado!</h2>
+        <span class="crt-type-chip" [attr.data-type]="s.type">
+          <i class="pi {{ meta[s.type].icon }}" aria-hidden="true"></i>{{ meta[s.type].label }}
+        </span>
+        <p class="crt-success-meta">{{ s.route }}<span *ngIf="s.total != null"> · {{ fmtMoney(s.total) }}</span></p>
+        @if (!requiredDone()) {
+          <p class="crt-success-next">
+            Te falta {{ !hasVenta() ? 'el corte de venta' : '' }}{{ !hasVenta() && !hasCarga() ? ' y ' : '' }}{{ !hasCarga() ? 'la carga' : '' }} para cerrar el día.
+          </p>
+        } @else {
+          <p class="crt-success-next ok"><i class="pi pi-check-circle" aria-hidden="true"></i> Cierre del día completo.</p>
+        }
+        <button type="button" class="crt-save" (click)="reset()">
+          <i class="pi pi-plus" aria-hidden="true"></i> Subir otro ticket
         </button>
       </div>
 
@@ -323,6 +374,42 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-route-tag { font-size: 0.5625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); }
       .crt-route-hint { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--bad-soft-fg); }
 
+      /* ── requisitos del día (venta + carga obligatorios) ── */
+      .crt-reqs { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 0.875rem 1rem; }
+      .crt-reqs.done { border-color: var(--ok-border, var(--ok-soft-bg)); background: var(--ok-soft-bg); }
+      .crt-reqs-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.625rem; }
+      .crt-reqs-title { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; font-weight: 800; color: var(--text-main); }
+      .crt-reqs.done .crt-reqs-title { color: var(--ok-soft-fg); }
+      .crt-reqs-status { font-size: 0.625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+      .crt-reqs.done .crt-reqs-status { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+      .crt-reqs-items { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .crt-req { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.3rem 0.6rem; transition: all 0.2s ease; }
+      .crt-req i { font-size: 0.7rem; }
+      .crt-req em { font-style: normal; font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; font-weight: 800; }
+      .crt-req.done { background: var(--ok-soft-bg); border-color: transparent; color: var(--ok-soft-fg); }
+      .crt-req.opt { color: var(--text-faint); }
+      .crt-req.opt.done { color: var(--ok-soft-fg); }
+
+      /* ── card de éxito (animada) ── */
+      .crt-success { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.75rem; padding: 1.5rem 1rem 0.5rem; animation: crt-success-in 0.35s ease both; }
+      @keyframes crt-success-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      .crt-check { width: 84px; height: 84px; border-radius: 50%; background: var(--ok-soft-bg); display: grid; place-items: center; animation: crt-pop 0.45s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+      @keyframes crt-pop { 0% { transform: scale(0); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+      .crt-check svg { width: 54px; height: 54px; }
+      .crt-check-ring { stroke: var(--ok-fg); stroke-width: 3; opacity: 0.35; }
+      .crt-check-mark { stroke: var(--ok-fg); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 48; stroke-dashoffset: 48; animation: crt-draw 0.4s 0.2s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
+      @keyframes crt-draw { to { stroke-dashoffset: 0; } }
+      .crt-success-title { font-size: 1.25rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.02em; }
+      .crt-success-meta { font-size: 0.875rem; color: var(--text-muted); margin: 0; font-variant-numeric: tabular-nums; }
+      .crt-success-next { font-size: 0.8125rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: 0.5rem 0.875rem; border-radius: 0.75rem; margin: 0.25rem 0 0; }
+      .crt-success-next.ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); display: inline-flex; align-items: center; gap: 0.35rem; }
+      .crt-success .crt-save { max-width: 280px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .crt-success, .crt-check { animation: none; }
+        .crt-check-mark { animation: none; stroke-dashoffset: 0; }
+      }
+
       /* ── carga lines ── */
       .crt-lines { margin-top: 1.25rem; border: 1px solid var(--border-color); border-radius: 1rem; padding: 0.875rem 1rem; }
       .crt-lines-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.8125rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; }
@@ -401,6 +488,20 @@ export class VendorCloseRouteComponent implements OnInit {
   // Ruta resuelta por el backend (el usuario NO la edita). Sin match → no se guarda.
   readonly routeMatched = signal(false);
   readonly routeValue = signal<string | null>(null);
+
+  // Resumen del último ticket guardado (card de éxito animada).
+  readonly savedSummary = signal<{ type: RouteTicketType; route: string; total: number | null } | null>(null);
+  private successTimer: any = null;
+
+  // ── Requisitos del día: venta + carga OBLIGATORIOS (combustible opcional) ──
+  private todayTickets = computed(() => {
+    const t = this.today();
+    return this.tickets().filter((x) => x.ticket_date === t);
+  });
+  readonly hasVenta = computed(() => this.todayTickets().some((x) => x.ticket_type === 'venta'));
+  readonly hasCarga = computed(() => this.todayTickets().some((x) => x.ticket_type === 'carga'));
+  readonly hasCombustible = computed(() => this.todayTickets().some((x) => x.ticket_type === 'combustible'));
+  readonly requiredDone = computed(() => this.hasVenta() && this.hasCarga());
 
   private lastResult: ProcesarRouteTicketResult | null = null;
   form: {
@@ -519,9 +620,23 @@ export class VendorCloseRouteComponent implements OnInit {
       .subscribe({
         next: () => {
           this.saving.set(false);
-          this.toast.add({ severity: 'success', summary: 'Ticket guardado' });
-          this.reset();
+          // Card de éxito animada (en vez de solo el toast).
+          this.savedSummary.set({
+            type,
+            route: this.routeValue() || `RD ${this.form.route_code}`,
+            total: this.form.total,
+          });
+          this.photoPreview.set(null);
+          this.selectedType.set(null);
+          this.cargaLines.set([]);
+          this.lastResult = null;
+          this.step.set('success');
           this.loadList();
+          // Auto-retorno al inicio tras unos segundos (o el usuario toca "Subir otro").
+          clearTimeout(this.successTimer);
+          this.successTimer = setTimeout(() => {
+            if (this.step() === 'success') this.reset();
+          }, 3200);
         },
         error: (e) => {
           this.saving.set(false);
@@ -531,6 +646,7 @@ export class VendorCloseRouteComponent implements OnInit {
   }
 
   reset(): void {
+    clearTimeout(this.successTimer);
     this.step.set('pick');
     this.selectedType.set(null);
     this.photoPreview.set(null);
@@ -538,6 +654,7 @@ export class VendorCloseRouteComponent implements OnInit {
     this.cargaLines.set([]);
     this.routeMatched.set(false);
     this.routeValue.set(null);
+    this.savedSummary.set(null);
     this.form = this.emptyForm();
   }
 
