@@ -645,6 +645,18 @@ body {
   .health-box-fill { transition: none; }
 }
 
+/* Mata el estilo nativo de <input type="search"> (WebKit) que ignora el
+   border-radius y mete un campo "pill" del SO. Permite que el rounded-xl aplique. */
+.seg-search-input {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.seg-search-input::-webkit-search-cancel-button,
+.seg-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 
 /*
  * UTILITIES: CHIPS NEUTRALES (no-status)
