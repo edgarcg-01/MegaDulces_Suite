@@ -445,12 +445,12 @@
 
             @if (productStatsProcessed) {
 
-              <!-- Tasa de Agotamiento (Stockouts) -->
+              <!-- Tasa de faltantes (% de visitas sin el producto en exhibición) -->
               <div class="card-premium card-flat">
                 <div class="flex items-center justify-between mb-4">
                   <div>
-                    <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes (Stockout Rate)</h3>
-                    <p class="text-xs text-content-muted mt-0.5">Probabilidad de que el producto no esté en exhibición</p>
+                    <h3 class="text-sm font-bold text-content-main">Alerta de Faltantes</h3>
+                    <p class="text-xs text-content-muted mt-0.5">% de visitas en las que el producto no estuvo en exhibición</p>
                   </div>
                   <i class="pi pi-exclamation-circle status-bad status-text" aria-hidden="true"></i>
                 </div>
@@ -459,7 +459,7 @@
                     <ng-template pTemplate="header">
                       <tr class="text-xs uppercase text-content-faint bg-surface-ground">
                         <th class="py-2 px-3">Producto</th>
-                        <th class="py-2 px-3 text-right">Stockout Rate</th>
+                        <th class="py-2 px-3 text-right">Tasa de faltantes</th>
                       </tr>
                     </ng-template>
                     <ng-template pTemplate="body" let-p>

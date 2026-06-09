@@ -13,9 +13,9 @@
       <div class="text-[9px] text-content-muted">Score Promedio</div>
     </div>
     <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
-      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Stockout</div>
-      <div class="text-lg font-black text-bad-fg mt-1">{{ kg.stockoutPromedio }}%</div>
-      <div class="text-[9px] text-content-muted">Promedio general</div>
+      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Prod./visita</div>
+      <div class="text-lg font-black text-content-main mt-1">{{ kg.productosPorVisitaPromedio }}</div>
+      <div class="text-[9px] text-content-muted">Surtido promedio</div>
     </div>
     <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
       <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Sin visita 7d+</div>
@@ -48,7 +48,7 @@
           <th pSortableColumn="score" class="text-center">Score <p-sortIcon field="score" /></th>
           <th class="text-center">Visitas</th>
           <th class="text-center">Rango Compra</th>
-          <th class="text-center">Stockout</th>
+          <th class="text-center">Prod./visita</th>
           <th class="text-center">Última Visita</th>
         </tr>
       </ng-template>
@@ -59,7 +59,7 @@
           <td class="text-center font-black" [ngClass]="{'text-ok-fg': store.score >= 80, 'text-warn-fg': store.score >= 50 && store.score < 80, 'text-bad-fg': store.score < 50}">{{ store.score }}</td>
           <td class="text-center text-content-muted">{{ store.totalVisitas }}</td>
           <td class="text-center"><span class="text-[10px] font-bold text-brand-orange">{{ store.rangoCompraPromedio || '—' }}</span></td>
-          <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-ok-fg': store.stockoutRate <= 10, 'text-warn-fg': store.stockoutRate > 10 && store.stockoutRate <= 30, 'text-bad-fg': store.stockoutRate > 30}">{{ store.stockoutRate }}%</span></td>
+          <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-ok-fg': store.productsPerVisit >= 3, 'text-warn-fg': store.productsPerVisit >= 1 && store.productsPerVisit < 3, 'text-bad-fg': store.productsPerVisit < 1}">{{ store.productsPerVisit }}</span></td>
           <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
         </tr>
       </ng-template>

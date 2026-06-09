@@ -2087,7 +2087,7 @@ export class ReportsService {
     const storesList: any[] = [];
     const oportunidades: any[] = [];
     let scoreSumGlobal = 0;
-    let stockoutSumGlobal = 0;
+    let productsPerVisitSumGlobal = 0;
     let tiendasSinVisita7d = 0;
 
     for (const s of storeMap.values()) {
@@ -2103,8 +2103,11 @@ export class ReportsService {
         ? Math.floor((Date.now() - new Date(s.ultimaVisita).getTime()) / (1000 * 60 * 60 * 24))
         : null;
 
-      const stockoutPct = s.visitas > 0
-        ? +((1 - s.productCount / (s.visitas * 10)) * 100).toFixed(1) // approximate: expected ~10 products per visit
+      // Surtido real: SKUs marcados por visita. Reemplaza el "stockoutPct" que
+      // asumía una baseline mágica de 10 productos/visita (no computable: la
+      // captura no tiene surtido esperado por tienda).
+      const productsPerVisit = s.visitas > 0
+        ? +(s.productCount / s.visitas).toFixed(1)
         : 0;
 
       // Calculate rangoCompra average and convert back to range string
@@ -2137,18 +2140,18 @@ export class ReportsService {
         ventaTotal: s.ventaTotal,
         ultimaVisita: s.ultimaVisita,
         diasSinVisita,
-        stockoutRate: Math.min(100, Math.max(0, stockoutPct)),
+        productsPerVisit,
         healthRate,
         rangoCompraPromedio,
       };
       storesList.push(storeData);
 
       scoreSumGlobal += score;
-      stockoutSumGlobal += stockoutPct;
+      productsPerVisitSumGlobal += productsPerVisit;
       if (diasSinVisita !== null && diasSinVisita > 7) tiendasSinVisita7d++;
 
-      // Detect opportunity stores
-      if (score < 60 || stockoutPct > 30 || (diasSinVisita !== null && diasSinVisita > 7)) {
+      // Oportunidad: score bajo, surtido pobre (<2 SKUs/visita) o sin visita >7d.
+      if (score < 60 || productsPerVisit < 2 || (diasSinVisita !== null && diasSinVisita > 7)) {
         oportunidades.push(storeData);
       }
     }
@@ -2160,7 +2163,7 @@ export class ReportsService {
       oportunidades,
       kpiGlobales: {
         scorePromedio: storeCount > 0 ? Math.round(scoreSumGlobal / storeCount) : 0,
-        stockoutPromedio: storeCount > 0 ? +(stockoutSumGlobal / storeCount).toFixed(1) : 0,
+        productosPorVisitaPromedio: storeCount > 0 ? +(productsPerVisitSumGlobal / storeCount).toFixed(1) : 0,
         tiendasSinVisita7d,
         totalTiendas: storeCount,
       },
