@@ -477,6 +477,7 @@ export class CommercialPricingService {
         price: it.price,
         tax_rate: it.tax_rate ?? 0.16,
         min_qty: it.min_qty ?? 1,
+        updated_at: trx.fn.now(),
       }));
 
       const inserted = await trx('commercial.product_prices')
