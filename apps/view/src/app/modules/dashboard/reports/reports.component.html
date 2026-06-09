@@ -84,22 +84,35 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               @for (k of kpiCards(); track k.label) {
-                <div class="card-premium card-flat status-border-left flex flex-col gap-2"
+                <div class="card-premium card-flat status-border-left rk-card"
                      [class]="'status-' + k.status">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-content-faint uppercase">{{ k.label }}</span>
-                    <span class="status-chip uppercase">{{ statusLabel(k.status) }}</span>
+                  <!-- Gauge radial: progreso a la meta, coloreado por status -->
+                  <div class="rk-gauge-wrap">
+                    <svg viewBox="0 0 46 46" class="rk-gauge" aria-hidden="true">
+                      <circle cx="23" cy="23" r="18" class="rk-gauge-track"></circle>
+                      <circle cx="23" cy="23" r="18" class="rk-gauge-arc"
+                        [attr.stroke-dasharray]="gaugeDash(k.pct)"></circle>
+                    </svg>
+                    <span class="rk-gauge-pct">{{ pctLabel(k.pct) }}%</span>
                   </div>
-                  <div class="text-2xl font-bold text-content-main">{{ k.value }}</div>
-                  <div class="text-xs"
-                    [class.status-text]="k.deltaDir === 'up' || k.deltaDir === 'down'"
-                    [class.status-ok]="k.deltaDir === 'up'"
-                    [class.status-bad]="k.deltaDir === 'down'"
-                    [class.text-content-faint]="k.deltaDir === 'flat'">{{ k.delta }}</div>
-                  <div class="h-1 rounded-full bg-surface-layout overflow-hidden">
-                    <div class="h-full rounded-full status-fill" [style.width.%]="k.pct"></div>
+                  <div class="rk-body">
+                    <div class="rk-top">
+                      <span class="rk-label">{{ k.label }}</span>
+                      <span class="status-chip uppercase">{{ statusLabel(k.status) }}</span>
+                    </div>
+                    <div class="rk-value">{{ k.value }}</div>
+                    @if (k.delta) {
+                      <div class="rk-delta"
+                        [class.up]="k.deltaDir === 'up'"
+                        [class.down]="k.deltaDir === 'down'"
+                        [class.flat]="k.deltaDir === 'flat'">
+                        @if (k.deltaDir === 'up') { <i class="pi pi-arrow-up" aria-hidden="true"></i> }
+                        @else if (k.deltaDir === 'down') { <i class="pi pi-arrow-down" aria-hidden="true"></i> }
+                        {{ k.delta }}
+                      </div>
+                    }
+                    <div class="rk-metaline">Meta: {{ k.meta }}</div>
                   </div>
-                  <div class="text-[11px] text-content-faint">Meta: {{ k.meta }}</div>
                 </div>
               }
             </div>

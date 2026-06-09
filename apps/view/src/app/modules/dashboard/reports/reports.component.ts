@@ -674,6 +674,18 @@ export class ReportsComponent implements OnInit, AfterViewInit {
     });
   });
 
+  /** Circunferencia del gauge radial de las KPI cards de resumen (r=18). */
+  readonly GAUGE_C = 2 * Math.PI * 18;
+  /** stroke-dasharray del arco según % de progreso a la meta (clamp 0–100). */
+  gaugeDash(pct: number | null | undefined): string {
+    const p = Math.max(0, Math.min(100, pct ?? 0));
+    return `${(p / 100) * this.GAUGE_C} ${this.GAUGE_C}`;
+  }
+  /** % redondeado para el texto central del gauge. */
+  pctLabel(pct: number | null | undefined): number {
+    return Math.round(Math.max(0, Math.min(100, pct ?? 0)));
+  }
+
   /**
    * Inicializa el componente cargando las opciones de gráficas y datos
    */
