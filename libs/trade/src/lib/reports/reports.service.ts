@@ -1433,10 +1433,69 @@ export class ReportsService {
     return out;
   }
 
+  /** Velocidad por debajo de la cual se considera "estacionado" (km/h). */
+  static readonly IDLE_STATIONARY_KMH = 2;
+
+  /**
+   * Refina segmentos con breadcrumbs GPS (Fase 2): dentro de la ventana del gap
+   * recorre los pings del vendedor y separa tiempo en movimiento vs estacionado.
+   * El idle real = tiempo estacionado (no el gap menos un traslado estimado).
+   * Sobrescribe idle_min/is_dead y agrega moving_min/traveled_km/has_breadcrumbs.
+   * Sin pings suficientes deja el estimado por haversine de computeIdleSegments.
+   */
+  static refineIdleWithPings(segments: any[], pingsByUser: Map<string, any[]>): void {
+    const r2 = (n: number) => Math.round(n * 10) / 10;
+    for (const seg of segments) {
+      const ups = pingsByUser.get(seg.user_id);
+      if (!ups || ups.length < 2) continue;
+      const t0 = new Date(seg.prev_hora_fin).getTime();
+      const t1 = new Date(seg.next_hora_inicio).getTime();
+      const win = ups.filter((p) => {
+        const t = new Date(p.captured_at).getTime();
+        return t >= t0 && t <= t1;
+      });
+      if (win.length < 2) continue;
+
+      let stationaryMin = 0;
+      let movingMin = 0;
+      let traveledKm = 0;
+      for (let i = 1; i < win.length; i++) {
+        const dtMin =
+          (new Date(win[i].captured_at).getTime() -
+            new Date(win[i - 1].captured_at).getTime()) /
+          60000;
+        if (dtMin <= 0) continue;
+        const d =
+          ReportsService.haversineKm(
+            Number(win[i - 1].lat),
+            Number(win[i - 1].lng),
+            Number(win[i].lat),
+            Number(win[i].lng),
+          ) || 0;
+        traveledKm += d;
+        const speedKmh = d / (dtMin / 60);
+        if (speedKmh < ReportsService.IDLE_STATIONARY_KMH) stationaryMin += dtMin;
+        else movingMin += dtMin;
+      }
+      // Bordes (gap→primer ping, último ping→siguiente visita): sin evidencia de
+      // movimiento, se cuentan como estacionado (conservador).
+      const firstT = new Date(win[0].captured_at).getTime();
+      const lastT = new Date(win[win.length - 1].captured_at).getTime();
+      stationaryMin += Math.max(0, (firstT - t0) / 60000) + Math.max(0, (t1 - lastT) / 60000);
+
+      seg.idle_min = r2(stationaryMin);
+      seg.moving_min = r2(movingMin);
+      seg.traveled_km = r2(traveledKm);
+      seg.has_breadcrumbs = true;
+      seg.is_dead = stationaryMin > ReportsService.IDLE_DEAD_THRESHOLD_MIN;
+    }
+  }
+
   /**
    * Tiempos muertos de UNA ruta: segmentos entre visitas consecutivas del mismo
    * vendedor + totales. Mismo scope/tenant/fechas (TZ MX) que getRouteVisits.
-   * Usa coords de la captura y cae a las de la tienda si faltan.
+   * Usa coords de la captura y cae a las de la tienda si faltan. Si hay
+   * breadcrumbs GPS en el rango, refina idle a tiempo estacionado real.
    */
   async getRouteIdle(
     routeId: string,
@@ -1493,6 +1552,25 @@ export class ReportsService {
 
     const rows = await q;
     const segments = ReportsService.computeIdleSegments(rows);
+
+    // Refinamiento Fase 2: si hay breadcrumbs GPS, separar estacionado vs
+    // traslado. Best-effort: si la tabla no existe (DB sin migrar) o falla,
+    // se conserva el estimado por haversine.
+    if (segments.length > 0) {
+      try {
+        const pingsByUser = await this.fetchPingsByUser(
+          [...new Set(segments.map((s) => s.user_id))],
+          filters,
+          tenantId,
+        );
+        if (pingsByUser.size > 0) {
+          ReportsService.refineIdleWithPings(segments, pingsByUser);
+        }
+      } catch (e: any) {
+        this.logger.debug(`getRouteIdle refine skipped: ${e?.message || e}`);
+      }
+    }
+
     const r2 = (n: number) => Math.round(n * 10) / 10;
     return {
       segments,
@@ -1502,6 +1580,36 @@ export class ReportsService {
       ),
       dead_count: segments.filter((s) => s.is_dead).length,
     };
+  }
+
+  /**
+   * Trae los breadcrumbs GPS de los vendedores dados en el rango, agrupados y
+   * ordenados por captured_at. Scoped por tenant. Usado para refinar idle.
+   */
+  private async fetchPingsByUser(
+    userIds: string[],
+    filters: { startDate?: string; endDate?: string },
+    tenantId?: string,
+  ): Promise<Map<string, any[]>> {
+    const byUser = new Map<string, any[]>();
+    if (userIds.length === 0) return byUser;
+    let pq = this.knex('public.route_location_pings')
+      .whereIn('user_id', userIds)
+      .select('user_id', 'captured_at', 'lat', 'lng')
+      .orderBy('user_id', 'asc')
+      .orderBy('captured_at', 'asc');
+    if (tenantId) pq = pq.where('tenant_id', tenantId);
+    if (filters.startDate)
+      pq.whereRaw("DATE(captured_at AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
+    if (filters.endDate)
+      pq.whereRaw("DATE(captured_at AT TIME ZONE 'America/Mexico_City') <= ?", [filters.endDate]);
+    const pings = await pq;
+    for (const p of pings) {
+      let arr = byUser.get(p.user_id);
+      if (!arr) { arr = []; byUser.set(p.user_id, arr); }
+      arr.push(p);
+    }
+    return byUser;
   }
 
   /**

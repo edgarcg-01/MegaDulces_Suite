@@ -48,6 +48,10 @@ interface RouteIdleSegment {
   travel_est_min: number | null;
   idle_min: number;
   is_dead: boolean;
+  // Refinamiento Fase 2 (presentes solo si hubo breadcrumbs GPS en la ventana).
+  moving_min?: number;
+  traveled_km?: number;
+  has_breadcrumbs?: boolean;
 }
 interface RouteIdle {
   segments: RouteIdleSegment[];
@@ -475,8 +479,10 @@ interface RouteIdle {
                   <td>
                     @if (idleBeforeMap().get(v.capture_id); as seg) {
                       <span [class]="seg.is_dead ? 'ru-idle-tag is-dead' : 'ru-idle-tag'"
-                        [attr.title]="'Gap ' + seg.gap_min + ' min · traslado est. ' + (seg.travel_est_min ?? '—') + ' min · ' + (seg.dist_km ?? '—') + ' km'">
-                        {{ seg.idle_min }} min
+                        [attr.title]="seg.has_breadcrumbs
+                          ? ('GPS · gap ' + seg.gap_min + ' min · estacionado ' + seg.idle_min + ' min · movimiento ' + (seg.moving_min ?? '—') + ' min · ' + (seg.traveled_km ?? '—') + ' km recorridos')
+                          : ('estimado · gap ' + seg.gap_min + ' min · traslado est. ' + (seg.travel_est_min ?? '—') + ' min · ' + (seg.dist_km ?? '—') + ' km')">
+                        {{ seg.idle_min }} min@if (seg.has_breadcrumbs) { <i class="pi pi-map-marker" style="font-size:0.6rem" aria-hidden="true"></i> }
                       </span>
                     } @else { <span class="comm-muted">—</span> }
                   </td>
