@@ -244,6 +244,57 @@ interface RouteIdle {
     .ru-kpi-sub.is-ok   { color: var(--ok-fg); }
     .ru-kpi-sub.is-warn { color: var(--warn-fg); }
     .ru-kpi-sub.is-bad  { color: var(--bad-fg); }
+    .ru-kpi-unit { font-size: 0.8125rem; font-weight: 600; color: var(--text-faint); margin-left: 0.2rem; letter-spacing: 0; }
+
+    /* ── KPI mini-visualizaciones ───────────────────────────── */
+    .ru-kpi-viz {
+      width: 44px; height: 44px; flex-shrink: 0;
+      display: grid; place-items: center; align-self: center;
+    }
+
+    /* Censo de tiendas: grilla de puntos visitada/pendiente */
+    .ru-dots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; width: 44px; }
+    .ru-dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; border: 1.5px solid var(--border-color); }
+    .ru-dot.is-on { background: var(--ok-fg); border-color: var(--ok-fg); }
+    .ru-dot-more { grid-column: span 4; font-size: 0.5rem; line-height: 1; color: var(--text-faint); }
+
+    /* Donut radial de cobertura */
+    .ru-donut { width: 44px; height: 44px; transform: rotate(-90deg); }
+    .ru-donut-track { fill: none; stroke: var(--border-color); stroke-width: 5; }
+    .ru-donut-arc {
+      fill: none; stroke: var(--action); stroke-width: 5; stroke-linecap: round;
+      transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ru-donut-arc.is-ok   { stroke: var(--ok-fg); }
+    .ru-donut-arc.is-warn { stroke: var(--warn-fg); }
+    .ru-donut-arc.is-bad  { stroke: var(--bad-fg); }
+
+    /* Sparkline de visitas por hora */
+    .ru-spark { display: flex; align-items: flex-end; gap: 2px; width: 44px; height: 34px; }
+    .ru-spark-bar { flex: 1; min-height: 2px; background: var(--action); border-radius: 1px; opacity: 0.85; }
+
+    /* Reloj-gauge de tiempo promedio */
+    .ru-clock { width: 44px; height: 44px; }
+    .ru-clock-face { fill: none; stroke: var(--border-color); stroke-width: 2; }
+    .ru-clock-tick { stroke: var(--text-faint); stroke-width: 1.5; }
+    .ru-clock-hand {
+      stroke: var(--action); stroke-width: 2.5; stroke-linecap: round;
+      transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ru-clock-hand.is-ok   { stroke: var(--ok-fg); }
+    .ru-clock-hand.is-warn { stroke: var(--warn-fg); }
+    .ru-clock-hand.is-bad  { stroke: var(--bad-fg); }
+    .ru-clock-pivot { fill: var(--text-main); }
+
+    /* Barra split muerto/traslado */
+    .ru-split { display: flex; width: 44px; height: 10px; border-radius: 999px; overflow: hidden; background: var(--surface-ground); }
+    .ru-split-seg { display: block; height: 100%; transition: flex 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+    .ru-split-seg.is-idle   { background: var(--bad-fg); }
+    .ru-split-seg.is-travel { background: var(--neutral-400); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ru-donut-arc, .ru-clock-hand, .ru-split-seg { transition: none; }
+    }
 
     /* ── map row: selector izq + mapa der ───────────────────── */
     .ru-map-row {
@@ -308,58 +359,121 @@ interface RouteIdle {
 
           @else {
 
-            <!-- KPI STRIP ─── 4 cards individuales ─────────── -->
+            <!-- KPI STRIP ─── cards con mini-visualizaciones ─────────── -->
             <div class="ru-kpi-grid">
+
+              <!-- TIENDAS: censo de puntos (visitada/pendiente) -->
               <div class="ru-kpi">
-                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-shop"></i></div>
+                <div class="ru-kpi-viz">
+                  <div class="ru-dots" [attr.aria-label]="visitedCount() + ' de ' + stores().length + ' tiendas visitadas'">
+                    @for (on of storeDots().dots; track $index) {
+                      <span class="ru-dot" [class.is-on]="on"></span>
+                    }
+                    @if (storeDots().extra > 0) { <span class="ru-dot-more">+{{ storeDots().extra }}</span> }
+                  </div>
+                </div>
                 <div class="ru-kpi-body">
                   <div class="ru-kpi-label">Tiendas</div>
                   <div class="ru-kpi-value">{{ stores().length }}</div>
-                  <div class="ru-kpi-sub">asignadas a la ruta</div>
+                  <div class="ru-kpi-sub">{{ visitedCount() }} visitadas · {{ stores().length - visitedCount() }} pend.</div>
                 </div>
               </div>
-              <div class="ru-kpi">
-                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></div>
+
+              <!-- COBERTURA: donut radial -->
+              <div class="ru-kpi"
+                [class.is-ok]="coverageSeverity() === 'good'"
+                [class.is-warn]="coverageSeverity() === 'warn'"
+                [class.is-bad]="coverageSeverity() === 'bad'">
+                <div class="ru-kpi-viz">
+                  <svg viewBox="0 0 40 40" class="ru-donut" aria-hidden="true">
+                    <circle cx="20" cy="20" r="16" class="ru-donut-track"></circle>
+                    <circle cx="20" cy="20" r="16" class="ru-donut-arc"
+                      [class.is-ok]="coverageSeverity() === 'good'"
+                      [class.is-warn]="coverageSeverity() === 'warn'"
+                      [class.is-bad]="coverageSeverity() === 'bad'"
+                      [attr.stroke-dasharray]="coverageDash()"></circle>
+                  </svg>
+                </div>
                 <div class="ru-kpi-body">
                   <div class="ru-kpi-label">Cobertura</div>
                   <div class="ru-kpi-value">{{ coveragePct() }}%</div>
                   <div class="ru-kpi-sub">{{ visitedCount() }}/{{ stores().length }} visitadas</div>
                 </div>
               </div>
+
+              <!-- VISITAS: sparkline por hora del día -->
               <div class="ru-kpi">
-                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-flag"></i></div>
+                <div class="ru-kpi-viz">
+                  @if (visitsSpark().bars.length) {
+                    <div class="ru-spark" aria-hidden="true">
+                      @for (b of visitsSpark().bars; track $index) {
+                        <span class="ru-spark-bar" [style.height.%]="(b / visitsSpark().max) * 100"></span>
+                      }
+                    </div>
+                  } @else {
+                    <div class="ru-kpi-icon"><i class="pi pi-chart-bar"></i></div>
+                  }
+                </div>
                 <div class="ru-kpi-body">
                   <div class="ru-kpi-label">Visitas</div>
                   <div class="ru-kpi-value">{{ filteredVisits().length }}</div>
                   <div class="ru-kpi-sub">
                     @if (vendorFilter()) { de {{ visits().length }} totales }
-                    @else { en el período }
+                    @else { por hora del día }
                   </div>
                 </div>
               </div>
+
+              <!-- TIEMPO PROM.: reloj-gauge con manecilla -->
               <div class="ru-kpi"
                 [class.is-ok]="avgSeverity() === 'good'"
                 [class.is-warn]="avgSeverity() === 'neutral'"
                 [class.is-bad]="avgSeverity() === 'bad'">
-                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-clock"></i></div>
+                <div class="ru-kpi-viz">
+                  <svg viewBox="0 0 44 44" class="ru-clock" aria-hidden="true">
+                    <circle cx="22" cy="22" r="17" class="ru-clock-face"></circle>
+                    <line x1="22" y1="7" x2="22" y2="10" class="ru-clock-tick"></line>
+                    <line x1="37" y1="22" x2="34" y2="22" class="ru-clock-tick"></line>
+                    <line x1="22" y1="37" x2="22" y2="34" class="ru-clock-tick"></line>
+                    <line x1="7" y1="22" x2="10" y2="22" class="ru-clock-tick"></line>
+                    <line x1="22" y1="22" [attr.x2]="clockHand().x" [attr.y2]="clockHand().y"
+                      class="ru-clock-hand"
+                      [class.is-ok]="avgSeverity() === 'good'"
+                      [class.is-warn]="avgSeverity() === 'neutral'"
+                      [class.is-bad]="avgSeverity() === 'bad'"></line>
+                    <circle cx="22" cy="22" r="1.8" class="ru-clock-pivot"></circle>
+                  </svg>
+                </div>
                 <div class="ru-kpi-body">
                   <div class="ru-kpi-label">Tiempo prom.</div>
-                  <div class="ru-kpi-value">{{ avgDuration() }} min</div>
+                  <div class="ru-kpi-value">{{ avgDuration() }}<span class="ru-kpi-unit">min</span></div>
                   <div class="ru-kpi-sub"
                     [class.is-ok]="avgSeverity() === 'good'"
                     [class.is-warn]="avgSeverity() === 'neutral'"
                     [class.is-bad]="avgSeverity() === 'bad'">
                     @if (avgDeltaVsTarget() != null) {
-                      {{ avgDeltaVsTarget()! > 0 ? '+' : '' }}{{ avgDeltaVsTarget() }} vs {{ targetMinutes }} min target
+                      {{ avgDeltaVsTarget()! > 0 ? '+' : '' }}{{ avgDeltaVsTarget() }} vs {{ targetMinutes }} min
                     } @else { objetivo {{ targetMinutes }} min }
                   </div>
                 </div>
               </div>
+
+              <!-- TIEMPO MUERTO: barra split muerto/traslado -->
               <div class="ru-kpi" [class.is-bad]="deadCount() > 0">
-                <div class="ru-kpi-icon" aria-hidden="true"><i class="pi pi-hourglass"></i></div>
+                <div class="ru-kpi-viz">
+                  @if (totalIdleMin() + totalTravelMin() > 0) {
+                    <div class="ru-split" aria-hidden="true"
+                      [attr.title]="totalIdleMin() + ' min muerto · ' + totalTravelMin() + ' min traslado'">
+                      <span class="ru-split-seg is-idle" [style.flex]="totalIdleMin() || 0.001"></span>
+                      <span class="ru-split-seg is-travel" [style.flex]="totalTravelMin() || 0.001"></span>
+                    </div>
+                  } @else {
+                    <div class="ru-kpi-icon"><i class="pi pi-hourglass"></i></div>
+                  }
+                </div>
                 <div class="ru-kpi-body">
                   <div class="ru-kpi-label">Tiempo muerto</div>
-                  <div class="ru-kpi-value">{{ totalIdleMin() }} min</div>
+                  <div class="ru-kpi-value">{{ totalIdleMin() }}<span class="ru-kpi-unit">min</span></div>
                   <div class="ru-kpi-sub" [class.is-bad]="deadCount() > 0">
                     @if (deadCount() > 0) { {{ deadCount() }} gap{{ deadCount() === 1 ? '' : 's' }} > {{ idleThreshold }} min }
                     @else { sin gaps muertos }
@@ -559,6 +673,8 @@ export class RoutesAnalysisComponent implements OnInit {
   vendorFilter = signal<string | null>(null);
   readonly targetMinutes = 15;
   readonly idleThreshold = 20;
+  /** Circunferencia del donut de cobertura (r=16). */
+  readonly DONUT_C = 2 * Math.PI * 16;
 
   vendorOptions = computed(() => {
     const set = new Set(this.visits().map((v) => v.captured_by_username).filter(Boolean));
@@ -586,6 +702,51 @@ export class RoutesAnalysisComponent implements OnInit {
     const m = new Map<string, RouteIdleSegment>();
     for (const s of this.filteredIdle()) m.set(s.to_capture_id, s);
     return m;
+  });
+
+  // ── Mini-visualizaciones de las KPI cards ──────────────────────────
+  /** Donut de cobertura: longitud del arco según %. */
+  coverageDash = computed(() => {
+    const c = this.DONUT_C;
+    return `${(this.coveragePct() / 100) * c} ${c}`;
+  });
+  coverageSeverity = computed<'good' | 'warn' | 'bad'>(() => {
+    const p = this.coveragePct();
+    return p >= 80 ? 'good' : p >= 50 ? 'warn' : 'bad';
+  });
+  /** Censo de tiendas: hasta 16 puntos (visitada/pendiente) + overflow. */
+  storeDots = computed(() => {
+    const ss = this.stores();
+    const cap = 16;
+    return {
+      dots: ss.slice(0, cap).map((s) => s.visited),
+      extra: Math.max(0, ss.length - cap),
+    };
+  });
+  /** Sparkline de visitas por hora (TZ MX) sobre el rango filtrado. */
+  visitsSpark = computed(() => {
+    const byHour = new Array(24).fill(0);
+    for (const v of this.filteredVisits()) {
+      const h = this.mxHour(v.hora_inicio);
+      if (h >= 0) byHour[h]++;
+    }
+    let lo = byHour.findIndex((c) => c > 0);
+    if (lo < 0) return { bars: [] as number[], max: 0 };
+    let hi = 23 - [...byHour].reverse().findIndex((c) => c > 0);
+    lo = Math.max(0, lo - 1);
+    hi = Math.min(23, hi + 1);
+    const bars = byHour.slice(lo, hi + 1);
+    return { bars, max: Math.max(...bars, 1) };
+  });
+  totalTravelMin = computed(() =>
+    Math.round(this.filteredIdle().reduce((a, s) => a + (s.travel_est_min || 0), 0)),
+  );
+  /** Reloj-gauge: avg mapeado sobre [0, 2×target] → punta de la manecilla. */
+  clockHand = computed(() => {
+    const f = Math.min(this.avgDuration() / (2 * this.targetMinutes || 1), 1);
+    const a = ((f * 360 - 90) * Math.PI) / 180;
+    const cx = 22, cy = 22, L = 12;
+    return { x: +(cx + L * Math.cos(a)).toFixed(2), y: +(cy + L * Math.sin(a)).toFixed(2) };
   });
 
   visitedCount = computed(() => this.stores().filter((s) => s.visited).length);
@@ -700,6 +861,18 @@ export class RoutesAnalysisComponent implements OnInit {
   fmtTime(iso: string | null): string {
     if (!iso) return '—';
     return new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
+  }
+
+  /** Hora del día (0–23) en TZ MX para el sparkline de visitas. -1 si inválida. */
+  private mxHour(iso: string | null): number {
+    if (!iso) return -1;
+    const s = new Date(iso).toLocaleString('en-US', {
+      timeZone: 'America/Mexico_City',
+      hour: '2-digit',
+      hour12: false,
+    });
+    const h = parseInt(s, 10);
+    return isNaN(h) ? -1 : h === 24 ? 0 : h;
   }
 
   fmtDateShort(iso: string): string {
