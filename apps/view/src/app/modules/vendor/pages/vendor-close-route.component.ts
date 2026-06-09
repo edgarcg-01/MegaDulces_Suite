@@ -263,6 +263,10 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         .crt-tile:hover { transform: none; }
         .crt-tile:hover .crt-tile-icon, .crt-tile:hover .crt-tile-cta .pi-camera { transform: none; animation: none; }
         .crt-tile-arrow { display: none; }
+        .crt-save { transition: filter 0.2s ease; }
+        .crt-save:active:not(:disabled) { transform: none; }
+        .crt-save::after, .crt-save:hover:not(:disabled)::after { animation: none; display: none; }
+        .crt-change:active { transform: none; }
       }
 
       /* ── procesando ── */
@@ -279,8 +283,10 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-type-chip[data-type='venta'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
       .crt-type-chip[data-type='carga'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
       .crt-type-chip[data-type='combustible'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
-      .crt-change { display: inline-flex; align-items: center; gap: 0.3rem; background: none; border: none; cursor: pointer; font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); padding: 0.3rem 0.5rem; border-radius: 0.5rem; transition: background 0.15s, color 0.15s; }
-      .crt-change:hover { background: var(--hover-bg); color: var(--text-main); }
+      .crt-change { display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card-bg); border: 1px solid var(--border-color); cursor: pointer; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); padding: 0.4rem 0.75rem; border-radius: 999px; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s; }
+      .crt-change:hover { background: var(--hover-bg); color: var(--text-main); border-color: var(--text-faint); }
+      .crt-change:active { transform: scale(0.95); }
+      .crt-change:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
 
       .crt-preview { width: 100%; max-height: 260px; object-fit: contain; border: 1px solid var(--border-color); border-radius: 1rem; margin-bottom: 1.25rem; background: var(--surface-ground); }
 
@@ -333,14 +339,28 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       /* ── warn + save ── */
       .crt-warn { display: flex; align-items: center; gap: 0.4rem; color: var(--bad-soft-fg); background: var(--bad-soft-bg); font-size: 0.8125rem; margin: 1.25rem 0 0; padding: 0.625rem 0.875rem; border-radius: 0.75rem; }
       .crt-save {
+        position: relative; overflow: hidden;
         display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%;
-        margin-top: 1.25rem; padding: 0.875rem; cursor: pointer;
-        background: var(--action); color: var(--action-ink, #fff); border: none; border-radius: 0.875rem;
-        font-size: 0.9375rem; font-weight: 700; transition: background 0.15s, opacity 0.15s;
+        margin-top: 1.25rem; padding: 0.95rem 1rem; cursor: pointer;
+        color: var(--action-ink, #fff); border: none; border-radius: 1rem;
+        font-size: 0.95rem; font-weight: 800; letter-spacing: 0.01em;
+        background: linear-gradient(180deg, var(--action-hover, #ff6b3d), var(--action) 55%, var(--action-press, #d8431a));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 10px 22px -10px rgba(240,90,40,0.75), 0 2px 5px rgba(0,0,0,0.08);
+        transition: transform 0.13s cubic-bezier(0.34,1.5,0.5,1), box-shadow 0.2s ease, filter 0.2s ease;
       }
-      .crt-save:hover:not(:disabled) { background: var(--action-hover, var(--action)); }
-      .crt-save:disabled { opacity: 0.5; cursor: not-allowed; }
+      /* barrido de brillo en hover (desktop) */
+      .crt-save::after {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.38) 50%, transparent 65%);
+        transform: translateX(-130%);
+      }
+      .crt-save:hover:not(:disabled) { filter: brightness(1.05); box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 14px 28px -10px rgba(240,90,40,0.85), 0 2px 6px rgba(0,0,0,0.1); }
+      .crt-save:hover:not(:disabled)::after { animation: crt-shine 0.85s ease; }
+      .crt-save:active:not(:disabled) { transform: scale(0.975) translateY(1px); box-shadow: inset 0 2px 6px rgba(0,0,0,0.18), 0 4px 10px -6px rgba(240,90,40,0.6); }
+      .crt-save:disabled { background: var(--surface-ground); color: var(--text-faint); box-shadow: none; cursor: not-allowed; }
       .crt-save:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+      .crt-save i { position: relative; z-index: 1; }
+      @keyframes crt-shine { to { transform: translateX(130%); } }
 
       /* ── tickets de hoy ── */
       .crt-recent { margin-top: 2rem; }
