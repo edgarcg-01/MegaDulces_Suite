@@ -26,10 +26,10 @@ interface EditableCargaLine {
   include: boolean;
 }
 
-const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
-  venta: { label: 'Corte de venta', icon: 'pi-receipt' },
-  carga: { label: 'Carga', icon: 'pi-box' },
-  combustible: { label: 'Combustible', icon: 'pi-bolt' },
+const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: string }> = {
+  venta: { label: 'Corte de venta', icon: 'pi-receipt', desc: 'Cierre del día' },
+  carga: { label: 'Carga', icon: 'pi-box', desc: 'Mercancía al camión' },
+  combustible: { label: 'Combustible', icon: 'pi-bolt', desc: 'Gasolina / diésel' },
 };
 
 @Component({
@@ -62,10 +62,19 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
 
       <!-- Paso 1: elegir tipo -->
       <div *ngIf="step() === 'pick'" class="crt-pick">
-        <button *ngFor="let t of types" type="button" class="crt-tile" [attr.data-type]="t" (click)="choose(t)">
+        <button *ngFor="let t of types; let i = index" type="button" class="crt-tile"
+          [attr.data-type]="t" (click)="choose(t)" [style.animation-delay.ms]="i * 80">
+          <span class="crt-tile-glow" aria-hidden="true"></span>
           <span class="crt-tile-icon"><i class="pi {{ meta[t].icon }}" aria-hidden="true"></i></span>
-          <span class="crt-tile-label">{{ meta[t].label }}</span>
-          <span class="crt-tile-cta"><i class="pi pi-camera" aria-hidden="true"></i> Tomar foto</span>
+          <span class="crt-tile-body">
+            <span class="crt-tile-label">{{ meta[t].label }}</span>
+            <span class="crt-tile-desc">{{ meta[t].desc }}</span>
+          </span>
+          <span class="crt-tile-cta">
+            <i class="pi pi-camera" aria-hidden="true"></i>
+            <span class="crt-tile-cta-text">Tomar foto</span>
+            <i class="pi pi-arrow-right crt-tile-arrow" aria-hidden="true"></i>
+          </span>
         </button>
       </div>
 
@@ -197,23 +206,64 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .crt-daycount-n { font-size: 1.25rem; font-weight: 800; line-height: 1; color: var(--text-main); font-variant-numeric: tabular-nums; }
       .crt-daycount-l { font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); font-weight: 700; }
 
-      /* ── paso 1: tiles ── */
-      .crt-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 2rem; }
+      /* ── paso 1: tiles interactivos ── */
+      .crt-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.875rem; margin-bottom: 2rem; }
+      @keyframes crt-tile-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
       .crt-tile {
-        display: flex; flex-direction: column; align-items: center; gap: 0.625rem;
-        padding: 1.25rem 0.75rem; cursor: pointer;
-        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;
-        transition: transform 0.12s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        position: relative; overflow: hidden;
+        display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+        padding: 1.5rem 0.875rem 1.125rem; cursor: pointer; text-align: center;
+        background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1.125rem;
+        animation: crt-tile-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
       }
-      .crt-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover, 0 8px 24px -12px rgba(0,0,0,.18)); border-color: var(--action); }
-      .crt-tile:active { transform: translateY(0); }
+      /* Halo de color del tipo que aparece en hover */
+      .crt-tile-glow { position: absolute; inset: 0; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+      .crt-tile[data-type='venta'] .crt-tile-glow { background: radial-gradient(120% 80% at 50% -10%, var(--ok-soft-bg), transparent 70%); }
+      .crt-tile[data-type='carga'] .crt-tile-glow { background: radial-gradient(120% 80% at 50% -10%, var(--info-soft-bg), transparent 70%); }
+      .crt-tile[data-type='combustible'] .crt-tile-glow { background: radial-gradient(120% 80% at 50% -10%, var(--warn-soft-bg), transparent 70%); }
+      .crt-tile:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover, 0 14px 30px -16px rgba(0,0,0,.28)); }
+      .crt-tile:hover .crt-tile-glow { opacity: 1; }
+      .crt-tile:active { transform: translateY(-1px) scale(0.99); }
       .crt-tile:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
-      .crt-tile-icon { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 0.875rem; font-size: 1.375rem; }
-      .crt-tile-label { font-size: 0.875rem; font-weight: 700; color: var(--text-main); text-align: center; }
-      .crt-tile-cta { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.6875rem; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+      .crt-tile[data-type='venta']:hover { border-color: var(--ok-fg); }
+      .crt-tile[data-type='carga']:hover { border-color: var(--info-fg); }
+      .crt-tile[data-type='combustible']:hover { border-color: var(--warn-fg); }
+
+      .crt-tile-icon {
+        position: relative; z-index: 1; display: grid; place-items: center;
+        width: 3.25rem; height: 3.25rem; border-radius: 1rem; font-size: 1.5rem;
+        transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .crt-tile:hover .crt-tile-icon { transform: scale(1.12) rotate(-6deg); }
       .crt-tile[data-type='venta'] .crt-tile-icon { background: var(--ok-soft-bg); color: var(--ok-fg); }
       .crt-tile[data-type='carga'] .crt-tile-icon { background: var(--info-soft-bg); color: var(--info-fg); }
       .crt-tile[data-type='combustible'] .crt-tile-icon { background: var(--warn-soft-bg); color: var(--warn-fg); }
+
+      .crt-tile-body { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 0.15rem; }
+      .crt-tile-label { font-size: 0.9375rem; font-weight: 800; color: var(--text-main); letter-spacing: -0.01em; }
+      .crt-tile-desc { font-size: 0.6875rem; color: var(--text-muted); }
+
+      .crt-tile-cta {
+        position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 0.35rem;
+        font-size: 0.6875rem; font-weight: 700; color: var(--text-faint);
+        text-transform: uppercase; letter-spacing: 0.04em; transition: color 0.2s ease;
+      }
+      .crt-tile:hover .crt-tile-cta { color: var(--text-main); }
+      .crt-tile[data-type='venta']:hover .crt-tile-cta { color: var(--ok-fg); }
+      .crt-tile[data-type='carga']:hover .crt-tile-cta { color: var(--info-fg); }
+      .crt-tile[data-type='combustible']:hover .crt-tile-cta { color: var(--warn-fg); }
+      .crt-tile-arrow { font-size: 0.625rem; opacity: 0; transform: translateX(-4px); transition: opacity 0.2s ease, transform 0.2s ease; }
+      .crt-tile:hover .crt-tile-arrow { opacity: 1; transform: translateX(0); }
+      .crt-tile:hover .crt-tile-cta .pi-camera { animation: crt-cam 0.6s ease; }
+      @keyframes crt-cam { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-2px) rotate(-8deg); } 60% { transform: translateY(0) rotate(4deg); } }
+
+      @media (prefers-reduced-motion: reduce) {
+        .crt-tile { animation: none; transition: border-color 0.2s ease; }
+        .crt-tile:hover { transform: none; }
+        .crt-tile:hover .crt-tile-icon, .crt-tile:hover .crt-tile-cta .pi-camera { transform: none; animation: none; }
+        .crt-tile-arrow { display: none; }
+      }
 
       /* ── procesando ── */
       .crt-processing {
@@ -308,10 +358,6 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .crt-empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center; color: var(--text-muted); padding: 2rem 1rem; background: var(--card-bg); border: 1px dashed var(--border-color); border-radius: 1rem; }
       .crt-empty i { font-size: 1.75rem; color: var(--text-faint); }
       .crt-empty p { margin: 0; font-size: 0.875rem; }
-
-      @media (prefers-reduced-motion: reduce) {
-        .crt-tile { transition: none; }
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
