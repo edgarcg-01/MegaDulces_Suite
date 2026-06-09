@@ -224,6 +224,13 @@ export class CommercialTeleventaService {
         throw new NotFoundException(`Cliente ${customerId} no encontrado.`);
       }
 
+      // Pre-libera reservas vencidas: el cron corre c/5min, sin esto el INSERT choca el UNIQUE parcial → 409 espurio sobre un lead que la cola sí ofrece.
+      await trx('commercial.lead_reservations')
+        .where({ tenant_id: tenantId, customer_id: customerId })
+        .whereNull('released_at')
+        .where('expires_at', '<', trx.fn.now())
+        .update({ released_at: trx.fn.now(), released_reason: 'expired' });
+
       try {
         const [row] = await trx('commercial.lead_reservations')
           .insert({
@@ -455,10 +462,10 @@ export class CommercialTeleventaService {
         .where('called_at', '>=', todayStart)
         .select(
           trx.raw('count(*)::int as total'),
-          trx.raw(`count(*) filter (where outcome = 'pedido_tomado')::int as orders_taken`),
-          trx.raw(`count(*) filter (where outcome = 'no_contesto')::int as no_answer`),
-          trx.raw(`count(*) filter (where outcome = 'callback_solicitado')::int as callbacks`),
-          trx.raw(`count(*) filter (where outcome = 'no_interesado')::int as not_interested`),
+          trx.raw(`count(*) filter (where outcome = 'sale')::int as orders_taken`),
+          trx.raw(`count(*) filter (where outcome = 'no_answer')::int as no_answer`),
+          trx.raw(`count(*) filter (where outcome = 'callback_scheduled')::int as callbacks`),
+          trx.raw(`count(*) filter (where outcome = 'no_sale')::int as not_interested`),
           trx.raw(`coalesce(sum(duration_minutes), 0)::int as total_minutes`),
         )
         .first();
@@ -471,7 +478,7 @@ export class CommercialTeleventaService {
           .where('called_at', '>=', todayStart)
           .select(
             trx.raw('count(*)::int as my_calls'),
-            trx.raw(`count(*) filter (where outcome = 'pedido_tomado')::int as my_orders`),
+            trx.raw(`count(*) filter (where outcome = 'sale')::int as my_orders`),
             trx.raw(`coalesce(sum(duration_minutes), 0)::int as my_minutes`),
           )
           .first();
@@ -479,11 +486,12 @@ export class CommercialTeleventaService {
 
       // 3. Reservas activas
       const activeReservations = await trx('commercial.lead_reservations')
-        .where({ tenant_id: tenantId, status: 'active' })
+        .where({ tenant_id: tenantId })
+        .whereNull('released_at')
         .where('expires_at', '>', new Date().toISOString())
         .select(
           trx.raw('count(*)::int as total'),
-          trx.raw(`count(distinct user_id)::int as unique_operators`),
+          trx.raw(`count(distinct reserved_by_user_id)::int as unique_operators`),
         )
         .first();
 
@@ -494,7 +502,7 @@ export class CommercialTeleventaService {
         .select(
           trx.raw('count(*)::int as total_calls'),
           trx.raw('count(order_id)::int as calls_with_order'),
-          trx.raw(`count(*) filter (where outcome = 'pedido_tomado')::int as orders_outcome`),
+          trx.raw(`count(*) filter (where outcome = 'sale')::int as orders_outcome`),
         )
         .first();
 
@@ -510,7 +518,7 @@ export class CommercialTeleventaService {
           'cl.user_id',
           'u.username',
           trx.raw('count(*)::int as calls'),
-          trx.raw(`count(*) filter (where cl.outcome = 'pedido_tomado')::int as orders`),
+          trx.raw(`count(*) filter (where cl.outcome = 'sale')::int as orders`),
           trx.raw('coalesce(sum(cl.duration_minutes), 0)::int as minutes'),
         )
         .orderByRaw('count(*) desc')
@@ -533,7 +541,7 @@ export class CommercialTeleventaService {
         .leftJoin('commercial.lead_reservations as r', function () {
           this.on('r.tenant_id', '=', 'c.tenant_id')
             .andOn('r.customer_id', '=', 'c.id')
-            .andOn('r.status', '=', trx.raw("'active'"))
+            .andOnNull('r.released_at')
             .andOn('r.expires_at', '>', trx.raw('now()'));
         })
         .whereNull('r.id') // no reservados
