@@ -17,6 +17,11 @@ build_view_err.log
 .env.production
 .env.staging
 
+# Imágenes sueltas en la raíz (fotos de tickets/WhatsApp arrastradas por error)
+/WhatsApp*
+/*.jpeg
+/*.jpg
+
 # Build artifacts compilados que NO deben commitearse en source
 apps/api/src/**/*.js
 apps/api/src/**/*.js.map
