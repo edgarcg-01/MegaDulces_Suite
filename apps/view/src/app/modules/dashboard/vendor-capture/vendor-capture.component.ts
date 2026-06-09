@@ -14,6 +14,7 @@ import { firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 
 import { environment } from '../../../../environments/environment';
@@ -56,7 +57,7 @@ const ALLOWED_IMAGE_TYPES = [
 @Component({
   selector: 'app-vendor-capture',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, SelectModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -105,11 +106,16 @@ const ALLOWED_IMAGE_TYPES = [
           </div>
           <div *ngIf="!route() || changingRoute()" class="min-w-0 flex-1">
             <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
-            <select [ngModel]="route()?.id || ''" (ngModelChange)="onSelectRoute($event)"
-                    class="w-full sm:w-64 rounded-lg border border-divider bg-surface-card text-content-main text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand">
-              <option value="" disabled>Seleccioná tu ruta</option>
-              <option *ngFor="let r of zoneRoutes()" [value]="r.value">{{ r.label }}</option>
-            </select>
+            <p-select
+                [options]="zoneRoutes()"
+                [ngModel]="route()?.id"
+                (onChange)="onSelectRoute($event.value)"
+                optionLabel="label"
+                optionValue="value"
+                placeholder="Seleccioná tu ruta"
+                appendTo="body"
+                styleClass="w-full sm:w-64"
+                [filter]="zoneRoutes().length > 8"></p-select>
             <div *ngIf="zoneRoutes().length === 0" class="text-[10px] sm:text-xs text-content-muted mt-1">No hay rutas para tu zona. Avisá a tu supervisor.</div>
           </div>
         </div>
