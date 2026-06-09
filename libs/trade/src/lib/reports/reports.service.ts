@@ -1093,8 +1093,8 @@ export class ReportsService {
       else if (scope.type === 'team' && scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined')
         q = q.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', scope.userId));
 
-      if (startDate) q.whereRaw("DATE(dc.hora_inicio) >= ?", [startDate]);
-      if (endDate) q.whereRaw("DATE(dc.hora_inicio) <= ?", [endDate]);
+      if (startDate) q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [startDate]);
+      if (endDate) q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [endDate]);
       if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined')
         q.where('s.zona_id', filters.zone);
       if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined')
@@ -1131,8 +1131,8 @@ export class ReportsService {
     if (scope.type === 'own') execQuery = execQuery.where('dc.user_id', scope.userId);
     else if (scope.type === 'team' && scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined')
       execQuery = execQuery.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', scope.userId));
-    if (filters.startDate) execQuery.whereRaw("DATE(dc.hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) execQuery.whereRaw("DATE(dc.hora_inicio) <= ?", [filters.endDate]);
+    if (filters.startDate) execQuery.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
+    if (filters.endDate) execQuery.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [filters.endDate]);
     if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined')
       execQuery = execQuery.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', filters.supervisorId));
     else if (filters.userIds?.length)
@@ -1383,8 +1383,8 @@ export class ReportsService {
       }
     }
 
-    if (filters.startDate) query.whereRaw("DATE(dc.hora_inicio) >= ?", [filters.startDate]);
-    if (filters.endDate) query.whereRaw("DATE(dc.hora_inicio) <= ?", [filters.endDate]);
+    if (filters.startDate) query.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
+    if (filters.endDate) query.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [filters.endDate]);
 
     if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined') {
       query.where('s.zona_id', filters.zone);
