@@ -716,6 +716,11 @@ export class DailyCapturesService {
    * el valor cambia (evita writes redundantes). Trx corta con tenant context
    * (RLS). Best-effort: no propaga errores para no afectar la captura ya
    * commiteada.
+   *
+   * También alinea `stores.zona_id` a la zona de la ruta (catalogs.parent_id).
+   * Una ruta pertenece a UNA zona; si la tienda quedara con otra zona (o NULL)
+   * el apartado Rutas la fragmenta en filas por zona. Solo se alinea si la ruta
+   * declara zona (parent_id no nulo) — no se borra una zona existente.
    */
   private async maybeAssignStoreRoute(
     storeId?: string,
@@ -727,10 +732,18 @@ export class DailyCapturesService {
     try {
       await this.knexRaw.transaction(async (tx) => {
         await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
-        await tx('stores')
-          .where({ id: storeId })
-          .whereRaw('ruta_id IS DISTINCT FROM ?', [routeId])
-          .update({ ruta_id: routeId });
+        const route = await tx('catalogs')
+          .where({ id: routeId, catalog_id: 'rutas' })
+          .select('parent_id')
+          .first();
+        const zoneId: string | null = route?.parent_id ?? null;
+        const update: { ruta_id: string; zona_id?: string } = { ruta_id: routeId };
+        if (zoneId) update.zona_id = zoneId;
+        const q = tx('stores').where({ id: storeId });
+        if (zoneId)
+          q.whereRaw('ruta_id IS DISTINCT FROM ? OR zona_id IS DISTINCT FROM ?', [routeId, zoneId]);
+        else q.whereRaw('ruta_id IS DISTINCT FROM ?', [routeId]);
+        await q.update(update);
       });
     } catch (e: any) {
       this.logger.warn(`maybeAssignStoreRoute store=${storeId} route=${routeId}: ${e?.message || e}`);

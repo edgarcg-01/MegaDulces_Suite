@@ -1173,7 +1173,10 @@ export class ReportsService {
         .join('catalogs as c', function () {
           this.on('c.id', '=', 's.ruta_id').andOnVal('c.catalog_id', '=', 'rutas');
         })
-        .leftJoin('zones as z', 'z.id', 's.zona_id')
+        // Zona de la RUTA (c.parent_id → zones), NO del store. Si saliera de
+        // s.zona_id, una ruta con tiendas de zona_id inconsistente (algunas NULL)
+        // se fragmenta en varias filas — bug de la "RUTA 23" duplicada.
+        .leftJoin('zones as z', 'z.id', 'c.parent_id')
         .whereNotNull('dc.store_id')
         .whereNotNull('s.ruta_id')
         .select(
@@ -1194,7 +1197,7 @@ export class ReportsService {
       if (startDate) q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [startDate]);
       if (endDate) q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [endDate]);
       if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined')
-        q.where('s.zona_id', filters.zone);
+        q.where('c.parent_id', filters.zone);
       if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined')
         q = q.whereIn('dc.user_id', this.knex('users').select('id').where('supervisor_id', filters.supervisorId));
       else if (filters.userIds?.length)
