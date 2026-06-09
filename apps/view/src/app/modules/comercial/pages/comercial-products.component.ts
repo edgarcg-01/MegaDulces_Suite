@@ -595,7 +595,7 @@ export class ComercialProductsComponent {
 
   openEdit(p: Product): void {
     // Buscar el detalle completo para traer prices_count, total_available.
-    this.api.findProduct(p.id).subscribe({
+    this.api.findProduct(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (full) => {
         this.editing.set(full);
         this.form.reset({
@@ -623,7 +623,7 @@ export class ComercialProductsComponent {
       loyalty_points: v.loyalty_points == null ? null : Number(v.loyalty_points),
       activo: !!v.activo,
     };
-    this.api.updateProduct(e.id, payload).subscribe({
+    this.api.updateProduct(e.id, payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.saving.set(false);
         this.dialogVisible = false;

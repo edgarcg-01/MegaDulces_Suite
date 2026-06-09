@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -747,6 +748,7 @@ export class ComercialCustomersComponent {
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly rows = signal<Customer[]>([]);
   readonly total = signal(0);
@@ -817,7 +819,7 @@ export class ComercialCustomersComponent {
   private readonly search$ = new Subject<string>();
 
   constructor() {
-    this.search$.pipe(debounceTime(250)).subscribe((value) => {
+    this.search$.pipe(debounceTime(250), takeUntilDestroyed()).subscribe((value) => {
       this.searchTerm.set(value.trim());
       this.page.set(1);
       this.load();
@@ -829,7 +831,7 @@ export class ComercialCustomersComponent {
   }
 
   private loadSummary(): void {
-    this.api.listCustomers({ pageSize: 9999 }).subscribe({
+    this.api.listCustomers({ pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.summaryAll.set(r.data || []),
       error: () => this.summaryAll.set([]),
     });
@@ -858,7 +860,7 @@ export class ComercialCustomersComponent {
   }
 
   private loadRoutes(): void {
-    this.logistica.listRoutes({ active: true }).subscribe({
+    this.logistica.listRoutes({ active: true }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (list) => {
         const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name, 'es'));
         this.routes.set(sorted);
@@ -875,7 +877,7 @@ export class ComercialCustomersComponent {
   }
 
   private loadStores(): void {
-    this.api.listStores().subscribe({
+    this.api.listStores().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (list) => {
         const sorted = [...list].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
         this.stores.set(sorted);
@@ -913,7 +915,7 @@ export class ComercialCustomersComponent {
     const next = this.rows().map((r) => (r.id === c.id ? { ...r, route_id: nextId } : r));
     this.rows.set(next);
 
-    this.api.updateCustomer(c.id, { route_id: nextId } as any).subscribe({
+    this.api.updateCustomer(c.id, { route_id: nextId } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.linkingRouteId.set(null);
         const label = nextId ? this.routeName(nextId) : null;
@@ -944,7 +946,7 @@ export class ComercialCustomersComponent {
     const next = this.rows().map((r) => (r.id === c.id ? { ...r, store_id: nextId } : r));
     this.rows.set(next);
 
-    this.api.updateCustomer(c.id, { store_id: nextId ?? undefined as any }).subscribe({
+    this.api.updateCustomer(c.id, { store_id: nextId } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.linkingId.set(null);
         const storeLabel = nextId ? this.storeName(nextId) : null;
@@ -975,6 +977,7 @@ export class ComercialCustomersComponent {
         search: this.searchTerm() || undefined,
         active: this.onlyActive() ? true : undefined,
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
           this.rows.set(r.data || []);
@@ -1056,7 +1059,7 @@ export class ComercialCustomersComponent {
     const obs = editing
       ? this.api.updateCustomer(editing.id, payload)
       : this.api.createCustomer(payload);
-    obs.subscribe({
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.saving.set(false);
         this.dialogVisible = false;
@@ -1081,7 +1084,7 @@ export class ComercialCustomersComponent {
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-danger',
       accept: () => {
-        this.api.deleteCustomer(c.id).subscribe({
+        this.api.deleteCustomer(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: () => {
             this.toast.add({ severity: 'success', summary: 'Cliente desactivado' });
             this.load();
@@ -1108,7 +1111,7 @@ export class ComercialCustomersComponent {
       acceptButtonStyleClass: 'p-button-success',
       accept: () => {
         this.creatingAccessId.set(c.id);
-        this.api.createPortalAccess(c.id).subscribe({
+        this.api.createPortalAccess(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: (res) => {
             this.creatingAccessId.set(null);
             this.lastAccess.set({

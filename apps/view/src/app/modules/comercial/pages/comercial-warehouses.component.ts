@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -268,6 +269,7 @@ export class ComercialWarehousesComponent {
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly rows = signal<Warehouse[]>([]);
   readonly loading = signal(false);
@@ -288,7 +290,7 @@ export class ComercialWarehousesComponent {
 
   load(): void {
     this.loading.set(true);
-    this.api.listWarehouses().subscribe({
+    this.api.listWarehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         // Backend retorna array directo. Antes era `r.data || []` y siempre
         // caía al fallback vacío aunque el importer cargara 11 warehouses.
@@ -329,7 +331,7 @@ export class ComercialWarehousesComponent {
     const obs = editing
       ? this.api.updateWarehouse(editing.id, payload)
       : this.api.createWarehouse(payload);
-    obs.subscribe({
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.saving.set(false);
         this.dialogVisible = false;
@@ -353,7 +355,7 @@ export class ComercialWarehousesComponent {
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-danger',
       accept: () => {
-        this.api.deleteWarehouse(w.id).subscribe({
+        this.api.deleteWarehouse(w.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: () => {
             this.toast.add({ severity: 'success', summary: 'Almacén desactivado' });
             this.load();

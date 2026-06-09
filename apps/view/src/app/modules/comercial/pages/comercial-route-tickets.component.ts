@@ -11,6 +11,7 @@ import {
   RouteTicketAdmin,
   RouteResumen,
 } from '../comercial.service';
+import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
 
 /**
  * Cierre de ruta (admin) — control de los tickets que suben los vendedores:
@@ -139,8 +140,8 @@ export class ComercialRouteTicketsComponent implements OnInit {
   money(n: any): string {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
   }
-  private today(): string { return new Date().toISOString().slice(0, 10); }
+  private today(): string { return todayMx(); }
   private daysAgo(d: number): string {
-    const x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10);
+    return toMxDateKey(new Date(Date.now() - d * 86400000));
   }
 }

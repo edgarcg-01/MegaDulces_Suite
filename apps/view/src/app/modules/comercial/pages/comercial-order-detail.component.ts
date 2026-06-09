@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -294,6 +295,7 @@ export class ComercialOrderDetailComponent {
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly order = signal<OrderDetail | null>(null);
   readonly history = signal<OrderHistoryEntry[]>([]);
@@ -337,7 +339,7 @@ export class ComercialOrderDetailComponent {
     const next = Math.max(1, Number(raw) || 0);
     if (next === Number(l.quantity)) return;
     this.savingLineId.set(l.id);
-    this.api.updateOrderLine(o.id, l.id, { quantity: next }).subscribe({
+    this.api.updateOrderLine(o.id, l.id, { quantity: next }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.savingLineId.set(null);
         this.toast.add({ severity: 'success', summary: 'Cantidad actualizada', life: 1800 });
@@ -362,7 +364,7 @@ export class ComercialOrderDetailComponent {
       acceptButtonStyleClass: 'p-button-danger',
       accept: () => {
         this.savingLineId.set(l.id);
-        this.api.removeOrderLine(o.id, l.id).subscribe({
+        this.api.removeOrderLine(o.id, l.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: () => {
             this.savingLineId.set(null);
             this.toast.add({ severity: 'success', summary: 'Línea quitada' });
@@ -394,7 +396,7 @@ export class ComercialOrderDetailComponent {
 
   load(id: string): void {
     this.loading.set(true);
-    this.api.getOrder(id).subscribe({
+    this.api.getOrder(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (o) => {
         this.order.set(o);
         this.loading.set(false);
@@ -404,13 +406,13 @@ export class ComercialOrderDetailComponent {
         this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el pedido' });
       },
     });
-    this.api.getOrderHistory(id).subscribe({
+    this.api.getOrderHistory(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (h) => this.history.set(h.data || []),
       error: () => this.history.set([]),
     });
     if (this.canSeeLogistics()) {
       this.loadingShipments.set(true);
-      this.logistica.listShipments({ order_id: id, pageSize: 100 }).subscribe({
+      this.logistica.listShipments({ order_id: id, pageSize: 100 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => { this.shipments.set(r.items || []); this.loadingShipments.set(false); },
         error: () => { this.loadingShipments.set(false); /* silencioso: no romper la página */ },
       });
@@ -467,7 +469,7 @@ export class ComercialOrderDetailComponent {
         : action === 'fulfill'
         ? this.api.fulfillOrder(id)
         : this.api.cancelOrder(id);
-    obs.subscribe({
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.actioning.set(false);
         this.toast.add({ severity: 'success', summary: 'Pedido actualizado' });

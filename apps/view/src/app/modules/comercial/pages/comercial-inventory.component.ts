@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -451,6 +452,7 @@ export class ComercialInventoryComponent {
   private readonly api = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly canAdjust = computed(() => {
     return this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_AJUSTAR] === true;
@@ -483,7 +485,7 @@ export class ComercialInventoryComponent {
   adjustNotes = '';
 
   constructor() {
-    this.api.listWarehouses(true).subscribe({
+    this.api.listWarehouses(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.warehouses.set(Array.isArray(r) ? r : []),
       error: () => this.warehouses.set([]),
     });
@@ -492,7 +494,7 @@ export class ComercialInventoryComponent {
   }
 
   private loadSummary(): void {
-    this.api.listStock({ pageSize: 9999 }).subscribe({
+    this.api.listStock({ pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.summaryAll.set(r.data || []),
       error: () => this.summaryAll.set([]),
     });
@@ -512,6 +514,7 @@ export class ComercialInventoryComponent {
         page: this.page(),
         pageSize: this.pageSize(),
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
           this.rows.set(r.data || []);
@@ -573,6 +576,7 @@ export class ComercialInventoryComponent {
         new_quantity: this.newQuantity,
         notes: this.adjustNotes || undefined,
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
           this.saving.set(false);

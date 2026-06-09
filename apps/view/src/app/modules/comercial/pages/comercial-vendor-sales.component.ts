@@ -7,6 +7,7 @@ import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ComercialService, VendorSaleCapture, VendorSaleLine } from '../comercial.service';
+import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
 
 /**
  * Ventas de vendedor (admin) — la parte "comercial" del ticket OCR de la captura
@@ -176,8 +177,8 @@ export class ComercialVendorSalesComponent implements OnInit {
     });
   }
 
-  private today(): string { return new Date().toISOString().slice(0, 10); }
+  private today(): string { return todayMx(); }
   private daysAgo(d: number): string {
-    const x = new Date(); x.setDate(x.getDate() - d); return x.toISOString().slice(0, 10);
+    return toMxDateKey(new Date(Date.now() - d * 86400000));
   }
 }
