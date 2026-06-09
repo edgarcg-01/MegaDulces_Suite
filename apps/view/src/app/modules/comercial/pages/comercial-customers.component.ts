@@ -1003,12 +1003,6 @@ export class ComercialCustomersComponent {
     this.search$.next(v);
   }
 
-  onToggleActive(): void {
-    this.onlyActive.set(this.onlyActiveValue);
-    this.page.set(1);
-    this.load();
-  }
-
   openCreate(): void {
     this.editing.set(null);
     this.form.reset({
@@ -1050,9 +1044,7 @@ export class ComercialCustomersComponent {
       ...raw,
       rfc: raw.rfc?.trim().toUpperCase() || undefined,
       email: raw.email?.trim().toLowerCase() || undefined,
-      // store_id: enviar undefined si no se seleccionó (backend lo trata como
-      // "sin cambio" en update y "sin link" en create).
-      store_id: raw.store_id || undefined,
+      store_id: raw.store_id || null,
       route_id: raw.route_id || null,
     };
     const editing = this.editing();
