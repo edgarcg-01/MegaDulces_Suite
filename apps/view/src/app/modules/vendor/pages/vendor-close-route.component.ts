@@ -103,62 +103,60 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
             </p>
           </div>
 
-          <label class="crt-field">
+          <div class="crt-field">
             <span class="crt-field-label">Fecha</span>
-            <div class="crt-input-wrap">
-              <input type="date" [(ngModel)]="form.ticket_date" />
-              <span class="crt-detect" [class.ok]="!!form.ticket_date">{{ form.ticket_date ? 'detectado' : 'sin detectar' }}</span>
-            </div>
-          </label>
+            <div class="crt-ro" [class.empty]="!form.ticket_date">{{ fmtDate(form.ticket_date) }}</div>
+          </div>
 
-          <label class="crt-field">
-            <span class="crt-field-label">Total ($)</span>
-            <input type="number" step="0.01" [(ngModel)]="form.total" placeholder="0.00" />
-          </label>
+          <div class="crt-field">
+            <span class="crt-field-label">Total</span>
+            <div class="crt-ro" [class.empty]="form.total == null">{{ form.total != null ? fmtMoney(form.total) : 'sin detectar' }}</div>
+          </div>
 
-          <label class="crt-field" *ngIf="selectedType() === 'venta'">
+          <div class="crt-field" *ngIf="selectedType() === 'venta'">
             <span class="crt-field-label">Número de corte</span>
-            <input type="text" [(ngModel)]="form.corte_number" />
-          </label>
+            <div class="crt-ro" [class.empty]="!form.corte_number">{{ form.corte_number || 'sin detectar' }}</div>
+          </div>
 
-          <label class="crt-field" *ngIf="selectedType() === 'carga'">
+          <div class="crt-field" *ngIf="selectedType() === 'carga'">
             <span class="crt-field-label">Folio</span>
-            <div class="crt-input-wrap">
-              <input type="text" [(ngModel)]="form.folio" placeholder="ej. T153142782" />
-              <span class="crt-detect" [class.ok]="!!form.folio">{{ form.folio ? 'detectado' : 'sin detectar' }}</span>
-            </div>
-          </label>
+            <div class="crt-ro" [class.empty]="!form.folio">{{ form.folio || 'sin detectar' }}</div>
+          </div>
 
-          <label class="crt-field" *ngIf="selectedType() === 'combustible'">
+          <div class="crt-field" *ngIf="selectedType() === 'combustible'">
             <span class="crt-field-label">Litros</span>
-            <input type="number" step="0.01" [(ngModel)]="form.liters" placeholder="0.00" />
-          </label>
+            <div class="crt-ro" [class.empty]="form.liters == null">{{ form.liters != null ? form.liters + ' L' : 'sin detectar' }}</div>
+          </div>
 
-          <label class="crt-field" *ngIf="selectedType() === 'combustible'">
+          <div class="crt-field" *ngIf="selectedType() === 'combustible'">
             <span class="crt-field-label">Referencia / folio</span>
-            <input type="text" [(ngModel)]="form.reference" />
-          </label>
+            <div class="crt-ro" [class.empty]="!form.reference">{{ form.reference || 'sin detectar' }}</div>
+          </div>
         </div>
 
-        <!-- Carga: productos detectados → descargan al camión -->
+        <!-- Carga: productos detectados → descargan al camión (solo lectura) -->
         <div *ngIf="selectedType() === 'carga'" class="crt-lines">
           <div class="crt-lines-head">
             <span>Productos cargados al camión</span>
-            <span class="crt-lines-count">{{ includedCount() }} de {{ cargaLines().length }}</span>
+            <span class="crt-lines-count">{{ cargaLines().length }}</span>
           </div>
           <p class="crt-lines-empty" *ngIf="cargaLines().length === 0">
-            No se detectaron productos. Puedes guardar solo el total igual.
+            No se detectaron productos. Se guarda solo el total.
           </p>
-          <label class="crt-line" *ngFor="let l of cargaLines()" [class.off]="!l.include">
-            <input type="checkbox" [(ngModel)]="l.include" />
+          <div class="crt-line-ro" *ngFor="let l of cargaLines()">
             <span class="crt-line-name">{{ l.product_name }}</span>
-            <input class="crt-line-qty" type="number" min="1" step="1" [(ngModel)]="l.quantity" [disabled]="!l.include" />
-          </label>
+            <span class="crt-line-qty-ro">×{{ l.quantity }}</span>
+          </div>
         </div>
+
+        <p class="crt-note">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          Los datos se leen del ticket y no son editables. Si algo está mal, vuelve a tomar la foto.
+        </p>
 
         <p class="crt-warn" *ngIf="!canSave()">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-          Faltan datos obligatorios (ruta y fecha). Corrige o vuelve a tomar la foto.
+          No se pudo leer la ruta o la fecha del ticket. Vuelve a tomar la foto.
         </p>
 
         <button type="button" class="crt-save" [disabled]="!canSave() || saving()" (click)="save()">
@@ -250,6 +248,16 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
       .crt-input-wrap input { padding-right: 5.5rem; }
       .crt-detect { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.1rem 0.4rem; border-radius: 999px; background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
       .crt-detect.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+
+      /* Valor read-only (todo el ticket es no editable: lo lee el OCR) */
+      .crt-ro { padding: 0.6875rem 0.875rem; border-radius: 0.75rem; border: 1px solid var(--border-color); background: var(--surface-ground); color: var(--text-main); font-size: 0.9375rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .crt-ro.empty { color: var(--text-faint); font-weight: 500; font-style: italic; }
+      .crt-line-ro { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0; border-top: 1px solid var(--border-color); }
+      .crt-line-ro:first-of-type { border-top: none; }
+      .crt-line-ro .crt-line-name { flex: 1; font-size: 0.875rem; color: var(--text-main); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .crt-line-qty-ro { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--text-muted); flex-shrink: 0; }
+      .crt-note { display: flex; align-items: flex-start; gap: 0.4rem; color: var(--text-muted); font-size: 0.75rem; margin: 1.25rem 0 0; }
+      .crt-note i { margin-top: 0.1rem; }
 
       /* Ruta read-only (resuelta por backend, no editable) */
       .crt-route { display: flex; align-items: center; gap: 0.5rem; padding: 0.6875rem 0.875rem; border-radius: 0.75rem; border: 1px solid var(--border-color); font-weight: 700; }
@@ -523,6 +531,12 @@ export class VendorCloseRouteComponent implements OnInit {
   }
   fmtMoney(n: any): string {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+  }
+  /** ISO YYYY-MM-DD → dd/mm/yyyy (read-only display). 'sin detectar' si vacío. */
+  fmtDate(iso: string | null): string {
+    if (!iso) return 'sin detectar';
+    const [y, m, d] = iso.split('-');
+    return y && m && d ? `${d}/${m}/${y}` : iso;
   }
   private today(): string {
     return new Date().toISOString().slice(0, 10);
