@@ -209,26 +209,28 @@
          el refetch; no se necesita callback (filtersChanged). -->
     <app-global-filters />
 
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-xl font-bold text-content-main">Visitas</h2>
-      <div class="flex items-center gap-3">
-        <p-iconfield>
-          <p-inputicon class="pi pi-search" />
-          <input
-            pInputText
-            type="search"
-            [ngModel]="searchText()"
-            (ngModelChange)="searchText.set($event)"
-            placeholder="Buscar visita..."
-            inputmode="search"
-            enterkeyhint="search"
-            autocapitalize="none"
-            autocorrect="off"
-            spellcheck="false"
-            class="p-inputtext-sm"
-          />
-        </p-iconfield>
-        <span class="text-xs text-content-muted">{{ allVisits().length }} visita(s)</span>
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <h2 class="text-xl font-bold text-content-main shrink-0">Visitas</h2>
+      <div class="flex items-center gap-3 w-full sm:w-auto">
+        <div class="seg-search flex-1 sm:flex-none">
+          <p-iconfield>
+            <p-inputicon class="pi pi-search" />
+            <input
+              pInputText
+              type="search"
+              [ngModel]="searchText()"
+              (ngModelChange)="searchText.set($event)"
+              placeholder="Buscar visita..."
+              inputmode="search"
+              enterkeyhint="search"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              class="p-inputtext-sm"
+            />
+          </p-iconfield>
+        </div>
+        <span class="text-xs text-content-muted whitespace-nowrap shrink-0">{{ allVisits().length }} visita(s)</span>
       </div>
     </div>
 
