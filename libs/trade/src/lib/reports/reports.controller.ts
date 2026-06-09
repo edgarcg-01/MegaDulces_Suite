@@ -158,6 +158,16 @@ export class ReportsController {
     return this.reportsService.getRouteIdle(routeId, filters, user);
   }
 
+  @Get('idle/summary')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Resumen de tiempos muertos agregado por vendedor sobre un rango (todas las rutas del scope) — para dashboard',
+  })
+  getIdleSummary(@ReqUser() user: any, @Query() filters: ReportsFilterDto) {
+    return this.reportsService.getIdleSummary(filters, user);
+  }
+
   @Get('export')
   @RequirePermissions(Permission.REPORTES_EXPORTAR)
   @ApiOperation({

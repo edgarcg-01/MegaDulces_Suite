@@ -1392,6 +1392,9 @@ export class ReportsService {
       const prev = rows[i - 1];
       const cur = rows[i];
       if (prev.user_id !== cur.user_id) continue; // no cruzar vendedores
+      // No cruzar días (en rangos multi-día emparejaría la última visita de un
+      // día con la primera del siguiente como un idle gigante). `day` = fecha MX.
+      if (prev.day != null && cur.day != null && String(prev.day) !== String(cur.day)) continue;
       const fin = prev.hora_fin ? new Date(prev.hora_fin).getTime() : null;
       const ini = cur.hora_inicio ? new Date(cur.hora_inicio).getTime() : null;
       if (fin == null || ini == null) continue;
@@ -1413,6 +1416,7 @@ export class ReportsService {
       out.push({
         user_id: cur.user_id,
         vendor: cur.captured_by_username,
+        day: cur.day != null ? String(cur.day) : null,
         from_capture_id: prev.id,
         to_capture_id: cur.id,
         from_store: prev.nombre,
@@ -1460,6 +1464,7 @@ export class ReportsService {
       )
       .select(this.knex.raw('COALESCE(dc.latitud, s.latitud) as lat'))
       .select(this.knex.raw('COALESCE(dc.longitud, s.longitud) as lng'))
+      .select(this.knex.raw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') as day"))
       .orderBy('dc.user_id', 'asc')
       .orderBy('dc.hora_inicio', 'asc');
 
@@ -1495,6 +1500,98 @@ export class ReportsService {
       total_travel_min: r2(
         segments.reduce((a, s) => a + (s.travel_est_min || 0), 0),
       ),
+      dead_count: segments.filter((s) => s.is_dead).length,
+    };
+  }
+
+  /**
+   * Resumen de tiempos muertos agregado POR VENDEDOR sobre un rango (todas las
+   * rutas del scope). On-the-fly desde daily_captures (los segmentos son
+   * recomputables; no se persisten). Para dashboards "¿quién acumula tiempo
+   * muerto?" sin tabla derivada. Segmentos cortados por (vendedor, día MX).
+   */
+  async getIdleSummary(
+    filters: { startDate?: string; endDate?: string; zone?: string },
+    user: any,
+  ) {
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+
+    let q = this.knex('daily_captures as dc')
+      .join('stores as s', 's.id', 'dc.store_id')
+      .whereNotNull('dc.store_id')
+      .select(
+        'dc.id',
+        's.nombre',
+        'dc.user_id',
+        'dc.captured_by_username',
+        'dc.hora_inicio',
+        'dc.hora_fin',
+      )
+      .select(this.knex.raw('COALESCE(dc.latitud, s.latitud) as lat'))
+      .select(this.knex.raw('COALESCE(dc.longitud, s.longitud) as lng'))
+      .select(this.knex.raw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') as day"))
+      .orderBy('dc.user_id', 'asc')
+      .orderBy('dc.hora_inicio', 'asc');
+
+    if (tenantId) q = q.where('dc.tenant_id', tenantId);
+    if (scope.type === 'own') q = q.where('dc.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'dc.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+    if (filters.zone && filters.zone !== 'null' && filters.zone !== 'undefined')
+      q = q.where('s.zona_id', filters.zone);
+    if (filters.startDate)
+      q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
+    if (filters.endDate)
+      q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [filters.endDate]);
+
+    const rows = await q;
+    const segments = ReportsService.computeIdleSegments(rows);
+
+    // Agregar por vendedor.
+    const byVendor = new Map<string, any>();
+    for (const seg of segments) {
+      let agg = byVendor.get(seg.user_id);
+      if (!agg) {
+        agg = {
+          user_id: seg.user_id,
+          vendor: seg.vendor,
+          total_idle_min: 0,
+          total_travel_min: 0,
+          dead_count: 0,
+          segments: 0,
+          max_idle_min: 0,
+        };
+        byVendor.set(seg.user_id, agg);
+      }
+      agg.total_idle_min += seg.idle_min;
+      agg.total_travel_min += seg.travel_est_min || 0;
+      agg.segments += 1;
+      if (seg.is_dead) agg.dead_count += 1;
+      if (seg.idle_min > agg.max_idle_min) agg.max_idle_min = seg.idle_min;
+    }
+    const r2 = (n: number) => Math.round(n * 10) / 10;
+    const vendors = Array.from(byVendor.values())
+      .map((a) => ({
+        ...a,
+        total_idle_min: r2(a.total_idle_min),
+        total_travel_min: r2(a.total_travel_min),
+        max_idle_min: r2(a.max_idle_min),
+      }))
+      .sort((a, b) => b.total_idle_min - a.total_idle_min);
+
+    return {
+      vendors,
+      total_idle_min: r2(segments.reduce((a, s) => a + s.idle_min, 0)),
       dead_count: segments.filter((s) => s.is_dead).length,
     };
   }
