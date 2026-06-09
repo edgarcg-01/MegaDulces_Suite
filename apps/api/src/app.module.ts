@@ -75,6 +75,7 @@ import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
 import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';
+import { CustomerProvisioningBindingModule } from './composition/customer-provisioning.binding.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -103,6 +104,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialPushModule,
       // Binding del Port ANTES de logística (provee el token global que inyecta).
       OrderFulfillmentBindingModule,
+      // Binding del Port de provisioning de clientes (StoresService lo inyecta @Optional).
+      CustomerProvisioningBindingModule,
       LogisticsFleetModule,
       LogisticsConfigModule,
       LogisticsShipmentsModule,

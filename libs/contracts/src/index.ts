@@ -5,3 +5,4 @@
 // es error de compilación en ambos lados (garantía "no romper en silencio").
 
 export * from './ports/order-fulfillment.port';
+export * from './ports/customer-provisioning.port';

@@ -3,13 +3,19 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { getDataScope } from '@megadulces/platform-core';
+import {
+  CUSTOMER_PROVISIONING_PORT,
+  CustomerProvisioningPort,
+} from '@megadulces/contracts';
 
 interface RequesterContext {
   sub: string;
@@ -18,7 +24,14 @@ interface RequesterContext {
 
 @Injectable()
 export class StoresService {
-  constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
+  private readonly logger = new Logger(StoresService.name);
+
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    @Optional()
+    @Inject(CUSTOMER_PROVISIONING_PORT)
+    private readonly customerProvisioning?: CustomerProvisioningPort,
+  ) {}
 
   private haversine(
     lat1: number,
@@ -288,6 +301,19 @@ export class StoresService {
     const [store] = await this.knex('stores')
       .insert({ ...rest, zona_id, updated_by: requester.sub })
       .returning('*');
+
+    // Modelo 1:1 tienda↔cliente: provisiona el cliente comercial al alta.
+    // Best-effort (no atómico): si falla no rompe la creación de la tienda.
+    if (this.customerProvisioning) {
+      try {
+        await this.customerProvisioning.ensureCustomerForStore(store.id);
+      } catch (e) {
+        this.logger.warn(
+          `Auto-provisión de cliente para store ${store.id} falló: ${(e as Error)?.message}`,
+        );
+      }
+    }
+
     return { ...store, zona };
   }
 

@@ -14,6 +14,7 @@ import {
   AddressJsonb,
   validateJsonb,
 } from '@megadulces/platform-core';
+import { CustomerProvisioningPort } from '@megadulces/contracts';
 
 export interface CreateCustomerDto {
   code: string;
@@ -47,7 +48,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 
 @Injectable()
-export class CommercialCustomersService {
+export class CommercialCustomersService implements CustomerProvisioningPort {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -354,6 +355,14 @@ export class CommercialCustomersService {
 
       return { customer: row, created: true, message: 'Customer creado y vinculado al store' };
     });
+  }
+
+  /**
+   * Port CustomerProvisioning (inversión de dependencia): provisiona el cliente
+   * de una tienda al darla de alta en Trade. Delega en createFromStore (idempotente).
+   */
+  async ensureCustomerForStore(storeId: string) {
+    return this.createFromStore({ store_id: storeId });
   }
 
   /**

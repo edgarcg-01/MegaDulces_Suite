@@ -26,5 +26,6 @@ export * from './lib/commercial-telemetry/commercial-telemetry.module';
 export * from './lib/commercial-push/commercial-push.module';
 export * from './lib/commercial-push/commercial-push.service';
 
-// Servicio expuesto para el composition root (OrderFulfillmentBindingModule).
+// Servicios expuestos para el composition root (binding modules de los Ports).
 export * from './lib/commercial-orders/commercial-orders.service';
+export * from './lib/commercial-customers/commercial-customers.service';
