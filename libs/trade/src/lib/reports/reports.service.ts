@@ -410,18 +410,6 @@ export class ReportsService {
       }
     }
 
-    if (filters.startDate) {
-      query.whereRaw(
-        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
-        [filters.startDate],
-      );
-    }
-    if (filters.endDate) {
-      query.whereRaw(
-        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
-        [filters.endDate],
-      );
-    }
     if (filters.userId) query.where('user_id', filters.userId);
 
     // Si hay supervisorId, obtener IDs del equipo y filtrar por ellos
@@ -440,6 +428,23 @@ export class ReportsService {
       } else {
         this.logger.warn(`Zone not found for ID: ${filters.zone}`);
       }
+    }
+
+    // Snapshot con TODOS los filtros menos fechas → base para el período
+    // anterior (tendencias prev_*). Se clona ANTES de aplicar el rango actual.
+    const baseForPrev = query.clone();
+
+    if (filters.startDate) {
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [filters.startDate],
+      );
+    }
+    if (filters.endDate) {
+      query.whereRaw(
+        "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [filters.endDate],
+      );
     }
 
     const [{ total }] = await query.clone().clearSelect().clearOrder().count('* as total');
@@ -556,12 +561,14 @@ export class ReportsService {
         typeof row.exhibiciones === 'string'
           ? JSON.parse(row.exhibiciones)
           : row.exhibiciones || [];
-      const numVisitas = stats.totalExhibiciones || 1;
       const score = stats.puntuacionTotal || 0;
       const ventas = stats.ventaTotal || 0;
 
+      // 1 captura = 1 visita (cada daily_capture es una visita a tienda con su
+      // store_id/hora_inicio). Antes se ponderaba por totalExhibiciones, lo que
+      // inflaba "Visitas" (contaba exhibiciones, no visitas) y rompía la meta.
       totalCapturesAgg += 1;
-      totalVisitas += numVisitas;
+      totalVisitas += 1;
       totalScore += score;
       totalVentas += ventas;
 
@@ -570,7 +577,7 @@ export class ReportsService {
       if (!dailyTrend[dateKey]) {
         dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
       }
-      dailyTrend[dateKey].visits += numVisitas;
+      dailyTrend[dateKey].visits += 1;
       dailyTrend[dateKey].score += score;
       dailyTrend[dateKey].count += 1;
 
@@ -668,17 +675,51 @@ export class ReportsService {
     // `count` = capturas totales del rango filtrado (NO el largo de la página).
     // `avgScore` = score promedio sobre el set completo, no sobre los 200 visibles.
     // Antes ambos venían de `normalizedRows.length` y mentían si total > pageSize.
-    const metrics = {
+    const metrics: Record<string, any> = {
       totalVisitas,
       avgScore: totalCapturesAgg > 0 ? Math.round(totalScore / totalCapturesAgg) : 0,
       totalVentas,
       avgVentaPorVisita: totalVisitas > 0 ? +(totalVentas / totalVisitas).toFixed(2) : 0,
       count: totalCapturesAgg,
+      // Conteo real de exhibiciones evaluadas (entradas de exhibición), no
+      // "marcas de producto". totalExhibiciones (product-marks) queda como
+      // métrica interna del tab de productos.
+      totalExhibidores,
       totalExhibiciones,
+      // Promedio de SKUs distintos por visita (surtido). Reemplaza el mal
+      // llamado "stockoutRate" (no computable: la captura no tiene stock esperado).
+      productsPerVisit: +avgProductsPerVisit,
       stockoutRate: avgProductsPerVisit,
       healthRate,
       uniqueProducts: totalUniqueProducts,
     };
+
+    // Tendencias prev_*: mismas métricas headline sobre el período inmediato
+    // anterior (mismo tamaño de ventana). Alimenta el delta ▲/▼ de las cards.
+    if (filters.startDate && filters.endDate) {
+      const dur =
+        new Date(filters.endDate).getTime() - new Date(filters.startDate).getTime();
+      const prevEndDate = new Date(new Date(filters.startDate).getTime() - 86400000);
+      const prevStartDate = new Date(prevEndDate.getTime() - dur);
+      const prevStart = toMxDateKey(prevStartDate);
+      const prevEnd = toMxDateKey(prevEndDate);
+      const prevAgg = await baseForPrev
+        .clone()
+        .clearSelect()
+        .select('dc.stats', 'dc.exhibiciones')
+        .whereRaw("DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [prevStart])
+        .whereRaw("DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [prevEnd])
+        .limit(MAX_AGG_ROWS);
+      const pm = this.headlineMetrics(prevAgg, includeProducts);
+      metrics.prev_visitas = pm.totalVisitas;
+      metrics.prev_score = pm.avgScore;
+      metrics.prev_venta = pm.totalVentas;
+      metrics.prev_avgVenta = pm.avgVentaPorVisita;
+      metrics.prev_exhibiciones = pm.totalExhibidores;
+      metrics.prev_stockoutRate = pm.productsPerVisit;
+      metrics.prev_healthRate = pm.healthRate;
+      metrics.prev_uniqueProducts = pm.uniqueProducts;
+    }
 
     const trendData = Object.keys(dailyTrend)
       .sort()
@@ -695,6 +736,63 @@ export class ReportsService {
       ...(includeProducts ? { productStats, productMap, sellerProductStats } : {}),
       exhibidoresHealth,
       rows: normalizedRows,
+    };
+  }
+
+  /**
+   * Métricas headline (sin productStats/dailyTrend pesados) sobre un set de
+   * filas agregadas. Usado para el período anterior (tendencias prev_*).
+   * 1 fila = 1 visita. uniqueProducts/productsPerVisit solo si includeProducts.
+   */
+  private headlineMetrics(
+    aggRows: any[],
+    includeProducts: boolean,
+  ): {
+    totalVisitas: number;
+    avgScore: number;
+    totalVentas: number;
+    avgVentaPorVisita: number;
+    totalExhibidores: number;
+    productsPerVisit: number;
+    healthRate: number;
+    uniqueProducts: number;
+  } {
+    let visits = 0;
+    let score = 0;
+    let ventas = 0;
+    const health = { optimo: 0, regular: 0, critico: 0 };
+    const pids = new Set<string>();
+    for (const row of aggRows) {
+      const raw = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
+      const venta = (raw.ventaTotal || 0) > 0 ? raw.ventaTotal : raw.ventaAdicional || 0;
+      visits += 1;
+      score += raw.puntuacionTotal || 0;
+      ventas += venta;
+      const exhib =
+        typeof row.exhibiciones === 'string'
+          ? JSON.parse(row.exhibiciones)
+          : row.exhibiciones || [];
+      for (const ex of exhib) {
+        const val = String(ex.nivelEjecucion).toLowerCase();
+        if (val === 'alto' || val === 'excelente' || val === 'optimo') health.optimo++;
+        else if (val === 'medio' || val === 'regular') health.regular++;
+        else health.critico++;
+        if (includeProducts) {
+          for (const pid of ex.productosMarcados || []) pids.add(pid);
+        }
+      }
+    }
+    const totalExhibidores = health.optimo + health.regular + health.critico;
+    return {
+      totalVisitas: visits,
+      avgScore: visits > 0 ? Math.round(score / visits) : 0,
+      totalVentas: ventas,
+      avgVentaPorVisita: visits > 0 ? +(ventas / visits).toFixed(2) : 0,
+      totalExhibidores,
+      productsPerVisit: visits > 0 ? +(pids.size / visits).toFixed(2) : 0,
+      healthRate:
+        totalExhibidores > 0 ? +((health.optimo / totalExhibidores) * 100).toFixed(2) : 0,
+      uniqueProducts: pids.size,
     };
   }
 

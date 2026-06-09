@@ -609,8 +609,8 @@ export class ReportsComponent implements OnInit, AfterViewInit {
       },
       {
         id: 'exhibiciones',
-        label: 'Exhibiciones',
-        raw: (m as any).totalExhibiciones ?? 0,
+        label: 'Exhibiciones evaluadas',
+        raw: (m as any).totalExhibidores ?? 0,
         fmt: (v: number) => v.toLocaleString(),
         unit: '',
       },
@@ -622,11 +622,14 @@ export class ReportsComponent implements OnInit, AfterViewInit {
         unit: '',
       },
       {
+        // id 'stockoutRate' conservado para reusar el rango de metas existente
+        // (ya relabelado a "Productos/visita", min 1 / opt 3). El valor ahora es
+        // productsPerVisit real (SKUs distintos por visita), no un % de stockout.
         id: 'stockoutRate',
-        label: 'Stockout Rate',
-        raw: (m as any).stockoutRate ?? 0,
-        fmt: (v: number) => v + '%',
-        unit: '%',
+        label: 'Productos/visita',
+        raw: (m as any).productsPerVisit ?? 0,
+        fmt: (v: number) => (Math.round((+v || 0) * 10) / 10).toString(),
+        unit: '',
       },
       {
         id: 'healthRate',
