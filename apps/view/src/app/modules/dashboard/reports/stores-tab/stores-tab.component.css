@@ -13,3 +13,53 @@
 :host ::ng-deep .p-datatable-sm .p-datatable-thead > tr > th {
   padding: 0.5rem 0.75rem;
 }
+
+/* ── KPI cards con mini-ring ─────────────────────────────────── */
+.st-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0.875rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.st-ring-wrap { position: relative; width: 52px; height: 52px; }
+.st-ring { width: 52px; height: 52px; transform: rotate(-90deg); }
+.st-ring-track { fill: none; stroke: var(--border-color); stroke-width: 4; }
+.st-ring-arc {
+  fill: none;
+  stroke: var(--action);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.st-ring-arc.is-ok    { stroke: var(--ok-fg); }
+.st-ring-arc.is-warn  { stroke: var(--warn-fg); }
+.st-ring-arc.is-bad   { stroke: var(--bad-fg); }
+.st-ring-arc.is-brand { stroke: var(--action); }
+.st-ring-val {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+.st-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.2;
+}
+.st-sub { font-size: 0.625rem; color: var(--text-muted); text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-ring-arc { transition: none; }
+}

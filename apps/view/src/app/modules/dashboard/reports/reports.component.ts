@@ -1197,6 +1197,12 @@ export class ReportsComponent implements OnInit, AfterViewInit {
     return (h?.optimo || 0) + (h?.regular || 0) + (h?.critico || 0);
   }
 
+  /** % de participación de un conteo de salud sobre el total (0 si no hay). */
+  healthPct(part: number): number {
+    const t = this.totalHealthExhibidores();
+    return t > 0 ? Math.round((part / t) * 100) : 0;
+  }
+
   updateHealthByBrand() {
     const data = this.reportsData();
     if (!data?.rows) return;

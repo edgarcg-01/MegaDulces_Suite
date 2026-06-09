@@ -38,6 +38,24 @@ export class StoresTabComponent implements OnInit, OnDestroy {
     );
   });
 
+  // ── Mini-rings de las KPI cards ─────────────────────────────────
+  readonly RING_C = 2 * Math.PI * 16;
+  /** stroke-dasharray del arco según % (clamp 0–100). */
+  ringDash(pct: number): string {
+    const p = Math.max(0, Math.min(100, pct || 0));
+    return `${(p / 100) * this.RING_C} ${this.RING_C}`;
+  }
+  /** % de una fracción parte/total (clamp). */
+  fracPct(part: number, total: number): number {
+    return total > 0 ? Math.min(100, (part / total) * 100) : 0;
+  }
+  scoreSev(score: number): 'ok' | 'warn' | 'bad' {
+    return score >= 80 ? 'ok' : score >= 50 ? 'warn' : 'bad';
+  }
+  surtidoSev(v: number): 'ok' | 'warn' | 'bad' {
+    return v >= 3 ? 'ok' : v >= 1 ? 'warn' : 'bad';
+  }
+
   ngOnInit() {
     this.loadData();
   }

@@ -5,27 +5,62 @@
     <span *ngIf="loading()" class="text-xs text-content-muted"><i class="pi pi-spin pi-spinner mr-1"></i>Cargando...</span>
   </div>
 
-  <!-- KPI Summary -->
+  <!-- KPI Summary — rings con valor central -->
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" *ngIf="data()?.kpiGlobales as kg">
-    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
-      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">{{ kg.totalTiendas }} tiendas</div>
-      <div class="text-lg font-black text-content-main mt-1">{{ kg.scorePromedio }}</div>
-      <div class="text-[9px] text-content-muted">Score Promedio</div>
+    <!-- Score promedio: ring 0–100 por severidad -->
+    <div class="st-card">
+      <div class="st-ring-wrap">
+        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+          <circle cx="20" cy="20" r="16" class="st-ring-arc" [class]="'is-' + scoreSev(kg.scorePromedio)"
+            [attr.stroke-dasharray]="ringDash(kg.scorePromedio)"></circle>
+        </svg>
+        <span class="st-ring-val">{{ kg.scorePromedio }}</span>
+      </div>
+      <div class="st-label">Score promedio</div>
+      <div class="st-sub">{{ kg.totalTiendas }} tiendas</div>
     </div>
-    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
-      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Prod./visita</div>
-      <div class="text-lg font-black text-content-main mt-1">{{ kg.productosPorVisitaPromedio }}</div>
-      <div class="text-[9px] text-content-muted">Surtido promedio</div>
+
+    <!-- Prod./visita: ring vs meta 3, por severidad -->
+    <div class="st-card">
+      <div class="st-ring-wrap">
+        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+          <circle cx="20" cy="20" r="16" class="st-ring-arc" [class]="'is-' + surtidoSev(kg.productosPorVisitaPromedio)"
+            [attr.stroke-dasharray]="ringDash(fracPct(kg.productosPorVisitaPromedio, 3))"></circle>
+        </svg>
+        <span class="st-ring-val">{{ kg.productosPorVisitaPromedio }}</span>
+      </div>
+      <div class="st-label">Prod./visita</div>
+      <div class="st-sub">surtido promedio</div>
     </div>
-    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
-      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Sin visita 7d+</div>
-      <div class="text-lg font-black text-warn-fg mt-1">{{ kg.tiendasSinVisita7d }}</div>
-      <div class="text-[9px] text-content-muted">Tiendas en riesgo</div>
+
+    <!-- Sin visita 7d+: ring de proporción en riesgo (warn) -->
+    <div class="st-card">
+      <div class="st-ring-wrap">
+        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+          <circle cx="20" cy="20" r="16" class="st-ring-arc is-warn"
+            [attr.stroke-dasharray]="ringDash(fracPct(kg.tiendasSinVisita7d, kg.totalTiendas))"></circle>
+        </svg>
+        <span class="st-ring-val">{{ kg.tiendasSinVisita7d }}</span>
+      </div>
+      <div class="st-label">Sin visita 7d+</div>
+      <div class="st-sub">tiendas en riesgo</div>
     </div>
-    <div class="bg-surface-card border border-divider rounded-xl p-3 text-center">
-      <div class="text-[9px] uppercase font-black text-content-faint tracking-wider">Oportunidades</div>
-      <div class="text-lg font-black text-brand-orange mt-1">{{ data()?.oportunidades?.length || 0 }}</div>
-      <div class="text-[9px] text-content-muted">Requieren atención</div>
+
+    <!-- Oportunidades: ring de proporción (acción) -->
+    <div class="st-card">
+      <div class="st-ring-wrap">
+        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+          <circle cx="20" cy="20" r="16" class="st-ring-arc is-brand"
+            [attr.stroke-dasharray]="ringDash(fracPct(data()?.oportunidades?.length || 0, kg.totalTiendas))"></circle>
+        </svg>
+        <span class="st-ring-val">{{ data()?.oportunidades?.length || 0 }}</span>
+      </div>
+      <div class="st-label">Oportunidades</div>
+      <div class="st-sub">requieren atención</div>
     </div>
   </div>
 
