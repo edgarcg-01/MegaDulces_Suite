@@ -293,37 +293,64 @@ export class CommercialInventoryService {
     if (typeof dto.new_quantity !== 'number' || dto.new_quantity < 0)
       throw new BadRequestException('new_quantity inválido (>= 0)');
 
-    const current = await this.getStockForProduct(dto.warehouse_id, dto.product_id);
-    const delta = dto.new_quantity - current.quantity;
+    return this.tk.run(async (trx) => {
+      const userId = await this.getUserIdFromCtx();
 
-    if (delta === 0) {
-      return { adjusted: false, reason: 'sin cambios', current };
-    }
-
-    const movement = await this.recordMovement({
-      warehouse_id: dto.warehouse_id,
-      product_id: dto.product_id,
-      movement_type: 'adjust',
-      quantity: Math.abs(delta),
-      reference_type: 'adjustment',
-      notes: `Ajuste a saldo ${dto.new_quantity}. ${dto.notes || ''}`.trim(),
-    });
-
-    // recordMovement con 'adjust' suma quantity al saldo, pero queremos
-    // saldo absoluto deseado. Sobrescribir explícitamente.
-    await this.tk.run(async (trx) => {
-      await trx('commercial.stock')
+      // Lock + read + write del saldo absoluto en la MISMA trx: evita lost updates y saldos intermedios corruptos por ajustes concurrentes o crash a medias.
+      const stockRow = await trx('commercial.stock')
         .where({ warehouse_id: dto.warehouse_id, product_id: dto.product_id })
-        .update({
-          quantity: dto.new_quantity,
-          updated_at: trx.fn.now(),
-        });
-      await trx('commercial.stock_movements')
-        .where({ id: movement.id })
-        .update({ quantity_after: dto.new_quantity, quantity: Math.abs(delta) });
-    });
+        .forUpdate()
+        .first();
 
-    return { adjusted: true, delta, new_quantity: dto.new_quantity };
+      const quantityBefore = stockRow ? Number(stockRow.quantity) : 0;
+      const reservedBefore = stockRow ? Number(stockRow.reserved_quantity) : 0;
+      const delta = dto.new_quantity - quantityBefore;
+
+      if (delta === 0) {
+        return { adjusted: false, reason: 'sin cambios', delta: 0, new_quantity: dto.new_quantity };
+      }
+      if (dto.new_quantity < reservedBefore) {
+        throw new ConflictException(
+          `Ajuste dejaría quantity (${dto.new_quantity}) < reserved (${reservedBefore})`,
+        );
+      }
+
+      if (stockRow) {
+        await trx('commercial.stock')
+          .where({ id: stockRow.id })
+          .update({
+            quantity: dto.new_quantity,
+            updated_at: trx.fn.now(),
+            updated_by: userId,
+          });
+      } else {
+        await trx('commercial.stock').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          warehouse_id: dto.warehouse_id,
+          product_id: dto.product_id,
+          quantity: dto.new_quantity,
+          reserved_quantity: 0,
+          updated_by: userId,
+        });
+      }
+
+      const [movement] = await trx('commercial.stock_movements')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          warehouse_id: dto.warehouse_id,
+          product_id: dto.product_id,
+          movement_type: 'adjust',
+          quantity: Math.abs(delta),
+          quantity_before: quantityBefore,
+          quantity_after: dto.new_quantity,
+          reference_type: 'adjustment',
+          notes: `Ajuste a saldo ${dto.new_quantity}. ${dto.notes || ''}`.trim(),
+          created_by: userId,
+        })
+        .returning('*');
+
+      return { adjusted: true, delta, new_quantity: dto.new_quantity, movement_id: movement.id };
+    });
   }
 
   async listMovements(query: ListMovementsQuery) {
