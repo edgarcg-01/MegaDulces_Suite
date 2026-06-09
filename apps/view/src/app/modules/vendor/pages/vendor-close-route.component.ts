@@ -247,7 +247,8 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
   `,
   styles: [
     `
-      .crt { max-width: 720px; margin: 0 auto; }
+      .crt { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem calc(2rem + env(safe-area-inset-bottom, 0px)); }
+      @media (min-width: 768px) { .crt { padding: 2rem 1.5rem 2.5rem; } }
 
       /* ── header ── */
       .crt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
