@@ -177,18 +177,8 @@ export class AdminPlanogramaComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data: Brand[]) => {
-          // Orden alfabético: marcas, y productos dentro de cada marca.
-          const sorted = [...data].sort((a, b) =>
-            (a.nombre ?? '').localeCompare(b.nombre ?? ''),
-          );
-          sorted.forEach((brand) => {
-            if (Array.isArray(brand.productos)) {
-              brand.productos = [...brand.productos].sort((a, b) =>
-                (a.nombre ?? '').localeCompare(b.nombre ?? ''),
-              );
-            }
-          });
-          this.brands.set(sorted);
+          // El backend ya ordena por `orden` y luego `nombre` (fuente de verdad).
+          this.brands.set(data);
           this.loading.set(false);
         },
         error: () => {

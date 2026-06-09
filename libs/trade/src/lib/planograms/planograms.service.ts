@@ -167,6 +167,7 @@ export class PlanogramsService {
     if (!column) return null;
 
     const result = await this.knex(tableName)
+      .where('tenant_id', this.tenantCtx.requireTenantId())
       .max(`${column} as max_updated`)
       .first();
     return result?.max_updated ?? null;
@@ -183,19 +184,35 @@ export class PlanogramsService {
   }
 
   async getAll(includeInactive = false) {
-    const brandsQuery = this.knex('brands').orderBy('orden', 'asc');
-    const productsQuery = this.knex('products').orderBy('orden', 'asc');
+    // `KNEX_CONNECTION` corre como `postgres` (superuser) que bypassa RLS aun con
+    // FORCE — el filtro de tenant_id debe ser explícito en cada query.
+    const tenantId = this.tenantCtx.requireTenantId();
+    const brandsQuery = this.knex('brands')
+      .where('tenant_id', tenantId)
+      .orderBy('orden', 'asc')
+      .orderBy('nombre', 'asc');
+    const productsQuery = this.knex('products')
+      .where('tenant_id', tenantId)
+      .orderBy('orden', 'asc')
+      .orderBy('nombre', 'asc');
 
     if (!includeInactive) {
-      brandsQuery.where({ activo: true });
-      productsQuery.where({ activo: true });
+      brandsQuery.andWhere({ activo: true });
+      productsQuery.andWhere({ activo: true });
     }
 
     const [brands, products] = await Promise.all([brandsQuery, productsQuery]);
 
+    const productsByBrand = new Map<string, any[]>();
+    for (const product of products) {
+      const bucket = productsByBrand.get(product.brand_id);
+      if (bucket) bucket.push(product);
+      else productsByBrand.set(product.brand_id, [product]);
+    }
+
     return brands.map((brand) => ({
       ...brand,
-      productos: products.filter((p) => p.brand_id === brand.id),
+      productos: productsByBrand.get(brand.id) ?? [],
     }));
   }
 
@@ -222,7 +239,11 @@ export class PlanogramsService {
   }
 
   async createBrand(data: CreateBrandDto) {
-    const payload = await this.withTimestamp('brands', { activo: true, ...data });
+    const payload = await this.withTimestamp('brands', {
+      tenant_id: this.tenantCtx.requireTenantId(),
+      activo: true,
+      ...data,
+    });
     try {
       const [brand] = await this.knex('brands').insert(payload).returning('*');
       return brand;
@@ -237,12 +258,16 @@ export class PlanogramsService {
   }
 
   async addProduct(brandId: string, data: CreateProductDto) {
-    const brand = await this.knex('brands').where({ id: brandId }).first();
+    const tenantId = this.tenantCtx.requireTenantId();
+    const brand = await this.knex('brands')
+      .where({ id: brandId, tenant_id: tenantId })
+      .first();
     if (!brand) {
       throw new NotFoundException(`Marca con ID ${brandId} no encontrada.`);
     }
 
     const insertData = await this.withTimestamp('products', {
+      tenant_id: tenantId,
       activo: true,
       ...data,
       brand_id: brandId,
@@ -257,7 +282,9 @@ export class PlanogramsService {
       // busting del cliente móvil (getVersion) detecte el cambio.
       const brandUpdatePayload = await this.withTimestamp('brands', {});
       if (Object.keys(brandUpdatePayload).length > 0) {
-        await this.knex('brands').where({ id: brandId }).update(brandUpdatePayload);
+        await this.knex('brands')
+          .where({ id: brandId, tenant_id: tenantId })
+          .update(brandUpdatePayload);
       }
 
       // Fase K: embebe el producto recién creado para que aparezca en match-ai.
@@ -276,7 +303,9 @@ export class PlanogramsService {
   }
 
   async getProduct(id: string) {
-    const product = await this.knex('products').where({ id }).first();
+    const product = await this.knex('products')
+      .where({ id, tenant_id: this.tenantCtx.requireTenantId() })
+      .first();
     if (!product) {
       throw new NotFoundException(`Producto con ID ${id} no encontrado.`);
     }
@@ -284,8 +313,11 @@ export class PlanogramsService {
   }
 
   async updateBrand(id: string, data: UpdateBrandDto) {
+    const tenantId = this.tenantCtx.requireTenantId();
     if (Object.keys(data).length === 0) {
-      const existing = await this.knex('brands').where({ id }).first();
+      const existing = await this.knex('brands')
+        .where({ id, tenant_id: tenantId })
+        .first();
       if (!existing) {
         throw new NotFoundException(`Marca con ID ${id} no encontrada.`);
       }
@@ -296,14 +328,18 @@ export class PlanogramsService {
     // sus products queda stale. Capturamos el nombre previo para comparar.
     const willRenameBrand = Object.prototype.hasOwnProperty.call(data, 'nombre');
     const previousNombre = willRenameBrand
-      ? (await this.knex('brands').where({ id }).first('nombre'))?.nombre
+      ? (
+          await this.knex('brands')
+            .where({ id, tenant_id: tenantId })
+            .first('nombre')
+        )?.nombre
       : null;
 
     const payload = await this.withTimestamp('brands', data);
 
     try {
       const [brand] = await this.knex('brands')
-        .where({ id })
+        .where({ id, tenant_id: tenantId })
         .update(payload)
         .returning('*');
       if (!brand) {
@@ -321,7 +357,7 @@ export class PlanogramsService {
         previousNombre !== brand.nombre
       ) {
         const result = await this.knex('products')
-          .where({ brand_id: id })
+          .where({ brand_id: id, tenant_id: tenantId })
           .update({
             embedding_updated_at: null,
             embedding_source_text: null,
@@ -343,8 +379,11 @@ export class PlanogramsService {
   }
 
   async updateProduct(id: string, data: UpdateProductDto) {
+    const tenantId = this.tenantCtx.requireTenantId();
     if (Object.keys(data).length === 0) {
-      const existing = await this.knex('products').where({ id }).first();
+      const existing = await this.knex('products')
+        .where({ id, tenant_id: tenantId })
+        .first();
       if (!existing) {
         throw new NotFoundException(`Producto con ID ${id} no encontrado.`);
       }
@@ -355,7 +394,7 @@ export class PlanogramsService {
 
     try {
       const [product] = await this.knex('products')
-        .where({ id })
+        .where({ id, tenant_id: tenantId })
         .update(payload)
         .returning('*');
       if (!product) {
@@ -388,7 +427,10 @@ export class PlanogramsService {
    * `activo=false` para preservar el historial. Si no, hard-delete.
    */
   async deleteProduct(id: string) {
-    const product = await this.knex('products').where({ id }).first();
+    const tenantId = this.tenantCtx.requireTenantId();
+    const product = await this.knex('products')
+      .where({ id, tenant_id: tenantId })
+      .first();
     if (!product) {
       throw new NotFoundException(`Producto con ID ${id} no encontrado.`);
     }
@@ -396,7 +438,7 @@ export class PlanogramsService {
     const referenced = await this.isProductReferenced(id);
     if (referenced) {
       const payload = await this.withTimestamp('products', { activo: false });
-      await this.knex('products').where({ id }).update(payload);
+      await this.knex('products').where({ id, tenant_id: tenantId }).update(payload);
       return {
         success: true,
         soft_deleted: true,
@@ -405,7 +447,7 @@ export class PlanogramsService {
       };
     }
 
-    await this.knex('products').where({ id }).del();
+    await this.knex('products').where({ id, tenant_id: tenantId }).del();
     return { success: true, soft_deleted: false };
   }
 
@@ -416,13 +458,16 @@ export class PlanogramsService {
    * los productos físicamente).
    */
   async deleteBrand(id: string) {
-    const brand = await this.knex('brands').where({ id }).first();
+    const tenantId = this.tenantCtx.requireTenantId();
+    const brand = await this.knex('brands')
+      .where({ id, tenant_id: tenantId })
+      .first();
     if (!brand) {
       throw new NotFoundException(`Marca con ID ${id} no encontrada.`);
     }
 
     const products = await this.knex('products')
-      .where({ brand_id: id })
+      .where({ brand_id: id, tenant_id: tenantId })
       .select('id');
     const productIds = products.map((p) => p.id);
 
@@ -438,8 +483,10 @@ export class PlanogramsService {
         const brandPayload = await this.withTimestamp('brands', {
           activo: false,
         });
-        await trx('products').where({ brand_id: id }).update(prodPayload);
-        await trx('brands').where({ id }).update(brandPayload);
+        await trx('products')
+          .where({ brand_id: id, tenant_id: tenantId })
+          .update(prodPayload);
+        await trx('brands').where({ id, tenant_id: tenantId }).update(brandPayload);
       });
       return {
         success: true,
@@ -449,7 +496,7 @@ export class PlanogramsService {
       };
     }
 
-    await this.knex('brands').where({ id }).del();
+    await this.knex('brands').where({ id, tenant_id: tenantId }).del();
     return { success: true, soft_deleted: false };
   }
 
@@ -460,6 +507,7 @@ export class PlanogramsService {
   private async isProductReferenced(productId: string): Promise<boolean> {
     const containment = JSON.stringify([{ productosMarcados: [productId] }]);
     const ref = await this.knex('daily_captures')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
       .whereRaw('exhibiciones @> ?::jsonb', [containment])
       .select('id')
       .first();
@@ -483,6 +531,7 @@ export class PlanogramsService {
       JSON.stringify([{ productosMarcados: [id] }]),
     );
     const ref = await this.knex('daily_captures')
+      .where('tenant_id', this.tenantCtx.requireTenantId())
       .whereRaw(`(${orClauses})`, params)
       .select('id')
       .first();
