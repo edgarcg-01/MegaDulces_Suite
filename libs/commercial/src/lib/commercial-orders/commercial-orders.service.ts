@@ -898,8 +898,14 @@ export class CommercialOrdersService {
       if (query.from) q = q.where('o.created_at', '>=', query.from);
       if (query.to) q = q.where('o.created_at', '<=', query.to);
 
-      const [{ count }] = await q.clone().count<{ count: string }[]>('o.id as count');
-      const total = Number(count) || 0;
+      const [agg] = await q
+        .clone()
+        .select(
+          trx.raw('count(o.id)::int as count'),
+          trx.raw('coalesce(sum(o.total), 0)::numeric as total_amount'),
+        );
+      const total = Number(agg?.count) || 0;
+      const totalAmount = Number(agg?.total_amount) || 0;
 
       const data = await q
         .select(
@@ -939,6 +945,7 @@ export class CommercialOrdersService {
         page,
         pageSize,
         total,
+        total_amount: totalAmount,
         pagination: {
           page,
           pageSize,

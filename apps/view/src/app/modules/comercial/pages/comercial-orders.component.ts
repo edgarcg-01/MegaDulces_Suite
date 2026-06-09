@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -125,14 +126,14 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
 
       <!-- SHEET 1: KPI STRIP ventana actual (adaptativo por modo) -->
       <p-skeleton *ngIf="loadingKpis()" height="120px"></p-skeleton>
-      <div *ngIf="!loadingKpis() && kpiData() as k" class="sheet cols-12">
+      <div *ngIf="!loadingKpis()" class="sheet cols-12">
         <!-- Hero ventas: span más amplio en pending (3 tiles), normal en history (4 tiles) -->
         <article class="cell" [class.cell-span-6]="mode === 'pending'" [class.cell-span-3]="mode === 'history'">
           <span class="cell-icon" aria-hidden="true">
             <i class="pi pi-wallet"></i>
           </span>
           <span class="cell-label">{{ mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana' }}</span>
-          <span class="cell-value is-headline">{{ fmtMoneyShort(k.totalAmount) }}</span>
+          <span class="cell-value is-headline">{{ fmtMoneyShort(totalAmount()) }}</span>
           <span class="cell-sub">{{ total() }} pedido{{ total() === 1 ? '' : 's' }} en período</span>
         </article>
 
@@ -161,7 +162,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
               <i class="pi pi-sync"></i>
             </span>
             <span class="cell-label">En curso</span>
-            <span class="cell-value">{{ k.confirmed }}</span>
+            <span class="cell-value">{{ statusCounts()['confirmed'] ?? 0 }}</span>
             <span class="cell-sub">a despachar</span>
           </article>
           <article class="cell cell-span-3">
@@ -169,7 +170,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
               <i class="pi pi-check-circle"></i>
             </span>
             <span class="cell-label">Entregados</span>
-            <span class="cell-value">{{ k.fulfilled }}</span>
+            <span class="cell-value">{{ statusCounts()['fulfilled'] ?? 0 }}</span>
             <span class="cell-sub">cerrados</span>
           </article>
           <article class="cell cell-span-3">
@@ -177,7 +178,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
               <i class="pi pi-times-circle"></i>
             </span>
             <span class="cell-label">Cancelados</span>
-            <span class="cell-value">{{ k.cancelled }}</span>
+            <span class="cell-value">{{ statusCounts()['cancelled'] ?? 0 }}</span>
             <span class="cell-sub">en el período</span>
           </article>
         </ng-container>
@@ -696,6 +697,7 @@ export class ComercialOrdersComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** 'pending' = pedidos que requieren acción del vendedor. 'history' = ya cerrados. */
   readonly modeSignal = signal<OrdersMode>(
@@ -713,6 +715,7 @@ export class ComercialOrdersComponent {
   readonly statusFilter = signal<'all' | OrderStatus>(DEFAULT_STATUS_BY_MODE[this.modeSignal()]);
   readonly datePreset = signal<string>(this.modeSignal() === 'pending' ? 'all' : '30d');
   readonly statusCounts = signal<Record<string, number>>({});
+  readonly totalAmount = signal(0);
 
   readonly filters = computed(() => STATUS_FILTERS_BY_MODE[this.modeSignal()]);
   readonly presets = DATE_PRESETS;
@@ -742,21 +745,10 @@ export class ComercialOrdersComponent {
     return `${f} → ${t}`;
   });
 
-  readonly kpiData = computed(() => {
-    const list = this.rows();
-    return {
-      totalAmount: list.reduce((acc, o) => acc + (Number(o.total) || 0), 0),
-      pending: list.filter((o) => o.status === 'pending_approval' || o.status === 'draft').length,
-      confirmed: list.filter((o) => o.status === 'confirmed').length,
-      fulfilled: list.filter((o) => o.status === 'fulfilled').length,
-      cancelled: list.filter((o) => o.status === 'cancelled').length,
-    };
-  });
-
   constructor() {
     // Reaccionar a cambios de modo (Angular reusa la instancia del componente
     // cuando navegás entre /orders y /orders/history → necesitamos re-init).
-    this.route.data.subscribe((d) => {
+    this.route.data.pipe(takeUntilDestroyed()).subscribe((d) => {
       const next = (d?.['mode'] as OrdersMode) || 'pending';
       if (next === this.modeSignal() && this.rows().length > 0) return;
       this.modeSignal.set(next);
@@ -850,10 +842,12 @@ export class ComercialOrdersComponent {
         page: this.page(),
         pageSize: this.pageSize(),
       })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
           this.rows.set(r.data || []);
           this.total.set(r.pagination?.total || 0);
+          this.totalAmount.set(r.total_amount || 0);
           this.loading.set(false);
         },
         error: () => {
@@ -876,7 +870,7 @@ export class ComercialOrdersComponent {
         pageSize: 1,
       });
     }
-    forkJoin(queries).subscribe({
+    forkJoin(queries).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         const out: Record<string, number> = {};
         for (const k of Object.keys(r)) {

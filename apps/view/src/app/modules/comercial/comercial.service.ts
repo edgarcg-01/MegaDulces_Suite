@@ -310,6 +310,7 @@ export interface StockMovement {
 
 export interface Paged<T> {
   data: T[];
+  total_amount?: number;
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
