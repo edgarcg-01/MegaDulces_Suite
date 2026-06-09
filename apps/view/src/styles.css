@@ -592,6 +592,60 @@ body {
 }
 
 /*
+ * REPORTS — boxes de Salud de Exhibidores (tab Productos).
+ * Tarjetas redondeadas con tag + conteo + % + barra de proporción.
+ * Color via status-* (--status-fg / --status-soft-bg).
+ */
+.health-box {
+  background: var(--status-soft-bg);
+  border: 1px solid var(--status-border);
+  border-radius: 1rem;
+  padding: 0.75rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.health-box-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.health-box-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--status-soft-fg);
+}
+.health-box-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; flex-shrink: 0; }
+.health-box-pct { font-size: 0.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.health-box-val {
+  font-size: 1.625rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.health-box-track {
+  height: 0.3125rem;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--status-fg) 18%, transparent);
+}
+.health-box-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .health-box-fill { transition: none; }
+}
+
+/*
  * UTILITIES: CHIPS NEUTRALES (no-status)
  * Para tags informativos que NO comunican un semáforo (cliente, GPS,
  * Mega Dulces, Competencia). Tematizables y legibles en dark.

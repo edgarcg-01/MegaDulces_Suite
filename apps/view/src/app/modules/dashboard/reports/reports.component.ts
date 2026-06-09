@@ -1081,6 +1081,12 @@ export class ReportsComponent implements OnInit, AfterViewInit {
       ],
     };
 
+    // Salud General SIEMPRE se puebla (independiente de productStats / marca):
+    // el pie del tab Productos debe aparecer con "Todas las marcas" aunque la
+    // data se haya cargado sin include=products. El filtro por marca lo
+    // recalcula updateHealthByBrand() encima.
+    this.refreshHealthData(data.exhibidoresHealth);
+
     if (data.productStats) {
       this.buildProductCharts(data);
     }
@@ -1207,29 +1213,30 @@ export class ReportsComponent implements OnInit, AfterViewInit {
     const data = this.reportsData();
     if (!data?.rows) return;
 
-    if (!this.selectedBrand) {
-      // Usar datos globales del backend si no hay marca
-      this.refreshHealthData(data.exhibidoresHealth);
+    const eh = data.exhibidoresHealth;
+    const backendHasData = eh && ((eh.optimo || 0) + (eh.regular || 0) + (eh.critico || 0)) > 0;
+    if (!this.selectedBrand && backendHasData) {
+      // "Todas las marcas": usar el agregado global del backend (sobre el set
+      // completo, no solo la página) cuando trae datos.
+      this.refreshHealthData(eh);
       return;
     }
 
+    // Sin marca y backend vacío → computar global desde rows (fallback).
+    // Con marca → filtrar por marca. Mismo loop.
     const health = { optimo: 0, regular: 0, critico: 0 };
-    
     data.rows.forEach(row => {
       const exhibiciones = row.exhibiciones || [];
       exhibiciones.forEach((ex: any) => {
-        // ¿Este exhibidor tiene productos de la marca seleccionada?
-        const hasBrandProduct = ex.productosMarcados?.some((pid: string) => this.pidToBrandMap[pid] === this.selectedBrand);
-        
-        if (hasBrandProduct) {
-          const val = String(ex.nivelEjecucion).toLowerCase();
-          const isOptimo = val === 'alto' || val === 'excelente' || val === 'optimo';
-          const isRegular = val === 'medio' || val === 'regular';
-
-          if (isOptimo) health.optimo++;
-          else if (isRegular) health.regular++;
-          else health.critico++;
-        }
+        const matchesBrand = !this.selectedBrand
+          || ex.productosMarcados?.some((pid: string) => this.pidToBrandMap[pid] === this.selectedBrand);
+        if (!matchesBrand) return;
+        const val = String(ex.nivelEjecucion).toLowerCase();
+        const isOptimo = val === 'alto' || val === 'excelente' || val === 'optimo';
+        const isRegular = val === 'medio' || val === 'regular';
+        if (isOptimo) health.optimo++;
+        else if (isRegular) health.regular++;
+        else health.critico++;
       });
     });
 

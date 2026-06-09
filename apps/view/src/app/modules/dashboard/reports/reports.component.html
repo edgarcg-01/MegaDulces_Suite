@@ -427,35 +427,35 @@
                     </div>
                   }
                 </div>
-                <div class="mt-4 grid grid-cols-3 gap-2 text-center">
-                  <div class="p-2 rounded-lg status-ok status-soft-bg border flex flex-col gap-1" style="border-color: var(--status-border)">
-                    <div class="flex items-baseline justify-center gap-1.5">
-                      <span class="text-base font-black status-text">{{ currentHealthStats.optimo }}</span>
-                      <span class="text-[11px] font-bold status-text opacity-80">{{ healthPct(currentHealthStats.optimo) }}%</span>
+                <div class="mt-4 grid grid-cols-3 gap-3">
+                  <div class="health-box status-ok">
+                    <div class="health-box-top">
+                      <span class="health-box-tag"><span class="health-box-dot status-fill"></span>Excelentes</span>
+                      <span class="health-box-pct status-text">{{ healthPct(currentHealthStats.optimo) }}%</span>
                     </div>
-                    <div class="text-[10px] uppercase font-black status-text">Excelentes</div>
-                    <div class="h-1 rounded-full bg-surface-layout overflow-hidden">
-                      <div class="h-full rounded-full status-fill" [style.width.%]="healthPct(currentHealthStats.optimo)"></div>
-                    </div>
-                  </div>
-                  <div class="p-2 rounded-lg status-warn status-soft-bg border flex flex-col gap-1" style="border-color: var(--status-border)">
-                    <div class="flex items-baseline justify-center gap-1.5">
-                      <span class="text-base font-black status-text">{{ currentHealthStats.regular }}</span>
-                      <span class="text-[11px] font-bold status-text opacity-80">{{ healthPct(currentHealthStats.regular) }}%</span>
-                    </div>
-                    <div class="text-[10px] uppercase font-black status-text">Regulares</div>
-                    <div class="h-1 rounded-full bg-surface-layout overflow-hidden">
-                      <div class="h-full rounded-full status-fill" [style.width.%]="healthPct(currentHealthStats.regular)"></div>
+                    <div class="health-box-val status-text">{{ currentHealthStats.optimo }}</div>
+                    <div class="health-box-track">
+                      <div class="health-box-fill status-fill" [style.width.%]="healthPct(currentHealthStats.optimo)"></div>
                     </div>
                   </div>
-                  <div class="p-2 rounded-lg status-bad status-soft-bg border flex flex-col gap-1" style="border-color: var(--status-border)">
-                    <div class="flex items-baseline justify-center gap-1.5">
-                      <span class="text-base font-black status-text">{{ currentHealthStats.critico }}</span>
-                      <span class="text-[11px] font-bold status-text opacity-80">{{ healthPct(currentHealthStats.critico) }}%</span>
+                  <div class="health-box status-warn">
+                    <div class="health-box-top">
+                      <span class="health-box-tag"><span class="health-box-dot status-fill"></span>Regulares</span>
+                      <span class="health-box-pct status-text">{{ healthPct(currentHealthStats.regular) }}%</span>
                     </div>
-                    <div class="text-[10px] uppercase font-black status-text">Críticos</div>
-                    <div class="h-1 rounded-full bg-surface-layout overflow-hidden">
-                      <div class="h-full rounded-full status-fill" [style.width.%]="healthPct(currentHealthStats.critico)"></div>
+                    <div class="health-box-val status-text">{{ currentHealthStats.regular }}</div>
+                    <div class="health-box-track">
+                      <div class="health-box-fill status-fill" [style.width.%]="healthPct(currentHealthStats.regular)"></div>
+                    </div>
+                  </div>
+                  <div class="health-box status-bad">
+                    <div class="health-box-top">
+                      <span class="health-box-tag"><span class="health-box-dot status-fill"></span>Críticos</span>
+                      <span class="health-box-pct status-text">{{ healthPct(currentHealthStats.critico) }}%</span>
+                    </div>
+                    <div class="health-box-val status-text">{{ currentHealthStats.critico }}</div>
+                    <div class="health-box-track">
+                      <div class="health-box-fill status-fill" [style.width.%]="healthPct(currentHealthStats.critico)"></div>
                     </div>
                   </div>
                 </div>
