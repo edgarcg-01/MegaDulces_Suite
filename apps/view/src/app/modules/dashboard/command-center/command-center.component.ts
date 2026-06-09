@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  OnDestroy,
   OnInit,
   computed,
   inject,
@@ -15,8 +14,8 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, interval, of } from 'rxjs';
-import { catchError, startWith } from 'rxjs/operators';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 
 import {
   CommandCenterService,
@@ -29,7 +28,6 @@ import {
   DailySeriesRow,
   RankingOutOfStockRow,
 } from './command-center.service';
-import { AlertsSocketService, CommercialAlert } from './alerts-socket.service';
 
 @Component({
   selector: 'app-command-center',
@@ -46,9 +44,8 @@ import { AlertsSocketService, CommercialAlert } from './alerts-socket.service';
   styleUrls: ['./command-center.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CommandCenterComponent implements OnInit, OnDestroy {
+export class CommandCenterComponent implements OnInit {
   private readonly api = inject(CommandCenterService);
-  private readonly alertsSocket = inject(AlertsSocketService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -63,8 +60,6 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
   readonly inactiveCustomers = signal<InactiveCustomersResponse | null>(null);
   readonly dailySeries = signal<DailySeriesRow[]>([]);
   readonly rankingOOS = signal<RankingOutOfStockRow[]>([]);
-
-  readonly nowTick = signal(Date.now());
 
   readonly revenueSpark = computed(() => {
     const series = this.dailySeries();
@@ -100,45 +95,8 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
     return { pct, direction: pct >= 0 ? 'up' : 'down' as 'up' | 'down' };
   });
 
-  // Alerts realtime
-  readonly wsConnected = this.alertsSocket.connected;
-  readonly alertFeed = signal<CommercialAlert[]>([]);
-  private readonly MAX_FEED = 20;
-
   ngOnInit(): void {
     this.loadAll();
-    this.alertsSocket.connect();
-    this.alertsSocket.alert$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((a) => this.handleAlert(a));
-
-    interval(30_000)
-      .pipe(startWith(0), takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.nowTick.set(Date.now()));
-  }
-
-  ngOnDestroy(): void {
-    this.alertsSocket.disconnect();
-  }
-
-  private handleAlert(a: CommercialAlert): void {
-    // Append al feed (most recent first, cap MAX_FEED)
-    const cur = this.alertFeed();
-    const next = [a, ...cur].slice(0, this.MAX_FEED);
-    this.alertFeed.set(next);
-
-    // Toast
-    const severityMap: Record<string, 'success' | 'info' | 'warn' | 'error'> = {
-      info: 'info',
-      warn: 'warn',
-      critical: 'error',
-    };
-    this.toast.add({
-      severity: severityMap[a.severity] || 'info',
-      summary: a.title,
-      detail: a.message,
-      life: a.severity === 'critical' ? 8000 : 4000,
-    });
   }
 
   loadAll(): void {
@@ -257,33 +215,6 @@ export class CommandCenterComponent implements OnInit, OnDestroy {
     if (qty < 50) return 'is-bad';
     if (qty < 200) return 'is-warn';
     return 'is-active';
-  }
-
-  alertSeverityTag(s: 'info' | 'warn' | 'critical'): 'info' | 'warn' | 'danger' {
-    if (s === 'critical') return 'danger';
-    if (s === 'warn') return 'warn';
-    return 'info';
-  }
-
-  fmtTime(s: string): string {
-    const d = new Date(s);
-    return d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
-
-  fmtRelTime(s: string): string {
-    void this.nowTick();
-    const t = new Date(s).getTime();
-    if (Number.isNaN(t)) return '—';
-    const diff = Math.max(0, Date.now() - t);
-    const sec = Math.floor(diff / 1000);
-    if (sec < 5) return 'ahora';
-    if (sec < 60) return `${sec}s`;
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `${hr}h`;
-    const day = Math.floor(hr / 24);
-    return `${day}d`;
   }
 
   daysSeverityClass(days: number | null): string {

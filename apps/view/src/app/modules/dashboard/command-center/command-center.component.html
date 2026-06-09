@@ -5,11 +5,6 @@
     <div class="surf-page-head-text">
       <h1>Centro de control</h1>
       <p class="surf-page-sub">
-        <span class="cc-ws" [class.is-on]="wsConnected()">
-          <span class="cc-ws-dot" aria-hidden="true"></span>
-          {{ wsConnected() ? 'En vivo' : 'Sin conexión' }}
-        </span>
-        <span class="cc-divider" aria-hidden="true">·</span>
         <span *ngIf="overview() as ov">
           Últimos 30 días · datos {{ ov.source === 'mv' ? 'en caché' : 'en vivo' }}
           <span *ngIf="ov.refreshed_at" class="comm-muted is-small">· {{ fmtDate(ov.refreshed_at) }}</span>
@@ -214,38 +209,6 @@
           </tbody>
         </table>
       </div>
-    </article>
-  </div>
-
-  <!-- SHEET 4 (condicional): Alerts realtime -->
-  <div *ngIf="alertFeed().length > 0" class="sheet cols-12">
-    <article class="cell cell-span-12 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">
-          <i class="pi pi-bell" aria-hidden="true" style="margin-right:0.35rem"></i>
-          Alertas en tiempo real
-        </span>
-        <span class="comm-pill is-brand no-dot">{{ alertFeed().length }}</span>
-      </div>
-      <ul class="cc-feed">
-        <li
-          *ngFor="let a of alertFeed()"
-          class="cc-feed-item"
-          [class]="'is-' + a.severity"
-        >
-          <span class="cc-feed-icon" aria-hidden="true">
-            <i [class]="a.severity === 'critical' ? 'pi pi-exclamation-triangle' :
-                        a.severity === 'warn' ? 'pi pi-exclamation-circle' : 'pi pi-info-circle'"></i>
-          </span>
-          <div class="cc-feed-body">
-            <div class="cc-feed-title">{{ a.title }}</div>
-            <div class="cc-feed-msg">{{ a.message }}</div>
-          </div>
-          <time class="cc-feed-time" [pTooltip]="fmtTime(a.emitted_at)" tooltipPosition="left">
-            {{ fmtRelTime(a.emitted_at) }}
-          </time>
-        </li>
-      </ul>
     </article>
   </div>
 

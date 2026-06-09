@@ -31,6 +31,8 @@ export class AlertsScannerService {
 
   @Cron('0 */5 * * * *')
   async scheduledScan(): Promise<void> {
+    // Alertas realtime desactivadas por decisión de producto. Reactivar con ENABLE_COMMERCIAL_ALERTS=true.
+    if (process.env.ENABLE_COMMERCIAL_ALERTS !== 'true') return;
     if (this.isRunning) {
       this.logger.warn('Skip: previous scan still running');
       return;
