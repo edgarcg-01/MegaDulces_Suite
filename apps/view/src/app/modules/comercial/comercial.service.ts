@@ -21,6 +21,8 @@ export interface Customer {
   rfc?: string | null;
   email?: string | null;
   phone?: string | null;
+  whatsapp?: string | null;
+  sales_route?: string | null;
   billing_address?: AddressJsonb | null;
   shipping_address?: AddressJsonb | null;
   store_id?: string | null;

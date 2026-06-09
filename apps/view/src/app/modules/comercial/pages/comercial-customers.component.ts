@@ -195,90 +195,22 @@ import { debounceTime, Subject } from 'rxjs';
                 <span *ngIf="c.rfc"><i class="pi pi-id-card" aria-hidden="true"></i>{{ c.rfc }}</span>
                 <span *ngIf="c.email"><i class="pi pi-envelope" aria-hidden="true"></i>{{ c.email }}</span>
                 <span *ngIf="c.phone"><i class="pi pi-phone" aria-hidden="true"></i>{{ c.phone }}</span>
+                <span *ngIf="c.whatsapp"><i class="pi pi-whatsapp" aria-hidden="true"></i>{{ c.whatsapp }}</span>
               </div>
             </td>
             <td class="cu-link-cell">
-              <ng-container *ngIf="editingStoreId() === c.id; else storeView">
-                <p-select
-                  [options]="stores()"
-                  [ngModel]="c.store_id"
-                  [ngModelOptions]="{ standalone: true }"
-                  (onChange)="linkStore(c, $event.value); editingStoreId.set(null)"
-                  (onHide)="editingStoreId.set(null)"
-                  optionLabel="nombre"
-                  optionValue="id"
-                  placeholder="— Sin enlazar —"
-                  [filter]="true"
-                  filterBy="nombre,direccion"
-                  [showClear]="true"
-                  appendTo="body"
-                  styleClass="row-store-select"
-                  [disabled]="linkingId() === c.id"
-                  [autofocus]="true"
-                >
-                  <ng-template let-s pTemplate="item">
-                    <div class="store-option">
-                      <i class="pi pi-map-marker"></i>
-                      <div>
-                        <div>{{ s.nombre }}</div>
-                        <div class="comm-muted is-small" *ngIf="s.direccion">{{ s.direccion }}</div>
-                      </div>
-                    </div>
-                  </ng-template>
-                </p-select>
-              </ng-container>
-              <ng-template #storeView>
-                <button *ngIf="c.store_id" type="button" class="cu-inline-chip" (click)="editingStoreId.set(c.id)" pTooltip="Cambiar tienda">
-                  <i class="pi pi-map-marker" aria-hidden="true"></i>
-                  <span>{{ storeName(c.store_id) }}</span>
-                  <i class="pi pi-pencil cu-chip-edit" aria-hidden="true"></i>
-                </button>
-                <button *ngIf="!c.store_id" type="button" class="cu-inline-add" (click)="editingStoreId.set(c.id)">
-                  <i class="pi pi-plus" aria-hidden="true"></i>
-                  Vincular
-                </button>
-              </ng-template>
-              <i *ngIf="linkingId() === c.id" class="pi pi-spin pi-spinner saving-spinner" aria-label="Guardando…"></i>
+              <span *ngIf="c.store_id" class="cu-store-chip" pTooltip="Vínculo 1:1 fijado al alta de la tienda">
+                <i class="pi pi-map-marker" aria-hidden="true"></i>
+                <span>{{ storeName(c.store_id) }}</span>
+              </span>
+              <span *ngIf="!c.store_id" class="comm-muted is-small">—</span>
             </td>
             <td class="cu-link-cell">
-              <ng-container *ngIf="editingRouteId() === c.id; else routeView">
-                <p-select
-                  [options]="routes()"
-                  [ngModel]="c.route_id"
-                  [ngModelOptions]="{ standalone: true }"
-                  (onChange)="linkRoute(c, $event.value); editingRouteId.set(null)"
-                  (onHide)="editingRouteId.set(null)"
-                  optionLabel="name"
-                  optionValue="id"
-                  placeholder="— Sin ruta —"
-                  [filter]="true"
-                  filterBy="name"
-                  [showClear]="true"
-                  appendTo="body"
-                  styleClass="row-route-select"
-                  [disabled]="linkingRouteId() === c.id"
-                  [autofocus]="true"
-                >
-                  <ng-template let-r pTemplate="item">
-                    <div class="route-option">
-                      <i class="pi pi-directions"></i>
-                      <span>{{ r.name }}</span>
-                    </div>
-                  </ng-template>
-                </p-select>
-              </ng-container>
-              <ng-template #routeView>
-                <button *ngIf="c.route_id" type="button" class="cu-inline-chip" (click)="editingRouteId.set(c.id)" pTooltip="Cambiar ruta">
-                  <i class="pi pi-directions" aria-hidden="true"></i>
-                  <span>{{ routeName(c.route_id) }}</span>
-                  <i class="pi pi-pencil cu-chip-edit" aria-hidden="true"></i>
-                </button>
-                <button *ngIf="!c.route_id" type="button" class="cu-inline-add" (click)="editingRouteId.set(c.id)">
-                  <i class="pi pi-plus" aria-hidden="true"></i>
-                  Asignar
-                </button>
-              </ng-template>
-              <i *ngIf="linkingRouteId() === c.id" class="pi pi-spin pi-spinner saving-spinner" aria-label="Guardando…"></i>
+              <span *ngIf="c.sales_route" class="cu-store-chip">
+                <i class="pi pi-directions" aria-hidden="true"></i>
+                <span>{{ c.sales_route }}</span>
+              </span>
+              <span *ngIf="!c.sales_route" class="comm-muted is-small">—</span>
             </td>
             <td class="comm-num">
               <div class="comm-cell-strong">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</div>
@@ -387,33 +319,16 @@ import { debounceTime, Subject } from 'rxjs';
             así logística puede armar embarques agrupados por ruta.
           </span>
         </label>
-        <label class="full">
-          <span>Tienda enlazada (Trade Marketing)</span>
-          <p-select
-            formControlName="store_id"
-            [options]="stores()"
-            optionLabel="nombre"
-            optionValue="id"
-            placeholder="Sin enlazar — solo cliente comercial"
-            [filter]="true"
-            filterBy="nombre,direccion"
-            [showClear]="true"
-            appendTo="body"
-            styleClass="store-select"
-          >
-            <ng-template let-s pTemplate="item">
-              <div class="store-option">
-                <i class="pi pi-map-marker"></i>
-                <div>
-                  <div>{{ s.nombre }}</div>
-                  <div class="comm-muted is-small" *ngIf="s.direccion">{{ s.direccion }}</div>
-                </div>
-              </div>
-            </ng-template>
-          </p-select>
+        <label>
+          <span>WhatsApp</span>
+          <input pInputText formControlName="whatsapp" placeholder="10 dígitos (ej. 3331234567)" inputmode="tel" />
+          <span class="comm-muted is-small">Número del cliente para contacto/bot. Se normaliza a +52…</span>
+        </label>
+        <label class="full" *ngIf="editing()?.store_id as sid">
+          <span>Tienda de origen (Trade Marketing)</span>
+          <input pInputText [value]="storeName(sid)" disabled />
           <span class="comm-muted is-small">
-            Vincula este cliente al PdV físico que auditás en Trade Marketing.
-            Mismo lugar, dos vistas: ejecución (exhibiciones) + venta (pedidos).
+            Cada tienda de Trade es un cliente (1:1). El vínculo se fija al alta de la tienda — es de solo lectura.
           </span>
         </label>
         <label class="full">
@@ -583,6 +498,8 @@ import { debounceTime, Subject } from 'rxjs';
 
     /* ── INLINE CHIP / ADD (view mode de tienda/ruta) ── */
     .cu-link-cell { min-width: 160px; }
+    .cu-store-chip { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--c-text-1); }
+    .cu-store-chip i { color: var(--c-text-3); font-size: var(--fs-xs); }
     .cu-inline-chip,
     .cu-inline-add {
       display: inline-flex;
@@ -768,14 +685,6 @@ export class ComercialCustomersComponent {
   readonly lastAccess = signal<{ username: string; temporary_password: string; user_id: string } | null>(null);
   accessDialogVisible = false;
 
-  /** ID del customer cuyo enlace de tienda está guardándose ahora mismo. */
-  readonly linkingId = signal<string | null>(null);
-
-  /** ID del customer cuyo select de tienda está abierto en modo edición. */
-  readonly editingStoreId = signal<string | null>(null);
-  /** ID del customer cuyo select de ruta está abierto en modo edición. */
-  readonly editingRouteId = signal<string | null>(null);
-
   /** Resumen total cargado aparte (todas las filas) para KPI strip — independiente del paginado actual. */
   readonly summaryAll = signal<Customer[]>([]);
   readonly kpis = computed(() => {
@@ -783,7 +692,7 @@ export class ComercialCustomersComponent {
     const active = list.filter((c) => c.active !== false);
     return {
       active: active.length,
-      withRoute: active.filter((c) => !!c.route_id).length,
+      withRoute: active.filter((c) => !!c.sales_route).length,
       withStore: active.filter((c) => !!c.store_id).length,
       totalCredit: active.reduce((s, c) => s + Number(c.credit_limit || 0), 0),
     };
@@ -800,7 +709,6 @@ export class ComercialCustomersComponent {
   // automáticamente (snapshot a commercial.orders.route_id).
   readonly routes = signal<Route[]>([]);
   private readonly routesById = new Map<string, Route>();
-  readonly linkingRouteId = signal<string | null>(null);
 
   form: FormGroup = this.fb.group({
     code: ['', [Validators.required, Validators.pattern(/^[A-Z0-9_-]{2,50}$/)]],
@@ -811,7 +719,7 @@ export class ComercialCustomersComponent {
     phone: [''],
     credit_limit: [0],
     payment_terms_days: [0],
-    store_id: [null],
+    whatsapp: [''],
     route_id: [null],
     notes: [''],
   });
@@ -871,11 +779,6 @@ export class ComercialCustomersComponent {
     });
   }
 
-  routeName(id: string | null | undefined): string {
-    if (!id) return '—';
-    return this.routesById.get(id)?.name || '—';
-  }
-
   private loadStores(): void {
     this.api.listStores().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (list) => {
@@ -894,78 +797,6 @@ export class ComercialCustomersComponent {
   storeName(id: string | null | undefined): string {
     if (!id) return '—';
     return this.storesById.get(id)?.nombre || 'Tienda no encontrada';
-  }
-
-  /**
-   * Bulk linker: cambia el store_id de un customer desde la tabla sin abrir el
-   * dialog completo. Optimista — actualiza la fila en memoria al instante;
-   * si la API falla, revierte y muestra el toast.
-   */
-  /**
-   * Asigna o desasigna la ruta logística del customer desde la tabla.
-   * Optimista: aplica al instante; revierte y avisa si la API falla.
-   * Cada pedido nuevo del cliente hereda `route_id` al crear el draft.
-   */
-  linkRoute(c: Customer, routeId: string | null): void {
-    const prevId = c.route_id || null;
-    const nextId = routeId || null;
-    if (prevId === nextId) return;
-
-    this.linkingRouteId.set(c.id);
-    const next = this.rows().map((r) => (r.id === c.id ? { ...r, route_id: nextId } : r));
-    this.rows.set(next);
-
-    this.api.updateCustomer(c.id, { route_id: nextId } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.linkingRouteId.set(null);
-        const label = nextId ? this.routeName(nextId) : null;
-        this.toast.add({
-          severity: 'success',
-          summary: label ? `Ruta: ${label}` : 'Ruta removida',
-          detail: c.name,
-          life: 2500,
-        });
-      },
-      error: (err) => {
-        this.linkingRouteId.set(null);
-        const reverted = this.rows().map((r) => (r.id === c.id ? { ...r, route_id: prevId } : r));
-        this.rows.set(reverted);
-        const detail = err?.error?.message || 'No se pudo guardar la ruta';
-        this.toast.add({ severity: 'error', summary: 'Error', detail });
-      },
-    });
-  }
-
-  linkStore(c: Customer, storeId: string | null): void {
-    const prevId = c.store_id || null;
-    const nextId = storeId || null;
-    if (prevId === nextId) return;
-
-    this.linkingId.set(c.id);
-    // Update optimista: mutamos la row en el signal para feedback inmediato.
-    const next = this.rows().map((r) => (r.id === c.id ? { ...r, store_id: nextId } : r));
-    this.rows.set(next);
-
-    this.api.updateCustomer(c.id, { store_id: nextId } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.linkingId.set(null);
-        const storeLabel = nextId ? this.storeName(nextId) : null;
-        this.toast.add({
-          severity: 'success',
-          summary: storeLabel ? `Enlazado a ${storeLabel}` : 'Enlace removido',
-          detail: c.name,
-          life: 2500,
-        });
-      },
-      error: (err) => {
-        this.linkingId.set(null);
-        // Revertir update optimista.
-        const reverted = this.rows().map((r) => (r.id === c.id ? { ...r, store_id: prevId } : r));
-        this.rows.set(reverted);
-        const detail = err?.error?.message || 'No se pudo guardar el enlace';
-        this.toast.add({ severity: 'error', summary: 'Error', detail });
-      },
-    });
   }
 
   load(): void {
@@ -1007,7 +838,7 @@ export class ComercialCustomersComponent {
     this.editing.set(null);
     this.form.reset({
       code: '', name: '', legal_name: '', rfc: '', email: '', phone: '',
-      credit_limit: 0, payment_terms_days: 0, store_id: null, route_id: null, notes: '',
+      credit_limit: 0, payment_terms_days: 0, whatsapp: '', route_id: null, notes: '',
     });
     this.form.get('code')?.enable();
     this.dialogVisible = true;
@@ -1024,7 +855,7 @@ export class ComercialCustomersComponent {
       phone: c.phone || '',
       credit_limit: c.credit_limit || 0,
       payment_terms_days: c.payment_terms_days ?? 0,
-      store_id: c.store_id || null,
+      whatsapp: c.whatsapp || '',
       route_id: c.route_id || null,
       notes: c.notes || '',
     });
@@ -1044,7 +875,6 @@ export class ComercialCustomersComponent {
       ...raw,
       rfc: raw.rfc?.trim().toUpperCase() || undefined,
       email: raw.email?.trim().toLowerCase() || undefined,
-      store_id: raw.store_id || null,
       route_id: raw.route_id || null,
     };
     const editing = this.editing();

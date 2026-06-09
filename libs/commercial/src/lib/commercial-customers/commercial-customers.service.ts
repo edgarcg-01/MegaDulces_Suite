@@ -23,6 +23,8 @@ export interface CreateCustomerDto {
   rfc?: string;
   email?: string;
   phone?: string;
+  whatsapp?: string;
+  sales_route?: string;
   billing_address?: AddressJsonb;
   shipping_address?: AddressJsonb;
   store_id?: string;
@@ -46,6 +48,37 @@ export interface ListCustomersQuery {
 const CODE_REGEX = /^[A-Z0-9_-]{2,50}$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+const E164_REGEX = /^\+\d{8,15}$/;
+
+/** Normaliza a E.164 (MX por defecto: 10 dígitos → +52...). Null si vacío; lanza si no forma un E.164 válido. */
+function normalizeWhatsapp(raw?: string | null): string | null {
+  if (raw == null) return null;
+  const hadPlus = String(raw).trim().startsWith('+');
+  const digits = String(raw).replace(/\D/g, '');
+  if (!digits) return null;
+  let e164: string;
+  if (hadPlus) e164 = '+' + digits;
+  else if (digits.length === 10) e164 = '+52' + digits;
+  else if (digits.length === 12 && digits.startsWith('52')) e164 = '+' + digits;
+  else if (digits.length === 13 && digits.startsWith('521')) e164 = '+52' + digits.slice(3);
+  else e164 = '+' + digits;
+  if (!E164_REGEX.test(e164)) {
+    throw new BadRequestException('whatsapp inválido: usar 10 dígitos (MX) o formato E.164 (+52...)');
+  }
+  return e164;
+}
+
+/** Mapea violaciones de unique (23505) de Postgres a 409 con mensaje claro; re-lanza el resto. */
+function rethrowUnique(e: any): never {
+  if (e?.code === '23505') {
+    const c = String(e.constraint || '');
+    if (c.includes('whatsapp')) throw new ConflictException('Ese número de WhatsApp ya está registrado en otro cliente.');
+    if (c.includes('store')) throw new ConflictException('Esa tienda ya tiene un cliente vinculado.');
+    if (c.includes('code')) throw new ConflictException('Ya existe un cliente con ese código.');
+    throw new ConflictException('Valor duplicado (violación de unicidad).');
+  }
+  throw e;
+}
 
 @Injectable()
 export class CommercialCustomersService implements CustomerProvisioningPort {
@@ -97,6 +130,8 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
           rfc: dto.rfc?.toUpperCase() || null,
           email: dto.email?.toLowerCase() || null,
           phone: dto.phone || null,
+          whatsapp: normalizeWhatsapp(dto.whatsapp),
+          sales_route: dto.sales_route?.trim().toUpperCase() || null,
           billing_address: dto.billing_address
             ? JSON.stringify(dto.billing_address)
             : null,
@@ -111,7 +146,8 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
           active: dto.active ?? true,
           notes: dto.notes || null,
         })
-        .returning('*');
+        .returning('*')
+        .catch(rethrowUnique);
 
       return row;
     });
@@ -237,6 +273,9 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       if (dto.rfc !== undefined) patch.rfc = dto.rfc?.toUpperCase() || null;
       if (dto.email !== undefined) patch.email = dto.email?.toLowerCase() || null;
       if (dto.phone !== undefined) patch.phone = dto.phone || null;
+      if (dto.whatsapp !== undefined) patch.whatsapp = normalizeWhatsapp(dto.whatsapp);
+      if (dto.sales_route !== undefined)
+        patch.sales_route = dto.sales_route?.trim().toUpperCase() || null;
       if (dto.billing_address !== undefined)
         patch.billing_address = dto.billing_address
           ? JSON.stringify(dto.billing_address)
@@ -245,7 +284,15 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
         patch.shipping_address = dto.shipping_address
           ? JSON.stringify(dto.shipping_address)
           : null;
-      if (dto.store_id !== undefined) patch.store_id = dto.store_id || null;
+      if (dto.store_id !== undefined) {
+        const nextStore = dto.store_id || null;
+        if (existing.store_id && nextStore !== existing.store_id) {
+          throw new BadRequestException(
+            'store_id es inmutable: el vínculo tienda↔cliente se fija al alta de la tienda; no se cambia ni se quita desde aquí.',
+          );
+        }
+        patch.store_id = nextStore;
+      }
       if (dto.default_price_list_id !== undefined)
         patch.default_price_list_id = dto.default_price_list_id || null;
       if (dto.route_id !== undefined) patch.route_id = dto.route_id || null;
@@ -258,7 +305,8 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       const [row] = await trx('commercial.customers')
         .where({ id })
         .update(patch)
-        .returning('*');
+        .returning('*')
+        .catch(rethrowUnique);
       return row;
     });
   }
