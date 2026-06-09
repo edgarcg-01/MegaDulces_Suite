@@ -11,6 +11,7 @@ export interface RouteTicketFields {
   corte_number: string | null; // solo venta
   reference: string | null; // solo combustible
   liters: number | null; // solo combustible
+  folio: string | null; // solo carga — identificador del ticket (ej. "T153142782")
 }
 
 /**
@@ -98,7 +99,7 @@ export class LlmExtractorService implements OnModuleInit {
   ): Promise<RouteTicketFields> {
     const empty: RouteTicketFields = {
       route_code: null, ticket_date: null, total: null,
-      corte_number: null, reference: null, liters: null,
+      corte_number: null, reference: null, liters: null, folio: null,
     };
     if (!this.apiKey) {
       this.logger.warn('Route ticket OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
@@ -409,7 +410,8 @@ export class LlmExtractorService implements OnModuleInit {
         'reference y liters van null.',
       carga:
         'Ticket de CARGA de mercancía a un camión de ruta (RD). Extrae: route_code (número tras "RD"), ' +
-        'ticket_date, total (valor total cargado). corte_number, reference y liters van null.',
+        'ticket_date, total (valor total cargado), folio (el identificador que aparece tras "FOLIO:", ' +
+        'ej. "T153142782" — cópialo TAL CUAL, incluye letras y números). corte_number, reference y liters van null.',
       combustible:
         'Ticket de COMBUSTIBLE/gasolina de una ruta (RD). Extrae: route_code (número tras "RD"), ' +
         'ticket_date, total (importe), liters (litros cargados), reference (folio/referencia del ticket). ' +
@@ -447,8 +449,9 @@ export class LlmExtractorService implements OnModuleInit {
                   corte_number: { type: ['string', 'null'], description: 'Número de corte (solo venta). null en otros tipos.' },
                   reference: { type: ['string', 'null'], description: 'Folio/referencia (solo combustible). null en otros tipos.' },
                   liters: { type: ['number', 'null'], description: 'Litros (solo combustible). null en otros tipos.' },
+                  folio: { type: ['string', 'null'], description: 'Folio identificador tras "FOLIO:" (solo carga), ej. "T153142782". Copiar tal cual. null en otros tipos.' },
                 },
-                required: ['route_code', 'ticket_date', 'total', 'corte_number', 'reference', 'liters'],
+                required: ['route_code', 'ticket_date', 'total', 'corte_number', 'reference', 'liters', 'folio'],
               },
             },
           ],
@@ -497,6 +500,7 @@ export class LlmExtractorService implements OnModuleInit {
       corte_number: ticketType === 'venta' ? str(inp.corte_number) : null,
       reference: ticketType === 'combustible' ? str(inp.reference) : null,
       liters: ticketType === 'combustible' ? num(inp.liters) : null,
+      folio: ticketType === 'carga' ? str((inp as any).folio) : null,
     };
   }
 }

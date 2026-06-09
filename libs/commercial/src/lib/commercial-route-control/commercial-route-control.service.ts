@@ -158,6 +158,7 @@ export class CommercialRouteControlService {
     const corte = dto.ticket_type === 'venta' ? dto.corte_number?.trim() || null : null;
     const reference = dto.ticket_type === 'combustible' ? dto.reference?.trim() || null : null;
     const liters = dto.ticket_type === 'combustible' ? dto.liters ?? null : null;
+    const folio = dto.ticket_type === 'carga' ? dto.folio?.trim() || null : null;
 
     return this.tk.run(async (trx) => {
       const userId = this.requireUserId();
@@ -177,6 +178,13 @@ export class CommercialRouteControlService {
           .first();
         if (dup) throw new ConflictException(`Ya existe un ticket con referencia ${reference}`);
       }
+      if (folio) {
+        const dup = await trx('commercial.route_tickets')
+          .where({ folio })
+          .whereNull('deleted_at')
+          .first();
+        if (dup) throw new ConflictException(`Ya existe una carga con folio ${folio}`);
+      }
 
       let row;
       try {
@@ -191,6 +199,7 @@ export class CommercialRouteControlService {
             corte_number: corte,
             reference,
             liters,
+            folio,
             cloudinary_public_id: dto.cloudinary_public_id ?? null,
             photo_url: dto.photo_url ?? null,
             photo_preview_url: dto.photo_preview_url ?? null,

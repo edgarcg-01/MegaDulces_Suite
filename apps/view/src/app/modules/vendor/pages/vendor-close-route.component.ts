@@ -121,6 +121,14 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string }> = {
             <input type="text" [(ngModel)]="form.corte_number" />
           </label>
 
+          <label class="crt-field" *ngIf="selectedType() === 'carga'">
+            <span class="crt-field-label">Folio</span>
+            <div class="crt-input-wrap">
+              <input type="text" [(ngModel)]="form.folio" placeholder="ej. T153142782" />
+              <span class="crt-detect" [class.ok]="!!form.folio">{{ form.folio ? 'detectado' : 'sin detectar' }}</span>
+            </div>
+          </label>
+
           <label class="crt-field" *ngIf="selectedType() === 'combustible'">
             <span class="crt-field-label">Litros</span>
             <input type="number" step="0.01" [(ngModel)]="form.liters" placeholder="0.00" />
@@ -328,6 +336,7 @@ export class VendorCloseRouteComponent implements OnInit {
     corte_number: string | null;
     reference: string | null;
     liters: number | null;
+    folio: string | null;
   } = this.emptyForm();
 
   ngOnInit(): void {
@@ -367,6 +376,7 @@ export class VendorCloseRouteComponent implements OnInit {
               corte_number: res.fields.corte_number,
               reference: res.fields.reference,
               liters: res.fields.liters,
+              folio: res.fields.folio,
             };
             // Ruta resuelta por el backend contra el catálogo de su zona.
             this.routeMatched.set(!!res.route_matched);
@@ -424,6 +434,7 @@ export class VendorCloseRouteComponent implements OnInit {
         corte_number: type === 'venta' ? this.form.corte_number : null,
         reference: type === 'combustible' ? this.form.reference : null,
         liters: type === 'combustible' ? this.form.liters : null,
+        folio: type === 'carga' ? this.form.folio : null,
         cloudinary_public_id: this.lastResult?.cloudinary_public_id ?? null,
         photo_url: this.lastResult?.photo_url ?? null,
         photo_preview_url: this.lastResult?.photo_preview_url ?? null,
@@ -517,6 +528,6 @@ export class VendorCloseRouteComponent implements OnInit {
     return new Date().toISOString().slice(0, 10);
   }
   private emptyForm() {
-    return { route_code: '', ticket_date: this.today(), total: null, corte_number: null, reference: null, liters: null };
+    return { route_code: '', ticket_date: this.today(), total: null, corte_number: null, reference: null, liters: null, folio: null };
   }
 }

@@ -31,6 +31,7 @@ export interface RouteTicketFields {
   corte_number: string | null;
   reference: string | null;
   liters: number | null;
+  folio: string | null; // solo carga
 }
 
 export interface RouteTicketLinePreview {
@@ -63,6 +64,7 @@ export interface RouteTicket {
   corte_number: string | null;
   reference: string | null;
   liters: number | null;
+  folio?: string | null; // solo carga
   photo_url?: string | null;
   created_at: string;
 }
@@ -260,6 +262,7 @@ export class VendorService {
     corte_number?: string | null;
     reference?: string | null;
     liters?: number | null;
+    folio?: string | null; // solo carga
     cloudinary_public_id?: string | null;
     photo_url?: string | null;
     photo_preview_url?: string | null;

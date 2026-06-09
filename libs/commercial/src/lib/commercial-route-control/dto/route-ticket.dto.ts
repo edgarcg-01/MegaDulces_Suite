@@ -25,6 +25,7 @@ export interface ProcesarRouteTicketResult {
     corte_number: string | null;
     reference: string | null;
     liters: number | null;
+    folio: string | null; // solo carga
   };
   /**
    * Resolución de la ruta detectada contra el catálogo de rutas de la zona del
@@ -46,6 +47,7 @@ export interface GuardarRouteTicketDto {
   corte_number?: string | null;
   reference?: string | null;
   liters?: number | null;
+  folio?: string | null; // solo carga
   cloudinary_public_id?: string | null;
   photo_url?: string | null;
   photo_preview_url?: string | null;
@@ -62,6 +64,7 @@ export interface UpdateRouteTicketDto {
   corte_number?: string | null;
   reference?: string | null;
   liters?: number | null;
+  folio?: string | null;
 }
 
 export interface ListRouteTicketsQuery {
