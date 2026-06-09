@@ -12,6 +12,26 @@ export interface TiendaOffline {
   ultima_sincronizacion: string;
 }
 
+/**
+ * Breadcrumb GPS (Fase 2 tiempos muertos). Ping periódico de posición que se
+ * encola offline y se sincroniza en bulk a POST /reports/route-pings. `id` =
+ * client_uuid (dedup idempotente server-side). `sincronizado=false` hasta que
+ * el sync confirme.
+ */
+export interface RoutePing {
+  id: string; // client_uuid (UUID v4 local)
+  userId: string;
+  routeId: string | null;
+  capturedAt: string; // ISO del fix GPS
+  lat: number;
+  lng: number;
+  accuracyM?: number;
+  speedMps?: number;
+  source: 'foreground' | 'background';
+  sincronizado: boolean;
+  intentos_fallidos: number;
+}
+
 export interface VisitaPendiente {
   id: string; // UUID v4 generado localmente
   tiendaId: string;
@@ -121,6 +141,7 @@ export class OfflineDatabaseService extends Dexie {
   syncLogs!: Table<SyncLog, string>;
   photos!: Table<PhotoBlob, string>;
   tiendasPendientes!: Table<TiendaPendiente, string>;
+  routePings!: Table<RoutePing, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
@@ -163,6 +184,18 @@ export class OfflineDatabaseService extends Dexie {
       syncLogs: 'id, tipo, entidad_id, estado, fecha',
       photos: 'id, visitaId, createdAt',
       tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+    });
+
+    // v5: tabla routePings (breadcrumbs GPS, Fase 2 tiempos muertos). `id` =
+    // client_uuid. Index sincronizado para drenar la cola; capturedAt para orden.
+    this.version(5).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+      routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
     });
 
     // Hooks para auditoría

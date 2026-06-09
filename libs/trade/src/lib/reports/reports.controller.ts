@@ -30,6 +30,7 @@ import {
   ReportsFilterDto,
   ReportsStoresFilterDto,
 } from './dto/reports-filter.dto';
+import { RoutePingsBatchDto } from './dto/route-pings.dto';
 import { getDataScope } from '@megadulces/platform-core';
 
 @ApiTags('reports')
@@ -166,6 +167,16 @@ export class ReportsController {
   })
   getIdleSummary(@ReqUser() user: any, @Query() filters: ReportsFilterDto) {
     return this.reportsService.getIdleSummary(filters, user);
+  }
+
+  @Post('route-pings')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @ApiOperation({
+    summary:
+      'Ingesta bulk de breadcrumbs GPS del vendedor (idempotente por client_uuid) — Fase 2 tiempos muertos',
+  })
+  ingestRoutePings(@ReqUser() user: any, @Body() batch: RoutePingsBatchDto) {
+    return this.reportsService.ingestRoutePings(batch, user);
   }
 
   @Get('export')

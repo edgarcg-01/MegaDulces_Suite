@@ -1596,6 +1596,47 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Ingesta de breadcrumbs GPS (Fase 2). Bulk insert idempotente en
+   * public.route_location_pings (sin RLS; tenant_id explícito del usuario
+   * autenticado). ON CONFLICT (tenant_id, client_uuid) DO NOTHING → re-enviar
+   * la cola offline no duplica. Devuelve cuántos pings nuevos se guardaron.
+   */
+  async ingestRoutePings(
+    batch: { pings: any[] },
+    user: any,
+  ): Promise<{ inserted: number }> {
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const userId: string | undefined = user?.sub || user?.id || user?.userId;
+    if (!tenantId || !userId) return { inserted: 0 };
+
+    const pings = (batch?.pings || []).filter(
+      (p) => p?.client_uuid && p?.captured_at && p?.lat != null && p?.lng != null,
+    );
+    if (pings.length === 0) return { inserted: 0 };
+
+    const rows = pings.map((p) => ({
+      tenant_id: tenantId,
+      user_id: userId,
+      route_id: p.route_id || null,
+      client_uuid: p.client_uuid,
+      captured_at: p.captured_at,
+      lat: p.lat,
+      lng: p.lng,
+      accuracy_m: p.accuracy_m ?? null,
+      speed_mps: p.speed_mps ?? null,
+      source: p.source || 'foreground',
+    }));
+
+    const inserted = await this.knex('public.route_location_pings')
+      .insert(rows)
+      .onConflict(['tenant_id', 'client_uuid'])
+      .ignore()
+      .returning('id');
+    return { inserted: Array.isArray(inserted) ? inserted.length : 0 };
+  }
+
   async getStoresData(
     filters: {
       startDate?: string;
