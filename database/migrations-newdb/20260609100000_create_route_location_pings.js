@@ -34,8 +34,8 @@ exports.up = async function (knex) {
       t.timestamp('captured_at', { useTz: true }).notNullable();
       t.decimal('lat', 10, 8).notNullable();
       t.decimal('lng', 11, 8).notNullable();
-      t.real('accuracy_m'); // precisión reportada por el GPS (metros)
-      t.real('speed_mps'); // velocidad instantánea si el device la provee
+      t.float('accuracy_m'); // precisión reportada por el GPS (metros) — pg: real
+      t.float('speed_mps'); // velocidad instantánea si el device la provee — pg: real
       t.string('source', 20).defaultTo('foreground'); // foreground | background
       t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(knex.fn.now());
 
