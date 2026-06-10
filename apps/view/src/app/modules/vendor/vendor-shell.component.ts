@@ -36,6 +36,16 @@ import { AuthService } from '../../core/services/auth.service';
           ></a>
           <a
             pButton
+            icon="pi pi-bell"
+            severity="secondary"
+            size="small"
+            text
+            routerLink="notifications"
+            routerLinkActive="header-active"
+            aria-label="Notificaciones"
+          ></a>
+          <a
+            pButton
             icon="pi pi-chart-bar"
             severity="secondary"
             size="small"

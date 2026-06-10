@@ -378,6 +378,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'notifications',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-notifications.component').then(
+            (m) => m.VendorNotificationsComponent,
+          ),
+      },
+      {
         path: 'today',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-today.component').then(
