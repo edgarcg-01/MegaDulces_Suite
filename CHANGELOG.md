@@ -27,6 +27,10 @@
 - **Buscar** (`/vendor/search`): búsqueda sobre **todo** el catálogo de clientes (esté o no en la cartera) — es el `vendor-customers` previo, retitulado.
 - **Por entregar** (`/vendor/pending`, V.3) y **Por visitar** (`/vendor/visits`, V.4): apartados creados con placeholder "Disponible pronto" — el backend de Por entregar (`pendingDeliveries`/`approve`/`fulfill`) ya existe (V.1).
 
+### Added — Modo Vendedor v2 · V.3: apartado "Por entregar" operativo
+- **`/vendor/pending`** ya no es placeholder: lista los pedidos pendientes de la cartera del vendedor (preventa del Portal B2B + de campo), en dos secciones — **Por aprobar** (`pending_approval`) y **Listos para entregar** (`confirmed`). Cada pedido muestra cliente, folio, total, hora, tag de origen (**Preventa**/**Campo** según `is_preventa`) y expande sus líneas bajo demanda (`orderById`).
+- **Acciones con confirmación**: **Aprobar** (`pending_approval → confirmed`) y **Marcar entregado** (`confirmed → fulfilled`, descuenta inventario), cada una con `ConfirmDialog` + toast de resultado y recarga de la lista. Botón con `loading` mientras la operación está en vuelo; errores del backend se muestran en el toast.
+
 ### Fixed — Ventas (comercial): sesión de corrección de bugs
 - **Televenta dashboard 100% roto** (`dashboardMetrics`): consultaba columnas inexistentes en `commercial.lead_reservations` (`status`, `user_id` → 500 siempre) y filtraba `call_logs.outcome` por valores en español (`pedido_tomado`…) que el CHECK prohíbe (métricas en 0). Alineado al schema real (`released_at IS NULL`, `reserved_by_user_id`) y al enum canónico (`sale`/`no_answer`/`callback_scheduled`/`no_sale`).
 - **`adjustStock` no atómico**: se partía en 3 transacciones (read → recordMovement → overwrite) → saldo corrupto ante crash y lost-update concurrente. Ahora un único `tk.run` con `forUpdate`, valida `new_quantity >= reserved` y registra `quantity_before/after` correctos.
