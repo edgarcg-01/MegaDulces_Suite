@@ -34,7 +34,7 @@ import { Order } from '../../portal/portal.service';
     <p-card *ngIf="!loading() && totalCount() === 0">
       <div class="empty">
         <i class="pi pi-check-circle"></i>
-        <p>Sin pendientes. ¡Vas al día! 🎉</p>
+        <p>Sin pendientes. Vas al día.</p>
       </div>
     </p-card>
 
@@ -86,7 +86,10 @@ import { Order } from '../../portal/portal.service';
         display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left;
         background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px);
         padding: 0.75rem; margin-bottom: 0.5rem; cursor: pointer;
+        transition: transform 0.08s var(--ease, ease);
       }
+      .nrow:not(.flat):active { transform: scale(0.99); }
+      @media (prefers-reduced-motion: reduce) { .nrow { transition: none; } }
       .nrow.flat { cursor: default; }
       .nic { width: 2.35rem; height: 2.35rem; border-radius: 14px; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; color: #fff; }
       .nic.warn { background: var(--warn-fg); }

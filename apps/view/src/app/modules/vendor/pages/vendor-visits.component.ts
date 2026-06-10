@@ -39,7 +39,7 @@ import { VendorService, CoverageCustomer } from '../vendor.service';
     <div class="progress" *ngIf="!loading() && customers().length > 0">
       <div class="progress-text">{{ visitedCount() }} de {{ customers().length }} visitados hoy</div>
       <div class="progress-track">
-        <div class="progress-fill" [style.width.%]="progressPct()"></div>
+        <div class="progress-fill" [style.transform]="'translateX(' + (progressPct() - 100) + '%)'"></div>
       </div>
     </div>
 
@@ -114,9 +114,13 @@ import { VendorService, CoverageCustomer } from '../vendor.service';
       }
       .progress-fill {
         height: 100%;
+        width: 100%;
         background: var(--ok-fg, var(--brand-700));
         border-radius: 999px;
-        transition: width 0.25s ease;
+        transition: transform 0.25s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .progress-fill { transition: none; }
       }
       .empty { text-align: center; padding: 2rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }

@@ -208,7 +208,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
             <path class="crt-check-mark" fill="none" d="M14 27l8 8 16-17"/>
           </svg>
         </div>
-        <h2 class="crt-success-title">¡Ticket guardado!</h2>
+        <h2 class="crt-success-title">Ticket guardado</h2>
         <span class="crt-type-chip" [attr.data-type]="s.type">
           <i class="pi {{ meta[s.type].icon }}" aria-hidden="true"></i>{{ meta[s.type].label }}
         </span>
@@ -267,7 +267,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         padding: 1.5rem 0.875rem 1.125rem; cursor: pointer; text-align: center;
         background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1.125rem;
         animation: crt-tile-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-        transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        transition: transform 0.2s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)), box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
       }
       /* Halo de color del tipo que aparece en hover */
       .crt-tile-glow { position: absolute; inset: 0; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
@@ -285,7 +285,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-tile-icon {
         position: relative; z-index: 1; display: grid; place-items: center;
         width: 3.25rem; height: 3.25rem; border-radius: 1rem; font-size: 1.5rem;
-        transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+        transition: transform 0.2s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
       }
       .crt-tile:hover .crt-tile-icon { transform: scale(1.12) rotate(-6deg); }
       .crt-tile[data-type='venta'] .crt-tile-icon { background: var(--ok-soft-bg); color: var(--ok-fg); }
@@ -319,6 +319,18 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         .crt-save:active:not(:disabled) { transform: none; }
         .crt-save::after, .crt-save:hover:not(:disabled)::after { animation: none; display: none; }
         .crt-change:active { transform: none; }
+      }
+
+      /* touch: el hover se queda pegado tras el tap → neutralizarlo (emil) */
+      @media (hover: none) {
+        .crt-tile:hover { transform: none; box-shadow: none; }
+        .crt-tile:hover .crt-tile-glow { opacity: 0; }
+        .crt-tile:hover .crt-tile-icon { transform: none; }
+        .crt-tile:hover .crt-tile-arrow { opacity: 0; transform: translateX(-4px); }
+        .crt-tile:hover .crt-tile-cta .pi-camera { animation: none; }
+        .crt-save:hover:not(:disabled) { filter: none; box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 10px 22px -10px rgba(240,90,40,0.75), 0 2px 5px rgba(0,0,0,0.08); }
+        .crt-save:hover:not(:disabled)::after { animation: none; }
+        .crt-change:hover { background: var(--surface-ground); color: var(--text-muted); border-color: var(--border-color); }
       }
 
       /* ── procesando ── */
@@ -384,7 +396,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-reqs-status { font-size: 0.625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
       .crt-reqs.done .crt-reqs-status { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
       .crt-reqs-items { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-      .crt-req { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.3rem 0.6rem; transition: all 0.2s ease; }
+      .crt-req { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: 999px; padding: 0.3rem 0.6rem; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
       .crt-req i { font-size: 0.7rem; }
       .crt-req em { font-style: normal; font-size: 0.5625rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; font-weight: 800; }
       .crt-req.done { background: var(--ok-soft-bg); border-color: transparent; color: var(--ok-soft-fg); }
@@ -394,8 +406,8 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       /* ── card de éxito (animada) ── */
       .crt-success { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.75rem; padding: 1.5rem 1rem 0.5rem; animation: crt-success-in 0.35s ease both; }
       @keyframes crt-success-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      .crt-check { width: 84px; height: 84px; border-radius: 50%; background: var(--ok-soft-bg); display: grid; place-items: center; animation: crt-pop 0.45s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
-      @keyframes crt-pop { 0% { transform: scale(0); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+      .crt-check { width: 84px; height: 84px; border-radius: 50%; background: var(--ok-soft-bg); display: grid; place-items: center; animation: crt-pop 0.4s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) both; }
+      @keyframes crt-pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       .crt-check svg { width: 54px; height: 54px; }
       .crt-check-ring { stroke: var(--ok-fg); stroke-width: 3; opacity: 0.35; }
       .crt-check-mark { stroke: var(--ok-fg); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 48; stroke-dashoffset: 48; animation: crt-draw 0.4s 0.2s cubic-bezier(0.65, 0, 0.45, 1) forwards; }
@@ -434,7 +446,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         font-size: 0.95rem; font-weight: 800; letter-spacing: 0.01em;
         background: linear-gradient(180deg, var(--action-hover, #ff6b3d), var(--action) 55%, var(--action-press, #d8431a));
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 10px 22px -10px rgba(240,90,40,0.75), 0 2px 5px rgba(0,0,0,0.08);
-        transition: transform 0.13s cubic-bezier(0.34,1.5,0.5,1), box-shadow 0.2s ease, filter 0.2s ease;
+        transition: transform 0.13s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)), box-shadow 0.2s ease, filter 0.2s ease;
       }
       /* barrido de brillo en hover (desktop) */
       .crt-save::after {

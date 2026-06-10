@@ -80,7 +80,8 @@ import { VendorService, VendorCustomer } from '../vendor.service';
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.8rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.25rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
-      .list { display: flex; flex-direction: column; gap: 0.5rem; }
+      .list { display: flex; flex-direction: column; gap: 0.5rem; animation: list-in 0.18s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
+      @keyframes list-in { from { opacity: 0; } to { opacity: 1; } }
       .client {
         display: flex; align-items: center; gap: 0.8rem; width: 100%; text-align: left;
         background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px);
@@ -88,6 +89,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
         transition: transform 0.06s var(--ease, ease);
       }
       .client:active { transform: scale(0.985); }
+      @media (prefers-reduced-motion: reduce) { .list { animation: none; } .client { transition: none; } }
       .av { width: 2.4rem; height: 2.4rem; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; background: var(--stone-100); color: var(--stone-700); font-weight: 800; font-size: 0.9rem; }
       .cbody { flex: 1; min-width: 0; }
       .nm { display: block; font-weight: 700; font-size: 0.95rem; color: var(--text-main); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

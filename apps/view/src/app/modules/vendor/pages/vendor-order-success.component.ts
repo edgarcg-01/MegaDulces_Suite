@@ -22,7 +22,7 @@ import { HapticService } from '../../../core/services/haptic.service';
         <i *ngIf="isFuturo()" class="pi pi-calendar-plus"></i>
       </div>
 
-      <h2>{{ isFuturo() ? '¡Pedido agendado!' : '¡Entregado!' }}</h2>
+      <h2>{{ isFuturo() ? 'Pedido agendado' : 'Entregado' }}</h2>
       <div class="folio">{{ code() }}<ng-container *ngIf="name()"> · {{ name() }}</ng-container></div>
       <div class="amt">{{ fmtMoney(total()) }}</div>
       <div class="sub">{{ summary() }}</div>
@@ -49,8 +49,8 @@ import { HapticService } from '../../../core/services/haptic.service';
       .confetti { position: absolute; top: -40px; width: 9px; height: 14px; border-radius: 2px; opacity: 0.9; animation: fall 2.4s linear infinite; }
       @keyframes fall { 0% { transform: translateY(-40px) rotate(0); } 100% { transform: translateY(105vh) rotate(420deg); } }
 
-      .ok-check { width: 6.5rem; height: 6.5rem; border-radius: 50%; background: rgba(255,255,255,0.16); display: grid; place-items: center; margin-bottom: 1.4rem; animation: pop 0.5s var(--spring, cubic-bezier(.34,1.56,.64,1)); }
-      @keyframes pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+      .ok-check { width: 6.5rem; height: 6.5rem; border-radius: 50%; background: rgba(255,255,255,0.16); display: grid; place-items: center; margin-bottom: 1.4rem; animation: pop 0.4s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
+      @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       .ok-check svg { width: 3.4rem; height: 3.4rem; }
       .ok-check path { stroke: #fff; stroke-width: 7; fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw 0.5s 0.25s var(--ease, ease) forwards; }
       @keyframes draw { to { stroke-dashoffset: 0; } }
@@ -65,7 +65,9 @@ import { HapticService } from '../../../core/services/haptic.service';
       .acts .wa, .acts .back {
         height: 3.25rem; border-radius: var(--r-md, 12px); font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
         display: flex; align-items: center; justify-content: center; gap: 0.6rem; border: none; cursor: pointer; text-decoration: none;
+        transition: transform 0.1s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
+      .acts .wa:active, .acts .back:active { transform: scale(0.97); }
       .acts .wa { background: #fff; color: #0E7A37; }
       .ok.fut .acts .wa { color: #1E40AF; }
       .acts .back { background: rgba(255,255,255,0.18); color: #fff; }
@@ -73,6 +75,7 @@ import { HapticService } from '../../../core/services/haptic.service';
       @media (prefers-reduced-motion: reduce) {
         .confetti { display: none; }
         .ok-check { animation: none; } .ok-check path { animation: none; stroke-dashoffset: 0; }
+        .acts .wa, .acts .back { transition: none; }
       }
     `,
   ],

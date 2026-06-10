@@ -88,7 +88,10 @@ import { Order } from '../../portal/portal.service';
         display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; text-align: left;
         background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px);
         padding: 0.8rem 0.9rem; cursor: pointer; box-shadow: 0 1px 2px rgba(16,13,9,0.05);
+        transition: transform 0.08s var(--ease, ease);
       }
+      .orow:active { transform: scale(0.99); }
+      @media (prefers-reduced-motion: reduce) { .orow { transition: none; } }
       .oc { min-width: 0; }
       .code { display: block; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
       .time { font-size: 0.75rem; color: var(--text-muted); }

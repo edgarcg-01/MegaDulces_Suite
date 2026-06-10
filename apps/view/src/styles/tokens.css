@@ -292,11 +292,15 @@ body.theme-monochrome {
   --ember-soft:   rgba(248, 180, 0, 0.12);
   --ember-border: rgba(240, 90, 40, 0.30);
 
-  /* Motion — easing canónico. standard=salidas/UI, spring=entradas táctiles
-     (sheets, FAB pop). Duraciones: micro 80-120ms, feedback 200-400ms, contexto 400-600ms. */
+  /* Motion — easing canónico (curvas de Emil Kowalski). ease-out=entradas/UI
+     (arranca rápido → se siente responsivo), drawer=bottom-sheets (iOS), in-out=
+     movimiento on-screen. Duraciones: micro 80-120ms, feedback 200-400ms.
+     Sin bounce/overshoot en entradas; el rebote se reserva a gestos drag-to-dismiss. */
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease:          cubic-bezier(0.2, 0, 0, 1);
-  --spring:        cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:      cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out:   cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer:   cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Density tokens — altura de fila parametrizable.
      Operations usa --row-h-md (compact++); Storefront usa --row-h-xl (comfortable).
@@ -371,4 +375,17 @@ body.theme-monochrome .pl-wrap {
   --v-hero-grad: linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%);
   --v-seq-bg: var(--brand-100);
   --v-seq-fg: var(--brand-900);
+}
+
+/* Focus visible (a11y) — anillo de foco para teclado en todo el módulo vendedor.
+   Un stylesheet global penetra los componentes Angular (selectores de elemento/clase
+   no quedan scopeados). Sólido (--action) para pasar contraste 3:1; el outline sigue
+   el border-radius del elemento. Los contenedores de búsqueda lo muestran vía focus-within. */
+.vendor-shell button:focus-visible,
+.vendor-shell a:focus-visible,
+.vendor-shell [role='button']:focus-visible,
+.vendor-shell .search:focus-within,
+.vendor-shell .search-wrap:focus-within {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
 }

@@ -68,7 +68,15 @@ import { OrderLine } from '../../portal/portal.service';
         <h2 class="section-title">{{ title }}</h2>
         <div class="order-list">
           <p-card *ngFor="let o of list" styleClass="order-card">
-            <div class="order-head" (click)="toggle(o)">
+            <div
+              class="order-head"
+              role="button"
+              tabindex="0"
+              [attr.aria-expanded]="isOpen(o.id)"
+              (click)="toggle(o)"
+              (keydown.enter)="toggle(o)"
+              (keydown.space)="$event.preventDefault(); toggle(o)"
+            >
               <div class="info">
                 <div class="customer">{{ o.customer_name || '—' }}</div>
                 <div class="sub">
