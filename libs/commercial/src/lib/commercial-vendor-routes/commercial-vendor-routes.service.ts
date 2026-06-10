@@ -18,6 +18,13 @@ export interface SetRouteOrderDto {
   customer_ids: string[]; // en el orden de visita deseado
 }
 
+export interface CheckInDto {
+  customer_id: string;
+  notes?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 /**
  * V.0 Modo Vendedor v2 — cartera del vendedor (qué rutas de venta cubre) y orden
  * de visita de los clientes. El supervisor_ventas asigna (permiso USUARIOS_ASIGNAR_RUTA);
@@ -138,6 +145,76 @@ export class CommercialVendorRoutesService {
         .select('sales_route')
         .orderBy('sales_route');
       return rows.map((r: any) => r.sales_route);
+    });
+  }
+
+  /**
+   * V.4 — Cobertura del día: la cartera del vendedor (clientes de sus rutas,
+   * en orden de visita) anotada con si ya fue visitado HOY (TZ MX) y la fecha
+   * de la última visita. Base del apartado "Por visitar".
+   */
+  async myCoverageToday() {
+    const me = this.tenantCtx.get()?.userId;
+    if (!me) return [];
+    return this.tk.run(async (trx) =>
+      trx('commercial.customers as c')
+        .whereNull('c.deleted_at')
+        .whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('commercial.vendor_sales_routes as vsr')
+            .whereRaw('vsr.sales_route = c.sales_route')
+            .andWhere('vsr.user_id', me);
+        })
+        .select(
+          'c.id',
+          'c.code',
+          'c.name',
+          'c.visit_sequence',
+          'c.sales_route',
+          'c.phone',
+          'c.whatsapp',
+          trx.raw(
+            `EXISTS (
+               SELECT 1 FROM commercial.vendor_visits vv
+               WHERE vv.customer_id = c.id AND vv.user_id = ?
+                 AND (vv.visited_at AT TIME ZONE 'America/Mexico_City')::date
+                     = (now() AT TIME ZONE 'America/Mexico_City')::date
+             ) as visited_today`,
+            [me],
+          ),
+          trx.raw(
+            `(SELECT max(vv2.visited_at) FROM commercial.vendor_visits vv2
+               WHERE vv2.customer_id = c.id AND vv2.user_id = ?) as last_visit_at`,
+            [me],
+          ),
+        )
+        .orderByRaw('c.visit_sequence asc nulls last, c.name asc'),
+    );
+  }
+
+  /** V.4 — Registra un check-in de visita del vendedor logueado a un cliente. */
+  async checkIn(dto: CheckInDto) {
+    if (!UUID_REGEX.test(dto.customer_id)) throw new BadRequestException('customer_id inválido');
+    return this.tk.run(async (trx) => {
+      const me = this.tenantCtx.get()?.userId;
+      if (!me) throw new BadRequestException('Usuario no identificado');
+      const customer = await trx('commercial.customers')
+        .where({ id: dto.customer_id })
+        .whereNull('deleted_at')
+        .first();
+      if (!customer) throw new NotFoundException(`Customer ${dto.customer_id} no encontrado`);
+
+      const [row] = await trx('commercial.vendor_visits')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          user_id: me,
+          customer_id: dto.customer_id,
+          notes: dto.notes?.trim() || null,
+          latitude: dto.latitude ?? null,
+          longitude: dto.longitude ?? null,
+        })
+        .returning('*');
+      return row;
     });
   }
 

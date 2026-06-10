@@ -25,6 +25,21 @@ export interface VendorCustomer {
 }
 
 /**
+ * Cliente de la cartera anotado con su cobertura del día (apartado "Por visitar").
+ */
+export interface CoverageCustomer {
+  id: string;
+  code: string;
+  name: string;
+  visit_sequence?: number | null;
+  sales_route?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  visited_today: boolean;
+  last_visit_at?: string | null;
+}
+
+/**
  * Order enriquecida que devuelve el listado de pedidos para el vendedor:
  * incluye `is_preventa` (originado por el cliente vía Portal B2B) + datos
  * desnormalizados para pintar la lista sin un fetch extra por pedido.
@@ -271,6 +286,21 @@ export class VendorService {
     return this.http
       .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
       .pipe(map((r) => r.data || []));
+  }
+
+  // ─── Por visitar: cobertura del día + check-in ───
+
+  /** Cobertura del día: la cartera del vendedor anotada con visited_today + última visita. */
+  coverage(): Observable<CoverageCustomer[]> {
+    return this.http.get<CoverageCustomer[]>(`${this.base}/vendor-routes/coverage`);
+  }
+
+  /** Registra un check-in de visita al cliente. */
+  checkIn(customerId: string, notes?: string): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.base}/vendor-routes/check-in`, {
+      customer_id: customerId,
+      notes: notes || undefined,
+    });
   }
 
   // ─── My day: pedidos tomados HOY por este vendedor ───

@@ -14,6 +14,7 @@ import {
   CommercialVendorRoutesService,
   AssignRouteDto,
   SetRouteOrderDto,
+  CheckInDto,
 } from './commercial-vendor-routes.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -57,6 +58,22 @@ export class CommercialVendorRoutesController {
   @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })
   myRoutes() {
     return this.service.myRoutes();
+  }
+
+  @Get('coverage')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary: 'V.4: cobertura del día — cartera del vendedor anotada con visited_today + última visita',
+  })
+  coverage() {
+    return this.service.myCoverageToday();
+  }
+
+  @Post('check-in')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente' })
+  checkIn(@Body() body: CheckInDto) {
+    return this.service.checkIn(body);
   }
 
   @Get()
