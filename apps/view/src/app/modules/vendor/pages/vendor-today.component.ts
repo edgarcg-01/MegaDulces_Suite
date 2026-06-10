@@ -54,11 +54,11 @@ import { Order } from '../../portal/portal.service';
         <p>Aún no has tomado pedidos hoy.</p>
         <a
           pButton
-          label="Ir a clientes"
+          label="Tomar un pedido"
           icon="pi pi-arrow-right"
           severity="secondary"
           [text]="true"
-          routerLink="/vendor/customers"
+          routerLink="/vendor/new-order"
         ></a>
       </div>
     </p-card>

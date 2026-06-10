@@ -29,7 +29,8 @@ import { VendorService, VendorCustomer } from '../vendor.service';
     ButtonModule,
   ],
   template: `
-    <h1 class="page-title">Clientes</h1>
+    <h1 class="page-title">Buscar cliente</h1>
+    <p class="subtitle">Cualquier cliente del catálogo, esté o no en tu cartera</p>
 
     <div class="search-bar">
       <span class="p-input-icon-left search-wrap">
@@ -55,7 +56,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
       <div class="empty">
         <i class="pi pi-info-circle"></i>
         <p *ngIf="search">Sin resultados para "{{ search }}".</p>
-        <p *ngIf="!search">No hay clientes activos en tu tenant.</p>
+        <p *ngIf="!search">Escribí para buscar un cliente.</p>
       </div>
     </p-card>
 
@@ -85,7 +86,8 @@ import { VendorService, VendorCustomer } from '../vendor.service';
   `,
   styles: [
     `
-      .page-title { margin: 0 0 1rem; font-size: 1.5rem; color: var(--text-main); }
+      .page-title { margin: 0 0 0.25rem; font-size: 1.5rem; color: var(--text-main); }
+      .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; }
       .search-bar { margin-bottom: 1rem; }
       .search-wrap {
         display: block;

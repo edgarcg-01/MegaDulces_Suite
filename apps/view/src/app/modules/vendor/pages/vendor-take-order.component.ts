@@ -49,12 +49,12 @@ import { HapticService } from '../../../core/services/haptic.service';
 
     <a
       pButton
-      label="Volver a clientes"
+      label="Volver"
       icon="pi pi-arrow-left"
       severity="secondary"
       [text]="true"
       size="small"
-      routerLink="/vendor/customers"
+      routerLink="/vendor/new-order"
       class="back-link"
     ></a>
 

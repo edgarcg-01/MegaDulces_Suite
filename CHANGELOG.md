@@ -21,6 +21,12 @@
 - **`VendorService`**: métodos `myCartera()`, `pendingDeliveries()`, `approve()` (pending_approval→confirmed), `fulfill()` (confirmed→fulfilled) + tipo `VendorOrder` (Order enriquecida con `is_preventa`/`customer_name`/`route_name`).
 - **Ciclo de pedido para roles de campo**: el vendedor ahora gestiona su cartera de punta a punta. Seed `FIELD_PERMS` + backfill `20260610110000` activan `COMMERCIAL_ORDERS_CONFIRMAR` / `FULFILL` / `CANCELAR` en `colaborador` / `ejecutivo` / `vendedor` (idempotente, merge guardado por `@>`). Las 3 keys ya estaban mapeadas en `ability.factory`. **Requiere re-login** (el permiso vive en el JWT).
 
+### Changed — Modo Vendedor v2 · V.2: el modo vendedor reorganizado en 4 apartados
+- **Nuevo bottom nav del modo vendedor**: **Pedido** · **Por entregar** · **Por visitar** · **Buscar** (antes Clientes / Mi día / Cierre). "Mi día" y "Cierre de ruta" pasan a accesos en el header (no pierden alcance). Default de `/vendor` → `new-order`. Entradas a Modo Vendedor (nav admin, landing de proyectos, links internos) repuntadas a `/vendor/new-order`; `/vendor/customers` queda como redirect a `search`.
+- **Pedido nuevo** (`/vendor/new-order`): la cartera del vendedor (clientes de sus rutas asignadas) **en orden de visita** (`visit_sequence`, badge numerado), con filtro y tag de ruta. Tocar un cliente abre la toma de pedido. Empty state guía a pedir cartera al supervisor + fallback a Buscar.
+- **Buscar** (`/vendor/search`): búsqueda sobre **todo** el catálogo de clientes (esté o no en la cartera) — es el `vendor-customers` previo, retitulado.
+- **Por entregar** (`/vendor/pending`, V.3) y **Por visitar** (`/vendor/visits`, V.4): apartados creados con placeholder "Disponible pronto" — el backend de Por entregar (`pendingDeliveries`/`approve`/`fulfill`) ya existe (V.1).
+
 ### Fixed — Ventas (comercial): sesión de corrección de bugs
 - **Televenta dashboard 100% roto** (`dashboardMetrics`): consultaba columnas inexistentes en `commercial.lead_reservations` (`status`, `user_id` → 500 siempre) y filtraba `call_logs.outcome` por valores en español (`pedido_tomado`…) que el CHECK prohíbe (métricas en 0). Alineado al schema real (`released_at IS NULL`, `reserved_by_user_id`) y al enum canónico (`sale`/`no_answer`/`callback_scheduled`/`no_sale`).
 - **`adjustStock` no atómico**: se partía en 3 transacciones (read → recordMovement → overwrite) → saldo corrupto ante crash y lost-update concurrente. Ahora un único `tk.run` con `forUpdate`, valida `new_quantity >= reserved` y registra `quantity_before/after` correctos.

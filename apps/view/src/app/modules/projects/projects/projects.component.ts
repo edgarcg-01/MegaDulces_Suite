@@ -79,9 +79,9 @@ export class ProjectsComponent implements OnInit {
     {
       id: 'vendedor',
       name: 'Vendedor en Campo',
-      description: 'Tomá pedidos en campo: lista de clientes, catálogo con precio por cliente, y "Mi día" con tus pedidos del día.',
+      description: 'Tomá pedidos sobre tu cartera en orden de visita, gestioná entregas y cerrá tu ruta del día.',
       icon: 'pi pi-briefcase',
-      route: '/vendor/customers',
+      route: '/vendor/new-order',
       status: 'Activo',
       anyOf: [Permission.COMMERCIAL_ORDERS_CREAR],
       // Restringido a roles que realmente toman pedidos en campo. Admins/

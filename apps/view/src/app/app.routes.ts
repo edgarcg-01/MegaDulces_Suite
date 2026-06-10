@@ -330,14 +330,37 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./modules/vendor/vendor-shell.component').then((m) => m.VendorShellComponent),
     children: [
-      { path: '', redirectTo: 'customers', pathMatch: 'full' },
+      { path: '', redirectTo: 'new-order', pathMatch: 'full' },
       {
-        path: 'customers',
+        path: 'new-order',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-new-order.component').then(
+            (m) => m.VendorNewOrderComponent,
+          ),
+      },
+      {
+        path: 'pending',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-pending.component').then(
+            (m) => m.VendorPendingComponent,
+          ),
+      },
+      {
+        path: 'visits',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-visits.component').then(
+            (m) => m.VendorVisitsComponent,
+          ),
+      },
+      {
+        path: 'search',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-customers.component').then(
             (m) => m.VendorCustomersComponent,
           ),
       },
+      // Back-compat: el nav viejo apuntaba a 'customers'.
+      { path: 'customers', redirectTo: 'search', pathMatch: 'full' },
       {
         path: 'take-order/:id',
         loadComponent: () =>

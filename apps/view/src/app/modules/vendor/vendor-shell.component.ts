@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -24,7 +24,26 @@ import { AuthService } from '../../core/services/auth.service';
           <span>Vendedor</span>
         </div>
         <div class="vendor-user">
-          <span class="vendor-username">{{ username() }}</span>
+          <a
+            pButton
+            icon="pi pi-chart-bar"
+            severity="secondary"
+            size="small"
+            text
+            routerLink="today"
+            routerLinkActive="header-active"
+            aria-label="Mi día"
+          ></a>
+          <a
+            pButton
+            icon="pi pi-receipt"
+            severity="secondary"
+            size="small"
+            text
+            routerLink="close-route"
+            routerLinkActive="header-active"
+            aria-label="Cierre de ruta"
+          ></a>
           <button
             pButton
             icon="pi pi-sign-out"
@@ -32,6 +51,7 @@ import { AuthService } from '../../core/services/auth.service';
             size="small"
             text
             (click)="logout()"
+            aria-label="Salir"
           ></button>
         </div>
       </header>
@@ -41,17 +61,21 @@ import { AuthService } from '../../core/services/auth.service';
       </main>
 
       <nav class="vendor-bottom-nav">
-        <a routerLink="customers" routerLinkActive="active">
-          <i class="pi pi-users"></i>
-          <span>Clientes</span>
+        <a routerLink="new-order" routerLinkActive="active">
+          <i class="pi pi-plus-circle"></i>
+          <span>Pedido</span>
         </a>
-        <a routerLink="today" routerLinkActive="active">
-          <i class="pi pi-calendar"></i>
-          <span>Mi día</span>
+        <a routerLink="pending" routerLinkActive="active">
+          <i class="pi pi-truck"></i>
+          <span>Por entregar</span>
         </a>
-        <a routerLink="close-route" routerLinkActive="active">
-          <i class="pi pi-check-circle"></i>
-          <span>Cierre</span>
+        <a routerLink="visits" routerLinkActive="active">
+          <i class="pi pi-map-marker"></i>
+          <span>Por visitar</span>
+        </a>
+        <a routerLink="search" routerLinkActive="active">
+          <i class="pi pi-search"></i>
+          <span>Buscar</span>
         </a>
       </nav>
     </div>
@@ -83,11 +107,8 @@ import { AuthService } from '../../core/services/auth.service';
         color: var(--brand-700);
       }
       .vendor-brand i { font-size: 1.25rem; }
-      .vendor-user { display: flex; align-items: center; gap: 0.5rem; }
-      .vendor-username {
-        font-size: 0.875rem;
-        color: var(--text-muted);
-      }
+      .vendor-user { display: flex; align-items: center; gap: 0.25rem; }
+      .vendor-user a.header-active { color: var(--brand-700); }
       .vendor-main {
         flex: 1;
         padding: 1rem;
@@ -112,17 +133,18 @@ import { AuthService } from '../../core/services/auth.service';
       }
       .vendor-bottom-nav a {
         flex: 1;
-        max-width: 120px;
+        max-width: 110px;
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 0.125rem;
         text-decoration: none;
         color: var(--text-muted);
-        padding: 0.5rem;
-        font-size: 0.75rem;
+        padding: 0.5rem 0.25rem;
+        font-size: 0.68rem;
+        white-space: nowrap;
       }
-      .vendor-bottom-nav a i { font-size: 1.25rem; }
+      .vendor-bottom-nav a i { font-size: 1.2rem; }
       .vendor-bottom-nav a.active {
         color: var(--brand-700);
         font-weight: 600;
@@ -134,8 +156,6 @@ import { AuthService } from '../../core/services/auth.service';
 export class VendorShellComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
-
-  readonly username = signal<string>(this.auth.user()?.username || '');
 
   logout(): void {
     this.auth.logout();
