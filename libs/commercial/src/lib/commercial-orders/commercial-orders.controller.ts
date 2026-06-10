@@ -175,6 +175,16 @@ export class CommercialOrdersController {
     return this.service.fulfill(id);
   }
 
+  @Post(':id/deliver-now')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
+  @ApiOperation({
+    summary:
+      'V.5 autoventa: entrega inmediata. Fast-forward (draft/pending_approval/confirmed) → fulfilled en un paso. Consume stock.',
+  })
+  deliverNow(@Param('id') id: string) {
+    return this.service.deliverNow(id);
+  }
+
   @Post(':id/cancel')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_CANCELAR)
   @ApiOperation({ summary: 'Cancelar pedido. Libera reservas si estaba confirmed.' })

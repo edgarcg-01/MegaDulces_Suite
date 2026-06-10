@@ -24,6 +24,38 @@ export interface VendorCustomer {
   active: boolean;
 }
 
+/** Pedido pendiente del cliente, embebido en el feed del home. */
+export interface HomePendingOrder {
+  id: string;
+  code: string;
+  status: string;
+  total: number | string;
+  requested_delivery_date?: string | null;
+  created_at: string;
+  is_preventa?: boolean;
+}
+
+/**
+ * Cliente de la cartera anotado para el home "Mi ruta": cobertura + actividad
+ * del día + pedidos pendientes, de un solo fetch.
+ */
+export interface HomeCustomer {
+  id: string;
+  code: string;
+  name: string;
+  visit_sequence?: number | null;
+  sales_route?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  visited_today: boolean;
+  last_visit_at?: string | null;
+  ordered_today: boolean;
+  pending_count: number;
+  pending_total: number;
+  has_preventa_pending: boolean;
+  pending_orders: HomePendingOrder[];
+}
+
 /**
  * Cliente de la cartera anotado con su cobertura del día (apartado "Por visitar").
  */
@@ -230,11 +262,16 @@ export class VendorService {
   }
 
   /**
-   * J.6.6 — actualiza header del draft (delivery_type, notes). Solo válido en draft.
+   * J.6.6 — actualiza header del draft (delivery_type, notes, fecha de entrega
+   * agendada para "pedido futuro"). Solo válido en draft.
    */
   updateDraftHeader(
     orderId: string,
-    dto: { delivery_type?: 'route' | 'long_trip'; notes?: string },
+    dto: {
+      delivery_type?: 'route' | 'long_trip';
+      notes?: string;
+      requested_delivery_date?: string | null;
+    },
   ): Observable<Order> {
     return this.http.patch<Order>(`${this.base}/orders/${orderId}`, dto);
   }
@@ -286,6 +323,18 @@ export class VendorService {
     return this.http
       .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
       .pipe(map((r) => r.data || []));
+  }
+
+  // ─── Home "Mi ruta": feed unificado + autoventa ───
+
+  /** Feed del home "Mi ruta": cartera anotada (cobertura + actividad + pendientes) de un fetch. */
+  home(): Observable<HomeCustomer[]> {
+    return this.http.get<HomeCustomer[]>(`${this.base}/vendor-routes/home`);
+  }
+
+  /** Autoventa: entrega inmediata en un paso (draft/pending/confirmed → fulfilled). */
+  deliverNow(orderId: string): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/deliver-now`, {});
   }
 
   // ─── Por visitar: cobertura del día + check-in ───

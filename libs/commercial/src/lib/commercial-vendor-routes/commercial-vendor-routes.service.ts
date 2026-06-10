@@ -192,6 +192,98 @@ export class CommercialVendorRoutesService {
     );
   }
 
+  /**
+   * V.5 — Feed del home "Mi ruta": la cartera del vendedor (en orden de visita)
+   * anotada con todo lo que necesita la pantalla principal de un solo fetch:
+   *  - visited_today / last_visit_at (cobertura)
+   *  - ordered_today (ya le tomó pedido hoy, TZ MX)
+   *  - pending_orders[]: pedidos pendientes del cliente (pending_approval/confirmed),
+   *    con total + is_preventa + fecha de entrega agendada; + has_preventa_pending.
+   */
+  async myHome() {
+    const me = this.tenantCtx.get()?.userId;
+    if (!me) return [];
+    return this.tk.run(async (trx) => {
+      const customers = await trx('commercial.customers as c')
+        .whereNull('c.deleted_at')
+        .whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('commercial.vendor_sales_routes as vsr')
+            .whereRaw('vsr.sales_route = c.sales_route')
+            .andWhere('vsr.user_id', me);
+        })
+        .select(
+          'c.id',
+          'c.code',
+          'c.name',
+          'c.visit_sequence',
+          'c.sales_route',
+          'c.phone',
+          'c.whatsapp',
+          trx.raw(
+            `EXISTS (
+               SELECT 1 FROM commercial.vendor_visits vv
+               WHERE vv.customer_id = c.id AND vv.user_id = ?
+                 AND (vv.visited_at AT TIME ZONE 'America/Mexico_City')::date
+                     = (now() AT TIME ZONE 'America/Mexico_City')::date
+             ) as visited_today`,
+            [me],
+          ),
+          trx.raw(
+            `(SELECT max(vv2.visited_at) FROM commercial.vendor_visits vv2
+               WHERE vv2.customer_id = c.id AND vv2.user_id = ?) as last_visit_at`,
+            [me],
+          ),
+          trx.raw(
+            `EXISTS (
+               SELECT 1 FROM commercial.orders o
+               WHERE o.customer_id = c.id AND o.deleted_at IS NULL
+                 AND (o.created_at AT TIME ZONE 'America/Mexico_City')::date
+                     = (now() AT TIME ZONE 'America/Mexico_City')::date
+             ) as ordered_today`,
+          ),
+        )
+        .orderByRaw('c.visit_sequence asc nulls last, c.name asc');
+
+      const ids = customers.map((c: any) => c.id);
+      if (!ids.length) return [];
+
+      const pending = await trx('commercial.orders as o')
+        .leftJoin('public.users as u', 'u.id', 'o.user_id')
+        .whereIn('o.customer_id', ids)
+        .whereIn('o.status', ['pending_approval', 'confirmed'])
+        .whereNull('o.deleted_at')
+        .orderBy('o.created_at', 'desc')
+        .select(
+          'o.customer_id',
+          'o.id',
+          'o.code',
+          'o.status',
+          'o.total',
+          'o.requested_delivery_date',
+          'o.created_at',
+          trx.raw("(u.role_name = 'customer_b2b') as is_preventa"),
+        );
+
+      const byCustomer = new Map<string, any[]>();
+      for (const o of pending) {
+        if (!byCustomer.has(o.customer_id)) byCustomer.set(o.customer_id, []);
+        byCustomer.get(o.customer_id)!.push(o);
+      }
+
+      return customers.map((c: any) => {
+        const orders = byCustomer.get(c.id) || [];
+        return {
+          ...c,
+          pending_count: orders.length,
+          pending_total: orders.reduce((s, o) => s + Number(o.total), 0),
+          has_preventa_pending: orders.some((o) => o.is_preventa),
+          pending_orders: orders,
+        };
+      });
+    });
+  }
+
   /** V.4 — Registra un check-in de visita del vendedor logueado a un cliente. */
   async checkIn(dto: CheckInDto) {
     if (!UUID_REGEX.test(dto.customer_id)) throw new BadRequestException('customer_id inválido');

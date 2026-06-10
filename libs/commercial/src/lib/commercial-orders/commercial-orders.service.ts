@@ -27,11 +27,14 @@ export interface CreateDraftDto {
    * `long_trip` = viaje largo dedicado. Define cómo logística arma el shipment.
    */
   delivery_type?: DeliveryType;
+  /** V.5: fecha de entrega agendada (YYYY-MM-DD) para "pedido futuro". NULL = inmediato. */
+  requested_delivery_date?: string;
 }
 
 export interface UpdateOrderDraftDto {
   notes?: string;
   delivery_type?: DeliveryType;
+  requested_delivery_date?: string | null;
 }
 
 export interface AddLineDto {
@@ -63,6 +66,7 @@ export interface ListOrdersQuery {
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 @Injectable()
 export class CommercialOrdersService {
@@ -130,6 +134,11 @@ export class CommercialOrdersService {
         );
       }
 
+      const requestedDeliveryDate = dto.requested_delivery_date || null;
+      if (requestedDeliveryDate && !DATE_REGEX.test(requestedDeliveryDate)) {
+        throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+      }
+
       const [order] = await trx('commercial.orders')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -144,6 +153,7 @@ export class CommercialOrdersService {
           status: 'draft',
           payment_method: 'cash',
           delivery_type: deliveryType,
+          requested_delivery_date: requestedDeliveryDate,
           subtotal: 0,
           tax_total: 0,
           total: 0,
@@ -188,6 +198,13 @@ export class CommercialOrdersService {
           throw new BadRequestException(`delivery_type inválido: ${dto.delivery_type}`);
         }
         patch.delivery_type = dto.delivery_type;
+      }
+      if (dto.requested_delivery_date !== undefined) {
+        const d = dto.requested_delivery_date || null;
+        if (d && !DATE_REGEX.test(d)) {
+          throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+        }
+        patch.requested_delivery_date = d;
       }
 
       if (Object.keys(patch).length === 1) {
@@ -544,6 +561,77 @@ export class CommercialOrdersService {
           `Solo se puede fulfillar desde 'confirmed'. Estado actual: '${o.status}'`,
         );
       }
+      return this.fulfillInTransaction(trx, orderId);
+    });
+  }
+
+  /**
+   * V.5 — Autoventa "pedido al instante": fast-forward a `fulfilled` en UNA sola
+   * transacción. El vendedor arma el pedido y lo entrega en el acto (vende de la
+   * mercancía del camión), sin pasar por la aprobación en 2 tiempos.
+   *
+   * Acepta cualquier estado previo a la entrega y avanza lo que falte:
+   *   - draft           → reserva stock + congela requested_quantity + confirmed → fulfilled
+   *   - pending_approval → confirmed → fulfilled (stock ya reservado en el confirm)
+   *   - confirmed        → fulfilled
+   * Idempotente-ish: 409 si ya está fulfilled/cancelled.
+   *
+   * El consumo de inventario sale del almacén central (beta); la conciliación
+   * real del camión vive en los tickets de carga/venta del cierre de ruta.
+   */
+  async deliverNow(orderId: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (order.status === 'fulfilled')
+        throw new ConflictException('Pedido ya entregado');
+      if (order.status === 'cancelled')
+        throw new ConflictException('Pedido cancelado no se puede entregar');
+
+      const userId = this.tenantCtx.get()?.userId || null;
+
+      if (order.status === 'draft') {
+        const lines = await trx('commercial.order_lines')
+          .where({ order_id: orderId })
+          .orderBy('line_number');
+        if (lines.length === 0)
+          throw new ConflictException('Pedido sin líneas no puede entregarse');
+
+        for (const line of lines) {
+          await this.reserveStockInline(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+        }
+        await trx('commercial.order_lines')
+          .where({ order_id: orderId })
+          .whereNull('requested_quantity')
+          .update({ requested_quantity: trx.raw('quantity') });
+
+        await trx('commercial.orders')
+          .where({ id: orderId })
+          .update({
+            status: 'confirmed',
+            pending_approval_at: trx.fn.now(),
+            confirmed_at: trx.fn.now(),
+            updated_at: trx.fn.now(),
+            updated_by: userId,
+          });
+        await this.recordHistory(trx, orderId, 'draft', 'confirmed', 'autoventa: entrega inmediata');
+      } else if (order.status === 'pending_approval') {
+        await trx('commercial.orders')
+          .where({ id: orderId })
+          .update({
+            status: 'confirmed',
+            confirmed_at: trx.fn.now(),
+            updated_at: trx.fn.now(),
+            updated_by: userId,
+          });
+        await this.recordHistory(trx, orderId, 'pending_approval', 'confirmed', 'autoventa: entrega inmediata');
+      }
+
+      // Estado garantizado 'confirmed' → fulfillInTransaction consume y entrega.
       return this.fulfillInTransaction(trx, orderId);
     });
   }
@@ -938,6 +1026,7 @@ export class CommercialOrdersService {
           'o.code',
           'o.status',
           'o.delivery_type',
+          'o.requested_delivery_date',
           'o.customer_id',
           'c.name as customer_name',
           'o.warehouse_id',

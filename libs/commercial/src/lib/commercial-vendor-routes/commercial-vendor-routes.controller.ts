@@ -69,6 +69,15 @@ export class CommercialVendorRoutesController {
     return this.service.myCoverageToday();
   }
 
+  @Get('home')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary: 'V.5: feed "Mi ruta" — cartera anotada (visitado/ordenado hoy + pedidos pendientes) de un fetch',
+  })
+  home() {
+    return this.service.myHome();
+  }
+
   @Post('check-in')
   @RequirePermissions(Permission.VISITAS_REGISTRAR)
   @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente' })
