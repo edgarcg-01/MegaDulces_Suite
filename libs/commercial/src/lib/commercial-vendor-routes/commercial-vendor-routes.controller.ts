@@ -45,6 +45,13 @@ export class CommercialVendorRoutesController {
     return this.service.listVendors();
   }
 
+  @Get('customers')
+  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @ApiOperation({ summary: 'Clientes de una ruta (?sales_route=) ordenados por visit_sequence, para reordenar' })
+  customersByRoute(@Query('sales_route') salesRoute: string) {
+    return this.service.customersByRoute(salesRoute);
+  }
+
   @Get('my')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })

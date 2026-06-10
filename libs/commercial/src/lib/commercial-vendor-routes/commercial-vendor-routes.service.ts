@@ -45,11 +45,11 @@ export class CommercialVendorRoutesService {
         .leftJoin('public.users as u', function () {
           this.on('u.tenant_id', '=', 'v.tenant_id').andOn('u.id', '=', 'v.user_id');
         })
-        .select('v.sales_route', 'v.user_id', 'u.username');
-      const byRoute = new Map<string, { user_id: string; username: string }[]>();
+        .select('v.id', 'v.sales_route', 'v.user_id', 'u.username');
+      const byRoute = new Map<string, { id: string; user_id: string; username: string }[]>();
       for (const a of assigns) {
         if (!byRoute.has(a.sales_route)) byRoute.set(a.sales_route, []);
-        byRoute.get(a.sales_route)!.push({ user_id: a.user_id, username: a.username });
+        byRoute.get(a.sales_route)!.push({ id: a.id, user_id: a.user_id, username: a.username });
       }
       return routes.map((r: any) => ({
         sales_route: r.sales_route,
@@ -67,6 +67,19 @@ export class CommercialVendorRoutesService {
         .where('activo', true)
         .select('id', 'username', 'role_name')
         .orderBy('username'),
+    );
+  }
+
+  /** Clientes de una ruta de venta, ordenados por visit_sequence (para reordenar). */
+  async customersByRoute(salesRoute: string) {
+    const route = (salesRoute || '').trim().toUpperCase();
+    if (!route) throw new BadRequestException('sales_route requerido');
+    return this.tk.run(async (trx) =>
+      trx('commercial.customers')
+        .where({ sales_route: route })
+        .whereNull('deleted_at')
+        .select('id', 'code', 'name', 'visit_sequence', 'phone', 'whatsapp')
+        .orderByRaw('visit_sequence asc nulls last, name asc'),
     );
   }
 

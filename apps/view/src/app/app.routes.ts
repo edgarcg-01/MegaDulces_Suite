@@ -90,6 +90,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS_VER)]
       },
       {
+        // V.0 — cartera de ventas: supervisor asigna rutas a vendedores + orden de visita.
+        path: 'cartera',
+        loadComponent: () => import('./modules/comercial/pages/comercial-cartera.component').then(m => m.ComercialCarteraComponent),
+        canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
+      },
+      {
         path: 'orders',
         loadComponent: () => import('./modules/comercial/pages/comercial-orders.component').then(m => m.ComercialOrdersComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)],
