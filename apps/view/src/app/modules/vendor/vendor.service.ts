@@ -71,6 +71,49 @@ export interface CoverageCustomer {
   last_visit_at?: string | null;
 }
 
+/** Cliente de la cartera detectado por cercanía GPS (ordenado por distancia). */
+export interface NearbyCustomer {
+  id: string;
+  code: string;
+  name: string;
+  sales_route?: string | null;
+  visit_sequence?: number | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  latitude: number | string;
+  longitude: number | string;
+  distance_m: number;
+}
+
+/** Otro cliente cuyas coords colisionan con las que se intentan registrar. */
+export interface LocationConflict {
+  customer_id: string;
+  code: string;
+  name: string;
+  distance_m: number;
+}
+
+/** Resultado de setear/backfillear coords (con guard anti-traslape). */
+export interface SetLocationResult {
+  location_set: boolean;
+  conflict?: LocationConflict;
+  min_separation_m?: number;
+  customer_id?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+/** Cliente due-for-reorder según el motor de inteligencia (Fase M). */
+export interface NbaDue {
+  customer_id: string;
+  code: string | null;
+  name: string | null;
+  next_order_estimate: string | null;
+  cadence_days: number | null;
+  days_overdue: number;
+  urgency: 'low' | 'medium' | 'high';
+}
+
 /**
  * Order enriquecida que devuelve el listado de pedidos para el vendedor:
  * incluye `is_preventa` (originado por el cliente vía Portal B2B) + datos
@@ -83,6 +126,7 @@ export interface VendorOrder extends Order {
   user_username?: string | null;
   route_name?: string | null;
   folio?: string;
+  requested_delivery_date?: string | null;
 }
 
 // ─── Cierre de ruta ───
@@ -311,6 +355,20 @@ export class VendorService {
   }
 
   /**
+   * Pedidos pendientes (pending_approval/confirmed) de UN cliente — para avisar
+   * en take-order y no duplicar (preventa del portal o pedido de campo ya vivo).
+   */
+  pendingForCustomer(customerId: string): Observable<VendorOrder[]> {
+    const params = new HttpParams()
+      .set('customer_id', customerId)
+      .set('statuses', 'pending_approval,confirmed')
+      .set('pageSize', '10');
+    return this.http
+      .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
+      .pipe(map((r) => r.data || []));
+  }
+
+  /**
    * Pedidos "por entregar" de la cartera del vendedor: preventa (creada por el
    * cliente) + de campo, en estados pending_approval y confirmed. Es la base del
    * apartado "Por entregar". Ordenados por fecha desc desde el backend.
@@ -325,11 +383,44 @@ export class VendorService {
       .pipe(map((r) => r.data || []));
   }
 
+  /**
+   * Pedidos a CARGAR: confirmados de la cartera del vendedor. El filtro por fecha
+   * (próximo día hábil sáb→lun + los sin fecha) lo aplica el componente. Solo
+   * cabeceras; las líneas se piden con `orderById` para agregar productos.
+   */
+  cargaOrders(): Observable<VendorOrder[]> {
+    const params = new HttpParams()
+      .set('mine', 'true')
+      .set('statuses', 'confirmed')
+      .set('pageSize', '300');
+    return this.http
+      .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
+      .pipe(map((r) => r.data || []));
+  }
+
   // ─── Home "Mi ruta": feed unificado + autoventa ───
 
   /** Feed del home "Mi ruta": cartera anotada (cobertura + actividad + pendientes) de un fetch. */
   home(): Observable<HomeCustomer[]> {
     return this.http.get<HomeCustomer[]>(`${this.base}/vendor-routes/home`);
+  }
+
+  /**
+   * Clientes due-for-reorder hoy (motor de inteligencia, Fase M). Tenant-wide;
+   * el home lo intersecta con la cartera. Best-effort: si el endpoint no está
+   * disponible (migración sin aplicar), el caller cae a [] sin romper la ruta.
+   */
+  nbaDue(): Observable<NbaDue[]> {
+    return this.http.get<NbaDue[]>(`${this.base}/intelligence/nba`);
+  }
+
+  /** Registra una señal del feedback loop (Fase M, best-effort en el caller). */
+  recordSignal(customerId: string, signalType: string, channel = 'vendor'): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.base}/intelligence/signals`, {
+      customer_id: customerId,
+      signal_type: signalType,
+      channel,
+    });
   }
 
   /** Autoventa: entrega inmediata en un paso (draft/pending/confirmed → fulfilled). */
@@ -344,12 +435,45 @@ export class VendorService {
     return this.http.get<CoverageCustomer[]>(`${this.base}/vendor-routes/coverage`);
   }
 
-  /** Registra un check-in de visita al cliente. */
-  checkIn(customerId: string, notes?: string): Observable<{ id: string }> {
-    return this.http.post<{ id: string }>(`${this.base}/vendor-routes/check-in`, {
-      customer_id: customerId,
-      notes: notes || undefined,
-    });
+  /**
+   * Registra un check-in de visita al cliente. Si se pasan coords (GPS del
+   * vendedor al llegar), el backend las guarda en la visita y —si el cliente aún
+   * no tiene coords canónicas— hace backfill capture-on-visit con guard
+   * anti-traslape (devuelto en `location`).
+   */
+  checkIn(
+    customerId: string,
+    opts: { notes?: string; latitude?: number; longitude?: number } = {},
+  ): Observable<{ id: string; location?: SetLocationResult | null }> {
+    return this.http.post<{ id: string; location?: SetLocationResult | null }>(
+      `${this.base}/vendor-routes/check-in`,
+      {
+        customer_id: customerId,
+        notes: opts.notes || undefined,
+        latitude: opts.latitude,
+        longitude: opts.longitude,
+      },
+    );
+  }
+
+  /** V.6 — Clientes de la cartera cerca del vendedor (GPS), ordenados por distancia. */
+  nearbyCustomers(lat: number, lng: number, radius?: number): Observable<NearbyCustomer[]> {
+    let p = new HttpParams().set('lat', String(lat)).set('lng', String(lng));
+    if (radius != null) p = p.set('radius', String(radius));
+    return this.http.get<NearbyCustomer[]>(`${this.base}/vendor-routes/nearby`, { params: p });
+  }
+
+  /** V.6 — Setea/corrige las coords del cliente. `force` confirma pese al guard anti-traslape. */
+  setCustomerLocation(
+    customerId: string,
+    lat: number,
+    lng: number,
+    force = false,
+  ): Observable<SetLocationResult> {
+    return this.http.post<SetLocationResult>(
+      `${this.base}/vendor-routes/customers/${customerId}/location`,
+      { latitude: lat, longitude: lng, force },
+    );
   }
 
   // ─── My day: pedidos tomados HOY por este vendedor ───

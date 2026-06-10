@@ -118,8 +118,9 @@ function check(name, condition, detail) {
 
   // 6. Orders flow
   console.log('\n── 6. Orders flow ──');
-  // Pick TST-0002 customer
-  const all = await req('GET', '/commercial/customers?pageSize=200', null, token);
+  // Pick TST-0002 customer. ?search= en vez de pageSize — el tenant tiene miles
+  // de customers (bulk import) y TST-0002 queda fuera de cualquier página fija.
+  const all = await req('GET', '/commercial/customers?search=TST-0002', null, token);
   const cust = (all.body?.data || []).find((c) => c.code === 'TST-0002');
   check('Customer TST-0002 disponible', !!cust);
 

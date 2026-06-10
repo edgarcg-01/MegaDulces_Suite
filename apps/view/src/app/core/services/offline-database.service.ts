@@ -81,7 +81,7 @@ export interface PendingVendorSale {
 
 export interface CatalogoOffline {
   id: string;
-  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today';
+  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today' | 'frecuentes';
   datos: any;
   version: string;
   ultima_sincronizacion: string;

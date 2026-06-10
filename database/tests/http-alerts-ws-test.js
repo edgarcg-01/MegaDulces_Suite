@@ -169,17 +169,18 @@ function wait(ms) {
   console.log('\n── 5. Order flow → alerts ──');
   t1.alerts.length = 0;
   // Pick customer + warehouse + product+price
-  const customers = await http('GET', '/commercial/customers?pageSize=10', null, t1Token);
+  const customers = await http('GET', '/commercial/customers?search=TST-0001&pageSize=10', null, t1Token);
   const customer = customers.body.data.find((c) => c.code === 'TST-0001');
   const wh = (await http('GET', '/commercial/warehouses', null, t1Token)).body.find(
     (w) => w.code === 'MD-CENTRAL',
   );
   const pls = (await http('GET', '/commercial/price-lists', null, t1Token)).body;
   const basePl = pls.find((p) => p.code === 'BASE-MXN');
-  const pricesResp = await http('GET', `/commercial/price-lists/${basePl.id}/prices?pageSize=200`, null, t1Token);
+  const pricesResp = await http('GET', `/commercial/price-lists/${basePl.id}/prices?pageSize=1000`, null, t1Token);
   const prices = Array.isArray(pricesResp.body) ? pricesResp.body : (pricesResp.body?.data || []);
-  // Buscar producto caro para superar $3k
-  const expensive = [...prices].sort((a, b) => Number(b.price) - Number(a.price))[0];
+  // Buscar producto caro para superar $3k. /prices es catálogo LEFT-JOIN precios →
+  // filtrar a los que tienen precio real antes de ordenar (si no, sort con null elige ~0).
+  const expensive = [...prices].filter((p) => p.price != null && Number(p.price) > 0).sort((a, b) => Number(b.price) - Number(a.price))[0];
 
   // Idempotencia: replenish stock para el producto elegido a un nivel seguro
   // antes de tomar la orden. Sin esto re-runs depletan el stock.
@@ -199,7 +200,7 @@ function wait(ms) {
   await http(
     'POST',
     `/commercial/orders/${draft.body.id}/lines`,
-    { product_id: expensive.product_id, quantity: 30 },
+    { product_id: expensive.product_id, quantity: 400 },
     t1Token,
   );
   const confirm = await http('POST', `/commercial/orders/${draft.body.id}/confirm`, null, t1Token);

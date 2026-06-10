@@ -16,8 +16,8 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of, switchMap } from 'rxjs';
-import { VendorService, VendorCustomer } from '../vendor.service';
+import { forkJoin, of, switchMap, catchError } from 'rxjs';
+import { VendorService, VendorCustomer, VendorOrder } from '../vendor.service';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 
@@ -63,6 +63,23 @@ type OrderMode = 'instante' | 'futuro';
 
     <ng-container *ngIf="!loading() && customer()">
       <div class="scroll">
+        <!-- Aviso: el cliente ya tiene un pedido pendiente (preventa/portal o de campo) -->
+        <div class="pending-warn" *ngIf="!pendingDismissed() && pendingOrders().length > 0">
+          <i class="pi pi-exclamation-triangle"></i>
+          <div class="pw-body">
+            <b>
+              Ya tiene
+              {{ pendingOrders().length === 1 ? (hasPreventa() ? 'una preventa' : 'un pedido') : pendingOrders().length + ' pedidos' }}
+              pendiente{{ pendingOrders().length === 1 ? '' : 's' }}
+            </b>
+            <span>{{ fmtMoney(pendingTotal()) }}{{ hasPreventa() ? ' · del portal' : '' }} — revisá antes de duplicar</span>
+          </div>
+          <div class="pw-actions">
+            <button class="pw-see" (click)="goPending()">Ver</button>
+            <button class="pw-x" (click)="pendingDismissed.set(true)">Continuar</button>
+          </div>
+        </div>
+
         <!-- Fecha de entrega (futuro) -->
         <div class="date-row" *ngIf="mode() === 'futuro'">
           <label><i class="pi pi-calendar"></i> Fecha de entrega</label>
@@ -205,6 +222,16 @@ type OrderMode = 'instante' | 'futuro';
       .cp-info span { font-size: 0.7rem; color: var(--stone-400); }
       .cp-cta { margin-left: auto; height: 2.75rem; padding: 0 1.1rem; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; }
 
+      /* Aviso de pedido pendiente (anti-duplicado) */
+      .pending-warn { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.875rem; padding: 0.7rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--warn-soft-bg); border: 1px solid var(--warn-fg); }
+      .pending-warn > i { color: var(--warn-fg); font-size: 1rem; margin-top: 1px; flex-shrink: 0; }
+      .pending-warn .pw-body { flex: 1; min-width: 0; }
+      .pending-warn .pw-body b { display: block; font-size: 0.85rem; color: var(--text-main); }
+      .pending-warn .pw-body span { font-size: 0.76rem; color: var(--text-muted); }
+      .pending-warn .pw-actions { display: flex; flex-direction: column; gap: 0.35rem; flex-shrink: 0; }
+      .pending-warn .pw-see { background: var(--warn-fg); color: #fff; border: none; border-radius: var(--r-sm, 8px); font-weight: 700; font-size: 0.76rem; padding: 0.35rem 0.7rem; }
+      .pending-warn .pw-x { background: none; border: none; color: var(--text-muted); font-size: 0.72rem; font-weight: 600; }
+
       @media (prefers-reduced-motion: reduce) { .add, .cartpill { transition: none; } }
     `,
   ],
@@ -227,6 +254,12 @@ export class VendorTakeOrderComponent implements OnInit {
   readonly warehouseId = signal<string>('');
   readonly submitting = signal(false);
   readonly mode = signal<OrderMode>('instante');
+
+  /** Pedidos ya pendientes del cliente (anti-duplicado: avisar + reusar). */
+  readonly pendingOrders = signal<VendorOrder[]>([]);
+  readonly pendingDismissed = signal(false);
+  readonly pendingTotal = computed(() => this.pendingOrders().reduce((s, o) => s + Number(o.total), 0));
+  readonly hasPreventa = computed(() => this.pendingOrders().some((o) => o.is_preventa));
 
   // Para "pedido futuro": fecha de entrega agendada.
   requestedDate = '';
@@ -281,15 +314,17 @@ export class VendorTakeOrderComponent implements OnInit {
             prices: this.api.catalogForCustomer(customerId, warehouseId || undefined),
             warehouseId: of(warehouseId),
             existingDraft: this.api.draftForCustomer(customerId),
+            pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
           }),
         ),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
-        next: ({ customer, prices, warehouseId, existingDraft }) => {
+        next: ({ customer, prices, warehouseId, existingDraft, pending }) => {
           this.customer.set(customer);
           this.prices.set(prices);
           this.warehouseId.set(warehouseId || '');
+          this.pendingOrders.set(pending);
           if (existingDraft) {
             this.cartOrderId.set(existingDraft.id);
             this.api.orderById(existingDraft.id).subscribe((full) => this.cartLines.set(full.lines || []));
@@ -305,6 +340,11 @@ export class VendorTakeOrderComponent implements OnInit {
 
   back(): void {
     this.router.navigate(['/vendor/route-home']);
+  }
+
+  /** Ir a "Por entregar" para resolver el pendiente en vez de duplicarlo. */
+  goPending(): void {
+    this.router.navigate(['/vendor/pending']);
   }
 
   addToCart(p: PriceRow): void {

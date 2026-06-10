@@ -311,7 +311,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-o>
-              <tr (click)="goDetail(o)" class="comm-row-clickable">
+              <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" tabindex="0" role="button"
+                  [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
                 <td><code class="comm-code">{{ o.folio }}</code></td>
                 <td>
                   <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
@@ -515,8 +516,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       transition: border-color 120ms var(--ease-standard);
     }
     .co-daterange:focus-within {
-      border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
+      border-color: var(--action);
+      box-shadow: 0 0 0 3px var(--action-ring);
     }
     .co-daterange-icon {
       color: var(--c-text-3);
@@ -563,8 +564,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       transition: border-color 120ms var(--ease-standard);
     }
     .co-search:focus-within {
-      border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
+      border-color: var(--action);
+      box-shadow: 0 0 0 3px var(--action-ring);
     }
     .co-search-icon {
       color: var(--c-text-3);
@@ -588,8 +589,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     .co-search-clear {
       background: transparent;
       border: none;
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       border-radius: 4px;
       color: var(--c-text-3);
       cursor: pointer;
@@ -651,7 +652,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       gap: .3rem;
     }
     .co-cell-meta i { font-size: var(--fs-nano); color: var(--c-text-3); }
-    .co-date { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--c-text-1); }
+    .co-date { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--c-text-1); }
 
     /* ── EMPTY STATE inline en tabla ── */
     .co-empty-cell { padding: 0 !important; }
@@ -686,8 +687,10 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     }
 
     @media (max-width: 640px) {
-      .co-filters-row { gap: .625rem; }
-      .co-date-field, .co-search-field { width: 100%; max-width: none; }
+      .co-toolbar { gap: .5rem; }
+      .co-toolbar-spacer { display: none; }
+      .co-search { width: 100%; }
+      .co-daterange { flex: 1; }
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

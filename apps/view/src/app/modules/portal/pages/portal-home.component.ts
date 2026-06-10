@@ -4,7 +4,7 @@ import { RouterModule, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
-import { PortalService, Order, PromotionRow } from '../portal.service';
+import { PortalService, Order, PromotionRow, RecommendationItem, Customer360Dto } from '../portal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { HapticService } from '../../../core/services/haptic.service';
 
@@ -261,6 +261,26 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           <span class="ph-shortcut-label">Recomendado IA</span>
         </button>
       </div>
+    </section>
+
+    <!-- [4.6] PEDIDO HABITUAL — nudge de reorden por cadencia -->
+    <section *ngIf="showHabitual()" class="ph-section">
+      <header class="ph-section-head">
+        <h2>{{ isReorderDue() ? 'Ya va siendo hora' : 'Tu pedido habitual' }}</h2>
+      </header>
+      <article class="ph-habitual" [class.is-due]="isReorderDue()" (click)="goAi()">
+        <div class="ph-habitual-body">
+          <span class="ph-habitual-eyebrow">
+            <i class="pi pi-refresh" aria-hidden="true"></i>
+            {{ isReorderDue() ? reorderHint() : 'Tus productos de siempre' }}
+          </span>
+          <p class="ph-habitual-items">{{ habitualNames() }}</p>
+        </div>
+        <span class="ph-habitual-cta portal-btn-pill">
+          Armar mi pedido
+          <i class="pi pi-arrow-right" aria-hidden="true"></i>
+        </span>
+      </article>
     </section>
 
     <!-- [5] PROMOS DEL MES — 1 feature + 2 secondary -->
@@ -994,6 +1014,31 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         line-height: 1.3;
       }
 
+      /* ── PEDIDO HABITUAL (Fase M) ───────────────────────────────── */
+      .ph-habitual {
+        display: flex; align-items: center; gap: 1rem;
+        padding: 1rem 1.25rem;
+        border: 1px solid var(--border-color); border-radius: var(--radius-lg, 1rem);
+        background: var(--card-bg); cursor: pointer; transition: border-color 0.15s ease;
+      }
+      .ph-habitual:hover { border-color: var(--brand-400); }
+      .ph-habitual.is-due { background: var(--brand-50, #fff7ed); border-color: var(--brand-200); }
+      .ph-habitual-body { flex: 1; min-width: 0; }
+      .ph-habitual-eyebrow {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+        text-transform: uppercase; color: var(--brand-700);
+      }
+      .ph-habitual-items {
+        margin: 0.35rem 0 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.35;
+        overflow: hidden; text-overflow: ellipsis;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      }
+      .ph-habitual-cta {
+        flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.4rem;
+        font-weight: 700; color: var(--action, var(--brand-700)); white-space: nowrap;
+      }
+
       /* ── SKELETONS ──────────────────────────────────────────────── */
       .ph-skel-grid, .ph-skel-list {
         margin-bottom: 2.5rem;
@@ -1017,6 +1062,8 @@ export class PortalHomeComponent {
   readonly loadingOrders = signal(true);
   readonly loadingPromos = signal(true);
   readonly reordering = signal(false);
+  readonly reorderProfile = signal<Customer360Dto | null>(null);
+  readonly habitualItems = signal<RecommendationItem[]>([]);
 
   /** Chips trending bajo el search — mock por ahora. */
   readonly trendingChips = [
@@ -1085,6 +1132,24 @@ export class PortalHomeComponent {
     this.orders().find((o) => o.status === 'fulfilled' || o.status === 'confirmed') || null,
   );
 
+  /** "Tu pedido habitual": productos base del cliente + nudge si toca reordenar. */
+  readonly showHabitual = computed(() => this.habitualItems().length > 0);
+  readonly isReorderDue = computed(() => {
+    const c = this.reorderProfile();
+    if (!c?.next_order_estimate) return false;
+    const due = new Date(c.next_order_estimate).getTime() <= Date.now();
+    return due && (c.lifecycle_stage === 'active' || c.lifecycle_stage === 'at_risk');
+  });
+  readonly habitualNames = computed(() => {
+    const items = this.habitualItems();
+    return items.slice(0, 4).map((i) => i.product_name).join(', ') + (items.length > 4 ? '…' : '');
+  });
+  reorderHint(): string {
+    const c = this.reorderProfile();
+    if (c?.cadence_days) return `Sueles reabastecer cada ~${Math.round(c.cadence_days)} días`;
+    return 'Ya es buen momento para reabastecer';
+  }
+
   /** Pedido "vivo" para banner top destacado. */
   readonly ongoingOrder = computed(() => {
     const list = this.orders();
@@ -1129,6 +1194,23 @@ export class PortalHomeComponent {
         this.promotions.set([]);
         this.loadingPromos.set(false);
       },
+    });
+
+    // Pedido habitual (motor de inteligencia, Fase M) — best-effort, no bloquea el home.
+    this.portal.myRecommendations().subscribe({
+      next: (b) => {
+        const base = (b.items || []).filter((i) => i.category === 'base');
+        this.habitualItems.set(base);
+        if (base.length > 0) {
+          // Feedback loop (Fase M): impresión de la tarjeta habitual. Best-effort.
+          this.portal.recordMySignal('offer_shown', 'portal').subscribe({ error: () => {} });
+        }
+      },
+      error: () => this.habitualItems.set([]),
+    });
+    this.portal.myCustomer360().subscribe({
+      next: (c) => this.reorderProfile.set(c),
+      error: () => this.reorderProfile.set(null),
     });
   }
 

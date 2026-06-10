@@ -75,7 +75,7 @@ function check(name, cond, detail) {
   const prices = pricesResp.body?.data || [];
   const stockResp = await req('GET', `/commercial/inventory/stock?warehouse_id=${wh.id}&pageSize=200`, null, adminToken);
   const stockList = stockResp.body?.data || [];
-  const pricedIds = new Set(prices.map((p) => p.product_id));
+  const pricedIds = new Set(prices.filter((p) => p.price != null && Number(p.price) > 0 && Number(p.min_qty || 1) <= 3).map((p) => p.product_id));
   const stockEntry = stockList.find((s) => Number(s.quantity || 0) >= 5 && pricedIds.has(s.product_id));
   check('producto con precio + stock encontrado', !!stockEntry, { stockCount: stockList.length, pricedCount: pricedIds.size });
   if (!stockEntry) process.exit(1);

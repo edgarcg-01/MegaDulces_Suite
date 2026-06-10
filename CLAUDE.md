@@ -210,6 +210,7 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 - **ADR-010** ✅ Multi-tenancy aceptado: shared DB + `tenant_id` desde DB nueva.
 - **ADR-011** ✅ 2026-05-27 — Embeddings: Voyage AI `voyage-3` (1024 dims, multilingual). Necesita `VOYAGE_API_KEY`.
 - **ADR-012** ✅ 2026-05-27 — pgvector en DB legacy ahora; la columna `embedding` se mueve con la tabla cuando se migre TM a multi-tenant.
+- **ADR-016** ✅ 2026-06-10 — Motor de Inteligencia Comercial (respuesta a comparativa yom.ai): **el motor decide, el agente comunica, el LLM fuera del camino del dinero**. 5 capas (Customer 360 → Decisión → Agente → Canales → Feedback). Build por rebanada vertical. Plan en [`FASE_M`](docs/IMPLEMENTACION/FASES/FASE_M_MOTOR_INTELIGENCIA.md).
 
 ---
 

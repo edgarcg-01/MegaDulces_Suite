@@ -13,6 +13,7 @@ export * from './lib/commercial-orders/commercial-orders.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-alerts/commercial-alerts.module';
 export * from './lib/commercial-recommendations/commercial-recommendations.module';
+export * from './lib/commercial-intelligence/commercial-intelligence.module';
 export * from './lib/commercial-promotions/commercial-promotions.module';
 export * from './lib/commercial-products/commercial-products.module';
 export * from './lib/commercial-catalog-search/commercial-catalog-search.module';

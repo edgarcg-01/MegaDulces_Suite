@@ -13,7 +13,7 @@ import { CardModule } from 'primeng/card';
 import { SkeletonModule } from 'primeng/skeleton';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError } from 'rxjs';
-import { VendorService, HomeCustomer, NbaDue } from '../vendor.service';
+import { VendorService, HomeCustomer, NbaDue, VendorOrder } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
 
 /**
@@ -39,6 +39,18 @@ import { Order } from '../../portal/portal.service';
     </p-card>
 
     <ng-container *ngIf="!loading() && totalCount() > 0">
+      <ng-container *ngIf="carga().length > 0">
+        <div class="group">Para cargar</div>
+        <button class="nrow" (click)="goCarga()">
+          <span class="nic warn"><i class="pi pi-truck"></i></span>
+          <span class="nb">
+            <span class="nt">Cargá {{ carga().length }} {{ carga().length === 1 ? 'pedido' : 'pedidos' }} para {{ cargaLabel }}</span>
+            <span class="nd">Verificá lo que subís al camión antes de salir.</span>
+          </span>
+          <i class="pi pi-chevron-right go"></i>
+        </button>
+      </ng-container>
+
       <ng-container *ngIf="preventa().length > 0">
         <div class="group">Requieren acción</div>
         <button class="nrow" *ngFor="let p of preventa()" (click)="goPending()">
@@ -112,9 +124,11 @@ export class VendorNotificationsComponent implements OnInit {
   readonly preventa = signal<HomeCustomer[]>([]);
   readonly due = signal<NbaDue[]>([]);
   readonly todayOrders = signal<Order[]>([]);
+  readonly carga = signal<VendorOrder[]>([]);
+  readonly cargaLabel = this.nextBusinessDayLabel();
 
   readonly totalCount = computed(
-    () => this.preventa().length + this.due().length + this.todayOrders().length,
+    () => this.preventa().length + this.due().length + this.todayOrders().length + (this.carga().length ? 1 : 0),
   );
 
   ngOnInit(): void {
@@ -122,13 +136,16 @@ export class VendorNotificationsComponent implements OnInit {
       home: this.api.home().pipe(catchError(() => of([] as HomeCustomer[]))),
       due: this.api.nbaDue().pipe(catchError(() => of([] as NbaDue[]))),
       today: this.api.myOrdersToday().pipe(catchError(() => of([] as Order[]))),
+      carga: this.api.cargaOrders().pipe(catchError(() => of([] as VendorOrder[]))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ home, due, today }) => {
+        next: ({ home, due, today, carga }) => {
           this.preventa.set(home.filter((c) => c.has_preventa_pending));
           this.due.set(due);
           this.todayOrders.set(today);
+          const iso = this.nextBizIso();
+          this.carga.set(carga.filter((o) => !o.requested_delivery_date || o.requested_delivery_date.slice(0, 10) === iso));
           this.loading.set(false);
         },
         error: () => this.loading.set(false),
@@ -140,6 +157,29 @@ export class VendorNotificationsComponent implements OnInit {
   }
   goReorder(d: NbaDue): void {
     this.router.navigate(['/vendor/take-order', d.customer_id], { queryParams: { mode: 'instante' } });
+  }
+  goCarga(): void {
+    this.router.navigate(['/vendor/carga']);
+  }
+
+  /** ISO del próximo día hábil (domingo no hay reparto → sáb pasa a lun). */
+  private nextBizIso(): string {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  private nextBusinessDayLabel(): string {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+    const tomorrow = new Date();
+    tomorrow.setHours(0, 0, 0, 0);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const iso = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    return iso(d) === iso(tomorrow) ? 'mañana' : `el ${d.toLocaleDateString('es-MX', { weekday: 'long' })}`;
   }
 
   dueLabel(d: NbaDue): string {

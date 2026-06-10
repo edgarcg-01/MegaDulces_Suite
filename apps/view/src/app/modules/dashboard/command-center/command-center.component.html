@@ -29,7 +29,12 @@
     </div>
   </header>
 
-  <p-skeleton *ngIf="loading()" height="280px"></p-skeleton>
+  <div *ngIf="loading()" class="cc-skeletons" aria-hidden="true">
+    <p-skeleton height="190px" borderRadius="12px"></p-skeleton>
+    <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
+    <p-skeleton height="320px" borderRadius="12px"></p-skeleton>
+    <p-skeleton height="280px" borderRadius="12px"></p-skeleton>
+  </div>
 
   <!-- SHEET 1: Hero Ventas + 3 KPIs satélite -->
   <div *ngIf="!loading()" class="sheet cols-12">
@@ -60,13 +65,13 @@
         <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
           <defs>
             <linearGradient id="ccSparkFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="var(--c-text-1)" stop-opacity="0.12"/>
-              <stop offset="100%" stop-color="var(--c-text-1)" stop-opacity="0"/>
+              <stop offset="0%" stop-color="var(--action)" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="var(--action)" stop-opacity="0"/>
             </linearGradient>
           </defs>
           <path [attr.d]="s.area" fill="url(#ccSparkFill)"/>
-          <path [attr.d]="s.line" fill="none" stroke="var(--c-text-1)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-          <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2.5" fill="var(--c-text-1)"/>
+          <path [attr.d]="s.line" fill="none" stroke="var(--action)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2.5" fill="var(--action)"/>
         </svg>
       </div>
     </article>
@@ -100,6 +105,34 @@
       <span class="cell-label">Clientes únicos · 30d</span>
       <span class="cell-value">{{ fmtNumber(overview()?.unique_customers) }}</span>
       <span class="cell-sub">Compraron al menos una vez en los últimos 30 días</span>
+    </article>
+  </div>
+
+  <!-- SHEET 1.5: Motor de Inteligencia — reorden + conversión (Fase M) -->
+  <div *ngIf="!loading() && conversion() as conv" class="sheet cols-12">
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true"><i class="pi pi-refresh"></i></span>
+      <span class="cell-label">Reorden hoy</span>
+      <span class="cell-value">{{ fmtNumber(dueCount()) }}</span>
+      <span class="cell-sub">Clientes due-for-reorder</span>
+    </article>
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true"><i class="pi pi-megaphone"></i></span>
+      <span class="cell-label">Ofertas · {{ conv.window_days }}d</span>
+      <span class="cell-value">{{ fmtNumber(conv.offers) }}</span>
+      <span class="cell-sub">Nudges mostrados/enviados</span>
+    </article>
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
+      <span class="cell-label">Convertidas</span>
+      <span class="cell-value">{{ fmtNumber(conv.converted) }}</span>
+      <span class="cell-sub">Con pedido dentro de 7 días</span>
+    </article>
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true"><i class="pi pi-percentage"></i></span>
+      <span class="cell-label">Conversión</span>
+      <span class="cell-value">{{ fmtNumber(conv.conversion_pct, 1) }}%</span>
+      <span class="cell-sub">Oferta → pedido</span>
     </article>
   </div>
 
@@ -302,7 +335,7 @@
     <article class="cell cell-span-12 is-flush">
       <div class="cell-head">
         <span class="cell-label">
-          <i class="pi pi-exclamation-triangle" aria-hidden="true" style="margin-right:0.35rem; color: var(--c-bad);"></i>
+          <i class="pi pi-exclamation-triangle cc-ico-bad" aria-hidden="true"></i>
           Best-sellers ERP sin stock
         </span>
         <span class="comm-pill is-bad no-dot">{{ rankingOOS().length }}</span>

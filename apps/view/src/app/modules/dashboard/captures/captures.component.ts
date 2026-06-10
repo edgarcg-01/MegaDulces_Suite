@@ -926,11 +926,10 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   private loadFrequentProducts(): void {
     if (this.isVendedor()) return; // Vendedor no usa step 5
-    const storeId = this.svc.detectedStore()?.id;
-    this.svc.getFrequentProducts({ days: 30, limit: 20, storeId }).subscribe({
-      next: (rows) => this.frequentProducts.set(rows),
-      error: () => this.frequentProducts.set([]),
-    });
+    this.svc
+      .getFrequentProductsOffline({ days: 30, limit: 20 })
+      .then((rows) => this.frequentProducts.set(rows))
+      .catch(() => this.frequentProducts.set([]));
   }
 
   /** Productos frecuentes con su nombre resuelto desde groupedProducts (para mostrar). */

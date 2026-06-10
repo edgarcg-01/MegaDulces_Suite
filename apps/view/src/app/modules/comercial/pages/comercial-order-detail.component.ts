@@ -12,6 +12,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TimelineModule } from 'primeng/timeline';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TooltipModule } from 'primeng/tooltip';
+import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, OrderDetail, OrderHistoryEntry, OrderLine, OrderStatus } from '../comercial.service';
 import { LogisticaService, Shipment, ShipmentStatus } from '../../logistica/logistica.service';
@@ -34,21 +35,33 @@ import { Permission } from '../../../core/constants/permissions';
     TimelineModule,
     InputNumberModule,
     TooltipModule,
+    SkeletonModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
+    <div class="surf-page">
     <div class="topbar">
       <button pButton icon="pi pi-arrow-left" label="Volver" severity="secondary" [text]="true" (click)="back()"></button>
     </div>
 
+    <div class="od-loading" *ngIf="loading()" aria-hidden="true">
+      <p-skeleton width="30%" height="1.5rem"></p-skeleton>
+      <div class="grid">
+        <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+        <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+        <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+      </div>
+      <p-skeleton height="220px" borderRadius="12px"></p-skeleton>
+    </div>
+
     <ng-container *ngIf="order() as o">
-      <div class="comm-page-head">
-        <div class="comm-page-head-text">
-          <h2><code class="comm-code">{{ o.folio }}</code></h2>
-          <p class="comm-page-sub">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1><code class="comm-code">{{ o.folio }}</code></h1>
+          <p class="surf-page-sub">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
         </div>
         <div class="hero-tags">
           <p-tag
@@ -65,7 +78,7 @@ import { Permission } from '../../../core/constants/permissions';
           ></p-tag>
           <p-tag [severity]="severity(o.status)" [value]="statusLabel(o.status)" styleClass="status-tag"></p-tag>
         </div>
-      </div>
+      </header>
 
       <div class="grid">
         <article class="comm-stat-card">
@@ -85,7 +98,7 @@ import { Permission } from '../../../core/constants/permissions';
 
       <p-card header="Líneas">
         <div class="lines-banner" *ngIf="o.status === 'pending_approval'">
-          <i class="pi pi-info-circle"></i>
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
           <span>
             Revisá producto por producto. Ajustá la cantidad según stock disponible,
             o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
@@ -151,6 +164,7 @@ import { Permission } from '../../../core/constants/permissions';
                         size="small" severity="secondary" [text]="true"
                         [disabled]="savingLineId() === l.id"
                         (click)="confirmRemoveLine(l, o)"
+                        aria-label="Quitar línea del pedido"
                         pTooltip="Quitar línea (libera reserva)"></button>
               </td>
             </tr>
@@ -185,7 +199,7 @@ import { Permission } from '../../../core/constants/permissions';
         <ng-template pTemplate="header">
           <div class="logistics-header">
             <div>
-              <i class="pi pi-truck"></i>
+              <i class="pi pi-truck" aria-hidden="true"></i>
               <strong>Embarques de logística</strong>
               <span class="comm-muted is-small" *ngIf="shipments().length"> · {{ shipments().length }} asociados</span>
             </div>
@@ -215,7 +229,7 @@ import { Permission } from '../../../core/constants/permissions';
               <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
               <td class="comm-actions">
                 <a pButton icon="pi pi-arrow-right" size="small" [text]="true"
-                   [routerLink]="['/logistica/shipments', s.id]" pTooltip="Ver embarque"></a>
+                   [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"></a>
               </td>
             </tr>
           </ng-template>
@@ -237,8 +251,8 @@ import { Permission } from '../../../core/constants/permissions';
                 <span class="comm-muted is-small" *ngIf="!event.from_status">creación</span>
               </div>
               <div class="event-meta">
-                <span><i class="pi pi-user"></i> {{ event.changed_by_username }}</span>
-                <span><i class="pi pi-clock"></i> {{ event.created_at | date:'medium' }}</span>
+                <span><i class="pi pi-user" aria-hidden="true"></i> {{ event.changed_by_username }}</span>
+                <span><i class="pi pi-clock" aria-hidden="true"></i> {{ event.created_at | date:'medium' }}</span>
               </div>
               <div *ngIf="event.reason" class="event-reason">{{ event.reason }}</div>
             </div>
@@ -250,20 +264,22 @@ import { Permission } from '../../../core/constants/permissions';
 
     <ng-container *ngIf="!order() && !loading()">
       <div class="empty">
-        <i class="pi pi-exclamation-circle"></i>
+        <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
         <p>Pedido no encontrado.</p>
         <button pButton label="Volver" (click)="back()"></button>
       </div>
     </ng-container>
+    </div>
   `,
   styles: [`
     :host { display:block; }
-    .topbar { margin-bottom: .5rem; }
-    .comm-page-head h2 { font-size: 1.5rem; }
-    .big { font-size: 1.5rem; }
-    .grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.75rem; margin-bottom:1.25rem; }
+    /* Ritmo y padding de página vienen de .surf-page (gap:1rem, padding:0 1.5rem 2rem),
+     * idéntico a las otras 21 páginas. Nada de márgenes ad-hoc por sección. */
+    .od-loading { display:flex; flex-direction:column; gap:1rem; }
+    .grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.75rem; }
     @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
-    .action-bar { display:flex; gap:.75rem; margin: 1rem 0 1.25rem; }
+    .action-bar { display:flex; gap:.75rem; }
+
     :host ::ng-deep .status-timeline { padding: .25rem 0; }
     .event { padding:.5rem 0; }
     .event-headline { display:flex; align-items:center; gap:.75rem; margin-bottom:.25rem; }
@@ -272,16 +288,15 @@ import { Permission } from '../../../core/constants/permissions';
     .event-reason { margin-top:.25rem; font-size:.85rem; font-style:italic; }
     .empty { text-align: center; padding: 3rem 1rem; color: var(--text-color-secondary); }
     .empty i { font-size: 3rem; display:block; margin-bottom:.5rem; }
-    .hero-tags { display:flex; flex-direction:column; align-items:flex-end; gap:.4rem; }
-    :host ::ng-deep .p-card.logistics-card { margin-top: 1.25rem; }
+    .hero-tags { display:flex; flex-direction:column; align-items:flex-end; gap:.375rem; }
     .logistics-header { display:flex; justify-content:space-between; align-items:center; padding: 0 1rem; }
-    .logistics-header i { margin-right: .35rem; color: var(--primary-color); }
-    .lines-banner { display:flex; gap:.5rem; align-items:flex-start; background: var(--info-soft-bg); color: var(--info-soft-fg); padding:.6rem .8rem; border-radius:6px; font-size:.85rem; margin-bottom:.75rem; }
-    .lines-banner i { margin-top:.15rem; }
-    .qty-edit { display:inline-flex; align-items:center; gap:.4rem; justify-content:flex-end; }
+    .logistics-header i { margin-right: .375rem; color: var(--action); }
+    .lines-banner { display:flex; gap:.5rem; align-items:flex-start; background: var(--info-soft-bg); color: var(--info-soft-fg); padding:.625rem .75rem; border-radius: var(--r-sm, 8px); font-size:.85rem; margin-bottom:.75rem; }
+    .lines-banner i { margin-top:.125rem; }
+    .qty-edit { display:inline-flex; align-items:center; gap:.375rem; justify-content:flex-end; }
     :host ::ng-deep .qty-edit .qty-input { width: 4.5rem; text-align:right; }
-    .saving-spinner { color: var(--primary-color); font-size:.85rem; }
-    .stock-chip { display:inline-block; padding:.15rem .55rem; border-radius:999px; background: var(--surface-100); font-weight:500; font-size:.82rem; }
+    .saving-spinner { color: var(--action); font-size:.85rem; }
+    .stock-chip { display:inline-block; padding:.125rem .5rem; border-radius:999px; background: var(--surface-100); font-weight:500; font-size:.82rem; }
     .stock-chip.is-short { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight:600; }
     tr.line-shortfall { background: var(--bad-soft-bg); }
   `],
@@ -483,12 +498,13 @@ export class ComercialOrderDetailComponent {
     });
   }
 
-  severity(s: OrderStatus | null): 'info' | 'success' | 'warn' | 'danger' {
+  severity(s: OrderStatus | null): 'info' | 'success' | 'warn' | 'danger' | 'secondary' {
     if (s === 'fulfilled') return 'success';
     if (s === 'confirmed') return 'info';
     if (s === 'pending_approval') return 'warn';
     if (s === 'cancelled') return 'danger';
-    return 'warn';
+    if (s === 'draft') return 'secondary';
+    return 'secondary';
   }
   statusLabel(s: OrderStatus | null): string {
     if (!s) return 'inicial';

@@ -79,6 +79,7 @@ const PRESETS: DatePreset[] = [
             size="small"
             (click)="load()"
             [loading]="loading()"
+            aria-label="Refrescar"
             pTooltip="Refrescar"
           ></button>
         </div>
@@ -118,7 +119,11 @@ const PRESETS: DatePreset[] = [
       </div>
 
       <!-- KPIs -->
-      <p-skeleton *ngIf="loading()" height="120px"></p-skeleton>
+      <div *ngIf="loading()" class="ha-skeletons" aria-hidden="true">
+        <p-skeleton height="116px" borderRadius="10px"></p-skeleton>
+        <p-skeleton height="312px" borderRadius="10px"></p-skeleton>
+        <p-skeleton height="280px" borderRadius="10px"></p-skeleton>
+      </div>
       <div *ngIf="!loading()" class="sheet cols-12">
         <article class="cell cell-span-3">
           <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-dollar"></i></span>
@@ -348,6 +353,8 @@ const PRESETS: DatePreset[] = [
   styles: [`
     :host { display:block; }
 
+    .ha-skeletons { display:flex; flex-direction:column; gap:1rem; }
+
     .ha-source-pill {
       display: inline-flex;
       align-items: center;
@@ -434,7 +441,7 @@ const PRESETS: DatePreset[] = [
     .ha-margin-mini {
       display: inline-flex;
       flex-direction: column;
-      gap: 0.1rem;
+      gap: 0.125rem;
       font-variant-numeric: tabular-nums;
     }
     .ha-margin-mini strong { font-weight: var(--fw-bold); color: var(--c-text-1); }

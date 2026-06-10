@@ -36,10 +36,10 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ROUTE_TICKET_CAPTURE)]
       },
       {
-        // Captura diaria especial del vendedor: foto exhibidor + ticket OCR → venta + visita sin ponderación.
+        // Movida a /vendor/capture (Modo Vendedor v2). Redirect back-compat para guards y landings.
         path: 'vendor-capture',
-        loadComponent: () => import('./modules/dashboard/vendor-capture/vendor-capture.component').then(m => m.VendorCaptureComponent),
-        canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)]
+        redirectTo: '/vendor/capture',
+        pathMatch: 'full',
       },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
@@ -397,6 +397,23 @@ export const routes: Routes = [
           import('./modules/vendor/pages/vendor-close-route.component').then(
             (m) => m.VendorCloseRouteComponent,
           ),
+      },
+      {
+        path: 'carga',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-carga.component').then(
+            (m) => m.VendorCargaComponent,
+          ),
+      },
+      {
+        // Captura de vendedor (exhibidor + ticket OCR + venta), offline-first.
+        // Reusa el componente original; el permiso CAPTURE_TICKET_USE sigue gateando.
+        path: 'capture',
+        loadComponent: () =>
+          import('./modules/dashboard/vendor-capture/vendor-capture.component').then(
+            (m) => m.VendorCaptureComponent,
+          ),
+        canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)],
       },
     ],
   },

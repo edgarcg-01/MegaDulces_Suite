@@ -419,6 +419,93 @@ Reglas:
 
 ---
 
+## ADR-016 — Motor de Inteligencia Comercial: el motor decide, el agente comunica, el LLM fuera del camino del dinero
+
+**Estado:** ✅ Aceptado (2026-06-10)
+
+**Fecha:** 2026-06-10
+
+**Contexto:**
+- Comparativa vs yom.ai (2026-06-10): ~18 capacidades pedidas (optimización de ruta, prospección, ciclo de vida del cliente, recomendación/pedido sugerido, promos por cadencia, canales WhatsApp/push/teléfono, auto-atención, agente AI). Auditoría del código mostró que ~60% del sustrato ya existe disperso (RecommendationsService, AI Order Builder con Haiku, pgvector con 1278 SKUs, analytics MVs, AlertsScanner cron, Socket.IO+Redis, commercial.promotions, TenantContext/RLS).
+- Riesgo: construir las 18 como features sueltas produce 18 cosas que no se hablan entre sí. yom.ai no es 18 features; es **un motor de decisión + un agente que lo conversa + canales que lo entregan + un loop de feedback**.
+- La regla de oro del usuario: **quitarle tiempo de toma-de-pedido al vendedor para liberar tiempo de prospección/nuevos clientes.** Eso es un problema de decisión automatizada, no de UI.
+
+**Decisión:** Construir **un Motor de Inteligencia Comercial** en 5 capas, con dos invariantes duros:
+
+1. **El motor decide, el agente comunica.** La decisión de *qué* ofrecer / *qué* promo / *qué* ruta / *qué* cliente atender hoy la toma un **motor determinista** (SQL + scoring explicable), no el LLM. El **agente AI** (Claude Haiku) decide *cómo decirlo* y maneja la conversación abierta; llama al motor vía tools (function calling) y **nunca inventa data**.
+2. **El LLM nunca toca el dinero.** Precios, stock y commit de pedidos viven en el camino determinista existente (`commercial-orders`). El agente *propone* un borrador; el motor *valida y ejecuta*. El LLM jamás computa un precio ni compromete inventario.
+
+Capas:
+
+| Capa | Qué hace | Determinista / AI |
+|---|---|---|
+| 0 — Customer 360 (feature store) | Estado por cliente: RFM, cadencia, próxima compra estimada, stage, afinidad, churn, geo. Refresh nightly + incremental. | Determinista |
+| 1 — Motor de Decisión | Next-Best-Action, canasta sugerida, promo óptima, ruta óptima + prospectos, canal+timing. | Determinista (scoring) |
+| 2 — Agente AI | Pedido conversacional, explicación de recomendaciones, copiloto de vendedor/televenta. Tool-belt compartido + RAG pgvector. | AI (Claude Haiku) |
+| 3 — Canales / Orquestación | Entrega el NBA por WhatsApp/push/portal/vendor/televenta. Frequency capping anti-spam. | Determinista + cron/colas |
+| 4 — Feedback loop | Cada oferta → resultado (abrió/pidió/ignoró) → reajusta pesos del scoring. | Determinista (estadística) |
+
+3. **Build por rebanada vertical, no fundación horizontal.** Primer entregable = un caso end-to-end fino que toca las 5 capas (reorden inteligente por cadencia → pedido pre-armado → push/portal → feedback). Se ensancha después. Razón: validar la arquitectura completa con valor real en 1-2 sprints en vez de sobre-construir capas que nadie usa todavía.
+
+4. **Empezar heurístico/estadístico, NO ML entrenado.** Cadencia = mediana de gaps entre pedidos; stage = reglas sobre recency vs cadencia; churn = score estadístico. El ML real ya está planeado en Fase I (credit risk) cuando exista data histórica suficiente. El motor v1 no entrena modelos.
+
+**Alternativas consideradas:**
+- **Construir las 18 capacidades como features independientes:** rechazado — silos que no comparten estado del cliente ni feedback; imposible orquestar "oferta correcta / canal correcto / momento correcto".
+- **Agente AI mega-autónomo que decide y ejecuta (LLM en el camino del dinero):** rechazado — no auditable, riesgo de alucinar precios/stock, caro a volumen, frágil para multi-tenant. El LLM como interfaz (no como decisor) es más barato, explicable y seguro.
+- **Fundación horizontal (Customer 360 + Motor completos antes de tocar canales):** rechazado por el usuario — valor tarda 4-5 sprints, riesgo de sobre-construir. Se eligió rebanada vertical.
+- **Entrenar modelos ML desde v1:** rechazado — no hay suficiente data histórica limpia aún; heurísticas estadísticas dan el 80% del valor a costo ~0.
+
+**Consecuencias:**
+- ✅ Una sola fuente de verdad del cliente (Customer 360) de la que leen recomendación, promos, ruta, alertas y agente.
+- ✅ Reuso de ~60% del sustrato existente (Haiku, pgvector, RecommendationsService, AlertsScanner, promotions, MVs).
+- ✅ LLM barato y auditable; el camino del dinero queda determinista (sin regresión de confianza).
+- ✅ Ataca directo la regla de oro: el motor pre-arma el pedido recurrente → el vendedor deja de capturarlo a mano.
+- ⚠️ Customer 360 es prerequisito de casi todo lo proactivo; si se hace mal, contamina todas las capas de arriba.
+- ⚠️ El feedback loop sin frequency capping puede degenerar en spam — el capping es parte del MVP, no diferible.
+- ⚠️ WhatsApp (canal de mayor retorno) sigue dependiendo de la Fase F formal (BSP + BullMQ); el motor se diseña channel-agnostic para que enchufar WhatsApp sea aditivo.
+- 🔄 Reversible: cada capa es un servicio independiente; se puede apagar el agente y dejar el motor sirviendo NBA crudo, o apagar un canal sin tocar el motor.
+
+**Plan de implementación:** Detallado en [`FASES/FASE_M_MOTOR_INTELIGENCIA.md`](FASES/FASE_M_MOTOR_INTELIGENCIA.md). Rebanada vertical V1 = "Reorden inteligente".
+
+---
+
+## ADR-017 — Autodetección de llegada del vendedor: geo en customers + detección por lista + doble anti-traslape
+
+**Estado:** ✅ Aceptado (2026-06-10)
+
+**Fecha:** 2026-06-10
+
+**Contexto:**
+- Modo Vendedor v2 (`/vendor`) ya muestra la cartera en orden de visita y los pedidos pendientes por cliente (cross-canal, con `is_preventa`). Falta cerrar el loop de campo: que al **llegar físicamente** a un cliente se autodetecte (como `/capture` detecta la tienda por GPS) y se le avise si **ya hay un pedido pendiente** (preventa del portal o de campo) para **no duplicarlo**.
+- Hallazgo: `commercial.customers` **no tenía** lat/lng (solo address JSONB). `commercial.vendor_visits` ya tenía columnas geo (nullable, sin usar). El check-in backend ya aceptaba coords pero el frontend no las mandaba. El patrón GPS+Haversine de `/capture` (radio 30 m, online `/stores/nearby` + fallback offline) es reutilizable.
+
+**Decisión:**
+1. **`commercial.customers` gana `latitude`/`longitude`** (DECIMAL 9,6, igual que `vendor_visits`), nullable. Poblado **capture-on-visit**: el GPS del vendedor al hacer check-in backfilea las coords canónicas del cliente (decisión del usuario: bootstrap orgánico, sin geocodificar ~2944 clientes a mano). Índice parcial `WHERE lat/lng NOT NULL`.
+2. **Detección por lista rankeada, no por punto único.** `GET /vendor-routes/nearby?lat&lng&radius` devuelve los clientes de la **cartera** (scoped por `vendor_sales_routes`) con coords, ordenados por distancia (Haversine en SQL), filtrados por radio. Radio default **80 m** (clientes más dispersos que tiendas + drift GPS + estacionar). Si hay varios dentro del radio, la UI desambigua (mismo patrón que `nearbyStores`).
+3. **Doble anti-traslape** (el detalle crítico que pidió el usuario):
+   - **De coordenadas:** al backfillear/setear coords, guard Haversine contra los OTROS clientes; si cae a < **25 m** de uno distinto → NO guarda, devuelve `conflict` para que el vendedor desambigüe (o `force` para confirmar). Mantiene la detección no ambigua.
+   - **De pedidos:** el take-order detecta los pendientes del cliente (`pending_approval`/`confirmed`, cualquier canal) y **avisa + reusa** — no bloquea (un 2do pedido con otra fecha es legítimo). Default = abrir el existente.
+4. **`GeolocationService` compartido** (GPS one-shot) extraído a `core/services`, reusado por `/vendor` y disponible para `/capture` — una sola implementación, sin drift.
+5. **Online-first** (decisión del usuario): el cache offline de coords de cartera + cola de backfill se difiere, consistente con D.2.3 ya diferido.
+
+**Alternativas consideradas:**
+- **Reusar `/stores/nearby` (tiendas trade) para el vendedor:** rechazado — la cartera del vendedor es `commercial.customers`, no `trade.stores`; entidades distintas con distinto scoping (rutas de venta vs zonas).
+- **Geocodificar el maestro de clientes de entrada (manual/importer):** rechazado para v1 — ~2944 clientes; el capture-on-visit puebla solo lo que el vendedor realmente visita. (Edición manual en admin queda como ensanche.)
+- **Bloqueo duro de pedido duplicado:** rechazado — impediría un 2do pedido legítimo (otra fecha); se eligió avisar + reusar.
+- **Detección por cliente más cercano único:** rechazado — GPS drift + clientes contiguos hacen ambigua la asignación; lista rankeada + guard de separación lo resuelven.
+
+**Consecuencias:**
+- ✅ Cierra el loop de campo: llegada → autodetección → ve pendiente → no duplica → toma/edita el correcto.
+- ✅ Reusa el patrón GPS+Haversine de `/capture` y las columnas geo ya existentes en `vendor_visits`.
+- ✅ La detección mejora sola con el uso (cada visita puebla coords); no requiere un proyecto de geocodificación.
+- ⚠️ Hasta que las coords se pueblen, el banner de llegada no dispara para ese cliente (chicken-and-egg resuelto por el primer check-in con GPS).
+- ⚠️ Precisión sujeta al GPS del dispositivo; radio 80 m y separación 25 m son tunables.
+- 🔄 Reversible: feature aditiva; sin GPS/permiso, home y take-order funcionan igual que antes (degradación elegante).
+
+**Plan/estado:** Backend (migración `20260610160000` + `nearby`/`set-location`/backfill en `commercial-vendor-routes`) + frontend (`GeolocationService`, banner de llegada en home, aviso anti-duplicado en take-order) en código. Build api+view verde, SQL Haversine validado en DB. Smoke `database/tests/http-vendor-geo-test.js` en la suite (requiere reinicio de API con el código V.6).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

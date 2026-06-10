@@ -69,8 +69,11 @@ async function req(method, path, body, token) {
       WHERE ia.sku IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM trade.planogram_sku_aliases a
                         WHERE a.tenant_id = ? AND a.erp_sku = ia.sku AND a.deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM catalog.products p
+                        WHERE p.tenant_id = ? AND p.deleted_at IS NULL
+                          AND (p.sku = ia.sku OR p.articulo = ia.sku))
         AND COALESCE(cp.nombre, ia.nombre) !~* 'descuento|comision|tiempo aire|servicio|administrativo|redondeo|anticipo|\\babono\\b|\\bflete\\b|bonific|no usar|cancelad'
-      ORDER BY ia.sku LIMIT 1`, [T, T]);
+      ORDER BY ia.sku LIMIT 1`, [T, T, T]);
   const D = saleOnly.rows[0];
 
   const store = await knex('trade.stores').where('tenant_id', T).whereNull('deleted_at').first();

@@ -128,7 +128,9 @@ function check(name, cond, det) {
     clientToken,
   )).body;
   const prices = Array.isArray(pricesResp) ? pricesResp : (pricesResp?.data || []);
-  const firstPrice = prices[0];
+  // El endpoint /prices es el catálogo completo LEFT-JOIN precios → trae filas con
+  // price=null. Tomar una con precio real, si no addLine tira 409 "sin precio".
+  const firstPrice = prices.find((p) => p.price != null && Number(p.price) > 0) || prices[0];
 
   // Reponer stock para evitar depletion en re-runs
   await req(

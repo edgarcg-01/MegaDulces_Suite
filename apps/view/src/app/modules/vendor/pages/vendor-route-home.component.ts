@@ -17,8 +17,9 @@ import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError } from 'rxjs';
-import { VendorService, HomeCustomer, NbaDue } from '../vendor.service';
+import { VendorService, HomeCustomer, NbaDue, NearbyCustomer } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
+import { GeolocationService } from '../../../core/services/geolocation.service';
 
 /**
  * Home "Mi ruta" — única pantalla del vendedor (rediseño Mercado mobile-first).
@@ -59,6 +60,44 @@ import { Order } from '../../portal/portal.service';
     </section>
 
     <div class="body-pad">
+      <!-- Banner de llegada: autodetección GPS del cliente más cercano de la cartera -->
+      <button
+        type="button"
+        class="arrival"
+        *ngIf="!loading() && detected() as d"
+        [class.has-pending]="arrivalCustomer()?.pending_count"
+        (click)="openSheetById(d.id)"
+      >
+        <span class="pin"><i class="pi pi-map-marker"></i></span>
+        <span class="a-body">
+          <span class="a-top">Estás en <b>{{ d.name }}</b> · {{ d.distance_m }} m</span>
+          <span class="a-sub" *ngIf="arrivalCustomer() as ac">
+            <ng-container *ngIf="ac.pending_count > 0; else noPend">
+              <i class="pi" [ngClass]="ac.has_preventa_pending ? 'pi-inbox' : 'pi-clock'"></i>
+              {{ ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido' }}
+              {{ fmtMoney(ac.pending_total) }} — entregar / ver
+            </ng-container>
+            <ng-template #noPend>
+              <span class="muted"><i class="pi pi-bolt"></i> Tocá para tomar pedido</span>
+            </ng-template>
+          </span>
+        </span>
+        <i class="pi pi-chevron-right go-chev"></i>
+      </button>
+
+      <div class="geo-hint" *ngIf="!loading() && geoStatus() === 'locating'">
+        <i class="pi pi-spin pi-spinner"></i> Buscando tu ubicación…
+      </div>
+      <button
+        type="button"
+        class="geo-hint retry"
+        *ngIf="!loading() && (geoStatus() === 'denied' || (geoStatus() === 'found' && !detected()))"
+        (click)="detectArrival()"
+      >
+        <i class="pi pi-map-marker"></i>
+        {{ geoStatus() === 'denied' ? 'Activá la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
+      </button>
+
       <button
         type="button"
         class="smart"
@@ -104,8 +143,9 @@ import { Order } from '../../portal/portal.service';
 
       <div *ngIf="!loading() && customers().length > 0" class="list">
         <button
-          *ngFor="let c of filtered(); trackBy: trackId"
+          *ngFor="let c of filtered(); let i = index; trackBy: trackId"
           class="client"
+          [style.animation-delay.ms]="(i > 9 ? 9 : i) * 35"
           [class.visited]="c.visited_today"
           [class.preventa]="!c.visited_today && c.has_preventa_pending"
           [class.due]="!c.visited_today && !c.has_preventa_pending && isDue(c)"
@@ -141,8 +181,8 @@ import { Order } from '../../portal/portal.service';
 
     <!-- Bottom-sheet de acciones por cliente -->
     <ng-container *ngIf="sheet() as c">
-      <div class="sheet-backdrop" (click)="closeSheet()"></div>
-      <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
+      <div class="sheet" [class.closing]="sheetClosing()" role="dialog" aria-modal="true">
         <div class="sheet-handle"></div>
         <div class="sheet-head">
           <span class="av">{{ initials(c.name) }}</span>
@@ -195,34 +235,53 @@ import { Order } from '../../portal/portal.service';
     `
       :host { display: block; }
       /* full-bleed: escapa el padding 1rem del shell .vendor-main */
+      @property --pct { syntax: '<number>'; inherits: false; initial-value: 0; }
       .hero {
         margin: -1rem -1rem 0;
-        padding: 1.1rem 1rem 1.25rem;
-        background: var(--v-hero-grad, linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%));
-        color: #fff;
+        padding: 1.3rem 1rem 1.4rem;
+        background: var(--stone-50, #faf7f3);
+        color: var(--text-main, #2b2622);
         position: relative;
         overflow: hidden;
+        isolation: isolate;
+        border-bottom: 1px solid var(--border-color, rgba(40,30,20,0.08));
       }
-      .hero::after { content: ''; position: absolute; right: -40px; top: -30px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,0.12); }
-      .hero-main { display: flex; align-items: center; gap: 0.95rem; position: relative; z-index: 2; }
+      /* sheen cálido que deriva lento → superficie viva, no un bloque plano */
+      .hero::before {
+        content: ''; position: absolute; inset: -45% -15%; z-index: 0; pointer-events: none;
+        background:
+          radial-gradient(55% 75% at 18% 2%, rgba(255,255,255,0.9), transparent 60%),
+          radial-gradient(50% 68% at 96% 112%, rgba(240,90,40,0.06), transparent 58%);
+        animation: hero-drift 16s ease-in-out infinite alternate;
+      }
+      @keyframes hero-drift {
+        from { transform: translate3d(-3%, -2%, 0) scale(1.04); }
+        to   { transform: translate3d(4%, 3%, 0) scale(1.16); }
+      }
+      .hero-main { display: flex; align-items: center; gap: 1rem; position: relative; z-index: 1; }
       .ring {
-        width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
-        background: conic-gradient(#fff calc(var(--pct, 0) * 1%), rgba(255,255,255,0.28) 0);
+        width: 66px; height: 66px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+        background: conic-gradient(var(--action) calc(var(--pct, 0) * 1%), var(--stone-200, #e8e2da) 0);
+        transition: --pct 0.8s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
       .ring .inner {
-        width: 52px; height: 52px; border-radius: 50%; background: #C53E15; display: grid; place-items: center;
-        font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
+        width: 54px; height: 54px; border-radius: 50%; background: var(--stone-50, #faf7f3); display: grid; place-items: center;
+        font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: var(--text-main);
       }
-      .ring .inner b { font-size: 1.15rem; } .ring .inner span { font-size: 0.75rem; opacity: 0.85; }
+      .ring .inner b { font-size: 1.2rem; } .ring .inner span { font-size: 0.72rem; color: var(--text-muted); }
       .hero-h { min-width: 0; }
-      .hero-h .ey { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.85; }
-      .hero-h h1 { margin: 1px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
-      .hero-h .sub { font-size: 0.8rem; opacity: 0.9; }
-      .kpis { display: flex; gap: 0; margin-top: 1rem; background: rgba(255,255,255,0.14); border-radius: var(--r-md, 12px); padding: 4px; position: relative; z-index: 2; }
-      .kpi { flex: 1; text-align: center; padding: 0.45rem 0.25rem; border-radius: 12px; }
-      .kpi.hl { background: rgba(255,255,255,0.18); }
-      .kpi .v { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
-      .kpi .l { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.82; }
+      .hero-h .ey { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
+      .hero-h h1 { margin: 2px 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.025em; line-height: 1.04; color: var(--text-main); }
+      .hero-h .sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+      .kpis {
+        display: flex; margin-top: 1.2rem; padding-top: 0.95rem; position: relative; z-index: 1;
+        border-top: 1px solid var(--border-color, rgba(40,30,20,0.1));
+      }
+      .kpi { flex: 1; text-align: center; position: relative; }
+      .kpi + .kpi::before { content: ''; position: absolute; left: 0; top: 52%; transform: translateY(-50%); height: 56%; width: 1px; background: var(--border-color, rgba(40,30,20,0.1)); }
+      .kpi .v { font-family: var(--font-mono); font-weight: 700; font-size: 1.1rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; color: var(--text-main); }
+      .kpi.hl .v { font-size: 1.28rem; }
+      .kpi .l { font-size: 0.58rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); margin-top: 0.2rem; }
 
       .body-pad { padding-top: 0.875rem; }
 
@@ -230,13 +289,42 @@ import { Order } from '../../portal/portal.service';
       .smart {
         display: flex; align-items: center; gap: 0.7rem; width: 100%; text-align: left;
         margin-bottom: 0.875rem; padding: 0.7rem 0.8rem; border-radius: var(--r-lg, 16px);
-        background: var(--ember-soft); border: 1px solid var(--ember-border); cursor: pointer;
+        background: var(--card-bg); border: 1px solid var(--ember-border); cursor: pointer;
       }
-      .smart .spark { width: 34px; height: 34px; border-radius: 14px; background: var(--ember-grad); display: grid; place-items: center; color: #fff; font-size: 0.95rem; flex-shrink: 0; box-shadow: 0 3px 10px rgba(240,90,40,0.35); }
+      .smart .spark { width: 34px; height: 34px; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--ember-border); display: grid; place-items: center; color: var(--action); font-size: 0.95rem; flex-shrink: 0; }
       .smart .t { flex: 1; min-width: 0; }
       .smart .t b { display: block; font-size: 0.85rem; color: var(--text-main); }
       .smart .t span { font-size: 0.75rem; color: var(--text-muted); }
       .smart .go { font-size: 0.75rem; font-weight: 700; color: var(--action); white-space: nowrap; }
+
+      /* Banner de llegada (autodetección GPS) */
+      .arrival {
+        display: flex; align-items: center; gap: 0.7rem; width: 100%; text-align: left;
+        margin-bottom: 0.875rem; padding: 0.75rem 0.85rem; border-radius: var(--r-lg, 16px);
+        background: var(--card-bg); border: 1px solid var(--action); cursor: pointer;
+        box-shadow: 0 6px 18px -8px rgba(240,90,40,0.5);
+        animation: client-in 0.3s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) backwards;
+        transition: transform 0.08s var(--ease, ease);
+      }
+      .arrival:active { transform: scale(0.99); }
+      .arrival .pin { width: 36px; height: 36px; border-radius: 14px; background: var(--action); color: #fff; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; }
+      .arrival.has-pending .pin { background: var(--warn-fg); }
+      .arrival .a-body { flex: 1; min-width: 0; }
+      .arrival .a-top { display: block; font-size: 0.9rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .arrival .a-top b { font-weight: 800; }
+      .arrival .a-sub { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; font-weight: 700; color: var(--warn-soft-fg); margin-top: 1px; }
+      .arrival .a-sub i { font-size: 0.7rem; }
+      .arrival .a-sub .muted { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--text-muted); font-weight: 500; }
+      .arrival .go-chev { color: var(--text-faint); flex-shrink: 0; }
+
+      .geo-hint {
+        display: flex; align-items: center; gap: 0.45rem; width: 100%;
+        margin-bottom: 0.875rem; padding: 0.55rem 0.7rem; border-radius: var(--r-md, 12px);
+        background: var(--surface-ground); border: 1px dashed var(--border-color);
+        color: var(--text-muted); font-size: 0.78rem; text-align: left;
+      }
+      .geo-hint.retry { cursor: pointer; }
+      .geo-hint.retry i { color: var(--action); }
 
       .search-bar { margin-bottom: 0.75rem; }
       .search-wrap { display: block; position: relative; }
@@ -253,7 +341,9 @@ import { Order } from '../../portal/portal.service';
         background: var(--card-bg); padding: 0.8rem 0.875rem 0.8rem 1.05rem; cursor: pointer;
         box-shadow: 0 1px 2px rgba(16,13,9,0.05); overflow: hidden;
         transition: transform 0.06s var(--ease, ease);
+        animation: client-in 0.32s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) backwards;
       }
+      @keyframes client-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       .client::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stone-300); }
       .client.visited::before { background: var(--ok-fg); }
       .client.preventa::before { background: var(--warn-fg); }
@@ -261,7 +351,7 @@ import { Order } from '../../portal/portal.service';
       .client:active { transform: scale(0.985); }
       .seq {
         flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 14px; display: grid; place-items: center;
-        background: var(--v-seq-bg, var(--brand-100)); color: var(--v-seq-fg, var(--brand-900));
+        background: var(--stone-100, #f0ece6); color: var(--stone-700, #57514a);
         font-family: var(--font-mono); font-weight: 700; font-size: 0.9rem; font-variant-numeric: tabular-nums;
       }
       .seq.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
@@ -281,32 +371,37 @@ import { Order } from '../../portal/portal.service';
       .fab {
         position: fixed; right: 1rem; bottom: calc(4.75rem + env(safe-area-inset-bottom));
         height: 3.25rem; padding: 0 1.35rem; border: none; border-radius: var(--r-pill, 999px);
-        background: var(--action); color: #fff; font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
+        background: var(--accent-brand); color: #000; font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
         display: flex; align-items: center; gap: 0.55rem; z-index: 40;
-        box-shadow: 0 10px 24px -4px rgba(240,90,40,0.55);
+        box-shadow: 0 8px 22px -6px rgba(199,150,15,0.5);
         transition: transform 0.07s var(--ease, ease);
       }
       .fab:active { transform: scale(0.95); }
 
       /* Bottom-sheet */
-      .sheet-backdrop { position: fixed; inset: 0; background: rgba(16,13,9,0.45); z-index: 50; }
+      .sheet-backdrop { position: fixed; inset: 0; background: rgba(16,13,9,0.45); z-index: 50; animation: backdrop-in 0.2s ease; }
+      .sheet-backdrop.closing { animation: backdrop-out 0.2s ease forwards; }
+      @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes backdrop-out { from { opacity: 1; } to { opacity: 0; } }
       .sheet {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 51;
         background: var(--card-bg); border-radius: var(--r-2xl, 24px) var(--r-2xl, 24px) 0 0;
         padding: 0.6rem 1rem calc(1.4rem + env(safe-area-inset-bottom));
         box-shadow: 0 -10px 34px rgba(16,13,9,0.2); max-height: 88vh; overflow-y: auto;
-        animation: sheet-up 0.28s var(--spring, cubic-bezier(.34,1.56,.64,1));
+        animation: sheet-up 0.3s var(--ease-drawer, cubic-bezier(0.32,0.72,0,1));
       }
+      .sheet.closing { animation: sheet-down 0.2s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) forwards; }
       @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
       .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--stone-200); margin: 0 auto 0.875rem; }
       .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
       .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }
       .sheet-head .cd { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
       .sheet-primary {
-        width: 100%; height: 3.25rem; border: none; border-radius: var(--r-lg, 16px); background: var(--action); color: #fff;
+        width: 100%; height: 3.25rem; border: none; border-radius: var(--r-lg, 16px); background: var(--accent-brand); color: #000;
         font-family: var(--font-body); font-weight: 700; font-size: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.6rem;
-        margin: 0.75rem 0 0.25rem; box-shadow: 0 6px 18px -4px rgba(240,90,40,0.45);
+        margin: 0.75rem 0 0.25rem; box-shadow: 0 4px 14px -4px rgba(199,150,15,0.4);
         transition: transform 0.07s var(--ease, ease);
       }
       .sheet-primary:active { transform: scale(0.97); }
@@ -325,9 +420,18 @@ import { Order } from '../../portal/portal.service';
       .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: 0.875rem; border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
 
+      /* feedback táctil — todo lo presionable responde al press */
+      .smart, .contact-btn { transition: transform 0.08s var(--ease, ease); }
+      .action { transition: background-color 0.12s ease; }
+      .smart:active { transform: scale(0.99); }
+      .action:active:not(:disabled) { background: var(--hover-bg, var(--surface-ground)); }
+      .contact-btn:active { transform: scale(0.97); }
+
       @media (prefers-reduced-motion: reduce) {
-        .sheet { animation: none; }
-        .client, .fab, .sheet-primary { transition: none; }
+        .sheet, .sheet.closing, .sheet-backdrop, .sheet-backdrop.closing, .client { animation: none; }
+        .hero::before { animation: none; }
+        .ring { transition: none; }
+        .client, .fab, .sheet-primary, .smart, .contact-btn { transition: none; }
       }
     `,
   ],
@@ -338,14 +442,26 @@ export class VendorRouteHomeComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
+  private readonly geo = inject(GeolocationService);
 
   readonly loading = signal(true);
   readonly customers = signal<HomeCustomer[]>([]);
   readonly ordersToday = signal<Order[]>([]);
   readonly sheet = signal<HomeCustomer | null>(null);
+  readonly sheetClosing = signal(false);
   readonly checking = signal(false);
   readonly dueIds = signal<Set<string>>(new Set());
   readonly onlyDue = signal(false);
+
+  /** Autodetección de llegada (GPS). */
+  readonly detected = signal<NearbyCustomer | null>(null);
+  readonly geoStatus = signal<'idle' | 'locating' | 'found' | 'denied' | 'none'>('idle');
+  /** El HomeCustomer (con info de pendientes) que corresponde al cliente detectado. */
+  readonly arrivalCustomer = computed(() => {
+    const d = this.detected();
+    if (!d) return null;
+    return this.customers().find((c) => c.id === d.id) || null;
+  });
 
   search = '';
 
@@ -353,7 +469,7 @@ export class VendorRouteHomeComponent implements OnInit {
   readonly pendingVisits = computed(() => this.customers().filter((c) => !c.visited_today).length);
   readonly progressPct = computed(() => {
     const t = this.customers().length;
-    return t ? Math.round((this.visitedCount() / t) * 100) : 0;
+    return t ? (this.visitedCount() / t) * 100 : 0;
   });
   readonly routeLabel = computed(() => {
     const routes = [...new Set(this.customers().map((c) => c.sales_route).filter(Boolean))];
@@ -399,6 +515,8 @@ export class VendorRouteHomeComponent implements OnInit {
           this.dueIds.set(new Set(due.map((d) => d.customer_id)));
           this.ordersToday.set(today);
           this.loading.set(false);
+          // Autodetección de llegada una vez que tenemos cartera + pendientes.
+          if (home.length) void this.detectArrival();
         },
         error: () => {
           this.loading.set(false);
@@ -413,8 +531,42 @@ export class VendorRouteHomeComponent implements OnInit {
       this.api.recordSignal(c.id, 'offer_shown', 'vendor').subscribe({ error: () => {} });
     }
   }
+  openSheetById(id: string): void {
+    const c = this.customers().find((x) => x.id === id);
+    if (c) this.openSheet(c);
+  }
   closeSheet(): void {
-    this.sheet.set(null);
+    if (!this.sheet() || this.sheetClosing()) return;
+    this.sheetClosing.set(true);
+    setTimeout(() => {
+      this.sheet.set(null);
+      this.sheetClosing.set(false);
+    }, 200);
+  }
+
+  /** Pide GPS y resuelve el cliente de la cartera más cercano (best-effort). */
+  async detectArrival(): Promise<void> {
+    if (!this.geo.supported) {
+      this.geoStatus.set('none');
+      return;
+    }
+    this.geoStatus.set('locating');
+    try {
+      const fix = await this.geo.getCurrentPosition();
+      this.api
+        .nearbyCustomers(fix.lat, fix.lng)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (list) => {
+            this.detected.set(list[0] ?? null);
+            this.geoStatus.set('found');
+          },
+          error: () => this.geoStatus.set('none'),
+        });
+    } catch {
+      this.detected.set(null);
+      this.geoStatus.set('denied');
+    }
   }
 
   /** FAB: abre la toma de pedido del próximo cliente sin visitar (o el primero). */
@@ -448,13 +600,24 @@ export class VendorRouteHomeComponent implements OnInit {
     this.router.navigate(['/vendor/capture']);
   }
 
-  markVisit(c: HomeCustomer): void {
+  async markVisit(c: HomeCustomer): Promise<void> {
     this.checking.set(true);
+    // Capture-on-visit: adjuntamos el GPS al check-in (best-effort; sin permiso
+    // igual se registra la visita, solo no backfillea coords).
+    let coords: { latitude?: number; longitude?: number } = {};
+    try {
+      if (this.geo.supported) {
+        const fix = await this.geo.getCurrentPosition();
+        coords = { latitude: fix.lat, longitude: fix.lng };
+      }
+    } catch {
+      /* sin GPS: check-in sin coords */
+    }
     this.api
-      .checkIn(c.id)
+      .checkIn(c.id, coords)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: (res) => {
           this.customers.set(
             this.customers().map((x) =>
               x.id === c.id ? { ...x, visited_today: true, last_visit_at: new Date().toISOString() } : x,
@@ -462,7 +625,18 @@ export class VendorRouteHomeComponent implements OnInit {
           );
           this.checking.set(false);
           this.closeSheet();
-          this.toast.add({ severity: 'success', summary: 'Visita registrada', detail: c.name });
+          const loc = res?.location;
+          if (loc && loc.conflict) {
+            this.toast.add({
+              severity: 'warn',
+              summary: 'Visita registrada',
+              detail: `Ubicación se traslapa con ${loc.conflict.name} (${loc.conflict.distance_m} m) — no se guardó`,
+            });
+          } else if (loc?.location_set) {
+            this.toast.add({ severity: 'success', summary: 'Visita registrada', detail: `${c.name} · ubicación guardada` });
+          } else {
+            this.toast.add({ severity: 'success', summary: 'Visita registrada', detail: c.name });
+          }
         },
         error: (e) => {
           this.checking.set(false);

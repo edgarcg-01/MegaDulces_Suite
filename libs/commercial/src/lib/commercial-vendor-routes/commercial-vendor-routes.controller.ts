@@ -15,6 +15,7 @@ import {
   AssignRouteDto,
   SetRouteOrderDto,
   CheckInDto,
+  SetLocationDto,
 } from './commercial-vendor-routes.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -80,9 +81,35 @@ export class CommercialVendorRoutesController {
 
   @Post('check-in')
   @RequirePermissions(Permission.VISITAS_REGISTRAR)
-  @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente' })
+  @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente (acepta lat/lng → backfill capture-on-visit)' })
   checkIn(@Body() body: CheckInDto) {
     return this.service.checkIn(body);
+  }
+
+  @Get('nearby')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary: 'V.6: clientes de la cartera cerca del vendedor (?lat&lng&radius), ordenados por distancia',
+  })
+  nearby(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('radius') radius?: string,
+  ) {
+    return this.service.nearbyCustomers(
+      Number(lat),
+      Number(lng),
+      radius != null ? Number(radius) : undefined,
+    );
+  }
+
+  @Post('customers/:id/location')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @ApiOperation({
+    summary: 'V.6: setea/corrige las coords del cliente con guard anti-traslape (force para confirmar pese a colisión)',
+  })
+  setLocation(@Param('id') id: string, @Body() body: SetLocationDto) {
+    return this.service.setCustomerLocation(id, body);
   }
 
   @Get()

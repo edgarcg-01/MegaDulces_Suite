@@ -58,9 +58,9 @@ function check(name, cond, detail) {
 
   // 2. Setup: customer TST-0001 (testdata) + warehouse + producto con precio en su price_list
   console.log('\n── 2. Setup data ──');
-  const customers = await req('GET', '/commercial/customers?pageSize=50', null, token);
+  const customers = await req('GET', '/commercial/customers?search=TST-0001&pageSize=50', null, token);
   const allCustomers = customers.body?.data || [];
-  const customer = allCustomers.find((c) => c.code === 'TST-0001' && c.active) || allCustomers.find((c) => c.active);
+  const customer = allCustomers.find((c) => c.code === 'TST-0001' && c.active && c.default_price_list_id) || allCustomers.find((c) => c.active && c.default_price_list_id);
   check('customer activo encontrado', !!customer?.id);
 
   const warehouses = await req('GET', '/commercial/warehouses', null, token);
@@ -78,7 +78,7 @@ function check(name, cond, detail) {
 
   // Cruzar prices de la price_list del customer con stock del warehouse
   const plPrices = await req('GET', `/commercial/price-lists/${customer.default_price_list_id}/prices?pageSize=200`, null, token);
-  const pricedIds = new Set((plPrices.body?.data || []).map((p) => p.product_id));
+  const pricedIds = new Set((plPrices.body?.data || []).filter((p) => p.price != null && Number(p.price) > 0).map((p) => p.product_id));
   const stockResp = await req('GET', `/commercial/inventory/stock?warehouse_id=${warehouse.id}&pageSize=200`, null, token);
   const stockList = stockResp.body?.data || stockResp.body || [];
   const stockEntry = stockList.find((s) => Number(s.quantity || 0) >= 5 && pricedIds.has(s.product_id));

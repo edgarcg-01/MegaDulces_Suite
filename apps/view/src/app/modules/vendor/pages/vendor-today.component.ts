@@ -64,19 +64,34 @@ import { Order } from '../../portal/portal.service';
     `
       :host { display: block; }
       .hero {
-        margin: -1rem -1rem 0; padding: 1.1rem 1rem 1.25rem;
-        background: var(--v-hero-grad, linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%));
-        color: #fff; position: relative; overflow: hidden;
+        margin: -1rem -1rem 0; padding: 1.3rem 1rem 1.4rem;
+        background: var(--stone-50, #faf7f3);
+        color: var(--text-main, #2b2622); position: relative; overflow: hidden; isolation: isolate;
+        border-bottom: 1px solid var(--border-color, rgba(40,30,20,0.08));
       }
-      .hero::after { content: ''; position: absolute; right: -40px; top: -30px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,0.12); }
-      .hero-h { position: relative; z-index: 2; }
-      .hero-h .ey { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.85; }
-      .hero-h h1 { margin: 1px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
-      .kpis { display: flex; margin-top: 1rem; background: rgba(255,255,255,0.14); border-radius: var(--r-md, 12px); padding: 4px; position: relative; z-index: 2; }
-      .kpi { flex: 1; text-align: center; padding: 0.45rem 0.25rem; border-radius: 12px; }
-      .kpi.hl { background: rgba(255,255,255,0.18); }
-      .kpi .v { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
-      .kpi .l { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.82; }
+      .hero::before {
+        content: ''; position: absolute; inset: -45% -15%; z-index: 0; pointer-events: none;
+        background:
+          radial-gradient(55% 75% at 18% 2%, rgba(255,255,255,0.9), transparent 60%),
+          radial-gradient(50% 68% at 96% 112%, rgba(240,90,40,0.06), transparent 58%);
+        animation: hero-drift 16s ease-in-out infinite alternate;
+      }
+      @keyframes hero-drift {
+        from { transform: translate3d(-3%, -2%, 0) scale(1.04); }
+        to   { transform: translate3d(4%, 3%, 0) scale(1.16); }
+      }
+      .hero-h { position: relative; z-index: 1; }
+      .hero-h .ey { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
+      .hero-h h1 { margin: 2px 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.025em; line-height: 1.04; color: var(--text-main); }
+      .kpis {
+        display: flex; margin-top: 1.2rem; padding-top: 0.95rem; position: relative; z-index: 1;
+        border-top: 1px solid var(--border-color, rgba(40,30,20,0.1));
+      }
+      .kpi { flex: 1; text-align: center; position: relative; }
+      .kpi + .kpi::before { content: ''; position: absolute; left: 0; top: 52%; transform: translateY(-50%); height: 56%; width: 1px; background: var(--border-color, rgba(40,30,20,0.1)); }
+      .kpi .v { font-family: var(--font-mono); font-weight: 700; font-size: 1.1rem; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; color: var(--text-main); }
+      .kpi.hl .v { font-size: 1.28rem; }
+      .kpi .l { font-size: 0.58rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); margin-top: 0.2rem; }
 
       .body-pad { padding-top: 0.875rem; }
       .empty { text-align: center; padding: 1.5rem 1rem; color: var(--text-muted); }
@@ -91,7 +106,7 @@ import { Order } from '../../portal/portal.service';
         transition: transform 0.08s var(--ease, ease);
       }
       .orow:active { transform: scale(0.99); }
-      @media (prefers-reduced-motion: reduce) { .orow { transition: none; } }
+      @media (prefers-reduced-motion: reduce) { .orow { transition: none; } .hero::before { animation: none; } }
       .oc { min-width: 0; }
       .code { display: block; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
       .time { font-size: 0.75rem; color: var(--text-muted); }

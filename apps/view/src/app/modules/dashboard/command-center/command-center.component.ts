@@ -27,6 +27,7 @@ import {
   InactiveCustomersResponse,
   DailySeriesRow,
   RankingOutOfStockRow,
+  ConversionSummary,
 } from './command-center.service';
 
 @Component({
@@ -60,6 +61,8 @@ export class CommandCenterComponent implements OnInit {
   readonly inactiveCustomers = signal<InactiveCustomersResponse | null>(null);
   readonly dailySeries = signal<DailySeriesRow[]>([]);
   readonly rankingOOS = signal<RankingOutOfStockRow[]>([]);
+  readonly conversion = signal<ConversionSummary | null>(null);
+  readonly dueCount = signal<number | null>(null);
 
   readonly revenueSpark = computed(() => {
     const series = this.dailySeries();
@@ -117,10 +120,13 @@ export class CommandCenterComponent implements OnInit {
       // ranking-out-of-stock: FDW a Mega_Dulces. catchError para no romper
       // el dashboard entero si la conexión al ERP está caída.
       oos: this.api.rankingOutOfStock(10, 200).pipe(catchError(() => of([] as RankingOutOfStockRow[]))),
+      // Motor de Inteligencia (Fase M): best-effort — si no está disponible, no rompe el dashboard.
+      conv: this.api.conversionSummary(30).pipe(catchError(() => of(null))),
+      due: this.api.nbaDue(100).pipe(catchError(() => of([] as Array<{ customer_id: string }>))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ ov, tc, tp, sbb, ls, ic, ds, oos }) => {
+        next: ({ ov, tc, tp, sbb, ls, ic, ds, oos, conv, due }) => {
           this.overview.set(ov);
           this.topCustomers.set(tc);
           this.topProducts.set(tp);
@@ -129,6 +135,8 @@ export class CommandCenterComponent implements OnInit {
           this.inactiveCustomers.set(ic);
           this.dailySeries.set(ds);
           this.rankingOOS.set(oos);
+          this.conversion.set(conv);
+          this.dueCount.set(conv ? due.length : null);
           this.loading.set(false);
         },
         error: (err) => {

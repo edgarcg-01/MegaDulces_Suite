@@ -159,10 +159,19 @@ export interface RankingOutOfStockRow {
   available: number;
 }
 
+/** Motor de Inteligencia (Fase M) — conversión del feedback loop. */
+export interface ConversionSummary {
+  window_days: number;
+  offers: number;
+  converted: number;
+  conversion_pct: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CommandCenterService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/analytics`;
+  private readonly intelBase = `${environment.apiUrl}/commercial/intelligence`;
 
   overview(): Observable<OverviewResponse> {
     return this.http.get<OverviewResponse>(`${this.base}/overview`);
@@ -251,5 +260,19 @@ export class CommandCenterService {
     if (opts.to) params = params.set('to', opts.to);
     if (opts.limit) params = params.set('limit', opts.limit);
     return this.http.get<HistoricalMarginRow[]>(`${this.base}/historical/margin-by-category`, { params });
+  }
+
+  // ───── Motor de Inteligencia (Fase M) ─────
+
+  /** Conversión del feedback loop (ofertas → pedidos en ventana). */
+  conversionSummary(days = 30): Observable<ConversionSummary> {
+    const params = new HttpParams().set('days', days);
+    return this.http.get<ConversionSummary>(`${this.intelBase}/signals/summary`, { params });
+  }
+
+  /** Clientes due-for-reorder hoy (para el contador del Command Center). */
+  nbaDue(limit = 100): Observable<Array<{ customer_id: string }>> {
+    const params = new HttpParams().set('limit', limit);
+    return this.http.get<Array<{ customer_id: string }>>(`${this.intelBase}/nba`, { params });
   }
 }

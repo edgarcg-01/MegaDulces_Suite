@@ -27,6 +27,7 @@ const TESTS = [
   { file: 'http-alerts-ws-test.js', label: 'C.4 alerts WS realtime', needsApi: true },
   { file: 'http-portal-b2b-test.js', label: 'D.1 portal B2B + audit history', needsApi: true },
   { file: 'http-recommendations-test.js', label: 'D.4 recommendations basket', needsApi: true },
+  { file: 'http-intelligence-test.js', label: 'M Motor de Inteligencia (Customer360+NBA+agente+feedback)', needsApi: true },
   // Fase J — Logística
   { file: 'test-logistics-rls-smoke.js', label: 'J.0 logistics RLS isolation', needsApi: false },
   { file: 'http-logistics-e2e-test.js', label: 'J.1 logistics modules E2E (fleet+shipments+guides+expenses+payroll)', needsApi: true },
@@ -44,6 +45,8 @@ const TESTS = [
   { file: 'http-vendor-capture-e2e-test.js', label: 'VC captura vendedor E2E (alias código→planograma + venta + visita)', needsApi: true },
   // Apartado Rutas — detalle por ruta (tiendas/cobertura + tiempos + trazabilidad)
   { file: 'http-routes-analysis-test.js', label: 'Rutas: detalle por ruta (visits tiempos+GPS, stores cobertura)', needsApi: true },
+  // V.6 Modo Vendedor — autodetección de llegada (nearby + anti-traslape + backfill capture-on-visit)
+  { file: 'http-vendor-geo-test.js', label: 'V.6 autodetección llegada (nearby ranked + guard anti-traslape + check-in backfill)', needsApi: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

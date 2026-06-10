@@ -14,7 +14,10 @@
  * Requisitos: API en :3334 con ENABLE_MULTITENANT=true + seed roles (vendedor).
  * Correr: node database/http-route-tickets-test.js
  */
+require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
+const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW });
 const BASE = 'http://localhost:3334/api';
+const T = '00000000-0000-0000-0000-00000000d01c';
 let pass = 0, fail = 0;
 const failures = [];
 
@@ -33,17 +36,36 @@ function check(name, cond, detail) {
   else { console.log(`  FAIL ${name}${detail !== undefined ? ` — ${JSON.stringify(detail)}` : ''}`); failures.push(name); fail++; }
 }
 
-const RC = 'E2E';
+let RC; // ruta real (dígitos canónicos), descubierta tras login — el endpoint valida route_code
 const stamp = Date.now().toString().slice(-6); // corte único por corrida (idempotencia)
 
+let origZona = null;
+let zonaAssigned = false;
+
 (async () => {
+  let exitCode = 1;
+  try {
   console.log('── 1. Login (superoot = todos los permisos) ──');
   const login = await req('POST', '/auth-mt/login', {
     tenant_slug: 'mega_dulces', username: 'superoot', password: 'superoot',
   });
   const token = login.body?.access_token;
   check('JWT recibido', !!token);
-  if (!token) { console.log('FATAL sin token'); process.exit(1); }
+  if (!token) { console.log('FATAL sin token'); return; }
+
+  // El endpoint valida route_code contra las rutas de la ZONA del usuario. superoot
+  // no tiene zona (todas las rutas pertenecen a zonas) → asignarle una zona con
+  // rutas numeradas para la corrida; se restaura en el finally.
+  const su = await knex('identity.users').where({ tenant_id: T, username: 'superoot' }).first('id', 'zona_id');
+  origZona = su?.zona_id ?? null;
+  const zonaRoute = await knex('catalogs')
+    .where({ tenant_id: T, catalog_id: 'rutas' }).whereNotNull('parent_id').whereNull('deleted_at')
+    .whereRaw("value ~ '[0-9]'").first('value', 'parent_id');
+  if (!zonaRoute) { console.log('FATAL sin rutas en zona'); return; }
+  RC = (String(zonaRoute.value).match(/\d+/) || [])[0];
+  await knex('identity.users').where({ tenant_id: T, id: su.id }).update({ zona_id: zonaRoute.parent_id });
+  zonaAssigned = true;
+  check('ruta real con número disponible', !!RC, RC);
 
   console.log('\n── 2. Guardar los 3 tipos ──');
   const corte = `E2E-CORTE-${stamp}`;
@@ -113,5 +135,15 @@ const stamp = Date.now().toString().slice(-6); // corte único por corrida (idem
 
   console.log(`\n════════ Total: ${pass} pass / ${fail} fail ════════`);
   if (fail) console.log('Failures:\n  - ' + failures.join('\n  - '));
-  process.exit(fail === 0 ? 0 : 1);
+  exitCode = fail === 0 ? 0 : 1;
+  } catch (e) {
+    console.error('FATAL:', e.message);
+    exitCode = 1;
+  } finally {
+    if (zonaAssigned) {
+      try { await knex('identity.users').where({ tenant_id: T, username: 'superoot' }).update({ zona_id: origZona }); } catch (_) {}
+    }
+    await knex.destroy();
+  }
+  process.exit(exitCode);
 })();

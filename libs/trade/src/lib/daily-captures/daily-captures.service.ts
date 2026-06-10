@@ -830,7 +830,7 @@ export class DailyCapturesService {
       WHERE dc.user_id = ?
         AND dc.created_at >= NOW() - (? || ' days')::interval
         ${tenantId ? 'AND dc.tenant_id = ?' : ''}
-        ${opts.storeId ? "AND ex->>'tiendaId' = ?" : ''}
+        ${opts.storeId ? 'AND dc.store_id = ?' : ''}
       GROUP BY pid
       ORDER BY marks DESC
       LIMIT ?

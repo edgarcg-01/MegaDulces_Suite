@@ -36,9 +36,16 @@ async function req(method, path, token) {
 
 (async () => {
   console.log('── 0. Setup (asignar tiendas-con-captura a una ruta) ──');
-  const route = await knex('catalogs').where({ tenant_id: T, catalog_id: 'rutas' }).whereNull('deleted_at').orderBy('value').first();
-  if (!route) { console.log('FATAL sin rutas'); process.exit(1); }
   const sids = (await knex('daily_captures').where('tenant_id', T).whereNotNull('store_id').distinct('store_id')).map((r) => r.store_id);
+  // Seguir a las tiendas capturadas: si ya están atadas a una ruta (re-run), usar ESA;
+  // si no, tomar una ruta y atarlas. Evita elegir alfabéticamente una ruta vacía.
+  const bound = sids.length
+    ? await knex('stores').where('tenant_id', T).whereIn('id', sids).whereNotNull('ruta_id').first()
+    : null;
+  const route = bound
+    ? await knex('catalogs').where({ tenant_id: T, catalog_id: 'rutas', id: bound.ruta_id }).first()
+    : await knex('catalogs').where({ tenant_id: T, catalog_id: 'rutas' }).whereNull('deleted_at').orderBy('value').first();
+  if (!route) { console.log('FATAL sin rutas'); process.exit(1); }
   await knex('stores').where('tenant_id', T).whereIn('id', sids).whereNull('ruta_id').update({ ruta_id: route.id });
   await knex.raw(
     `UPDATE daily_captures SET hora_fin = hora_inicio + (interval '1 minute' * (5 + (extract(epoch from hora_inicio)::int % 18)))

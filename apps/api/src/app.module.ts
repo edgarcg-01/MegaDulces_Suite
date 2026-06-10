@@ -44,6 +44,8 @@ import { CommercialOrdersModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
 import { CommercialRecommendationsModule } from '@megadulces/commercial';
+// Fase M — Motor de Inteligencia: Customer 360 (feature store) + NBA (motor de decisión)
+import { CommercialIntelligenceModule } from '@megadulces/commercial';
 import { CommercialPromotionsModule } from '@megadulces/commercial';
 import { CommercialProductsModule } from '@megadulces/commercial';
 import { PortalAiOrderModule } from '@megadulces/commercial';
@@ -94,6 +96,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialAnalyticsModule,
       CommercialAlertsModule,
       CommercialRecommendationsModule,
+      CommercialIntelligenceModule,
       CommercialPromotionsModule,
       CommercialProductsModule,
       PortalAiOrderModule,

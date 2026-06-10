@@ -8,6 +8,17 @@ import { TenantContextService } from '@megadulces/platform-core';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Radio default de "cliente cercano": más amplio que los 30 m de tiendas (clientes dispersos + drift GPS + estacionar). */
+const DEFAULT_NEARBY_RADIUS_M = 80;
+/** Separación mínima entre coords canónicas de 2 clientes distintos: por debajo, la detección sería ambigua → guard anti-traslape. */
+const MIN_CUSTOMER_SEPARATION_M = 25;
+/** Haversine en metros sobre c.latitude/c.longitude. Bindings: [lat, lat, lng]. */
+const HAVERSINE_SQL = `6371000 * 2 * asin(sqrt(
+  power(sin(radians((c.latitude - ?) / 2)), 2) +
+  cos(radians(?)) * cos(radians(c.latitude)) *
+  power(sin(radians((c.longitude - ?) / 2)), 2)
+))`;
+
 export interface AssignRouteDto {
   user_id: string;
   sales_route: string;
@@ -23,6 +34,13 @@ export interface CheckInDto {
   notes?: string;
   latitude?: number;
   longitude?: number;
+}
+
+export interface SetLocationDto {
+  latitude: number;
+  longitude: number;
+  /** Forzar el guardado pese al guard anti-traslape (el vendedor confirmó que es el cliente correcto). */
+  force?: boolean;
 }
 
 /**
@@ -284,6 +302,109 @@ export class CommercialVendorRoutesService {
     });
   }
 
+  /**
+   * V.6 — Clientes de la cartera cerca de la posición del vendedor, ordenados por
+   * distancia (Haversine en SQL). Solo entran los geolocalizados (índice parcial).
+   * Filtra por radio (default 80 m). Base de la autodetección de llegada en el home.
+   */
+  async nearbyCustomers(lat: number, lng: number, radius?: number) {
+    const me = this.tenantCtx.get()?.userId;
+    if (!me) return [];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng))
+      throw new BadRequestException('lat/lng requeridos');
+    const r =
+      Number.isFinite(radius as number) && (radius as number) > 0
+        ? Math.min(radius as number, 2000)
+        : DEFAULT_NEARBY_RADIUS_M;
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.customers as c')
+        .whereNull('c.deleted_at')
+        .whereNotNull('c.latitude')
+        .whereNotNull('c.longitude')
+        .whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('commercial.vendor_sales_routes as vsr')
+            .whereRaw('vsr.sales_route = c.sales_route')
+            .andWhere('vsr.user_id', me);
+        })
+        .select(
+          'c.id',
+          'c.code',
+          'c.name',
+          'c.sales_route',
+          'c.visit_sequence',
+          'c.phone',
+          'c.whatsapp',
+          'c.latitude',
+          'c.longitude',
+          trx.raw(`${HAVERSINE_SQL} as distance_m`, [lat, lat, lng]),
+        )
+        .orderByRaw('distance_m asc')
+        .limit(25);
+      return rows
+        .filter((x: any) => Number(x.distance_m) <= r)
+        .map((x: any) => ({ ...x, distance_m: Math.round(Number(x.distance_m)) }));
+    });
+  }
+
+  /**
+   * Guard anti-traslape + set de coords canónicas de un cliente (dentro de una trx
+   * dada). Si hay OTRO cliente con coords a menos de MIN_CUSTOMER_SEPARATION_M y no
+   * se fuerza, NO guarda y devuelve el conflicto para que el vendedor desambigüe.
+   */
+  private async locate(
+    trx: any,
+    customerId: string,
+    lat: number,
+    lng: number,
+    force: boolean,
+    me: string | null,
+  ) {
+    const conflict = await trx('commercial.customers as c')
+      .whereNull('c.deleted_at')
+      .whereNot('c.id', customerId)
+      .whereNotNull('c.latitude')
+      .whereNotNull('c.longitude')
+      .select('c.id', 'c.code', 'c.name', trx.raw(`${HAVERSINE_SQL} as distance_m`, [lat, lat, lng]))
+      .orderByRaw('distance_m asc')
+      .first();
+    const dist = conflict ? Number(conflict.distance_m) : Infinity;
+    if (!force && conflict && dist <= MIN_CUSTOMER_SEPARATION_M) {
+      return {
+        location_set: false,
+        conflict: {
+          customer_id: conflict.id,
+          code: conflict.code,
+          name: conflict.name,
+          distance_m: Math.round(dist),
+        },
+        min_separation_m: MIN_CUSTOMER_SEPARATION_M,
+      };
+    }
+    await trx('commercial.customers')
+      .where({ id: customerId })
+      .update({ latitude: lat, longitude: lng, updated_at: trx.fn.now(), updated_by: me || null });
+    return { location_set: true, customer_id: customerId, latitude: lat, longitude: lng };
+  }
+
+  /** V.6 — Setea (o corrige) las coords canónicas de un cliente, con guard anti-traslape. */
+  async setCustomerLocation(customerId: string, dto: SetLocationDto) {
+    if (!UUID_REGEX.test(customerId)) throw new BadRequestException('customer_id inválido');
+    const lat = Number(dto.latitude);
+    const lng = Number(dto.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng))
+      throw new BadRequestException('lat/lng requeridos');
+    return this.tk.run(async (trx) => {
+      const me = this.tenantCtx.get()?.userId || null;
+      const customer = await trx('commercial.customers')
+        .where({ id: customerId })
+        .whereNull('deleted_at')
+        .first('id');
+      if (!customer) throw new NotFoundException(`Customer ${customerId} no encontrado`);
+      return this.locate(trx, customerId, lat, lng, !!dto.force, me);
+    });
+  }
+
   /** V.4 — Registra un check-in de visita del vendedor logueado a un cliente. */
   async checkIn(dto: CheckInDto) {
     if (!UUID_REGEX.test(dto.customer_id)) throw new BadRequestException('customer_id inválido');
@@ -306,7 +427,21 @@ export class CommercialVendorRoutesService {
           longitude: dto.longitude ?? null,
         })
         .returning('*');
-      return row;
+
+      // Capture-on-visit: si el cliente aún no tiene coords y el check-in trae GPS,
+      // backfill con guard anti-traslape (no pisa si colisiona con otro cliente).
+      let location: Awaited<ReturnType<typeof this.locate>> | null = null;
+      if (dto.latitude != null && dto.longitude != null && customer.latitude == null) {
+        location = await this.locate(
+          trx,
+          dto.customer_id,
+          Number(dto.latitude),
+          Number(dto.longitude),
+          false,
+          me,
+        );
+      }
+      return { ...row, location };
     });
   }
 

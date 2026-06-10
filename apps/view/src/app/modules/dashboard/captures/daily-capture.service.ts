@@ -565,6 +565,29 @@ export class DailyCaptureService {
   }
 
   /**
+   * Frecuentes offline-first: online refresca y cachea en Dexie; sin red usa
+   * el último cache (en ruta sin señal el atajo sigue disponible).
+   */
+  async getFrequentProductsOffline(
+    opts: { days?: number; limit?: number } = {},
+  ): Promise<{ product_id: string; marks: number }[]> {
+    try {
+      const rows = await firstValueFrom(this.getFrequentProducts(opts));
+      await this.offlineDb.guardarCatalogo(
+        'frecuentes',
+        rows,
+        new Date().toISOString(),
+      );
+      return rows;
+    } catch {
+      const cached = await this.offlineDb.getCatalogo('frecuentes');
+      return (
+        (cached?.datos as { product_id: string; marks: number }[]) ?? []
+      );
+    }
+  }
+
+  /**
    * Guarda la captura total de la visita en el backend o offline
    * @returns Observable con el resultado de la operación
    */

@@ -548,6 +548,19 @@ export class PortalService {
     return this.http.get<RecommendedBasketDto>(`${this.base}/recommendations/my`);
   }
 
+  /** Customer 360 del cliente logueado (motor de inteligencia, Fase M). Best-effort. */
+  myCustomer360(): Observable<Customer360Dto> {
+    return this.http.get<Customer360Dto>(`${this.base}/intelligence/customer-360/my`);
+  }
+
+  /** Registra una señal del feedback loop para el cliente del JWT (Fase M, best-effort). */
+  recordMySignal(signalType: string, channel = 'portal'): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.base}/intelligence/signals/my`, {
+      signal_type: signalType,
+      channel,
+    });
+  }
+
   // ─── Promociones activas (home dashboard) ───
 
   listActivePromotions(pageSize = 6): Observable<PromotionRow[]> {
@@ -625,4 +638,14 @@ export interface RecommendedBasketDto {
   total_recommendations: number;
   category_counts: Record<RecommendationCategory, number>;
   items: RecommendationItem[];
+}
+
+export interface Customer360Dto {
+  customer_id: string;
+  orders_count: number;
+  last_order_at: string | null;
+  recency_days: number | null;
+  cadence_days: number | null;
+  next_order_estimate: string | null;
+  lifecycle_stage: 'new' | 'active' | 'at_risk' | 'lost' | 'reactivated';
 }

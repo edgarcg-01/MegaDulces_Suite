@@ -2252,11 +2252,14 @@ input:focus, textarea:focus, select:focus {
   opacity: 0.85;
   flex-shrink: 0;
 }
-.portal-status-pill.is-draft     { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
-.portal-status-pill.is-pending   { background: rgba(245, 158, 11, 0.12); color: var(--warn-fg); }
-.portal-status-pill.is-confirmed { background: rgba(37, 99, 235, 0.12);  color: var(--info-fg); }
-.portal-status-pill.is-fulfilled { background: rgba(22, 163, 74, 0.12);  color: var(--ok-fg); }
-.portal-status-pill.is-cancelled { background: rgba(220, 38, 38, 0.12);  color: var(--bad-fg); }
+/* draft = neutral stone (aún sin enviar); pending_approval = ámbar (requiere acción).
+ * Deben diferenciarse: conviven en el tab "Por aprobar". */
+.portal-status-pill.is-draft            { background: var(--c-surface-2); color: var(--c-text-2); }
+.portal-status-pill.is-pending,
+.portal-status-pill.is-pending_approval { background: var(--warn-soft-bg, rgba(245, 158, 11, 0.12)); color: var(--warn-fg); }
+.portal-status-pill.is-confirmed        { background: var(--info-soft-bg, rgba(37, 99, 235, 0.12));  color: var(--info-fg); }
+.portal-status-pill.is-fulfilled        { background: var(--ok-soft-bg, rgba(22, 163, 74, 0.12));    color: var(--ok-fg); }
+.portal-status-pill.is-cancelled        { background: var(--bad-soft-bg, rgba(220, 38, 38, 0.12));   color: var(--bad-fg); }
 
 /* ─── INFO BANNER (admin warning, hint, etc.) ──────────────── */
 .portal-banner {
@@ -2360,6 +2363,7 @@ input:focus, textarea:focus, select:focus {
 
 .comm-num {
   text-align: right;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .comm-num.is-strong { font-weight: 600; }
@@ -2442,6 +2446,7 @@ input:focus, textarea:focus, select:focus {
   font-size: 1.5rem;
   font-weight: 800;
   letter-spacing: -0.015em;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .comm-stat-card .comm-stat-sub {
@@ -2475,6 +2480,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 .comm-row-clickable { cursor: pointer; }
+.comm-row-clickable:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
 
 code.comm-code,
 .comm-code {
@@ -2753,9 +2759,9 @@ code.comm-code,
   background: var(--neutral-100, var(--surface-100));
 }
 .data-table tbody tr:hover td:first-child {
-  box-shadow: inset 2px 0 0 var(--brand-500);
+  box-shadow: inset 2px 0 0 var(--action);
 }
-.data-table .num { text-align: right; }
+.data-table .num { text-align: right; font-family: var(--font-mono); }
 .data-table .strong { font-weight: 600; color: var(--text-main); }
 .data-table .muted { color: var(--text-color-secondary); }
 .data-table .small { font-size: 0.7rem; }
@@ -2886,6 +2892,7 @@ code.comm-code,
   letter-spacing: -0.025em;
   color: var(--c-text-1);
   line-height: 1;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   margin: 0;
 }

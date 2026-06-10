@@ -43,6 +43,7 @@
 | [`FASES/FASE_I_ML_ESCALADO.md`](FASES/FASE_I_ML_ESCALADO.md) | 📝 Stub | 8-12 sem |
 | [`FASES/FASE_J_LOGISTICA.md`](FASES/FASE_J_LOGISTICA.md) | 🟡 En progreso (60%) | 3-4 sem |
 | [`FASES/FASE_K_AI_PRODUCT_MATCH.md`](FASES/FASE_K_AI_PRODUCT_MATCH.md) | 🟡 **Plan listo 2026-05-27** | 1-2 sesiones |
+| [`FASES/FASE_M_MOTOR_INTELIGENCIA.md`](FASES/FASE_M_MOTOR_INTELIGENCIA.md) | 📝 **Plan listo 2026-06-10** (rebanada vertical) | 2-3 sprints V1 |
 
 ---
 

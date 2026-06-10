@@ -75,9 +75,17 @@ import { AuthService } from '../../core/services/auth.service';
           <i class="pi pi-map"></i>
           <span>Mi ruta</span>
         </a>
+        <a routerLink="capture" routerLinkActive="active">
+          <i class="pi pi-camera"></i>
+          <span>Capturar</span>
+        </a>
         <a routerLink="close-route" routerLinkActive="active">
           <i class="pi pi-receipt"></i>
           <span>Cierre</span>
+        </a>
+        <a routerLink="carga" routerLinkActive="active">
+          <i class="pi pi-truck"></i>
+          <span>Carga</span>
         </a>
       </nav>
     </div>

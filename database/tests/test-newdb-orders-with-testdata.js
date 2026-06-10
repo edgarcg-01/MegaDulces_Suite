@@ -17,30 +17,45 @@ async function setCtx(trx) {
   await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
 }
 
-const LINES_TO_ADD = [
-  { brand: 'Chocolates Premium', product: 'Trufas Surtidas 12pz', qty: 5 },
-  { brand: 'Chocolates Premium', product: 'Barra Chocolate Amargo 70%', qty: 30 },
-  { brand: 'Chicles & Gomitas', product: 'Gomitas Frutales 1kg', qty: 8 },
-  { brand: 'Paletas y Helados', product: 'Paleta Glaseada Caramelo', qty: 24 },
-];
+// Productos resueltos dinámicamente (con stock + precio) en la primera trx.
+// Robusto al catálogo real importado — no hardcodear nombres que pueden no tener stock.
+let LINES = [];
+const QTYS = [5, 8, 10, 12];
 
 (async () => {
   let orderId;
   const stockBeforeMap = {};
 
   try {
-    // Snapshot de stock antes
+    // Resolver 4 productos con stock suficiente en MD-CENTRAL + precio en la
+    // price_list del customer, y snapshot del stock antes.
     await knex.transaction(async (trx) => {
       await setCtx(trx);
-      for (const l of LINES_TO_ADD) {
-        const p = await trx('public.products as p')
-          .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-          .whereRaw('LOWER(b.nombre) = LOWER(?)', [l.brand])
-          .whereRaw('LOWER(p.nombre) = LOWER(?)', [l.product])
-          .select('p.id')
-          .first();
-        const stock = await trx('commercial.stock').where({ product_id: p.id }).first();
-        stockBeforeMap[p.id] = { qty: Number(stock.quantity), name: l.product };
+      const customer = await trx('commercial.customers').where({ code: 'TST-0001' }).first();
+      const wh = await trx('commercial.warehouses').where({ code: 'MD-CENTRAL' }).first();
+      const rows = await trx('commercial.stock as s')
+        .join('commercial.product_prices as pp', function () {
+          this.on('pp.product_id', 's.product_id').andOn('pp.tenant_id', 's.tenant_id');
+        })
+        .join('public.products as p', function () {
+          this.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id');
+        })
+        .where('s.warehouse_id', wh.id)
+        .where('pp.price_list_id', customer.default_price_list_id)
+        .whereNull('pp.deleted_at')
+        .whereNull('p.deleted_at')
+        .whereRaw('pp.price > 0')
+        .select('s.id as stock_id', 's.product_id', 'p.nombre as name')
+        .limit(4);
+      if (rows.length < 2) throw new Error(`Solo ${rows.length} productos con stock+precio en MD-CENTRAL`);
+      // Reponer stock de los elegidos para evitar depleción por re-runs.
+      for (const r of rows) {
+        await trx('commercial.stock').where({ id: r.stock_id }).update({ quantity: 500, reserved_quantity: 0 });
+      }
+      LINES = rows.map((r, i) => ({ product_id: r.product_id, name: r.name, qty: QTYS[i] }));
+      for (const l of LINES) {
+        const stock = await trx('commercial.stock').where({ warehouse_id: wh.id, product_id: l.product_id }).first();
+        stockBeforeMap[l.product_id] = { qty: Number(stock.quantity), name: l.name };
       }
     });
 
@@ -81,16 +96,9 @@ const LINES_TO_ADD = [
       let totalTax = 0;
       let lineNum = 1;
 
-      for (const l of LINES_TO_ADD) {
-        const product = await trx('public.products as p')
-          .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-          .whereRaw('LOWER(b.nombre) = LOWER(?)', [l.brand])
-          .whereRaw('LOWER(p.nombre) = LOWER(?)', [l.product])
-          .select('p.id', 'p.nombre')
-          .first();
-
+      for (const l of LINES) {
         const price = await trx('commercial.product_prices')
-          .where({ price_list_id: customer.default_price_list_id, product_id: product.id })
+          .where({ price_list_id: customer.default_price_list_id, product_id: l.product_id })
           .first();
 
         const qty = l.qty;
@@ -103,7 +111,7 @@ const LINES_TO_ADD = [
         await trx('commercial.order_lines').insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           order_id: orderId,
-          product_id: product.id,
+          product_id: l.product_id,
           line_number: lineNum++,
           quantity: qty,
           unit_price: unit,
@@ -115,7 +123,7 @@ const LINES_TO_ADD = [
         });
         totalSubtotal += sub;
         totalTax += tx;
-        console.log(`  + ${qty}x ${product.nombre} @ ${unit} = ${tot}`);
+        console.log(`  + ${qty}x ${l.name} @ ${unit} = ${tot}`);
       }
 
       await trx('commercial.orders').where({ id: orderId }).update({
@@ -204,16 +212,11 @@ const LINES_TO_ADD = [
     // Verify deltas
     await knex.transaction(async (trx) => {
       await setCtx(trx);
+      const wh = await trx('commercial.warehouses').where({ code: 'MD-CENTRAL' }).first();
       let allOk = true;
-      for (const l of LINES_TO_ADD) {
-        const p = await trx('public.products as p')
-          .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-          .whereRaw('LOWER(b.nombre) = LOWER(?)', [l.brand])
-          .whereRaw('LOWER(p.nombre) = LOWER(?)', [l.product])
-          .select('p.id')
-          .first();
-        const stockAfter = await trx('commercial.stock').where({ product_id: p.id }).first();
-        const before = stockBeforeMap[p.id];
+      for (const l of LINES) {
+        const stockAfter = await trx('commercial.stock').where({ warehouse_id: wh.id, product_id: l.product_id }).first();
+        const before = stockBeforeMap[l.product_id];
         const after = Number(stockAfter.quantity);
         const expectedAfter = before.qty - l.qty;
         const ok = after === expectedAfter;

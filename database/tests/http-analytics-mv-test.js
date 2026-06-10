@@ -66,9 +66,11 @@ function check(name, cond, det) {
   // Datos numéricos deben coincidir (mismas reglas, mismo período de 30d implícito)
   // Nota: MV no usa date range explícito (siempre 30d rolling). Live sin date range
   // toma TODO. Pueden diferir si hay data >30d. En testdata todos son hoy.
+  // MV es 30d-rolling; live sin rango toma TODO. Con data >30d divergen legítimamente
+  // (a medida que la data beta envejece). Verificar contención, no igualdad exacta.
   check(
-    'MV y live coinciden en revenue.gross (testdata reciente)',
-    ovMv.body?.revenue?.gross === ovLive.body?.revenue?.gross,
+    'MV revenue.gross > 0 y <= live (MV 30d rolling)',
+    ovMv.body?.revenue?.gross > 0 && ovMv.body?.revenue?.gross <= ovLive.body?.revenue?.gross,
     `mv=${ovMv.body?.revenue?.gross} live=${ovLive.body?.revenue?.gross}`,
   );
 
@@ -96,9 +98,11 @@ function check(name, cond, det) {
   );
   check('top-products default source=mv', tpMv.body?.[0]?.source === 'mv');
   check('top-products MV tiene rank_by_revenue', typeof tpMv.body?.[0]?.rank_by_revenue === 'number');
+  // MV (30d rolling) y live (all-time) pueden tener distinto #1 a medida que la data
+  // beta envejece. Verificar que ambos devuelven un producto, no que sea el mismo.
   check(
-    'top-products MV y live primer entry coincide',
-    tpMv.body?.[0]?.product_id === tpLive.body?.[0]?.product_id,
+    'top-products MV y live devuelven #1 (pueden diferir: 30d vs all-time)',
+    !!tpMv.body?.[0]?.product_id && !!tpLive.body?.[0]?.product_id,
   );
   console.log(`    #1 MV: ${tpMv.body?.[0]?.product_name} revenue=${tpMv.body?.[0]?.revenue}`);
 
@@ -108,11 +112,11 @@ function check(name, cond, det) {
   const refreshResp = await req('POST', '/commercial/analytics/refresh', token);
   check('POST /refresh status 200/201', refreshResp.status >= 200 && refreshResp.status < 300, `status=${refreshResp.status}`);
   check('refresh devuelve refreshed_at', !!refreshResp.body?.refreshed_at);
-  check('refresh devuelve 3 results', Array.isArray(refreshResp.body?.results) && refreshResp.body.results.length === 3);
-  check(
-    'refresh todos los results ok',
-    Array.isArray(refreshResp.body?.results) && refreshResp.body.results.every((r) => r.ok),
-  );
+  // El refresh ahora incluye relaciones extra (p.ej. products_top_sellers vía FDW,
+  // ok=false local/env-dependiente). Verificar solo las 3 MV de analytics.* que C.1 posee.
+  const c1Mvs = (refreshResp.body?.results || []).filter((r) => r.mv && r.mv.startsWith('analytics.mv_'));
+  check('refresh devuelve las 3 MVs de analytics.*', c1Mvs.length === 3, `count=${c1Mvs.length}`);
+  check('refresh: las 3 MVs analytics.* ok', c1Mvs.length === 3 && c1Mvs.every((r) => r.ok));
   refreshResp.body?.results?.forEach((r) =>
     console.log(`    ${r.mv}: ok=${r.ok} ${r.ms}ms`),
   );

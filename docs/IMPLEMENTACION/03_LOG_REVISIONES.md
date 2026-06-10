@@ -6,6 +6,49 @@
 
 ---
 
+## 2026-06-10 — Fase M: Motor de Inteligencia Comercial — rebanada vertical V1 (cierre)
+
+**Contexto:** comparativa vs yom.ai (~18 capacidades: optimización de ruta, ciclo de vida del cliente, recomendación, promos por cadencia, WhatsApp/push/teléfono, auto-atención, agente AI). Auditoría mostró que ~60% del sustrato ya existía disperso. Decisión (ADR-016): no construir 18 features sueltas sino **un motor en 5 capas** con dos invariantes — *el motor decide, el agente comunica, el LLM NUNCA toca el dinero*. Build por **rebanada vertical** ("Reorden inteligente"), no fundación horizontal.
+
+**Arquitectura (lib nueva `libs/commercial/src/lib/commercial-intelligence/`):**
+- **Capa 0 — Customer 360** (`Customer360Service` + mig `commercial.customer_360`): UPSERT batch por tenant; RFM, cadencia (mediana de gaps entre **días-calendario distintos**), `lifecycle_stage`, `next_order_estimate`. Cron 2 AM MX (`Customer360RefreshService`, scope CLS).
+- **Capa 1 — Motor de Decisión** (`DecisionEngineService`): NBA `due_for_reorder` (regla `hoy ≥ next_order_estimate` + stage active/at_risk) + `suggestedBasket` (reusa categoría `base` de RecommendationsService) + `listDueForReorder`.
+- **Capa 2 — Agente** (`CommerceAgentService`): `composeReorderMessage` — datos del motor como hechos fijos, Claude Haiku **solo redacta**, fallback a plantilla. **Aditivo** (no refactorizó el `portal-ai-order` en uso).
+- **Capa 3 — Canales (in-app)**: vendor home banner/chip "por reordenar hoy" (NBA∩cartera) + portal home tarjeta "tu pedido habitual" + **Command Center**: fila de 4 KPIs (Reorden hoy/Ofertas/Convertidas/Conversión%). Todo best-effort.
+- **Capa 4 — Feedback** (`FeedbackService` + mig `commercial.commerce_signals`, append-only): registra ofertas/impresiones; conversión **derivada por join** con orders (sin write-back, sin acoplar orders→intelligence).
+- 10 endpoints `/commercial/intelligence/*`. Permisos **reusados** (ORDERS_VER/CUSTOMERS_VER/GESTIONAR — sin tocar `ability.factory`). Wireado en AppModule (toggle ENABLE_MULTITENANT).
+
+**Verificación:**
+- `nx build api` + `nx build view` verde en cada sprint.
+- **Revisión adversarial 9/9 OK** (SQL batch UPSERT, binding order, RLS scoping, route ordering, DI, `.rowCount`).
+- **Smoke `http-intelligence-test.js` 32/32 verde** contra Docker `localhost:5433` tras aplicar migraciones (`npm run migrate:new`, Batch 82). Refresh: 2941 customers / 3 tenants / 0 errores / 153ms.
+- **Happy-path E2E verificado** (`database/scripts/seed-nba-demo.js`): cliente con 6 pedidos espaciados 7d → Customer360 `cadence=7, stage=active, recency=10` → NBA `due_for_reorder` → mensaje **Claude real** usando SOLO los 3 productos del motor (invariante ADR-016 confirmado en runtime) → NBA list `1 due`.
+- Regression suite `database/run-all-tests.js`: **25/25 verde** (incl. la suite M). Al re-correrla se encontraron **11 fallas PRE-EXISTENTES a Fase M** (cero bugs de producto — todo brittleness de test / drift de testdata por el bulk import de ~2944 customers + catálogo real). Se hardenearon los 11 smokes:
+  - **Lookup de customer por code en lista paginada** (B.1, C.4, J.8, D.4) → usar `?search=<code>` o el token del cliente (que devuelve solo el suyo), no `pageSize` fijo.
+  - **`/price-lists/:id/prices` es catálogo LEFT-JOIN precios → trae filas con `price=null`** (D.1, J.10, C.4): filtrar `price>0` antes de elegir producto; para "el más caro", traer todas (pageSize 1000) porque los SKUs basura a $0.01 ordenan primero.
+  - **Productos hardcodeados por nombre con stock depletado** (B.3.2) → selección dinámica de productos con stock+precio + replenish.
+  - **MV (30d rolling) vs live (all-time) divergen** (C.1) → aserciones de contención/presencia, no igualdad exacta; refresh: verificar solo las 3 `analytics.mv_*` (no la FDW `products_top_sellers`).
+  - **Ruta hardcodeada 'E2E'** (RD): el endpoint valida route_code contra la zona del usuario y superoot no tiene zona → asignarle una zona con rutas para la corrida + restaurar en `finally`.
+  - **Ruta/assortment elegidos alfabéticamente** (Rutas) → seguir a las tiendas ya capturadas; **D-sku "fuera de planograma"** (VC) → excluir también `catalog.products` (segunda vía de resolución del endpoint).
+
+**Lessons learned (las 2 las encontró el smoke, NO el build):**
+1. **FK a `public.tenants` falla post-reorg.** Tras Fase L, `public.tenants`/`public.users` son VISTAS passthrough, no tablas — no se puede FK a una vista. Las migraciones nuevas deben FK a la tabla real (`identity.tenants`) o solo `tenant_id` + RLS. La trampa: calcar `recommended_baskets` (que se aplicó *antes* del reorg, cuando era tabla). Ver [`feedback`] / memoria `project_cierre_de_ruta`.
+2. **Cadencia degenerada = 0.** Calcular cadencia sobre gaps de *timestamps* da ~0 cuando los pedidos están amontonados (testdata: 44 pedidos en 4 días → mediana 0 → todos `lost` → NBA vacío). Fix: gaps entre **días-calendario distintos** en MX TZ. Lección general: una métrica derivada debe ser robusta a clustering de la data.
+3. **"build verde ≠ corre".** Ambos bugs pasaron el build (compilan); solo aparecieron al bajar a runtime. Confirma el valor de exigir el smoke contra la DB real antes de declarar cierre — no apilar capas sobre código no ejercido.
+4. **Data observation:** el NBA sale vacío en la testdata original (pedidos amontonados). NO es bug — con historial real de Mega Dulces (pedidos repartidos en semanas) se poblará solo; confirmado con el seed demo.
+
+**Decisiones técnicas:**
+- `commercial.customer_360` / `commerce_signals` en `commercial.*` (RLS forzado), NO `analytics.*` — consistencia con `recommended_baskets` + el read del portal (`/my`) necesita RLS.
+- Motores **separados por dominio**, NO lib compartida `platform-intelligence` todavía (YAGNI; "más capturado" ≠ "más pedido"; evitar acoplar el camino-de-dinero). Ver [[project-captures-frecuentes-y-motor]].
+- Agente aditivo (no refactor de `portal-ai-order`) para no romper el AI Order Builder en uso.
+
+**Deferred:**
+- Push channel (M.3.1 endpoint subscribe + M.3.2 `ReorderNudgeScanner` con frequency capping) — necesita browser para validar el service worker.
+- Reload del API para tomar el fix de cadencia (importa con data real multi-pedido/día).
+- Ensanche: Customer 360 completo (RFM/churn/afinidad/geo) → ruta óptima + prospectos → promos event-driven → **WhatsApp (Fase F)**.
+
+---
+
 ## 2026-06-08 — Offline-first en `/vendor-capture` (option A del análisis devex)
 
 **Contexto:** auditoría del flujo de captura del vendedor mostró que `/dashboard/vendor-capture` (la "fuente de verdad" del modo vendedor, memoria 2026-06-04) hacía los 2 POSTs (`/daily-captures` + `/commercial/vendor-sales`) sin fallback offline, pese a que toda la infra Dexie + sync queue ya estaba madura (usada por `/captures` legacy). Pérdida silenciosa de evidencia + venta sin red en el módulo que más la necesita (vendedor de campo, zonas sin señal).
