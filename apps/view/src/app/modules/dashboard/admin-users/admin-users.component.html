@@ -79,7 +79,7 @@
               <div class="min-w-0">
                 <div class="font-semibold text-content-main truncate">{{ user.nombre || 'Sin nombre' }}</div>
                 <div class="text-xs text-content-muted font-mono truncate">{{ '@' + user.username }}</div>
-                @if (user.role_name === 'colaborador' && user.supervisor_id) {
+                @if (isSupervisedRole(user.role_name) && user.supervisor_id) {
                   <div class="text-xs text-content-muted font-medium mt-0.5 truncate flex items-center gap-1">
                     <i class="pi pi-arrow-up-right text-[9px]" aria-hidden="true"></i>
                     {{ getSupervisorName(user.supervisor_id) }}
@@ -207,7 +207,7 @@
                   }
                 </dd>
               </div>
-              @if (user.role_name === 'colaborador' && user.supervisor_id) {
+              @if (isSupervisedRole(user.role_name) && user.supervisor_id) {
                 <div class="col-span-2">
                   <dt class="text-[10px] uppercase tracking-wider text-content-muted font-bold">Jefe directo</dt>
                   <dd class="text-sm font-medium text-content-main mt-0.5 flex items-center gap-1">
@@ -283,14 +283,14 @@
                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
     </div>
 
-    @if (userForm.get('role_name')?.value === 'colaborador') {
+    @if (isSupervisedRole(userForm.get('role_name')?.value)) {
       <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
         <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
-        <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un jefe"
+        <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un supervisor"
                     optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
         @if (userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched) {
           <small class="text-bad-fg">
-            Debes asignar un supervisor para este colaborador.
+            Debes asignar un supervisor para este usuario.
           </small>
         }
       </div>

@@ -186,7 +186,7 @@ export class AdminUsersComponent implements OnInit {
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((role) => {
         const supervisorControl = this.userForm.get('supervisor_id');
-        if (role === 'colaborador') {
+        if (this.isSupervisedRole(role)) {
           supervisorControl?.setValidators([Validators.required]);
         } else {
           supervisorControl?.clearValidators();
@@ -443,6 +443,18 @@ export class AdminUsersComponent implements OnInit {
           });
         },
       });
+  }
+
+  /**
+   * Roles de campo/ventas que reportan a un supervisor de ventas. Para ellos se
+   * muestra (y exige) el selector de supervisor; el resto no lo lleva. Antes
+   * solo aplicaba a `colaborador`, por eso vendedor/ejecutivo no podían tener
+   * supervisor y no aparecían en la asignación diaria de su supervisor.
+   */
+  private readonly supervisedRoles = ['colaborador', 'ejecutivo', 'vendedor'];
+
+  isSupervisedRole(role?: string | null): boolean {
+    return !!role && this.supervisedRoles.includes(role.toLowerCase());
   }
 
   getSupervisorName(id: string | undefined): string {
