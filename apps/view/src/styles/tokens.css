@@ -292,6 +292,12 @@ body.theme-monochrome {
   --ember-soft:   rgba(248, 180, 0, 0.12);
   --ember-border: rgba(240, 90, 40, 0.30);
 
+  /* Motion — easing canónico. standard=salidas/UI, spring=entradas táctiles
+     (sheets, FAB pop). Duraciones: micro 80-120ms, feedback 200-400ms, contexto 400-600ms. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease:          cubic-bezier(0.2, 0, 0, 1);
+  --spring:        cubic-bezier(0.34, 1.56, 0.64, 1);
+
   /* Density tokens — altura de fila parametrizable.
      Operations usa --row-h-md (compact++); Storefront usa --row-h-xl (comfortable).
      Override en el shell del surface: .operations-shell { --row-h: var(--row-h-md); }
