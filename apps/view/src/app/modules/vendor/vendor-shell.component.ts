@@ -26,6 +26,16 @@ import { AuthService } from '../../core/services/auth.service';
         <div class="vendor-user">
           <a
             pButton
+            icon="pi pi-search"
+            severity="secondary"
+            size="small"
+            text
+            routerLink="search"
+            routerLinkActive="header-active"
+            aria-label="Buscar cliente"
+          ></a>
+          <a
+            pButton
             icon="pi pi-chart-bar"
             severity="secondary"
             size="small"
@@ -33,16 +43,6 @@ import { AuthService } from '../../core/services/auth.service';
             routerLink="today"
             routerLinkActive="header-active"
             aria-label="Mi día"
-          ></a>
-          <a
-            pButton
-            icon="pi pi-receipt"
-            severity="secondary"
-            size="small"
-            text
-            routerLink="close-route"
-            routerLinkActive="header-active"
-            aria-label="Cierre de ruta"
           ></a>
           <button
             pButton
@@ -61,21 +61,13 @@ import { AuthService } from '../../core/services/auth.service';
       </main>
 
       <nav class="vendor-bottom-nav">
-        <a routerLink="new-order" routerLinkActive="active">
-          <i class="pi pi-plus-circle"></i>
-          <span>Pedido</span>
+        <a routerLink="route-home" routerLinkActive="active">
+          <i class="pi pi-map"></i>
+          <span>Mi ruta</span>
         </a>
-        <a routerLink="pending" routerLinkActive="active">
-          <i class="pi pi-truck"></i>
-          <span>Por entregar</span>
-        </a>
-        <a routerLink="visits" routerLinkActive="active">
-          <i class="pi pi-map-marker"></i>
-          <span>Por visitar</span>
-        </a>
-        <a routerLink="search" routerLinkActive="active">
-          <i class="pi pi-search"></i>
-          <span>Buscar</span>
+        <a routerLink="close-route" routerLinkActive="active">
+          <i class="pi pi-receipt"></i>
+          <span>Cierre</span>
         </a>
       </nav>
     </div>

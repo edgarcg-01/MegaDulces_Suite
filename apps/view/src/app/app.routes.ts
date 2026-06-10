@@ -330,14 +330,16 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./modules/vendor/vendor-shell.component').then((m) => m.VendorShellComponent),
     children: [
-      { path: '', redirectTo: 'new-order', pathMatch: 'full' },
+      { path: '', redirectTo: 'route-home', pathMatch: 'full' },
       {
-        path: 'new-order',
+        path: 'route-home',
         loadComponent: () =>
-          import('./modules/vendor/pages/vendor-new-order.component').then(
-            (m) => m.VendorNewOrderComponent,
+          import('./modules/vendor/pages/vendor-route-home.component').then(
+            (m) => m.VendorRouteHomeComponent,
           ),
       },
+      // Back-compat: el nav viejo / landings apuntaban a 'new-order'.
+      { path: 'new-order', redirectTo: 'route-home', pathMatch: 'full' },
       {
         path: 'pending',
         loadComponent: () =>
