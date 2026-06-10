@@ -16,9 +16,26 @@ export interface VendorCustomer {
   name: string;
   legal_name?: string;
   phone?: string;
+  whatsapp?: string | null;
+  sales_route?: string | null;
+  visit_sequence?: number | null;
   credit_limit: number;
   default_price_list_id?: string | null;
   active: boolean;
+}
+
+/**
+ * Order enriquecida que devuelve el listado de pedidos para el vendedor:
+ * incluye `is_preventa` (originado por el cliente vía Portal B2B) + datos
+ * desnormalizados para pintar la lista sin un fetch extra por pedido.
+ */
+export interface VendorOrder extends Order {
+  is_preventa?: boolean;
+  customer_name?: string | null;
+  user_id?: string | null;
+  user_username?: string | null;
+  route_name?: string | null;
+  folio?: string;
 }
 
 // ─── Cierre de ruta ───
@@ -113,6 +130,25 @@ export class VendorService {
     return this.http.get<VendorCustomer>(`${this.base}/customers/${id}`);
   }
 
+  /**
+   * Cartera del vendedor: clientes de las rutas de venta asignadas a este user
+   * (commercial.vendor_sales_routes), ya ordenados por `visit_sequence` desde el
+   * backend. Es la base de "Clientes por ver" / "Pedido nuevo".
+   */
+  myCartera(opts: { search?: string; pageSize?: number } = {}): Observable<{
+    data: VendorCustomer[];
+    total: number;
+  }> {
+    let p = new HttpParams()
+      .set('mine', 'true')
+      .set('pageSize', String(opts.pageSize ?? 200));
+    if (opts.search) p = p.set('search', opts.search);
+    return this.http.get<{ data: VendorCustomer[]; total: number }>(
+      `${this.base}/customers`,
+      { params: p },
+    );
+  }
+
   // ─── Catalog scoped al customer ───
 
   /**
@@ -204,12 +240,37 @@ export class VendorService {
     return this.portal.confirm(orderId);
   }
 
+  /** pending_approval → confirmed. El vendedor aprueba un pedido de preventa. */
+  approve(orderId: string): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/approve`, {});
+  }
+
+  /** confirmed → fulfilled. El vendedor marca el pedido como entregado en campo. */
+  fulfill(orderId: string): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/fulfill`, {});
+  }
+
   cancel(orderId: string, reason?: string) {
     return this.portal.cancel(orderId, reason);
   }
 
   orderById(id: string) {
     return this.portal.orderById(id);
+  }
+
+  /**
+   * Pedidos "por entregar" de la cartera del vendedor: preventa (creada por el
+   * cliente) + de campo, en estados pending_approval y confirmed. Es la base del
+   * apartado "Por entregar". Ordenados por fecha desc desde el backend.
+   */
+  pendingDeliveries(): Observable<VendorOrder[]> {
+    const params = new HttpParams()
+      .set('mine', 'true')
+      .set('statuses', 'pending_approval,confirmed')
+      .set('pageSize', '200');
+    return this.http
+      .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
+      .pipe(map((r) => r.data || []));
   }
 
   // ─── My day: pedidos tomados HOY por este vendedor ───

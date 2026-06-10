@@ -67,12 +67,14 @@ export class CommercialCustomersController {
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
     @Query('active') active?: string,
+    @Query('mine') mine?: string,
   ) {
     return this.service.list({
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       search,
       active: active === undefined ? undefined : active === 'true',
+      mine: mine === 'true',
     });
   }
 

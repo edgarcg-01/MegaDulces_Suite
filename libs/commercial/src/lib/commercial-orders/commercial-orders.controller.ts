@@ -44,8 +44,10 @@ export class CommercialOrdersController {
   })
   list(
     @Query('status') status?: OrderStatus,
+    @Query('statuses') statuses?: string,
     @Query('customer_id') customerId?: string,
     @Query('user_id') userId?: string,
+    @Query('mine') mine?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('page') page?: string,
@@ -53,8 +55,10 @@ export class CommercialOrdersController {
   ) {
     return this.service.list({
       status,
+      statuses,
       customer_id: customerId,
       user_id: userId,
+      mine: mine === 'true',
       from,
       to,
       page: page ? Number(page) : undefined,

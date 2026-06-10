@@ -133,6 +133,8 @@ exports.seed = async function (knex) {
   };
 
   // Colaborador / ejecutivo de campo: registra visitas, toma pedidos y cobra.
+  // V.1: el vendedor gestiona su cartera de punta a punta — aprueba preventa
+  // (CONFIRMAR), marca entregado en campo (FULFILL) y puede cancelar (CANCELAR).
   const FIELD_PERMS = {
     ...NO_PERMS,
     REPORTES_VER_PROPIO: true,
@@ -147,6 +149,9 @@ exports.seed = async function (knex) {
     COMMERCIAL_INVENTORY_VER: true,
     COMMERCIAL_ORDERS_VER: true,
     COMMERCIAL_ORDERS_CREAR: true,
+    COMMERCIAL_ORDERS_CONFIRMAR: true,
+    COMMERCIAL_ORDERS_CANCELAR: true,
+    COMMERCIAL_ORDERS_FULFILL: true,
     COMMERCIAL_PAYMENTS_REGISTRAR: true,
   };
 

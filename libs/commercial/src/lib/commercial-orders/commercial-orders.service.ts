@@ -50,8 +50,12 @@ export interface UpdateLineDto {
 
 export interface ListOrdersQuery {
   status?: OrderStatus;
+  /** Multi-status CSV, ej "pending_approval,confirmed". Se suma a `status`. */
+  statuses?: string;
   customer_id?: string;
   user_id?: string;
+  /** Restringe a pedidos de clientes en la cartera del vendedor del JWT (vendor_sales_routes). */
+  mine?: boolean;
   from?: string;
   to?: string;
   page?: number;
@@ -893,8 +897,28 @@ export class CommercialOrdersService {
         .whereNull('o.deleted_at');
 
       if (query.status) q = q.where('o.status', query.status);
+      if (query.statuses) {
+        const list = query.statuses
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (list.length) q = q.whereIn('o.status', list);
+      }
       if (query.customer_id) q = q.where('o.customer_id', query.customer_id);
       if (query.user_id) q = q.where('o.user_id', query.user_id);
+      if (query.mine) {
+        // Cartera del vendedor: clientes cuya sales_route está asignada al user
+        // del JWT en commercial.vendor_sales_routes. Incluye pedidos de preventa
+        // (creados por el customer_b2b) y de campo por igual — el vendedor ve
+        // todo lo de SUS rutas, sin importar quién lo originó.
+        const meId = this.tenantCtx.get()?.userId || null;
+        q = q.whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('commercial.vendor_sales_routes as vsr')
+            .whereRaw('vsr.sales_route = c.sales_route')
+            .andWhere('vsr.user_id', meId);
+        });
+      }
       if (query.from) q = q.where('o.created_at', '>=', query.from);
       if (query.to) q = q.where('o.created_at', '<=', query.to);
 
@@ -928,6 +952,9 @@ export class CommercialOrdersService {
           'o.notes',
           'o.user_id',
           'u.username as user_username',
+          // Preventa = pedido originado por el propio cliente vía Portal B2B
+          // (su user es customer_b2b). Campo = lo tomó un vendedor en sitio.
+          trx.raw("(u.role_name = 'customer_b2b') as is_preventa"),
           'o.route_id',
           'r.name as route_name',
           'o.created_at',

@@ -43,6 +43,8 @@ export interface ListCustomersQuery {
   pageSize?: number;
   search?: string;
   active?: boolean;
+  /** Restringe a la cartera del vendedor del JWT (vendor_sales_routes) y ordena por visit_sequence. */
+  mine?: boolean;
 }
 
 const CODE_REGEX = /^[A-Z0-9_-]{2,50}$/;
@@ -197,12 +199,30 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
             .orWhere('c.email', 'ilike', term),
         );
       }
+      // Cartera del vendedor: clientes en las sales_route asignadas al user del
+      // JWT. No aplica a customer_b2b (ya quedó forzado a su propio customer).
+      if (query.mine && !forceCustomerId) {
+        const meId = ctx?.userId || null;
+        q = q.whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('commercial.vendor_sales_routes as vsr')
+            .whereRaw('vsr.sales_route = c.sales_route')
+            .andWhere('vsr.user_id', meId);
+        });
+      }
 
       const [{ count }] = await q.clone().count<{ count: string }[]>('c.id as count');
       const total = Number(count) || 0;
 
+      // En modo cartera el orden es la secuencia de visita (nulls al final);
+      // fuera de cartera, alfabético por nombre.
+      if (query.mine && !forceCustomerId) {
+        q = q.orderByRaw('c.visit_sequence asc nulls last').orderBy('c.name', 'asc');
+      } else {
+        q = q.orderBy('c.name', 'asc');
+      }
+
       const data = await q
-        .orderBy('c.name', 'asc')
         .limit(pageSize)
         .offset(offset)
         .select('c.*', 'r.name as route_name');
