@@ -65,7 +65,7 @@ import { Order } from '../../portal/portal.service';
       :host { display: block; }
       .hero {
         margin: -1rem -1rem 0; padding: 1.1rem 1rem 1.25rem;
-        background: linear-gradient(160deg, #F8B400 -10%, #F05A28 60%, #C53E15 130%);
+        background: var(--v-hero-grad, linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%));
         color: #fff; position: relative; overflow: hidden;
       }
       .hero::after { content: ''; position: absolute; right: -40px; top: -30px; width: 160px; height: 160px; border-radius: 50%; background: rgba(255,255,255,0.12); }
@@ -73,7 +73,7 @@ import { Order } from '../../portal/portal.service';
       .hero-h .ey { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; opacity: 0.85; }
       .hero-h h1 { margin: 1px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
       .kpis { display: flex; margin-top: 1rem; background: rgba(255,255,255,0.14); border-radius: var(--r-md, 12px); padding: 4px; position: relative; z-index: 2; }
-      .kpi { flex: 1; text-align: center; padding: 0.45rem 0.25rem; border-radius: 9px; }
+      .kpi { flex: 1; text-align: center; padding: 0.45rem 0.25rem; border-radius: 12px; }
       .kpi.hl { background: rgba(255,255,255,0.18); }
       .kpi .v { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
       .kpi .l { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.82; }

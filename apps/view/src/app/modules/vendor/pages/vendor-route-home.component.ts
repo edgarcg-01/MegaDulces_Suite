@@ -198,7 +198,7 @@ import { Order } from '../../portal/portal.service';
       .hero {
         margin: -1rem -1rem 0;
         padding: 1.1rem 1rem 1.25rem;
-        background: linear-gradient(160deg, #F8B400 -10%, #F05A28 60%, #C53E15 130%);
+        background: var(--v-hero-grad, linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%));
         color: #fff;
         position: relative;
         overflow: hidden;
@@ -210,7 +210,7 @@ import { Order } from '../../portal/portal.service';
         background: conic-gradient(#fff calc(var(--pct, 0) * 1%), rgba(255,255,255,0.28) 0);
       }
       .ring .inner {
-        width: 52px; height: 52px; border-radius: 50%; background: #F05A28; display: grid; place-items: center;
+        width: 52px; height: 52px; border-radius: 50%; background: #C53E15; display: grid; place-items: center;
         font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;
       }
       .ring .inner b { font-size: 1.15rem; } .ring .inner span { font-size: 0.75rem; opacity: 0.85; }
@@ -219,7 +219,7 @@ import { Order } from '../../portal/portal.service';
       .hero-h h1 { margin: 1px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
       .hero-h .sub { font-size: 0.8rem; opacity: 0.9; }
       .kpis { display: flex; gap: 0; margin-top: 1rem; background: rgba(255,255,255,0.14); border-radius: var(--r-md, 12px); padding: 4px; position: relative; z-index: 2; }
-      .kpi { flex: 1; text-align: center; padding: 0.45rem 0.25rem; border-radius: 9px; }
+      .kpi { flex: 1; text-align: center; padding: 0.45rem 0.25rem; border-radius: 12px; }
       .kpi.hl { background: rgba(255,255,255,0.18); }
       .kpi .v { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; }
       .kpi .l { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.82; }
@@ -232,7 +232,7 @@ import { Order } from '../../portal/portal.service';
         margin-bottom: 0.875rem; padding: 0.7rem 0.8rem; border-radius: var(--r-lg, 16px);
         background: var(--ember-soft); border: 1px solid var(--ember-border); cursor: pointer;
       }
-      .smart .spark { width: 34px; height: 34px; border-radius: 11px; background: var(--ember-grad); display: grid; place-items: center; color: #fff; font-size: 0.95rem; flex-shrink: 0; box-shadow: 0 3px 10px rgba(240,90,40,0.35); }
+      .smart .spark { width: 34px; height: 34px; border-radius: 14px; background: var(--ember-grad); display: grid; place-items: center; color: #fff; font-size: 0.95rem; flex-shrink: 0; box-shadow: 0 3px 10px rgba(240,90,40,0.35); }
       .smart .t { flex: 1; min-width: 0; }
       .smart .t b { display: block; font-size: 0.85rem; color: var(--text-main); }
       .smart .t span { font-size: 0.75rem; color: var(--text-muted); }
@@ -260,8 +260,8 @@ import { Order } from '../../portal/portal.service';
       .client.due::before { background: var(--action); }
       .client:active { transform: scale(0.985); }
       .seq {
-        flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 11px; display: grid; place-items: center;
-        background: var(--stone-100); color: var(--stone-700);
+        flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 14px; display: grid; place-items: center;
+        background: var(--v-seq-bg, var(--brand-100)); color: var(--v-seq-fg, var(--brand-900));
         font-family: var(--font-mono); font-weight: 700; font-size: 0.9rem; font-variant-numeric: tabular-nums;
       }
       .seq.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
@@ -300,7 +300,7 @@ import { Order } from '../../portal/portal.service';
       @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
       .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--stone-200); margin: 0 auto 0.875rem; }
       .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
-      .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 13px; background: var(--ember-grad); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
+      .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }
       .sheet-head .cd { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted); }
       .sheet-primary {
@@ -445,7 +445,7 @@ export class VendorRouteHomeComponent implements OnInit {
   }
   goCapture(): void {
     this.closeSheet();
-    this.router.navigate(['/dashboard/vendor-capture']);
+    this.router.navigate(['/vendor/capture']);
   }
 
   markVisit(c: HomeCustomer): void {

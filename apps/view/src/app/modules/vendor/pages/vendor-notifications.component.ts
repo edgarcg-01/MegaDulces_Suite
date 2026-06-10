@@ -88,7 +88,7 @@ import { Order } from '../../portal/portal.service';
         padding: 0.75rem; margin-bottom: 0.5rem; cursor: pointer;
       }
       .nrow.flat { cursor: default; }
-      .nic { width: 2.35rem; height: 2.35rem; border-radius: 11px; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; color: #fff; }
+      .nic { width: 2.35rem; height: 2.35rem; border-radius: 14px; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; color: #fff; }
       .nic.warn { background: var(--warn-fg); }
       .nic.ai { background: var(--ember-grad); }
       .nic.ok { background: var(--ok-fg); }

@@ -88,7 +88,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
         transition: transform 0.06s var(--ease, ease);
       }
       .client:active { transform: scale(0.985); }
-      .av { width: 2.4rem; height: 2.4rem; border-radius: 12px; flex-shrink: 0; display: grid; place-items: center; background: var(--stone-100); color: var(--stone-700); font-weight: 800; font-size: 0.9rem; }
+      .av { width: 2.4rem; height: 2.4rem; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; background: var(--stone-100); color: var(--stone-700); font-weight: 800; font-size: 0.9rem; }
       .cbody { flex: 1; min-width: 0; }
       .nm { display: block; font-weight: 700; font-size: 0.95rem; color: var(--text-main); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .meta { display: flex; gap: 0.4rem; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }

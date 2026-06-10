@@ -357,3 +357,18 @@ body.theme-monochrome .pl-wrap {
   --ember-soft:     rgba(248, 180, 0, 0.16);
   --ai-accent:      #F8B400;
 }
+
+/* ── Modo Vendedor — radios más redondeados (look moderno) + colorimetría
+   golden tomada de /vendor-capture. Scopeado a .vendor-shell; cascada a todos
+   los componentes del módulo vía custom properties. Sunset --action se conserva
+   en CTAs sólidos (contraste de texto blanco). ── */
+.vendor-shell {
+  --r-sm:  10px;
+  --r-md:  14px;
+  --r-lg:  18px;
+  --r-xl:  22px;
+  --r-2xl: 26px;
+  --v-hero-grad: linear-gradient(160deg, #F8B400 -10%, #F68F1E 55%, #C53E15 125%);
+  --v-seq-bg: var(--brand-100);
+  --v-seq-fg: var(--brand-900);
+}

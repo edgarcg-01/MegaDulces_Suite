@@ -143,8 +143,8 @@ type OrderMode = 'instante' | 'futuro';
         display: flex; align-items: center; gap: 0.7rem;
         margin: -1rem -1rem 0.75rem; padding: 0.7rem 1rem; background: var(--card-bg); border-bottom: 1px solid var(--border-color);
       }
-      .to-head .bk { width: 2.25rem; height: 2.25rem; border-radius: 11px; border: none; background: var(--surface-ground); color: var(--text-main); display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0; }
-      .to-head .av { width: 2.35rem; height: 2.35rem; border-radius: 11px; background: var(--brand-400); color: var(--stone-950); display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
+      .to-head .bk { width: 2.25rem; height: 2.25rem; border-radius: 14px; border: none; background: var(--surface-ground); color: var(--text-main); display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0; }
+      .to-head .av { width: 2.35rem; height: 2.35rem; border-radius: 14px; background: var(--brand-400); color: var(--stone-950); display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .to-head .ci { flex: 1; min-width: 0; }
       .to-head .nm { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .to-head .cd { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
@@ -164,7 +164,7 @@ type OrderMode = 'instante' | 'futuro';
       .catalog { display: flex; flex-direction: column; gap: 0.5rem; }
       .prod { display: flex; align-items: center; gap: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0.55rem 0.7rem; }
       .prod.in { border-color: var(--action); box-shadow: 0 0 0 1px var(--action) inset; }
-      .prod .ph { width: 2.5rem; height: 2.5rem; border-radius: 10px; background: var(--stone-100); display: grid; place-items: center; color: var(--stone-400); font-size: 1.05rem; flex-shrink: 0; }
+      .prod .ph { width: 2.5rem; height: 2.5rem; border-radius: 14px; background: var(--stone-100); display: grid; place-items: center; color: var(--stone-400); font-size: 1.05rem; flex-shrink: 0; }
       .prod .pb { flex: 1; min-width: 0; }
       .prod .pn { font-weight: 600; font-size: 0.9rem; color: var(--text-main); line-height: 1.2; }
       .prod .pm { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
@@ -172,7 +172,7 @@ type OrderMode = 'instante' | 'futuro';
       .prod .pm .stk { font-weight: 600; }
       .prod .pm .stk.ok { color: var(--ok-fg); } .prod .pm .stk.warn { color: var(--warn-fg); } .prod .pm .stk.bad { color: var(--bad-fg); }
       .qbadge { font-family: var(--font-mono); font-weight: 700; font-size: 0.8rem; color: var(--action); min-width: 1.4rem; text-align: right; font-variant-numeric: tabular-nums; }
-      .add { width: 2.75rem; height: 2.75rem; border-radius: 11px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
+      .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
       .add:active { transform: scale(0.92); } .add:disabled { opacity: 0.5; }
 
       .cart { margin-top: 1.5rem; padding-top: 1rem; border-top: 2px solid var(--border-color); }
