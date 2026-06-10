@@ -249,6 +249,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
       },
       {
+        // Alias en Admin de la cartera de ventas (mismo componente que /comercial/cartera):
+        // asignar rutas a vendedores es gestión de personal, vive también acá.
+        path: 'cartera',
+        loadComponent: () => import('./modules/comercial/pages/comercial-cartera.component').then(m => m.ComercialCarteraComponent),
+        canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
+      },
+      {
         path: 'roles',
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
