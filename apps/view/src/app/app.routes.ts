@@ -371,6 +371,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'order-success',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-order-success.component').then(
+            (m) => m.VendorOrderSuccessComponent,
+          ),
+      },
+      {
         path: 'today',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-today.component').then(

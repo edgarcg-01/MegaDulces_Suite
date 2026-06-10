@@ -385,7 +385,7 @@ export class VendorTakeOrderComponent implements OnInit {
             .updateDraftHeader(orderId, { requested_delivery_date: this.requestedDate })
             .pipe(switchMap(() => this.api.confirm(orderId)))
             .subscribe({
-              next: (o) => this.onDone(`Agendado para ${pretty}`, o?.code),
+              next: (o) => this.onDone(o),
               error: (err) => this.onError(err),
             });
         },
@@ -402,18 +402,27 @@ export class VendorTakeOrderComponent implements OnInit {
       accept: () => {
         this.submitting.set(true);
         this.api.deliverNow(orderId).subscribe({
-          next: (o) => this.onDone('Pedido entregado', o?.code),
+          next: (o) => this.onDone(o),
           error: (err) => this.onError(err),
         });
       },
     });
   }
 
-  private onDone(summary: string, code?: string): void {
+  private onDone(o: { code?: string; total?: number | string } | null): void {
     this.submitting.set(false);
-    this.haptic.notification('success');
-    this.toast.add({ severity: 'success', summary, detail: code });
-    this.router.navigate(['/vendor/today']);
+    const c = this.customer();
+    this.router.navigate(['/vendor/order-success'], {
+      queryParams: {
+        mode: this.mode(),
+        code: o?.code || '',
+        total: o?.total ?? this.cartTotal(),
+        units: this.cartUnitsTotal(),
+        name: c?.name || '',
+        wa: c?.whatsapp || '',
+        date: this.mode() === 'futuro' ? this.requestedDate : '',
+      },
+    });
   }
   private onError(err: any): void {
     this.submitting.set(false);
