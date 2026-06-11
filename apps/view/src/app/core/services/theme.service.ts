@@ -144,7 +144,11 @@ export class ThemeService {
    */
   private updateThemeColorMeta(isMonochrome: boolean) {
     if (typeof document === 'undefined') return;
-    const color = isMonochrome ? '#111111' : '#FFFFFF';
+    // Fuente única: el chrome del SO (status bar + nav bar del PWA) matchea la
+    // superficie real de la app leyendo `--card-bg` (= color del header/bottom-nav).
+    // Derivarlo del token en vez de hardcodear evita que tema, meta y manifest se
+    // desincronicen y reaparezca el "margen negro". Fallback a literales si falla.
+    const color = this.readSurfaceColor() || (isMonochrome ? '#16130F' : '#FFFFFF');
     document.querySelectorAll('meta[name="theme-color"]').forEach((el) => {
       if (el.getAttribute('media')) el.remove();
     });
@@ -157,5 +161,15 @@ export class ThemeService {
       document.head.appendChild(meta);
     }
     meta.setAttribute('content', color);
+  }
+
+  /** Color de la superficie de chrome (header/bottom-nav) para que las barras del
+   *  SO matcheen la app. Lee `--card-bg` del body (ya tiene la clase de tema aplicada). */
+  private readSurfaceColor(): string {
+    try {
+      return getComputedStyle(document.body).getPropertyValue('--card-bg').trim();
+    } catch {
+      return '';
+    }
   }
 }
