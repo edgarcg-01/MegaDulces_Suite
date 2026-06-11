@@ -10,6 +10,7 @@ export interface PriceRow {
   id: string;
   product_id: string;
   product_name: string;
+  sku?: string | null;
   brand_id?: string | null;
   brand_name?: string | null;
   /** Null si el producto no tiene precio configurado para el price_list del customer (catálogo completo). */
@@ -30,6 +31,14 @@ export interface PriceRow {
   cases_sold?: number | string;
   /** Top sellers MV: piezas totales (incluye cajas × factor). */
   units_total?: number | string;
+  /** Costo c/IVA unitario (ERP productos_activos.costo_civa). Solo en take-order — NULL para customer_b2b (anti-leak). */
+  cost_with_tax?: number | string | null;
+  /** Costo por caja (ERP productos_activos.costo_x_caja). Solo take-order. */
+  cost_per_case?: number | string | null;
+  /** Unidades vendidas últimos 30d (ERP). Driver del chip de rotación. */
+  sales_units_30d?: number | null;
+  /** Rotación: 'alta' | 'media' | 'baja' (derivada en el sync ERP). */
+  rotation_tier?: 'alta' | 'media' | 'baja' | null;
 }
 
 /**
@@ -252,8 +261,18 @@ export class PortalService {
    * (alineado con el uso histórico: mostrar el catálogo completo del customer).
    * Backend devuelve `{ data, pagination }` — extraemos `data`.
    */
-  listPricesForList(priceListId: string, warehouseId?: string): Observable<PriceRow[]> {
-    let params = new HttpParams().set('pageSize', 5000).set('commercial_only', 'true');
+  listPricesForList(
+    priceListId: string,
+    warehouseId?: string,
+    opts: { pricedOnly?: boolean } = {},
+  ): Observable<PriceRow[]> {
+    // priced_only: trae SOLO los productos pedibles (con precio) del price list,
+    // completos en un fetch (sube el techo del backend a 10k). Sin él, el backend
+    // capa a 500 → el catálogo queda truncado al primer ~5%.
+    let params = new HttpParams()
+      .set('pageSize', opts.pricedOnly ? 8000 : 5000)
+      .set('commercial_only', 'true');
+    if (opts.pricedOnly) params = params.set('priced_only', 'true');
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,

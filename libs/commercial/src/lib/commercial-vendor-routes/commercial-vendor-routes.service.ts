@@ -43,6 +43,30 @@ export interface SetLocationDto {
   force?: boolean;
 }
 
+/** Motivos válidos de no-venta (espejo del CHECK en la migración). */
+export const NO_SALE_REASONS = [
+  'cerrado',
+  'no_atendio',
+  'con_inventario',
+  'sin_recursos',
+  'no_interesado',
+  'otro',
+] as const;
+export type NoSaleReason = (typeof NO_SALE_REASONS)[number];
+
+export interface FinishVisitDto {
+  customer_id: string;
+  /** Se tomó un pedido (preventa) en la visita. */
+  had_order?: boolean;
+  /** Se capturó un ticket de venta directa. */
+  had_ticket?: boolean;
+  /** Motivo si no hubo venta (ignorado si had_order o had_ticket). */
+  no_sale_reason?: NoSaleReason;
+  notes?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 /**
  * V.0 Modo Vendedor v2 — cartera del vendedor (qué rutas de venta cubre) y orden
  * de visita de los clientes. El supervisor_ventas asigna (permiso USUARIOS_ASIGNAR_RUTA);
@@ -440,6 +464,71 @@ export class CommercialVendorRoutesService {
           false,
           me,
         );
+      }
+      return { ...row, location };
+    });
+  }
+
+  /**
+   * V.7 — Cierra la visita con su resultado. Reusa la última visita ABIERTA de
+   * hoy (mismo vendedor+cliente, ended_at NULL); si no hay, crea una (sirve de
+   * check-in, con backfill de coords como en checkIn). Setea ended_at + flags +
+   * motivo de no-venta. `had_order`/`had_ticket` los reporta el front (sabe qué
+   * hizo en la visita); el motivo solo se guarda si NO hubo venta.
+   */
+  async finishVisit(dto: FinishVisitDto) {
+    if (!UUID_REGEX.test(dto.customer_id)) throw new BadRequestException('customer_id inválido');
+    const hadOrder = !!dto.had_order;
+    const hadTicket = !!dto.had_ticket;
+    const reason = !hadOrder && !hadTicket ? dto.no_sale_reason ?? null : null;
+    if (reason && !NO_SALE_REASONS.includes(reason)) {
+      throw new BadRequestException('no_sale_reason inválido');
+    }
+    return this.tk.run(async (trx) => {
+      const me = this.tenantCtx.get()?.userId;
+      if (!me) throw new BadRequestException('Usuario no identificado');
+      const customer = await trx('commercial.customers')
+        .where({ id: dto.customer_id })
+        .whereNull('deleted_at')
+        .first();
+      if (!customer) throw new NotFoundException(`Customer ${dto.customer_id} no encontrado`);
+
+      // Visita abierta de hoy (TZ MX) para reusar; si no hay, se crea.
+      const open = await trx('commercial.vendor_visits')
+        .where({ user_id: me, customer_id: dto.customer_id })
+        .whereNull('ended_at')
+        .whereRaw(`(visited_at AT TIME ZONE 'America/Mexico_City')::date = (now() AT TIME ZONE 'America/Mexico_City')::date`)
+        .orderBy('visited_at', 'desc')
+        .first();
+
+      let location: Awaited<ReturnType<typeof this.locate>> | null = null;
+      const patch = {
+        ended_at: trx.fn.now(),
+        had_order: hadOrder,
+        had_ticket: hadTicket,
+        no_sale_reason: reason,
+        notes: dto.notes?.trim() || (open?.notes ?? null),
+      };
+
+      let row;
+      if (open) {
+        [row] = await trx('commercial.vendor_visits').where({ id: open.id }).update(patch).returning('*');
+      } else {
+        [row] = await trx('commercial.vendor_visits')
+          .insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            user_id: me,
+            customer_id: dto.customer_id,
+            latitude: dto.latitude ?? null,
+            longitude: dto.longitude ?? null,
+            ...patch,
+          })
+          .returning('*');
+      }
+
+      // Backfill capture-on-visit si trae GPS y el cliente aún no tiene coords.
+      if (dto.latitude != null && dto.longitude != null && customer.latitude == null) {
+        location = await this.locate(trx, dto.customer_id, Number(dto.latitude), Number(dto.longitude), false, me);
       }
       return { ...row, location };
     });

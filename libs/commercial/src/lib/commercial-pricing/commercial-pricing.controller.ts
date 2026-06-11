@@ -81,6 +81,7 @@ export class CommercialPricingController {
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
     @Query('commercial_only') commercialOnly?: string,
+    @Query('priced_only') pricedOnly?: string,
   ) {
     return this.service.listPrices(priceListId, {
       warehouseId,
@@ -88,6 +89,7 @@ export class CommercialPricingController {
       pageSize: pageSize ? Number(pageSize) : undefined,
       search,
       commercialOnly: commercialOnly === 'true' || commercialOnly === '1',
+      pricedOnly: pricedOnly === 'true' || pricedOnly === '1',
     });
   }
 

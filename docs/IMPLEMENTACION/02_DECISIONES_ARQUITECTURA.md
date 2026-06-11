@@ -506,6 +506,63 @@ Capas:
 
 ---
 
+## ADR-018 — **Thot**: motor de inteligencia comercial multi-señal (evoluciona ADR-016)
+
+**Estado:** ✅ Aceptado (2026-06-11)
+
+**Fecha:** 2026-06-11
+
+**Contexto:**
+- El motor v1 (ADR-016 / Fase M) recomienda **producto-first** con `margen × rotación`: una lista plana, **igual para cualquier cliente**, sin tendencias, zona ni afinidad. El usuario pide un motor "digno de tener un nombre": que analice **tendencias, época del año, zona, ventas, rotación, compras de pares**, y que se pueda **ir entrenando un agente como motor**.
+- **Sondeo de datos reales (ERP `Mega_Dulces`, 2026-06-11)** define qué es señal y qué es humo:
+
+  | Señal | Data | Veredicto |
+  |---|---|---|
+  | Rotación | `productos_activos` (30d/almacén) | ✅ fuerte |
+  | Ventas/volumen | `ventas` 2.18M filas | ✅ fuerte |
+  | Margen real | `catalogo_etiquetas` + `costo_civa` | ✅ fuerte |
+  | **Zona** | `ventas.zona` (5 zonas, demanda muy distinta: La Piedad $107M vs Yurécuaro $1.8M) | ✅ fuerte |
+  | **Afinidad / market-basket** | **408,974 folios · 5.3 prod/folio · 70% multi-producto** | ✅✅ **el hallazgo grande** |
+  | Tendencia corto plazo | solo Ene–Abr con volumen | 🟡 parcial |
+  | **Estacionalidad** | solo ~4 meses reales (May–Dic = futuro vacío) | ❌ **no aún** (necesita 1 año+) |
+  | Per-tienda (cadencia) | `ventas` es por **ruta/CEDIS, no por tienda** | ❌ no del ERP; crece con la plataforma |
+  | Compras de competidores (otras distribuidoras) | — | ❌ no la tenemos |
+  | Peer "tiendas como la tuya" | ruta-level ahora; per-tienda crece | 🟡 parcial → crece |
+
+**Decisión:**
+1. **El motor se llama `Thot`** (dios egipcio de la sabiduría, la medida y la escritura — el que registra y decide). Identidad propia; superficie de marca ("Thot sugiere…", "según Thot").
+2. **Score en dos capas, determinista y explicable**, precomputado en un *feature store* `intelligence.*`:
+   - **Demanda** = Σ de 6 señales vivas (rotación, margen, **afinidad**, **zona-fit**, momentum, whitespace) + 2 futuras (estacionalidad, propensión per-tienda) que "encienden" al acumular datos.
+   - **Estrategia** (empuje dirigido) = `score = demanda · (1 + boost_estrategia)`. El **negocio** define qué empujar (marca foco, lanzamiento, overstock, promo) vía `intelligence.push_directives`; Thot lo **amplifica** sin empujar lo que no se vende. Es lo que lo hace un motor de *trade marketing* (push a menudo financiado por proveedor), no un mero ranker de demanda.
+   - Reemplaza el `margen × rotación` plano del v1; cada reco expone su razón.
+3. **Inteligencia en 3 escalones** (extiende los invariantes de ADR-016 — *el motor decide, el agente comunica, el LLM nunca toca el dinero*):
+   - **Heurístico/estadístico (ahora):** reglas de asociación (market-basket → lift/confidence), índice de demanda por zona, momentum. 80% del valor, cero ML entrenado.
+   - **ML (con 3–6 meses de plataforma + histórico ERP):** forecast de demanda, association mining a escala, propensión/uplift per-tienda. El ML **informa** el score; no decide ni toca el dinero.
+   - **Agente LLM (Claude):** usa el motor vía *tools* (function-calling), explica el "por qué te sugiero esto", arma el pedido conversando. **Jamás calcula precio ni compromete stock.**
+4. **El feedback loop ES el entrenamiento.** `commerce_signals` (oferta→resultado) reajusta los **pesos de las señales** (bandit / online-learning). Así Thot aprende del negocio: qué señal predice conversión por zona/segmento. "Entrenar el agente" = cerrar este loop, no fine-tunear un LLM.
+5. **Honestidad de datos como invariante:** Thot **no inventa estacionalidad ni personalización per-tienda** mientras no haya datos; se construye el pipeline para que enciendan solas. Lo "competidores" realista = **afinidad de pares** (market-basket ruta→per-tienda), no datos de otras distribuidoras (no existen).
+6. **Build por rebanadas verticales** (T.1 afinidad+zona → … → agente), cada una con valor en take-order.
+
+**Alternativas consideradas:**
+- **Seguir con `margen × rotación` plano:** rechazado — no usa zona ni afinidad (los datos más ricos), no personaliza, no aprende.
+- **LLM que decide qué/precio:** rechazado por ADR-016 (no auditable, alucina precio/stock, caro a volumen).
+- **ML desde el día 1:** rechazado — solo ~4 meses de historia; las heurísticas estadísticas (asociación, zona, momentum) dan el grueso del valor a costo ~0. El ML entra cuando la plataforma acumule pedidos.
+- **Prometer estacionalidad/personalización ya:** rechazado — sin datos sería humo; se difiere con pipeline listo.
+
+**Consecuencias:**
+- ✅ Salto real de inteligencia con **datos que ya tenemos** (afinidad de canasta + demanda por zona), no promesas.
+- ✅ "Completá la canasta" real ("pusiste Canels → agregá Mazapán", lift alto) + recomendaciones que cambian por zona.
+- ✅ Una identidad (Thot) y un *feature store* del que leen take-order, portal, televenta y el futuro agente WhatsApp.
+- ✅ El motor **mejora solo** con el uso (feedback loop reajusta pesos; el histórico per-tienda crece).
+- ⚠️ Estacionalidad y propensión per-tienda quedan **dormidas** hasta tener 1 año / volumen de pedidos — explícito, no oculto.
+- ⚠️ La afinidad del ERP es **ruta-level** (no per-tienda); es válida para "qué va con qué" pero la personalización fina llega con datos de plataforma.
+- ⚠️ El feedback loop sin *frequency capping* degenera en spam — el capping es parte del MVP.
+- 🔄 Reversible/aditivo: cada señal es un sub-score apagable; sin feature store, Thot cae al `margen × rotación` v1.
+
+**Plan de implementación:** Detallado en [`FASES/FASE_THOT_MOTOR.md`](FASES/FASE_THOT_MOTOR.md). Rebanada 1 = **afinidad (market-basket) + zona-fit** en el score del take-order.
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

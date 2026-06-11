@@ -225,7 +225,7 @@ export class CommercialPricingService {
    */
   async listPrices(
     priceListId: string,
-    opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string; commercialOnly?: boolean } = {},
+    opts: { warehouseId?: string; page?: number; pageSize?: number; search?: string; commercialOnly?: boolean; pricedOnly?: boolean } = {},
   ) {
     if (!UUID_REGEX.test(priceListId))
       throw new BadRequestException('price_list_id inválido');
@@ -235,7 +235,10 @@ export class CommercialPricingService {
     }
 
     const page = Math.max(1, Number(opts.page) || 1);
-    const pageSize = Math.min(500, Math.max(1, Number(opts.pageSize) || 100));
+    const pricedOnly = opts.pricedOnly === true;
+    // priced_only sube el techo: el vendedor/portal carga el catálogo pedible
+    // completo (~6k) de un fetch para búsqueda client-side. Sin él, default 500.
+    const pageSize = Math.min(pricedOnly ? 10000 : 500, Math.max(1, Number(opts.pageSize) || 100));
     const offset = (page - 1) * pageSize;
     const search = (opts.search || '').trim();
     const commercialOnly = opts.commercialOnly === true;
@@ -278,6 +281,11 @@ export class CommercialPricingService {
           });
         }
 
+        // priced_only: solo productos con precio en ESTA price list (pedibles).
+        if (pricedOnly) {
+          q = q.whereNotNull('pp.price');
+        }
+
         if (search) {
           const term = `%${search}%`;
           q = q.where((b) =>
@@ -317,6 +325,9 @@ export class CommercialPricingService {
         'cat.name as category_name',
         'p.cost_base',
         'p.cost_with_tax',
+        'p.cost_per_case',
+        'p.sales_units_30d',
+        'p.rotation_tier',
         'p.location',
         'p.loyalty_points',
         'ipa.image_url as image_url',
@@ -340,9 +351,15 @@ export class CommercialPricingService {
         .limit(pageSize)
         .offset(offset);
 
+      // Anti-leak: el costo (margen) NUNCA se devuelve a customer_b2b — este
+      // endpoint es compartido con el Portal B2B. Solo lo ve el vendedor/admin
+      // en take-order. La rotación (sales_units_30d / rotation_tier) no es
+      // sensible y queda visible para todos.
+      const rows = this.stripCostIfCustomer(data);
+
       const totalNum = Number(total) || 0;
       return {
-        data,
+        data: rows,
         pagination: {
           page,
           pageSize,
@@ -447,7 +464,7 @@ export class CommercialPricingService {
         .orderBy('ts.sales_rank', 'asc')
         .limit(limit);
 
-      return { data, total: data.length };
+      return { data: this.stripCostIfCustomer(data), total: data.length };
     });
   }
 
@@ -587,6 +604,21 @@ export class CommercialPricingService {
   }
 
   // ───── helpers ─────
+
+  /**
+   * Anti-leak del margen: si el ctx es customer_b2b, anula las columnas de costo.
+   * El endpoint de precios es compartido con el Portal; el costo solo lo ve el
+   * vendedor/admin (take-order). La rotación no es sensible y NO se toca.
+   */
+  private stripCostIfCustomer<T extends Record<string, any>>(rows: T[]): T[] {
+    if (this.tenantCtx.get()?.roleName !== 'customer_b2b') return rows;
+    return rows.map((r) => ({
+      ...r,
+      cost_base: null,
+      cost_with_tax: null,
+      cost_per_case: null,
+    }));
+  }
 
   private async clearDefaultPriceList(trx: any): Promise<void> {
     await trx('commercial.price_lists')

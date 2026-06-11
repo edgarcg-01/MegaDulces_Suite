@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Param,
   Query,
   Body,
@@ -18,6 +20,8 @@ import { Customer360RefreshService } from './customer-360-refresh.service';
 import { DecisionEngineService } from './decision-engine.service';
 import { CommerceAgentService } from './commerce-agent.service';
 import { FeedbackService, RecordSignalDto } from './feedback.service';
+import { ThotService } from './thot.service';
+import { PushDirectivesService, CreateDirectiveDto } from './push-directives.service';
 
 @ApiTags('commercial-intelligence')
 @ApiBearerAuth()
@@ -30,7 +34,69 @@ export class CommercialIntelligenceController {
     private readonly engine: DecisionEngineService,
     private readonly agent: CommerceAgentService,
     private readonly feedback: FeedbackService,
+    private readonly thot: ThotService,
+    private readonly directives: PushDirectivesService,
   ) {}
+
+  // ─── Thot T.2: empuje dirigido (el negocio decide qué empujar) ───
+
+  @Get('directives')
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTIONS_VER)
+  @ApiOperation({ summary: 'Lista las directrices de empuje (marca foco / producto / categoría) con su target.' })
+  listDirectives() {
+    return this.directives.list();
+  }
+
+  @Get('directives/brands')
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Marcas comerciales (picker de marca foco). ?search=' })
+  directiveBrands(@Query('search') search?: string) {
+    return this.directives.listBrands(search);
+  }
+
+  @Post('directives')
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Crea una directriz de empuje (focus_brand / manual_product / manual_category).' })
+  createDirective(@Body() body: CreateDirectiveDto) {
+    return this.directives.create(body);
+  }
+
+  @Patch('directives/:id')
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Edita una directriz (boost / reason / sponsor / active / valid_to).' })
+  updateDirective(
+    @Param('id') id: string,
+    @Body() body: { boost?: number; reason?: string; sponsor?: string; active?: boolean; valid_to?: string | null },
+  ) {
+    return this.directives.update(id, body);
+  }
+
+  @Delete('directives/:id')
+  @RequirePermissions(Permission.COMMERCIAL_PROMOTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Elimina (soft) una directriz de empuje.' })
+  removeDirective(@Param('id') id: string) {
+    return this.directives.remove(id);
+  }
+
+  // ─── Thot: recomendación producto-first (afinidad + zona + rotación + margen) ───
+
+  @Get('thot/suggest/:customer_id')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary: 'Thot sugiere qué ofrecer a un cliente. ?cart=id,id (afinidad/completá canasta) · ?zona= · ?limit=',
+  })
+  thotSuggest(
+    @Param('customer_id') customerId: string,
+    @Query('cart') cart?: string,
+    @Query('zona') zona?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.thot.suggest(customerId, {
+      cartProductIds: cart ? cart.split(',').filter(Boolean) : [],
+      zona: zona || null,
+      limit: limit ? parseInt(limit, 10) || 12 : 12,
+    });
+  }
 
   // ─── Customer 360 (feature store) ───
 

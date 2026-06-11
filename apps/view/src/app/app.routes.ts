@@ -139,6 +139,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
       },
       {
+        // Thot T.2 — empuje dirigido (marca foco): el negocio decide qué empujar.
+        path: 'empuje',
+        loadComponent: () => import('./modules/comercial/pages/comercial-thot-directives.component').then(m => m.ComercialThotDirectivesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_GESTIONAR)]
+      },
+      {
         // Sprint M.3: ventas históricas del ERP Mega_Dulces vía FDW (read-only).
         path: 'historical',
         loadComponent: () => import('./modules/dashboard/historical-analytics/historical-analytics.component').then(m => m.HistoricalAnalyticsComponent),

@@ -5,6 +5,8 @@ import { Customer360RefreshService } from './customer-360-refresh.service';
 import { DecisionEngineService } from './decision-engine.service';
 import { CommerceAgentService } from './commerce-agent.service';
 import { FeedbackService } from './feedback.service';
+import { ThotService } from './thot.service';
+import { PushDirectivesService } from './push-directives.service';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
 /**
@@ -24,12 +26,16 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     DecisionEngineService,
     CommerceAgentService,
     FeedbackService,
+    ThotService,
+    PushDirectivesService,
   ],
   exports: [
     Customer360Service,
     DecisionEngineService,
     CommerceAgentService,
     FeedbackService,
+    ThotService,
+    PushDirectivesService,
   ],
 })
 export class CommercialIntelligenceModule {}

@@ -243,6 +243,10 @@ html, body {
   max-width: 100%;
   height: 100%;
   box-sizing: border-box;
+  /* Evita que iOS reescale el texto solo (auto-zoom en rotación / texto grande)
+     → otra fuente de desalineación. El zoom de usuario ya está bloqueado en el viewport. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) var(--layout-bg);
   /* Mata el pan/rubber-band horizontal en PWA móvil. El scroll real ocurre en
@@ -254,17 +258,19 @@ html, body {
 
 html {
   overflow-y: scroll;
-  /* iOS PWA + viewport-fit=cover: el <html> extiende hasta los bordes físicos
-     de la pantalla. Sin background aquí, el safe-area-bottom queda negro.
-     NOTA: --layout-bg viene de :root (light). El override dark queda abajo. */
-  background-color: var(--layout-bg);
+  /* iOS PWA + viewport-fit=cover: el <html> extiende hasta los bordes físicos y
+     su background rellena las safe-areas (detrás de la status bar y el home
+     indicator). Debe ser el color del CHROME (--card-bg = header/bottom-nav),
+     NO el del contenido (--layout-bg), o la franja de la safe-area se ve de otro
+     tono que la nav (el "margen" que se notaba abajo). */
+  background-color: var(--card-bg);
 }
 
-/* ThemeService agrega .theme-monochrome a <html> además de <body>.
-   Sin este bloque, html lee --layout-bg de :root (stone-100, cálido)
-   aunque body esté en dark mode → safe-area-bottom se ve amarillento. */
+/* ThemeService agrega .theme-monochrome a <html> además de <body>, pero los tokens
+   viven en body.theme-monochrome → html no los hereda. Hardcodeamos el color del
+   chrome dark (= --card-bg de Operations) para que la safe-area matchee header/nav. */
 html.theme-monochrome {
-  background-color: #111111;
+  background-color: #1A1A1A;
 }
 
 body {

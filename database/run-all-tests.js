@@ -47,6 +47,10 @@ const TESTS = [
   { file: 'http-routes-analysis-test.js', label: 'Rutas: detalle por ruta (visits tiempos+GPS, stores cobertura)', needsApi: true },
   // V.6 Modo Vendedor — autodetección de llegada (nearby + anti-traslape + backfill capture-on-visit)
   { file: 'http-vendor-geo-test.js', label: 'V.6 autodetección llegada (nearby ranked + guard anti-traslape + check-in backfill)', needsApi: true },
+  // Thot T.1 — recomendación producto-first (afinidad market-basket + zona + rotación + margen)
+  { file: 'http-thot-test.js', label: 'Thot T.1 suggest (afinidad cart-aware + zona + rotación·margen, sin basura)', needsApi: true },
+  // Thot T.2 — empuje dirigido (marca foco): el negocio decide qué empujar
+  { file: 'http-thot-directives-test.js', label: 'Thot T.2 empuje dirigido (directriz marca foco → suggest reason=estrategia)', needsApi: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

@@ -16,6 +16,7 @@ import {
   SetRouteOrderDto,
   CheckInDto,
   SetLocationDto,
+  FinishVisitDto,
 } from './commercial-vendor-routes.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -84,6 +85,13 @@ export class CommercialVendorRoutesController {
   @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente (acepta lat/lng → backfill capture-on-visit)' })
   checkIn(@Body() body: CheckInDto) {
     return this.service.checkIn(body);
+  }
+
+  @Post('visits/finish')
+  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @ApiOperation({ summary: 'V.7: cierra la visita con su resultado (had_order/had_ticket/no_sale_reason); reusa la visita abierta de hoy o crea una' })
+  finishVisit(@Body() body: FinishVisitDto) {
+    return this.service.finishVisit(body);
   }
 
   @Get('nearby')

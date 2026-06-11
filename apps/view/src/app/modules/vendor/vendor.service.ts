@@ -103,6 +103,22 @@ export interface SetLocationResult {
   longitude?: number;
 }
 
+/** Sugerencia de Thot (motor de inteligencia) para take-order. */
+export interface ThotSuggestion {
+  product_id: string;
+  product_name: string;
+  price: number;
+  tax_rate: number;
+  min_qty: number;
+  rotation_tier: string | null;
+  margin_pct: number | null;
+  aff_lift: number;
+  zona_index: number;
+  score: number;
+  reason: 'affinity' | 'zona' | 'rotacion' | 'margen' | 'demanda';
+  reason_label: string;
+}
+
 /** Cliente due-for-reorder según el motor de inteligencia (Fase M). */
 export interface NbaDue {
   customer_id: string;
@@ -262,7 +278,9 @@ export class VendorService {
             priceLists.find((p: any) => p.id === customer.default_price_list_id)) ||
           priceLists.find((p: any) => p.is_default);
         if (!list) return of([]);
-        return this.portal.listPricesForList(list.id, warehouseId);
+        // priced_only: el catálogo del vendedor = solo lo pedible (con precio),
+        // completo. Sin esto el backend capa a 500 productos.
+        return this.portal.listPricesForList(list.id, warehouseId, { pricedOnly: true });
       }),
     );
   }
@@ -414,6 +432,20 @@ export class VendorService {
     return this.http.get<NbaDue[]>(`${this.base}/intelligence/nba`);
   }
 
+  /**
+   * Thot — qué ofrecerle a este cliente (producto-first: rotación·margen·afinidad·zona).
+   * Si pasás `cartProductIds`, las sugerencias se vuelven cart-aware ("completá la canasta").
+   * Best-effort: si el motor/feature store no está, el caller cae a su lista local.
+   */
+  thotSuggest(customerId: string, cartProductIds: string[] = [], limit = 40): Observable<ThotSuggestion[]> {
+    let p = new HttpParams().set('limit', String(limit));
+    if (cartProductIds.length) p = p.set('cart', cartProductIds.join(','));
+    return this.http.get<ThotSuggestion[]>(
+      `${this.base}/intelligence/thot/suggest/${customerId}`,
+      { params: p },
+    );
+  }
+
   /** Registra una señal del feedback loop (Fase M, best-effort en el caller). */
   recordSignal(customerId: string, signalType: string, channel = 'vendor'): Observable<{ id: string }> {
     return this.http.post<{ id: string }>(`${this.base}/intelligence/signals`, {
@@ -453,6 +485,28 @@ export class VendorService {
         latitude: opts.latitude,
         longitude: opts.longitude,
       },
+    );
+  }
+
+  /**
+   * V.7 — Cierra la visita con su resultado. `had_order`/`had_ticket` los conoce
+   * el front (qué se hizo en la visita); el motivo solo cuenta si no hubo venta.
+   * Reusa la visita abierta de hoy o crea una (sirve de check-in).
+   */
+  finishVisit(
+    customerId: string,
+    opts: {
+      had_order?: boolean;
+      had_ticket?: boolean;
+      no_sale_reason?: string;
+      notes?: string;
+      latitude?: number;
+      longitude?: number;
+    } = {},
+  ): Observable<{ id: string; location?: SetLocationResult | null }> {
+    return this.http.post<{ id: string; location?: SetLocationResult | null }>(
+      `${this.base}/vendor-routes/visits/finish`,
+      { customer_id: customerId, ...opts },
     );
   }
 

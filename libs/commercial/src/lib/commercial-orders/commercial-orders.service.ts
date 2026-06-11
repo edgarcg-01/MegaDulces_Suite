@@ -430,10 +430,14 @@ export class CommercialOrdersService {
       if (lines.length === 0)
         throw new ConflictException('Pedido sin líneas no puede confirmarse');
 
-      // Reservar stock por línea — mismo patrón que antes; el inventario queda
-      // bloqueado al momento del confirm del cliente, sin esperar aprobación.
-      for (const line of lines) {
-        await this.reserveStockInline(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+      // Preventa (pedido con fecha de entrega agendada): NO reservar stock — se
+      // entrega después y el inventario se consume en el reparto (fulfill). Un
+      // pedido sin fecha (portal/inmediato) sí reserva al confirmar.
+      const isPreventa = !!order.requested_delivery_date;
+      if (!isPreventa) {
+        for (const line of lines) {
+          await this.reserveStockInline(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+        }
       }
 
       // Congelar la cantidad pedida por el cliente. A partir de acá el vendedor
@@ -1431,17 +1435,16 @@ export class CommercialOrdersService {
     }
     const qBefore = Number(stockRow.quantity);
     const rBefore = Number(stockRow.reserved_quantity);
-    if (rBefore < quantity) {
-      throw new ConflictException(
-        `Sale > reserved para producto ${productId}: ${rBefore} < ${quantity}`,
-      );
-    }
+    // Una preventa NO reservó stock al confirmar → liberar solo lo que estaba
+    // reservado para este order (puede ser 0) y consumir la cantidad física.
+    // Para un pedido reservado, release === quantity (comportamiento previo).
+    const release = Math.min(rBefore, quantity);
 
     await trx('commercial.stock')
       .where({ id: stockRow.id })
       .update({
         quantity: qBefore - quantity,
-        reserved_quantity: rBefore - quantity,
+        reserved_quantity: rBefore - release,
         updated_at: trx.fn.now(),
         updated_by: this.tenantCtx.get()?.userId || null,
       });

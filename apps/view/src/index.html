@@ -4,7 +4,12 @@
   <meta charset="utf-8">
   <title>Mega Dulces</title>
   <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- App-like: bloqueamos el pinch/double-tap zoom del usuario. El zoom mueve el
+       viewport visual y desalinea los elementos position:fixed (FAB, bottom-nav,
+       hero, header sticky). maximum-scale=1 + user-scalable=no lo fija a 1x como una
+       app nativa. (Trade-off a11y: el usuario no puede hacer zoom para leer; aceptable
+       en una app interna de campo. El texto sí escala con el tamaño de fuente del SO.) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 
   <!-- Google Fonts: preconnect + carga asíncrona (no bloquea render).
        Truco: media="print" hace que el browser baje la hoja sin parar el
@@ -43,7 +48,10 @@
 
   <!-- Meta tags para iOS -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <!-- black-translucent = contenido borde-a-borde (el header/bottom-nav rellenan
+       las safe-areas con su color via .safe-top/.safe-bottom). NO usar `default`:
+       deja el área del home-indicator como franja del sistema (margen negro). -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Mega Dulces">
 
   <!-- Meta tags para PWA -->

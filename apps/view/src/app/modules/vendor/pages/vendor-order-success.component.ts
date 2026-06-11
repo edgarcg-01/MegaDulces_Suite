@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@ang
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HapticService } from '../../../core/services/haptic.service';
+import { VendorService } from '../vendor.service';
 
 /**
  * Pedido confirmado — pantalla de éxito (rediseño Mercado). Recibe los datos por
@@ -31,7 +32,10 @@ import { HapticService } from '../../../core/services/haptic.service';
         <a *ngIf="wa()" class="wa" [href]="waLink()" target="_blank" rel="noopener">
           <i class="pi pi-whatsapp"></i> Enviar ticket por WhatsApp
         </a>
-        <button class="back" (click)="goHome()"><i class="pi pi-check"></i> Listo, volver a mi ruta</button>
+        <button class="ghost" (click)="goCaptureExhibit()"><i class="pi pi-camera"></i> Capturar exhibición</button>
+        <button class="back" [disabled]="finishing()" (click)="finishVisit()">
+          <i class="pi" [ngClass]="finishing() ? 'pi-spin pi-spinner' : 'pi-flag'"></i> Finalizar visita
+        </button>
       </div>
     </div>
   `,
@@ -62,20 +66,22 @@ import { HapticService } from '../../../core/services/haptic.service';
       .sub { font-size: 0.85rem; opacity: 0.92; max-width: 18rem; }
 
       .acts { position: fixed; left: 1rem; right: 1rem; bottom: calc(1.75rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 0.7rem; z-index: 5; }
-      .acts .wa, .acts .back {
+      .acts .wa, .acts .back, .acts .ghost {
         height: 3.25rem; border-radius: var(--r-md, 12px); font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
         display: flex; align-items: center; justify-content: center; gap: 0.6rem; border: none; cursor: pointer; text-decoration: none;
         transition: transform 0.1s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
-      .acts .wa:active, .acts .back:active { transform: scale(0.97); }
+      .acts .wa:active, .acts .back:active, .acts .ghost:active { transform: scale(0.97); }
       .acts .wa { background: #fff; color: #0E7A37; }
       .ok.fut .acts .wa { color: #1E40AF; }
-      .acts .back { background: rgba(255,255,255,0.18); color: #fff; }
+      .acts .ghost { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35); }
+      .acts .back { background: rgba(255,255,255,0.22); color: #fff; }
+      .acts .back:disabled { opacity: 0.7; }
 
       @media (prefers-reduced-motion: reduce) {
         .confetti { display: none; }
         .ok-check { animation: none; } .ok-check path { animation: none; stroke-dashoffset: 0; }
-        .acts .wa, .acts .back { transition: none; }
+        .acts .wa, .acts .back, .acts .ghost { transition: none; }
       }
     `,
   ],
@@ -85,6 +91,7 @@ export class VendorOrderSuccessComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly haptic = inject(HapticService);
+  private readonly api = inject(VendorService);
 
   readonly mode = signal<'instante' | 'futuro'>('instante');
   readonly code = signal<string>('');
@@ -93,6 +100,8 @@ export class VendorOrderSuccessComponent implements OnInit {
   readonly name = signal<string>('');
   readonly wa = signal<string>('');
   readonly date = signal<string>('');
+  readonly customerId = signal<string>('');
+  readonly finishing = signal(false);
 
   readonly confetti = [
     { l: 12, c: '#FDE707', d: 0 }, { l: 26, c: '#fff', d: 0.5 }, { l: 40, c: '#FDE707', d: 0.9 },
@@ -113,7 +122,24 @@ export class VendorOrderSuccessComponent implements OnInit {
     this.name.set(q.get('name') || '');
     this.wa.set(q.get('wa') || '');
     this.date.set(q.get('date') || '');
+    this.customerId.set(q.get('customer') || '');
     this.haptic.notification('success');
+  }
+
+  /** Capturar exhibición: foto del punto de venta (combinar con el pedido tomado). */
+  goCaptureExhibit(): void {
+    this.router.navigate(['/vendor/capture']);
+  }
+
+  /** Finalizar visita: el pedido ya se tomó (had_order), cierra y vuelve a la ruta. */
+  finishVisit(): void {
+    const id = this.customerId();
+    if (!id) { this.goHome(); return; }
+    this.finishing.set(true);
+    this.api.finishVisit(id, { had_order: true }).subscribe({
+      next: () => { this.finishing.set(false); this.goHome(); },
+      error: () => { this.finishing.set(false); this.goHome(); },
+    });
   }
 
   summary(): string {

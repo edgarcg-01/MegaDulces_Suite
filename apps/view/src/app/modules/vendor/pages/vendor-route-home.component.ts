@@ -192,8 +192,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           </div>
         </div>
 
-        <button class="sheet-primary" (click)="goOrder(c, 'instante')">
-          <i class="pi pi-bolt"></i> Pedido al instante
+        <button class="sheet-primary" (click)="goOrder(c, 'futuro')">
+          <i class="pi pi-shopping-cart"></i> Tomar pedido
         </button>
 
         <button class="action" *ngIf="c.pending_count > 0" (click)="goPending()">
@@ -202,19 +202,9 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           <span class="badge">{{ fmtMoney(c.pending_total) }}</span>
         </button>
 
-        <button class="action" (click)="goOrder(c, 'futuro')">
-          <i class="pi pi-calendar-plus"></i>
-          <span class="lbl">Pedido futuro <small>Agendar entrega</small></span>
-        </button>
-
         <button class="action" *ngIf="!c.visited_today" [disabled]="checking()" (click)="markVisit(c)">
           <i class="pi pi-map-marker"></i>
           <span class="lbl">Marcar visita</span>
-        </button>
-
-        <button class="action" (click)="goTicket()">
-          <i class="pi pi-receipt"></i>
-          <span class="lbl">Registrar ticket</span>
         </button>
 
         <button class="action" (click)="goCapture()">
@@ -239,8 +229,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .hero {
         margin: -1rem -1rem 0;
         padding: 1.3rem 1rem 1.4rem;
-        background: var(--stone-50, #faf7f3);
-        color: var(--text-main, #2b2622);
+        background: var(--card-bg);
+        color: var(--text-main);
         position: relative;
         overflow: hidden;
         isolation: isolate;
@@ -250,8 +240,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .hero::before {
         content: ''; position: absolute; inset: -45% -15%; z-index: 0; pointer-events: none;
         background:
-          radial-gradient(55% 75% at 18% 2%, rgba(255,255,255,0.9), transparent 60%),
-          radial-gradient(50% 68% at 96% 112%, rgba(240,90,40,0.06), transparent 58%);
+          radial-gradient(55% 75% at 18% 2%, rgba(255,255,255,0.08), transparent 60%),
+          radial-gradient(50% 68% at 96% 112%, rgba(240,90,40,0.07), transparent 58%);
         animation: hero-drift 16s ease-in-out infinite alternate;
       }
       @keyframes hero-drift {
@@ -261,11 +251,11 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .hero-main { display: flex; align-items: center; gap: 1rem; position: relative; z-index: 1; }
       .ring {
         width: 66px; height: 66px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
-        background: conic-gradient(var(--action) calc(var(--pct, 0) * 1%), var(--stone-200, #e8e2da) 0);
+        background: conic-gradient(var(--action) calc(var(--pct, 0) * 1%), var(--border-color) 0);
         transition: --pct 0.8s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
       .ring .inner {
-        width: 54px; height: 54px; border-radius: 50%; background: var(--stone-50, #faf7f3); display: grid; place-items: center;
+        width: 54px; height: 54px; border-radius: 50%; background: var(--card-bg); display: grid; place-items: center;
         font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: var(--text-main);
       }
       .ring .inner b { font-size: 1.2rem; } .ring .inner span { font-size: 0.72rem; color: var(--text-muted); }
@@ -344,14 +334,14 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         animation: client-in 0.32s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) backwards;
       }
       @keyframes client-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      .client::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stone-300); }
+      .client::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--border-color); }
       .client.visited::before { background: var(--ok-fg); }
       .client.preventa::before { background: var(--warn-fg); }
       .client.due::before { background: var(--action); }
       .client:active { transform: scale(0.985); }
       .seq {
         flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 14px; display: grid; place-items: center;
-        background: var(--stone-100, #f0ece6); color: var(--stone-700, #57514a);
+        background: var(--surface-ground); color: var(--text-muted);
         font-family: var(--font-mono); font-weight: 700; font-size: 0.9rem; font-variant-numeric: tabular-nums;
       }
       .seq.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
@@ -573,7 +563,7 @@ export class VendorRouteHomeComponent implements OnInit {
   fabOrder(): void {
     const list = this.customers();
     const next = list.find((c) => !c.visited_today) || list[0];
-    if (next) this.router.navigate(['/vendor/take-order', next.id], { queryParams: { mode: 'instante' } });
+    if (next) this.router.navigate(['/vendor/take-order', next.id], { queryParams: { mode: 'futuro' } });
   }
 
   isDue(c: HomeCustomer): boolean {
