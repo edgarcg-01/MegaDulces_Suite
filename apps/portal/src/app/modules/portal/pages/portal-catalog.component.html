@@ -1,0 +1,643 @@
+    <div *ngIf="isAdmin()" class="portal-banner" role="status">
+      <i class="pi pi-eye" aria-hidden="true"></i>
+      <span><b>Vista administrador</b> — catálogo default del tenant, solo lectura. Inicia sesión como cliente para hacer pedidos.</span>
+    </div>
+
+    <header class="portal-page-head cat-page-head">
+      <div class="portal-page-head-text">
+        <span class="portal-eyebrow">
+          <i class="pi pi-th-large" aria-hidden="true"></i>
+          Catálogo
+        </span>
+        <h1 class="cat-h1">Productos disponibles</h1>
+        <p class="portal-page-sub" *ngIf="customerName()">
+          Lista de precios de <b>{{ customerName() }}</b>
+        </p>
+      </div>
+      <button type="button" class="portal-btn-ember portal-btn-pill" (click)="goAi()">
+        <i class="pi pi-sparkles" aria-hidden="true"></i>
+        <span>Recomendado para ti</span>
+      </button>
+    </header>
+
+    <!-- Mini strip operativo (SKUs · entrega · mínimo). "Tu cartera" se removió:
+         ya está en el subtítulo del page-head ("Lista de precios de ..."). -->
+    <section class="cat-hero" *ngIf="!loading() && prices().length > 0" aria-label="Información de tu cuenta">
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Productos</span>
+        <strong>{{ totalCount() || prices().length }} SKUs</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Entrega</span>
+        <strong>24-48h hábiles</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Mín. pedido</span>
+        <strong>$2,500 MXN</strong>
+      </div>
+    </section>
+
+    <div class="cat-search-bar" *ngIf="!loading() && prices().length > 0">
+      <i [class]="aiSearch() ? 'pi pi-bolt cat-search-icon cat-search-icon-ai' : 'pi pi-search cat-search-icon'"></i>
+      <input
+        type="text"
+        [(ngModel)]="search"
+        [placeholder]="aiSearch() ? 'Describe qué buscas (IA)…' : 'Buscar producto o marca...'"
+        (ngModelChange)="onSearchChange($event)"
+        autocomplete="off"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
+      />
+      <button
+        *ngIf="search"
+        type="button"
+        class="cat-search-clear"
+        (click)="clearSearch()"
+        pTooltip="Limpiar"
+        aria-label="Limpiar búsqueda"
+      ><i class="pi pi-times"></i></button>
+      <button
+        type="button"
+        class="cat-search-mode"
+        [class.active]="aiSearch()"
+        (click)="toggleAiSearch()"
+        [pTooltip]="aiSearch() ? 'Búsqueda IA activa' : 'Activar búsqueda IA'"
+        aria-label="Toggle búsqueda IA"
+      ><i class="pi pi-bolt"></i> IA</button>
+    </div>
+
+    <div
+      *ngIf="aiSearch() && !searching() && !searchSignal().trim() && searchHistory().length > 0"
+      class="cat-history"
+    >
+      <span class="cat-history-label">
+        <i class="pi pi-clock"></i> Búsquedas recientes
+      </span>
+      <div class="cat-history-chips">
+        <button
+          *ngFor="let q of searchHistory(); trackBy: trackByString"
+          type="button"
+          class="cat-history-chip"
+          (click)="useHistory(q)"
+        >{{ q }}</button>
+        <button
+          type="button"
+          class="cat-history-clear"
+          (click)="clearHistory()"
+          aria-label="Limpiar historial"
+          pTooltip="Limpiar historial"
+        ><i class="pi pi-times"></i></button>
+      </div>
+    </div>
+
+    <div *ngIf="searching()" class="cat-search-state">
+      <i class="pi pi-spin pi-spinner"></i> Buscando con IA…
+    </div>
+    <div *ngIf="!searching() && aiSearch() && smartResults().length > 0" class="cat-search-state cat-search-state-info">
+      <i class="pi pi-info-circle"></i>
+      {{ smartResults().length }} resultado(s) por relevancia semántica
+      <span *ngIf="smartMode() === 'fallback_like'" class="cat-search-state-warn">
+        — sin LLM, fallback texto
+      </span>
+    </div>
+
+    <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
+
+    <div *ngIf="!loading() && prices().length === 0" class="portal-empty">
+      <div class="portal-empty-icon"><i class="pi pi-info-circle" aria-hidden="true"></i></div>
+      <h2>Catálogo vacío</h2>
+      <p>Aún no hay productos con precio configurado. Contacta a tu administrador.</p>
+    </div>
+
+    <!-- Atajos personalizados (chips activos). Próximos pasos van a sumar
+         "Con promo" y "Nuevos". -->
+    <nav
+      *ngIf="!loading() && prices().length > 0 && (historyProducts().length > 0 || suggestedProducts().length > 0 || promoProducts().length > 0)"
+      class="cat-chip-rail cat-chip-rail-quick"
+      aria-label="Atajos personalizados"
+    >
+      <button
+        *ngIf="historyProducts().length > 0"
+        type="button"
+        class="cat-chip cat-chip-quick"
+        [class.active]="quickFilter() === 'reorder'"
+        (click)="toggleQuickFilter('reorder')"
+        [attr.aria-pressed]="quickFilter() === 'reorder'"
+      >
+        <i class="pi pi-history" aria-hidden="true"></i>
+        Reordenar
+        <span class="cat-chip-count">{{ historyProducts().length }}</span>
+      </button>
+      <button
+        *ngIf="suggestedProducts().length > 0"
+        type="button"
+        class="cat-chip cat-chip-quick cat-chip-ai"
+        [class.active]="quickFilter() === 'suggested'"
+        (click)="toggleQuickFilter('suggested')"
+        [attr.aria-pressed]="quickFilter() === 'suggested'"
+      >
+        <i class="pi pi-sparkles" aria-hidden="true"></i>
+        Sugeridos IA
+        <span class="cat-chip-count">{{ suggestedProducts().length }}</span>
+      </button>
+      <button
+        *ngIf="promoProducts().length > 0"
+        type="button"
+        class="cat-chip cat-chip-quick cat-chip-promo"
+        [class.active]="quickFilter() === 'promo'"
+        (click)="toggleQuickFilter('promo')"
+        [attr.aria-pressed]="quickFilter() === 'promo'"
+      >
+        <i class="pi pi-tag" aria-hidden="true"></i>
+        Con promo
+        <span class="cat-chip-count">{{ promoProducts().length }}</span>
+      </button>
+    </nav>
+
+    <!-- Toolbar de filtros: botón abre panel lateral con marca/precio/stock.
+         Reemplaza al chip-rail de 438 marcas que era inmanejable. -->
+    <div
+      *ngIf="!loading() && prices().length > 0 && !quickFilter()"
+      class="cat-toolbar"
+    >
+      <button
+        type="button"
+        class="cat-filters-btn"
+        [class.has-filters]="activeFiltersCount() > 0"
+        (click)="openFilters()"
+        [attr.aria-expanded]="filtersOpen()"
+      >
+        <i class="pi pi-sliders-h" aria-hidden="true"></i>
+        Filtros
+        <span *ngIf="activeFiltersCount() > 0" class="cat-filters-badge">
+          {{ activeFiltersCount() }}
+        </span>
+      </button>
+      <button
+        *ngIf="activeFiltersCount() > 0"
+        type="button"
+        class="cat-clear-btn"
+        (click)="clearPanelFilters()"
+      >
+        <i class="pi pi-times" aria-hidden="true"></i>
+        Limpiar
+      </button>
+      <div class="cat-viewtog" role="group" aria-label="Vista del catálogo">
+        <button
+          type="button"
+          class="cat-viewtog-btn"
+          [class.active]="viewMode() === 'grid'"
+          (click)="setViewMode('grid')"
+          [attr.aria-pressed]="viewMode() === 'grid'"
+          pTooltip="Vista cuadrícula"
+          aria-label="Vista cuadrícula"
+        ><i class="pi pi-th-large" aria-hidden="true"></i></button>
+        <button
+          type="button"
+          class="cat-viewtog-btn"
+          [class.active]="viewMode() === 'list'"
+          (click)="setViewMode('list')"
+          [attr.aria-pressed]="viewMode() === 'list'"
+          pTooltip="Vista lista"
+          aria-label="Vista lista"
+        ><i class="pi pi-list" aria-hidden="true"></i></button>
+      </div>
+      <span class="cat-toolbar-meta">{{ visibleProducts().length }} de {{ prices().length }}</span>
+    </div>
+
+    <!-- Panel slide-in: desktop = side-right, mobile = bottom-sheet
+         (la diferencia es CSS responsive). -->
+    <div
+      *ngIf="filtersOpen()"
+      class="cat-filters-backdrop"
+      (click)="closeFilters()"
+      aria-hidden="true"
+    ></div>
+    <aside
+      *ngIf="filtersOpen()"
+      class="cat-filters-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Filtros del catálogo"
+    >
+      <header class="cat-filters-head">
+        <h3>Filtros</h3>
+        <button
+          type="button"
+          class="cat-filters-close"
+          (click)="closeFilters()"
+          aria-label="Cerrar filtros"
+        ><i class="pi pi-times"></i></button>
+      </header>
+
+      <div class="cat-filters-body">
+        <!-- Sección: Marca -->
+        <section class="cat-filters-section" *ngIf="facets()">
+          <h4 class="cat-filters-section-title">Marca</h4>
+          <div class="cat-filters-search">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <input
+              type="text"
+              [ngModel]="brandPanelSearch()"
+              (ngModelChange)="brandPanelSearch.set($event)"
+              placeholder="Buscar marca..."
+              autocomplete="off"
+            />
+          </div>
+          <ul class="cat-filters-list">
+            <li>
+              <button
+                type="button"
+                class="cat-filters-row"
+                [class.active]="selectedBrandId() === '__all__'"
+                (click)="selectBrand('__all__')"
+              >
+                <span>Todas las marcas</span>
+                <span class="cat-filters-row-count">{{ facets()!.total }}</span>
+              </button>
+            </li>
+            <li *ngFor="let b of filteredBrandFacets(); trackBy: trackByBrandFacet">
+              <button
+                type="button"
+                class="cat-filters-row"
+                [class.active]="selectedBrandId() === b.brand_id"
+                (click)="selectBrand(b.brand_id || '__unknown__')"
+              >
+                <span>{{ b.brand_name || 'Sin marca' }}</span>
+                <span class="cat-filters-row-count">{{ b.count }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Sección: Precio -->
+        <section class="cat-filters-section" *ngIf="facets() && facets()!.price_buckets.length > 0">
+          <h4 class="cat-filters-section-title">Precio</h4>
+          <ul class="cat-filters-list">
+            <li *ngFor="let b of facets()!.price_buckets; trackBy: trackByBucket">
+              <button
+                type="button"
+                class="cat-filters-row"
+                [class.active]="priceBucket()?.min === b.min && priceBucket()?.max === b.max"
+                (click)="togglePriceBucket(b)"
+                [disabled]="b.count === 0"
+              >
+                <span>{{ b.label }}</span>
+                <span class="cat-filters-row-count">{{ b.count }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Sección: Stock -->
+        <section class="cat-filters-section" *ngIf="facets()?.stock">
+          <h4 class="cat-filters-section-title">Disponibilidad</h4>
+          <button
+            type="button"
+            class="cat-filters-row"
+            [class.active]="onlyWithStock()"
+            (click)="toggleStockOnly()"
+          >
+            <span>Solo con stock</span>
+            <span class="cat-filters-row-count">{{ facets()!.stock!.with_stock }}</span>
+          </button>
+        </section>
+      </div>
+
+      <footer class="cat-filters-foot">
+        <button
+          type="button"
+          class="cat-filters-clear"
+          (click)="clearPanelFilters()"
+          [disabled]="activeFiltersCount() === 0"
+        >Limpiar todo</button>
+        <button
+          type="button"
+          class="cat-filters-apply"
+          (click)="closeFilters()"
+        >Ver {{ visibleProducts().length }} producto(s)</button>
+      </footer>
+    </aside>
+
+    <div *ngIf="!loading() && prices().length > 0" class="cat-layout">
+      <section class="cat-main">
+        <section *ngIf="topSellers().length > 0" class="cat-bestsellers" aria-label="Más vendidos">
+          <header class="cat-bestsellers-head">
+            <h3>
+              <i class="pi pi-chart-line" aria-hidden="true"></i>
+              Más vendidos
+            </h3>
+            <span class="cat-bestsellers-meta">{{ topSellers().length }} producto(s) — últimos 90 días</span>
+          </header>
+          <div class="cat-bestsellers-strip">
+            <article
+              *ngFor="let p of topSellers(); let i = index; trackBy: trackByProduct"
+              class="cat-bestseller-card"
+              (click)="openSheet(p)"
+              tabindex="0"
+              role="button"
+              [attr.aria-label]="'Más vendido #' + (i + 1) + ' — ' + p.product_name"
+              (keydown.enter)="openSheet(p)"
+              (keydown.space)="openSheet(p); $event.preventDefault()"
+            >
+              <span class="cat-bestseller-rank">#{{ i + 1 }}</span>
+              <div class="cat-bestseller-img" [class.has-photo]="hasImg(p)">
+                <img *ngIf="hasImg(p)" [src]="img(p, 400)" [alt]="p.product_name" loading="lazy" decoding="async" fetchpriority="low" (error)="onImgError(p)" />
+                <span *ngIf="!hasImg(p)" class="cat-bestseller-img-initials">{{ productInitials(p) }}</span>
+              </div>
+              <div class="cat-bestseller-body">
+                <span class="cat-bestseller-brand">{{ p.brand_name || 'Sin marca' }}</span>
+                <h4 class="cat-bestseller-name" [title]="p.product_name">{{ p.product_name }}</h4>
+                <span class="cat-bestseller-price">
+                  {{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                </span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <header class="cat-main-head">
+          <h2>{{ selectedBrandName() }}</h2>
+          <span class="cat-main-meta">
+            <ng-container *ngIf="hasMorePages(); else allShown">
+              Mostrando {{ visibleProducts().length }} de {{ totalCount() }}
+            </ng-container>
+            <ng-template #allShown>
+              {{ visibleProducts().length }} producto(s)
+            </ng-template>
+          </span>
+        </header>
+
+        <div *ngIf="visibleProducts().length === 0" class="cat-empty-grid">
+          <i class="pi pi-inbox"></i>
+          <p>No hay productos que coincidan.</p>
+        </div>
+
+        <div class="cat-grid" [class.cat-grid-list]="viewMode() === 'list'" *ngIf="visibleProducts().length > 0">
+          <portal-product-card
+            *ngFor="let p of visibleProducts(); trackBy: trackByProduct"
+            [product]="p"
+            [list]="viewMode() === 'list'"
+            [inCart]="isInCart(p)"
+            [qty]="cartLineQty(p)"
+            [adding]="!!adding[p.product_id]"
+            [isAdmin]="isAdmin()"
+            [promo]="promoByProductId()[p.product_id] || null"
+            [score]="productScore(p)"
+            (open)="openSheet(p)"
+            (add)="addToCart(p)"
+            (inc)="incrementCartLine(p)"
+            (dec)="decrementCartLine(p)"
+          ></portal-product-card>
+        </div>
+
+        <!-- Sentinel para infinite scroll: el IntersectionObserver dispara
+             loadNextPage() cuando este div entra al viewport. Solo presente
+             si quedan páginas por traer del backend. -->
+        <div
+          *ngIf="hasMorePages()"
+          #scrollSentinel
+          class="cat-scroll-sentinel"
+          aria-hidden="true"
+        >
+          <i class="pi pi-spin pi-spinner"></i>
+          <span>Cargando más productos…</span>
+        </div>
+      </section>
+    </div>
+
+    <button
+      *ngIf="cart.cartLineCount() > 0"
+      type="button"
+      class="cat-fab"
+      (click)="openDrawer()"
+      [attr.aria-label]="'Abrir carrito (' + cart.cartLineCount() + ' items)'"
+    >
+      <span class="cat-fab-icon">
+        <i class="pi pi-shopping-bag"></i>
+        <span class="cat-fab-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
+      </span>
+      <span class="cat-fab-divider" aria-hidden="true"></span>
+      <span class="cat-fab-label">
+        <span class="cat-fab-eyebrow">Carrito</span>
+        <span class="cat-fab-total">{{ cart.cartTotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+      </span>
+    </button>
+
+    <!-- ── PRODUCT DETAIL SHEET (click en `+`) ──────────────────── -->
+    <div
+      class="cat-sheet-backdrop"
+      [class.open]="!!sheetProduct()"
+      (click)="closeSheet()"
+      aria-hidden="true"
+    ></div>
+    <aside
+      class="cat-sheet"
+      [class.open]="!!sheetProduct()"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cat-sheet-title"
+    >
+      @if (sheetProduct(); as sp) {
+        <button
+          type="button"
+          class="cat-sheet-close"
+          (click)="closeSheet()"
+          aria-label="Cerrar detalle del producto"
+        ><i class="pi pi-times" aria-hidden="true"></i></button>
+
+        <div class="cat-sheet-img" [class.has-photo]="hasImg(sp)" [style.background]="cardGradient(sp)" aria-hidden="true">
+          <img
+            *ngIf="hasImg(sp)"
+            [src]="img(sp, 800)"
+            [alt]="sp.product_name"
+            loading="lazy"
+            decoding="async"
+            class="cat-sheet-img-real"
+            (error)="onImgError(sp)"
+          />
+          <span *ngIf="!hasImg(sp)" class="cat-sheet-img-initials">{{ productInitials(sp) }}</span>
+        </div>
+
+        <div class="cat-sheet-body">
+          <span class="cat-sheet-brand">{{ sp.brand_name || 'Sin marca' }}</span>
+          <h3 id="cat-sheet-title" class="cat-sheet-name">{{ sp.product_name }}</h3>
+
+          <div class="cat-sheet-meta">
+            @if (sp.price != null) {
+              <span class="cat-sheet-meta-item">
+                <i class="pi pi-tag" aria-hidden="true"></i>
+                {{ +sp.price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
+              </span>
+            } @else {
+              <span class="cat-sheet-meta-item cat-sheet-meta-warn">
+                <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                Sin precio configurado
+              </span>
+            }
+            @if (sp.min_qty > 1) {
+              <span class="cat-sheet-meta-item">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                Mínimo {{ sp.min_qty }} unidades
+              </span>
+            }
+            @if (sp.stock_available != null) {
+              <span
+                class="cat-sheet-meta-item"
+                [class.cat-sheet-meta-warn]="sp.stock_available <= 5"
+              >
+                <i class="pi pi-box" aria-hidden="true"></i>
+                {{ sp.stock_available }} en stock
+              </span>
+            }
+          </div>
+
+          <div class="cat-sheet-qty-row">
+            <span class="cat-sheet-qty-label">Cantidad</span>
+            <div class="cat-sheet-stepper">
+              <button
+                type="button"
+                class="cat-sheet-stepper-btn"
+                (click)="sheetDec()"
+                [disabled]="sheetQty() <= (sp.min_qty || 1)"
+                aria-label="Disminuir"
+              ><i class="pi pi-minus"></i></button>
+              <span class="cat-sheet-qty-val" aria-live="polite">{{ sheetQty() }}</span>
+              <button
+                type="button"
+                class="cat-sheet-stepper-btn"
+                (click)="sheetInc()"
+                aria-label="Aumentar"
+              ><i class="pi pi-plus"></i></button>
+            </div>
+          </div>
+
+          <div class="cat-sheet-subtotal">
+            <span>Subtotal</span>
+            <b>{{ sheetSubtotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          </div>
+
+          <div class="cat-sheet-actions">
+            <button
+              type="button"
+              class="cat-sheet-btn cat-sheet-btn-secondary"
+              (click)="closeSheet()"
+            >Cancelar</button>
+            <button
+              type="button"
+              class="cat-sheet-btn cat-sheet-btn-primary"
+              [disabled]="!!adding[sp.product_id]"
+              (click)="confirmAddFromSheet()"
+            >
+              <i [class]="adding[sp.product_id] ? 'pi pi-spin pi-spinner' : 'pi pi-shopping-cart'"></i>
+              {{ adding[sp.product_id] ? 'Agregando…' : 'Agregar al carrito' }}
+            </button>
+          </div>
+        </div>
+      }
+    </aside>
+
+    <div
+      class="cat-drawer-backdrop"
+      [class.open]="drawerOpen()"
+      (click)="closeDrawer()"
+      aria-hidden="true"
+    ></div>
+    <aside
+      class="cat-drawer"
+      [class.open]="drawerOpen()"
+      role="dialog"
+      aria-label="Carrito"
+    >
+      <header class="cat-drawer-head">
+        <div>
+          <span class="cat-drawer-eyebrow">Tu carrito</span>
+          <h3>{{ cart.cartLineCount() }} {{ cart.cartLineCount() === 1 ? 'producto' : 'productos' }}</h3>
+        </div>
+        <button
+          type="button"
+          class="cat-drawer-close"
+          (click)="closeDrawer()"
+          aria-label="Cerrar"
+        ><i class="pi pi-times"></i></button>
+      </header>
+
+      <div class="cat-drawer-body">
+        <div *ngIf="cart.cartLineCount() === 0" class="cat-drawer-empty">
+          <i class="pi pi-shopping-bag"></i>
+          <p>Tu carrito está vacío.</p>
+        </div>
+
+        <ng-container *ngIf="cart.cartLineCount() > 0">
+          <ul class="cat-drawer-lines" *ngIf="cart.cartDetail()?.lines as lines">
+            <li
+              *ngFor="let l of lines; trackBy: trackByLineId"
+              class="cat-drawer-line"
+            >
+              <div
+                class="cat-drawer-line-avatar"
+                [style.background]="lineGradient(l.product_id)"
+              >{{ l.line_number }}</div>
+              <div class="cat-drawer-line-info">
+                <span class="cat-drawer-line-id">{{ l.product_name || shortId(l.product_id) }}</span>
+                <span class="cat-drawer-line-price">
+                  {{ +l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
+                </span>
+              </div>
+              <div class="cat-drawer-line-qty">
+                <button
+                  type="button"
+                  class="cat-qty-btn"
+                  (click)="bumpDrawerQty(l, -1)"
+                  [disabled]="+l.quantity <= 1"
+                  aria-label="Disminuir"
+                >−</button>
+                <span class="cat-drawer-qty-val">{{ l.quantity }}</span>
+                <button
+                  type="button"
+                  class="cat-qty-btn"
+                  (click)="bumpDrawerQty(l, 1)"
+                  aria-label="Aumentar"
+                >+</button>
+              </div>
+              <button
+                type="button"
+                class="cat-drawer-line-rm"
+                (click)="removeDrawerLine(l)"
+                pTooltip="Quitar"
+                aria-label="Quitar línea"
+              ><i class="pi pi-trash"></i></button>
+            </li>
+          </ul>
+
+          <div *ngIf="!cart.cartDetail()" class="cat-drawer-loading">
+            <i class="pi pi-spin pi-spinner"></i> Cargando líneas…
+          </div>
+
+          <div class="cat-drawer-total">
+            <span>Total estimado</span>
+            <b>{{ cart.cartTotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          </div>
+        </ng-container>
+      </div>
+
+      <footer class="cat-drawer-foot">
+        <button
+          type="button"
+          class="cat-drawer-btn cat-drawer-btn-secondary"
+          (click)="closeDrawer()"
+        >Seguir comprando</button>
+        <button
+          type="button"
+          class="cat-drawer-btn cat-drawer-btn-primary"
+          [disabled]="cart.cartLineCount() === 0"
+          (click)="goCart()"
+        >
+          Ver carrito
+          <i class="pi pi-arrow-right"></i>
+        </button>
+      </footer>
+    </aside>

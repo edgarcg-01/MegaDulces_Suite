@@ -1,0 +1,56 @@
+{
+  "name": "Mega Dulces · Portal B2B",
+  "short_name": "Mega Dulces",
+  "description": "Catálogo, pedidos y promociones B2B de Mega Dulces.",
+  "lang": "es",
+  "start_url": "/portal/home",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#16130F",
+  "theme_color": "#FDE707",
+  "categories": ["business", "shopping", "food"],
+  "shortcuts": [
+    {
+      "name": "Nuevo pedido",
+      "short_name": "Pedir",
+      "description": "Ir al catálogo y armar un pedido",
+      "url": "/portal/catalog",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Mis pedidos",
+      "short_name": "Pedidos",
+      "description": "Ver el estado de tus pedidos",
+      "url": "/portal/orders",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Promociones",
+      "short_name": "Promos",
+      "description": "Promociones activas para tu negocio",
+      "url": "/portal/promotions",
+      "icons": [{ "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "icons": [
+    {
+      "src": "assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
