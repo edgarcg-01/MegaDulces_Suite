@@ -52,6 +52,18 @@ Para "que funcione" rápido y **sin tocar `apps/view`** (cero riesgo a la app in
 
 **Pendiente runtime (V-S.3):** verificar que el `login.component` post-auth navegue a `/vendor` (en view podía ir a otra ruta por rol; acá el `**`→`/vendor` lo atrapa, pero conviene confirmar/afinar).
 
+## Portal des-forkeado (2026-06-12)
+
+Mismo patrón aplicado al portal: **`apps/portal`** = copia entera del fork `Portal_MegaDulces`
+(fuente de verdad de prod, con connectivity/outbox/PWA push/telemetría que el `modules/portal`
+del monorepo no tenía). Build prod verde (608 kB, SW ngsw). `apps/portal/Dockerfile` (sed del de
+vendor) + nginx/start.sh del fork. `+web-vitals` al package.json. **Regla aprendida (incidente
+2026-06-11):** a toda app Nx nueva borrarle `eslint.config.js` + target lint — el generado
+requiere el eslint root que el Dockerfile raíz no copia y rompe el build de api/view.
+Railway: repuntar el servicio `Portal_MegaDulces` al repo monorepo con
+`RAILWAY_DOCKERFILE_PATH=apps/portal/Dockerfile` (conserva dominio/API_UPSTREAM). Tras verificar:
+archivar el repo fork.
+
 ## Riesgos / notas
 - **V-S.1 churn:** extraer core services obliga a reapuntar imports en los módulos que `apps/view` conserva (dashboard/comercial/logística/admin usan `AuthService`/`ThemeService`). Mecánico pero amplio → hacerlo con find-replace por alias y build tras cada lib.
 - **Borrado de `/portal` (V-S.4):** el standalone `Portal_MegaDulces` ya está en prod, así que borrar el `/portal` del monorepo cierra la deuda de "dos copias". Pero **no** se puede borrar antes de cortar la dependencia `VendorService → PortalService` (se resuelve en V-S.1/V-S.2 al mover el vendedor a la lib `commercial-client`).

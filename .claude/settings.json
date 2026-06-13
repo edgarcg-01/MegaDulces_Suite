@@ -55,7 +55,9 @@
       "Bash(curl -s -X POST \"https://trademarketing-production-5084.up.railway.app/api/auth-mt/login\" -H \"Content-Type: application/json\" -d \"{\\\\\"tenant_slug\\\\\":\\\\\"mega_dulces\\\\\",\\\\\"username\\\\\":\\\\\"cliente_demo\\\\\",\\\\\"password\\\\\":\\\\\"cliente_demo\\\\\"}\")",
       "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{try{const j=JSON.parse\\(d\\);const p=\\(j.user&&j.user.permissions\\)||{};console.log\\('role_name:',j.user&&j.user.role_name\\);const comm=Object.keys\\(p\\).filter\\(k=>k.startsWith\\('COMMERCIAL_'\\)&&p[k]\\);console.log\\('COMMERCIAL_* activos:',comm.join\\(', '\\)||'\\(ninguno\\)'\\);console.log\\('WAREHOUSES_VER:',!!p.COMMERCIAL_WAREHOUSES_VER,'| PROMOTIONS_VER:',!!p.COMMERCIAL_PROMOTIONS_VER\\);}catch\\(e\\){console.log\\('RAW:',d.slice\\(0,400\\)\\);}}\\)\")",
       "Bash(mkdir -p __TRACKED_VAR__/screenshots/after)",
-      "Bash(cp /c/Users/Sistemas/CascadeProjects/Trade_marketing/.design-audit-tmp/after/*.png __TRACKED_VAR__/screenshots/after/)"
+      "Bash(cp /c/Users/Sistemas/CascadeProjects/Trade_marketing/.design-audit-tmp/after/*.png __TRACKED_VAR__/screenshots/after/)",
+      "Bash(node c:\\\\tmp\\\\cm0-validate.js)",
+      "Bash(node c:/tmp/cm0-validate.js)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Sistemas\\Downloads",
