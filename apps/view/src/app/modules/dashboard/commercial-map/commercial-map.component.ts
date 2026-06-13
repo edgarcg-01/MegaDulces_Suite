@@ -11,6 +11,7 @@ import { MapComponent, MapMarker } from '../../../shared/components/map/map.comp
 import { environment } from '../../../../environments/environment';
 import {
   CommercialMapService,
+  HistoryVisit,
   MapStore,
   Presence,
   StoreHistory,
@@ -61,6 +62,14 @@ export class CommercialMapComponent implements OnInit {
   readonly selectedId = signal<string | null>(null);
   readonly detail = signal<StoreHistory | null>(null);
   readonly loadingDetail = signal(false);
+
+  readonly selectedVisit = signal<HistoryVisit | null>(null);
+  readonly showVisitDialog = signal(false);
+  readonly visitDialogTitle = computed(() => {
+    const v = this.selectedVisit();
+    return v ? `Visita · ${v.fecha ?? ''}` : 'Visita';
+  });
+  readonly storeName = computed(() => this.detail()?.store?.nombre ?? '');
 
   readonly showImagePreview = signal(false);
   readonly previewImageUrl = signal('');
@@ -166,6 +175,17 @@ export class CommercialMapComponent implements OnInit {
     this.detail.set(null);
   }
 
+  /** Abre una ventana (dialog) con la descripción completa de la visita (como Seguimiento). */
+  openVisit(v: HistoryVisit): void {
+    this.selectedVisit.set(v);
+    this.showVisitDialog.set(true);
+  }
+
+  closeVisit(): void {
+    this.showVisitDialog.set(false);
+    this.selectedVisit.set(null);
+  }
+
   /** Abre la foto de exhibición ampliada en un lightbox (como en Seguimiento). */
   openImagePreview(url: unknown): void {
     const safe = this.getImageUrl(url);
@@ -261,8 +281,4 @@ export class CommercialMapComponent implements OnInit {
     }
   }
 
-  /** Exhibiciones de una visita filtradas por dueño (true=propio, false=competencia). */
-  exhibitionsBy(visit: StoreHistory['visits'][number], own: boolean) {
-    return visit.exhibiciones.filter((e) => e.perteneceMegaDulces === own);
-  }
 }

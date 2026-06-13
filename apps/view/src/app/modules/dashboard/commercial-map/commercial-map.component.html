@@ -196,41 +196,22 @@
               }
             </div>
 
+            <div class="cm-visit-list-head">Visitas ({{ d.visits.length }})</div>
             @if (d.visits.length === 0) {
               <div class="cm-empty">Sin visitas en el período.</div>
             }
             @for (v of d.visits; track v.capture_id) {
-              <div class="cm-visit">
-                <div class="cm-visit-head">
-                  <span class="cm-visit-date">
-                    <i class="pi pi-calendar" aria-hidden="true"></i>&nbsp;{{ v.fecha }}
-                  </span>
-                  <span class="cm-visit-user">{{ v.usuario }}</span>
-                  <p-tag [value]="'Score ' + v.score" severity="secondary"></p-tag>
-                </div>
-
-                @if (exhibitionsBy(v, true).length > 0) {
-                  <div class="cm-exh-group">
-                    <h5 class="cm-exh-title" style="color: var(--ok-fg)">
-                      <i class="pi pi-check-circle" aria-hidden="true"></i> Mega Dulces
-                    </h5>
-                    @for (e of exhibitionsBy(v, true); track $index) {
-                      <ng-container *ngTemplateOutlet="exhCard; context: { e: e }"></ng-container>
-                    }
-                  </div>
-                }
-
-                @if (exhibitionsBy(v, false).length > 0) {
-                  <div class="cm-exh-group">
-                    <h5 class="cm-exh-title" style="color: var(--bad-fg)">
-                      <i class="pi pi-flag" aria-hidden="true"></i> Competencia
-                    </h5>
-                    @for (e of exhibitionsBy(v, false); track $index) {
-                      <ng-container *ngTemplateOutlet="exhCard; context: { e: e }"></ng-container>
-                    }
-                  </div>
-                }
-              </div>
+              <button type="button" class="cm-visit-row" (click)="openVisit(v)" title="Ver descripción de la visita">
+                <span class="cm-visit-date">
+                  <i class="pi pi-calendar" aria-hidden="true"></i>&nbsp;{{ v.fecha }}
+                </span>
+                <span class="cm-visit-user">{{ v.usuario }}</span>
+                <span class="cm-visit-meta">
+                  <span class="cm-vchip" title="Exhibiciones">{{ v.exhibiciones.length }}</span>
+                  <span class="cm-vscore" title="Score">{{ v.score }}</span>
+                  <i class="pi pi-chevron-right" aria-hidden="true"></i>
+                </span>
+              </button>
             }
             }
           }
@@ -272,38 +253,73 @@
   </div>
 </div>
 
-<!-- Tarjeta de exhibición (reusada en bloques propio/competencia) -->
-<ng-template #exhCard let-e="e">
-  <div class="cm-exh">
-    @if (e.fotoUrl) {
-      <img
-        [src]="getImageUrl(e.fotoUrl)"
-        alt="Foto de exhibición"
-        class="cm-exh-foto cm-exh-foto-clickable"
-        loading="lazy"
-        role="button"
-        tabindex="0"
-        title="Ampliar imagen"
-        (click)="openImagePreview(e.fotoUrl)"
-        (keydown.enter)="openImagePreview(e.fotoUrl)"
-      />
-    } @else {
-      <div class="cm-exh-foto is-empty"><i class="pi pi-image" aria-hidden="true"></i></div>
-    }
-    <div class="cm-exh-info">
-      <span class="cm-exh-concepto">{{ e.concepto }}</span>
-      <span class="cm-exh-meta">
-        {{ e.ubicacion }}@if (e.nivel) { · {{ e.nivel }} }
-      </span>
-      @if (e.productos?.length) {
-        <span class="cm-exh-prods">{{ e.productos.join(', ') }}</span>
-      }
+<!-- Ventana con la descripción de la visita (como en Seguimiento) -->
+<p-dialog
+  [visible]="showVisitDialog()"
+  (visibleChange)="showVisitDialog.set($event)"
+  [modal]="true"
+  [appendTo]="'body'"
+  [header]="visitDialogTitle()"
+  [style]="{ width: '92vw', maxWidth: '720px', maxHeight: '90vh' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+  [blockScroll]="true"
+  styleClass="cm-visit-dialog"
+>
+  @if (selectedVisit(); as v) {
+    <div class="cm-vd-summary">
+      <span class="cm-vd-folio">{{ v.folio }}</span>
+      <span class="cm-vd-sub">{{ v.usuario }}@if (storeName()) { · {{ storeName() }} }</span>
+      <span class="cm-vd-score">Score {{ v.score }}</span>
     </div>
-    @if (e.score !== null) {
-      <span class="cm-exh-score">{{ e.score }}</span>
+
+    <div class="cm-vd-exh-count">Exhibiciones ({{ v.exhibiciones.length }})</div>
+
+    @for (e of v.exhibiciones; track $index) {
+      <div class="cm-vd-exh">
+        @if (e.fotoUrl) {
+          <button
+            type="button"
+            class="cm-vd-foto"
+            (click)="openImagePreview(e.fotoUrl)"
+            aria-label="Abrir foto en grande"
+          >
+            <img [src]="getImageUrl(e.fotoUrl)" alt="Foto de exhibición" loading="lazy" />
+          </button>
+        } @else {
+          <div class="cm-vd-foto is-empty"><i class="pi pi-image" aria-hidden="true"></i></div>
+        }
+
+        <div class="cm-vd-info">
+          <div class="cm-vd-concepto">
+            <span class="cm-vd-concepto-name">{{ e.concepto }}</span>
+            @if (e.perteneceMegaDulces === true) {
+              <span class="cm-chip cm-chip-own">Mega Dulces</span>
+            } @else if (e.perteneceMegaDulces === false) {
+              <span class="cm-chip cm-chip-comp">Competencia</span>
+            }
+          </div>
+          <div class="cm-vd-meta">
+            {{ e.ubicacion }}@if (e.nivel) { · {{ e.nivel }} }
+          </div>
+          @if (e.productos?.length) {
+            <div class="cm-vd-prods">
+              @for (p of e.productos; track $index) {
+                <span class="cm-vd-prod">{{ p }}</span>
+              }
+            </div>
+          }
+        </div>
+
+        @if (e.score !== null) {
+          <span class="cm-vd-exh-score">{{ e.score }}</span>
+        }
+      </div>
     }
-  </div>
-</ng-template>
+  }
+</p-dialog>
 
 <!-- Lightbox de imagen de exhibición (como en Seguimiento) -->
 <p-dialog

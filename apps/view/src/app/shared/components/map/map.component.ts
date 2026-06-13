@@ -31,7 +31,9 @@ export interface MapMarker {
 @Component({
   selector: 'app-map',
   standalone: true,
-  template: `<div #host [style.height]="height()" class="w-full rounded-lg overflow-hidden border border-divider"></div>`,
+  // `isolate` (isolation: isolate) confina los z-index internos de Leaflet
+  // (controles llegan a ~1000) a este contenedor para que NO pisen el sidebar.
+  template: `<div #host [style.height]="height()" class="w-full rounded-lg overflow-hidden border border-divider isolate"></div>`,
 })
 export class MapComponent implements AfterViewInit, OnDestroy {
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;

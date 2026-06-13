@@ -209,22 +209,37 @@
   margin: 0.3rem 0 0;
 }
 
-.cm-visit {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 0.6rem;
-  margin-top: 0.6rem;
+/* ── Lista de visitas (panel) — filas clickables que abren el dialog ── */
+.cm-visit-list-head {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-color-secondary);
+  margin: 0.75rem 0 0.4rem;
 }
-.cm-visit-head {
+.cm-visit-row {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin-bottom: 0.4rem;
+  padding: 0.55rem 0.6rem;
+  margin-top: 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.cm-visit-row:hover {
+  border-color: var(--action);
+  background: var(--surface-hover, rgba(0, 0, 0, 0.03));
 }
 .cm-visit-date {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-color);
+  white-space: nowrap;
 }
 .cm-visit-user {
   font-size: 0.72rem;
@@ -234,68 +249,150 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cm-exh-group {
-  margin-top: 0.4rem;
+.cm-visit-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-color-secondary);
+  font-size: 0.72rem;
 }
-.cm-exh-title {
+.cm-vchip {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--surface-ground, rgba(0, 0, 0, 0.05));
+  font-variant-numeric: tabular-nums;
+}
+.cm-vscore {
+  font-weight: 700;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Dialog de visita (descripción, estilo Seguimiento) ─────────── */
+.cm-vd-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.cm-vd-folio {
+  font-weight: 700;
+  color: var(--text-color);
+  font-size: 0.85rem;
+}
+.cm-vd-sub {
+  font-size: 0.78rem;
+  color: var(--text-color-secondary);
+  flex: 1;
+}
+.cm-vd-score {
+  font-weight: 700;
+  color: var(--text-color);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.cm-vd-exh-count {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  margin: 0.35rem 0 0.15rem;
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
+  color: var(--text-color-secondary);
+  margin: 0.75rem 0 0.25rem;
 }
-
-.cm-exh {
+.cm-vd-exh {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.4rem 0;
-  border-top: 1px dashed var(--border-color);
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--border-color);
 }
-.cm-exh-foto {
-  width: 44px;
-  height: 44px;
-  border-radius: 6px;
-  object-fit: cover;
+.cm-vd-exh:last-child {
+  border-bottom: 0;
+}
+.cm-vd-foto {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
   flex-shrink: 0;
+  padding: 0;
+  border: 0;
   background: var(--surface-ground, rgba(0, 0, 0, 0.04));
+  cursor: zoom-in;
 }
-.cm-exh-foto.is-empty {
+.cm-vd-foto img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.12s ease;
+}
+.cm-vd-foto:hover img {
+  transform: scale(1.06);
+}
+.cm-vd-foto.is-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-color-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px dashed var(--border-color);
+  cursor: default;
 }
-.cm-exh-info {
+.cm-vd-info {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   min-width: 0;
 }
-.cm-exh-concepto {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-color);
+.cm-vd-concepto {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
-.cm-exh-meta {
-  font-size: 0.7rem;
-  color: var(--text-color-secondary);
-}
-.cm-exh-prods {
-  font-size: 0.68rem;
-  color: var(--text-color-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cm-exh-score {
-  font-size: 0.85rem;
+.cm-vd-concepto-name {
+  font-size: 0.9rem;
   font-weight: 700;
   color: var(--text-color);
+}
+.cm-vd-meta {
+  font-size: 0.74rem;
+  color: var(--text-color-secondary);
+  margin-top: 0.15rem;
+}
+.cm-vd-prods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+.cm-vd-prod {
+  font-size: 0.7rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  background: var(--surface-ground, rgba(0, 0, 0, 0.05));
+  color: var(--text-color);
+}
+.cm-vd-exh-score {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-color);
   font-variant-numeric: tabular-nums;
+  align-self: flex-start;
+}
+.cm-chip {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+.cm-chip-own {
+  background: var(--ok-soft-bg, #dcfce7);
+  color: var(--ok-soft-fg, #166534);
+}
+.cm-chip-comp {
+  background: var(--bad-soft-bg, #fee2e2);
+  color: var(--bad-soft-fg, #991b1b);
 }
 
 :host ::ng-deep .cm-mt {
@@ -303,14 +400,6 @@
 }
 
 /* ── Lightbox de imagen ────────────────────────────────────────── */
-.cm-exh-foto-clickable {
-  cursor: zoom-in;
-  transition: transform 0.12s ease;
-}
-.cm-exh-foto-clickable:hover {
-  transform: scale(1.05);
-}
-
 .cm-lightbox {
   position: relative;
   width: 100%;
