@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Mapa Comercial (CM): exhibidores Mega Dulces vs competencia en mapa + historial por tienda
+- **Módulo `commercial-map`** (`libs/trade`, 2 endpoints read-only sobre `daily_captures.exhibiciones` JSONB — la fuente VIVA; las tablas `visits`/`exhibitions` son código muerto): `GET /commercial-map/stores` (tiendas con **coord híbrida** `COALESCE(stores.lat, última GPS de captura)` + conteo propio/competencia/sin-clasificar derivado del flag `perteneceMegaDulces` + `presence` + `unlocatedCount`) y `GET /commercial-map/stores/:id/history` (historial de visitas con exhibiciones separadas **Mega Dulces vs Competencia**: foto, concepto, ubicación, nivel, score, productos). Scope/tenant/zona espejando `ReportsService` (connection legacy, filtro `tenant_id` explícito — **no** `TenantKnexService`).
+- **Permiso `COMMERCIAL_MAP_VER`** (enum BE+FE, `ability.factory` subject `commercial_map`+action `read`, `AppSubject`). Seed de roles (superadmin/admin/supervisor/jefe_marketing) + backfill idempotente `20260613100000` (`-> 'KEY' IS NULL`). **Requiere re-login** (el permiso vive en el JWT).
+- **Página `/dashboard/commercial-map`** ("Mapa Comercial", nav Trade, icono `pi-map-marker`): superficie Operations (densa, master-detail). Mapa Leaflet con marcadores coloreados por presencia (🟢 Mega Dulces · 🔴 competencia · 🟠 ambas · 🔵 sin clasificar · ⚪ sin visitar), leyenda con conteos + badge "N sin ubicar", filtros de presencia/zona/búsqueda (client-side) + rango de fechas (server). Click en tienda → panel con KPIs + timeline de visitas y exhibiciones propio/competencia con miniatura de foto.
+- **`MapComponent`** (`shared/components/map`): nuevo `output markerClick` + campo opcional `id` en `MapMarker` (no-breaking; routes-analysis sin cambios).
+- **Smoke `http-commercial-map-test.js`** registrado en `run-all-tests.js`.
+
 ### Added — Modo Vendedor v2 · V.0: cartera del vendedor + orden de visita
 - **`commercial.vendor_sales_routes`** (mig `20260610100000`): qué rutas de venta (`sales_route`) cubre cada vendedor — el `supervisor_ventas` asigna. La cartera del vendedor = clientes de esas rutas. + **`customers.visit_sequence`**: orden de visita del cliente dentro de su ruta. FK a `identity.*` (las tablas reales; `public.users/tenants` son vistas), RLS, idempotente.
 - **Módulo `commercial-vendor-routes`** (7 endpoints): rutas+conteo+asignados, vendedores asignables, clientes-por-ruta, asignar/quitar (idempotente), "mi cartera" (vendedor), ordenar (`visit_sequence` 1..N). Gestión gateada por `USUARIOS_ASIGNAR_RUTA` (lo tiene `supervisor_ventas`), lectura por `COMMERCIAL_CUSTOMERS_VER` — sin permiso nuevo (evita el riesgo de ability.factory).

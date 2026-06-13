@@ -20,6 +20,7 @@ import { TicketExtractorModule } from '@megadulces/commercial';
 import { ScoringModule } from '@megadulces/trade';
 import { ScoringV2Module } from '@megadulces/trade';
 import { ReportsModule } from '@megadulces/trade';
+import { CommercialMapModule } from '@megadulces/trade';
 import { StoresModule } from '@megadulces/trade';
 import { VisitsModule } from '@megadulces/trade';
 import { DailyAssignmentsModule } from '@megadulces/trade';
@@ -166,6 +167,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     ScoringModule,
     ScoringV2Module,
     ReportsModule,
+    CommercialMapModule,
     StoresModule,
     VisitsModule,
     DailyAssignmentsModule,

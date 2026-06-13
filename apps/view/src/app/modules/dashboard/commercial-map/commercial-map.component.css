@@ -1,0 +1,314 @@
+:host {
+  display: block;
+}
+
+.cm-head-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cm-error {
+  padding: 0.6rem 1rem;
+  background: var(--bad-soft-bg, #fee2e2);
+  color: var(--bad-soft-fg, #991b1b);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+}
+
+/* ── Filtros + leyenda ─────────────────────────────────────────── */
+.cm-filters {
+  margin-bottom: 0.75rem;
+}
+.cm-filters-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.cm-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cm-seg-btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--border-color);
+  cursor: pointer;
+  color: var(--text-color-secondary);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.cm-seg-btn:last-child {
+  border-right: 0;
+}
+.cm-seg-btn:hover {
+  color: var(--text-color);
+}
+.cm-seg-btn.is-active {
+  background: var(--action);
+  color: #fff;
+}
+
+.cm-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.3rem 0.6rem;
+}
+.cm-search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 0.82rem;
+  color: var(--text-color);
+  min-width: 140px;
+}
+.cm-search i {
+  color: var(--text-color-secondary);
+  font-size: 0.8rem;
+}
+
+.cm-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-color-secondary);
+}
+.cm-date input {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text-color);
+}
+
+.cm-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  padding: 0.5rem 1rem 0.75rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.74rem;
+  color: var(--text-color-secondary);
+}
+.cm-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.cm-legend-item b {
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+.cm-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.cm-unlocated {
+  color: var(--warn-soft-fg, #92400e);
+}
+
+/* ── Layout master-detail ──────────────────────────────────────── */
+.cm-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 0.75rem;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .cm-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cm-side-body {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.cm-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-color-secondary);
+  font-size: 0.85rem;
+}
+
+/* ── Lista de tiendas ──────────────────────────────────────────── */
+.cm-store-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cm-store-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+}
+.cm-store-row:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+}
+.cm-store-row.is-unlocated {
+  opacity: 0.6;
+}
+.cm-store-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.82rem;
+  color: var(--text-color);
+  min-width: 0;
+}
+.cm-store-name small {
+  font-size: 0.68rem;
+  color: var(--text-color-secondary);
+}
+.cm-store-counts {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Detalle: KPIs + visitas ───────────────────────────────────── */
+.cm-store-addr {
+  font-size: 0.76rem;
+  color: var(--text-color-secondary);
+  margin: 0 0 0.3rem;
+}
+.cm-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+.cm-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem;
+  background: var(--surface-ground, rgba(0, 0, 0, 0.02));
+  border-radius: 8px;
+}
+.cm-kpi-v {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+.cm-kpi-l {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-color-secondary);
+}
+.cm-muted {
+  font-size: 0.72rem;
+  color: var(--text-color-secondary);
+  margin: 0.3rem 0 0;
+}
+
+.cm-visit {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.6rem;
+  margin-top: 0.6rem;
+}
+.cm-visit-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.cm-visit-date {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+.cm-visit-user {
+  font-size: 0.72rem;
+  color: var(--text-color-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-exh-group {
+  margin-top: 0.4rem;
+}
+.cm-exh-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0.35rem 0 0.15rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.cm-exh {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-top: 1px dashed var(--border-color);
+}
+.cm-exh-foto {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--surface-ground, rgba(0, 0, 0, 0.04));
+}
+.cm-exh-foto.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-color-secondary);
+  border: 1px solid var(--border-color);
+}
+.cm-exh-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cm-exh-concepto {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+.cm-exh-meta {
+  font-size: 0.7rem;
+  color: var(--text-color-secondary);
+}
+.cm-exh-prods {
+  font-size: 0.68rem;
+  color: var(--text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-exh-score {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+}
+
+:host ::ng-deep .cm-mt {
+  margin-top: 0.6rem;
+}

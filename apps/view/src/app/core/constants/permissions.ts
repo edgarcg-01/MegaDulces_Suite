@@ -34,6 +34,9 @@ export enum Permission {
   // Rutas (análisis: tiendas por ruta, tiempos de visita, trazabilidad)
   RUTAS_VER = 'RUTAS_VER',
 
+  // Mapa Comercial (exhibidores Mega Dulces vs competencia + historial por tienda)
+  COMMERCIAL_MAP_VER = 'COMMERCIAL_MAP_VER',
+
   // Comercial (Fase B+C)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',

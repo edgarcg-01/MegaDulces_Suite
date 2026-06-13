@@ -5,6 +5,7 @@
 // es interno a este dominio (lo consumen daily-captures y reports).
 
 export * from './lib/catalogs/catalogs.module';
+export * from './lib/commercial-map/commercial-map.module';
 export * from './lib/daily-assignments/daily-assignments.module';
 export * from './lib/daily-captures/daily-captures.module';
 export * from './lib/data/data.module';

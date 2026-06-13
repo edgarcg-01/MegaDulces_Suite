@@ -1,0 +1,281 @@
+<div class="surf-page cm">
+  <header class="surf-page-head">
+    <div class="surf-page-head-text">
+      <h1>Mapa Comercial</h1>
+      <p class="surf-page-sub">
+        Exhibidores Mega Dulces vs competencia · {{ mappableCount() }} tiendas en el mapa
+      </p>
+    </div>
+    <div class="cm-head-actions">
+      <button
+        pButton
+        type="button"
+        icon="pi pi-refresh"
+        severity="secondary"
+        [text]="true"
+        size="small"
+        [loading]="loading()"
+        (click)="load()"
+        aria-label="Recargar mapa"
+        title="Recargar"
+      ></button>
+    </div>
+  </header>
+
+  @if (error()) {
+    <div class="cm-error">{{ error() }}</div>
+  }
+
+  <!-- FILTROS + LEYENDA ─────────────────────────────────────────── -->
+  <div class="surf-panel cm-filters">
+    <div class="surf-panel-body cm-filters-body">
+      <div class="cm-seg" role="group" aria-label="Filtrar por presencia">
+        @for (opt of presenceOptions; track opt.value) {
+          <button
+            type="button"
+            class="cm-seg-btn"
+            [class.is-active]="presence() === opt.value"
+            (click)="presence.set(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        }
+      </div>
+
+      <p-select
+        [options]="zonaOptions()"
+        [ngModel]="zonaFilter()"
+        (ngModelChange)="zonaFilter.set($event)"
+        placeholder="Todas las zonas"
+        [showClear]="true"
+        styleClass="cm-select"
+        appendTo="body"
+      ></p-select>
+
+      <span class="cm-search">
+        <i class="pi pi-search" aria-hidden="true"></i>
+        <input
+          type="text"
+          [ngModel]="search()"
+          (ngModelChange)="search.set($event)"
+          placeholder="Buscar tienda…"
+          aria-label="Buscar tienda"
+        />
+      </span>
+
+      <label class="cm-date">
+        <span>Desde</span>
+        <input type="date" [ngModel]="dateFrom()" (ngModelChange)="dateFrom.set($event)" />
+      </label>
+      <label class="cm-date">
+        <span>Hasta</span>
+        <input type="date" [ngModel]="dateTo()" (ngModelChange)="dateTo.set($event)" />
+      </label>
+      <button pButton type="button" label="Aplicar" size="small" (click)="applyDates()"></button>
+    </div>
+
+    <div class="cm-legend">
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--ok-fg)" aria-hidden="true"></i>
+        Mega Dulces <b>{{ presenceCounts().own }}</b>
+      </span>
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--bad-fg)" aria-hidden="true"></i>
+        Competencia <b>{{ presenceCounts().competitor }}</b>
+      </span>
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--warn-fg)" aria-hidden="true"></i>
+        Ambas <b>{{ presenceCounts().both }}</b>
+      </span>
+      @if (presenceCounts().unknown > 0) {
+        <span class="cm-legend-item">
+          <i class="cm-dot" style="background: var(--info-fg)" aria-hidden="true"></i>
+          Sin clasificar <b>{{ presenceCounts().unknown }}</b>
+        </span>
+      }
+      <span class="cm-legend-item">
+        <i class="cm-dot" style="background: var(--neutral-400)" aria-hidden="true"></i>
+        Sin visitar <b>{{ presenceCounts().none }}</b>
+      </span>
+      @if (unlocatedCount() > 0) {
+        <span class="cm-legend-item cm-unlocated">
+          <i class="pi pi-map-marker" aria-hidden="true"></i>
+          {{ unlocatedCount() }} sin ubicar
+        </span>
+      }
+    </div>
+  </div>
+
+  <!-- MAPA + DETALLE ────────────────────────────────────────────── -->
+  <div class="cm-main">
+    <!-- Mapa -->
+    <div class="surf-panel cm-map-panel">
+      <div class="surf-panel-head">
+        <h3><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Tiendas</h3>
+      </div>
+      <div class="surf-panel-body is-flush">
+        @if (loading()) {
+          <p-skeleton height="560px"></p-skeleton>
+        } @else if (mapMarkers().length === 0) {
+          <div class="cm-empty">Sin tiendas ubicables con los filtros actuales.</div>
+        } @else {
+          <app-map
+            [markers]="mapMarkers()"
+            height="560px"
+            (markerClick)="onMarkerClick($event)"
+          ></app-map>
+        }
+      </div>
+    </div>
+
+    <!-- Panel lateral: lista o detalle -->
+    <div class="surf-panel cm-side">
+      @if (selectedId()) {
+        <div class="surf-panel-head">
+          <h3>
+            <i class="pi pi-shop" aria-hidden="true"></i>&nbsp;{{ detail()?.store?.nombre || 'Tienda' }}
+          </h3>
+          <button
+            pButton
+            type="button"
+            icon="pi pi-times"
+            severity="secondary"
+            [text]="true"
+            size="small"
+            (click)="closeDetail()"
+            aria-label="Cerrar detalle"
+          ></button>
+        </div>
+        <div class="surf-panel-body cm-side-body">
+          @if (loadingDetail()) {
+            <p-skeleton height="100px"></p-skeleton>
+            <p-skeleton height="180px" styleClass="cm-mt"></p-skeleton>
+          } @else {
+            @if (detail(); as d) {
+            <div class="cm-store-meta">
+              <p class="cm-store-addr">
+                {{ d.store.zona }}@if (d.store.direccion) { · {{ d.store.direccion }} }
+              </p>
+              <div class="cm-kpis">
+                <div class="cm-kpi">
+                  <span class="cm-kpi-v">{{ d.store.totalVisitas }}</span>
+                  <span class="cm-kpi-l">Visitas</span>
+                </div>
+                <div class="cm-kpi">
+                  <span class="cm-kpi-v">{{ d.store.score }}</span>
+                  <span class="cm-kpi-l">Score prom</span>
+                </div>
+                <div class="cm-kpi">
+                  <span class="cm-kpi-v" style="color: var(--ok-fg)">{{ d.store.ownTotal }}</span>
+                  <span class="cm-kpi-l">Mega Dulces</span>
+                </div>
+                <div class="cm-kpi">
+                  <span class="cm-kpi-v" style="color: var(--bad-fg)">{{ d.store.competitorTotal }}</span>
+                  <span class="cm-kpi-l">Competencia</span>
+                </div>
+              </div>
+              @if (d.store.diasSinVisita !== null) {
+                <p class="cm-muted">
+                  Última visita: {{ d.store.ultimaVisita }} · hace {{ d.store.diasSinVisita }} d
+                </p>
+              }
+            </div>
+
+            @if (d.visits.length === 0) {
+              <div class="cm-empty">Sin visitas en el período.</div>
+            }
+            @for (v of d.visits; track v.capture_id) {
+              <div class="cm-visit">
+                <div class="cm-visit-head">
+                  <span class="cm-visit-date">
+                    <i class="pi pi-calendar" aria-hidden="true"></i>&nbsp;{{ v.fecha }}
+                  </span>
+                  <span class="cm-visit-user">{{ v.usuario }}</span>
+                  <p-tag [value]="'Score ' + v.score" severity="secondary"></p-tag>
+                </div>
+
+                @if (exhibitionsBy(v, true).length > 0) {
+                  <div class="cm-exh-group">
+                    <h5 class="cm-exh-title" style="color: var(--ok-fg)">
+                      <i class="pi pi-check-circle" aria-hidden="true"></i> Mega Dulces
+                    </h5>
+                    @for (e of exhibitionsBy(v, true); track $index) {
+                      <ng-container *ngTemplateOutlet="exhCard; context: { e: e }"></ng-container>
+                    }
+                  </div>
+                }
+
+                @if (exhibitionsBy(v, false).length > 0) {
+                  <div class="cm-exh-group">
+                    <h5 class="cm-exh-title" style="color: var(--bad-fg)">
+                      <i class="pi pi-flag" aria-hidden="true"></i> Competencia
+                    </h5>
+                    @for (e of exhibitionsBy(v, false); track $index) {
+                      <ng-container *ngTemplateOutlet="exhCard; context: { e: e }"></ng-container>
+                    }
+                  </div>
+                }
+              </div>
+            }
+            }
+          }
+        </div>
+      } @else {
+        <div class="surf-panel-head">
+          <h3><i class="pi pi-list" aria-hidden="true"></i>&nbsp;Tiendas ({{ filteredStores().length }})</h3>
+        </div>
+        <div class="surf-panel-body is-flush cm-side-body">
+          @if (loading()) {
+            <p-skeleton height="420px"></p-skeleton>
+          } @else if (filteredStores().length === 0) {
+            <div class="cm-empty">Sin tiendas con los filtros actuales.</div>
+          } @else {
+            <ul class="cm-store-list">
+              @for (s of filteredStores(); track s.id) {
+                <li
+                  class="cm-store-row"
+                  [class.is-unlocated]="!s.located"
+                  (click)="selectStore(s.id)"
+                  tabindex="0"
+                  (keydown.enter)="selectStore(s.id)"
+                >
+                  <span class="cm-dot" [style.background]="presenceColor(s.presence)" aria-hidden="true"></span>
+                  <span class="cm-store-name">
+                    {{ s.nombre }}<small>{{ s.zona }}{{ s.located ? '' : ' · sin ubicar' }}</small>
+                  </span>
+                  <span class="cm-store-counts" [title]="'Mega Dulces / Competencia'">
+                    <b style="color: var(--ok-fg)">{{ s.own }}</b
+                    >/<b style="color: var(--bad-fg)">{{ s.competitor }}</b>
+                  </span>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>
+
+<!-- Tarjeta de exhibición (reusada en bloques propio/competencia) -->
+<ng-template #exhCard let-e="e">
+  <div class="cm-exh">
+    @if (e.fotoUrl) {
+      <img [src]="e.fotoUrl" alt="" class="cm-exh-foto" loading="lazy" />
+    } @else {
+      <div class="cm-exh-foto is-empty"><i class="pi pi-image" aria-hidden="true"></i></div>
+    }
+    <div class="cm-exh-info">
+      <span class="cm-exh-concepto">{{ e.concepto }}</span>
+      <span class="cm-exh-meta">
+        {{ e.ubicacion }}@if (e.nivel) { · {{ e.nivel }} }
+      </span>
+      @if (e.productos?.length) {
+        <span class="cm-exh-prods">{{ e.productos.join(', ') }}</span>
+      }
+    </div>
+    @if (e.score !== null) {
+      <span class="cm-exh-score">{{ e.score }}</span>
+    }
+  </div>
+</ng-template>

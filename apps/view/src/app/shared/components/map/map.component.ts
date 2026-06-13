@@ -5,6 +5,7 @@ import {
   AfterViewInit,
   OnDestroy,
   input,
+  output,
   effect,
   signal,
 } from '@angular/core';
@@ -18,6 +19,8 @@ export interface MapMarker {
   color?: string;
   /** número de secuencia a mostrar dentro del pin (recorrido). */
   seq?: number;
+  /** id opcional del marcador (ej. store_id) para resolver el click en el padre. */
+  id?: string | number;
 }
 
 /**
@@ -37,6 +40,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** puntos ordenados del recorrido; se dibuja una polyline que los une. */
   readonly path = input<{ lat: number; lng: number }[]>([]);
   readonly height = input<string>('420px');
+  /** emite al hacer click en un marcador (para master-detail en el padre). */
+  readonly markerClick = output<MapMarker>();
 
   private map: L.Map | null = null;
   private layer: L.LayerGroup | null = null;
@@ -80,6 +85,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       const icon = L.divIcon({ html, className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
       const marker = L.marker([m.lat, m.lng], { icon });
       if (m.title) marker.bindPopup(m.title);
+      marker.on('click', () => this.markerClick.emit(m));
       marker.addTo(this.layer);
     }
 

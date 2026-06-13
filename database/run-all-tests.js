@@ -45,6 +45,8 @@ const TESTS = [
   { file: 'http-vendor-capture-e2e-test.js', label: 'VC captura vendedor E2E (alias código→planograma + venta + visita)', needsApi: true },
   // Apartado Rutas — detalle por ruta (tiendas/cobertura + tiempos + trazabilidad)
   { file: 'http-routes-analysis-test.js', label: 'Rutas: detalle por ruta (visits tiempos+GPS, stores cobertura)', needsApi: true },
+  // Mapa Comercial — tiendas geolocalizadas + historial propio vs competencia
+  { file: 'http-commercial-map-test.js', label: 'Mapa Comercial: stores (coord híbrida + presencia) + history (propio/competencia)', needsApi: true },
   // V.6 Modo Vendedor — autodetección de llegada (nearby + anti-traslape + backfill capture-on-visit)
   { file: 'http-vendor-geo-test.js', label: 'V.6 autodetección llegada (nearby ranked + guard anti-traslape + check-in backfill)', needsApi: true },
   // Thot T.1 — recomendación producto-first (afinidad market-basket + zona + rotación + margen)

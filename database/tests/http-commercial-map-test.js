@@ -1,0 +1,93 @@
+/* eslint-disable no-console */
+/**
+ * Smoke HTTP — módulo "Mapa Comercial" (CM.1 backend).
+ *
+ * Verifica los endpoints:
+ *   GET /commercial-map/stores                 → tiendas con coord híbrida + presencia
+ *   GET /commercial-map/stores?presence=...     → filtro de presencia (server)
+ *   GET /commercial-map/stores/:id/history       → historial propio vs competencia
+ * + id inválido (404) + aislamiento de tenant.
+ *
+ * Fuente: daily_captures.exhibiciones (JSONB) + flag perteneceMegaDulces. NO usa
+ * las tablas normalizadas visits/exhibitions (código muerto).
+ *
+ * Requisitos: API :3334 con CM.1 (COMMERCIAL_MAP_VER + endpoints) — REINICIAR
+ * antes de correr. Login superoot (manage:all) pasa el gate COMMERCIAL_MAP_VER.
+ * Correr: node database/tests/http-commercial-map-test.js
+ */
+const knex = require('knex')(require('../knexfile-newdb.js').development);
+const T = '00000000-0000-0000-0000-00000000d01c';
+const BASE = 'http://localhost:3334/api';
+
+let pass = 0, fail = 0;
+const failures = [];
+function check(name, cond, det) {
+  if (cond) { console.log(`  OK   ${name}`); pass++; }
+  else { console.log(`  FAIL ${name}${det !== undefined ? ` — ${JSON.stringify(det)}` : ''}`); failures.push(name); fail++; }
+}
+async function req(method, path, token) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const r = await fetch(`${BASE}${path}`, { method, headers });
+  let json = null;
+  try { json = await r.json(); } catch (_) {}
+  return { status: r.status, body: json };
+}
+
+(async () => {
+  console.log('── 1. Login superoot ──');
+  const lr = await fetch(`${BASE}/auth-mt/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenant_slug: 'mega_dulces', username: 'superoot', password: 'superoot' }) });
+  const token = (await lr.json())?.access_token;
+  check('JWT recibido', !!token);
+  if (!token) { console.log('FATAL sin token'); process.exit(1); }
+
+  console.log('\n── 2. GET /commercial-map/stores ──');
+  const r = await req('GET', '/commercial-map/stores', token);
+  check('stores 200', r.status === 200, r.status);
+  const body = r.body || {};
+  const stores = Array.isArray(body.stores) ? body.stores : [];
+  check('devuelve stores[]', stores.length > 0, stores.length);
+  check('total + unlocatedCount numéricos', typeof body.total === 'number' && typeof body.unlocatedCount === 'number', { total: body.total, unloc: body.unlocatedCount });
+  check('cada tienda trae presence + located (bool)', stores.every((s) => typeof s.located === 'boolean' && !!s.presence), stores[0]);
+  check('hay tiendas ubicables con lat/lng numérico', stores.some((s) => s.located && typeof s.lat === 'number' && typeof s.lng === 'number'), stores.find((s) => s.located));
+  check('trae conteo own/competitor por tienda', stores.every((s) => typeof s.own === 'number' && typeof s.competitor === 'number'), stores[0]);
+  const withComp = stores.filter((s) => s.presence === 'competitor' || s.presence === 'both');
+  const withOwn = stores.filter((s) => s.presence === 'own' || s.presence === 'both');
+  console.log(`     ubicables=${stores.filter((s) => s.located).length} | con competencia=${withComp.length} | con Mega Dulces=${withOwn.length}`);
+
+  console.log('\n── 3. Filtro de presencia (?presence=competitor) ──');
+  const rc = await req('GET', '/commercial-map/stores?presence=competitor', token);
+  check('presence filter 200', rc.status === 200, rc.status);
+  const cstores = rc.body?.stores || [];
+  check('todas las devueltas son presence=competitor', cstores.length > 0 && cstores.every((s) => s.presence === 'competitor'), cstores.slice(0, 2).map((s) => s.presence));
+
+  console.log('\n── 4. GET /commercial-map/stores/:id/history ──');
+  const sid = (await knex('daily_captures').where('tenant_id', T).whereNotNull('store_id').distinct('store_id').first())?.store_id;
+  check('hay una tienda con capturas para el historial', !!sid, sid);
+  const h = await req('GET', `/commercial-map/stores/${sid}/history`, token);
+  check('history 200', h.status === 200, h.status);
+  const store = h.body?.store;
+  const visits = Array.isArray(h.body?.visits) ? h.body.visits : [];
+  check('trae store con totales own/competitor/unknown', !!store && typeof store.ownTotal === 'number' && typeof store.competitorTotal === 'number', store);
+  check('trae visits[] con exhibiciones', visits.length > 0 && Array.isArray(visits[0].exhibiciones), visits.length);
+  const allExh = visits.flatMap((v) => v.exhibiciones);
+  check('cada exhibición trae concepto + flag perteneceMegaDulces (bool|null)', allExh.length > 0 && allExh.every((e) => typeof e.concepto === 'string' && (e.perteneceMegaDulces === true || e.perteneceMegaDulces === false || e.perteneceMegaDulces === null)), allExh[0]);
+
+  console.log('\n── 5. id inválido → 404 (no 500) ──');
+  const bad = await req('GET', '/commercial-map/stores/not-a-uuid/history', token);
+  check('id no-uuid responde 404', bad.status === 404, bad.status);
+
+  console.log('\n── 6. Aislamiento de tenant ──');
+  const t2 = await knex('identity.tenants').where('id', '<>', T).whereNull('deleted_at').first().catch(() => null);
+  if (t2) {
+    const cross = await knex('stores').where({ tenant_id: t2.id }).whereIn('id', stores.map((s) => s.id)).count('* as n').first();
+    check('ninguna tienda devuelta pertenece al 2do tenant', Number(cross.n) === 0, cross.n);
+  } else {
+    console.log('  (skip: no hay 2do tenant)');
+  }
+
+  console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
+  if (fail) console.log('FALLOS:', failures.join(', '));
+  await knex.destroy();
+  process.exit(fail ? 1 : 0);
+})().catch((e) => { console.error('ERR', e.stack || e.message); process.exit(1); });

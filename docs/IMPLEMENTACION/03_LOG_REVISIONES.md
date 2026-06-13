@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-06-13 — Mapa Comercial (CM): exhibidores propios vs competencia en mapa + historial por tienda
+
+**Contexto:** pedido de un módulo en Trade Marketing que muestre en un mapa dónde están físicamente los exhibidores de Mega Dulces y de la competencia, y que al hacer clic en una tienda despliegue el historial completo de visitas/exhibiciones. Exploración previa decidió el diseño: **la fuente viva del historial es `daily_captures.exhibiciones` (JSONB)** — las tablas normalizadas `visits`/`exhibitions`/`exhibition_photos` son código muerto (la `visits.service` checkin/checkout no la usa el flujo actual). Cada exhibición ya trae el flag **`perteneceMegaDulces`** → la distinción propio/competencia existe a nivel de dato. **Alcance Opción A** (reusar el flag, nivel tienda, cero schema nuevo) + **GPS híbrido con fallback**, decidido con el usuario.
+
+**Fase 0 (validación read-only, DB local unificada):** 36 tiendas activas, 100% con coord maestra; 406 capturas / 34 tiendas con `store_id`; flag `perteneceMegaDulces` **282 true / 241 false / 0 ausente**; presencia derivada **own:10 / competitor:24 / none:2 / both:0**. Confirmó que el mapa tiene data rica. Hallazgo de schema: `trade.daily_captures` es la tabla real, `public.daily_captures` una vista passthrough; el `search_path` (`…trade…public`) hace que `knex('daily_captures')` sin calificar resuelva a la tabla — igual que `ReportsService`.
+
+**Backend (`libs/trade/src/lib/commercial-map`):** `CommercialMapService` con 2 endpoints. `getStores` = query de tiendas (tenant + zona del requester, espejando `StoresService.findAll`) + query de capturas agregadas (scope `getDataScope` + tenant + fechas TZ MX) merged en JS → coord híbrida `s.lat ?? última GPS de captura`, conteos own/competitor/unknown, `presence`, `unlocatedCount`. `getStoreHistory` reusa el parseo del JSONB de `getStoresData` (detail view) resolviendo concepto/ubicación/productos vía catálogos. **Connection legacy + filtro `tenant_id` explícito** (no `TenantKnexService` — las tablas trade bypassa RLS por el connection postgres, patrón ya probado en reports). Permiso `COMMERCIAL_MAP_VER` mapeado en `ability.factory` + `AppSubject`.
+
+**Frontend (`apps/view/.../commercial-map`):** página standalone lazy, superficie Operations. Reusa `MapComponent` (extendido con `output markerClick` + `id` en `MapMarker`, no-breaking). Marcadores por presencia con tokens (`--ok-fg`/`--bad-fg`/`--warn-fg`/`--info-fg`/`--neutral-400`), leyenda con conteos, filtros client-side (presencia/zona/búsqueda) + fechas server, panel master-detail con KPIs + timeline de exhibiciones propio/competencia (miniatura de foto). Ruta `/dashboard/commercial-map` + nav Trade gateados por `COMMERCIAL_MAP_VER`.
+
+**Verificación:**
+- `nx build api` ✅ y `nx build view` ✅ (un fix de template: el alias `as d` no aplica en `@else if`; reestructurado a `@if (detail(); as d)` anidado). Warnings restantes pre-existentes (ports type-only en api; CommonJS canvg/jspdf en view).
+- **Queries del servicio replicadas read-only contra la DB** (`c:/tmp`): `/stores` → 36 ubicables, presencia own:10/comp:24/none:2; `/history` → resuelve "Vitrina @ Caja [MD] foto=sí". SQL/JSONB válido contra el schema real.
+- **Smoke `http-commercial-map-test.js`** escrito y registrado en `run-all-tests.js` (corre con API :3334 arriba — pendiente de ejecutar por el dev, no se levantan servers por iniciativa).
+- Migración backfill `20260613100000` (idempotente) + seed de roles actualizado — **requiere re-login** y `migrate` para que el permiso llegue a entornos sembrados.
+
+**Pendiente:** ejecutar la regression con API arriba (incl. el smoke nuevo); validación visual del mapa en browser. **Deferred (forward-compatible):** Opción B (catálogo de marcas competidoras + campos nuevos en el wizard de captura), clustering de marcadores si el dataset real lo exige, edición de coords desde el mapa.
+
 ## 2026-06-10 — Fase M: Motor de Inteligencia Comercial — rebanada vertical V1 (cierre)
 
 **Contexto:** comparativa vs yom.ai (~18 capacidades: optimización de ruta, ciclo de vida del cliente, recomendación, promos por cadencia, WhatsApp/push/teléfono, auto-atención, agente AI). Auditoría mostró que ~60% del sustrato ya existía disperso. Decisión (ADR-016): no construir 18 features sueltas sino **un motor en 5 capas** con dos invariantes — *el motor decide, el agente comunica, el LLM NUNCA toca el dinero*. Build por **rebanada vertical** ("Reorden inteligente"), no fundación horizontal.
