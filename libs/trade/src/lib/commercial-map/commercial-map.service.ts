@@ -80,23 +80,40 @@ export class CommercialMapService {
     return {};
   }
 
-  /** Aplica scope own/team/all + tenant a una query sobre daily_captures (alias dc). */
-  private async applyCaptureScope(
-    q: Knex.QueryBuilder,
-    user: any,
-  ): Promise<Knex.QueryBuilder> {
+  /**
+   * Resuelve el scope de capturas (tenant + own/team + teamIds) SIN tocar ninguna
+   * query. Devuelve datos planos — NUNCA un QueryBuilder — porque `await` sobre una
+   * función que retorna un QueryBuilder (es thenable) lo EJECUTA antes de tiempo y
+   * el `.whereRaw()` posterior revienta (mismo trap que ReportsService documenta).
+   */
+  private async resolveCaptureScope(user: any): Promise<{
+    tenantId?: string;
+    scope: ReturnType<typeof getDataScope>;
+    teamIds: string[] | null;
+  }> {
     const tenantId = this.tenantId(user);
-    if (tenantId) q = q.where('dc.tenant_id', tenantId);
     const scope = getDataScope(user);
-    if (scope.type === 'own') {
-      q = q.where('dc.user_id', scope.userId);
-    } else if (scope.type === 'team') {
-      if (scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined') {
-        const teamIds = await this.getTeamIds(scope.userId);
-        q = q.whereIn('dc.user_id', teamIds.length > 0 ? teamIds : ['__none__']);
-      } else {
-        q = q.whereRaw('1=0');
-      }
+    let teamIds: string[] | null = null;
+    if (scope.type === 'team') {
+      teamIds =
+        scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined'
+          ? await this.getTeamIds(scope.userId)
+          : [];
+    }
+    return { tenantId, scope, teamIds };
+  }
+
+  /** Aplica el scope YA RESUELTO a una query sobre daily_captures (alias dc). SÍNCRONO. */
+  private applyScopeToQuery(
+    q: Knex.QueryBuilder,
+    sc: { tenantId?: string; scope: ReturnType<typeof getDataScope>; teamIds: string[] | null },
+  ): Knex.QueryBuilder {
+    if (sc.tenantId) q = q.where('dc.tenant_id', sc.tenantId);
+    if (sc.scope.type === 'own') {
+      q = q.where('dc.user_id', sc.scope.userId);
+    } else if (sc.scope.type === 'team') {
+      const ids = sc.teamIds && sc.teamIds.length > 0 ? sc.teamIds : ['__none__'];
+      q = q.whereIn('dc.user_id', ids);
     }
     return q;
   }
@@ -115,7 +132,8 @@ export class CommercialMapService {
     },
     user: any,
   ) {
-    const tenantId = this.tenantId(user);
+    const sc = await this.resolveCaptureScope(user);
+    const tenantId = sc.tenantId;
     const requesterZonaId = await this.getRequesterZonaId(user);
     const isUuid = (v?: string) => !!v && CommercialMapService.UUID_RE.test(v);
 
@@ -153,7 +171,7 @@ export class CommercialMapService {
         'dc.latitud',
         'dc.longitud',
       );
-    cQ = await this.applyCaptureScope(cQ, user);
+    cQ = this.applyScopeToQuery(cQ, sc);
     if (filters.date_from)
       cQ.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [
         filters.date_from,
@@ -266,7 +284,8 @@ export class CommercialMapService {
     if (!CommercialMapService.UUID_RE.test(storeId || '')) {
       throw new NotFoundException('Tienda no encontrada.');
     }
-    const tenantId = this.tenantId(user);
+    const sc = await this.resolveCaptureScope(user);
+    const tenantId = sc.tenantId;
 
     let storeQ = this.knex('stores as s')
       .leftJoin('zones as z', 'z.id', 's.zona_id')
@@ -310,7 +329,7 @@ export class CommercialMapService {
         'dc.exhibiciones',
       )
       .orderBy('dc.hora_inicio', 'desc');
-    q = await this.applyCaptureScope(q, user);
+    q = this.applyScopeToQuery(q, sc);
     if (filters.date_from)
       q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [
         filters.date_from,

@@ -61,11 +61,18 @@ async function req(method, path, token) {
   const cstores = rc.body?.stores || [];
   check('todas las devueltas son presence=competitor', cstores.length > 0 && cstores.every((s) => s.presence === 'competitor'), cstores.slice(0, 2).map((s) => s.presence));
 
+  console.log('\n── 3b. Filtro de fechas (ejercita el path whereRaw que rompía) ──');
+  const dr = await req('GET', '/commercial-map/stores?date_from=2020-01-01&date_to=2030-01-01', token);
+  check('stores con date range → 200 (no 500 whereRaw)', dr.status === 200, dr.status);
+  check('stores con date range devuelve stores[]', Array.isArray(dr.body?.stores), dr.body?.total);
+
   console.log('\n── 4. GET /commercial-map/stores/:id/history ──');
   const sid = (await knex('daily_captures').where('tenant_id', T).whereNotNull('store_id').distinct('store_id').first())?.store_id;
   check('hay una tienda con capturas para el historial', !!sid, sid);
   const h = await req('GET', `/commercial-map/stores/${sid}/history`, token);
   check('history 200', h.status === 200, h.status);
+  const hd = await req('GET', `/commercial-map/stores/${sid}/history?date_from=2020-01-01&date_to=2030-01-01`, token);
+  check('history con date range → 200 (no 500 whereRaw)', hd.status === 200, hd.status);
   const store = h.body?.store;
   const visits = Array.isArray(h.body?.visits) ? h.body.visits : [];
   check('trae store con totales own/competitor/unknown', !!store && typeof store.ownTotal === 'number' && typeof store.competitorTotal === 'number', store);
