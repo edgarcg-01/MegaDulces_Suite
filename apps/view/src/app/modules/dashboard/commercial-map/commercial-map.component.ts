@@ -6,7 +6,9 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { DatePickerModule } from 'primeng/datepicker';
+import { DialogModule } from 'primeng/dialog';
 import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
+import { environment } from '../../../../environments/environment';
 import {
   CommercialMapService,
   MapStore,
@@ -36,6 +38,7 @@ type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
     SelectModule,
     ButtonModule,
     DatePickerModule,
+    DialogModule,
     MapComponent,
   ],
   templateUrl: './commercial-map.component.html',
@@ -58,6 +61,9 @@ export class CommercialMapComponent implements OnInit {
   readonly selectedId = signal<string | null>(null);
   readonly detail = signal<StoreHistory | null>(null);
   readonly loadingDetail = signal(false);
+
+  readonly showImagePreview = signal(false);
+  readonly previewImageUrl = signal('');
 
   readonly presenceOptions: { label: string; value: PresenceFilter }[] = [
     { label: 'Todas', value: 'any' },
@@ -158,6 +164,28 @@ export class CommercialMapComponent implements OnInit {
   closeDetail(): void {
     this.selectedId.set(null);
     this.detail.set(null);
+  }
+
+  /** Abre la foto de exhibición ampliada en un lightbox (como en Seguimiento). */
+  openImagePreview(url: unknown): void {
+    const safe = this.getImageUrl(url);
+    if (!safe) return;
+    this.previewImageUrl.set(safe);
+    this.showImagePreview.set(true);
+  }
+
+  closeImagePreview(): void {
+    this.showImagePreview.set(false);
+    this.previewImageUrl.set('');
+  }
+
+  /** Resuelve la URL: acepta http(s) absoluta o path relativo del backend; bloquea esquemas peligrosos. */
+  getImageUrl(url: unknown): string {
+    if (typeof url !== 'string' || !url.trim()) return '';
+    const trimmed = url.trim();
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return '';
+    return `${environment.apiUrl}/${trimmed.replace(/^\/+/, '')}`;
   }
 
   /** Selección de período: setea el signal y recarga (salvo 'custom', que espera al datepicker). */

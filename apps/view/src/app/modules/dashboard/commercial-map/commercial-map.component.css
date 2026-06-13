@@ -301,3 +301,46 @@
 :host ::ng-deep .cm-mt {
   margin-top: 0.6rem;
 }
+
+/* ── Lightbox de imagen ────────────────────────────────────────── */
+.cm-exh-foto-clickable {
+  cursor: zoom-in;
+  transition: transform 0.12s ease;
+}
+.cm-exh-foto-clickable:hover {
+  transform: scale(1.05);
+}
+
+.cm-lightbox {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.cm-lightbox-img {
+  width: 100%;
+  max-height: 82vh;
+  object-fit: contain;
+  cursor: zoom-out;
+  border-radius: 6px;
+}
+.cm-lightbox-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+.cm-lightbox-close:hover {
+  transform: scale(1.1);
+}

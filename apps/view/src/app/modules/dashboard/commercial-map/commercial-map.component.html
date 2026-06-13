@@ -276,7 +276,17 @@
 <ng-template #exhCard let-e="e">
   <div class="cm-exh">
     @if (e.fotoUrl) {
-      <img [src]="e.fotoUrl" alt="" class="cm-exh-foto" loading="lazy" />
+      <img
+        [src]="getImageUrl(e.fotoUrl)"
+        alt="Foto de exhibición"
+        class="cm-exh-foto cm-exh-foto-clickable"
+        loading="lazy"
+        role="button"
+        tabindex="0"
+        title="Ampliar imagen"
+        (click)="openImagePreview(e.fotoUrl)"
+        (keydown.enter)="openImagePreview(e.fotoUrl)"
+      />
     } @else {
       <div class="cm-exh-foto is-empty"><i class="pi pi-image" aria-hidden="true"></i></div>
     }
@@ -294,3 +304,36 @@
     }
   </div>
 </ng-template>
+
+<!-- Lightbox de imagen de exhibición (como en Seguimiento) -->
+<p-dialog
+  [visible]="showImagePreview()"
+  (visibleChange)="showImagePreview.set($event)"
+  [modal]="true"
+  [closable]="false"
+  [appendTo]="'body'"
+  [style]="{ width: '90vw', maxWidth: '1100px', maxHeight: '90vh' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [blockScroll]="true"
+  [focusOnShow]="false"
+  ariaLabel="Previsualización de imagen de exhibición"
+>
+  <div class="cm-lightbox">
+    <button
+      type="button"
+      (click)="closeImagePreview()"
+      aria-label="Cerrar previsualización"
+      class="cm-lightbox-close"
+    >
+      <i class="pi pi-times" aria-hidden="true"></i>
+    </button>
+    <img
+      [src]="previewImageUrl()"
+      alt="Imagen ampliada de exhibición"
+      class="cm-lightbox-img"
+      (click)="closeImagePreview()"
+    />
+  </div>
+</p-dialog>
