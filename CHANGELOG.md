@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Fixed — /dashboard/routes responsive en móvil
+- La tabla densa "Visitas y tiempos" (8 columnas) no contenía su overflow → empujaba el ancho de **toda** la página en teléfono (KPIs/mapa/header se renderizaban a ~660px, cortados y con scroll horizontal global). Ahora las tablas tienen **scroll horizontal propio** (`overflow-x:auto` + `min-width` solo en la tabla ancha), así la página vuelve al ancho del viewport y la tabla se navega con swipe.
+
 ### Added — Mapa Comercial (CM): exhibidores Mega Dulces vs competencia en mapa + historial por tienda
 - **Módulo `commercial-map`** (`libs/trade`, 2 endpoints read-only sobre `daily_captures.exhibiciones` JSONB — la fuente VIVA; las tablas `visits`/`exhibitions` son código muerto): `GET /commercial-map/stores` (tiendas con **coord híbrida** `COALESCE(stores.lat, última GPS de captura)` + conteo propio/competencia/sin-clasificar derivado del flag `perteneceMegaDulces` + `presence` + `unlocatedCount`) y `GET /commercial-map/stores/:id/history` (historial de visitas con exhibiciones separadas **Mega Dulces vs Competencia**: foto, concepto, ubicación, nivel, score, productos). Connection legacy + filtro `tenant_id` explícito (**no** `TenantKnexService`). Scoping **store-céntrico**: el historial y los conteos traen **todas las visitas de la tienda** (acotado por tenant + zona del requester, que ya controla qué tiendas ve) — sin filtro own/team de usuario, que ocultaría visitas de otros reps en la misma tienda.
 - **Permiso `COMMERCIAL_MAP_VER`** (enum BE+FE, `ability.factory` subject `commercial_map`+action `read`, `AppSubject`). Seed de roles (superadmin/admin/supervisor/jefe_marketing) + backfill idempotente `20260613100000` (`-> 'KEY' IS NULL`). **Requiere re-login** (el permiso vive en el JWT).

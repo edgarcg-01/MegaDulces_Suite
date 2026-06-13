@@ -162,6 +162,10 @@ interface RouteIdle {
     .ru-map-empty { padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
 
     /* ── table helpers ───────────────────────────────────────── */
+    /* Tablas densas: scroll horizontal propio en pantallas chicas para
+       NO empujar el ancho de toda la página (rompía el layout en móvil). */
+    .ru-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    :host ::ng-deep .ru-table-wide table { min-width: 660px; }
     .ru-table-empty { text-align: center; color: var(--text-muted); font-size: 0.8125rem; padding: 1.5rem; }
     .ru-cell-strong { font-weight: 600; color: var(--text-main); }
     .ru-cell-link { color: inherit; text-decoration: none; }
@@ -563,7 +567,7 @@ interface RouteIdle {
                 styleClass="text-xs" appendTo="body"></p-select>
             }
           </div>
-          <div class="surf-panel-body is-flush">
+          <div class="surf-panel-body is-flush ru-table-scroll ru-table-wide">
             <p-table [value]="filteredVisits()" [loading]="loadingDetail()"
               styleClass="p-datatable-sm"
               sortField="hora_inicio" [sortOrder]="1">
@@ -619,7 +623,7 @@ interface RouteIdle {
             <h3><i class="pi pi-building" aria-hidden="true"></i>&nbsp;Tiendas de la ruta</h3>
             <span class="comm-muted is-small">{{ stores().length }} asignadas</span>
           </div>
-          <div class="surf-panel-body is-flush">
+          <div class="surf-panel-body is-flush ru-table-scroll">
             <p-table [value]="stores()" [loading]="loadingDetail()"
               styleClass="p-datatable-sm">
               <ng-template pTemplate="header">
