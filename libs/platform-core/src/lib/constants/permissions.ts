@@ -48,6 +48,10 @@ export enum Permission {
   // Módulo: Comercial — Inventario
   COMMERCIAL_INVENTORY_VER = 'COMMERCIAL_INVENTORY_VER',
   COMMERCIAL_INVENTORY_AJUSTAR = 'COMMERCIAL_INVENTORY_AJUSTAR',
+  // Inventario físico (Fase I): jerarquía contador → supervisor → reconciliador
+  COMMERCIAL_INVENTORY_CONTAR = 'COMMERCIAL_INVENTORY_CONTAR',
+  COMMERCIAL_INVENTORY_SUPERVISAR = 'COMMERCIAL_INVENTORY_SUPERVISAR',
+  COMMERCIAL_INVENTORY_RECONCILIAR = 'COMMERCIAL_INVENTORY_RECONCILIAR',
 
   // Módulo: Comercial — Pedidos y Cobros (Sprint B.2, declarados acá para tener el set completo)
   COMMERCIAL_ORDERS_VER = 'COMMERCIAL_ORDERS_VER',

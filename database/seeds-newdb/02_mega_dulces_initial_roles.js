@@ -51,6 +51,9 @@ exports.seed = async function (knex) {
     COMMERCIAL_PRICING_GESTIONAR: true,
     COMMERCIAL_INVENTORY_VER: true,
     COMMERCIAL_INVENTORY_AJUSTAR: true,
+    COMMERCIAL_INVENTORY_CONTAR: true,
+    COMMERCIAL_INVENTORY_SUPERVISAR: true,
+    COMMERCIAL_INVENTORY_RECONCILIAR: true,
     COMMERCIAL_ORDERS_VER: true,
     COMMERCIAL_ORDERS_CREAR: true,
     COMMERCIAL_ORDERS_CONFIRMAR: true,
@@ -115,6 +118,10 @@ exports.seed = async function (knex) {
         COMMERCIAL_WAREHOUSES_VER: true,
         COMMERCIAL_PRICING_VER: true,
         COMMERCIAL_INVENTORY_VER: true,
+        // Inventario físico: el supervisor analiza y resuelve discrepancias + puede contar.
+        // RECONCILIAR (ajuste del saldo = autoridad del dinero) queda en admin/superadmin.
+        COMMERCIAL_INVENTORY_CONTAR: true,
+        COMMERCIAL_INVENTORY_SUPERVISAR: true,
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CONFIRMAR: true,
         COMMERCIAL_ORDERS_CANCELAR: true,
@@ -162,6 +169,7 @@ exports.seed = async function (knex) {
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_PRICING_VER: true,
         COMMERCIAL_INVENTORY_VER: true,
+        COMMERCIAL_INVENTORY_CONTAR: true, // contador de piso en inventario físico
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CREAR: true,
         COMMERCIAL_PAYMENTS_REGISTRAR: true,

@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Fase I · Inventario físico (I.0 + I.1 backend): conteo cíclico/total por almacén
+- **Digitaliza "hacer inventario"** (marbeteo + doble conteo + recaptura del checador) como sesión con **conteo ciego**, **doble conteo** por contadores distintos y **reconciliación auditable**. Jerarquía: contador (cuenta a ciegas) → supervisor (analiza/resuelve) → reconciliador/jefe (autoriza el ajuste del saldo = del dinero).
+- **Schema** (mig `20260613100000`, `commercial.*`): `inventory_counts` (folio INV-YYYY-NNNNN, state machine open→counting→review→ready_to_reconcile→reconciled|cancelled, índice parcial único **un folio abierto por almacén**), `inventory_count_items` (`expected_qty` = snapshot del teórico **oculto al contador**, `count_1/2/3`+`counted_by_*`, `final_qty`, `variance`, status), `inventory_count_sequences`. RLS forzado + grants `app_runtime`. FK tenant→`identity.tenants`, producto→`catalog.products` (los `public.*` son vistas tras la reorg).
+- **Permisos** `COMMERCIAL_INVENTORY_{CONTAR,SUPERVISAR,RECONCILIAR}` (enum BE+FE, `ability.factory` subject `commercial_inventory`, seed de roles + backfill idempotente `20260613110000`). **Requiere re-login**.
+- **Backend** `InventoryCountService`+`InventoryCountController` (`/commercial/inventory/counts`): open+snapshot, count (ciego, barcode o product_id, segregación count_2≠count_1, sobrantes), progress (cobertura %, discrepancias, **valor $ en riesgo**, productividad por contador), items, compute (discrepancias + count_3 rompe empate), resolve, reconcile (ajusta stock + movimientos `adjust` reference_type=`inventory_count` en una trx), cancel.
+- **3 controles críticos**: (1) **coverage guard** — reconcile rechaza SKUs con `count_1 IS NULL` (un no-contado nunca se trata como cero → no se destruye stock real); (2) **freeze guard cross-module** — `assertWarehouseNotFrozen` en `orders.reserveStockInline/consumeStockInline` + `adjustStock/recordMovement`: con folio abierto y `freeze_movements`, se bloquea mover stock (el teórico no deriva); (3) varianza contra `quantity` (on-hand) respetando el CHECK `quantity >= reserved`.
+- **Smoke** `test-newdb-inventory-count.js` (DB-direct, `app_runtime`, RLS) **13/13 ✓**, en `run-all-tests.js`. Pendiente: I.2/I.3 frontend (handheld + supervisor).
+
 ### Fixed — /dashboard/routes responsive en móvil
 - La tabla densa "Visitas y tiempos" (8 columnas) no contenía su overflow → empujaba el ancho de **toda** la página en teléfono (KPIs/mapa/header se renderizaban a ~660px, cortados y con scroll horizontal global). Ahora las tablas tienen **scroll horizontal propio** (`overflow-x:auto` + `min-width` solo en la tabla ancha), así la página vuelve al ancho del viewport y la tabla se navega con swipe.
 

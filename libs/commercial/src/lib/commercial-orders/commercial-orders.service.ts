@@ -1369,6 +1369,23 @@ export class CommercialOrdersService {
 
   // ─── Stock helpers inline (operan en la trx del orders flow) ───
 
+  /**
+   * Guard de congelamiento (Fase I): si el almacén tiene un folio de inventario
+   * físico abierto con freeze_movements, bloquea el movimiento de stock — de lo
+   * contrario el teórico derivaría durante el conteo y toda varianza sería falsa.
+   */
+  private async assertWarehouseNotFrozen(trx: any, warehouseId: string): Promise<void> {
+    const frozen = await trx('commercial.inventory_counts')
+      .where({ warehouse_id: warehouseId, freeze_movements: true })
+      .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
+      .first();
+    if (frozen) {
+      throw new ConflictException(
+        `Almacén con inventario físico en curso (folio ${frozen.folio}); no se puede mover stock hasta cerrar o cancelar el conteo.`,
+      );
+    }
+  }
+
   private async reserveStockInline(
     trx: any,
     warehouseId: string,
@@ -1376,6 +1393,7 @@ export class CommercialOrdersService {
     quantity: number,
     orderId: string,
   ): Promise<void> {
+    await this.assertWarehouseNotFrozen(trx, warehouseId);
     const stockRow = await trx('commercial.stock')
       .where({ warehouse_id: warehouseId, product_id: productId })
       .forUpdate()
@@ -1426,6 +1444,7 @@ export class CommercialOrdersService {
     quantity: number,
     orderId: string,
   ): Promise<void> {
+    await this.assertWarehouseNotFrozen(trx, warehouseId);
     const stockRow = await trx('commercial.stock')
       .where({ warehouse_id: warehouseId, product_id: productId })
       .forUpdate()

@@ -176,6 +176,7 @@ export class CommercialInventoryService {
 
     return this.tk.run(async (trx) => {
       const userId = await this.getUserIdFromCtx();
+      await this.assertWarehouseNotFrozen(trx, dto.warehouse_id);
 
       // Lock pesimista sobre la fila de stock para evitar races con reservas
       // concurrentes (dos pedidos simultáneos que ambos cumplen check de
@@ -295,6 +296,7 @@ export class CommercialInventoryService {
 
     return this.tk.run(async (trx) => {
       const userId = await this.getUserIdFromCtx();
+      await this.assertWarehouseNotFrozen(trx, dto.warehouse_id);
 
       // Lock + read + write del saldo absoluto en la MISMA trx: evita lost updates y saldos intermedios corruptos por ajustes concurrentes o crash a medias.
       const stockRow = await trx('commercial.stock')
@@ -429,5 +431,22 @@ export class CommercialInventoryService {
     // TenantContext incluye userId cuando el request viene autenticado.
     // Para llamadas internas / cron jobs puede ser null y está OK (audit field nullable).
     return this.tenantCtx.get()?.userId || null;
+  }
+
+  /**
+   * Guard de congelamiento (Fase I): bloquea ajustes manuales mientras el
+   * almacén tenga un folio de inventario físico abierto con freeze_movements.
+   * La reconciliación del folio NO pasa por acá (escribe stock directo).
+   */
+  private async assertWarehouseNotFrozen(trx: any, warehouseId: string): Promise<void> {
+    const frozen = await trx('commercial.inventory_counts')
+      .where({ warehouse_id: warehouseId, freeze_movements: true })
+      .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
+      .first();
+    if (frozen) {
+      throw new ConflictException(
+        `Almacén con inventario físico en curso (folio ${frozen.folio}); no se puede ajustar stock hasta cerrar o cancelar el conteo.`,
+      );
+    }
   }
 }
