@@ -75,20 +75,9 @@
   font-size: 0.8rem;
 }
 
-.cm-date {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
-  color: var(--text-color-secondary);
-}
-.cm-date input {
-  font-size: 0.78rem;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--card-bg);
-  color: var(--text-color);
+.cm-select,
+.cm-datepicker {
+  min-width: 150px;
 }
 
 .cm-legend {

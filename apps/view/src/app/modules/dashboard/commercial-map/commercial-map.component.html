@@ -63,15 +63,30 @@
         />
       </span>
 
-      <label class="cm-date">
-        <span>Desde</span>
-        <input type="date" [ngModel]="dateFrom()" (ngModelChange)="dateFrom.set($event)" />
-      </label>
-      <label class="cm-date">
-        <span>Hasta</span>
-        <input type="date" [ngModel]="dateTo()" (ngModelChange)="dateTo.set($event)" />
-      </label>
-      <button pButton type="button" label="Aplicar" size="small" (click)="applyDates()"></button>
+      <p-select
+        [options]="periodOptions"
+        [ngModel]="period()"
+        (ngModelChange)="onPeriodSelected($event)"
+        optionLabel="label"
+        optionValue="value"
+        styleClass="cm-select"
+        appendTo="body"
+        aria-label="Período"
+      ></p-select>
+
+      @if (period() === 'custom') {
+        <p-datepicker
+          [ngModel]="customRange()"
+          (ngModelChange)="onCustomRange($event)"
+          selectionMode="range"
+          [readonlyInput]="true"
+          [showButtonBar]="true"
+          dateFormat="dd/mm/yy"
+          placeholder="Rango de fechas"
+          appendTo="body"
+          styleClass="cm-datepicker"
+        ></p-datepicker>
+      }
     </div>
 
     <div class="cm-legend">

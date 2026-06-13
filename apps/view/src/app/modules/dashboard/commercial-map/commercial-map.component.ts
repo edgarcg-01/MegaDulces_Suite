@@ -5,6 +5,7 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
 import {
   CommercialMapService,
@@ -14,6 +15,7 @@ import {
 } from './commercial-map.service';
 
 type PresenceFilter = 'any' | 'own' | 'competitor' | 'both';
+type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
 
 /**
  * Mapa Comercial: tiendas geolocalizadas con exhibidores Mega Dulces vs
@@ -33,6 +35,7 @@ type PresenceFilter = 'any' | 'own' | 'competitor' | 'both';
     TagModule,
     SelectModule,
     ButtonModule,
+    DatePickerModule,
     MapComponent,
   ],
   templateUrl: './commercial-map.component.html',
@@ -46,8 +49,8 @@ export class CommercialMapComponent implements OnInit {
   readonly stores = signal<MapStore[]>([]);
   readonly unlocatedCount = signal(0);
 
-  readonly dateFrom = signal('');
-  readonly dateTo = signal('');
+  readonly period = signal<Period>('todo');
+  readonly customRange = signal<Date[]>([]);
   readonly presence = signal<PresenceFilter>('any');
   readonly zonaFilter = signal<string | null>(null);
   readonly search = signal('');
@@ -61,6 +64,14 @@ export class CommercialMapComponent implements OnInit {
     { label: 'Mega Dulces', value: 'own' },
     { label: 'Competencia', value: 'competitor' },
     { label: 'Ambas', value: 'both' },
+  ];
+
+  readonly periodOptions: { label: string; value: Period }[] = [
+    { label: 'Todo', value: 'todo' },
+    { label: 'Hoy', value: 'hoy' },
+    { label: 'Semana', value: 'semana' },
+    { label: 'Mes', value: 'mes' },
+    { label: 'Personalizado', value: 'custom' },
   ];
 
   readonly zonaOptions = computed(() => {
@@ -109,10 +120,7 @@ export class CommercialMapComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     this.service
-      .getStores({
-        date_from: this.dateFrom() || undefined,
-        date_to: this.dateTo() || undefined,
-      })
+      .getStores(this.resolvePeriodDates())
       .subscribe({
         next: (res) => {
           this.stores.set(res.stores || []);
@@ -135,10 +143,7 @@ export class CommercialMapComponent implements OnInit {
     this.detail.set(null);
     this.loadingDetail.set(true);
     this.service
-      .getStoreHistory(id, {
-        date_from: this.dateFrom() || undefined,
-        date_to: this.dateTo() || undefined,
-      })
+      .getStoreHistory(id, this.resolvePeriodDates())
       .subscribe({
         next: (res) => {
           this.detail.set(res);
@@ -155,11 +160,47 @@ export class CommercialMapComponent implements OnInit {
     this.detail.set(null);
   }
 
-  /** Recarga del server con el rango de fechas; refresca el detalle abierto. */
-  applyDates(): void {
+  /** Selección de período: setea el signal y recarga (salvo 'custom', que espera al datepicker). */
+  onPeriodSelected(p: Period): void {
+    this.period.set(p);
+    if (p !== 'custom') this.reload();
+  }
+
+  /** Rango personalizado: recarga solo cuando ambas fechas están elegidas. */
+  onCustomRange(range: Date[]): void {
+    this.customRange.set(range || []);
+    if (range?.[0] && range?.[1]) this.reload();
+  }
+
+  /** Recarga lista + detalle abierto con el período actual. */
+  private reload(): void {
     this.load();
     const id = this.selectedId();
     if (id) this.selectStore(id);
+  }
+
+  /** Período → rango YYYY-MM-DD (TZ local, como /reports). 'todo' = sin filtro. */
+  private resolvePeriodDates(): { date_from?: string; date_to?: string } {
+    const p = this.period();
+    if (p === 'todo') return {};
+    if (p === 'custom') {
+      const r = this.customRange();
+      return r?.[0] && r?.[1]
+        ? { date_from: this.fmtDate(r[0]), date_to: this.fmtDate(r[1]) }
+        : {};
+    }
+    const offset = p === 'hoy' ? 0 : p === 'semana' ? -7 : -30;
+    return { date_from: this.dateOffset(offset), date_to: this.dateOffset(0) };
+  }
+
+  private fmtDate(d: Date): string {
+    return d.toLocaleDateString('en-CA');
+  }
+
+  private dateOffset(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return this.fmtDate(d);
   }
 
   presenceColor(p: Presence): string {
