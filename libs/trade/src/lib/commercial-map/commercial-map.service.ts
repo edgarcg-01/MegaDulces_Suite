@@ -3,7 +3,6 @@ import { Knex } from 'knex';
 import {
   KNEX_CONNECTION,
   TenantContextService,
-  getDataScope,
   toMxDateKey,
 } from '@megadulces/platform-core';
 
@@ -21,6 +20,12 @@ type Presence = 'none' | 'own' | 'competitor' | 'both' | 'unknown';
  * `daily_captures`/`stores` sin calificar a las tablas reales vía search_path y
  * BYPASSA RLS — por eso el aislamiento es por filtro `tenant_id` EXPLÍCITO
  * (del JWT o del CLS), igual que ReportsService. No usar TenantKnexService acá.
+ *
+ * Scoping: a diferencia de los reportes, este módulo es STORE-céntrico. El
+ * historial y los conteos traen TODAS las visitas de la tienda (acotado por
+ * tenant + zona del requester, que ya controla QUÉ tiendas ve) — NO se filtra
+ * por equipo del usuario (own/team), porque eso ocultaría visitas hechas por
+ * otros reps en la misma tienda.
  */
 @Injectable()
 export class CommercialMapService {
@@ -43,16 +48,6 @@ export class CommercialMapService {
     if (!uid || !CommercialMapService.UUID_RE.test(String(uid))) return null;
     const row = await this.knex('users').where({ id: uid }).select('zona_id').first();
     return row?.zona_id ?? null;
-  }
-
-  /** Ids del equipo de un supervisor (miembros + él mismo); [] si inválido. */
-  private async getTeamIds(supervisorId?: string): Promise<string[]> {
-    if (!supervisorId || !CommercialMapService.UUID_RE.test(supervisorId)) return [];
-    const team = await this.knex('users')
-      .select('id')
-      .where('supervisor_id', supervisorId)
-      .orWhere('id', supervisorId);
-    return team.map((u: any) => u.id);
   }
 
   private static parseArray(v: any): any[] {
@@ -80,43 +75,6 @@ export class CommercialMapService {
     return {};
   }
 
-  /**
-   * Resuelve el scope de capturas (tenant + own/team + teamIds) SIN tocar ninguna
-   * query. Devuelve datos planos — NUNCA un QueryBuilder — porque `await` sobre una
-   * función que retorna un QueryBuilder (es thenable) lo EJECUTA antes de tiempo y
-   * el `.whereRaw()` posterior revienta (mismo trap que ReportsService documenta).
-   */
-  private async resolveCaptureScope(user: any): Promise<{
-    tenantId?: string;
-    scope: ReturnType<typeof getDataScope>;
-    teamIds: string[] | null;
-  }> {
-    const tenantId = this.tenantId(user);
-    const scope = getDataScope(user);
-    let teamIds: string[] | null = null;
-    if (scope.type === 'team') {
-      teamIds =
-        scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined'
-          ? await this.getTeamIds(scope.userId)
-          : [];
-    }
-    return { tenantId, scope, teamIds };
-  }
-
-  /** Aplica el scope YA RESUELTO a una query sobre daily_captures (alias dc). SÍNCRONO. */
-  private applyScopeToQuery(
-    q: Knex.QueryBuilder,
-    sc: { tenantId?: string; scope: ReturnType<typeof getDataScope>; teamIds: string[] | null },
-  ): Knex.QueryBuilder {
-    if (sc.tenantId) q = q.where('dc.tenant_id', sc.tenantId);
-    if (sc.scope.type === 'own') {
-      q = q.where('dc.user_id', sc.scope.userId);
-    } else if (sc.scope.type === 'team') {
-      const ids = sc.teamIds && sc.teamIds.length > 0 ? sc.teamIds : ['__none__'];
-      q = q.whereIn('dc.user_id', ids);
-    }
-    return q;
-  }
 
   /**
    * Tiendas en scope con coord híbrida (master `stores` o fallback última GPS de
@@ -132,8 +90,7 @@ export class CommercialMapService {
     },
     user: any,
   ) {
-    const sc = await this.resolveCaptureScope(user);
-    const tenantId = sc.tenantId;
+    const tenantId = this.tenantId(user);
     const requesterZonaId = await this.getRequesterZonaId(user);
     const isUuid = (v?: string) => !!v && CommercialMapService.UUID_RE.test(v);
 
@@ -160,7 +117,8 @@ export class CommercialMapService {
     if (isUuid(filters.route_id)) sQ = sQ.where('s.ruta_id', filters.route_id);
     const stores = await sQ;
 
-    // 2) Capturas agregadas por store_id (mismo scope + fechas TZ MX).
+    // 2) Capturas agregadas por store_id (todas las visitas; tenant + fechas TZ MX).
+    //    Sin filtro own/team: el merge solo conserva las tiendas visibles (zona).
     let cQ = this.knex('daily_captures as dc')
       .whereNotNull('dc.store_id')
       .select(
@@ -171,7 +129,7 @@ export class CommercialMapService {
         'dc.latitud',
         'dc.longitud',
       );
-    cQ = this.applyScopeToQuery(cQ, sc);
+    if (tenantId) cQ = cQ.where('dc.tenant_id', tenantId);
     if (filters.date_from)
       cQ.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [
         filters.date_from,
@@ -284,8 +242,7 @@ export class CommercialMapService {
     if (!CommercialMapService.UUID_RE.test(storeId || '')) {
       throw new NotFoundException('Tienda no encontrada.');
     }
-    const sc = await this.resolveCaptureScope(user);
-    const tenantId = sc.tenantId;
+    const tenantId = this.tenantId(user);
 
     let storeQ = this.knex('stores as s')
       .leftJoin('zones as z', 'z.id', 's.zona_id')
@@ -329,7 +286,7 @@ export class CommercialMapService {
         'dc.exhibiciones',
       )
       .orderBy('dc.hora_inicio', 'desc');
-    q = this.applyScopeToQuery(q, sc);
+    if (tenantId) q = q.where('dc.tenant_id', tenantId);
     if (filters.date_from)
       q.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [
         filters.date_from,

@@ -67,10 +67,22 @@ async function req(method, path, token) {
   check('stores con date range devuelve stores[]', Array.isArray(dr.body?.stores), dr.body?.total);
 
   console.log('\n── 4. GET /commercial-map/stores/:id/history ──');
-  const sid = (await knex('daily_captures').where('tenant_id', T).whereNotNull('store_id').distinct('store_id').first())?.store_id;
+  // Tienda con MÁS capturas → asegura múltiples visitas (y posiblemente varios usuarios).
+  const topStore = await knex('daily_captures')
+    .where('tenant_id', T)
+    .whereNotNull('store_id')
+    .select('store_id')
+    .count('* as n')
+    .groupBy('store_id')
+    .orderBy('n', 'desc')
+    .first();
+  const sid = topStore?.store_id;
+  const dbVisits = Number(topStore?.n || 0);
   check('hay una tienda con capturas para el historial', !!sid, sid);
   const h = await req('GET', `/commercial-map/stores/${sid}/history`, token);
   check('history 200', h.status === 200, h.status);
+  const visitsAll = Array.isArray(h.body?.visits) ? h.body.visits : [];
+  check('history trae TODAS las visitas de la tienda (sin recorte por scope)', visitsAll.length === dbVisits, { endpoint: visitsAll.length, db: dbVisits });
   const hd = await req('GET', `/commercial-map/stores/${sid}/history?date_from=2020-01-01&date_to=2030-01-01`, token);
   check('history con date range → 200 (no 500 whereRaw)', hd.status === 200, hd.status);
   const store = h.body?.store;
