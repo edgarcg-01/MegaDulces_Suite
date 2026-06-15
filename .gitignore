@@ -59,3 +59,7 @@ database/backups/
 # Excel maestro de clientes/rutas (Kepler) — data sensible, no versionar
 database/*.xlsx
 database/_cli.json
+
+# ERP Kepler dump (228MB, no versionar — restaurar localmente con pg_restore)
+database/BACKUP.sql
+*.sql.dump
