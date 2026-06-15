@@ -26,48 +26,51 @@
     <div class="cm-error">{{ error() }}</div>
   }
 
-  <!-- SUPERBUSCADOR DE PRODUCTOS ──────────────────────────────────── -->
-  <div class="surf-panel cm-superbuscador">
-    <span class="cm-pb-input">
-      <i class="pi pi-search" aria-hidden="true"></i>
-      <input
-        type="text"
-        [ngModel]="productQuery()"
-        (ngModelChange)="productQuery.set($event)"
-        (keydown.enter)="runProductSearch()"
-        placeholder="Buscar producto en las visitas…"
-        aria-label="Buscar producto"
-      />
-    </span>
-    <label class="cm-pb-smart" title="Interpreta el nombre con IA (sinónimos, abreviaturas, typos)">
-      <input type="checkbox" [ngModel]="smartSearch()" (ngModelChange)="smartSearch.set($event)" />
-      <i class="pi pi-bolt" aria-hidden="true"></i> Inteligente
-    </label>
-    <button
-      pButton
-      type="button"
-      label="Buscar"
-      icon="pi pi-search"
-      size="small"
-      [loading]="searching()"
-      (click)="runProductSearch()"
-    ></button>
-    @if (searchActive()) {
-      <button
-        pButton
-        type="button"
-        label="Limpiar"
-        icon="pi pi-times"
-        severity="secondary"
-        [text]="true"
-        size="small"
-        (click)="clearProductSearch()"
-      ></button>
-    }
-  </div>
-
-  <!-- FILTROS + LEYENDA ─────────────────────────────────────────── -->
+  <!-- FILTROS + SUPERBUSCADOR + LEYENDA ───────────────────────────── -->
   <div class="surf-panel cm-filters">
+    <!-- Superbuscador de productos (autocomplete · siempre inteligente) -->
+    <div class="cm-pb-row">
+      <i class="pi pi-search cm-pb-icon" aria-hidden="true"></i>
+      <p-autoComplete
+        [ngModel]="selectedProduct()"
+        [suggestions]="productSuggestions()"
+        (completeMethod)="completeProducts($event)"
+        (onSelect)="onProductSelected($event)"
+        (onClear)="clearProductSearch()"
+        optionLabel="nombre"
+        [forceSelection]="true"
+        [delay]="350"
+        [minLength]="2"
+        [showClear]="true"
+        placeholder="Buscar un producto y ver en qué visitas aparece…"
+        styleClass="cm-ac"
+        appendTo="body"
+        ariaLabel="Buscar producto"
+      >
+        <ng-template let-p pTemplate="item">
+          <div class="cm-ac-item">
+            <span class="cm-ac-name">{{ p.nombre }}</span>
+            @if (p.brand_name) { <span class="cm-ac-brand">{{ p.brand_name }}</span> }
+          </div>
+        </ng-template>
+      </p-autoComplete>
+      @if (searching()) {
+        <i class="pi pi-spin pi-spinner cm-pb-spin" aria-hidden="true"></i>
+      }
+      @if (searchActive()) {
+        <button
+          pButton
+          type="button"
+          label="Limpiar"
+          icon="pi pi-times"
+          severity="secondary"
+          [text]="true"
+          size="small"
+          (click)="clearProductSearch()"
+        ></button>
+      }
+    </div>
+
     <div class="surf-panel-body cm-filters-body">
       <div class="cm-seg" role="group" aria-label="Filtrar por presencia">
         @for (opt of presenceOptions; track opt.value) {

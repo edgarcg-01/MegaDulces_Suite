@@ -434,49 +434,43 @@
   transform: scale(1.1);
 }
 
-/* ── Superbuscador de productos ────────────────────────────────── */
-.cm-superbuscador {
+/* ── Superbuscador de productos (autocomplete integrado) ───────── */
+.cm-pb-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 1rem;
-  margin-bottom: 0.75rem;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem 0.35rem;
 }
-.cm-pb-input {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  flex: 1;
-  min-width: 200px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 0.35rem 0.7rem;
-  background: var(--card-bg);
+.cm-pb-icon {
+  color: var(--action);
+  font-size: 0.9rem;
+  flex-shrink: 0;
 }
-.cm-pb-input i {
+.cm-pb-spin {
   color: var(--text-color-secondary);
   font-size: 0.85rem;
 }
-.cm-pb-input input {
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font-size: 0.88rem;
-  color: var(--text-color);
+:host ::ng-deep .cm-ac {
+  flex: 1;
+  min-width: 0;
+}
+:host ::ng-deep .cm-ac .p-autocomplete-input,
+:host ::ng-deep .cm-ac input {
   width: 100%;
 }
-.cm-pb-smart {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  color: var(--text-color-secondary);
-  cursor: pointer;
-  white-space: nowrap;
+.cm-ac-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.15rem 0;
 }
-.cm-pb-smart i {
-  color: var(--ai-accent, var(--action));
+.cm-ac-name {
+  font-size: 0.84rem;
+  color: var(--text-color);
+}
+.cm-ac-brand {
+  font-size: 0.68rem;
+  color: var(--text-color-secondary);
 }
 
 /* ── Panel de resultados de búsqueda ───────────────────────────── */

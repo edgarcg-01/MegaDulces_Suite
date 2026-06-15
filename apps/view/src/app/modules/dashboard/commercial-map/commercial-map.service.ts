@@ -105,11 +105,27 @@ export interface ProductPresence {
   totalVisits: number;
 }
 
+export interface ProductOption {
+  id: string;
+  nombre: string;
+  sku: string;
+  brand_name: string;
+}
+
 /** Respuesta del matcher IA (Fase K) — solo los campos que usamos acá. */
 export interface AiMatchResponse {
   items: Array<{
-    suggested: { product_id: string; confidence: string } | null;
-    alternatives?: Array<{ product_id: string; confidence?: string }>;
+    suggested: {
+      product_id: string;
+      product_name?: string;
+      brand_name?: string;
+      confidence: string;
+    } | null;
+    alternatives?: Array<{
+      product_id: string;
+      product_name?: string;
+      brand_name?: string;
+    }>;
   }>;
 }
 
@@ -150,6 +166,12 @@ export class CommercialMapService {
     if (p.date_from) params = params.set('date_from', p.date_from);
     if (p.date_to) params = params.set('date_to', p.date_to);
     return this.http.get<ProductPresence>(`${this.base}/product-presence`, { params });
+  }
+
+  /** Autocomplete: productos que coinciden con el texto (contains). */
+  productSearch(q: string): Observable<ProductOption[]> {
+    const params = new HttpParams().set('q', q);
+    return this.http.get<ProductOption[]>(`${this.base}/product-search`, { params });
   }
 
   /** Interpreta un texto libre → productos del catálogo (matcher IA Fase K). */

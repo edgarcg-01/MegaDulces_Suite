@@ -69,4 +69,11 @@ export class CommercialMapController {
       user,
     );
   }
+
+  @Get('product-search')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_VER)
+  @ApiOperation({ summary: 'Autocomplete de productos (contains) para elegir uno' })
+  searchProducts(@ReqUser() user: any, @Query('q') q: string) {
+    return this.service.searchProducts(q || '', user);
+  }
 }

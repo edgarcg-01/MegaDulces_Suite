@@ -387,21 +387,7 @@ export class CommercialMapService {
       if (tenantId) pQ = pQ.where('p.tenant_id', tenantId);
       products = await pQ;
     } else if (filters.q && filters.q.trim().length >= 2) {
-      const term = `%${filters.q.trim()}%`;
-      let pQ = this.knex('products as p')
-        .leftJoin('brands as b', 'b.id', 'p.brand_id')
-        .whereNull('p.deleted_at')
-        .where((bx: Knex.QueryBuilder) =>
-          bx
-            .where('p.nombre', 'ilike', term)
-            .orWhere('p.sku', 'ilike', term)
-            .orWhere('p.barcode', 'ilike', term),
-        )
-        .select('p.id', 'p.nombre', 'b.nombre as brand_name')
-        .orderBy('p.nombre', 'asc')
-        .limit(40);
-      if (tenantId) pQ = pQ.where('p.tenant_id', tenantId);
-      products = await pQ;
+      products = await this.resolveProductsByText(filters.q, tenantId, 40);
     } else {
       return empty;
     }
@@ -534,5 +520,46 @@ export class CommercialMapService {
       totalStores: resultStores.length,
       totalVisits: resultStores.reduce((n, s) => n + s.visitCount, 0),
     };
+  }
+
+  /** Resuelve productos por texto (contains ILIKE multi-palabra, AND entre palabras). */
+  private async resolveProductsByText(
+    q: string,
+    tenantId: string | undefined,
+    limit: number,
+  ): Promise<any[]> {
+    const words = (q || '').trim().split(/\s+/).filter(Boolean).slice(0, 6);
+    if (words.length === 0) return [];
+    let pQ = this.knex('products as p')
+      .leftJoin('brands as b', 'b.id', 'p.brand_id')
+      .whereNull('p.deleted_at')
+      .where((bx: Knex.QueryBuilder) => {
+        for (const w of words) {
+          const t = `%${w}%`;
+          bx.andWhere((inner: Knex.QueryBuilder) =>
+            inner
+              .where('p.nombre', 'ilike', t)
+              .orWhere('p.sku', 'ilike', t)
+              .orWhere('p.barcode', 'ilike', t),
+          );
+        }
+      })
+      .select('p.id', 'p.nombre', 'p.sku', 'b.nombre as brand_name')
+      .orderBy('p.nombre', 'asc')
+      .limit(limit);
+    if (tenantId) pQ = pQ.where('p.tenant_id', tenantId);
+    return pQ;
+  }
+
+  /** Autocomplete: productos que coinciden con el texto (para elegir UNO). */
+  async searchProducts(q: string, user: any) {
+    if (!q || q.trim().length < 2) return [];
+    const rows = await this.resolveProductsByText(q, this.tenantId(user), 20);
+    return rows.map((p: any) => ({
+      id: p.id,
+      nombre: p.nombre,
+      sku: p.sku || '',
+      brand_name: p.brand_name || '',
+    }));
   }
 }

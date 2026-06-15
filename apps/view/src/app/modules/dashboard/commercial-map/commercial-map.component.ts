@@ -7,6 +7,7 @@ import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { DatePickerModule } from 'primeng/datepicker';
 import { DialogModule } from 'primeng/dialog';
+import { AutoCompleteModule } from 'primeng/autocomplete';
 import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
 import { environment } from '../../../../environments/environment';
 import {
@@ -14,6 +15,7 @@ import {
   HistoryVisit,
   MapStore,
   Presence,
+  ProductOption,
   ProductPresence,
   StoreHistory,
 } from './commercial-map.service';
@@ -41,6 +43,7 @@ type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
     ButtonModule,
     DatePickerModule,
     DialogModule,
+    AutoCompleteModule,
     MapComponent,
   ],
   templateUrl: './commercial-map.component.html',
@@ -76,9 +79,9 @@ export class CommercialMapComponent implements OnInit {
   readonly showImagePreview = signal(false);
   readonly previewImageUrl = signal('');
 
-  // Superbuscador de productos.
-  readonly productQuery = signal('');
-  readonly smartSearch = signal(false);
+  // Superbuscador de productos (autocomplete: elegí UN producto).
+  readonly selectedProduct = signal<ProductOption | null>(null);
+  readonly productSuggestions = signal<ProductOption[]>([]);
   readonly searching = signal(false);
   readonly searchActive = signal(false);
   readonly searchResult = signal<ProductPresence | null>(null);
@@ -197,44 +200,50 @@ export class CommercialMapComponent implements OnInit {
   }
 
   /**
-   * Superbuscador: si "inteligente" está ON, interpreta el texto vía matcher IA
-   * (Voyage) → product_ids → presencia; si la IA no da match o falla, cae a
-   * contains (ILIKE) sin romper. OFF = contains directo.
+   * Autocomplete del superbuscador (siempre inteligente): contains instantáneo;
+   * si no hay match literal, interpreta con el matcher IA (Voyage). Muestra las
+   * opciones para elegir UN producto.
    */
-  runProductSearch(): void {
-    const q = this.productQuery().trim();
-    if (q.length < 2) return;
+  completeProducts(event: { query: string }): void {
+    const q = (event?.query || '').trim();
+    if (q.length < 2) {
+      this.productSuggestions.set([]);
+      return;
+    }
+    this.service.productSearch(q).subscribe({
+      next: (opts) => {
+        if (opts.length > 0) {
+          this.productSuggestions.set(opts);
+          return;
+        }
+        // Sin match literal → interpretar con IA (best-effort).
+        this.service.aiMatch(q).subscribe({
+          next: (res) => this.productSuggestions.set(this.aiToOptions(res)),
+          error: () => this.productSuggestions.set([]),
+        });
+      },
+      error: () => this.productSuggestions.set([]),
+    });
+  }
+
+  /** Al elegir un producto → presencia (tiendas + visitas donde aparece). */
+  onProductSelected(event: { value?: ProductOption } | ProductOption): void {
+    const p = (event as { value?: ProductOption })?.value ?? (event as ProductOption);
+    if (!p?.id) return;
+    this.selectedProduct.set(p);
     this.selectedId.set(null);
     this.searching.set(true);
-    const dates = this.resolvePeriodDates();
-    const contains = () =>
-      this.service.productPresence({ q, ...dates }).subscribe({
+    this.service
+      .productPresence({ product_ids: [p.id], ...this.resolvePeriodDates() })
+      .subscribe({
         next: (r) => this.applySearchResult(r),
         error: () => this.searching.set(false),
       });
-
-    if (this.smartSearch()) {
-      this.service.aiMatch(q).subscribe({
-        next: (res) => {
-          const ids = this.collectAiIds(res);
-          if (ids.length === 0) {
-            contains();
-            return;
-          }
-          this.service.productPresence({ product_ids: ids, ...dates }).subscribe({
-            next: (r) => this.applySearchResult(r),
-            error: () => contains(),
-          });
-        },
-        error: () => contains(),
-      });
-    } else {
-      contains();
-    }
   }
 
   clearProductSearch(): void {
-    this.productQuery.set('');
+    this.selectedProduct.set(null);
+    this.productSuggestions.set([]);
     this.searchActive.set(false);
     this.searchResult.set(null);
     this.selectedId.set(null);
@@ -246,19 +255,25 @@ export class CommercialMapComponent implements OnInit {
     this.searching.set(false);
   }
 
-  /** product_ids de las sugerencias IA con confianza alta/media + alternativas. */
-  private collectAiIds(res: { items?: any[] } | null): string[] {
-    const ids = new Set<string>();
+  /** Sugerencias del matcher IA → opciones de producto (suggested + alternativas). */
+  private aiToOptions(res: {
+    items?: Array<{
+      suggested?: { product_id: string; product_name?: string; brand_name?: string } | null;
+      alternatives?: Array<{ product_id: string; product_name?: string; brand_name?: string }>;
+    }>;
+  } | null): ProductOption[] {
+    const seen = new Set<string>();
+    const out: ProductOption[] = [];
+    const push = (m?: { product_id: string; product_name?: string; brand_name?: string } | null) => {
+      if (!m?.product_id || seen.has(m.product_id)) return;
+      seen.add(m.product_id);
+      out.push({ id: m.product_id, nombre: m.product_name || 'Producto', sku: '', brand_name: m.brand_name || '' });
+    };
     for (const it of res?.items ?? []) {
-      const s = it?.suggested;
-      if (s?.product_id && (s.confidence === 'high' || s.confidence === 'medium')) {
-        ids.add(s.product_id);
-      }
-      for (const alt of it?.alternatives ?? []) {
-        if (alt?.product_id) ids.add(alt.product_id);
-      }
+      push(it?.suggested);
+      for (const alt of it?.alternatives ?? []) push(alt);
     }
-    return [...ids];
+    return out;
   }
 
   /** Abre una ventana (dialog) con la descripción completa de la visita (como Seguimiento). */
