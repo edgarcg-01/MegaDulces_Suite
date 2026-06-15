@@ -117,6 +117,7 @@ Thot no es solo un optimizador de datos: el negocio decide **qué empujar** y Th
 | **T.1** | **Afinidad + Zona-fit** | `intelligence.product_affinity` (48.6k) + `zone_demand` (17.6k) + `ThotService.suggest` (score demanda·(1+afinidad+zona)) + endpoint `/commercial/intelligence/thot/suggest/:id?cart=` + take-order "completá la canasta". Build verde, verificado en DB. | 🧪 código listo · pend. reinicio API |
 | **T.2** | **Empuje dirigido (estrategia)** | `intelligence.push_directives` (mig `20260611120000`) + `PushDirectivesService` CRUD + `boost_estrategia` ADITIVO en el score (`+0.45·boost`, garantiza visibilidad de lo dirigido) + reason='estrategia' + surface admin `/comercial/empuje` (marca foco). **Manual hecho**; auto (promo/lanzamiento/overstock) → T.2.1. Verificado: BARCEL "Marca del mes" encabeza take-order. | 🧪 código listo · pend. reinicio API |
 | T.3 | Momentum + Whitespace | tendencia corto plazo + "top de tu zona que no llevas" | ⬜ |
+| **T.3.1** | **Presencia en PdV (capturas → whitespace + recompra)** | `intelligence.pdv_presence` (mig `20260615120000`, RLS) proyecta `daily_captures.exhibiciones.productosMarcados` a nivel cliente vía `customers.store_id`. Builder app-DB→app-DB `thot-build-pdv-presence.js` (idempotente, DELETE+INSERT/tenant). `ThotService.suggest` suma 2 términos: **whitespace** `+0.6·(zona_index·¬present)` (reason `whitespace` "Falta en tu tienda", **pesa más**) y **recompra** `+0.25·present_recency` (reason `recompra` "Ya lo manejas"). Adelanta la mitad **Whitespace** de T.3 con datos de Trade (no espera volumen de pedidos). Verificado local: 1038 filas/33 clientes; Ana Contreras → 65 recompra + 6 whitespace (zona Morelia). | 🧪 código listo · pend. reinicio API + builder a cron |
 | T.4 | Feedback weights | loop oferta→resultado reajusta `signal_weights` + frequency capping | ⬜ |
 | T.5 | ML informa | forecast de demanda + association mining a escala (cuando haya datos) | ⬜ |
 | T.6 | Agente Thot | LLM con tools sobre el motor (copiloto vendedor / WhatsApp Fase F) | ⬜ |
@@ -129,7 +130,7 @@ Cada rebanada: ADR si hay decisión nueva, smoke en `run-all-tests.js`, doc de c
 ## 4. Lo que NO hace (explícito)
 
 - **No** modela estacionalidad ni "época del año" todavía (solo ~4 meses de historia).
-- **No** personaliza por tienda hasta acumular pedidos en la plataforma (el ERP es ruta-level).
+- ~~**No** personaliza por tienda hasta acumular pedidos en la plataforma (el ERP es ruta-level).~~ **Parcial desde T.3.1:** la presencia en PdV (capturas de Trade) da un eje per-tienda — whitespace/recompra — sin esperar volumen de pedidos. Sigue dependiendo de la cobertura de `customers.store_id` (rala en prod, ~8.9%).
 - **No** usa compras de competidores (otras distribuidoras) — no existe esa data; lo más cercano es afinidad de pares.
 - **No** pone al LLM a decidir precio/stock/commit.
 
