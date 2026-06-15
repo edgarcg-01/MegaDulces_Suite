@@ -11,7 +11,7 @@
   [class.theme-monochrome]="themeService.isMonochrome()"
 >
   <!-- Mobile Overlay (solo si no es restringido) -->
-  @if (sidebarOpen() && isMobile() && !isRestricted()) {
+  @if (sidebarOpen() && isMobile() && !isRestricted() && !countFocusActive()) {
     <div
       class="fixed inset-0 bg-black/50 z-40 lg:hidden"
       (click)="closeSidebar()"
@@ -29,7 +29,7 @@
 
     Mobile: drawer overlay controlado por `sidebarOpen` (translate).
   -->
-  @if (!isRestricted()) {
+  @if (!isRestricted() && !countFocusActive()) {
     <!--
       Widths:
         - Base `w-64` para mobile (drawer 256px que entra/sale con translate).
@@ -96,14 +96,8 @@
       es mobile/sidebar abierto).
     -->
     <nav class="flex-1 overflow-y-auto min-h-0 py-4" aria-label="Navegación lateral">
-      @if (navItems().length > 0) {
-        <ng-container *ngTemplateOutlet="navSection; context: { title: mainSectionTitle(), items: navItems(), expanded: sidebarExpanded() }"></ng-container>
-      }
-      @if (rutaItems().length > 0) {
-        <ng-container *ngTemplateOutlet="navSection; context: { title: 'Captura Vendedor', items: rutaItems(), expanded: sidebarExpanded(), marginTop: true }"></ng-container>
-      }
-      @if (adminItems().length > 0) {
-        <ng-container *ngTemplateOutlet="navSection; context: { title: 'Administración', items: adminItems(), expanded: sidebarExpanded(), marginTop: true }"></ng-container>
+      @for (group of navGroups(); track group.title; let first = $first) {
+        <ng-container *ngTemplateOutlet="navSection; context: { title: group.title, items: group.items, expanded: sidebarExpanded(), marginTop: !first }"></ng-container>
       }
     </nav>
 
@@ -235,7 +229,7 @@
       debajo del sidebar. Como `ml-16` es CONSTANTE, el contenido NUNCA
       se mueve aunque el sidebar se expanda a w-64 (que flota encima).
   -->
-  <div class="flex-1 flex flex-col overflow-hidden min-h-0 min-w-0 lg:ml-16">
+  <div class="flex-1 flex flex-col overflow-hidden min-h-0 min-w-0" [class.lg:ml-16]="!isRestricted() && !countFocusActive()">
     <!--
       Top Bar. `safe-top` pinta el bg-surface-sidebar detrás del notch /
       Dynamic Island. `min-h-14` mantiene la altura mínima del contenido

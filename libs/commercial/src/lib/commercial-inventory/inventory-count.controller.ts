@@ -78,6 +78,51 @@ export class InventoryCountController {
     return this.service.counterProgress(id);
   }
 
+  @Post(':id/session/start')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'El contador abre su jornada de conteo (modo foco)' })
+  startSession(@Param('id') id: string) {
+    return this.service.startSession(id);
+  }
+
+  @Post(':id/session/finish')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'El contador termina su jornada de conteo' })
+  finishSession(@Param('id') id: string) {
+    return this.service.finishSession(id);
+  }
+
+  @Get(':id/sessions')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Jornadas del personal + productividad + interrupciones (control del supervisor)' })
+  sessions(@Param('id') id: string) {
+    return this.service.listSessions(id);
+  }
+
+  @Post(':id/advance-pass')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Avanzar de fase (1→2) o cerrar conteo a revisión, si la pasada está 100% cubierta' })
+  advancePass(@Param('id') id: string) {
+    return this.service.advancePass(id);
+  }
+
+  @Post(':id/interruption')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Registrar que el contador salió de la app (background/lock) durante el folio' })
+  interruption(
+    @Param('id') id: string,
+    @Body() body: { left_at: string; returned_at?: string; duration_seconds?: number; source?: string },
+  ) {
+    return this.service.recordInterruption(id, body);
+  }
+
+  @Get(':id/interruptions')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Timeline de interrupciones del folio + resumen por contador' })
+  interruptions(@Param('id') id: string) {
+    return this.service.listInterruptions(id);
+  }
+
   @Get(':id/assignments')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Contadores y supervisores asignados al folio' })

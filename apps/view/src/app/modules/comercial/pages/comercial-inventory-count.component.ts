@@ -12,7 +12,10 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { App as CapApp } from '@capacitor/app';
+import type { PluginListenerHandle } from '@capacitor/core';
 import { ComercialService, InventoryCount, InventoryCounterProgress, InventoryCountResult, ResolvedProduct } from '../comercial.service';
+import { CountFocusService } from '../../../core/services/count-focus.service';
 
 interface FeedEntry {
   sku: string | null;
@@ -63,21 +66,47 @@ interface FeedEntry {
           <small>Pedile a tu supervisor que abra uno.</small>
         </div>
       } @else {
-        <!-- Selector de folio -->
-        <div class="ic-folio-row">
-          <p-select
-            [options]="folios()"
-            [(ngModel)]="selectedFolioId"
-            optionLabel="label"
-            optionValue="id"
-            placeholder="Elegí el folio"
-            styleClass="ic-folio-select"
-            appendTo="body"
-            (onChange)="onFolioChange()"
-          ></p-select>
-        </div>
+        <!-- Selector de folio (oculto mientras hay un conteo en curso) -->
+        @if (!sessionActive()) {
+          <div class="ic-folio-row">
+            <p-select
+              [options]="folios()"
+              [(ngModel)]="selectedFolioId"
+              optionLabel="label"
+              optionValue="id"
+              placeholder="Elegí el folio"
+              styleClass="ic-folio-select"
+              appendTo="body"
+              (onChange)="onFolioChange()"
+            ></p-select>
+          </div>
+        }
 
-        @if (selectedFolioId()) {
+        @if (selectedFolioId() && !sessionActive() && justFinishedPass() === null) {
+          <!-- Pantalla de inicio: arrancar la jornada de conteo -->
+          <div class="ic-start">
+            <i class="pi pi-stopwatch"></i>
+            <h2>Fase {{ currentPass() }} · {{ currentPass() === 1 ? 'Primer conteo' : 'Segundo conteo (ciego)' }}</h2>
+            <p>Al iniciar entrás en modo conteo: la app queda fija en esta pantalla hasta que toques <b>Terminar</b>.</p>
+            <button pButton label="Iniciar conteo" icon="pi pi-play" class="ic-start-btn" [loading]="starting()" (click)="startCount()"></button>
+          </div>
+        }
+
+        @if (justFinishedPass() !== null) {
+          <!-- Jornada terminada -->
+          <div class="ic-done">
+            <i class="pi pi-check-circle"></i>
+            <h2>Fase {{ justFinishedPass() }} terminada</h2>
+            <p>Registramos tu conteo. Esperá a que el supervisor habilite la siguiente fase o cierre el folio.</p>
+            <button pButton label="Volver a contar esta fase" icon="pi pi-replay" [text]="true" severity="secondary" (click)="startCount()"></button>
+          </div>
+        }
+
+        @if (sessionActive()) {
+          <div class="ic-phase-banner">
+            <span><i class="pi pi-stopwatch"></i> Conteo en curso · Fase {{ currentPass() }}</span>
+            <button pButton label="Terminar" icon="pi pi-flag-fill" severity="success" size="small" [loading]="finishing()" (click)="finishCount()"></button>
+          </div>
           <!-- Progreso ciego -->
           <div class="ic-progress">
             <div class="ic-progress-bar">
@@ -184,6 +213,15 @@ interface FeedEntry {
     </div>
   `,
   styles: [`
+    .ic-start, .ic-done { text-align: center; padding: 2.5rem 1.25rem; background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 16px; }
+    .ic-start i, .ic-done i { font-size: 2.75rem; display: block; margin-bottom: .75rem; }
+    .ic-start i { color: var(--action,#ea580c); }
+    .ic-done i { color: var(--green-600,#16a34a); }
+    .ic-start h2, .ic-done h2 { font-size: 1.2rem; margin: 0 0 .4rem; }
+    .ic-start p, .ic-done p { color: var(--text-muted,#78716c); margin: 0 auto 1.25rem; max-width: 34ch; }
+    :host ::ng-deep .ic-start-btn { padding: .85rem 2rem; font-size: 1.05rem; }
+    .ic-phase-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .55rem .4rem .55rem .85rem; margin-bottom: 1rem; border-radius: 12px; background: color-mix(in srgb, var(--action,#ea580c) 12%, transparent); font-weight: 600; }
+    .ic-phase-banner i { margin-right: .35rem; }
     .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
     .ic-code-row .ic-input-code { flex: 1; }
     :host ::ng-deep .ic-scan-btn { min-width: 56px; }
@@ -232,6 +270,7 @@ export class ComercialInventoryCountComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly focus = inject(CountFocusService);
 
   @ViewChild('codeInput') codeInput?: ElementRef<HTMLInputElement>;
   @ViewChild('qtyInput', { read: ElementRef }) qtyInput?: ElementRef<HTMLElement>;
@@ -249,6 +288,14 @@ export class ComercialInventoryCountComponent {
   feed = signal<FeedEntry[]>([]);
   submitting = signal(false);
 
+  // Jornada de conteo: el contador la abre con "Iniciar" y la cierra con
+  // "Terminar". Mientras está activa → modo foco (nav oculto, guard al salir).
+  sessionActive = signal(false);
+  starting = signal(false);
+  finishing = signal(false);
+  justFinishedPass = signal<number | null>(null);
+  currentPass = computed(() => this.progress()?.current_pass ?? 1);
+
   code = signal<string>('');
   qty = signal<number | null>(null);
   resolved = signal<ResolvedProduct | null>(null);
@@ -261,9 +308,55 @@ export class ComercialInventoryCountComponent {
     return Math.round((p.counted / p.total) * 100);
   });
 
+  // Integridad: detecta si el contador sale de la app / bloquea el celular
+  // durante un folio activo y lo registra en la bitácora (auditoría).
+  private leftAt: number | null = null;
+  private appStateHandle?: PluginListenerHandle;
+
   constructor() {
     this.loadFolios();
-    this.destroyRef.onDestroy(() => this.stopScan());
+    this.destroyRef.onDestroy(() => { this.stopScan(); this.focus.stop(); });
+    this.setupIntegrityMonitor();
+  }
+
+  private setupIntegrityMonitor() {
+    const onHidden = () => { if (this.sessionActive()) this.leftAt ??= Date.now(); };
+    const onVisibility = () => { document.hidden ? onHidden() : this.flushInterruption('visibility'); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onHidden); // backstop iOS (freeze sin visibilitychange)
+
+    // Capacitor nativo: más confiable que la web para background/lock en iOS/Android.
+    CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (!this.sessionActive()) return;
+      if (!isActive) this.leftAt ??= Date.now();
+      else this.flushInterruption('appstate');
+    }).then((h) => (this.appStateHandle = h)).catch(() => { /* web sin plugin nativo */ });
+
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onHidden);
+      this.appStateHandle?.remove();
+    });
+  }
+
+  private flushInterruption(source: 'visibility' | 'appstate') {
+    const id = this.selectedFolioId();
+    if (!id || this.leftAt == null) return;
+    const left = this.leftAt;
+    this.leftAt = null;
+    const seconds = Math.round((Date.now() - left) / 1000);
+    if (seconds < 2) return; // ignorar parpadeos (cambio de foco, teclado)
+    this.svc.recordInventoryInterruption(id, {
+      left_at: new Date(left).toISOString(),
+      returned_at: new Date().toISOString(),
+      duration_seconds: seconds,
+      source,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ error: () => { /* best-effort */ } });
+    this.toast.add({
+      severity: 'info',
+      summary: 'Interrupción registrada',
+      detail: `Saliste de la app ${seconds}s — queda en la bitácora del folio.`,
+    });
   }
 
   // ───── Escaneo por cámara (ZXing) ─────
@@ -329,7 +422,6 @@ export class ComercialInventoryCountComponent {
           if (open.length === 1) {
             this.selectedFolioId.set(open[0].id);
             this.refreshProgress();
-            this.focusCode();
           }
         },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudieron cargar los folios' }),
@@ -340,8 +432,53 @@ export class ComercialInventoryCountComponent {
     this.feed.set([]);
     this.code.set(''); this.qty.set(null);
     this.resolved.set(null); this.notFound.set(false);
+    this.sessionActive.set(false);
+    this.justFinishedPass.set(null);
+    this.focus.stop();
     this.refreshProgress();
-    this.focusCode();
+  }
+
+  startCount() {
+    const id = this.selectedFolioId();
+    if (!id) return;
+    this.starting.set(true);
+    this.svc.inventoryStartSession(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.starting.set(false);
+          this.sessionActive.set(true);
+          this.justFinishedPass.set(null);
+          this.focus.start();
+          this.refreshProgress();
+          this.focusCode();
+        },
+        error: (e) => {
+          this.starting.set(false);
+          this.toast.add({ severity: 'warn', summary: 'No se pudo iniciar', detail: e?.error?.message });
+        },
+      });
+  }
+
+  finishCount() {
+    const id = this.selectedFolioId();
+    if (!id) return;
+    this.finishing.set(true);
+    this.svc.inventoryFinishSession(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.finishing.set(false);
+          this.sessionActive.set(false);
+          this.focus.stop();
+          this.stopScan();
+          this.justFinishedPass.set(r.pass ?? this.currentPass());
+        },
+        error: (e) => {
+          this.finishing.set(false);
+          this.toast.add({ severity: 'warn', summary: 'No se pudo terminar', detail: e?.error?.message });
+        },
+      });
   }
 
   private refreshProgress() {

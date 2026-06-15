@@ -22,6 +22,7 @@ import { ThemeService } from '../../../core/services/theme.service';
 import { DataUpdateService } from '../../../core/services/data-update.service';
 import { WebSocketService } from '../../../core/services/websocket.service';
 import { HapticService } from '../../../core/services/haptic.service';
+import { CountFocusService } from '../../../core/services/count-focus.service';
 import { Permission } from '../../../core/constants/permissions';
 
 interface NavItem {
@@ -55,6 +56,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private dataUpdateService = inject(DataUpdateService);
   private wsService = inject(WebSocketService);
   private haptic = inject(HapticService);
+  private countFocus = inject(CountFocusService);
+
+  // Modo foco del conteo físico: oculta todo el chrome de navegación.
+  countFocusActive = this.countFocus.active;
 
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
@@ -246,24 +251,45 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Planograma',  icon: 'pi pi-list',       route: '/dashboard/admin/planograma',           permission: Permission.PLANOGRAMAS_GESTIONAR },
   ];
 
-  private comercialNavItems: NavItem[] = [
-    { label: 'Centro de Control', icon: 'pi pi-compass',        route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
-    { label: 'Pedidos',           icon: 'pi pi-file-edit',      route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
-    { label: 'Ventas (ERP)',      icon: 'pi pi-database',       route: '/comercial/historical',     permission: Permission.COMMERCIAL_ORDERS_VER },
-    { label: 'Clientes',          icon: 'pi pi-users',          route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
-    { label: 'Cartera de ventas', icon: 'pi pi-sitemap',        route: '/comercial/cartera',        permission: Permission.USUARIOS_ASIGNAR_RUTA },
-    { label: 'Inventario',        icon: 'pi pi-box',            route: '/comercial/inventory',      permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Conteo físico',     icon: 'pi pi-qrcode',         route: '/comercial/inventory/count', permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
-    { label: 'Stock muerto',      icon: 'pi pi-exclamation-triangle', route: '/comercial/dead-stock', permission: Permission.COMMERCIAL_ORDERS_VER },
-    { label: 'Folios inventario', icon: 'pi pi-clipboard',      route: '/comercial/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Catálogo',          icon: 'pi pi-shopping-bag',   route: '/comercial/products',       permission: Permission.CATALOGO_GESTIONAR },
-    { label: 'Listas de precios', icon: 'pi pi-tag',            route: '/comercial/pricing',        permission: Permission.COMMERCIAL_PRICING_VER },
-    { label: 'Promociones',       icon: 'pi pi-gift',           route: '/comercial/promotions',     permission: Permission.COMMERCIAL_PROMOTIONS_VER },
-    { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',           route: '/comercial/empuje',         permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
-    { label: 'Almacenes',         icon: 'pi pi-warehouse',      route: '/comercial/warehouses',     permission: Permission.COMMERCIAL_WAREHOUSES_VER },
-    { label: 'Cierre de ruta',    icon: 'pi pi-receipt',        route: '/comercial/route-tickets',  permission: Permission.ROUTE_CONTROL_VER },
-    { label: 'Ventas de vendedor', icon: 'pi pi-money-bill',     route: '/comercial/vendor-sales',   permission: Permission.ROUTE_CONTROL_VER },
-    { label: 'Modo Vendedor',     icon: 'pi pi-briefcase',      route: '/vendor/new-order',         permission: Permission.COMMERCIAL_ORDERS_CREAR },
+  // Comercial agrupado por dominio (el shell renderiza una sección por grupo).
+  private comercialNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Ventas',
+      items: [
+        { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
+        { label: 'Cartera de ventas', icon: 'pi pi-sitemap',    route: '/comercial/cartera',        permission: Permission.USUARIOS_ASIGNAR_RUTA },
+        { label: 'Ventas (ERP)',      icon: 'pi pi-database',   route: '/comercial/historical',     permission: Permission.COMMERCIAL_ORDERS_VER },
+      ],
+    },
+    {
+      title: 'Inventario',
+      items: [
+        { label: 'Inventario',        icon: 'pi pi-box',                  route: '/comercial/inventory',          permission: Permission.COMMERCIAL_INVENTORY_VER },
+        { label: 'Almacenes',         icon: 'pi pi-warehouse',            route: '/comercial/warehouses',         permission: Permission.COMMERCIAL_WAREHOUSES_VER },
+        { label: 'Conteo físico',     icon: 'pi pi-qrcode',               route: '/comercial/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
+        { label: 'Folios inventario', icon: 'pi pi-clipboard',            route: '/comercial/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+        { label: 'Stock muerto',      icon: 'pi pi-exclamation-triangle', route: '/comercial/dead-stock',         permission: Permission.COMMERCIAL_ORDERS_VER },
+      ],
+    },
+    {
+      title: 'Catálogo',
+      items: [
+        { label: 'Catálogo',          icon: 'pi pi-shopping-bag', route: '/comercial/products',   permission: Permission.CATALOGO_GESTIONAR },
+        { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
+        { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
+        { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
+      ],
+    },
+    {
+      title: 'Ruta',
+      items: [
+        { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
+        { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.ROUTE_CONTROL_VER },
+        { label: 'Modo Vendedor',      icon: 'pi pi-briefcase',  route: '/vendor/new-order',        permission: Permission.COMMERCIAL_ORDERS_CREAR },
+      ],
+    },
   ];
 
   private adminNavItems: NavItem[] = [
@@ -361,13 +387,37 @@ export class LayoutComponent implements OnInit, OnDestroy {
     const project = this.currentProject();
     const items =
       project === 'comercial'
-        ? this.comercialNavItems
+        ? this.comercialNavGroups.flatMap((g) => g.items)
         : project === 'admin'
         ? this.adminNavItems
         : project === 'logistica'
         ? this.logisticaNavItems
         : this.tradeMkNavItems;
     return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
+  });
+
+  /**
+   * Secciones del sidebar. Comercial se agrupa por dominio (Ventas, Inventario,
+   * Catálogo, Ruta); el resto de proyectos conserva su estructura previa
+   * (Trade: principal + Captura Vendedor + Administración; admin/logística: una
+   * sola sección). Grupos vacíos (sin items con permiso) se descartan.
+   */
+  navGroups = computed<{ title: string; items: NavItem[] }[]>(() => {
+    const user = this.user();
+    if (!user) return [];
+    if (this.currentProject() === 'comercial') {
+      return this.comercialNavGroups
+        .map((g) => ({
+          title: g.title,
+          items: this.dedupeByRoute(g.items.filter((i) => this.hasPermFor(i))),
+        }))
+        .filter((g) => g.items.length > 0);
+    }
+    const groups: { title: string; items: NavItem[] }[] = [];
+    if (this.navItems().length) groups.push({ title: this.mainSectionTitle(), items: this.navItems() });
+    if (this.rutaItems().length) groups.push({ title: 'Captura Vendedor', items: this.rutaItems() });
+    if (this.adminItems().length) groups.push({ title: 'Administración', items: this.adminItems() });
+    return groups;
   });
 
   /**
@@ -458,7 +508,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * items del proyecto activo. Si hay más, el slot #5 es "Más" → abre drawer.
    * Patrón FB / Instagram / Twitter / Slack mobile.
    */
-  useBottomNav = computed(() => this.isMobile() && !this.isRestricted());
+  useBottomNav = computed(() => this.isMobile() && !this.isRestricted() && !this.countFocusActive());
 
   bottomNavItems = computed(() => {
     if (!this.useBottomNav()) return [];

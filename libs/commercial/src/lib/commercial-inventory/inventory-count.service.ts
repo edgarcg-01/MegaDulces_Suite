@@ -265,31 +265,35 @@ export class InventoryCountService {
         [item] = await trx('commercial.inventory_count_items').insert(insertRow).returning('*');
       }
 
-      // Selección de slot + segregación de funciones en el doble conteo.
+      // Selección de slot según la FASE estricta del folio:
+      //   counting + pass 1 → count_1
+      //   counting + pass 2 → count_2 (ciego: contador distinto al de la 1ra pasada)
+      //   review            → count_3 (reconteo de discrepancias ordenado por supervisor)
       const patch: Record<string, any> = { updated_at: trx.fn.now(), updated_by: uid };
+      const pass = Number(count.current_pass) || 1;
       let slot: string;
-      if (dto.recount || (item.count_1 != null && item.count_2 != null)) {
+      if (count.status === 'review' || dto.recount) {
         slot = 'count_3';
         patch.count_3 = dto.quantity;
         patch.counted_by_3 = uid;
         patch.counted_at_3 = trx.fn.now();
-      } else if (item.count_1 == null) {
-        slot = 'count_1';
-        patch.count_1 = dto.quantity;
-        patch.counted_by_1 = uid;
-        patch.counted_at_1 = trx.fn.now();
-      } else if (item.count_2 == null && uid && item.counted_by_1 === uid) {
-        // El MISMO contador re-escanea su propio count_1 → corrección (overwrite),
-        // no segundo conteo. El doble conteo ciego lo dispara un contador DISTINTO.
-        slot = 'count_1';
-        patch.count_1 = dto.quantity;
-        patch.counted_at_1 = trx.fn.now();
-      } else {
-        // Segundo conteo: contador distinto (conteo ciego válido).
+      } else if (pass >= 2) {
+        // Segundo conteo ciego: no podés verificar un SKU que vos mismo contaste
+        // en la primera pasada (segregación). Re-escanear tu propio count_2 = corrige.
+        if (uid && item.counted_by_1 === uid && item.count_2 == null) {
+          throw new ConflictException(
+            'No podés hacer el segundo conteo de un SKU que vos mismo contaste en la primera pasada.',
+          );
+        }
         slot = 'count_2';
         patch.count_2 = dto.quantity;
         patch.counted_by_2 = uid;
         patch.counted_at_2 = trx.fn.now();
+      } else {
+        slot = 'count_1';
+        patch.count_1 = dto.quantity;
+        patch.counted_by_1 = uid;
+        patch.counted_at_1 = trx.fn.now();
       }
 
       patch.status = 'counted';
@@ -421,6 +425,8 @@ export class InventoryCountService {
 
     return this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
+      const pass = Number(count.current_pass) || 1;
+      const passCol = pass >= 2 ? 'count_2' : 'count_1';
 
       const [agg] = await trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
@@ -429,6 +435,7 @@ export class InventoryCountService {
           trx.raw('COUNT(*)::int AS total'),
           trx.raw(`COUNT(*) FILTER (WHERE i.count_1 IS NOT NULL)::int AS counted_once`),
           trx.raw(`COUNT(*) FILTER (WHERE i.count_1 IS NULL)::int AS uncounted`),
+          trx.raw(`COUNT(*) FILTER (WHERE i.${passCol} IS NOT NULL)::int AS counted_pass`),
           trx.raw(`COUNT(*) FILTER (WHERE i.status = 'discrepancy')::int AS discrepancies`),
           trx.raw(`COUNT(*) FILTER (WHERE i.status = 'resolved')::int AS resolved`),
           trx.raw(
@@ -449,10 +456,14 @@ export class InventoryCountService {
 
       const total = Number(agg.total) || 0;
       const counted = Number(agg.counted_once) || 0;
+      const countedPass = Number(agg.counted_pass) || 0;
       return {
         folio: count.folio,
         status: count.status,
+        current_pass: pass,
+        blind_double_count: count.blind_double_count,
         coverage_pct: total ? +((counted / total) * 100).toFixed(1) : 0,
+        pass_coverage_pct: total ? +((countedPass / total) * 100).toFixed(1) : 0,
         ...agg,
         by_counter: byCounter,
       };
@@ -524,15 +535,18 @@ export class InventoryCountService {
     return this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
       const uid = this.userId();
+      // El avance ciego se mide contra la pasada activa (count_1 o count_2).
+      const pass = Number(count.current_pass) || 1;
+      const col = pass >= 2 ? 'count_2' : 'count_1';
       const [agg] = await trx('commercial.inventory_count_items')
         .where({ count_id: countId })
         .select(
           trx.raw('COUNT(*)::int AS total'),
-          trx.raw('COUNT(*) FILTER (WHERE count_1 IS NOT NULL)::int AS counted'),
-          trx.raw('COUNT(*) FILTER (WHERE count_1 IS NULL)::int AS remaining'),
+          trx.raw(`COUNT(*) FILTER (WHERE ${col} IS NOT NULL)::int AS counted`),
+          trx.raw(`COUNT(*) FILTER (WHERE ${col} IS NULL)::int AS remaining`),
           trx.raw(`COUNT(*) FILTER (WHERE counted_by_1 = ? OR counted_by_2 = ? OR counted_by_3 = ?)::int AS mine`, [uid, uid, uid]),
         );
-      return { folio: count.folio, status: count.status, ...agg };
+      return { folio: count.folio, status: count.status, current_pass: pass, ...agg };
     });
   }
 
@@ -941,5 +955,199 @@ export class InventoryCountService {
       .first();
     if (!count) throw new NotFoundException('Folio no encontrado');
     return count;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Integridad: bitácora de interrupciones del contador. (CONTAR escribe,
+  // SUPERVISAR lee). Auditoría — no bloquea el conteo.
+  // ─────────────────────────────────────────────────────────────────────────
+  async recordInterruption(
+    countId: string,
+    dto: { left_at: string; returned_at?: string; duration_seconds?: number; source?: string },
+  ) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    if (!dto?.left_at) throw new BadRequestException('left_at requerido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      // Solo tiene sentido auditar mientras el folio está vivo.
+      if (!['open', 'counting', 'review'].includes(count.status)) {
+        return { recorded: false, reason: 'folio no activo' };
+      }
+      const ctx = this.tenantCtx.get();
+      const [row] = await trx('commercial.inventory_count_interruptions')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          count_id: countId,
+          user_id: ctx?.userId ?? null,
+          username: ctx?.username ?? null,
+          left_at: new Date(dto.left_at),
+          returned_at: dto.returned_at ? new Date(dto.returned_at) : null,
+          duration_seconds:
+            dto.duration_seconds != null ? Math.max(0, Math.round(dto.duration_seconds)) : null,
+          source: dto.source === 'appstate' ? 'appstate' : 'visibility',
+        })
+        .returning(['id']);
+      return { recorded: true, id: row.id };
+    });
+  }
+
+  /** Timeline de interrupciones del folio + resumen por contador. (SUPERVISAR) */
+  async listInterruptions(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      await this.getCountOrThrow(trx, countId);
+      const events = await trx('commercial.inventory_count_interruptions')
+        .where({ count_id: countId })
+        .orderBy('left_at', 'desc')
+        .select('id', 'user_id', 'username', 'left_at', 'returned_at', 'duration_seconds', 'source');
+
+      const byUser = new Map<
+        string,
+        { user_id: string; username: string | null; count: number; total_seconds: number; max_seconds: number }
+      >();
+      for (const e of events) {
+        const key = e.user_id || 'unknown';
+        const agg = byUser.get(key) || {
+          user_id: e.user_id,
+          username: e.username,
+          count: 0,
+          total_seconds: 0,
+          max_seconds: 0,
+        };
+        agg.count += 1;
+        const s = e.duration_seconds || 0;
+        agg.total_seconds += s;
+        agg.max_seconds = Math.max(agg.max_seconds, s);
+        byUser.set(key, agg);
+      }
+      return { events, by_user: Array.from(byUser.values()) };
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Sesiones de jornada por contador (Fase I.6) + avance de fase estricta.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** El contador abre su jornada de conteo (modo foco en el front). (CONTAR) */
+  async startSession(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      const uid = this.userId();
+      if (['reconciled', 'cancelled'].includes(count.status))
+        throw new ConflictException('El folio está cerrado.');
+
+      const counters = await trx('commercial.inventory_count_assignments')
+        .where({ count_id: countId, assignment_role: 'counter' })
+        .select('user_id');
+      if (counters.length && !counters.some((a) => a.user_id === uid))
+        throw new ForbiddenException('No estás asignado como contador de este folio.');
+
+      if (count.status === 'open') {
+        await trx('commercial.inventory_counts')
+          .where({ id: countId })
+          .update({ status: 'counting', started_at: count.started_at || trx.fn.now() });
+      }
+
+      const pass = Number(count.current_pass) || 1;
+      const ctx = this.tenantCtx.get();
+      await trx('commercial.inventory_count_sessions')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          count_id: countId,
+          user_id: uid,
+          username: ctx?.username ?? null,
+          pass,
+          started_at: trx.fn.now(),
+          status: 'active',
+        })
+        .onConflict(['tenant_id', 'count_id', 'user_id', 'pass'])
+        .merge({ finished_at: null, status: 'active' });
+
+      return { ok: true, current_pass: pass, status: 'counting' };
+    });
+  }
+
+  /** El contador cierra su jornada (botón Terminar). (CONTAR) */
+  async finishSession(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      const uid = this.userId();
+      const pass = Number(count.current_pass) || 1;
+      const n = await trx('commercial.inventory_count_sessions')
+        .where({ count_id: countId, user_id: uid, pass })
+        .update({ finished_at: trx.fn.now(), status: 'finished' });
+      return { ok: n > 0, pass };
+    });
+  }
+
+  /**
+   * Avanza la fase del folio. Solo si la pasada actual está 100% cubierta.
+   *   fase 1 (con doble conteo) → fase 2
+   *   última pasada            → review (el supervisor calcula discrepancias)
+   * (SUPERVISAR)
+   */
+  async advancePass(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      if (count.status !== 'counting')
+        throw new ConflictException(`El folio está en '${count.status}'; no admite avanzar de fase.`);
+      const pass = Number(count.current_pass) || 1;
+      const col = pass >= 2 ? 'count_2' : 'count_1';
+      const [{ n }] = await trx('commercial.inventory_count_items')
+        .where({ count_id: countId })
+        .whereNull(col)
+        .count('* as n');
+      const uncounted = Number(n) || 0;
+      if (uncounted > 0)
+        throw new ConflictException(`Fase ${pass} incompleta: faltan ${uncounted} SKU(s) por contar.`);
+
+      if (pass === 1 && count.blind_double_count) {
+        await trx('commercial.inventory_counts').where({ id: countId }).update({ current_pass: 2 });
+        return { current_pass: 2, status: 'counting', next: 'count_pass_2' };
+      }
+      await trx('commercial.inventory_counts').where({ id: countId }).update({ status: 'review' });
+      return { current_pass: pass, status: 'review', next: 'review' };
+    });
+  }
+
+  /** Control del supervisor: jornadas de su personal + productividad + interrupciones. (SUPERVISAR) */
+  async listSessions(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      await this.getCountOrThrow(trx, countId);
+      const sessions = await trx('commercial.inventory_count_sessions')
+        .where({ count_id: countId })
+        .orderBy([{ column: 'pass' }, { column: 'started_at' }]);
+
+      const out = [] as any[];
+      for (const s of sessions) {
+        const byCol = s.pass >= 2 ? 'counted_by_2' : 'counted_by_1';
+        const qtyCol = s.pass >= 2 ? 'count_2' : 'count_1';
+        const [agg] = await trx('commercial.inventory_count_items')
+          .where({ count_id: countId })
+          .where(byCol, s.user_id)
+          .select(
+            trx.raw('COUNT(*)::int AS items_counted'),
+            trx.raw(`COALESCE(SUM(${qtyCol}),0)::numeric AS units_counted`),
+          );
+        const [intr] = await trx('commercial.inventory_count_interruptions')
+          .where({ count_id: countId, user_id: s.user_id })
+          .select(
+            trx.raw('COUNT(*)::int AS interruptions'),
+            trx.raw('COALESCE(SUM(duration_seconds),0)::int AS interrupt_seconds'),
+          );
+        out.push({
+          ...s,
+          items_counted: Number(agg.items_counted),
+          units_counted: Number(agg.units_counted),
+          interruptions: Number(intr.interruptions),
+          interrupt_seconds: Number(intr.interrupt_seconds),
+        });
+      }
+      return out;
+    });
   }
 }

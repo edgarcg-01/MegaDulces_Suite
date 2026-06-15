@@ -649,6 +649,36 @@ export class ComercialService {
     return this.http.post<{ status: string; folio: string }>(`${this.base}/inventory/counts/${countId}/cancel`, { reason });
   }
 
+  // Integridad: el contador reporta que salió de la app (background/lock).
+  recordInventoryInterruption(
+    countId: string,
+    body: { left_at: string; returned_at?: string; duration_seconds?: number; source?: string },
+  ) {
+    return this.http.post<{ recorded: boolean; id?: string; reason?: string }>(
+      `${this.base}/inventory/counts/${countId}/interruption`, body);
+  }
+
+  inventoryInterruptions(countId: string) {
+    return this.http.get<InventoryInterruptions>(`${this.base}/inventory/counts/${countId}/interruptions`);
+  }
+
+  // Fases estrictas + sesiones de jornada del contador.
+  inventoryStartSession(countId: string) {
+    return this.http.post<{ ok: boolean; current_pass: number; status: string }>(`${this.base}/inventory/counts/${countId}/session/start`, {});
+  }
+
+  inventoryFinishSession(countId: string) {
+    return this.http.post<{ ok: boolean; pass: number }>(`${this.base}/inventory/counts/${countId}/session/finish`, {});
+  }
+
+  inventorySessions(countId: string) {
+    return this.http.get<InventoryCountSession[]>(`${this.base}/inventory/counts/${countId}/sessions`);
+  }
+
+  inventoryAdvancePass(countId: string) {
+    return this.http.post<{ current_pass: number; status: string; next: string }>(`${this.base}/inventory/counts/${countId}/advance-pass`, {});
+  }
+
   // Stock muerto (analytics)
   deadStock(warehouseId?: string, limit?: number) {
     let params = new HttpParams();
@@ -711,10 +741,25 @@ export interface InventoryAssignment {
 export interface InventoryCounterProgress {
   folio: string;
   status: string;
+  current_pass: number;
   total: number;
   counted: number;
   remaining: number;
   mine: number;
+}
+
+export interface InventoryCountSession {
+  id: string;
+  user_id: string;
+  username: string | null;
+  pass: number;
+  started_at: string;
+  finished_at: string | null;
+  status: 'active' | 'finished';
+  items_counted: number;
+  units_counted: number;
+  interruptions: number;
+  interrupt_seconds: number;
 }
 
 export interface ResolvedProduct {
@@ -740,14 +785,39 @@ export interface InventoryCountResult {
 export interface InventorySupervisorProgress {
   folio: string;
   status: string;
+  current_pass: number;
+  blind_double_count: boolean;
   coverage_pct: number;
+  pass_coverage_pct: number;
   total: number;
   counted_once: number;
+  counted_pass: number;
   uncounted: number;
   discrepancies: number;
   resolved: number;
   value_at_variance: number | string;
   by_counter: { user_id: string; counts: number; discrepancies: number }[];
+}
+
+export interface InventoryInterruptionEvent {
+  id: string;
+  user_id: string;
+  username: string | null;
+  left_at: string;
+  returned_at: string | null;
+  duration_seconds: number | null;
+  source: 'visibility' | 'appstate';
+}
+
+export interface InventoryInterruptions {
+  events: InventoryInterruptionEvent[];
+  by_user: {
+    user_id: string;
+    username: string | null;
+    count: number;
+    total_seconds: number;
+    max_seconds: number;
+  }[];
 }
 
 export interface InventoryCountItem {

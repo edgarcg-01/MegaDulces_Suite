@@ -14,7 +14,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser } from '../comercial.service';
+import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser, InventoryInterruptions, InventoryCountSession } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 
@@ -60,6 +60,22 @@ import { Permission } from '../../../core/constants/permissions';
         <div class="in-kpi"><span class="in-kpi-v">{{ (+(progress()?.value_at_variance ?? 0)) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="in-kpi-l">Valor en riesgo</span></div>
       </div>
 
+      <!-- Fase actual + avance -->
+      @if (progress()?.status === 'counting') {
+        <div class="in-phase">
+          <div class="in-phase-info">
+            <span class="in-phase-badge">Fase {{ progress()?.current_pass }}</span>
+            <span class="in-phase-label">{{ progress()?.current_pass === 1 ? 'Primer conteo' : 'Segundo conteo (ciego)' }}</span>
+            <span class="in-phase-cov">{{ progress()?.pass_coverage_pct ?? 0 }}% cubierto</span>
+          </div>
+          @if (canAdvance()) {
+            <button pButton [label]="advanceLabel()" icon="pi pi-arrow-right" severity="success" size="small" [loading]="advancing()" (click)="advancePass()"></button>
+          } @else {
+            <small class="in-phase-hint">Completá el 100% de la pasada para avanzar de fase.</small>
+          }
+        </div>
+      }
+
       <!-- Acciones -->
       @if (!isTerminal()) {
         <div class="in-actions">
@@ -92,6 +108,61 @@ import { Permission } from '../../../core/constants/permissions';
                            (onPanelHide)="saveAssign('supervisor')"></p-multiSelect>
             <small>Responsables de este inventario (informativo).</small>
           </div>
+        </div>
+      }
+
+      <!-- Bitácora de interrupciones (integridad del conteo) -->
+      @if (interruptions()?.events?.length) {
+        <div class="in-interrupt">
+          <div class="in-interrupt-head">
+            <i class="pi pi-eye-slash"></i>
+            <span>Interrupciones del conteo</span>
+            <small>el contador salió de la app / bloqueó el celular durante el folio</small>
+          </div>
+          <div class="in-interrupt-users">
+            @for (u of interruptions()?.by_user; track u.user_id) {
+              <div class="in-interrupt-chip" [class.in-interrupt-chip-warn]="u.count >= 3 || u.max_seconds >= 120">
+                <span class="in-interrupt-user">{{ u.username || 'Contador' }}</span>
+                <span class="in-interrupt-stat">{{ u.count }} {{ u.count === 1 ? 'salida' : 'salidas' }} · {{ fmtDuration(u.total_seconds) }} total · máx {{ fmtDuration(u.max_seconds) }}</span>
+              </div>
+            }
+          </div>
+          <div class="in-interrupt-timeline">
+            @for (e of interruptions()?.events?.slice(0, 12); track e.id) {
+              <div class="in-interrupt-row">
+                <span class="in-interrupt-when">{{ e.left_at | date:'dd/MM HH:mm:ss' }}</span>
+                <span class="in-interrupt-who">{{ e.username || '—' }}</span>
+                <span class="in-interrupt-dur">{{ fmtDuration(e.duration_seconds) }}</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Control de personal: jornadas de conteo -->
+      @if (sessions().length) {
+        <div class="in-sessions">
+          <div class="in-sessions-head"><i class="pi pi-users"></i> Jornadas de conteo del personal</div>
+          <p-table [value]="sessions()" styleClass="p-datatable-sm surf-table">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Contador</th><th class="in-num">Fase</th><th>Inició</th><th>Terminó</th><th>Estado</th>
+                <th class="in-num">SKUs</th><th class="in-num">Unidades</th><th class="in-num">Interrup.</th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-s>
+              <tr>
+                <td>{{ s.username || '—' }}</td>
+                <td class="in-num">{{ s.pass }}</td>
+                <td>{{ s.started_at | date:'dd/MM HH:mm' }}</td>
+                <td>{{ s.finished_at ? (s.finished_at | date:'dd/MM HH:mm') : '·' }}</td>
+                <td><p-tag [value]="s.status === 'finished' ? 'Terminó' : 'Contando'" [severity]="s.status === 'finished' ? 'success' : 'info'"></p-tag></td>
+                <td class="in-num">{{ s.items_counted }}</td>
+                <td class="in-num">{{ s.units_counted }}</td>
+                <td class="in-num" [class.in-var-neg]="s.interruptions > 0">{{ s.interruptions }}{{ s.interrupt_seconds ? ' (' + fmtDuration(s.interrupt_seconds) + ')' : '' }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
         </div>
       }
 
@@ -181,6 +252,29 @@ import { Permission } from '../../../core/constants/permissions';
     :host ::ng-deep .in-w-full { width: 100%; }
     .in-resolve-name { font-weight: 600; margin: 0; }
     .in-resolve-meta { color: var(--text-muted, #78716c); font-size: .85rem; margin: .25rem 0 0; }
+    .in-interrupt { background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; padding: .85rem 1rem; margin-bottom: 1rem; }
+    .in-interrupt-head { display: flex; align-items: center; gap: .5rem; font-weight: 600; margin-bottom: .6rem; }
+    .in-interrupt-head i { color: var(--orange-500,#f97316); }
+    .in-interrupt-head small { font-weight: 400; color: var(--text-muted,#78716c); margin-left: auto; }
+    .in-interrupt-users { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .6rem; }
+    .in-interrupt-chip { display: flex; flex-direction: column; padding: .4rem .7rem; border-radius: 10px; background: var(--surface-100,#f5f5f4); }
+    .in-interrupt-chip-warn { background: color-mix(in srgb, var(--orange-500,#f97316) 14%, transparent); }
+    .in-interrupt-user { font-weight: 600; font-size: .85rem; }
+    .in-interrupt-stat { font-size: .75rem; color: var(--text-muted,#78716c); font-variant-numeric: tabular-nums; }
+    .in-interrupt-timeline { display: flex; flex-direction: column; }
+    .in-interrupt-row { display: flex; gap: .75rem; padding: .3rem .15rem; border-top: 1px solid var(--surface-100,#f5f5f4); font-size: .8rem; }
+    .in-interrupt-when { font-variant-numeric: tabular-nums; color: var(--text-muted,#78716c); min-width: 110px; }
+    .in-interrupt-who { flex: 1; }
+    .in-interrupt-dur { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .in-phase { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .7rem 1rem; margin-bottom: 1rem; border-radius: 12px; background: color-mix(in srgb, var(--action,#ea580c) 9%, transparent); }
+    .in-phase-info { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .in-phase-badge { font-weight: 700; background: var(--action,#ea580c); color: #fff; padding: .15rem .6rem; border-radius: 99px; font-size: .8rem; }
+    .in-phase-label { font-weight: 600; }
+    .in-phase-cov { color: var(--text-muted,#78716c); font-variant-numeric: tabular-nums; }
+    .in-phase-hint { color: var(--text-muted,#78716c); }
+    .in-sessions { margin-bottom: 1rem; }
+    .in-sessions-head { font-weight: 600; margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
+    .in-sessions-head i { color: var(--action,#ea580c); }
   `],
 })
 export class ComercialInventorySessionDetailComponent {
@@ -224,9 +318,62 @@ export class ComercialInventorySessionDetailComponent {
   selCounters = signal<string[]>([]);
   selSupervisors = signal<string[]>([]);
 
+  interruptions = signal<InventoryInterruptions | null>(null);
+  sessions = signal<InventoryCountSession[]>([]);
+  advancing = signal(false);
+
+  // Botón de avance de fase: solo en 'counting' y con la pasada actual 100% cubierta.
+  canAdvance = computed(() => {
+    const p = this.progress();
+    return !!p && p.status === 'counting' && (p.pass_coverage_pct ?? 0) >= 100;
+  });
+  advanceLabel = computed(() => {
+    const p = this.progress();
+    if (p && p.current_pass === 1 && p.blind_double_count) return 'Avanzar a Fase 2 (conteo ciego)';
+    return 'Cerrar conteo y revisar';
+  });
+
   constructor() {
     this.load();
     if (this.canAssign()) this.loadAssignments();
+    this.loadInterruptions();
+    this.loadSessions();
+  }
+
+  private loadInterruptions() {
+    this.svc.inventoryInterruptions(this.countId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.interruptions.set(r), error: () => { /* no crítico */ } });
+  }
+
+  private loadSessions() {
+    this.svc.inventorySessions(this.countId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.sessions.set(r), error: () => { /* no crítico */ } });
+  }
+
+  advancePass() {
+    this.advancing.set(true);
+    this.svc.inventoryAdvancePass(this.countId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.advancing.set(false);
+          this.toast.add({
+            severity: 'success',
+            summary: r.next === 'review' ? 'Conteo cerrado — en revisión' : `Fase ${r.current_pass} habilitada`,
+          });
+          this.load();
+        },
+        error: (e) => { this.advancing.set(false); this.toast.add({ severity: 'warn', summary: 'No se pudo avanzar', detail: e?.error?.message }); },
+      });
+  }
+
+  fmtDuration(s: number | null): string {
+    const sec = s || 0;
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    return `${m}m ${sec % 60}s`;
   }
 
   private loadAssignments() {

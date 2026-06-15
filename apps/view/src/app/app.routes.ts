@@ -8,6 +8,7 @@ import { Permission } from './core/constants/permissions';
 import { customerB2bGuard } from './modules/portal/portal.guard';
 import { vendorGuard } from './modules/vendor/vendor.guard';
 import { televentaGuard } from './modules/televenta/televenta.guard';
+import { countFocusGuard } from './core/guards/count-focus.guard';
 
 export const routes: Routes = [
   {
@@ -122,7 +123,8 @@ export const routes: Routes = [
         // Fase I.2 — página del contador (handheld, conteo ciego)
         path: 'inventory/count',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)],
+        canDeactivate: [countFocusGuard]
       },
       {
         // Fase I.3 — supervisor: lista + apertura de folios
