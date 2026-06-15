@@ -420,15 +420,42 @@ export class InventoryCountService {
    * CIEGO: no devuelve existencia ni teórico. (CONTAR)
    */
   async resolveProduct(barcode?: string, productId?: string) {
+    const code = barcode?.trim();
+    if (!code && !(productId && UUID.test(productId)))
+      throw new BadRequestException('Se requiere barcode o product_id');
+
     return this.tk.run(async (trx) => {
+      // 1) inventory.products = catálogo del almacén (TODOS los productos, con
+      //    codigo_barras). Es la fuente real en prod. Sin tenant_id ni id uuid;
+      //    se identifica por sku → product_id queda null (el conteo por sku es
+      //    parte del rework pendiente; acá solo reconocemos el producto).
+      if (code) {
+        const inv = await trx('inventory.products')
+          .where('codigo_barras', code)
+          .orWhere('sku', code)
+          .select('sku', 'nombre', 'codigo_barras', 'unidad_venta', 'categoria')
+          .first();
+        if (inv) {
+          return {
+            product_id: null,
+            sku: inv.sku,
+            product_name: inv.nombre,
+            barcode: inv.codigo_barras,
+            brand_name: inv.categoria ?? null,
+            location: null,
+            unit_sale: inv.unidad_venta ?? null,
+            source: 'inventory',
+          };
+        }
+      }
+
+      // 2) Fallback: catalog.products (catálogo comercial; poblado en local).
       let prod: any = null;
       if (productId && UUID.test(productId)) {
         prod = await trx('public.products').where({ id: productId }).first();
-      } else if (barcode && barcode.trim()) {
-        prod = await trx('public.products').where({ barcode: barcode.trim() }).first();
-        if (!prod) prod = await trx('public.products').where({ sku: barcode.trim() }).first();
-      } else {
-        throw new BadRequestException('Se requiere barcode o product_id');
+      } else if (code) {
+        prod = await trx('public.products').where({ barcode: code }).first();
+        if (!prod) prod = await trx('public.products').where({ sku: code }).first();
       }
       if (!prod) throw new NotFoundException('Sin producto para ese código');
       const brand = prod.brand_id
@@ -441,6 +468,7 @@ export class InventoryCountService {
         brand_name: brand?.nombre ?? null,
         location: prod.location ?? null,
         unit_sale: prod.unit_sale ?? null,
+        source: 'catalog',
       };
     });
   }
