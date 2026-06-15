@@ -34,12 +34,12 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
 # invalidar esta capa.
 COPY package*.json .npmrc ./
 
-# `npm ci` requiere lockfile (lo tenemos). NO usamos `--prefer-offline`:
-# en Railway la cache de BuildKit no se reusa entre builds (por el formato
-# custom de id) y prefer-offline solo añade lógica extra para decidir entre
-# cache parcial y registry. Las opciones de retry vienen de .npmrc.
+# `npm ci` requiere lockfile (lo tenemos). `--prefer-offline` reusa el tarball
+# del cache mount sin revalidar contra el registry cuando ya está presente; si
+# el cache está frío cae al registry normal (safe en ambos casos). El id
+# `s/<service>-npm` persiste entre builds en Railway. Retries vienen de .npmrc.
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/root/.npm \
-    npm ci
+    npm ci --prefer-offline
 
 # ── Stage 2: Compilación de view + api ──────────────────────────────────────
 FROM node:20-bookworm-slim AS builder
@@ -62,14 +62,19 @@ COPY apps ./apps
 COPY libs ./libs
 COPY database ./database
 
-# Angular v18 con esbuild requiere @angular/compiler cargado en el proceso de
-# Node (load-compiler.mjs). El `--max-old-space-size=4096` da margen al heap
-# del compilador en builds grandes. `--configuration=production` reemplaza el
-# alias deprecated `--prod` (deja warning en Angular 18, error en futuros).
-RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
-    npx nx build view --configuration=production && \
+# Angular v18 con esbuild necesita @angular/compiler en el proceso de Node
+# (load-compiler.mjs); el heap 4096 le da margen al compilador.
+# Cache mount de Nx: `build` es cacheable (nx.json) pero `.nx/cache` no
+# sobrevive entre builds de Docker → sin esto recompila todo cada deploy. Con
+# el mount, un commit que solo toca backend saca `view` del cache (restaura
+# dist/ sin recompilar Angular) y viceversa.
+# `run-many --parallel=2`: si ambos son cache-miss, api compila junto a view.
+# El heap 4096 es techo, no reserva (view ~3-4GB + api <1GB ≈ 5-6GB de 8GB).
+# Una sola instancia Nx coordina el cache; NO usar `&` de shell (dos procesos
+# nx se pisarían el cache).
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-nx,target=/app/.nx/cache,sharing=locked \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
-    npx nx build api --configuration=production
+    npx nx run-many -t build -p view,api --configuration=production --parallel=2
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────
 # `npm ci --omit=dev` fresco, NO `npm prune` sobre el node_modules de `deps`.
@@ -93,7 +98,7 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
 COPY package*.json .npmrc ./
 
 RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts
+    npm ci --omit=dev --ignore-scripts --prefer-offline
 
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
