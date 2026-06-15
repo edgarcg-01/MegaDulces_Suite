@@ -9,9 +9,13 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { InputSwitchModule } from 'primeng/inputswitch';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { ComercialService, InventoryCount, Warehouse } from '../comercial.service';
+import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../comercial.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
+import { forkJoin } from 'rxjs';
 
 /**
  * Lista de folios de inventario + apertura de uno nuevo (supervisor).
@@ -21,7 +25,7 @@ import { ComercialService, InventoryCount, Warehouse } from '../comercial.servic
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, ToastModule,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, MultiSelectModule, ToastModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -86,6 +90,15 @@ import { ComercialService, InventoryCount, Warehouse } from '../comercial.servic
               <small>Cada SKU lo cuentan dos personas distintas; las diferencias escalan a reconteo.</small>
             </div>
           </div>
+
+          @if (canAssign()) {
+            <label>Contadores (quiénes van a contar)</label>
+            <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+                           placeholder="Todos los que tengan permiso (folio abierto)" [filter]="true" display="chip" styleClass="in-w-full"></p-multiSelect>
+            <label>Supervisores responsables</label>
+            <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+                           placeholder="Sin asignar" [filter]="true" display="chip" styleClass="in-w-full"></p-multiSelect>
+          }
         </div>
         <ng-template pTemplate="footer">
           <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="dialogVisible.set(false)"></button>
@@ -109,6 +122,7 @@ import { ComercialService, InventoryCount, Warehouse } from '../comercial.servic
 export class ComercialInventorySessionsComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
+  private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
 
   counts = signal<InventoryCount[]>([]);
@@ -121,6 +135,12 @@ export class ComercialInventorySessionsComponent {
   formType = signal<'full' | 'cycle'>('full');
   formFreeze = signal(true);
   formBlind = signal(true);
+
+  canAssign = signal(this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_ASIGNAR] === true);
+  counterOpts = signal<{ label: string; value: string }[]>([]);
+  supervisorOpts = signal<{ label: string; value: string }[]>([]);
+  selCounters = signal<string[]>([]);
+  selSupervisors = signal<string[]>([]);
 
   typeOptions = [
     { label: 'Total (todo el almacén)', value: 'full' },
@@ -149,6 +169,15 @@ export class ComercialInventorySessionsComponent {
           next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ id: w.id, label: `${w.code} · ${w.name}` }))),
         });
     }
+    if (this.canAssign() && !this.counterOpts().length) {
+      const opt = (u: AssignableUser) => ({ label: `${u.nombre || u.username} (${u.role_name})`, value: u.id });
+      this.svc.inventoryAssignableUsers('counter').pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (us) => this.counterOpts.set(us.map(opt)) });
+      this.svc.inventoryAssignableUsers('supervisor').pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (us) => this.supervisorOpts.set(us.map(opt)) });
+    }
+    this.selCounters.set([]);
+    this.selSupervisors.set([]);
     this.dialogVisible.set(true);
   }
 
@@ -165,11 +194,32 @@ export class ComercialInventorySessionsComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
-          this.opening.set(false);
-          this.dialogVisible.set(false);
-          this.toast.add({ severity: 'success', summary: `Folio ${r.folio} abierto`, detail: `${r.expected_items} SKUs en snapshot` });
-          this.formWarehouse.set(null);
-          this.load();
+          const counters = this.selCounters();
+          const supervisors = this.selSupervisors();
+          const reqs: ReturnType<ComercialService['inventorySetAssignments']>[] = [];
+          if (this.canAssign() && counters.length) reqs.push(this.svc.inventorySetAssignments(r.id, 'counter', counters));
+          if (this.canAssign() && supervisors.length) reqs.push(this.svc.inventorySetAssignments(r.id, 'supervisor', supervisors));
+          const finish = () => {
+            this.opening.set(false);
+            this.dialogVisible.set(false);
+            const asg = counters.length || supervisors.length ? ` · ${counters.length} contadores, ${supervisors.length} supervisores` : '';
+            this.toast.add({ severity: 'success', summary: `Folio ${r.folio} abierto`, detail: `${r.expected_items} SKUs${asg}` });
+            this.formWarehouse.set(null);
+            this.load();
+          };
+          if (reqs.length) {
+            forkJoin(reqs).subscribe({
+              next: finish,
+              error: () => {
+                this.opening.set(false);
+                this.dialogVisible.set(false);
+                this.toast.add({ severity: 'warn', summary: `Folio ${r.folio} abierto, pero falló la asignación`, detail: 'Asignalos desde el detalle del folio.' });
+                this.load();
+              },
+            });
+          } else {
+            finish();
+          }
         },
         error: (e) => {
           this.opening.set(false);
