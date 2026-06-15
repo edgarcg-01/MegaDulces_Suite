@@ -83,19 +83,34 @@ export class CommercialIntelligenceController {
   @Get('thot/suggest/:customer_id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
-    summary: 'Thot sugiere qué ofrecer a un cliente. ?cart=id,id (afinidad/completá canasta) · ?zona= · ?limit=',
+    summary: 'Thot sugiere qué ofrecer a un cliente. ?cart=id,id (afinidad/completá canasta) · ?zona= · ?limit= · ?log=<canal> registra la oferta (items+reason) para el feedback loop',
   })
-  thotSuggest(
+  async thotSuggest(
     @Param('customer_id') customerId: string,
     @Query('cart') cart?: string,
     @Query('zona') zona?: string,
     @Query('limit') limit?: string,
+    @Query('log') log?: string,
   ) {
-    return this.thot.suggest(customerId, {
+    const suggestions = await this.thot.suggest(customerId, {
       cartProductIds: cart ? cart.split(',').filter(Boolean) : [],
       zona: zona || null,
       limit: limit ? parseInt(limit, 10) || 12 : 12,
     });
+    // Feedback loop: registrar la oferta con sus items+reason (atribución product-level).
+    // Best-effort: el log nunca debe romper la recomendación. El caller pasa ?log solo
+    // en la carga inicial (no en recálculos por carrito) para no inflar impresiones.
+    if (log && suggestions.length > 0) {
+      this.feedback
+        .record({
+          customer_id: customerId,
+          signal_type: 'offer_shown',
+          channel: log.slice(0, 20),
+          context: { source: 'thot', items: suggestions.map((s) => ({ p: s.product_id, r: s.reason })) },
+        })
+        .catch(() => undefined);
+    }
+    return suggestions;
   }
 
   // ─── Customer 360 (feature store) ───
@@ -179,5 +194,17 @@ export class CommercialIntelligenceController {
   @ApiOperation({ summary: 'Conversión del feedback loop: ofertas → pedidos en ventana (default 30d).' })
   signalsSummary(@Query('days') days?: string) {
     return this.feedback.conversionSummary(days ? parseInt(days, 10) || 30 : 30);
+  }
+
+  @Get('signals/conversion-by-reason')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({
+    summary: 'Conversión ATRIBUIDA por razón de Thot (whitespace/recompra/afinidad/...). Producto ofrecido → comprado en ventana. ?days= ?attribution_days=',
+  })
+  conversionByReason(@Query('days') days?: string, @Query('attribution_days') attr?: string) {
+    return this.feedback.conversionByReason(
+      days ? parseInt(days, 10) || 30 : 30,
+      attr ? parseInt(attr, 10) || 7 : 7,
+    );
   }
 }

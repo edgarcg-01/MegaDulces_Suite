@@ -18,6 +18,20 @@ export interface ConversionSummary {
   conversion_pct: number;
 }
 
+export interface ReasonConversion {
+  reason: string;
+  offers: number; // productos ofrecidos con esa razón (atribuido a nivel producto)
+  converted: number; // de esos, cuántos el cliente compró en la ventana
+  conversion_pct: number;
+}
+
+export interface ConversionByReason {
+  window_days: number;
+  attribution_days: number;
+  total: { offers: number; converted: number; conversion_pct: number };
+  by_reason: ReasonConversion[];
+}
+
 /**
  * Feedback loop (Fase M, Sprint M.4) — capa "aprende" de ADR-016.
  *
@@ -111,6 +125,76 @@ export class FeedbackService {
         offers,
         converted,
         conversion_pct: offers > 0 ? +((converted / offers) * 100).toFixed(1) : 0,
+      };
+    });
+  }
+
+  /**
+   * Conversión ATRIBUIDA a nivel producto y desglosada por razón de Thot.
+   *
+   * A diferencia de `conversionSummary` (cuenta cualquier pedido del cliente), acá
+   * cada producto ofrecido cuenta como "convertido" solo si ESE product_id aparece
+   * en una línea de pedido confirmado/fulfilled dentro de los `attribution_days`
+   * siguientes. Requiere ofertas logueadas con `context.items=[{p,r}]`
+   * (p=product_id, r=reason) — el endpoint thot/suggest?log=<canal> las escribe.
+   * Esto es lo que permite ver si whitespace/recompra/afinidad realmente convierten.
+   */
+  async conversionByReason(days = 30, attributionDays = 7): Promise<ConversionByReason> {
+    const windowDays = Math.min(Math.max(days, 1), 365);
+    const attrDays = Math.min(Math.max(attributionDays, 1), 30);
+    return this.tk.run(async (trx) => {
+      const res = await trx.raw(
+        `
+        WITH offer_items AS (
+          SELECT cs.customer_id, cs.created_at,
+                 (it->>'p')::uuid AS product_id,
+                 COALESCE(NULLIF(it->>'r',''), 'demanda') AS reason
+          FROM commercial.commerce_signals cs
+          CROSS JOIN LATERAL jsonb_array_elements(
+            CASE jsonb_typeof(cs.context->'items') WHEN 'array' THEN cs.context->'items' ELSE '[]'::jsonb END) it
+          WHERE cs.created_at >= NOW() - (? || ' days')::interval
+            AND it->>'p' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        )
+        SELECT oi.reason,
+          COUNT(*)::int AS offers,
+          COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM commercial.orders o
+            JOIN commercial.order_lines ol
+              ON ol.order_id = o.id AND ol.tenant_id = o.tenant_id
+            WHERE o.customer_id = oi.customer_id
+              AND o.status IN ('confirmed', 'fulfilled')
+              AND o.deleted_at IS NULL
+              AND o.created_at > oi.created_at
+              AND o.created_at <= oi.created_at + (? || ' days')::interval
+              AND ol.product_id = oi.product_id
+          ))::int AS converted
+        FROM offer_items oi
+        GROUP BY oi.reason
+        ORDER BY offers DESC
+        `,
+        [windowDays, attrDays],
+      );
+      const by_reason: ReasonConversion[] = (res.rows || []).map((r: any) => {
+        const offers = Number(r.offers) || 0;
+        const converted = Number(r.converted) || 0;
+        return {
+          reason: r.reason,
+          offers,
+          converted,
+          conversion_pct: offers > 0 ? +((converted / offers) * 100).toFixed(1) : 0,
+        };
+      });
+      const offers = by_reason.reduce((a, b) => a + b.offers, 0);
+      const converted = by_reason.reduce((a, b) => a + b.converted, 0);
+      return {
+        window_days: windowDays,
+        attribution_days: attrDays,
+        total: {
+          offers,
+          converted,
+          conversion_pct: offers > 0 ? +((converted / offers) * 100).toFixed(1) : 0,
+        },
+        by_reason,
       };
     });
   }

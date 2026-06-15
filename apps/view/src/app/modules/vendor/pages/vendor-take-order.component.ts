@@ -827,12 +827,17 @@ export class VendorTakeOrderComponent implements OnInit {
     });
   }
 
+  /** Registra la oferta (items+reason) una sola vez por apertura — no en recálculos por carrito. */
+  private offerLogged = false;
+
   /** Trae las sugerencias de Thot (cart-aware). Best-effort: si falla, queda el fallback local. */
   private loadSuggestions(): void {
     if (!this.customerId) return;
     const cartIds = this.cartLines().map((l) => l.product_id);
+    const logChannel = this.offerLogged ? undefined : 'vendor';
+    this.offerLogged = true;
     this.api
-      .thotSuggest(this.customerId, cartIds, 40)
+      .thotSuggest(this.customerId, cartIds, 40, logChannel)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (s) => this.suggestions.set(s),

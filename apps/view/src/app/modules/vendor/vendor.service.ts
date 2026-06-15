@@ -437,9 +437,16 @@ export class VendorService {
    * Si pasás `cartProductIds`, las sugerencias se vuelven cart-aware ("completá la canasta").
    * Best-effort: si el motor/feature store no está, el caller cae a su lista local.
    */
-  thotSuggest(customerId: string, cartProductIds: string[] = [], limit = 40): Observable<ThotSuggestion[]> {
+  thotSuggest(
+    customerId: string,
+    cartProductIds: string[] = [],
+    limit = 40,
+    logChannel?: string,
+  ): Observable<ThotSuggestion[]> {
     let p = new HttpParams().set('limit', String(limit));
     if (cartProductIds.length) p = p.set('cart', cartProductIds.join(','));
+    // log solo en la carga inicial → registra la oferta (items+reason) para el feedback loop.
+    if (logChannel) p = p.set('log', logChannel);
     return this.http.get<ThotSuggestion[]>(
       `${this.base}/intelligence/thot/suggest/${customerId}`,
       { params: p },
