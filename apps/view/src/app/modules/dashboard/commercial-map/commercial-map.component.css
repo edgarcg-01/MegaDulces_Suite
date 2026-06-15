@@ -433,3 +433,114 @@
 .cm-lightbox-close:hover {
   transform: scale(1.1);
 }
+
+/* ── Superbuscador de productos ────────────────────────────────── */
+.cm-superbuscador {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.cm-pb-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1;
+  min-width: 200px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  background: var(--card-bg);
+}
+.cm-pb-input i {
+  color: var(--text-color-secondary);
+  font-size: 0.85rem;
+}
+.cm-pb-input input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 0.88rem;
+  color: var(--text-color);
+  width: 100%;
+}
+.cm-pb-smart {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-color-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cm-pb-smart i {
+  color: var(--ai-accent, var(--action));
+}
+
+/* ── Panel de resultados de búsqueda ───────────────────────────── */
+.cm-pb-products {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.cm-pb-prod-chip {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-ground, rgba(0, 0, 0, 0.05));
+  color: var(--text-color);
+}
+.cm-res-store {
+  border-bottom: 1px solid var(--border-color);
+}
+.cm-res-store-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.cm-res-store-head:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.03));
+}
+.cm-res-store-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-color);
+  min-width: 0;
+}
+.cm-res-store-name small {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--text-color-secondary);
+}
+.cm-res-visit {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  padding: 0.3rem 0.85rem 0.45rem 1.4rem;
+  font-size: 0.74rem;
+  color: var(--text-color-secondary);
+}
+.cm-res-visit-date {
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+}
+.cm-res-visit-prods {
+  flex-basis: 100%;
+  color: var(--ok-soft-fg, #166534);
+  font-size: 0.7rem;
+}

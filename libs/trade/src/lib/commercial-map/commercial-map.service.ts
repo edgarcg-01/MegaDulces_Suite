@@ -246,9 +246,10 @@ export class CommercialMapService {
 
     let storeQ = this.knex('stores as s')
       .leftJoin('zones as z', 'z.id', 's.zona_id')
+      .leftJoin('catalogs as c', 'c.id', 's.ruta_id')
       .where('s.id', storeId)
       .whereNull('s.deleted_at')
-      .select('s.id', 's.nombre', 's.direccion', 's.zona_id', 'z.name as zona');
+      .select('s.id', 's.nombre', 's.direccion', 's.zona_id', 'z.name as zona', 'c.value as ruta');
     if (tenantId) storeQ = storeQ.where('s.tenant_id', tenantId);
     const store = await storeQ.first();
     if (!store) throw new NotFoundException('Tienda no encontrada.');
@@ -346,6 +347,7 @@ export class CommercialMapService {
         nombre: store.nombre,
         direccion: store.direccion,
         zona: store.zona || '',
+        ruta: store.ruta || '',
         totalVisitas: visits.length,
         ultimaVisita,
         diasSinVisita,
@@ -355,6 +357,182 @@ export class CommercialMapService {
         unknownTotal,
       },
       visits,
+    };
+  }
+
+  /**
+   * Presencia de producto: dado `q` (contains ILIKE) o `product_ids` ya resueltos
+   * (ej. del matcher IA, vía FE), devuelve las tiendas y las VISITAS donde esos
+   * productos aparecen en `exhibiciones[].productosMarcados`. Store-céntrico
+   * (tenant + zona del requester, sin filtro own/team), igual que el resto del módulo.
+   */
+  async getProductPresence(
+    filters: { q?: string; product_ids?: string[]; date_from?: string; date_to?: string },
+    user: any,
+  ) {
+    const tenantId = this.tenantId(user);
+    const requesterZonaId = await this.getRequesterZonaId(user);
+    const empty = { products: [], stores: [], totalStores: 0, totalVisits: 0 };
+
+    // 1) Resolver product ids + metadata (marca para display).
+    let products: any[];
+    const explicitIds = (filters.product_ids || []).filter((id) =>
+      CommercialMapService.UUID_RE.test(id),
+    );
+    if (explicitIds.length > 0) {
+      let pQ = this.knex('products as p')
+        .leftJoin('brands as b', 'b.id', 'p.brand_id')
+        .whereIn('p.id', explicitIds)
+        .select('p.id', 'p.nombre', 'b.nombre as brand_name');
+      if (tenantId) pQ = pQ.where('p.tenant_id', tenantId);
+      products = await pQ;
+    } else if (filters.q && filters.q.trim().length >= 2) {
+      const term = `%${filters.q.trim()}%`;
+      let pQ = this.knex('products as p')
+        .leftJoin('brands as b', 'b.id', 'p.brand_id')
+        .whereNull('p.deleted_at')
+        .where((bx: Knex.QueryBuilder) =>
+          bx
+            .where('p.nombre', 'ilike', term)
+            .orWhere('p.sku', 'ilike', term)
+            .orWhere('p.barcode', 'ilike', term),
+        )
+        .select('p.id', 'p.nombre', 'b.nombre as brand_name')
+        .orderBy('p.nombre', 'asc')
+        .limit(40);
+      if (tenantId) pQ = pQ.where('p.tenant_id', tenantId);
+      products = await pQ;
+    } else {
+      return empty;
+    }
+
+    const productIds: string[] = products.map((p: any) => p.id);
+    if (productIds.length === 0) return empty;
+    const productNameMap: Record<string, string> = {};
+    products.forEach((p: any) => (productNameMap[p.id] = p.nombre));
+
+    // 2) Capturas que contienen alguno de esos productos (contención JSONB, GIN-friendly).
+    const orClauses = productIds.map(() => 'dc.exhibiciones @> ?::jsonb').join(' OR ');
+    const containParams = productIds.map((id) =>
+      JSON.stringify([{ productosMarcados: [id] }]),
+    );
+    let cQ = this.knex('daily_captures as dc')
+      .whereNotNull('dc.store_id')
+      .whereRaw(`(${orClauses})`, containParams)
+      .select(
+        'dc.id',
+        'dc.store_id',
+        'dc.folio',
+        'dc.hora_inicio',
+        'dc.captured_by_username',
+        'dc.exhibiciones',
+        'dc.latitud',
+        'dc.longitud',
+      )
+      .orderBy('dc.hora_inicio', 'desc');
+    if (tenantId) cQ = cQ.where('dc.tenant_id', tenantId);
+    if (filters.date_from)
+      cQ.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?", [
+        filters.date_from,
+      ]);
+    if (filters.date_to)
+      cQ.whereRaw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?", [
+        filters.date_to,
+      ]);
+    const caps = await cQ;
+
+    // 3) Tiendas visibles (tenant + zona) → ruta/zona/coord master + acota lo visible.
+    let sQ = this.knex('stores as s')
+      .leftJoin('zones as z', 'z.id', 's.zona_id')
+      .leftJoin('catalogs as c', 'c.id', 's.ruta_id')
+      .whereNull('s.deleted_at')
+      .select(
+        's.id',
+        's.nombre',
+        's.latitud',
+        's.longitud',
+        'z.name as zona',
+        'c.value as ruta',
+      );
+    if (tenantId) sQ = sQ.where('s.tenant_id', tenantId);
+    if (requesterZonaId) sQ = sQ.where('s.zona_id', requesterZonaId);
+    const stores = await sQ;
+    const storeMap = new Map<string, any>();
+    stores.forEach((s: any) => storeMap.set(s.id, s));
+
+    // 4) Agrupar por tienda visible + coord híbrida + productos que matchearon por visita.
+    const idSet = new Set(productIds);
+    const grouped = new Map<string, any>();
+    for (const r of caps) {
+      const s = storeMap.get(r.store_id);
+      if (!s) continue; // tienda fuera de la zona/tenant del requester → descartar
+      let g = grouped.get(r.store_id);
+      if (!g) {
+        g = {
+          id: s.id,
+          nombre: s.nombre,
+          ruta: s.ruta || '',
+          zona: s.zona || '',
+          lat: s.latitud != null ? Number(s.latitud) : null,
+          lng: s.longitud != null ? Number(s.longitud) : null,
+          coordTime: -1,
+          lastSeen: null,
+          visits: [],
+        };
+        grouped.set(r.store_id, g);
+      }
+      const matchedIds = new Set<string>();
+      for (const e of CommercialMapService.parseArray(r.exhibiciones)) {
+        for (const pid of e.productosMarcados || []) {
+          if (idSet.has(pid)) matchedIds.add(pid);
+        }
+      }
+      const matchedProducts = [...matchedIds]
+        .map((pid) => productNameMap[pid])
+        .filter(Boolean);
+      g.visits.push({
+        capture_id: r.id,
+        folio: r.folio,
+        fecha: toMxDateKey(r.hora_inicio),
+        hora_inicio: r.hora_inicio,
+        usuario: r.captured_by_username,
+        matchedProducts,
+        matchedCount: matchedProducts.length,
+      });
+      if (!g.lastSeen || r.hora_inicio > g.lastSeen) g.lastSeen = r.hora_inicio;
+      // Fallback coord: si la tienda no tiene coord master, usar la última GPS de captura.
+      const t = r.hora_inicio ? new Date(r.hora_inicio).getTime() : 0;
+      if (s.latitud == null && r.latitud != null && t > g.coordTime) {
+        g.lat = Number(r.latitud);
+        g.lng = Number(r.longitud);
+        g.coordTime = t;
+      }
+    }
+
+    const resultStores = [...grouped.values()]
+      .map((g) => ({
+        id: g.id,
+        nombre: g.nombre,
+        ruta: g.ruta,
+        zona: g.zona,
+        lat: g.lat,
+        lng: g.lng,
+        located: g.lat != null && g.lng != null,
+        visitCount: g.visits.length,
+        lastSeen: g.lastSeen ? toMxDateKey(g.lastSeen) : null,
+        visits: g.visits,
+      }))
+      .sort((a, b) => b.visitCount - a.visitCount);
+
+    return {
+      products: products.map((p: any) => ({
+        id: p.id,
+        nombre: p.nombre,
+        brand_name: p.brand_name || '',
+      })),
+      stores: resultStores,
+      totalStores: resultStores.length,
+      totalVisits: resultStores.reduce((n, s) => n + s.visitCount, 0),
     };
   }
 }

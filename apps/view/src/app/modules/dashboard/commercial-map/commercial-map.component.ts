@@ -14,6 +14,7 @@ import {
   HistoryVisit,
   MapStore,
   Presence,
+  ProductPresence,
   StoreHistory,
 } from './commercial-map.service';
 
@@ -70,9 +71,17 @@ export class CommercialMapComponent implements OnInit {
     return v ? `Visita · ${v.fecha ?? ''}` : 'Visita';
   });
   readonly storeName = computed(() => this.detail()?.store?.nombre ?? '');
+  readonly storeRuta = computed(() => this.detail()?.store?.ruta ?? '');
 
   readonly showImagePreview = signal(false);
   readonly previewImageUrl = signal('');
+
+  // Superbuscador de productos.
+  readonly productQuery = signal('');
+  readonly smartSearch = signal(false);
+  readonly searching = signal(false);
+  readonly searchActive = signal(false);
+  readonly searchResult = signal<ProductPresence | null>(null);
 
   readonly presenceOptions: { label: string; value: PresenceFilter }[] = [
     { label: 'Todas', value: 'any' },
@@ -106,8 +115,20 @@ export class CommercialMapComponent implements OnInit {
     return list;
   });
 
-  readonly mapMarkers = computed<MapMarker[]>(() =>
-    this.filteredStores()
+  readonly mapMarkers = computed<MapMarker[]>(() => {
+    // Búsqueda de producto activa → solo las tiendas donde aparece (resaltadas).
+    if (this.searchActive()) {
+      return (this.searchResult()?.stores ?? [])
+        .filter((s) => s.located)
+        .map((s) => ({
+          id: s.id,
+          lat: s.lat as number,
+          lng: s.lng as number,
+          color: 'var(--action)',
+          title: s.nombre,
+        }));
+    }
+    return this.filteredStores()
       .filter((s) => s.located)
       .map((s) => ({
         id: s.id,
@@ -115,8 +136,8 @@ export class CommercialMapComponent implements OnInit {
         lng: s.lng as number,
         color: this.presenceColor(s.presence),
         title: s.nombre,
-      })),
-  );
+      }));
+  });
 
   /** Conteo por presencia sobre el set completo (para la leyenda). */
   readonly presenceCounts = computed(() => {
@@ -173,6 +194,71 @@ export class CommercialMapComponent implements OnInit {
   closeDetail(): void {
     this.selectedId.set(null);
     this.detail.set(null);
+  }
+
+  /**
+   * Superbuscador: si "inteligente" está ON, interpreta el texto vía matcher IA
+   * (Voyage) → product_ids → presencia; si la IA no da match o falla, cae a
+   * contains (ILIKE) sin romper. OFF = contains directo.
+   */
+  runProductSearch(): void {
+    const q = this.productQuery().trim();
+    if (q.length < 2) return;
+    this.selectedId.set(null);
+    this.searching.set(true);
+    const dates = this.resolvePeriodDates();
+    const contains = () =>
+      this.service.productPresence({ q, ...dates }).subscribe({
+        next: (r) => this.applySearchResult(r),
+        error: () => this.searching.set(false),
+      });
+
+    if (this.smartSearch()) {
+      this.service.aiMatch(q).subscribe({
+        next: (res) => {
+          const ids = this.collectAiIds(res);
+          if (ids.length === 0) {
+            contains();
+            return;
+          }
+          this.service.productPresence({ product_ids: ids, ...dates }).subscribe({
+            next: (r) => this.applySearchResult(r),
+            error: () => contains(),
+          });
+        },
+        error: () => contains(),
+      });
+    } else {
+      contains();
+    }
+  }
+
+  clearProductSearch(): void {
+    this.productQuery.set('');
+    this.searchActive.set(false);
+    this.searchResult.set(null);
+    this.selectedId.set(null);
+  }
+
+  private applySearchResult(r: ProductPresence): void {
+    this.searchResult.set(r);
+    this.searchActive.set(true);
+    this.searching.set(false);
+  }
+
+  /** product_ids de las sugerencias IA con confianza alta/media + alternativas. */
+  private collectAiIds(res: { items?: any[] } | null): string[] {
+    const ids = new Set<string>();
+    for (const it of res?.items ?? []) {
+      const s = it?.suggested;
+      if (s?.product_id && (s.confidence === 'high' || s.confidence === 'medium')) {
+        ids.add(s.product_id);
+      }
+      for (const alt of it?.alternatives ?? []) {
+        if (alt?.product_id) ids.add(alt.product_id);
+      }
+    }
+    return [...ids];
   }
 
   /** Abre una ventana (dialog) con la descripción completa de la visita (como Seguimiento). */

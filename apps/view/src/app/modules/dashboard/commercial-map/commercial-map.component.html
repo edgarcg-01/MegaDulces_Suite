@@ -26,6 +26,46 @@
     <div class="cm-error">{{ error() }}</div>
   }
 
+  <!-- SUPERBUSCADOR DE PRODUCTOS ──────────────────────────────────── -->
+  <div class="surf-panel cm-superbuscador">
+    <span class="cm-pb-input">
+      <i class="pi pi-search" aria-hidden="true"></i>
+      <input
+        type="text"
+        [ngModel]="productQuery()"
+        (ngModelChange)="productQuery.set($event)"
+        (keydown.enter)="runProductSearch()"
+        placeholder="Buscar producto en las visitas…"
+        aria-label="Buscar producto"
+      />
+    </span>
+    <label class="cm-pb-smart" title="Interpreta el nombre con IA (sinónimos, abreviaturas, typos)">
+      <input type="checkbox" [ngModel]="smartSearch()" (ngModelChange)="smartSearch.set($event)" />
+      <i class="pi pi-bolt" aria-hidden="true"></i> Inteligente
+    </label>
+    <button
+      pButton
+      type="button"
+      label="Buscar"
+      icon="pi pi-search"
+      size="small"
+      [loading]="searching()"
+      (click)="runProductSearch()"
+    ></button>
+    @if (searchActive()) {
+      <button
+        pButton
+        type="button"
+        label="Limpiar"
+        icon="pi pi-times"
+        severity="secondary"
+        [text]="true"
+        size="small"
+        (click)="clearProductSearch()"
+      ></button>
+    }
+  </div>
+
   <!-- FILTROS + LEYENDA ─────────────────────────────────────────── -->
   <div class="surf-panel cm-filters">
     <div class="surf-panel-body cm-filters-body">
@@ -153,12 +193,12 @@
           <button
             pButton
             type="button"
-            icon="pi pi-times"
+            [icon]="searchActive() ? 'pi pi-arrow-left' : 'pi pi-times'"
             severity="secondary"
             [text]="true"
             size="small"
             (click)="closeDetail()"
-            aria-label="Cerrar detalle"
+            [attr.aria-label]="searchActive() ? 'Volver a resultados' : 'Cerrar detalle'"
           ></button>
         </div>
         <div class="surf-panel-body cm-side-body">
@@ -169,7 +209,7 @@
             @if (detail(); as d) {
             <div class="cm-store-meta">
               <p class="cm-store-addr">
-                {{ d.store.zona }}@if (d.store.direccion) { · {{ d.store.direccion }} }
+                {{ d.store.zona }}@if (d.store.ruta) { · <b>Ruta {{ d.store.ruta }}</b> }@if (d.store.direccion) { · {{ d.store.direccion }} }
               </p>
               <div class="cm-kpis">
                 <div class="cm-kpi">
@@ -214,6 +254,46 @@
               </button>
             }
             }
+          }
+        </div>
+      } @else if (searchActive()) {
+        <div class="surf-panel-head">
+          <h3><i class="pi pi-search" aria-hidden="true"></i>&nbsp;Resultados</h3>
+          <span class="comm-muted is-small">
+            {{ searchResult()?.totalStores || 0 }} tiendas · {{ searchResult()?.totalVisits || 0 }} visitas
+          </span>
+        </div>
+        <div class="surf-panel-body cm-side-body">
+          @if (searchResult()?.products?.length) {
+            <div class="cm-pb-products">
+              @for (p of searchResult()!.products; track p.id) {
+                <span class="cm-pb-prod-chip" [title]="p.brand_name">{{ p.nombre }}</span>
+              }
+            </div>
+          }
+          @if ((searchResult()?.stores?.length || 0) === 0) {
+            <div class="cm-empty">No se encontró ese producto en ninguna visita.</div>
+          }
+          @for (st of searchResult()?.stores || []; track st.id) {
+            <div class="cm-res-store">
+              <button type="button" class="cm-res-store-head" (click)="selectStore(st.id)" title="Ver tienda">
+                <span class="cm-res-store-name">
+                  {{ st.nombre }}<small>{{ st.zona }}@if (st.ruta) { · Ruta {{ st.ruta }} }</small>
+                </span>
+                <span class="cm-vchip" title="Visitas con el producto">{{ st.visitCount }}</span>
+              </button>
+              @for (vis of st.visits; track vis.capture_id) {
+                <div class="cm-res-visit">
+                  <span class="cm-res-visit-date">
+                    <i class="pi pi-calendar" aria-hidden="true"></i>&nbsp;{{ vis.fecha }}
+                  </span>
+                  <span class="cm-res-visit-user">{{ vis.usuario }}</span>
+                  @if (vis.matchedProducts.length) {
+                    <span class="cm-res-visit-prods">{{ vis.matchedProducts.join(', ') }}</span>
+                  }
+                </div>
+              }
+            </div>
           }
         </div>
       } @else {
@@ -271,7 +351,7 @@
   @if (selectedVisit(); as v) {
     <div class="cm-vd-summary">
       <span class="cm-vd-folio">{{ v.folio }}</span>
-      <span class="cm-vd-sub">{{ v.usuario }}@if (storeName()) { · {{ storeName() }} }</span>
+      <span class="cm-vd-sub">{{ v.usuario }}@if (storeName()) { · {{ storeName() }} }@if (storeRuta()) { · Ruta {{ storeRuta() }} }</span>
       <span class="cm-vd-score">Score {{ v.score }}</span>
     </div>
 

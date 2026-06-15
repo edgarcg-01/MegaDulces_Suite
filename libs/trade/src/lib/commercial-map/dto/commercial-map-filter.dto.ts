@@ -49,3 +49,29 @@ export class CommercialMapHistoryFilterDto {
   @IsDateString()
   date_to?: string;
 }
+
+/**
+ * Superbuscador de productos: `q` (contains ILIKE) O `product_ids` (CSV de UUIDs
+ * ya resueltos, ej. del matcher IA). Devuelve tiendas + visitas donde aparecen.
+ */
+export class ProductPresenceFilterDto {
+  @ApiProperty({ required: false, description: 'Texto a buscar en nombre/sku/código de barras' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiProperty({ required: false, description: 'UUIDs de producto separados por coma' })
+  @IsOptional()
+  @IsString()
+  product_ids?: string;
+
+  @ApiProperty({ required: false, description: 'YYYY-MM-DD' })
+  @IsOptional()
+  @IsDateString()
+  date_from?: string;
+
+  @ApiProperty({ required: false, description: 'YYYY-MM-DD' })
+  @IsOptional()
+  @IsDateString()
+  date_to?: string;
+}

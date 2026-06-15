@@ -19,6 +19,7 @@ import { CommercialMapService } from './commercial-map.service';
 import {
   CommercialMapHistoryFilterDto,
   CommercialMapStoresFilterDto,
+  ProductPresenceFilterDto,
 } from './dto/commercial-map-filter.dto';
 
 @ApiTags('commercial-map')
@@ -51,5 +52,21 @@ export class CommercialMapController {
     @Query() filters: CommercialMapHistoryFilterDto,
   ) {
     return this.service.getStoreHistory(id, filters, user);
+  }
+
+  @Get('product-presence')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_VER)
+  @ApiOperation({
+    summary:
+      'Superbuscador: tiendas + visitas donde aparece un producto (por texto o product_ids)',
+  })
+  getProductPresence(@ReqUser() user: any, @Query() filters: ProductPresenceFilterDto) {
+    const product_ids = filters.product_ids
+      ? filters.product_ids.split(',').map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    return this.service.getProductPresence(
+      { q: filters.q, product_ids, date_from: filters.date_from, date_to: filters.date_to },
+      user,
+    );
   }
 }
