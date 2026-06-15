@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Rotación real de Kepler → Thot (catalog.products)
+- **Análisis** `database/scripts/kepler-rotation-analysis.js` (read-only): descifra ventas en `kdm1`/`kdm2` (doc venta c2='U' c3='D' c4=10, 149k tickets POS). Top movers, **stock muerto** (existencia sin ventas → capital parado al costo) y slow movers por días de inventario. Suc 03 90d: **503 SKUs muertos = $567,877 parados**.
+- **Feed a Thot** `database/importers/kepler/import-kepler-rotation.js` (dry-run/apply): puebla `catalog.products.rotation_tier` (alta/media/baja por percentil de unidades 90d; **dead=null** → peso mínimo) + `sales_units_30d` con venta real. **3,855 productos** (alta 856 / media 1215 / baja 1307 / dead 477). Thot usa estos campos sin cambio de código → la rotación real y el stock muerto entran al score; verificado AGUA/CHURRO/Kinder=alta. (Branch 03 como referencia; sync vivo pendiente.)
+
 ### Added — Precios de venta reales de Kepler → product_prices
 - **Importer** `database/importers/kepler/import-kepler-prices.js` (dry-run/apply): fuente `md.kdpv_prod_util` (9,036 SKUs con precio escalonado por presentación + tiers de volumen). Decisión: el gradiente de precio por cliente son los **tiers de volumen** (no la presentación). Por SKU se toma su presentación principal (PZA>PAQ>CJA>KG>BTO) y sus tiers ordenados caro→barato se mapean **tier 0 → P1 (público) … → P4 (mayorista)**, rellenando listas faltantes con el mejor precio. **7,617 SKUs match, 30,468 upserts P1-P4**. Verificado: CHURRO P1 $5.35(min3)/P2 $5.08(min5)/P3-P4 $4.99(min10). tax_rate=0.16 asumido (verificar si Kepler ya incluye IVA).
 
