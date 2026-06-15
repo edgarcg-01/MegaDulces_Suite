@@ -88,6 +88,7 @@ async function req(method, path, token) {
   const store = h.body?.store;
   const visits = Array.isArray(h.body?.visits) ? h.body.visits : [];
   check('trae store con totales own/competitor/unknown', !!store && typeof store.ownTotal === 'number' && typeof store.competitorTotal === 'number', store);
+  check('store del history incluye ruta (string)', !!store && typeof store.ruta === 'string', store?.ruta);
   check('trae visits[] con exhibiciones', visits.length > 0 && Array.isArray(visits[0].exhibiciones), visits.length);
   const allExh = visits.flatMap((v) => v.exhibiciones);
   check('cada exhibición trae concepto + flag perteneceMegaDulces (bool|null)', allExh.length > 0 && allExh.every((e) => typeof e.concepto === 'string' && (e.perteneceMegaDulces === true || e.perteneceMegaDulces === false || e.perteneceMegaDulces === null)), allExh[0]);
@@ -103,6 +104,31 @@ async function req(method, path, token) {
     check('ninguna tienda devuelta pertenece al 2do tenant', Number(cross.n) === 0, cross.n);
   } else {
     console.log('  (skip: no hay 2do tenant)');
+  }
+
+  console.log('\n── 7. Superbuscador product-presence ──');
+  const pidRow = await knex.raw(
+    `SELECT pid AS product_id
+       FROM daily_captures dc,
+            jsonb_array_elements(CASE jsonb_typeof(dc.exhibiciones) WHEN 'array' THEN dc.exhibiciones ELSE '[]'::jsonb END) ex,
+            jsonb_array_elements_text(COALESCE(ex->'productosMarcados','[]'::jsonb)) pid
+      WHERE dc.tenant_id = ? LIMIT 1`, [T]);
+  const pid = pidRow.rows?.[0]?.product_id;
+  check('hay un product_id en productosMarcados', !!pid, pid);
+  if (pid) {
+    const pp = await req('GET', `/commercial-map/product-presence?product_ids=${pid}`, token);
+    check('product-presence (ids) 200', pp.status === 200, pp.status);
+    check('devuelve stores con visitas', (pp.body?.stores?.length || 0) > 0 && Array.isArray(pp.body.stores[0].visits), pp.body?.totalStores);
+    check('cada store trae ruta + located', (pp.body?.stores || []).every((s) => 'ruta' in s && typeof s.located === 'boolean'), pp.body?.stores?.[0]);
+    check('cada visita trae matchedProducts[]', Array.isArray(pp.body?.stores?.[0]?.visits?.[0]?.matchedProducts), pp.body?.stores?.[0]?.visits?.[0]);
+
+    const prod = await knex('products').where('id', pid).select('nombre').first();
+    const term = (prod?.nombre || '').split(' ').find((w) => w.length >= 3) || (prod?.nombre || '').slice(0, 3);
+    if (term) {
+      const pq = await req('GET', `/commercial-map/product-presence?q=${encodeURIComponent(term)}`, token);
+      check('product-presence (q contains) 200', pq.status === 200, pq.status);
+      check('contains resuelve productos[]', (pq.body?.products?.length || 0) > 0, { term, n: pq.body?.products?.length });
+    }
   }
 
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);

@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### Added — CM.5 · Superbuscador de productos en el Mapa Comercial + ruta de la tienda
+- **Endpoint `GET /commercial-map/product-presence`** (gate `COMMERCIAL_MAP_VER`): dado `q`
+  (contains ILIKE sobre nombre/sku/barcode) **o** `product_ids` (CSV, ej. del matcher IA),
+  devuelve las **tiendas y las visitas** donde esos productos aparecen en
+  `exhibiciones[].productosMarcados` (contención JSONB `@>`, GIN-friendly). Store-céntrico
+  (tenant + zona, sin filtro own/team); cada visita trae `matchedProducts`. Coord híbrida.
+- **Frontend**: superbuscador en `/dashboard/commercial-map` con toggle **"Inteligente"** —
+  ON interpreta el texto vía matcher IA Fase K (`/api/ai/products/match-ai`, Voyage) → product_ids
+  → presencia, con **fallback automático a contains** si la IA no da match o no está disponible.
+  Al buscar, el **mapa se filtra** a las tiendas con el producto (resaltadas) y un **panel de
+  resultados** lista cada tienda (con su ruta) → visitas donde apareció (folio/fecha/vendedor +
+  productos que matchearon); clic en tienda abre su historial; botón "Limpiar".
+- **Ruta de la tienda** ahora en la info: `getStoreHistory` devuelve `store.ruta` (join a
+  `catalogs`), mostrada en el detalle de la tienda y en el header del dialog de visita.
+- Smoke `http-commercial-map-test.js` extendido (product-presence por ids y por `q` + ruta).
+  **Requiere reinicio de la API** para registrar la ruta nueva (HMR no re-registra rutas).
+
 ### Added — Fase I.4 · Asignación de personas a un folio de inventario
 - **Permiso `COMMERCIAL_INVENTORY_ASIGNAR`** (enum BE+FE, ability.factory, permission-meta, seed + backfill a superadmin/admin/supervisor). Quién puede asignar contadores/supervisores a un folio.
 - **Migración `20260615160000`**: `commercial.inventory_count_assignments` (count_id, user_id, assignment_role counter|supervisor, assigned_by; RLS; FK cascade al folio).
