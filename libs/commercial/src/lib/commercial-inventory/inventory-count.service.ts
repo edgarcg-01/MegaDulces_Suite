@@ -92,6 +92,13 @@ export class InventoryCountService {
           `Ya existe un folio de inventario abierto para este almacén (${openExisting.folio}). Ciérralo o cancélalo primero.`,
         );
 
+      // Fuente de stock del almacén: si tiene inventory.warehouse_stock → modo
+      // 'inventory' (productos del almacén por sku); si no → 'commercial' (uuid).
+      const invCnt = await trx('inventory.warehouse_stock')
+        .where({ warehouse_id: dto.warehouse_id })
+        .count<{ n: string }[]>('* as n');
+      const stockSource = Number(invCnt[0]?.n || 0) > 0 ? 'inventory' : 'commercial';
+
       const folio = await this.nextFolio(trx);
 
       const [count] = await trx('commercial.inventory_counts')
@@ -103,6 +110,7 @@ export class InventoryCountService {
           status: 'counting',
           freeze_movements: freeze,
           blind_double_count: blind,
+          stock_source: stockSource,
           notes: dto.notes || null,
           started_at: trx.fn.now(),
           created_by: uid,
@@ -110,18 +118,30 @@ export class InventoryCountService {
         })
         .returning('*');
 
-      // Snapshot del teórico: una fila por SKU con saldo en el almacén.
-      // expected_qty = commercial.stock.quantity AL MOMENTO de abrir.
-      const snapInserted = await trx.raw(
-        `INSERT INTO commercial.inventory_count_items
-           (tenant_id, count_id, product_id, location, expected_qty, status)
-         SELECT s.tenant_id, ?, s.product_id, p.location, s.quantity, 'pending'
-           FROM commercial.stock s
-           LEFT JOIN public.products p ON p.id = s.product_id
-          WHERE s.warehouse_id = ?
-            AND s.tenant_id = public.current_tenant_id()`,
-        [count.id, dto.warehouse_id],
-      );
+      // Snapshot del teórico al abrir.
+      let snapInserted: any;
+      if (stockSource === 'inventory') {
+        // por sku desde inventory.warehouse_stock (catálogo del almacén)
+        snapInserted = await trx.raw(
+          `INSERT INTO commercial.inventory_count_items
+             (tenant_id, count_id, product_sku, location, expected_qty, status)
+           SELECT ws.tenant_id, ?, ws.sku, NULL, ws.quantity, 'pending'
+             FROM inventory.warehouse_stock ws
+            WHERE ws.warehouse_id = ? AND ws.tenant_id = public.current_tenant_id()`,
+          [count.id, dto.warehouse_id],
+        );
+      } else {
+        // por product_id desde commercial.stock
+        snapInserted = await trx.raw(
+          `INSERT INTO commercial.inventory_count_items
+             (tenant_id, count_id, product_id, location, expected_qty, status)
+           SELECT s.tenant_id, ?, s.product_id, p.location, s.quantity, 'pending'
+             FROM commercial.stock s
+             LEFT JOIN public.products p ON p.id = s.product_id
+            WHERE s.warehouse_id = ? AND s.tenant_id = public.current_tenant_id()`,
+          [count.id, dto.warehouse_id],
+        );
+      }
 
       const expectedItems = snapInserted.rowCount ?? 0;
       this.logger.log(
@@ -188,43 +208,61 @@ export class InventoryCountService {
         );
       }
 
-      // Resolver producto (por id o barcode).
-      let productId = dto.product_id;
+      // Resolver producto según la fuente del folio.
+      const isInv = count.stock_source === 'inventory';
+      let productId: string | null = dto.product_id || null;
+      let productSku: string | null = null;
       let location: string | null = null;
-      if (!productId && dto.barcode) {
-        const prod = await trx('public.products')
-          .where({ barcode: dto.barcode })
-          .first();
-        if (!prod)
-          throw new NotFoundException(
-            `Sin producto para el código de barras '${dto.barcode}'`,
-          );
-        productId = prod.id;
-        location = prod.location || null;
-      }
-      if (!UUID.test(productId!))
-        throw new BadRequestException('product_id inválido');
+      let prodName: string | null = null;
 
-      // Lock del item (o crear si es un SOBRANTE no esperado en el snapshot).
+      if (isInv) {
+        // inventory.products por barcode o sku
+        const code = String(dto.barcode || dto.product_id || '').trim();
+        if (!code) throw new BadRequestException('Se requiere barcode o sku');
+        const prod = await trx('inventory.products')
+          .where('codigo_barras', code)
+          .orWhere('sku', code)
+          .select('sku', 'nombre')
+          .first();
+        if (!prod) throw new NotFoundException(`Sin producto para '${code}'`);
+        productSku = prod.sku;
+        prodName = prod.nombre;
+      } else {
+        if (!productId && dto.barcode) {
+          const prod = await trx('public.products').where({ barcode: dto.barcode }).first();
+          if (!prod) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
+          productId = prod.id;
+          location = prod.location || null;
+        }
+        if (!UUID.test(productId!)) throw new BadRequestException('product_id inválido');
+      }
+
+      // Lock del item (o crear SOBRANTE no esperado en el snapshot).
+      const itemWhere: any = isInv
+        ? { count_id: countId, product_sku: productSku }
+        : { count_id: countId, product_id: productId };
       let item = await trx('commercial.inventory_count_items')
-        .where({ count_id: countId, product_id: productId })
+        .where(itemWhere)
         .forUpdate()
         .first();
 
       if (!item) {
-        const prod = await trx('public.products').where({ id: productId }).first();
-        if (!prod) throw new NotFoundException('Producto no encontrado');
-        [item] = await trx('commercial.inventory_count_items')
-          .insert({
-            tenant_id: trx.raw('public.current_tenant_id()'),
-            count_id: countId,
-            product_id: productId,
-            location: location ?? prod.location ?? null,
-            expected_qty: 0, // sobrante: no estaba en el teórico
-            status: 'pending',
-            updated_by: uid,
-          })
-          .returning('*');
+        const insertRow: any = {
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          count_id: countId,
+          expected_qty: 0,
+          status: 'pending',
+          updated_by: uid,
+        };
+        if (isInv) {
+          insertRow.product_sku = productSku;
+        } else {
+          const prod = await trx('public.products').where({ id: productId }).first();
+          if (!prod) throw new NotFoundException('Producto no encontrado');
+          insertRow.product_id = productId;
+          insertRow.location = location ?? prod.location ?? null;
+        }
+        [item] = await trx('commercial.inventory_count_items').insert(insertRow).returning('*');
       }
 
       // Selección de slot + segregación de funciones en el doble conteo.
@@ -259,12 +297,19 @@ export class InventoryCountService {
         .where({ id: item.id })
         .update(patch);
 
-      // Identificación del SKU (nombre/sku/location) para que el contador
-      // confirme qué escaneó — NO es dato ciego (el teórico/varianza sí se ocultan).
-      const prodInfo = await trx('public.products')
-        .where({ id: productId })
-        .select('sku', 'nombre', 'location')
-        .first();
+      // Identificación del producto para confirmar qué escaneó (no es dato ciego).
+      let sku = productSku;
+      let name = prodName;
+      let loc = location;
+      if (!isInv) {
+        const prodInfo = await trx('public.products')
+          .where({ id: productId })
+          .select('sku', 'nombre', 'location')
+          .first();
+        sku = prodInfo?.sku ?? null;
+        name = prodInfo?.nombre ?? null;
+        loc = prodInfo?.location ?? null;
+      }
 
       // Respuesta CIEGA: ni expected_qty ni varianza.
       return {
@@ -272,9 +317,9 @@ export class InventoryCountService {
         item_id: item.id,
         slot,
         product_id: productId,
-        sku: prodInfo?.sku ?? null,
-        product_name: prodInfo?.nombre ?? null,
-        location: prodInfo?.location ?? null,
+        sku,
+        product_name: name,
+        location: loc,
         quantity: dto.quantity,
       };
     });
@@ -499,15 +544,16 @@ export class InventoryCountService {
       let q = trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
         .where('i.count_id', countId);
       if (status) q = q.where('i.status', status);
       return q
         .select(
           'i.id',
           'i.product_id',
-          'p.sku',
-          'p.nombre as product_name',
-          'b.nombre as brand_name',
+          trx.raw('COALESCE(p.sku, i.product_sku) AS sku'),
+          trx.raw('COALESCE(p.nombre, ip.nombre) AS product_name'),
+          trx.raw('COALESCE(b.nombre, ip.categoria) AS brand_name'),
           'i.location',
           'i.expected_qty',
           'i.count_1',
@@ -520,7 +566,7 @@ export class InventoryCountService {
           'p.cost_base',
         )
         .orderByRaw(`CASE i.status WHEN 'discrepancy' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END`)
-        .orderBy('p.nombre', 'asc')
+        .orderByRaw('COALESCE(p.nombre, ip.nombre) ASC')
         .limit(2000);
     });
   }
@@ -685,6 +731,7 @@ export class InventoryCountService {
         );
 
       // ── Aplicar ajustes en la MISMA transacción ──
+      const isInv = count.stock_source === 'inventory';
       let adjusted = 0;
       let totalDelta = 0;
       const skippedReserved: string[] = [];
@@ -694,6 +741,23 @@ export class InventoryCountService {
         const expected = Number(it.expected_qty);
         const delta = +(finalQty - expected).toFixed(3);
         if (delta === 0) continue;
+
+        // Modo inventory: ajusta inventory.warehouse_stock por sku (upsert).
+        if (isInv) {
+          await trx('inventory.warehouse_stock')
+            .insert({
+              tenant_id: trx.raw('public.current_tenant_id()'),
+              warehouse_id: count.warehouse_id,
+              sku: it.product_sku,
+              quantity: finalQty,
+              updated_by: uid,
+            })
+            .onConflict(['tenant_id', 'warehouse_id', 'sku'])
+            .merge({ quantity: finalQty, updated_at: trx.fn.now(), updated_by: uid });
+          adjusted++;
+          totalDelta = +(totalDelta + delta).toFixed(3);
+          continue;
+        }
 
         const stockRow = await trx('commercial.stock')
           .where({ warehouse_id: count.warehouse_id, product_id: it.product_id })
