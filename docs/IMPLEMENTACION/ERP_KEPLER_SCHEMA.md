@@ -35,6 +35,25 @@ Relación con `productos_activos`: ese sync (DATABASE_URL_REMOTE_SNAPSHOT, 6,489
 - Join por SKU; idempotente (upsert por tenant+warehouse+product).
 - **Aplicado 2026-06-15**: sucursal 03 → almacén **KEPLER-03** (creado), **3,936 SKUs / 1,127,490 unidades**. La Fase I ya puede contar contra stock real.
 
+## Write-back de inventario físico (Fase I → Kepler)
+
+Kepler registra ajustes de inventario con documentos de tipo (tabla `doctype`):
+- **`PhysInv` / `PhysInv1`** (k_doc7=`ND3001`) = Physical inventory (toma física).
+- **`InvIn` / `InvIn1`** (`NA2002`, nature N/A) = entrada (sobrante).
+- **`InvOut` / `InvOut1`** (`ND0502`, nature N/D) = salida (merma).
+- Header `kdm1`: c1=sucursal, c2='N' (nature inventario), c3=A/D (dirección), c4=tipo, c6=folio, c9=fecha.
+- Líneas `kdm2`: c8=SKU, c9=cantidad, c11=presentación, c12=valor a costo.
+
+**Mapeo Fase I → Kepler** (endpoint `GET /commercial/inventory/counts/:id/kepler-export`, gate RECONCILIAR):
+- Sucursal = código del almacén `KEPLER-NN` → `NN`.
+- Por cada item con `variance != 0` del folio reconciliado:
+  - `variance < 0` (merma) → línea **InvOut**, cantidad `|variance|`.
+  - `variance > 0` (sobrante) → línea **InvIn**, cantidad `variance`.
+  - valor = `|variance| × cost_base`. Alternativa: un único PhysInv con `final_qty` (Kepler recalcula su varianza).
+- Devuelve `{folio, kepler_branch, date, lines[], summary{merma_value, sobrante_value, net_value}}`.
+
+**Limitación (importante):** NO escribe en Kepler. El ERP de producción tiene header de ~200 columnas, folio/sequencing/triggers propios y mecanismo de import desconocido — escribir directo a `kdm1/kdm2` sería riesgoso e imposible de probar acá. El endpoint produce el documento para **importar/capturar** en Kepler. Un write-back vivo real requiere conocer el API/import de Kepler. Validado contra folio de prueba en KEPLER-03 (AGUA −4→InvOut $9.93, CHURRO +5→InvIn $22.68).
+
 ## Pendiente / ideas
 
 - Confirmar con ancla real si `kdil.c9` es la existencia exacta (costos realistas lo respaldan; falta 1 SKU verificado contra la tienda).

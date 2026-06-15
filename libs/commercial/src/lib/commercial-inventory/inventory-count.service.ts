@@ -646,6 +646,78 @@ export class InventoryCountService {
     });
   }
 
+  /**
+   * Export del ajuste de un folio reconciliado al formato del ERP Kepler.
+   *
+   * Mapea las varianzas a documentos de inventario Kepler:
+   *   variance < 0 (merma)    → InvOut (nature N, dirección D)
+   *   variance > 0 (sobrante) → InvIn  (nature N, dirección A)
+   * (alternativamente un único PhysInv con la cantidad contada).
+   *
+   * NO escribe en Kepler (es el ERP de producción; estructura kdm1 de 200 cols,
+   * folio/sequencing/triggers propios). Devuelve el documento para importar o
+   * capturar en Kepler. La sucursal sale del código del almacén (KEPLER-NN → NN).
+   */
+  async keplerAdjustmentExport(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await trx('commercial.inventory_counts as c')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'c.warehouse_id')
+        .where('c.id', countId)
+        .select('c.*', 'w.code as warehouse_code')
+        .first();
+      if (!count) throw new NotFoundException('Folio no encontrado');
+      if (count.status !== 'reconciled')
+        throw new ConflictException('Solo se exporta un folio reconciliado.');
+
+      const m = /^KEPLER-(\w+)$/i.exec(count.warehouse_code || '');
+      const branch = m ? m[1] : null;
+
+      const items = await trx('commercial.inventory_count_items as i')
+        .leftJoin('public.products as p', 'p.id', 'i.product_id')
+        .where('i.count_id', countId)
+        .whereRaw('COALESCE(i.variance, 0) <> 0')
+        .select('p.sku', 'p.nombre as product_name', 'p.unit_sale', 'p.cost_base',
+          'i.expected_qty', 'i.final_qty', 'i.variance');
+
+      let mermaValue = 0, sobranteValue = 0;
+      const lines = items.map((it: any) => {
+        const variance = Number(it.variance);
+        const cost = Number(it.cost_base) || 0;
+        const value = +(Math.abs(variance) * cost).toFixed(2);
+        if (variance < 0) mermaValue += value; else sobranteValue += value;
+        return {
+          sku: it.sku,
+          product_name: it.product_name,
+          unit: it.unit_sale || 'PZA',
+          counted_qty: Number(it.final_qty),
+          expected_qty: Number(it.expected_qty),
+          variance,
+          kepler_doc: variance < 0 ? 'InvOut' : 'InvIn',
+          adjust_qty: Math.abs(variance),
+          unit_cost: cost,
+          line_value: value,
+        };
+      });
+
+      return {
+        folio: count.folio,
+        kepler_branch: branch,
+        warehouse_code: count.warehouse_code,
+        date: count.reconciled_at,
+        doc_type_hint: 'PhysInv (Physical inventory) / InvIn+InvOut',
+        lines,
+        summary: {
+          total_lines: lines.length,
+          merma_value: +mermaValue.toFixed(2),
+          sobrante_value: +sobranteValue.toFixed(2),
+          net_value: +(sobranteValue - mermaValue).toFixed(2),
+        },
+        note: 'Para importar/capturar en Kepler. No se escribe en el ERP automáticamente.',
+      };
+    });
+  }
+
   private async getCountOrThrow(trx: any, countId: string) {
     const count = await trx('commercial.inventory_counts')
       .where({ id: countId })

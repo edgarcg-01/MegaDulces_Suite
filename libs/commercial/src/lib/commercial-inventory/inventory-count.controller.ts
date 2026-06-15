@@ -89,6 +89,13 @@ export class InventoryCountController {
     return this.service.resolveItem(id, itemId, body);
   }
 
+  @Get(':id/kepler-export')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
+  @ApiOperation({ summary: 'Exportar el ajuste del folio reconciliado al formato Kepler (InvIn/InvOut/PhysInv). No escribe en el ERP.' })
+  keplerExport(@Param('id') id: string) {
+    return this.service.keplerAdjustmentExport(id);
+  }
+
   @Post(':id/reconcile')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECONCILIAR)
   @ApiOperation({ summary: 'Reconciliar: ajustar stock al físico + cerrar folio' })

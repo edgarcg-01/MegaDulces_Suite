@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Added — Write-back de Fase I → formato de ajuste Kepler (export)
+- Endpoint `GET /commercial/inventory/counts/:id/kepler-export` (gate RECONCILIAR): toma un folio de inventario **reconciliado** y emite el ajuste en formato Kepler — sucursal (de `KEPLER-NN`), y por cada varianza: `InvOut` (merma, variance<0) / `InvIn` (sobrante, variance>0) con cantidad, unidad, costo y valor; summary merma/sobrante/neto. Mapeo descifrado de `doctype`: PhysInv (ND3001) / InvIn (NA2002) / InvOut (ND0502). **No escribe en el ERP** (producción, header 200 cols, import desconocido) — produce el documento para importar/capturar. Validado: AGUA −4→InvOut $9.93, CHURRO +5→InvIn $22.68.
+
 ### Added — Proveedores reales de Kepler → suppliers + products.supplier_id
 - **Migración `20260615140000`**: tabla `catalog.suppliers` (code/name, RLS, FK tenant) + `catalog.products.supplier_id` (FK `ON DELETE SET NULL (supplier_id)` PG15+). El `category_id` previo era inconsistente (a veces proveedor real, a veces depto genérico) → queda deprecado, no se toca (usado en thot/pricing/analytics); la taxonomía real ya vive en department/product_line.
 - **Importer** `import-kepler-suppliers.js`: siembra **542 proveedores** desde `kdig` y enlaza **7,221 productos** a su proveedor real vía `kdii.c3`. Top: MONDELEZ 297 / FÁBRICAS SELECTAS 294 / DE LA ROSA 246. Verificado: AGUA→NUEVA WALT MART (antes mal como "ABARROTES"), KINDER→FERRERO, CHURRO→JUANA AYALA. (Costo de compra disponible en `kdpv_prov_prod` si se requiere; cost_base ya está poblado.)
