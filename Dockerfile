@@ -72,13 +72,16 @@ RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.m
     npx nx build api --configuration=production
 
 # ── Stage 3: Dependencias solo de producción ────────────────────────────────
-# Reusamos el node_modules ya resuelto en `deps` y solo quitamos las
-# devDependencies con `npm prune`. Sin red, ~3-5s.
-#
-# OJO: NO usar `npm dedupe` acá. En monorepos Nx el árbol ya viene plano
-# (npm hoistea por default desde v7) y dedupe NO encuentra qué eliminar →
-# se la pasa caminando el árbol completo y toma 5-7 minutos para ahorrar
-# <1MB. Ya nos pasó en CI de Railway (build 6m59s casi todo en dedupe).
+# `npm ci --omit=dev` fresco, NO `npm prune` sobre el node_modules de `deps`.
+# Prune copia el árbol completo y luego borra ~60% de los inodes (devDeps de
+# Nx/Angular/jest/karma/playwright) en overlayfs; el unlink masivo de archivos
+# pequeños tarda ~5min. `npm ci` escribe solo las prod deps en capa limpia,
+# reusando los tarballs que `deps` ya bajó al cache mount (mismo id) → sin red.
+# Replica el `npm ci` del stage `deps` (que ya corre en cada deploy) + flags.
+# `--ignore-scripts`: puppeteer no baja Chromium y sharp usa sus binarios
+# precompilados @img/* (no necesitan build script).
+# NO usar `npm dedupe`: en monorepos Nx el árbol ya viene plano y dedupe camina
+# todo el árbol 5-7min para ahorrar <1MB (build Railway 6m59s).
 FROM node:20-bookworm-slim AS prod-deps
 WORKDIR /app
 
@@ -88,9 +91,9 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
     CI=true
 
 COPY package*.json .npmrc ./
-COPY --from=deps /app/node_modules ./node_modules
 
-RUN npm prune --omit=dev --ignore-scripts
+RUN --mount=type=cache,id=s/69f64078-1678-40f4-a266-a18b61a20cde-npm,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts
 
 # ── Stage 4: Imagen final ───────────────────────────────────────────────────
 FROM node:20-slim AS runner
