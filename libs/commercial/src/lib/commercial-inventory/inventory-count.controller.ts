@@ -36,6 +36,20 @@ export class InventoryCountController {
     return this.service.listCounts(warehouseId);
   }
 
+  @Get('mine')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Folios que el contador puede contar (asignado, o folios sin contadores asignados)' })
+  myFolios() {
+    return this.service.myCountingFolios();
+  }
+
+  @Get('assignable-users')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
+  @ApiOperation({ summary: 'Usuarios asignables como contador o supervisor (?role=counter|supervisor)' })
+  assignableUsers(@Query('role') role?: string) {
+    return this.service.assignableUsers(role === 'supervisor' ? 'supervisor' : 'counter');
+  }
+
   @Post('open')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Abrir folio + snapshot del teórico (por almacén)' })
@@ -55,6 +69,23 @@ export class InventoryCountController {
   @ApiOperation({ summary: 'Avance CIEGO para el contador (sin teórico ni varianza)' })
   countProgress(@Param('id') id: string) {
     return this.service.counterProgress(id);
+  }
+
+  @Get(':id/assignments')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Contadores y supervisores asignados al folio' })
+  assignments(@Param('id') id: string) {
+    return this.service.listAssignments(id);
+  }
+
+  @Post(':id/assignments')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
+  @ApiOperation({ summary: 'Reemplazar la lista de asignados de un rol (body: {role, user_ids})' })
+  setAssignments(
+    @Param('id') id: string,
+    @Body() body: { role: 'counter' | 'supervisor'; user_ids: string[] },
+  ) {
+    return this.service.setAssignments(id, body?.role, body?.user_ids || []);
   }
 
   @Get(':id/progress')

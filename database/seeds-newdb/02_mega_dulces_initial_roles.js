@@ -54,6 +54,7 @@ exports.seed = async function (knex) {
     COMMERCIAL_INVENTORY_CONTAR: true,
     COMMERCIAL_INVENTORY_SUPERVISAR: true,
     COMMERCIAL_INVENTORY_RECONCILIAR: true,
+    COMMERCIAL_INVENTORY_ASIGNAR: true,
     COMMERCIAL_ORDERS_VER: true,
     COMMERCIAL_ORDERS_CREAR: true,
     COMMERCIAL_ORDERS_CONFIRMAR: true,
@@ -122,6 +123,7 @@ exports.seed = async function (knex) {
         // RECONCILIAR (ajuste del saldo = autoridad del dinero) queda en admin/superadmin.
         COMMERCIAL_INVENTORY_CONTAR: true,
         COMMERCIAL_INVENTORY_SUPERVISAR: true,
+        COMMERCIAL_INVENTORY_ASIGNAR: true,
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CONFIRMAR: true,
         COMMERCIAL_ORDERS_CANCELAR: true,

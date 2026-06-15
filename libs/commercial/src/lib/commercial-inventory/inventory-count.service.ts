@@ -178,6 +178,16 @@ export class InventoryCountService {
           `El folio está en estado '${count.status}'; no admite conteos.`,
         );
 
+      // Opt-in (Fase I.4): si el folio tiene contadores asignados, solo ellos cuentan.
+      const counters = await trx('commercial.inventory_count_assignments')
+        .where({ count_id: countId, assignment_role: 'counter' })
+        .select('user_id');
+      if (counters.length && !counters.some((a) => a.user_id === uid)) {
+        throw new ForbiddenException(
+          'No estás asignado como contador de este folio.',
+        );
+      }
+
       // Resolver producto (por id o barcode).
       let productId = dto.product_id;
       let location: string | null = null;
@@ -477,6 +487,90 @@ export class InventoryCountService {
         )
         .orderBy('c.created_at', 'desc')
         .limit(200);
+    });
+  }
+
+  // ───── Asignaciones de personas al folio (Fase I.4) ─────
+
+  /** Usuarios asignables como contador (CONTAR) o supervisor (SUPERVISAR). */
+  async assignableUsers(role: 'counter' | 'supervisor') {
+    const perm = role === 'supervisor'
+      ? 'COMMERCIAL_INVENTORY_SUPERVISAR'
+      : 'COMMERCIAL_INVENTORY_CONTAR';
+    return this.tk.run(async (trx) => {
+      return trx('identity.users as u')
+        .join('public.role_permissions as rp', function () {
+          this.on('rp.role_name', '=', 'u.role_name').andOn('rp.tenant_id', '=', 'u.tenant_id');
+        })
+        .where('u.activo', true)
+        .whereRaw(`(rp.permissions ->> ?)::bool = true`, [perm])
+        .select('u.id', 'u.username', 'u.nombre', 'u.role_name')
+        .orderBy('u.nombre', 'asc');
+    });
+  }
+
+  async listAssignments(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      await this.getCountOrThrow(trx, countId);
+      return trx('commercial.inventory_count_assignments as a')
+        .leftJoin('identity.users as u', 'u.id', 'a.user_id')
+        .where('a.count_id', countId)
+        .select('a.user_id', 'a.assignment_role', 'u.username', 'u.nombre');
+    });
+  }
+
+  /** Reemplaza la lista de asignados de un rol en el folio. (ASIGNAR) */
+  async setAssignments(countId: string, role: 'counter' | 'supervisor', userIds: string[]) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    if (role !== 'counter' && role !== 'supervisor')
+      throw new BadRequestException('role inválido');
+    const ids = (userIds || []).filter((id) => UUID.test(id));
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      if (count.status === 'reconciled' || count.status === 'cancelled')
+        throw new ConflictException('El folio ya está cerrado.');
+      const uid = this.userId();
+      await trx('commercial.inventory_count_assignments')
+        .where({ count_id: countId, assignment_role: role })
+        .del();
+      if (ids.length) {
+        await trx('commercial.inventory_count_assignments').insert(
+          ids.map((userId) => ({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            count_id: countId,
+            user_id: userId,
+            assignment_role: role,
+            assigned_by: uid,
+          })),
+        );
+      }
+      return { ok: true, role, count: ids.length };
+    });
+  }
+
+  /** Folios que puede contar el usuario actual: asignado como contador, o
+   *  folios sin contadores asignados (modo abierto). (CONTAR) */
+  async myCountingFolios() {
+    return this.tk.run(async (trx) => {
+      const uid = this.userId();
+      return trx('commercial.inventory_counts as c')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'c.warehouse_id')
+        .whereIn('c.status', ['counting', 'review'])
+        .andWhere(function () {
+          this.whereExists(function () {
+            this.select(trx.raw('1'))
+              .from('commercial.inventory_count_assignments as a')
+              .whereRaw('a.count_id = c.id AND a.assignment_role = ? AND a.user_id = ?', ['counter', uid]);
+          }).orWhereNotExists(function () {
+            this.select(trx.raw('1'))
+              .from('commercial.inventory_count_assignments as a2')
+              .whereRaw(`a2.count_id = c.id AND a2.assignment_role = 'counter'`);
+          });
+        })
+        .select('c.id', 'c.folio', 'c.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name', 'c.type', 'c.status')
+        .orderBy('c.created_at', 'desc')
+        .limit(100);
     });
   }
 

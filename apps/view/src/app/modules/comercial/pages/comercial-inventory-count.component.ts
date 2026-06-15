@@ -204,11 +204,12 @@ export class ComercialInventoryCountComponent {
   }
 
   private loadFolios() {
-    this.svc.listInventoryCounts()
+    // Solo los folios que me tocan: asignado como contador, o folios sin
+    // contadores asignados (modo abierto). El backend ya aplica esa regla.
+    this.svc.myCountingFolios()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (counts: InventoryCount[]) => {
-          const open = counts.filter((c) => c.status === 'counting' || c.status === 'review');
+        next: (open: InventoryCount[]) => {
           this.folios.set(open.map((c) => ({
             id: c.id,
             label: `${c.folio} · ${c.warehouse_code ?? ''} ${c.warehouse_name ?? ''}`.trim(),

@@ -12,8 +12,9 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SelectButtonModule } from 'primeng/selectbutton';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { ComercialService, InventoryCountItem, InventorySupervisorProgress } from '../comercial.service';
+import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 
@@ -28,7 +29,7 @@ import { Permission } from '../../../core/constants/permissions';
   imports: [
     CommonModule, FormsModule, RouterModule,
     ButtonModule, TableModule, TagModule, DialogModule, InputNumberModule, InputTextModule,
-    ToastModule, ConfirmDialogModule, SelectButtonModule,
+    ToastModule, ConfirmDialogModule, SelectButtonModule, MultiSelectModule,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,6 +70,26 @@ import { Permission } from '../../../core/constants/permissions';
           @if (canReconcile()) {
             <button pButton icon="pi pi-times" label="Cancelar folio" size="small" [text]="true" severity="danger" (click)="confirmCancel()"></button>
           }
+        </div>
+      }
+
+      <!-- Asignación de personas (Fase I.4) -->
+      @if (canAssign() && !isTerminal()) {
+        <div class="in-assign">
+          <div class="in-assign-col">
+            <label>Contadores asignados</label>
+            <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+                           placeholder="Todos (folio abierto)" [filter]="true" display="chip" styleClass="in-ms"
+                           (onPanelHide)="saveAssign('counter')"></p-multiSelect>
+            <small>Si no asignás ninguno, cualquiera con permiso de contar puede contar este folio.</small>
+          </div>
+          <div class="in-assign-col">
+            <label>Supervisores asignados</label>
+            <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+                           placeholder="Sin asignar" [filter]="true" display="chip" styleClass="in-ms"
+                           (onPanelHide)="saveAssign('supervisor')"></p-multiSelect>
+            <small>Responsables de este inventario (informativo).</small>
+          </div>
         </div>
       }
 
@@ -140,6 +161,11 @@ import { Permission } from '../../../core/constants/permissions';
     .in-kpi-bad .in-kpi-v { color: var(--red-600, #dc2626); }
     .in-kpi-warn .in-kpi-v { color: var(--orange-500, #f97316); }
     .in-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .in-assign { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .85rem 1rem; background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; }
+    .in-assign-col { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: .3rem; }
+    .in-assign-col label { font-size: .8rem; font-weight: 600; color: var(--text-muted,#78716c); }
+    .in-assign-col small { color: var(--text-muted,#78716c); }
+    :host ::ng-deep .in-ms { width: 100%; }
     .in-filter { margin-bottom: .75rem; }
     .in-mono { font-family: var(--font-mono, monospace); }
     .in-name { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -189,9 +215,41 @@ export class ComercialInventorySessionDetailComponent {
   });
 
   canReconcile = computed(() => this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_RECONCILIAR] === true);
+  canAssign = computed(() => this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_ASIGNAR] === true);
+
+  counterOpts = signal<{ label: string; value: string }[]>([]);
+  supervisorOpts = signal<{ label: string; value: string }[]>([]);
+  selCounters = signal<string[]>([]);
+  selSupervisors = signal<string[]>([]);
 
   constructor() {
     this.load();
+    if (this.canAssign()) this.loadAssignments();
+  }
+
+  private loadAssignments() {
+    const opt = (u: AssignableUser) => ({ label: u.nombre || u.username, value: u.id });
+    this.svc.inventoryAssignableUsers('counter').pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (us) => this.counterOpts.set(us.map(opt)) });
+    this.svc.inventoryAssignableUsers('supervisor').pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (us) => this.supervisorOpts.set(us.map(opt)) });
+    this.svc.inventoryListAssignments(this.countId).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (as) => {
+          this.selCounters.set(as.filter((a) => a.assignment_role === 'counter').map((a) => a.user_id));
+          this.selSupervisors.set(as.filter((a) => a.assignment_role === 'supervisor').map((a) => a.user_id));
+        },
+      });
+  }
+
+  saveAssign(role: 'counter' | 'supervisor') {
+    const ids = role === 'counter' ? this.selCounters() : this.selSupervisors();
+    this.svc.inventorySetAssignments(this.countId, role, ids)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.toast.add({ severity: 'success', summary: `Asignados ${r.count} ${role === 'counter' ? 'contadores' : 'supervisores'}` }),
+        error: (e) => this.toast.add({ severity: 'warn', summary: 'No se guardó', detail: e?.error?.message }),
+      });
   }
 
   load() {

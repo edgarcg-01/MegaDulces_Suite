@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Fase I.4 · Asignación de personas a un folio de inventario
+- **Permiso `COMMERCIAL_INVENTORY_ASIGNAR`** (enum BE+FE, ability.factory, permission-meta, seed + backfill a superadmin/admin/supervisor). Quién puede asignar contadores/supervisores a un folio.
+- **Migración `20260615160000`**: `commercial.inventory_count_assignments` (count_id, user_id, assignment_role counter|supervisor, assigned_by; RLS; FK cascade al folio).
+- **Backend** (endpoints en `/commercial/inventory/counts`): `GET assignable-users?role=` (usuarios cuyo rol tiene CONTAR/SUPERVISAR), `GET :id/assignments`, `POST :id/assignments` (reemplaza la lista de un rol), `GET mine` (folios que el contador puede contar). **Opt-in por folio**: si un folio tiene contadores asignados, `submitCount` solo deja contar a ellos; si no tiene ninguno, queda abierto (compat). El contador ahora ve solo sus folios (o los abiertos).
+- **Frontend**: en el detalle del folio (`/comercial/inventory/sessions/:id`), panel con dos MultiSelect — **Contadores** y **Supervisores** asignados (guarda al cerrar el panel). Visible solo con permiso ASIGNAR. La página de Conteo usa `mine` (cada contador ve lo que le toca).
+
 ### Added — Reporte de stock muerto (capital parado)
 - **Backend** `GET /commercial/analytics/dead-stock?warehouse_id=&limit=` (gate ORDERS_VER): existencia > 0 sin venta en **90 días** (`sales_units_90d = 0` estricto — NULL = rotación no computada, no se reporta) → capital parado al costo, items + resumen por almacén. Usa `catalog.products` (la vista public no expone rotación). Migración `20260615150000` agrega `sales_units_90d`; el feed de rotación Kepler ahora lo persiste (ventana 90d evita falsos positivos estacionales como el aguinaldo navideño que 30d marcaba). KEPLER-03: **473 SKUs / $1.22M parado**.
 - **Frontend** página `/comercial/dead-stock` ("Stock muerto", nav, icono alerta): KPIs (capital parado / SKUs), resumen por almacén, tabla densa (almacén/SKU/producto/marca/rotación/existencia/costo/capital) con filtro por almacén y paginación. Accionable para compras (liquidar / dejar de surtir).

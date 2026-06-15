@@ -602,6 +602,22 @@ export class ComercialService {
     return this.http.get<InventoryCounterProgress>(`${this.base}/inventory/counts/${countId}/count-progress`);
   }
 
+  myCountingFolios() {
+    return this.http.get<InventoryCount[]>(`${this.base}/inventory/counts/mine`);
+  }
+
+  inventoryAssignableUsers(role: 'counter' | 'supervisor') {
+    return this.http.get<AssignableUser[]>(`${this.base}/inventory/counts/assignable-users`, { params: new HttpParams().set('role', role) });
+  }
+
+  inventoryListAssignments(countId: string) {
+    return this.http.get<InventoryAssignment[]>(`${this.base}/inventory/counts/${countId}/assignments`);
+  }
+
+  inventorySetAssignments(countId: string, role: 'counter' | 'supervisor', userIds: string[]) {
+    return this.http.post<{ ok: boolean; role: string; count: number }>(`${this.base}/inventory/counts/${countId}/assignments`, { role, user_ids: userIds });
+  }
+
   // Supervisor / reconciliador
   inventorySupervisorProgress(countId: string) {
     return this.http.get<InventorySupervisorProgress>(`${this.base}/inventory/counts/${countId}/progress`);
@@ -672,6 +688,20 @@ export interface InventoryCount {
   started_at?: string;
   closed_at?: string;
   created_at?: string;
+}
+
+export interface AssignableUser {
+  id: string;
+  username: string;
+  nombre: string | null;
+  role_name: string;
+}
+
+export interface InventoryAssignment {
+  user_id: string;
+  assignment_role: 'counter' | 'supervisor';
+  username: string | null;
+  nombre: string | null;
 }
 
 export interface InventoryCounterProgress {
