@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Added — Precios de venta reales de Kepler → product_prices
+- **Importer** `database/importers/kepler/import-kepler-prices.js` (dry-run/apply): fuente `md.kdpv_prod_util` (9,036 SKUs con precio escalonado por presentación + tiers de volumen). Decisión: el gradiente de precio por cliente son los **tiers de volumen** (no la presentación). Por SKU se toma su presentación principal (PZA>PAQ>CJA>KG>BTO) y sus tiers ordenados caro→barato se mapean **tier 0 → P1 (público) … → P4 (mayorista)**, rellenando listas faltantes con el mejor precio. **7,617 SKUs match, 30,468 upserts P1-P4**. Verificado: CHURRO P1 $5.35(min3)/P2 $5.08(min5)/P3-P4 $4.99(min10). tax_rate=0.16 asumido (verificar si Kepler ya incluye IVA).
+
 ### Fixed — FKs compuestas ON DELETE SET NULL anulaban tenant_id (bug sistémico)
 - Migración `20260615120000`: **31 FKs** en commercial/logistics/trade tenían `FOREIGN KEY (tenant_id, X) REFERENCES ... ON DELETE SET NULL`, que al borrar el padre intentaba poner NULL en `tenant_id` (NOT NULL) → crash (vivido al borrar pedidos: `shipments`). Recreadas con la forma de Postgres 15+ `ON DELETE SET NULL (X)` que anula **solo** las columnas no-tenant. Migración dinámica + idempotente (no toca las ya corregidas). 0 FKs buggy restantes.
 
