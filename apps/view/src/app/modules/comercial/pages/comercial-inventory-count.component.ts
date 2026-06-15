@@ -8,8 +8,13 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryCount, InventoryCounterProgress, InventoryCountResult } from '../comercial.service';
+
+interface BarcodeDet {
+  detect: (src: CanvasImageSource) => Promise<{ rawValue: string }[]>;
+}
 
 interface FeedEntry {
   sku: string | null;
@@ -38,6 +43,7 @@ interface FeedEntry {
     InputTextModule,
     TagModule,
     ToastModule,
+    TooltipModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -89,17 +95,32 @@ interface FeedEntry {
           <!-- Captura -->
           <div class="ic-capture">
             <label class="ic-label">Código de barras</label>
-            <input
-              #codeInput
-              pInputText
-              type="text"
-              inputmode="numeric"
-              autocomplete="off"
-              [(ngModel)]="code"
-              (keydown.enter)="onCodeEnter()"
-              placeholder="Escaneá o tecleá el código"
-              class="ic-input ic-input-code"
-            />
+            <div class="ic-code-row">
+              <input
+                #codeInput
+                pInputText
+                type="text"
+                inputmode="numeric"
+                autocomplete="off"
+                [(ngModel)]="code"
+                (keydown.enter)="onCodeEnter()"
+                placeholder="Escaneá, tecleá o usá la cámara"
+                class="ic-input ic-input-code"
+              />
+              @if (scanSupported()) {
+                <button pButton type="button" icon="pi pi-camera" class="ic-scan-btn"
+                        pTooltip="Escanear con la cámara" (click)="startScan()"></button>
+              }
+            </div>
+
+            <!-- Overlay de cámara -->
+            @if (scanning()) {
+              <div class="ic-scan-overlay">
+                <video #scanVideo class="ic-scan-video" playsinline muted></video>
+                <div class="ic-scan-frame"></div>
+                <button pButton label="Cancelar" icon="pi pi-times" severity="secondary" class="ic-scan-cancel" (click)="stopScan()"></button>
+              </div>
+            }
 
             <label class="ic-label">Cantidad física</label>
             <p-inputNumber
@@ -150,6 +171,14 @@ interface FeedEntry {
     </div>
   `,
   styles: [`
+    .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
+    .ic-code-row .ic-input-code { flex: 1; }
+    :host ::ng-deep .ic-scan-btn { min-width: 56px; }
+    :host ::ng-deep .ic-scan-btn .p-button-icon { font-size: 1.4rem; }
+    .ic-scan-overlay { position: relative; margin-top: .6rem; border-radius: 12px; overflow: hidden; background: #000; }
+    .ic-scan-video { width: 100%; max-height: 50vh; object-fit: cover; display: block; }
+    .ic-scan-frame { position: absolute; inset: 18% 12%; border: 3px solid rgba(255,255,255,.85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,.25); pointer-events: none; }
+    .ic-scan-cancel { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); }
     .ic-page { max-width: 560px; margin: 0 auto; }
     .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #78716c); }
     .ic-empty i { font-size: 2.5rem; opacity: .5; display: block; margin-bottom: .75rem; }
@@ -184,6 +213,14 @@ export class ComercialInventoryCountComponent {
 
   @ViewChild('codeInput') codeInput?: ElementRef<HTMLInputElement>;
   @ViewChild('qtyInput', { read: ElementRef }) qtyInput?: ElementRef<HTMLElement>;
+  @ViewChild('scanVideo') scanVideo?: ElementRef<HTMLVideoElement>;
+
+  // Escaneo por cámara (BarcodeDetector nativo — Android Chrome / webview).
+  scanSupported = signal(typeof window !== 'undefined' && 'BarcodeDetector' in window);
+  scanning = signal(false);
+  private stream?: MediaStream;
+  private detector?: BarcodeDet;
+  private rafId?: number;
 
   folios = signal<{ id: string; label: string }[]>([]);
   selectedFolioId = signal<string | null>(null);
@@ -202,6 +239,65 @@ export class ComercialInventoryCountComponent {
 
   constructor() {
     this.loadFolios();
+    this.destroyRef.onDestroy(() => this.stopScan());
+  }
+
+  // ───── Escaneo por cámara ─────
+  async startScan() {
+    if (!this.scanSupported()) {
+      this.toast.add({ severity: 'info', summary: 'Tu dispositivo no soporta escaneo por cámara', detail: 'Usá un lector o tecleá el código.' });
+      return;
+    }
+    this.scanning.set(true);
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+      // esperar a que el <video> se renderice
+      setTimeout(async () => {
+        const v = this.scanVideo?.nativeElement;
+        if (!v) return;
+        v.srcObject = this.stream!;
+        await v.play().catch(() => {});
+        const Det = (window as unknown as { BarcodeDetector: new (o?: unknown) => BarcodeDet }).BarcodeDetector;
+        this.detector = new Det({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'] });
+        this.detectLoop();
+      }, 80);
+    } catch {
+      this.scanning.set(false);
+      this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la cámara', detail: 'Revisá los permisos.' });
+    }
+  }
+
+  private async detectLoop() {
+    const v = this.scanVideo?.nativeElement;
+    if (!this.scanning() || !v || !this.detector) return;
+    try {
+      const codes = await this.detector.detect(v);
+      if (codes && codes.length && codes[0].rawValue) {
+        this.onScanned(codes[0].rawValue);
+        return;
+      }
+    } catch { /* frame sin código */ }
+    this.rafId = requestAnimationFrame(() => this.detectLoop());
+  }
+
+  private onScanned(raw: string) {
+    this.code.set(raw.trim());
+    if (navigator.vibrate) navigator.vibrate(80);
+    this.stopScan();
+    // saltar a cantidad
+    setTimeout(() => {
+      const el = this.qtyInput?.nativeElement?.querySelector('input') as HTMLInputElement | null;
+      el?.focus(); el?.select();
+    }, 60);
+  }
+
+  stopScan() {
+    this.scanning.set(false);
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.rafId = undefined;
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = undefined;
+    this.detector = undefined;
   }
 
   private loadFolios() {
