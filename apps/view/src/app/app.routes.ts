@@ -125,6 +125,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)]
       },
       {
+        // Fase I.3 — supervisor: lista + apertura de folios
+        path: 'inventory/sessions',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // Fase I.3 — supervisor: detalle del folio + reconciliación
+        path: 'inventory/sessions/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-session-detail.component').then(m => m.ComercialInventorySessionDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]

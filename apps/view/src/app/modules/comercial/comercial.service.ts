@@ -601,6 +601,33 @@ export class ComercialService {
   inventoryCountProgress(countId: string) {
     return this.http.get<InventoryCounterProgress>(`${this.base}/inventory/counts/${countId}/count-progress`);
   }
+
+  // Supervisor / reconciliador
+  inventorySupervisorProgress(countId: string) {
+    return this.http.get<InventorySupervisorProgress>(`${this.base}/inventory/counts/${countId}/progress`);
+  }
+
+  inventoryCountItems(countId: string, status?: string) {
+    let params = new HttpParams();
+    if (status) params = params.set('status', status);
+    return this.http.get<InventoryCountItem[]>(`${this.base}/inventory/counts/${countId}/items`, { params });
+  }
+
+  inventoryComputeDiscrepancies(countId: string) {
+    return this.http.post<{ status: string; resolved: number; discrepancies: number }>(`${this.base}/inventory/counts/${countId}/compute`, {});
+  }
+
+  inventoryResolveItem(countId: string, itemId: string, body: { final_qty: number; notes?: string }) {
+    return this.http.post<{ ok: boolean; item_id: string; final_qty: number; variance: number }>(`${this.base}/inventory/counts/${countId}/items/${itemId}/resolve`, body);
+  }
+
+  inventoryReconcile(countId: string) {
+    return this.http.post<{ status: string; folio: string; items_adjusted: number; net_delta: number }>(`${this.base}/inventory/counts/${countId}/reconcile`, {});
+  }
+
+  inventoryCancelCount(countId: string, reason?: string) {
+    return this.http.post<{ status: string; folio: string }>(`${this.base}/inventory/counts/${countId}/cancel`, { reason });
+  }
 }
 
 export interface InventoryCount {
@@ -636,6 +663,37 @@ export interface InventoryCountResult {
   product_name: string | null;
   location: string | null;
   quantity: number;
+}
+
+export interface InventorySupervisorProgress {
+  folio: string;
+  status: string;
+  coverage_pct: number;
+  total: number;
+  counted_once: number;
+  uncounted: number;
+  discrepancies: number;
+  resolved: number;
+  value_at_variance: number | string;
+  by_counter: { user_id: string; counts: number; discrepancies: number }[];
+}
+
+export interface InventoryCountItem {
+  id: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  brand_name: string | null;
+  location: string | null;
+  expected_qty: number | string;
+  count_1: number | string | null;
+  count_2: number | string | null;
+  count_3: number | string | null;
+  final_qty: number | string | null;
+  variance: number | string | null;
+  status: 'pending' | 'counted' | 'discrepancy' | 'resolved';
+  notes: string | null;
+  cost_base: number | string | null;
 }
 
 export interface RouteTicketAdmin {

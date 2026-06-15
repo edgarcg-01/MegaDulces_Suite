@@ -254,6 +254,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Cartera de ventas', icon: 'pi pi-sitemap',        route: '/comercial/cartera',        permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Inventario',        icon: 'pi pi-box',            route: '/comercial/inventory',      permission: Permission.COMMERCIAL_INVENTORY_VER },
     { label: 'Conteo físico',     icon: 'pi pi-qrcode',         route: '/comercial/inventory/count', permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
+    { label: 'Folios inventario', icon: 'pi pi-clipboard',      route: '/comercial/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
     { label: 'Catálogo',          icon: 'pi pi-shopping-bag',   route: '/comercial/products',       permission: Permission.CATALOGO_GESTIONAR },
     { label: 'Listas de precios', icon: 'pi pi-tag',            route: '/comercial/pricing',        permission: Permission.COMMERCIAL_PRICING_VER },
     { label: 'Promociones',       icon: 'pi pi-gift',           route: '/comercial/promotions',     permission: Permission.COMMERCIAL_PROMOTIONS_VER },

@@ -9,7 +9,7 @@
 | **I.0** | Schema + permisos + RLS | ✅ 2026-06-13 |
 | **I.1** | Backend (servicio + controller + guard freeze + smoke) | ✅ 2026-06-13 |
 | **I.2** | Frontend contador (handheld, conteo ciego, barcode) | ✅ 2026-06-15 |
-| I.3 | Frontend supervisor (tablero + reconciliación) | ⬜ |
+| **I.3** | Frontend supervisor (tablero + reconciliación) | ✅ 2026-06-15 |
 | I.4 | Deferred: cycle counts programados (ABC), offline, asignación de zonas, reconciliación parcial | ⬜ |
 
 ## Diagnóstico de datos (2026-06-13, prod real)
@@ -79,6 +79,14 @@ Página `/comercial/inventory/count` (`ComercialInventoryCountComponent`, mobile
 
 Backend para el contador: endpoint `GET /:id/count-progress` (gateado CONTAR, agregados ciegos), `submitCount` devuelve sku/nombre/location para confirmar el SKU escaneado (identificación, no dato ciego), y **corrección same-counter**: si el mismo contador re-escanea su `count_1` lo sobrescribe (no choca con segregación); solo un contador distinto dispara `count_2`.
 
-## Próximo
+## I.3 — Frontend supervisor (✅ 2026-06-15)
 
-I.3 frontend supervisor: tablero (avance, discrepancias, valor en riesgo) + reconciliación (tabla densa Operations, botón reconciliar). Confirmar con Edgar.
+Dos páginas (superficie Operations, tabla densa):
+- **`/comercial/inventory/sessions`** (`ComercialInventorySessionsComponent`, nav "Folios inventario", gate `SUPERVISAR`) — lista de folios + dialog **Abrir folio** (almacén, tipo full/cíclico, toggles congelar/doble-ciego).
+- **`/comercial/inventory/sessions/:id`** (`ComercialInventorySessionDetailComponent`) — KPIs (cobertura %, contados, **sin contar**, discrepancias, **valor $ en riesgo**), acciones (calcular discrepancias, **reconciliar** con confirmación — solo `RECONCILIAR`, cancelar), filtro Todos/Discrepancias/Pendientes, tabla de items (teórico/C1/C2/C3/final/varianza coloreada/estado), dialog **resolver item** (cantidad física final + motivo).
+
+Fase I = **🟢 frontend + backend completos (beta scope)**. Falta solo validación visual en browser con lector real.
+
+## Próximo (deferred I.4)
+
+Cycle counts programados (ABC), offline Dexie, asignación de zonas a contadores, reconciliación parcial por zona, 2º conteo aleatorio anti-colusión, UoM/conversión.
