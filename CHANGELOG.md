@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — CM.6 · "Productos más frecuentes" por tienda en el Mapa Comercial
+- En el detalle de tienda (`/dashboard/commercial-map`), nueva sección con los **productos que más
+  aparecen en las capturas de esa tienda** (`daily_captures.exhibiciones[].productosMarcados`):
+  ranking por **en cuántas visitas apareció** (+ veces marcado). Backend
+  `GET /commercial-map/stores/:id/top-products` (gate `COMMERCIAL_MAP_VER`, store-céntrico
+  tenant+zona). Smoke extendido.
+- **Decisión de fuente:** se evaluó el ERP Kepler (`ventas.tercero_id`) pero las tiendas auditadas
+  **no cruzan** con los clientes de venta del ERP (0/35 por código, ~7/35 por nombre — universos
+  distintos: PdV de trade vs terceros-persona del ERP). Por eso la fuente son las **capturas** (sí
+  ligadas a la tienda por `store_id`). Se revirtió la maquinaria ERP/Thot explorada (feature
+  `customer_product_history` + señal de historial en `thot.suggest`): con 3.4% de linkage no
+  aportaba. Thot queda igual.
+
 ### Added — CM.5 · Superbuscador de productos en el Mapa Comercial + ruta de la tienda
 - **Endpoint `GET /commercial-map/product-presence`** (gate `COMMERCIAL_MAP_VER`): dado `q`
   (contains ILIKE sobre nombre/sku/barcode) **o** `product_ids` (CSV, ej. del matcher IA),

@@ -70,7 +70,6 @@ export class CommercialMapComponent implements OnInit {
 
   readonly topProducts = signal<StoreTopProducts | null>(null);
   readonly loadingTopProducts = signal(false);
-  readonly topPeriod = computed(() => this.topProducts()?.period_days ?? null);
 
   readonly selectedVisit = signal<HistoryVisit | null>(null);
   readonly showVisitDialog = signal(false);

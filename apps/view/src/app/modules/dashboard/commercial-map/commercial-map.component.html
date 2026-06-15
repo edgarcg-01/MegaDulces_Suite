@@ -239,32 +239,27 @@
               }
             </div>
 
-            <!-- Productos más pedidos (motor Thot · ventas reales del ERP) -->
+            <!-- Productos más frecuentes (desde las capturas de la tienda) -->
             <div class="cm-tp">
               <div class="cm-tp-head">
-                <span><i class="pi pi-bolt" aria-hidden="true"></i>&nbsp;Productos más pedidos</span>
-                @if (topPeriod(); as pd) {
-                  <small>· últimos {{ pd }} d</small>
-                }
+                <span><i class="pi pi-bolt" aria-hidden="true"></i>&nbsp;Productos más frecuentes</span>
               </div>
               @if (loadingTopProducts()) {
                 <p-skeleton height="80px"></p-skeleton>
               } @else {
                 @if (topProducts(); as tp) {
-                  @if (!tp.linked) {
-                    <div class="cm-tp-empty">Sin cliente comercial ligado a esta tienda.</div>
-                  } @else if (tp.items.length === 0) {
-                    <div class="cm-tp-empty">Sin ventas registradas en el ERP para esta tienda.</div>
+                  @if (tp.items.length === 0) {
+                    <div class="cm-tp-empty">Sin productos capturados en esta tienda.</div>
                   } @else {
                     <ol class="cm-tp-list">
-                      @for (it of tp.items; track it.sku) {
+                      @for (it of tp.items; track it.product_id; let i = $index) {
                         <li class="cm-tp-row">
-                          <span class="cm-tp-rank">{{ it.rank }}</span>
+                          <span class="cm-tp-rank">{{ i + 1 }}</span>
                           <span class="cm-tp-name">
-                            {{ it.product_name || it.sku }}@if (it.brand_name) { <small>{{ it.brand_name }}</small> }
+                            {{ it.product_name }}@if (it.brand_name) { <small>{{ it.brand_name }}</small> }
                           </span>
-                          <span class="cm-tp-units" title="Unidades · pedidos">
-                            {{ it.units }} u · {{ it.orders_count }}p
+                          <span class="cm-tp-units" [title]="'En ' + it.capture_count + ' de ' + tp.store_captures + ' visitas · ' + it.mark_count + ' veces marcado'">
+                            {{ it.capture_count }}/{{ tp.store_captures }} vis
                           </span>
                         </li>
                       }

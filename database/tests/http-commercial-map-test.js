@@ -131,6 +131,12 @@ async function req(method, path, token) {
     }
   }
 
+  console.log('\n── 8. Productos más frecuentes de la tienda (capturas) ──');
+  const tp = await req('GET', `/commercial-map/stores/${sid}/top-products`, token);
+  check('top-products 200', tp.status === 200, tp.status);
+  check('devuelve items[] + store_captures', Array.isArray(tp.body?.items) && typeof tp.body?.store_captures === 'number', { n: tp.body?.items?.length, caps: tp.body?.store_captures });
+  check('cada item trae capture_count + product_name', (tp.body?.items || []).every((it) => typeof it.capture_count === 'number' && typeof it.product_name === 'string'), tp.body?.items?.[0]);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

@@ -113,25 +113,16 @@ export interface ProductOption {
 }
 
 export interface StoreTopProduct {
-  product_id: string | null;
-  sku: string;
-  product_name: string | null;
+  product_id: string;
+  product_name: string;
   brand_name: string | null;
-  units: number;
-  revenue: number;
-  orders_count: number;
-  last_purchased_at: string | null;
-  recency_days: number | null;
-  rank: number;
+  capture_count: number; // en cuántas visitas apareció
+  mark_count: number; // veces marcado en total
+  last_seen: string | null;
 }
 
 export interface StoreTopProducts {
-  linked: boolean;
-  customer_id?: string;
-  customer_code?: string;
-  customer_name?: string;
-  period_days?: number | null;
-  computed_at?: string | null;
+  store_captures: number; // total de visitas de la tienda
   items: StoreTopProduct[];
 }
 
@@ -205,10 +196,8 @@ export class CommercialMapService {
     );
   }
 
-  /** Productos más pedidos por esta tienda (motor Thot: store→customer→historial ERP). */
+  /** Productos más frecuentes de la tienda (desde productosMarcados de sus capturas). */
   getStoreTopProducts(storeId: string): Observable<StoreTopProducts> {
-    return this.http.get<StoreTopProducts>(
-      `${environment.apiUrl}/commercial/intelligence/thot/store/${storeId}/top-products`,
-    );
+    return this.http.get<StoreTopProducts>(`${this.base}/stores/${storeId}/top-products`);
   }
 }
