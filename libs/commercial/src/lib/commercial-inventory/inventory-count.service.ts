@@ -230,12 +230,14 @@ export class InventoryCountService {
         patch.count_1 = dto.quantity;
         patch.counted_by_1 = uid;
         patch.counted_at_1 = trx.fn.now();
+      } else if (item.count_2 == null && uid && item.counted_by_1 === uid) {
+        // El MISMO contador re-escanea su propio count_1 → corrección (overwrite),
+        // no segundo conteo. El doble conteo ciego lo dispara un contador DISTINTO.
+        slot = 'count_1';
+        patch.count_1 = dto.quantity;
+        patch.counted_at_1 = trx.fn.now();
       } else {
-        // Segundo conteo: DEBE ser un contador distinto (conteo ciego válido).
-        if (item.counted_by_1 && uid && item.counted_by_1 === uid)
-          throw new ForbiddenException(
-            'El segundo conteo debe hacerlo un contador distinto al primero.',
-          );
+        // Segundo conteo: contador distinto (conteo ciego válido).
         slot = 'count_2';
         patch.count_2 = dto.quantity;
         patch.counted_by_2 = uid;
@@ -247,8 +249,24 @@ export class InventoryCountService {
         .where({ id: item.id })
         .update(patch);
 
+      // Identificación del SKU (nombre/sku/location) para que el contador
+      // confirme qué escaneó — NO es dato ciego (el teórico/varianza sí se ocultan).
+      const prodInfo = await trx('public.products')
+        .where({ id: productId })
+        .select('sku', 'nombre', 'location')
+        .first();
+
       // Respuesta CIEGA: ni expected_qty ni varianza.
-      return { ok: true, item_id: item.id, slot, product_id: productId };
+      return {
+        ok: true,
+        item_id: item.id,
+        slot,
+        product_id: productId,
+        sku: prodInfo?.sku ?? null,
+        product_name: prodInfo?.nombre ?? null,
+        location: prodInfo?.location ?? null,
+        quantity: dto.quantity,
+      };
     });
   }
 
@@ -383,6 +401,24 @@ export class InventoryCountService {
         ...agg,
         by_counter: byCounter,
       };
+    });
+  }
+
+  // Progreso CIEGO para el contador: avance sin teórico ni varianza. (CONTAR)
+  async counterProgress(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      const uid = this.userId();
+      const [agg] = await trx('commercial.inventory_count_items')
+        .where({ count_id: countId })
+        .select(
+          trx.raw('COUNT(*)::int AS total'),
+          trx.raw('COUNT(*) FILTER (WHERE count_1 IS NOT NULL)::int AS counted'),
+          trx.raw('COUNT(*) FILTER (WHERE count_1 IS NULL)::int AS remaining'),
+          trx.raw(`COUNT(*) FILTER (WHERE counted_by_1 = ? OR counted_by_2 = ? OR counted_by_3 = ?)::int AS mine`, [uid, uid, uid]),
+        );
+      return { folio: count.folio, status: count.status, ...agg };
     });
   }
 

@@ -41,9 +41,12 @@ function check(cond, msg) {
 
 const setCtx = (trx) => trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
 
-function nextSlot(item, recount) {
+// Mirror de la lógica de slot del servicio: el MISMO contador re-escaneando su
+// count_1 lo corrige (overwrite); un contador DISTINTO dispara el count_2.
+function nextSlot(item, recount, userId) {
   if (recount || (item.count_1 != null && item.count_2 != null)) return 'count_3';
   if (item.count_1 == null) return 'count_1';
+  if (item.count_2 == null && item.counted_by_1 === userId) return 'count_1';
   return 'count_2';
 }
 
@@ -52,9 +55,7 @@ async function submit(trx, countId, productId, qty, userId, recount = false) {
     .where({ count_id: countId, product_id: productId })
     .forUpdate()
     .first();
-  const slot = nextSlot(item, recount);
-  if (slot === 'count_2' && item.counted_by_1 === userId)
-    throw new Error('SEGREGATION'); // mismo contador no puede hacer el 2do
+  const slot = nextSlot(item, recount, userId);
   const patch = { status: 'counted', updated_at: trx.fn.now(), updated_by: userId };
   patch[slot] = qty;
   patch[slot.replace('count', 'counted_by')] = userId;
@@ -161,19 +162,19 @@ async function submit(trx, countId, productId, qty, userId, recount = false) {
       check(true, 'conteos registrados (items 0,1,2)');
     });
 
-    console.log('\n3. Segregación de funciones');
-    let segregationBlocked = false;
-    try {
-      await knex.transaction(async (trx) => {
-        await setCtx(trx);
-        // item3 count_1 = USER_A; intentar count_2 también USER_A
-        await submit(trx, countId, products[3].id, 10, USER_A);
-        await submit(trx, countId, products[3].id, 10, USER_A); // debe lanzar SEGREGATION
-      });
-    } catch (e) {
-      segregationBlocked = e.message === 'SEGREGATION';
-    }
-    check(segregationBlocked, 'count_2 por el mismo contador que count_1 → rechazado');
+    console.log('\n3. Corrección del mismo contador (overwrite de count_1)');
+    await knex.transaction(async (trx) => {
+      await setCtx(trx);
+      await submit(trx, countId, products[3].id, 9, USER_A); // typo
+      await submit(trx, countId, products[3].id, 10, USER_A); // corrige su propio count_1
+      const it = await trx('commercial.inventory_count_items')
+        .where({ count_id: countId, product_id: products[3].id })
+        .first();
+      check(
+        Number(it.count_1) === 10 && it.count_2 == null,
+        'mismo contador re-escanea → corrige count_1 (10), sin crear count_2',
+      );
+    });
 
     // ───── 4. Discrepancia: tercer conteo ─────
     console.log('\n4. Discrepancia (tercer conteo rompe el empate)');

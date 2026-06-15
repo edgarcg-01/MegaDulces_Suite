@@ -8,8 +8,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import {
-  InventoryCountService,
+import { InventoryCountService } from './inventory-count.service';
+import type {
   OpenCountDto,
   SubmitCountDto,
   ResolveItemDto,
@@ -48,6 +48,13 @@ export class InventoryCountController {
   @ApiOperation({ summary: 'Registrar conteo CIEGO (barcode o product_id)' })
   submit(@Param('id') id: string, @Body() body: SubmitCountDto) {
     return this.service.submitCount(id, body);
+  }
+
+  @Get(':id/count-progress')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Avance CIEGO para el contador (sin teórico ni varianza)' })
+  countProgress(@Param('id') id: string) {
+    return this.service.counterProgress(id);
   }
 
   @Get(':id/progress')

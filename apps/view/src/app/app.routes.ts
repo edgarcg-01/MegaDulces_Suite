@@ -119,6 +119,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
+        // Fase I.2 — página del contador (handheld, conteo ciego)
+        path: 'inventory/count',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]

@@ -8,7 +8,7 @@
 |---|---|---|
 | **I.0** | Schema + permisos + RLS | ✅ 2026-06-13 |
 | **I.1** | Backend (servicio + controller + guard freeze + smoke) | ✅ 2026-06-13 |
-| I.2 | Frontend contador (handheld, conteo ciego, barcode) | ⬜ |
+| **I.2** | Frontend contador (handheld, conteo ciego, barcode) | ✅ 2026-06-15 |
 | I.3 | Frontend supervisor (tablero + reconciliación) | ⬜ |
 | I.4 | Deferred: cycle counts programados (ABC), offline, asignación de zonas, reconciliación parcial | ⬜ |
 
@@ -73,6 +73,12 @@ Seed: superadmin/admin = los 3; supervisor = CONTAR+SUPERVISAR; colaborador = CO
 - **#10 reconciliación parcial por zona** — hoy es todo-o-nada por folio.
 - **#11 offline** — handheld en zonas muertas de WiFi (infra Dexie ya existe en captures).
 
+## I.2 — Frontend contador (✅ 2026-06-15)
+
+Página `/comercial/inventory/count` (`ComercialInventoryCountComponent`, mobile-first para handheld HID keyboard-wedge). Nav "Conteo físico" (icono `pi-qrcode`, gateado por `COMMERCIAL_INVENTORY_CONTAR`). Flujo de un gesto: escanear código → salta a cantidad → Enter envía → confirmación en feed → foco vuelve al código. **Conteo ciego** (usa `GET /count-progress`, que no expone teórico ni varianza). Selector de folio (folios en counting/review), barra de progreso ciega (contados/total/restantes/míos), feed de últimos 15 con badge de slot (1er/2do/reconteo).
+
+Backend para el contador: endpoint `GET /:id/count-progress` (gateado CONTAR, agregados ciegos), `submitCount` devuelve sku/nombre/location para confirmar el SKU escaneado (identificación, no dato ciego), y **corrección same-counter**: si el mismo contador re-escanea su `count_1` lo sobrescribe (no choca con segregación); solo un contador distinto dispara `count_2`.
+
 ## Próximo
 
-I.2/I.3 frontend: página de conteo mobile-first (reusa scanner barcode + match AI del wizard de captures) + tablero/reconciliación del supervisor (tabla densa, Operations design). Confirmar alcance con Edgar.
+I.3 frontend supervisor: tablero (avance, discrepancias, valor en riesgo) + reconciliación (tabla densa Operations, botón reconciliar). Confirmar con Edgar.

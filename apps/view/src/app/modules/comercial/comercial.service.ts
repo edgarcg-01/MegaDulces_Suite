@@ -582,6 +582,60 @@ export class ComercialService {
     const p = new HttpParams().set('capture_ref', captureRef);
     return this.http.get<VendorSaleLine[]>(`${this.base}/vendor-sales/reports/captura-lines`, { params: p });
   }
+
+  // ── Inventario físico (Fase I) ──────────────────────────────────────
+  listInventoryCounts(warehouseId?: string) {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http.get<InventoryCount[]>(`${this.base}/inventory/counts`, { params });
+  }
+
+  openInventoryCount(body: { warehouse_id: string; type?: 'full' | 'cycle'; freeze_movements?: boolean; blind_double_count?: boolean; notes?: string }) {
+    return this.http.post<InventoryCount & { expected_items: number }>(`${this.base}/inventory/counts/open`, body);
+  }
+
+  submitInventoryCount(countId: string, body: { product_id?: string; barcode?: string; quantity: number; recount?: boolean }) {
+    return this.http.post<InventoryCountResult>(`${this.base}/inventory/counts/${countId}/count`, body);
+  }
+
+  inventoryCountProgress(countId: string) {
+    return this.http.get<InventoryCounterProgress>(`${this.base}/inventory/counts/${countId}/count-progress`);
+  }
+}
+
+export interface InventoryCount {
+  id: string;
+  folio: string;
+  warehouse_id: string;
+  warehouse_code?: string;
+  warehouse_name?: string;
+  type: 'full' | 'cycle';
+  status: 'open' | 'counting' | 'review' | 'ready_to_reconcile' | 'reconciled' | 'cancelled';
+  freeze_movements?: boolean;
+  blind_double_count?: boolean;
+  started_at?: string;
+  closed_at?: string;
+  created_at?: string;
+}
+
+export interface InventoryCounterProgress {
+  folio: string;
+  status: string;
+  total: number;
+  counted: number;
+  remaining: number;
+  mine: number;
+}
+
+export interface InventoryCountResult {
+  ok: boolean;
+  item_id: string;
+  slot: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  location: string | null;
+  quantity: number;
 }
 
 export interface RouteTicketAdmin {
