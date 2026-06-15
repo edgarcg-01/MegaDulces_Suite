@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Fixed — FKs compuestas ON DELETE SET NULL anulaban tenant_id (bug sistémico)
+- Migración `20260615120000`: **31 FKs** en commercial/logistics/trade tenían `FOREIGN KEY (tenant_id, X) REFERENCES ... ON DELETE SET NULL`, que al borrar el padre intentaba poner NULL en `tenant_id` (NOT NULL) → crash (vivido al borrar pedidos: `shipments`). Recreadas con la forma de Postgres 15+ `ON DELETE SET NULL (X)` que anula **solo** las columnas no-tenant. Migración dinámica + idempotente (no toca las ya corregidas). 0 FKs buggy restantes.
+
 ### Changed — Limpieza de datos inventados (deja solo data real) + import logística Kepler
 - **Comercial** (`database/scripts/cleanup-invented-data.js`, transaccional dry-run/apply): borradas 1,397 filas inventadas — 354 pedidos dev (PD-*) + líneas/historial, 22 clientes TST-/DEMO- + refs (recommended_baskets/customer_360/commerce_signals), 26 productos + 5 marcas testdata (B.3.2), almacenes `INV-TEST-WH` y `TRUCK-*`, stock seed de MD-CENTRAL, 2 folios smoke. Conserva catálogo real, 2,925 clientes reales, listas de precio reales, **MD-10/30/50/CEDIS** (stock real) y **KEPLER-03**. Desliga `shipments.order_id` (FK compuesta ON DELETE SET NULL anularía `tenant_id` NOT NULL — bug de schema esquivado).
 - **Logística** (`database/scripts/logistics-clean-and-import-kepler.js`): wipe de data de prueba (241 embarques EMB-* + cascade guías/gastos/checklists/fotos, 37 choferes TEST, 39 vehículos TEST, 27 periodos de nómina, "Ruta Local Demo") + **import real de Kepler**: 8 choferes (nombres reales), 11 vehículos (placas reales), 27 rutas nuevas (25 de las 52 ya existían del import del Excel → confirma que son las rutas reales). Conserva rutas reales del Excel + config_finance. Resultado: 8 choferes / 11 unidades / 123 rutas / 0 embarques.
