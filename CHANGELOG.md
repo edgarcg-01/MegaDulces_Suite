@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added — UoM real + taxonomía de categorías de Kepler → products
+- **Mapeo descifrado** de catálogos de dimensión Kepler: `kdid`=unidad (PZA/PAQ/CJA/KG), `kdie`=departamento (DULCES/BEBIDAS/BOTANAS), `kdif`=línea (CHOCOLATE PASTELITO…), `kdig`=proveedor. Columnas: `kdii.c11`=unidad, `c4`=depto, `c5`=línea, `c3`=proveedor.
+- **Migración `20260615130000`**: + `catalog.products.department` + `product_line` (no toca `category_id`, que en realidad = proveedor).
+- **Importer** `import-kepler-uom-categories.js`: corrige `unit_sale`/`unit_purchase` desde Kepler (**7,795 productos** — el sync previo había defaulteado casi todo a PZA; ahora PAQ 5,848/PZA 4,831/KG 189, realista → **cierra el hueco de UoM de Fase I**) y puebla department/product_line (**2,210** con taxonomía real; el resto es "NO APLICA" en Kepler). Verificado: GALL ANIMALITOS=KG, Kinder=DULCES/CHOCOLATE PASTELITO, Agua=BEBIDAS/AGUA EMBOTELLADA.
+
 ### Added — Rotación real de Kepler → Thot (catalog.products)
 - **Análisis** `database/scripts/kepler-rotation-analysis.js` (read-only): descifra ventas en `kdm1`/`kdm2` (doc venta c2='U' c3='D' c4=10, 149k tickets POS). Top movers, **stock muerto** (existencia sin ventas → capital parado al costo) y slow movers por días de inventario. Suc 03 90d: **503 SKUs muertos = $567,877 parados**.
 - **Feed a Thot** `database/importers/kepler/import-kepler-rotation.js` (dry-run/apply): puebla `catalog.products.rotation_tier` (alta/media/baja por percentil de unidades 90d; **dead=null** → peso mínimo) + `sales_units_30d` con venta real. **3,855 productos** (alta 856 / media 1215 / baja 1307 / dead 477). Thot usa estos campos sin cambio de código → la rotación real y el stock muerto entran al score; verificado AGUA/CHURRO/Kinder=alta. (Branch 03 como referencia; sync vivo pendiente.)
