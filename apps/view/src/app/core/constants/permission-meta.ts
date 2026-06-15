@@ -57,6 +57,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_PRICING_GESTIONAR]: { label: 'Gestionar Precios', description: 'Crear listas y cargar/editar precios de productos.', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Inventario', description: 'Consultar stock disponible por almacén.', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_AJUSTAR]: { label: 'Ajustar Inventario', description: 'Registrar movimientos y ajustes de stock.', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_CONTAR]: { label: 'Contar (inventario físico)', description: 'Registrar conteos ciegos en un folio de inventario físico (rol contador).', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_INVENTORY_SUPERVISAR]: { label: 'Supervisar inventario físico', description: 'Abrir folios, ver avance/discrepancias y resolver. No reconcilia (rol supervisor).', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_INVENTORY_RECONCILIAR]: { label: 'Reconciliar inventario físico', description: 'Autorizar el ajuste del saldo al físico contado y cerrar el folio (rol jefe).', category: 'Comercial · Inventario físico' },
 
   // Comercial — pedidos y cobros
   [Permission.COMMERCIAL_ORDERS_VER]: { label: 'Ver Pedidos', description: 'Consultar pedidos y su detalle.', category: 'Comercial · Pedidos' },
