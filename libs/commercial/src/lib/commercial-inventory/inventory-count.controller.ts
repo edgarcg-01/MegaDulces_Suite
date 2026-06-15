@@ -43,6 +43,13 @@ export class InventoryCountController {
     return this.service.myCountingFolios();
   }
 
+  @Get('resolve')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Resolver código de barras/SKU → identificación del producto (ciego, sin existencia)' })
+  resolveProduct(@Query('barcode') barcode?: string, @Query('product_id') productId?: string) {
+    return this.service.resolveProduct(barcode, productId);
+  }
+
   @Get('assignable-users')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
   @ApiOperation({ summary: 'Usuarios asignables como contador o supervisor (?role=counter|supervisor)' })

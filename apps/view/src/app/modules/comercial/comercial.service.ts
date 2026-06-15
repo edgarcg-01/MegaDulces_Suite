@@ -606,6 +606,10 @@ export class ComercialService {
     return this.http.get<InventoryCount[]>(`${this.base}/inventory/counts/mine`);
   }
 
+  resolveInventoryProduct(barcode: string) {
+    return this.http.get<ResolvedProduct>(`${this.base}/inventory/counts/resolve`, { params: new HttpParams().set('barcode', barcode) });
+  }
+
   inventoryAssignableUsers(role: 'counter' | 'supervisor') {
     return this.http.get<AssignableUser[]>(`${this.base}/inventory/counts/assignable-users`, { params: new HttpParams().set('role', role) });
   }
@@ -711,6 +715,15 @@ export interface InventoryCounterProgress {
   counted: number;
   remaining: number;
   mine: number;
+}
+
+export interface ResolvedProduct {
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  brand_name: string | null;
+  location: string | null;
+  unit_sale: string | null;
 }
 
 export interface InventoryCountResult {

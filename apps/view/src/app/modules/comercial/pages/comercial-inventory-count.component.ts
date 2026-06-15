@@ -12,7 +12,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
-import { ComercialService, InventoryCount, InventoryCounterProgress, InventoryCountResult } from '../comercial.service';
+import { ComercialService, InventoryCount, InventoryCounterProgress, InventoryCountResult, ResolvedProduct } from '../comercial.service';
 
 interface FeedEntry {
   sku: string | null;
@@ -120,6 +120,21 @@ interface FeedEntry {
               </div>
             }
 
+            <!-- Producto reconocido -->
+            @if (resolving()) {
+              <div class="ic-prod ic-prod-loading"><i class="pi pi-spin pi-spinner"></i> Buscando producto…</div>
+            } @else if (resolved()) {
+              <div class="ic-prod ic-prod-ok">
+                <i class="pi pi-check-circle"></i>
+                <div class="ic-prod-info">
+                  <span class="ic-prod-name">{{ resolved()?.product_name }}</span>
+                  <span class="ic-prod-meta">{{ resolved()?.sku }}@if (resolved()?.brand_name) { · {{ resolved()?.brand_name }} }@if (resolved()?.location) { · ubic. {{ resolved()?.location }} }</span>
+                </div>
+              </div>
+            } @else if (notFound()) {
+              <div class="ic-prod ic-prod-bad"><i class="pi pi-exclamation-triangle"></i> Código no reconocido en el catálogo</div>
+            }
+
             <label class="ic-label">Cantidad física</label>
             <p-inputNumber
               #qtyInput
@@ -177,6 +192,15 @@ interface FeedEntry {
     .ic-scan-video { width: 100%; max-height: 50vh; object-fit: cover; display: block; }
     .ic-scan-frame { position: absolute; inset: 18% 12%; border: 3px solid rgba(255,255,255,.85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,.25); pointer-events: none; }
     .ic-scan-cancel { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); }
+    .ic-prod { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; border-radius: 12px; margin-top: .25rem; }
+    .ic-prod i { font-size: 1.4rem; }
+    .ic-prod-loading { background: var(--surface-100,#f5f5f4); color: var(--text-muted,#78716c); }
+    .ic-prod-ok { background: color-mix(in srgb, var(--green-500,#22c55e) 12%, transparent); }
+    .ic-prod-ok i { color: var(--green-600,#16a34a); }
+    .ic-prod-bad { background: color-mix(in srgb, var(--red-500,#ef4444) 12%, transparent); color: var(--red-700,#b91c1c); }
+    .ic-prod-info { display: flex; flex-direction: column; min-width: 0; }
+    .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; }
+    .ic-prod-meta { font-size: .8rem; color: var(--text-muted,#78716c); }
     .ic-page { max-width: 560px; margin: 0 auto; }
     .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #78716c); }
     .ic-empty i { font-size: 2.5rem; opacity: .5; display: block; margin-bottom: .75rem; }
@@ -227,6 +251,9 @@ export class ComercialInventoryCountComponent {
 
   code = signal<string>('');
   qty = signal<number | null>(null);
+  resolved = signal<ResolvedProduct | null>(null);
+  resolving = signal(false);
+  notFound = signal(false);
 
   pct = computed(() => {
     const p = this.progress();
@@ -272,6 +299,7 @@ export class ComercialInventoryCountComponent {
     this.code.set(raw.trim());
     if (navigator.vibrate) navigator.vibrate(80);
     this.stopScan();
+    this.resolveCode();
     setTimeout(() => {
       const el = this.qtyInput?.nativeElement?.querySelector('input') as HTMLInputElement | null;
       el?.focus(); el?.select();
@@ -308,6 +336,8 @@ export class ComercialInventoryCountComponent {
 
   onFolioChange() {
     this.feed.set([]);
+    this.code.set(''); this.qty.set(null);
+    this.resolved.set(null); this.notFound.set(false);
     this.refreshProgress();
     this.focusCode();
   }
@@ -322,10 +352,26 @@ export class ComercialInventoryCountComponent {
 
   onCodeEnter() {
     if (!this.code()) return;
+    this.resolveCode();
     // El lector mandó Enter tras el código → saltar a cantidad.
     const el = this.qtyInput?.nativeElement?.querySelector('input') as HTMLInputElement | null;
     el?.focus();
     el?.select();
+  }
+
+  /** Resuelve el código a un producto y lo muestra (confirmación tipo checador). */
+  private resolveCode() {
+    const barcode = this.code().trim();
+    if (!barcode) { this.resolved.set(null); this.notFound.set(false); return; }
+    this.resolving.set(true);
+    this.notFound.set(false);
+    this.resolved.set(null);
+    this.svc.resolveInventoryProduct(barcode)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (p) => { this.resolved.set(p); this.resolving.set(false); },
+        error: () => { this.resolving.set(false); this.notFound.set(true); },
+      });
   }
 
   onQtyKey(event: KeyboardEvent) {
@@ -339,7 +385,10 @@ export class ComercialInventoryCountComponent {
     if (!id || !barcode || quantity === null || quantity === undefined) return;
 
     this.submitting.set(true);
-    this.svc.submitInventoryCount(id, { barcode, quantity })
+    // Si ya resolvimos el producto, mandamos su id (más confiable que el código).
+    const productId = this.resolved()?.product_id;
+    const payload = productId ? { product_id: productId, quantity } : { barcode, quantity };
+    this.svc.submitInventoryCount(id, payload)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r: InventoryCountResult) => {
@@ -349,6 +398,8 @@ export class ComercialInventoryCountComponent {
           ].slice(0, 15));
           this.code.set('');
           this.qty.set(null);
+          this.resolved.set(null);
+          this.notFound.set(false);
           this.submitting.set(false);
           this.refreshProgress();
           this.focusCode();

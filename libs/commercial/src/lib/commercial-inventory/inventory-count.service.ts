@@ -414,6 +414,37 @@ export class InventoryCountService {
     });
   }
 
+  /**
+   * Resuelve un código de barras (o product_id) a la identificación del producto
+   * — nombre/sku/marca/ubicación — para que el contador confirme QUÉ escaneó.
+   * CIEGO: no devuelve existencia ni teórico. (CONTAR)
+   */
+  async resolveProduct(barcode?: string, productId?: string) {
+    return this.tk.run(async (trx) => {
+      let prod: any = null;
+      if (productId && UUID.test(productId)) {
+        prod = await trx('public.products').where({ id: productId }).first();
+      } else if (barcode && barcode.trim()) {
+        prod = await trx('public.products').where({ barcode: barcode.trim() }).first();
+        if (!prod) prod = await trx('public.products').where({ sku: barcode.trim() }).first();
+      } else {
+        throw new BadRequestException('Se requiere barcode o product_id');
+      }
+      if (!prod) throw new NotFoundException('Sin producto para ese código');
+      const brand = prod.brand_id
+        ? await trx('public.brands').where({ id: prod.brand_id }).first()
+        : null;
+      return {
+        product_id: prod.id,
+        sku: prod.sku,
+        product_name: prod.nombre,
+        brand_name: brand?.nombre ?? null,
+        location: prod.location ?? null,
+        unit_sale: prod.unit_sale ?? null,
+      };
+    });
+  }
+
   // Progreso CIEGO para el contador: avance sin teórico ni varianza. (CONTAR)
   async counterProgress(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
