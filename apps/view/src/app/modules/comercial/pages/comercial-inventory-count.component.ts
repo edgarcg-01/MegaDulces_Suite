@@ -277,14 +277,16 @@ export class ComercialInventoryCountComponent {
       const v = this.scanVideo?.nativeElement;
       if (!v) return;
       const hints = new Map();
+      // Solo los formatos reales de retail → menos trabajo por intento.
       hints.set(DecodeHintType.POSSIBLE_FORMATS, [
         BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
-        BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.ITF,
+        BarcodeFormat.CODE_128,
       ]);
-      this.reader = new BrowserMultiFormatReader(hints);
+      // delayBetweenScanAttempts 100ms (default 500) → ~10× más intentos/seg.
+      this.reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
       try {
         this.controls = await this.reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' } } },
+          { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
           v,
           (result) => { if (result) this.onScanned(result.getText()); },
         );
