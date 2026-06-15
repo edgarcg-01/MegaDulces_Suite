@@ -628,6 +628,35 @@ export class ComercialService {
   inventoryCancelCount(countId: string, reason?: string) {
     return this.http.post<{ status: string; folio: string }>(`${this.base}/inventory/counts/${countId}/cancel`, { reason });
   }
+
+  // Stock muerto (analytics)
+  deadStock(warehouseId?: string, limit?: number) {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    if (limit) params = params.set('limit', String(limit));
+    return this.http.get<DeadStockReport>(`${this.base}/analytics/dead-stock`, { params });
+  }
+}
+
+export interface DeadStockItem {
+  warehouse_code: string;
+  warehouse_name: string;
+  sku: string;
+  product_name: string;
+  brand_name: string | null;
+  rotation_tier: string | null;
+  unit_sale: string | null;
+  quantity: number;
+  cost_base: number;
+  capital_parado: number;
+}
+
+export interface DeadStockReport {
+  warehouse_id: string | null;
+  total_skus: number;
+  total_capital_parado: number;
+  by_warehouse: { warehouse_code: string; warehouse_name: string; skus: number; capital_parado: number | string }[];
+  items: DeadStockItem[];
 }
 
 export interface InventoryCount {

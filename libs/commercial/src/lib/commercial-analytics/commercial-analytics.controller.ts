@@ -108,6 +108,19 @@ export class CommercialAnalyticsController {
     return this.service.lowStock(threshold, warehouseId);
   }
 
+  @Get('dead-stock')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Stock muerto: existencia > 0 sin venta reciente (sales_units_30d=0). Capital parado al costo, por almacén. Accionable para compras (liquidar / dejar de surtir).',
+  })
+  deadStock(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.deadStock(warehouseId, limit);
+  }
+
   @Get('daily-series')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Series diarias de revenue + orders count (TZ MX)' })

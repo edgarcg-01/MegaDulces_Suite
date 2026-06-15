@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Reporte de stock muerto (capital parado)
+- **Backend** `GET /commercial/analytics/dead-stock?warehouse_id=&limit=` (gate ORDERS_VER): existencia > 0 sin venta en **90 días** (`sales_units_90d = 0` estricto — NULL = rotación no computada, no se reporta) → capital parado al costo, items + resumen por almacén. Usa `catalog.products` (la vista public no expone rotación). Migración `20260615150000` agrega `sales_units_90d`; el feed de rotación Kepler ahora lo persiste (ventana 90d evita falsos positivos estacionales como el aguinaldo navideño que 30d marcaba). KEPLER-03: **473 SKUs / $1.22M parado**.
+- **Frontend** página `/comercial/dead-stock` ("Stock muerto", nav, icono alerta): KPIs (capital parado / SKUs), resumen por almacén, tabla densa (almacén/SKU/producto/marca/rotación/existencia/costo/capital) con filtro por almacén y paginación. Accionable para compras (liquidar / dejar de surtir).
+
 ### Added — Write-back de Fase I → formato de ajuste Kepler (export)
 - Endpoint `GET /commercial/inventory/counts/:id/kepler-export` (gate RECONCILIAR): toma un folio de inventario **reconciliado** y emite el ajuste en formato Kepler — sucursal (de `KEPLER-NN`), y por cada varianza: `InvOut` (merma, variance<0) / `InvIn` (sobrante, variance>0) con cantidad, unidad, costo y valor; summary merma/sobrante/neto. Mapeo descifrado de `doctype`: PhysInv (ND3001) / InvIn (NA2002) / InvOut (ND0502). **No escribe en el ERP** (producción, header 200 cols, import desconocido) — produce el documento para importar/capturar. Validado: AGUA −4→InvOut $9.93, CHURRO +5→InvIn $22.68.
 

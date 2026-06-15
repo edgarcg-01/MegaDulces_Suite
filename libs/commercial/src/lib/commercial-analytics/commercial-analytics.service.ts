@@ -393,6 +393,70 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * Stock muerto: existencia > 0 pero sin venta reciente (rotación). Capital
+   * parado al costo. Accionable para el comprador (qué liquidar / dejar de surtir).
+   * "Muerto" = sales_units_30d = 0; rotation_tier null/baja matiza la severidad.
+   */
+  async deadStock(warehouseIdParam?: string, limitParam?: string | number) {
+    const limit = Math.min(2000, Math.max(1, Number(limitParam) || 500));
+    return this.tk.run(async (trx) => {
+      // catalog.products (tabla real) — la vista public.products no expone
+      // sales_units_30d/rotation_tier (columnas nuevas).
+      const base = trx('commercial.stock as s')
+        .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
+        .leftJoin('catalog.products as p', 'p.id', 's.product_id')
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .where('s.quantity', '>', 0)
+        // Ventana 90d (no 30d, que flaggea estacionales). = 0 estricto: NULL =
+        // rotación no computada (desconocida), no "muerto".
+        .where('p.sales_units_90d', 0);
+      if (warehouseIdParam) base.where('s.warehouse_id', warehouseIdParam);
+
+      const items = await base.clone()
+        .select(
+          's.warehouse_id',
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          's.product_id',
+          'p.sku',
+          'p.nombre as product_name',
+          'b.nombre as brand_name',
+          'p.rotation_tier',
+          'p.unit_sale',
+          's.quantity',
+          'p.cost_base',
+          trx.raw('ROUND((s.quantity * COALESCE(p.cost_base,0))::numeric, 2) AS capital_parado'),
+        )
+        .orderByRaw('(s.quantity * COALESCE(p.cost_base,0)) DESC')
+        .limit(limit);
+
+      const byWh = await base.clone()
+        .groupBy('s.warehouse_id', 'w.code', 'w.name')
+        .select(
+          'w.code as warehouse_code',
+          'w.name as warehouse_name',
+          trx.raw('COUNT(*)::int AS skus'),
+          trx.raw('ROUND(SUM(s.quantity * COALESCE(p.cost_base,0))::numeric, 2) AS capital_parado'),
+        )
+        .orderByRaw('SUM(s.quantity * COALESCE(p.cost_base,0)) DESC');
+
+      const totalCapital = byWh.reduce((acc: number, r: any) => acc + Number(r.capital_parado || 0), 0);
+      return {
+        warehouse_id: warehouseIdParam || null,
+        total_skus: items.length,
+        total_capital_parado: +totalCapital.toFixed(2),
+        by_warehouse: byWh,
+        items: items.map((r: any) => ({
+          ...r,
+          quantity: Number(r.quantity),
+          cost_base: Number(r.cost_base) || 0,
+          capital_parado: Number(r.capital_parado) || 0,
+        })),
+      };
+    });
+  }
+
+  /**
    * Productos con stock disponible (quantity - reserved) bajo threshold.
    * Útil para alertas de reposición.
    */

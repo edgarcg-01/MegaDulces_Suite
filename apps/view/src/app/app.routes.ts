@@ -142,6 +142,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]
       },
       {
+        path: 'dead-stock',
+        loadComponent: () => import('./modules/comercial/pages/comercial-dead-stock.component').then(m => m.ComercialDeadStockComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
         path: 'pricing',
         loadComponent: () => import('./modules/comercial/pages/comercial-pricing.component').then(m => m.ComercialPricingComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]

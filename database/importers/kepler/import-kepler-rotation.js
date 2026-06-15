@@ -81,8 +81,8 @@ function percentile(sorted, p) {
       const tier = tierOf(r.u90);
       dist[tier ?? 'dead']++;
       await db.query(
-        `UPDATE catalog.products SET rotation_tier=$1, sales_units_30d=$2, updated_at=now() WHERE id=$3 AND tenant_id=$4`,
-        [tier, r.u30, id, M]);
+        `UPDATE catalog.products SET rotation_tier=$1, sales_units_30d=$2, sales_units_90d=$3, updated_at=now() WHERE id=$4 AND tenant_id=$5`,
+        [tier, r.u30, r.u90, id, M]);
       updated++;
     }
 
