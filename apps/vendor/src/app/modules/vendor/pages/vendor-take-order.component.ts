@@ -857,9 +857,15 @@ export class VendorTakeOrderComponent implements OnInit {
       acceptLabel: 'Agendar', rejectLabel: 'Cancelar',
       accept: () => {
         this.submitting.set(true);
+        // El vendedor mismo toma el pedido → confirm() lo deja en pending_approval
+        // (estado pensado para preventa del cliente); lo aprobamos en el acto para
+        // que quede confirmed y entre a Carga sin un paso manual redundante.
         this.api
           .updateDraftHeader(orderId, { requested_delivery_date: this.requestedDate })
-          .pipe(switchMap(() => this.api.confirm(orderId)))
+          .pipe(
+            switchMap(() => this.api.confirm(orderId)),
+            switchMap(() => this.api.approve(orderId)),
+          )
           .subscribe({
             next: (o) => this.onDone(o),
             error: (err) => this.onError(err),
