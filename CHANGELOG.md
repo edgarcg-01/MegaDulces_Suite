@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Proveedores reales de Kepler → suppliers + products.supplier_id
+- **Migración `20260615140000`**: tabla `catalog.suppliers` (code/name, RLS, FK tenant) + `catalog.products.supplier_id` (FK `ON DELETE SET NULL (supplier_id)` PG15+). El `category_id` previo era inconsistente (a veces proveedor real, a veces depto genérico) → queda deprecado, no se toca (usado en thot/pricing/analytics); la taxonomía real ya vive en department/product_line.
+- **Importer** `import-kepler-suppliers.js`: siembra **542 proveedores** desde `kdig` y enlaza **7,221 productos** a su proveedor real vía `kdii.c3`. Top: MONDELEZ 297 / FÁBRICAS SELECTAS 294 / DE LA ROSA 246. Verificado: AGUA→NUEVA WALT MART (antes mal como "ABARROTES"), KINDER→FERRERO, CHURRO→JUANA AYALA. (Costo de compra disponible en `kdpv_prov_prod` si se requiere; cost_base ya está poblado.)
+
 ### Added — UoM real + taxonomía de categorías de Kepler → products
 - **Mapeo descifrado** de catálogos de dimensión Kepler: `kdid`=unidad (PZA/PAQ/CJA/KG), `kdie`=departamento (DULCES/BEBIDAS/BOTANAS), `kdif`=línea (CHOCOLATE PASTELITO…), `kdig`=proveedor. Columnas: `kdii.c11`=unidad, `c4`=depto, `c5`=línea, `c3`=proveedor.
 - **Migración `20260615130000`**: + `catalog.products.department` + `product_line` (no toca `category_id`, que en realidad = proveedor).
