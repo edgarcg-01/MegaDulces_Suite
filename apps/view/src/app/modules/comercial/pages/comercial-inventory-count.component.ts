@@ -68,6 +68,7 @@ interface FeedEntry {
             optionValue="id"
             placeholder="Elegí el folio"
             styleClass="ic-folio-select"
+            appendTo="body"
             (onChange)="onFolioChange()"
           ></p-select>
         </div>

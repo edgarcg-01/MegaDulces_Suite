@@ -80,6 +80,7 @@ import { Permission } from '../../../core/constants/permissions';
             <label>Contadores asignados</label>
             <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
                            placeholder="Todos (folio abierto)" [filter]="true" display="chip" styleClass="in-ms"
+                           appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
                            (onPanelHide)="saveAssign('counter')"></p-multiSelect>
             <small>Si no asignás ninguno, cualquiera con permiso de contar puede contar este folio.</small>
           </div>
@@ -87,6 +88,7 @@ import { Permission } from '../../../core/constants/permissions';
             <label>Supervisores asignados</label>
             <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
                            placeholder="Sin asignar" [filter]="true" display="chip" styleClass="in-ms"
+                           appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
                            (onPanelHide)="saveAssign('supervisor')"></p-multiSelect>
             <small>Responsables de este inventario (informativo).</small>
           </div>

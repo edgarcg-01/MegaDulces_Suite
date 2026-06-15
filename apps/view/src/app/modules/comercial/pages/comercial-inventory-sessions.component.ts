@@ -68,13 +68,17 @@ import { forkJoin } from 'rxjs';
       </p-table>
 
       <!-- Dialog: abrir folio -->
-      <p-dialog [(visible)]="dialogVisible" header="Abrir folio de inventario" [modal]="true" [style]="{ width: '440px' }">
+      <p-dialog [(visible)]="dialogVisible" header="Abrir folio de inventario" [modal]="true"
+                [draggable]="false" [dismissableMask]="true"
+                [style]="{ width: '92vw', maxWidth: '460px' }"
+                [contentStyle]="{ maxHeight: '72vh', overflow: 'auto' }"
+                [breakpoints]="{ '640px': '96vw' }">
         <div class="in-form">
           <label>Almacén</label>
-          <p-select [options]="warehouses()" [(ngModel)]="formWarehouse" optionLabel="label" optionValue="id" placeholder="Elegí el almacén" styleClass="in-w-full" [filter]="true"></p-select>
+          <p-select [options]="warehouses()" [(ngModel)]="formWarehouse" optionLabel="label" optionValue="id" placeholder="Elegí el almacén" styleClass="in-w-full" [filter]="true" appendTo="body"></p-select>
 
           <label>Tipo de conteo</label>
-          <p-select [options]="typeOptions" [(ngModel)]="formType" optionLabel="label" optionValue="value" styleClass="in-w-full"></p-select>
+          <p-select [options]="typeOptions" [(ngModel)]="formType" optionLabel="label" optionValue="value" styleClass="in-w-full" appendTo="body"></p-select>
 
           <div class="in-toggle-row">
             <p-inputSwitch [(ngModel)]="formFreeze"></p-inputSwitch>
@@ -94,10 +98,14 @@ import { forkJoin } from 'rxjs';
           @if (canAssign()) {
             <label>Contadores (quiénes van a contar)</label>
             <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
-                           placeholder="Todos los que tengan permiso (folio abierto)" [filter]="true" display="chip" styleClass="in-w-full"></p-multiSelect>
+                           placeholder="Todos los que tengan permiso (folio abierto)" [filter]="true" display="chip"
+                           styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiSelect>
             <label>Supervisores responsables</label>
             <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
-                           placeholder="Sin asignar" [filter]="true" display="chip" styleClass="in-w-full"></p-multiSelect>
+                           placeholder="Sin asignar" [filter]="true" display="chip"
+                           styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiSelect>
           }
         </div>
         <ng-template pTemplate="footer">
