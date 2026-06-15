@@ -820,26 +820,28 @@ export class DailyCapturesService {
     const days = opts.days ?? 30;
     const limit = Math.min(opts.limit ?? 20, 50);
     const tenantId = this.tenantCtx.get()?.tenantId;
+    // Con `storeId` el atajo deja de ser "lo que YO marco" y pasa a ser "lo que
+    // ESTA tienda suele llevar" (todas las capturas de la tienda, sin filtro de
+    // usuario) — más útil al capturar: recomienda contra el histórico del PdV.
+    const byStore = !!opts.storeId;
 
     const rows = await this.knex.raw(
       `
       SELECT pid::text AS product_id, COUNT(*)::int AS marks
       FROM daily_captures dc,
-           jsonb_array_elements(dc.exhibiciones) ex,
-           jsonb_array_elements_text(ex->'productosMarcados') pid
-      WHERE dc.user_id = ?
-        AND dc.created_at >= NOW() - (? || ' days')::interval
+           jsonb_array_elements(CASE jsonb_typeof(dc.exhibiciones) WHEN 'array' THEN dc.exhibiciones ELSE '[]'::jsonb END) ex,
+           jsonb_array_elements_text(COALESCE(ex->'productosMarcados','[]'::jsonb)) pid
+      WHERE dc.created_at >= NOW() - (? || ' days')::interval
+        ${byStore ? 'AND dc.store_id = ?' : 'AND dc.user_id = ?'}
         ${tenantId ? 'AND dc.tenant_id = ?' : ''}
-        ${opts.storeId ? 'AND dc.store_id = ?' : ''}
       GROUP BY pid
       ORDER BY marks DESC
       LIMIT ?
       `,
       [
-        userId,
         days,
+        byStore ? (opts.storeId as string) : userId,
         ...(tenantId ? [tenantId] : []),
-        ...(opts.storeId ? [opts.storeId] : []),
         limit,
       ],
     );

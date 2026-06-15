@@ -569,7 +569,7 @@ export class DailyCaptureService {
    * el último cache (en ruta sin señal el atajo sigue disponible).
    */
   async getFrequentProductsOffline(
-    opts: { days?: number; limit?: number } = {},
+    opts: { days?: number; limit?: number; storeId?: string } = {},
   ): Promise<{ product_id: string; marks: number }[]> {
     try {
       const rows = await firstValueFrom(this.getFrequentProducts(opts));

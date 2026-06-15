@@ -926,14 +926,26 @@ export class CapturesComponent implements OnInit, OnDestroy {
    */
   private loadFrequentProducts(): void {
     if (this.isVendedor()) return; // Vendedor no usa step 5
+    // Si ya hay tienda detectada/seleccionada, recomendamos contra el histórico
+    // de ESA tienda (todas las capturas, ventana más amplia). Sin tienda, caemos
+    // al atajo clásico "tus frecuentes" del usuario.
+    const storeId = this.svc.detectedStore()?.id;
+    this.frequentByStore.set(!!storeId);
     this.svc
-      .getFrequentProductsOffline({ days: 30, limit: 20 })
+      .getFrequentProductsOffline(
+        storeId
+          ? { days: 90, limit: 20, storeId }
+          : { days: 30, limit: 20 },
+      )
       .then((rows) => this.frequentProducts.set(rows))
       .catch(() => this.frequentProducts.set([]));
   }
 
   /** Productos frecuentes con su nombre resuelto desde groupedProducts (para mostrar). */
   readonly frequentProducts = signal<{ product_id: string; marks: number }[]>([]);
+
+  /** True cuando los frecuentes están scopeados a la tienda detectada (vs. usuario). */
+  readonly frequentByStore = signal(false);
 
   readonly frequentDisplay = computed(() => {
     const pids = this.frequentProducts();
