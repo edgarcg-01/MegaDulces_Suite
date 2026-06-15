@@ -112,6 +112,29 @@ export interface ProductOption {
   brand_name: string;
 }
 
+export interface StoreTopProduct {
+  product_id: string | null;
+  sku: string;
+  product_name: string | null;
+  brand_name: string | null;
+  units: number;
+  revenue: number;
+  orders_count: number;
+  last_purchased_at: string | null;
+  recency_days: number | null;
+  rank: number;
+}
+
+export interface StoreTopProducts {
+  linked: boolean;
+  customer_id?: string;
+  customer_code?: string;
+  customer_name?: string;
+  period_days?: number | null;
+  computed_at?: string | null;
+  items: StoreTopProduct[];
+}
+
 /** Respuesta del matcher IA (Fase K) — solo los campos que usamos acá. */
 export interface AiMatchResponse {
   items: Array<{
@@ -179,6 +202,13 @@ export class CommercialMapService {
     return this.http.post<AiMatchResponse>(
       `${environment.apiUrl}/ai/products/match-ai`,
       { rawText },
+    );
+  }
+
+  /** Productos más pedidos por esta tienda (motor Thot: store→customer→historial ERP). */
+  getStoreTopProducts(storeId: string): Observable<StoreTopProducts> {
+    return this.http.get<StoreTopProducts>(
+      `${environment.apiUrl}/commercial/intelligence/thot/store/${storeId}/top-products`,
     );
   }
 }

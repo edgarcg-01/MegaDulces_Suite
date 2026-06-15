@@ -239,6 +239,41 @@
               }
             </div>
 
+            <!-- Productos más pedidos (motor Thot · ventas reales del ERP) -->
+            <div class="cm-tp">
+              <div class="cm-tp-head">
+                <span><i class="pi pi-bolt" aria-hidden="true"></i>&nbsp;Productos más pedidos</span>
+                @if (topPeriod(); as pd) {
+                  <small>· últimos {{ pd }} d</small>
+                }
+              </div>
+              @if (loadingTopProducts()) {
+                <p-skeleton height="80px"></p-skeleton>
+              } @else {
+                @if (topProducts(); as tp) {
+                  @if (!tp.linked) {
+                    <div class="cm-tp-empty">Sin cliente comercial ligado a esta tienda.</div>
+                  } @else if (tp.items.length === 0) {
+                    <div class="cm-tp-empty">Sin ventas registradas en el ERP para esta tienda.</div>
+                  } @else {
+                    <ol class="cm-tp-list">
+                      @for (it of tp.items; track it.sku) {
+                        <li class="cm-tp-row">
+                          <span class="cm-tp-rank">{{ it.rank }}</span>
+                          <span class="cm-tp-name">
+                            {{ it.product_name || it.sku }}@if (it.brand_name) { <small>{{ it.brand_name }}</small> }
+                          </span>
+                          <span class="cm-tp-units" title="Unidades · pedidos">
+                            {{ it.units }} u · {{ it.orders_count }}p
+                          </span>
+                        </li>
+                      }
+                    </ol>
+                  }
+                }
+              }
+            </div>
+
             <div class="cm-visit-list-head">Visitas ({{ d.visits.length }})</div>
             @if (d.visits.length === 0) {
               <div class="cm-empty">Sin visitas en el período.</div>

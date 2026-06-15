@@ -54,6 +54,15 @@ export class CommercialMapController {
     return this.service.getStoreHistory(id, filters, user);
   }
 
+  @Get('stores/:id/top-products')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_VER)
+  @ApiOperation({
+    summary: 'Productos más frecuentes de la tienda (desde productosMarcados de sus capturas)',
+  })
+  getStoreTopProducts(@ReqUser() user: any, @Param('id') id: string) {
+    return this.service.getStoreTopProducts(id, user);
+  }
+
   @Get('product-presence')
   @RequirePermissions(Permission.COMMERCIAL_MAP_VER)
   @ApiOperation({

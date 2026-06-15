@@ -18,6 +18,7 @@ import {
   ProductOption,
   ProductPresence,
   StoreHistory,
+  StoreTopProducts,
 } from './commercial-map.service';
 
 type PresenceFilter = 'any' | 'own' | 'competitor' | 'both';
@@ -66,6 +67,10 @@ export class CommercialMapComponent implements OnInit {
   readonly selectedId = signal<string | null>(null);
   readonly detail = signal<StoreHistory | null>(null);
   readonly loadingDetail = signal(false);
+
+  readonly topProducts = signal<StoreTopProducts | null>(null);
+  readonly loadingTopProducts = signal(false);
+  readonly topPeriod = computed(() => this.topProducts()?.period_days ?? null);
 
   readonly selectedVisit = signal<HistoryVisit | null>(null);
   readonly showVisitDialog = signal(false);
@@ -193,11 +198,22 @@ export class CommercialMapComponent implements OnInit {
           this.loadingDetail.set(false);
         },
       });
+    // Productos más pedidos por la tienda (motor Thot) — independiente del período.
+    this.topProducts.set(null);
+    this.loadingTopProducts.set(true);
+    this.service.getStoreTopProducts(id).subscribe({
+      next: (res) => {
+        this.topProducts.set(res);
+        this.loadingTopProducts.set(false);
+      },
+      error: () => this.loadingTopProducts.set(false),
+    });
   }
 
   closeDetail(): void {
     this.selectedId.set(null);
     this.detail.set(null);
+    this.topProducts.set(null);
   }
 
   /**

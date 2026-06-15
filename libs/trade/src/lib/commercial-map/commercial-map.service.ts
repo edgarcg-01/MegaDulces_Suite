@@ -562,4 +562,80 @@ export class CommercialMapService {
       brand_name: p.brand_name || '',
     }));
   }
+
+  /**
+   * Productos más frecuentes de la tienda: cuenta `productosMarcados` de las
+   * exhibiciones de TODAS sus capturas (no del ERP — las tiendas auditadas no
+   * cruzan con los terceros del ERP). Métrica: en cuántas visitas apareció +
+   * veces marcado. Store-céntrico (tenant + zona del requester).
+   */
+  async getStoreTopProducts(storeId: string, user: any, limit = 15) {
+    if (!CommercialMapService.UUID_RE.test(storeId || '')) {
+      throw new NotFoundException('Tienda no encontrada.');
+    }
+    const tenantId = this.tenantId(user);
+
+    let storeQ = this.knex('stores as s')
+      .where('s.id', storeId)
+      .whereNull('s.deleted_at')
+      .select('s.id', 's.zona_id');
+    if (tenantId) storeQ = storeQ.where('s.tenant_id', tenantId);
+    const store = await storeQ.first();
+    if (!store) throw new NotFoundException('Tienda no encontrada.');
+    const requesterZonaId = await this.getRequesterZonaId(user);
+    if (requesterZonaId && store.zona_id !== requesterZonaId) {
+      throw new ForbiddenException('No puedes ver tiendas fuera de tu zona.');
+    }
+
+    let cQ = this.knex('daily_captures as dc')
+      .where('dc.store_id', storeId)
+      .select('dc.id', 'dc.hora_inicio', 'dc.exhibiciones');
+    if (tenantId) cQ = cQ.where('dc.tenant_id', tenantId);
+    const caps = await cQ;
+
+    type Agg = { marks: number; captures: Set<string>; lastSeen: any };
+    const agg = new Map<string, Agg>();
+    for (const r of caps) {
+      for (const e of CommercialMapService.parseArray(r.exhibiciones)) {
+        for (const pid of e.productosMarcados || []) {
+          if (!pid) continue;
+          let a = agg.get(pid);
+          if (!a) {
+            a = { marks: 0, captures: new Set(), lastSeen: null };
+            agg.set(pid, a);
+          }
+          a.marks++;
+          a.captures.add(r.id);
+          if (!a.lastSeen || r.hora_inicio > a.lastSeen) a.lastSeen = r.hora_inicio;
+        }
+      }
+    }
+    if (agg.size === 0) return { store_captures: caps.length, items: [] };
+
+    const ids = [...agg.keys()];
+    const [products, brands] = await Promise.all([
+      this.knex('products').whereIn('id', ids).select('id', 'nombre', 'brand_id'),
+      this.knex('brands').select('id', 'nombre'),
+    ]);
+    const brandMap: Record<string, string> = {};
+    brands.forEach((b: any) => (brandMap[b.id] = b.nombre));
+    const prodMap: Record<string, { name: string; brand: string | null }> = {};
+    products.forEach(
+      (p: any) => (prodMap[p.id] = { name: p.nombre, brand: brandMap[p.brand_id] || null }),
+    );
+
+    const items = [...agg.entries()]
+      .map(([pid, a]) => ({
+        product_id: pid,
+        product_name: prodMap[pid]?.name || 'Producto',
+        brand_name: prodMap[pid]?.brand || null,
+        capture_count: a.captures.size,
+        mark_count: a.marks,
+        last_seen: a.lastSeen ? toMxDateKey(a.lastSeen) : null,
+      }))
+      .sort((x, y) => y.capture_count - x.capture_count || y.mark_count - x.mark_count)
+      .slice(0, limit);
+
+    return { store_captures: caps.length, items };
+  }
 }
