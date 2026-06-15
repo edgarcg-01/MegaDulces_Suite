@@ -80,7 +80,8 @@ export class CommercialMapComponent implements OnInit {
   readonly previewImageUrl = signal('');
 
   // Superbuscador de productos (autocomplete: elegí UN producto).
-  readonly selectedProduct = signal<ProductOption | null>(null);
+  // ngModel two-way a un campo plano (no signal) para no pisar lo tecleado.
+  acModel: ProductOption | null = null;
   readonly productSuggestions = signal<ProductOption[]>([]);
   readonly searching = signal(false);
   readonly searchActive = signal(false);
@@ -230,7 +231,7 @@ export class CommercialMapComponent implements OnInit {
   onProductSelected(event: { value?: ProductOption } | ProductOption): void {
     const p = (event as { value?: ProductOption })?.value ?? (event as ProductOption);
     if (!p?.id) return;
-    this.selectedProduct.set(p);
+    this.acModel = p;
     this.selectedId.set(null);
     this.searching.set(true);
     this.service
@@ -242,7 +243,7 @@ export class CommercialMapComponent implements OnInit {
   }
 
   clearProductSearch(): void {
-    this.selectedProduct.set(null);
+    this.acModel = null;
     this.productSuggestions.set([]);
     this.searchActive.set(false);
     this.searchResult.set(null);

@@ -32,7 +32,7 @@
     <div class="cm-pb-row">
       <i class="pi pi-search cm-pb-icon" aria-hidden="true"></i>
       <p-autoComplete
-        [ngModel]="selectedProduct()"
+        [(ngModel)]="acModel"
         [suggestions]="productSuggestions()"
         (completeMethod)="completeProducts($event)"
         (onSelect)="onProductSelected($event)"
