@@ -1,12 +1,22 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { CommercialInventoryService } from './commercial-inventory.service';
 import { CommercialInventoryController } from './commercial-inventory.controller';
 import { InventoryCountService } from './inventory-count.service';
 import { InventoryCountController } from './inventory-count.controller';
+import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 @Module({
+  imports: [
+    // JwtModule embebido para decodificar el token del handshake WS (igual que
+    // commercial-alerts). Default secret matched con auth-mt para evitar mismatch.
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+    }),
+  ],
   controllers: [CommercialInventoryController, InventoryCountController],
-  providers: [CommercialInventoryService, InventoryCountService],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryMonitorGateway],
   exports: [CommercialInventoryService, InventoryCountService],
 })
 export class CommercialInventoryModule {}

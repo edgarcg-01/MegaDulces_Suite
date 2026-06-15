@@ -14,7 +14,9 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { MessageService, ConfirmationService } from 'primeng/api';
+import { debounceTime } from 'rxjs/operators';
 import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser, InventoryInterruptions, InventoryCountSession } from '../comercial.service';
+import { InventoryMonitorSocketService } from '../inventory-monitor-socket.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 
@@ -46,6 +48,9 @@ import { Permission } from '../../../core/constants/permissions';
           </p>
         </div>
         <div class="in-head-actions">
+          @if (live()) {
+            <span class="in-live" title="Monitoreo en vivo activo"><span class="in-live-dot"></span> EN VIVO</span>
+          }
           <button pButton icon="pi pi-arrow-left" label="Volver" [text]="true" severity="secondary" size="small" routerLink="/comercial/inventory/sessions"></button>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
@@ -226,7 +231,10 @@ import { Permission } from '../../../core/constants/permissions';
     </div>
   `,
   styles: [`
-    .in-head-actions { display: flex; gap: .5rem; }
+    .in-head-actions { display: flex; gap: .5rem; align-items: center; }
+    .in-live { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--green-700,#15803d); padding: .2rem .5rem; border-radius: 99px; background: color-mix(in srgb, var(--green-500,#22c55e) 14%, transparent); }
+    .in-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-500,#22c55e); animation: in-pulse 1.4s ease-in-out infinite; }
+    @keyframes in-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
     .in-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .75rem; margin-bottom: 1.25rem; }
     .in-kpi { background: var(--surface-card, #fff); border: 1px solid var(--surface-200, #e7e5e4); border-radius: 12px; padding: .85rem 1rem; display: flex; flex-direction: column; }
     .in-kpi-v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -284,6 +292,9 @@ export class ComercialInventorySessionDetailComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly monitor = inject(InventoryMonitorSocketService);
+
+  live = this.monitor.connected;
 
   countId = this.route.snapshot.paramMap.get('id')!;
   progress = signal<InventorySupervisorProgress | null>(null);
@@ -338,6 +349,18 @@ export class ComercialInventorySessionDetailComponent {
     if (this.canAssign()) this.loadAssignments();
     this.loadInterruptions();
     this.loadSessions();
+
+    // Monitoreo en vivo: cada evento del folio refresca el tablero (debounced
+    // para no recargar en cada escaneo de una ráfaga).
+    this.monitor.connect(this.countId);
+    this.monitor.event$
+      .pipe(debounceTime(800), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.load();
+        this.loadSessions();
+        this.loadInterruptions();
+      });
+    this.destroyRef.onDestroy(() => this.monitor.disconnect());
   }
 
   private loadInterruptions() {

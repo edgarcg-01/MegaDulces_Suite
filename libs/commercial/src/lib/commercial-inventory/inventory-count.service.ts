@@ -7,6 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 /**
  * Fase I — Inventario físico (conteo cíclico/total por almacén).
@@ -57,10 +58,26 @@ export class InventoryCountService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly monitor: InventoryMonitorGateway,
   ) {}
 
   private userId(): string | null {
     return this.tenantCtx.get()?.userId || null;
+  }
+
+  /** Push de monitoreo en vivo al supervisor que mira el folio (best-effort). */
+  private emitMonitor(folioId: string, event: Record<string, any>): void {
+    try {
+      const tenantId = this.tenantCtx.get()?.tenantId;
+      if (!tenantId || !folioId) return;
+      this.monitor.emitFolioEvent(tenantId, folioId, {
+        ...event,
+        folio_id: folioId,
+        at: new Date().toISOString(),
+      } as any);
+    } catch {
+      /* el monitoreo nunca rompe la operación */
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -186,7 +203,7 @@ export class InventoryCountService {
     if (!dto.product_id && !dto.barcode)
       throw new BadRequestException('Se requiere product_id o barcode');
 
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const uid = this.userId();
 
       const count = await trx('commercial.inventory_counts')
@@ -327,6 +344,15 @@ export class InventoryCountService {
         quantity: dto.quantity,
       };
     });
+    this.emitMonitor(countId, {
+      type: 'count',
+      slot: result.slot,
+      sku: result.sku,
+      product_name: result.product_name,
+      qty: result.quantity,
+      username: this.tenantCtx.get()?.username ?? null,
+    });
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -967,7 +993,7 @@ export class InventoryCountService {
   ) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
     if (!dto?.left_at) throw new BadRequestException('left_at requerido');
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
       // Solo tiene sentido auditar mientras el folio está vivo.
       if (!['open', 'counting', 'review'].includes(count.status)) {
@@ -989,6 +1015,14 @@ export class InventoryCountService {
         .returning(['id']);
       return { recorded: true, id: row.id };
     });
+    if (result?.recorded) {
+      this.emitMonitor(countId, {
+        type: 'interruption',
+        username: this.tenantCtx.get()?.username ?? null,
+        seconds: dto.duration_seconds ?? null,
+      });
+    }
+    return result;
   }
 
   /** Timeline de interrupciones del folio + resumen por contador. (SUPERVISAR) */
@@ -1031,7 +1065,7 @@ export class InventoryCountService {
   /** El contador abre su jornada de conteo (modo foco en el front). (CONTAR) */
   async startSession(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
       const uid = this.userId();
       if (['reconciled', 'cancelled'].includes(count.status))
@@ -1066,12 +1100,19 @@ export class InventoryCountService {
 
       return { ok: true, current_pass: pass, status: 'counting' };
     });
+    this.emitMonitor(countId, {
+      type: 'session',
+      action: 'start',
+      username: this.tenantCtx.get()?.username ?? null,
+      pass: result.current_pass,
+    });
+    return result;
   }
 
   /** El contador cierra su jornada (botón Terminar). (CONTAR) */
   async finishSession(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
       const uid = this.userId();
       const pass = Number(count.current_pass) || 1;
@@ -1080,6 +1121,13 @@ export class InventoryCountService {
         .update({ finished_at: trx.fn.now(), status: 'finished' });
       return { ok: n > 0, pass };
     });
+    this.emitMonitor(countId, {
+      type: 'session',
+      action: 'finish',
+      username: this.tenantCtx.get()?.username ?? null,
+      pass: result.pass,
+    });
+    return result;
   }
 
   /**
@@ -1090,7 +1138,7 @@ export class InventoryCountService {
    */
   async advancePass(countId: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
       if (count.status !== 'counting')
         throw new ConflictException(`El folio está en '${count.status}'; no admite avanzar de fase.`);
@@ -1111,6 +1159,13 @@ export class InventoryCountService {
       await trx('commercial.inventory_counts').where({ id: countId }).update({ status: 'review' });
       return { current_pass: pass, status: 'review', next: 'review' };
     });
+    this.emitMonitor(countId, {
+      type: 'phase',
+      current_pass: result.current_pass,
+      status: result.status,
+      next: result.next,
+    });
+    return result;
   }
 
   /** Control del supervisor: jornadas de su personal + productividad + interrupciones. (SUPERVISAR) */
