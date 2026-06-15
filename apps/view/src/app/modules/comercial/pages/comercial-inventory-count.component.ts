@@ -10,11 +10,9 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
+import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 import { ComercialService, InventoryCount, InventoryCounterProgress, InventoryCountResult } from '../comercial.service';
-
-interface BarcodeDet {
-  detect: (src: CanvasImageSource) => Promise<{ rawValue: string }[]>;
-}
 
 interface FeedEntry {
   sku: string | null;
@@ -215,12 +213,11 @@ export class ComercialInventoryCountComponent {
   @ViewChild('qtyInput', { read: ElementRef }) qtyInput?: ElementRef<HTMLElement>;
   @ViewChild('scanVideo') scanVideo?: ElementRef<HTMLVideoElement>;
 
-  // Escaneo por cámara (BarcodeDetector nativo — Android Chrome / webview).
-  scanSupported = signal(typeof window !== 'undefined' && 'BarcodeDetector' in window);
+  // Escaneo por cámara (ZXing — universal: iOS Safari + Android).
+  scanSupported = signal(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia);
   scanning = signal(false);
-  private stream?: MediaStream;
-  private detector?: BarcodeDet;
-  private rafId?: number;
+  private reader?: BrowserMultiFormatReader;
+  private controls?: IScannerControls;
 
   folios = signal<{ id: string; label: string }[]>([]);
   selectedFolioId = signal<string | null>(null);
@@ -242,49 +239,39 @@ export class ComercialInventoryCountComponent {
     this.destroyRef.onDestroy(() => this.stopScan());
   }
 
-  // ───── Escaneo por cámara ─────
+  // ───── Escaneo por cámara (ZXing) ─────
   async startScan() {
     if (!this.scanSupported()) {
-      this.toast.add({ severity: 'info', summary: 'Tu dispositivo no soporta escaneo por cámara', detail: 'Usá un lector o tecleá el código.' });
+      this.toast.add({ severity: 'info', summary: 'Sin acceso a cámara', detail: 'Usá un lector o tecleá el código.' });
       return;
     }
     this.scanning.set(true);
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
-      // esperar a que el <video> se renderice
-      setTimeout(async () => {
-        const v = this.scanVideo?.nativeElement;
-        if (!v) return;
-        v.srcObject = this.stream!;
-        await v.play().catch(() => {});
-        const Det = (window as unknown as { BarcodeDetector: new (o?: unknown) => BarcodeDet }).BarcodeDetector;
-        this.detector = new Det({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'] });
-        this.detectLoop();
-      }, 80);
-    } catch {
-      this.scanning.set(false);
-      this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la cámara', detail: 'Revisá los permisos.' });
-    }
-  }
-
-  private async detectLoop() {
-    const v = this.scanVideo?.nativeElement;
-    if (!this.scanning() || !v || !this.detector) return;
-    try {
-      const codes = await this.detector.detect(v);
-      if (codes && codes.length && codes[0].rawValue) {
-        this.onScanned(codes[0].rawValue);
-        return;
+    setTimeout(async () => {
+      const v = this.scanVideo?.nativeElement;
+      if (!v) return;
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.ITF,
+      ]);
+      this.reader = new BrowserMultiFormatReader(hints);
+      try {
+        this.controls = await this.reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: 'environment' } } },
+          v,
+          (result) => { if (result) this.onScanned(result.getText()); },
+        );
+      } catch {
+        this.scanning.set(false);
+        this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la cámara', detail: 'Revisá los permisos (requiere HTTPS).' });
       }
-    } catch { /* frame sin código */ }
-    this.rafId = requestAnimationFrame(() => this.detectLoop());
+    }, 80);
   }
 
   private onScanned(raw: string) {
     this.code.set(raw.trim());
     if (navigator.vibrate) navigator.vibrate(80);
     this.stopScan();
-    // saltar a cantidad
     setTimeout(() => {
       const el = this.qtyInput?.nativeElement?.querySelector('input') as HTMLInputElement | null;
       el?.focus(); el?.select();
@@ -293,11 +280,9 @@ export class ComercialInventoryCountComponent {
 
   stopScan() {
     this.scanning.set(false);
-    if (this.rafId) cancelAnimationFrame(this.rafId);
-    this.rafId = undefined;
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = undefined;
-    this.detector = undefined;
+    try { this.controls?.stop(); } catch { /* noop */ }
+    this.controls = undefined;
+    this.reader = undefined;
   }
 
   private loadFolios() {
