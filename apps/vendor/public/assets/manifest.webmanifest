@@ -1,6 +1,6 @@
 {
-  "name": "Mega Dulces",
-  "short_name": "Mega Dulces",
+  "name": "vendor-MD",
+  "short_name": "vendor-MD",
   "description": "Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.",
   "start_url": "/",
   "display": "standalone",

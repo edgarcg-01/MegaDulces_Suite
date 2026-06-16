@@ -1,6 +1,6 @@
 {
-  "name": "Mega Dulces · Portal B2B",
-  "short_name": "Mega Dulces",
+  "name": "Portal-MD",
+  "short_name": "Portal-MD",
   "description": "Catálogo, pedidos y promociones B2B de Mega Dulces.",
   "lang": "es",
   "start_url": "/portal/home",
