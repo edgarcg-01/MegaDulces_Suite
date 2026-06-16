@@ -1,4 +1,4 @@
-import { Injectable, effect, inject } from '@angular/core';
+import { Injectable, effect, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -29,23 +29,46 @@ export class RoutePingService {
   private pingTimer: any = null;
   private syncTimer: any = null;
   private activeRouteId: string | null = null;
+  private wakeLock: any = null;
+  /** Jornada del vendedor abierta (independiente del flujo de captura). */
+  private readonly _shiftActive = signal(false);
 
   constructor() {
-    // Arranca/para según la ruta activa del flujo de captura.
+    // Trackea mientras haya ruta de captura activa O jornada de vendedor abierta.
     effect(() => {
       const route = this.captureSvc.activeRoute();
-      if (route?.id) this.start(route.id);
+      const shift = this._shiftActive();
+      if (route?.id || shift) this.start(route?.id ?? null);
       else this.stop();
     });
     // Drenar la cola cuando vuelve la red.
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => void this.drain());
     }
+    // El wake lock se libera solo al ir a background; re-adquirir al volver.
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this.pingTimer) {
+          void this.acquireWakeLock();
+        }
+      });
+    }
   }
 
-  private start(routeId: string): void {
+  /** Abre la jornada: arranca el tracking aunque no haya captura en curso. */
+  startShift(): void {
+    this._shiftActive.set(true);
+  }
+
+  /** Cierra la jornada: para el tracking si no hay captura activa. */
+  endShift(): void {
+    this._shiftActive.set(false);
+  }
+
+  private start(routeId: string | null): void {
     this.activeRouteId = routeId;
     if (this.pingTimer) return; // ya corriendo
+    void this.acquireWakeLock();
     // Ping inmediato + cada intervalo.
     void this.capturePing();
     this.pingTimer = setInterval(() => void this.capturePing(), RoutePingService.PING_INTERVAL_MS);
@@ -56,8 +79,30 @@ export class RoutePingService {
     this.activeRouteId = null;
     if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null; }
     if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null; }
+    this.releaseWakeLock();
     // Intento final de drenar lo que quede encolado.
     void this.drain();
+  }
+
+  /** Mantiene la pantalla encendida mientras se trackea (best effort, foreground). */
+  private async acquireWakeLock(): Promise<void> {
+    try {
+      if (
+        typeof navigator !== 'undefined' && 'wakeLock' in navigator &&
+        typeof document !== 'undefined' && document.visibilityState === 'visible' &&
+        !this.wakeLock
+      ) {
+        this.wakeLock = await (navigator as any).wakeLock.request('screen');
+        this.wakeLock?.addEventListener?.('release', () => { this.wakeLock = null; });
+      }
+    } catch {
+      // No soportado o sin permiso: el tracking sigue, solo no fuerza la pantalla.
+    }
+  }
+
+  private releaseWakeLock(): void {
+    try { void this.wakeLock?.release?.(); } catch { /* noop */ }
+    this.wakeLock = null;
   }
 
   /** Toma una posición y la encola. Solo en foreground (no gastar GPS oculto). */

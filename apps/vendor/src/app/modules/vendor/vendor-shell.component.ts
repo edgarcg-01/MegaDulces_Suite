@@ -6,6 +6,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
+import { RoutePingService } from '../../core/services/route-ping.service';
 
 /**
  * Shell del modo vendedor — mobile-first.
@@ -203,11 +204,18 @@ export class VendorShellComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   readonly theme = inject(ThemeService);
+  private readonly routePing = inject(RoutePingService);
 
   readonly settingsOpen = signal(false);
 
+  constructor() {
+    // Tracking de jornada: arranca al entrar al modo vendedor.
+    this.routePing.startShift();
+  }
+
   logout(): void {
     this.settingsOpen.set(false);
+    this.routePing.endShift();
     this.auth.logout();
     this.router.navigateByUrl('/login');
   }
