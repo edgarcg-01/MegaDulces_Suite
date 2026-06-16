@@ -460,19 +460,35 @@ export class CommercialAnalyticsService {
    * Productos con stock disponible (quantity - reserved) bajo threshold.
    * Útil para alertas de reposición.
    */
-  async lowStock(thresholdParam?: string | number, warehouseIdParam?: string) {
+  async lowStock(
+    thresholdParam?: string | number,
+    warehouseIdParam?: string,
+    limitParam?: string | number,
+  ) {
     const threshold = Math.max(0, Number(thresholdParam) || 10);
+    // Límite duro: el command-center solo muestra los más críticos. Sin esto, con
+    // threshold alto sobre el catálogo real la respuesta llegaba a ~10 MB.
+    const limit = Math.min(500, Math.max(1, Number(limitParam) || 50));
 
     return this.tk.run(async (trx) => {
-      const q = trx('commercial.stock as s')
+      // Filtro base reutilizable (disponible < threshold + almacén opcional).
+      const filtered = () => {
+        const q = trx('commercial.stock as s').whereRaw(
+          '(s.quantity - s.reserved_quantity) < ?',
+          [threshold],
+        );
+        if (warehouseIdParam) q.where('s.warehouse_id', warehouseIdParam);
+        return q;
+      };
+
+      // Total real (sin joins) para el contador del dashboard.
+      const [{ count }] = await filtered().count('* as count');
+      const total = Number(count);
+
+      const rows = await filtered()
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('public.products as p', 'p.id', 's.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-        .whereRaw('(s.quantity - s.reserved_quantity) < ?', [threshold]);
-
-      if (warehouseIdParam) q.where('s.warehouse_id', warehouseIdParam);
-
-      const rows = await q
         .select(
           's.warehouse_id',
           'w.code as warehouse_code',
@@ -484,11 +500,13 @@ export class CommercialAnalyticsService {
           's.reserved_quantity',
           trx.raw('(s.quantity - s.reserved_quantity) as available_quantity'),
         )
-        .orderByRaw('(s.quantity - s.reserved_quantity) ASC');
+        .orderByRaw('(s.quantity - s.reserved_quantity) ASC')
+        .limit(limit);
 
       return {
         threshold,
         warehouse_id: warehouseIdParam || null,
+        total,
         items: rows.map((r) => ({
           ...r,
           quantity: Number(r.quantity),

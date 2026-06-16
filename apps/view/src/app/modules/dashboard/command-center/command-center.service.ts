@@ -54,6 +54,7 @@ export interface SalesByBrandRow {
 export interface LowStockResponse {
   threshold: number;
   warehouse_id: string | null;
+  total: number;
   items: Array<{
     warehouse_code: string;
     warehouse_name: string;
@@ -191,8 +192,8 @@ export class CommandCenterService {
     return this.http.get<SalesByBrandRow[]>(`${this.base}/sales-by-brand`);
   }
 
-  lowStock(threshold = 100): Observable<LowStockResponse> {
-    const params = new HttpParams().set('threshold', threshold);
+  lowStock(threshold = 100, limit = 50): Observable<LowStockResponse> {
+    const params = new HttpParams().set('threshold', threshold).set('limit', limit);
     return this.http.get<LowStockResponse>(`${this.base}/low-stock`, { params });
   }
 

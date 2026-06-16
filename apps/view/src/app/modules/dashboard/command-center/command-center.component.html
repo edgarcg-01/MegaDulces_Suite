@@ -251,7 +251,7 @@
       <div class="cell-head">
         <span class="cell-label">Stock bajo · disponible &lt; 200</span>
         <span class="comm-pill is-warn no-dot" *ngIf="lowStock()">
-          {{ lowStock()!.items.length }}
+          {{ lowStock()!.total }}
         </span>
       </div>
       <div *ngIf="lowStock()" class="data-table-wrap">
@@ -277,6 +277,11 @@
               </td>
               <td class="num">{{ fmtNumber(i.reserved_quantity) }}</td>
               <td><code class="comm-code">{{ i.warehouse_code }}</code></td>
+            </tr>
+            <tr *ngIf="lowStock()!.total > lowStock()!.items.length">
+              <td colspan="4" class="muted small" style="text-align:center">
+                +{{ lowStock()!.total - lowStock()!.items.length }} más — mostrando los {{ lowStock()!.items.length }} más críticos
+              </td>
             </tr>
             <tr *ngIf="lowStock()!.items.length === 0">
               <td colspan="4" class="cc-table-empty">

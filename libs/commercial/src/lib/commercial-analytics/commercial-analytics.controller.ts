@@ -104,8 +104,9 @@ export class CommercialAnalyticsController {
   lowStock(
     @Query('threshold') threshold?: string,
     @Query('warehouse_id') warehouseId?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.service.lowStock(threshold, warehouseId);
+    return this.service.lowStock(threshold, warehouseId, limit);
   }
 
   @Get('dead-stock')
