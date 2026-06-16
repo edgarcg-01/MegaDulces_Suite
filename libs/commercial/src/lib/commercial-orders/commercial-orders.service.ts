@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 import { CommercialPricingService } from '../commercial-pricing/commercial-pricing.service';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { AlertsService } from '../commercial-alerts/alerts.service';
@@ -999,17 +1000,11 @@ export class CommercialOrdersService {
       if (query.customer_id) q = q.where('o.customer_id', query.customer_id);
       if (query.user_id) q = q.where('o.user_id', query.user_id);
       if (query.mine) {
-        // Cartera del vendedor: clientes cuya sales_route está asignada al user
-        // del JWT en commercial.vendor_sales_routes. Incluye pedidos de preventa
-        // (creados por el customer_b2b) y de campo por igual — el vendedor ve
-        // todo lo de SUS rutas, sin importar quién lo originó.
+        // Cartera del vendedor: pedidos de clientes en la ruta que trade le
+        // asignó para HOY (daily_assignments). Incluye preventa (customer_b2b) y
+        // de campo por igual. Ver vendorTodayRouteExistsSql.
         const meId = this.tenantCtx.get()?.userId || null;
-        q = q.whereExists(function () {
-          this.select(trx.raw('1'))
-            .from('commercial.vendor_sales_routes as vsr')
-            .whereRaw('vsr.sales_route = c.sales_route')
-            .andWhere('vsr.user_id', meId);
-        });
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
       }
       if (query.from) q = q.where('o.created_at', '>=', query.from);
       if (query.to) q = q.where('o.created_at', '<=', query.to);

@@ -9,6 +9,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 import {
   AddressJsonbSchema,
   AddressJsonb,
@@ -203,12 +204,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       // JWT. No aplica a customer_b2b (ya quedó forzado a su propio customer).
       if (query.mine && !forceCustomerId) {
         const meId = ctx?.userId || null;
-        q = q.whereExists(function () {
-          this.select(trx.raw('1'))
-            .from('commercial.vendor_sales_routes as vsr')
-            .whereRaw('vsr.sales_route = c.sales_route')
-            .andWhere('vsr.user_id', meId);
-        });
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
       }
 
       const [{ count }] = await q.clone().count<{ count: string }[]>('c.id as count');

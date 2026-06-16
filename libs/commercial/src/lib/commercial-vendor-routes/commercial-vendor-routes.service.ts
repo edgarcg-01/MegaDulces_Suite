@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -177,14 +178,22 @@ export class CommercialVendorRoutesService {
     });
   }
 
-  /** Rutas de venta del vendedor logueado (su cartera). */
+  /** Rutas de venta del vendedor para HOY (derivadas de trade — daily_assignments). */
   async myRoutes(): Promise<string[]> {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) return [];
     return this.tk.run(async (trx) => {
-      const rows = await trx('commercial.vendor_sales_routes')
-        .where({ user_id: userId })
-        .select('sales_route')
+      const rows = await trx('public.daily_assignments as da')
+        .join('public.catalogs as cat', function () {
+          this.on('cat.id', '=', 'da.route_id')
+            .andOnVal('cat.catalog_id', '=', 'rutas')
+            .andOnNull('cat.deleted_at');
+        })
+        .where('da.user_id', userId)
+        .whereRaw(
+          `da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int`,
+        )
+        .distinct('cat.value as sales_route')
         .orderBy('sales_route');
       return rows.map((r: any) => r.sales_route);
     });
@@ -201,12 +210,7 @@ export class CommercialVendorRoutesService {
     return this.tk.run(async (trx) =>
       trx('commercial.customers as c')
         .whereNull('c.deleted_at')
-        .whereExists(function () {
-          this.select(trx.raw('1'))
-            .from('commercial.vendor_sales_routes as vsr')
-            .whereRaw('vsr.sales_route = c.sales_route')
-            .andWhere('vsr.user_id', me);
-        })
+        .whereRaw(vendorTodayRouteExistsSql('c'), [me])
         .select(
           'c.id',
           'c.code',
@@ -248,12 +252,7 @@ export class CommercialVendorRoutesService {
     return this.tk.run(async (trx) => {
       const customers = await trx('commercial.customers as c')
         .whereNull('c.deleted_at')
-        .whereExists(function () {
-          this.select(trx.raw('1'))
-            .from('commercial.vendor_sales_routes as vsr')
-            .whereRaw('vsr.sales_route = c.sales_route')
-            .andWhere('vsr.user_id', me);
-        })
+        .whereRaw(vendorTodayRouteExistsSql('c'), [me])
         .select(
           'c.id',
           'c.code',
@@ -345,12 +344,7 @@ export class CommercialVendorRoutesService {
         .whereNull('c.deleted_at')
         .whereNotNull('c.latitude')
         .whereNotNull('c.longitude')
-        .whereExists(function () {
-          this.select(trx.raw('1'))
-            .from('commercial.vendor_sales_routes as vsr')
-            .whereRaw('vsr.sales_route = c.sales_route')
-            .andWhere('vsr.user_id', me);
-        })
+        .whereRaw(vendorTodayRouteExistsSql('c'), [me])
         .select(
           'c.id',
           'c.code',
