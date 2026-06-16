@@ -5,8 +5,6 @@ import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, colaboradorGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
-import { customerB2bGuard } from './modules/portal/portal.guard';
-import { vendorGuard } from './modules/vendor/vendor.guard';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 
@@ -30,18 +28,6 @@ export const routes: Routes = [
       { path: '', loadComponent: () => import('./modules/dashboard/home/home.component').then(m => m.HomeComponent) },
       { path: 'dashboard', loadComponent: () => import('./modules/dashboard/reports/graphics/dashboard.component').then(m => m.DashboardComponent) },
       { path: 'captures', loadComponent: () => import('./modules/dashboard/captures/captures.component').then(m => m.CapturesComponent) },
-      {
-        // Agregar ticket de ruta (venta/carga/combustible) — reusa el flujo del vendedor.
-        path: 'route-tickets',
-        loadComponent: () => import('./modules/dashboard/route-tickets/route-tickets.component').then(m => m.DashboardRouteTicketsComponent),
-        canActivate: [permissionGuard(Permission.ROUTE_TICKET_CAPTURE)]
-      },
-      {
-        // Movida a /vendor/capture (Modo Vendedor v2). Redirect back-compat para guards y landings.
-        path: 'vendor-capture',
-        redirectTo: '/vendor/capture',
-        pathMatch: 'full',
-      },
       { path: 'reports', loadComponent: () => import('./modules/dashboard/reports/reports.component').then(m => m.ReportsComponent) },
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
@@ -298,163 +284,6 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
       },
     ]
-  },
-  {
-    path: 'portal/login',
-    loadComponent: () =>
-      import('./modules/portal/pages/portal-login.component').then((m) => m.PortalLoginComponent),
-  },
-  {
-    path: 'portal',
-    canActivate: [customerB2bGuard],
-    loadComponent: () =>
-      import('./modules/portal/portal-shell.component').then((m) => m.PortalShellComponent),
-    children: [
-      { path: '', redirectTo: 'home', pathMatch: 'full' },
-      {
-        path: 'home',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-home.component').then(
-            (m) => m.PortalHomeComponent,
-          ),
-      },
-      {
-        path: 'catalog',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-catalog.component').then(
-            (m) => m.PortalCatalogComponent,
-          ),
-      },
-      {
-        path: 'cart',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-cart.component').then(
-            (m) => m.PortalCartComponent,
-          ),
-      },
-      { path: 'ai-order', redirectTo: 'recommendations', pathMatch: 'full' },
-      {
-        path: 'promotions',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-promotions.component').then(
-            (m) => m.PortalPromotionsComponent,
-          ),
-      },
-      {
-        path: 'recommendations',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-recommendations.component').then(
-            (m) => m.PortalRecommendationsComponent,
-          ),
-      },
-      {
-        path: 'orders',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-orders.component').then(
-            (m) => m.PortalOrdersComponent,
-          ),
-      },
-      {
-        path: 'orders/:id',
-        loadComponent: () =>
-          import('./modules/portal/pages/portal-order-detail.component').then(
-            (m) => m.PortalOrderDetailComponent,
-          ),
-      },
-    ],
-  },
-  {
-    path: 'vendor',
-    canActivate: [vendorGuard],
-    loadComponent: () =>
-      import('./modules/vendor/vendor-shell.component').then((m) => m.VendorShellComponent),
-    children: [
-      { path: '', redirectTo: 'route-home', pathMatch: 'full' },
-      {
-        path: 'route-home',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-route-home.component').then(
-            (m) => m.VendorRouteHomeComponent,
-          ),
-      },
-      // Back-compat: el nav viejo / landings apuntaban a 'new-order'.
-      { path: 'new-order', redirectTo: 'route-home', pathMatch: 'full' },
-      {
-        path: 'pending',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-pending.component').then(
-            (m) => m.VendorPendingComponent,
-          ),
-      },
-      {
-        path: 'visits',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-visits.component').then(
-            (m) => m.VendorVisitsComponent,
-          ),
-      },
-      {
-        path: 'search',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-customers.component').then(
-            (m) => m.VendorCustomersComponent,
-          ),
-      },
-      // Back-compat: el nav viejo apuntaba a 'customers'.
-      { path: 'customers', redirectTo: 'search', pathMatch: 'full' },
-      {
-        path: 'take-order/:id',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-take-order.component').then(
-            (m) => m.VendorTakeOrderComponent,
-          ),
-      },
-      {
-        path: 'order-success',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-order-success.component').then(
-            (m) => m.VendorOrderSuccessComponent,
-          ),
-      },
-      {
-        path: 'notifications',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-notifications.component').then(
-            (m) => m.VendorNotificationsComponent,
-          ),
-      },
-      {
-        path: 'today',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-today.component').then(
-            (m) => m.VendorTodayComponent,
-          ),
-      },
-      {
-        path: 'close-route',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-close-route.component').then(
-            (m) => m.VendorCloseRouteComponent,
-          ),
-      },
-      {
-        path: 'carga',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-carga.component').then(
-            (m) => m.VendorCargaComponent,
-          ),
-      },
-      {
-        // Captura de vendedor (exhibidor + ticket OCR + venta), offline-first.
-        // Reusa el componente original; el permiso CAPTURE_TICKET_USE sigue gateando.
-        path: 'capture',
-        loadComponent: () =>
-          import('./modules/dashboard/vendor-capture/vendor-capture.component').then(
-            (m) => m.VendorCaptureComponent,
-          ),
-        canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)],
-      },
-    ],
   },
   {
     path: 'televenta',

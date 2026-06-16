@@ -29,14 +29,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(modifiedReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      // 401 → logout + redirect. Respeta el contexto: si el user está en /portal/*
-      // mandalo a /portal/login (no al admin /login que lo confunde).
+      // 401 → logout + redirect al login.
       if (error.status === 401) {
         authService.logout();
-        const onPortal = router.url.startsWith('/portal');
-        const onVendor = router.url.startsWith('/vendor');
-        const target = onPortal ? '/portal/login' : onVendor ? '/login' : '/login';
-        router.navigateByUrl(target);
+        router.navigateByUrl('/login');
       }
       return throwError(() => error);
     })

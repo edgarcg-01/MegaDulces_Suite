@@ -77,18 +77,6 @@ export class ProjectsComponent implements OnInit {
       hideForRoles: ['vendedor'],
     },
     {
-      id: 'vendedor',
-      name: 'Vendedor en Campo',
-      description: 'Tomá pedidos sobre tu cartera en orden de visita, gestioná entregas y cerrá tu ruta del día.',
-      icon: 'pi pi-briefcase',
-      route: '/vendor/new-order',
-      status: 'Activo',
-      anyOf: [Permission.COMMERCIAL_ORDERS_CREAR],
-      // Restringido a roles que realmente toman pedidos en campo. Admins/
-      // superadmins lo ven también (testing). tele_operator usa /televenta.
-      roleOnly: ['vendedor', 'admin', 'superadmin', 'jefe_marketing', 'supervisor'],
-    },
-    {
       id: 'televenta',
       name: 'Televenta',
       description: 'Call center B2B: cola priorizada de clientes, perfil + recomendaciones, pedidos a su nombre y registro de llamadas.',
@@ -122,16 +110,6 @@ export class ProjectsComponent implements OnInit {
       route: '/admin',
       status: 'Activo',
       anyOf: [Permission.USUARIOS_GESTIONAR, Permission.ROLES_CONFIGURAR],
-    },
-    {
-      id: 'portal-b2b',
-      name: 'Portal B2B (vista cliente)',
-      description: 'Vista del cliente final: catálogo con sus precios, carrito, pedidos y recomendaciones. Solo para super-admins (administración/QA).',
-      icon: 'pi pi-shop',
-      route: '/portal',
-      status: 'Super-admin',
-      anyOf: [Permission.USUARIOS_GESTIONAR, Permission.ROLES_CONFIGURAR],
-      roleOnly: ['superadmin'],
     },
   ];
 

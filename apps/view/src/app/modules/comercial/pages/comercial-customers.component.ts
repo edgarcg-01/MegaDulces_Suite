@@ -377,7 +377,7 @@ import { debounceTime, Subject } from 'rxjs';
           </div>
         </div>
         <p class="comm-muted is-small">
-          El cliente entra en <code class="comm-code">/portal/login</code> con tenant_slug <code class="comm-code">mega_dulces</code>.
+          El cliente entra al Portal B2B con tenant_slug <code class="comm-code">mega_dulces</code>.
           Cuando se loguee, debería cambiar el password desde su perfil.
         </p>
       </div>

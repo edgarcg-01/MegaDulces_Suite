@@ -47,7 +47,7 @@ import { ComercialService, PriceList, ProductPrice } from '../comercial.service'
           <p class="surf-page-sub">
             <b>{{ rows().length }}</b> lista{{ rows().length === 1 ? '' : 's' }}
             <span class="pr-divider" aria-hidden="true">·</span>
-            asignables a clientes para portal/vendor
+            asignables a clientes para Portal y vendedores
           </p>
         </div>
         <div class="pr-head-actions">

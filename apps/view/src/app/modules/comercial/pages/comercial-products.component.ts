@@ -273,7 +273,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           <label>
             <span>Descripción larga</span>
             <textarea pInputTextarea rows="3" formControlName="description" maxlength="500"></textarea>
-            <span class="comm-muted is-small">Visible en portal/vendor en hover sobre el nombre.</span>
+            <span class="comm-muted is-small">Visible en el Portal y la app de vendedores en hover sobre el nombre.</span>
           </label>
           <div class="pp-form-row">
             <label>

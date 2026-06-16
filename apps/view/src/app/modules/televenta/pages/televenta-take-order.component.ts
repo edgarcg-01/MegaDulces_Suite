@@ -11,7 +11,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
-import { VendorService } from '../../vendor/vendor.service';
+import { VendorService } from '../../comercial/vendor.service';
 import { TeleventaService } from '../televenta.service';
 import { environment } from '../../../../environments/environment';
 

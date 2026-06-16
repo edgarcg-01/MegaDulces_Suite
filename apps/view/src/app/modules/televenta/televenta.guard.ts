@@ -9,7 +9,7 @@ import { Permission } from '../../core/constants/permissions';
  *   - Permiso `COMMERCIAL_TELEVENTA_OPERATE` (rol `tele_operator` o roles
  *     más altos: superadmin, admin, supervisor).
  *
- * Si customer_b2b → redirect a /portal.
+ * El customer_b2b usa la app Portal standalone (otro servicio), no esta app.
  * Si no auth → /login.
  */
 export const televentaGuard: CanActivateFn = () => {
@@ -23,7 +23,8 @@ export const televentaGuard: CanActivateFn = () => {
 
   const user = auth.user();
   if (user?.role_name === 'customer_b2b') {
-    router.navigateByUrl('/portal/catalog');
+    // El portal B2B vive en su app standalone; aquí no tiene UI.
+    router.navigateByUrl('/login');
     return false;
   }
 

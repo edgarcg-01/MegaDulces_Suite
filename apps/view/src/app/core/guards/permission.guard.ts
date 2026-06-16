@@ -50,9 +50,7 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
       if (legacyScope || perms.can('read', 'reports_team') || perms.can('read', 'reports_global')) {
         router.navigate(['/dashboard']);
       } else {
-        // El vendedor (CAPTURE_TICKET_USE) aterriza en su captura, no en la diaria.
-        const isVendor = legacyPerms ? legacyPerms[Permission.CAPTURE_TICKET_USE] === true : false;
-        router.navigate([isVendor ? '/dashboard/vendor-capture' : '/dashboard/captures']);
+        router.navigate(['/dashboard/captures']);
       }
       return false;
     }
@@ -76,17 +74,12 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
   const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
 
   if (!canAccessFullDashboard && !hasFallback) {
-    // El vendedor (CAPTURE_TICKET_USE) usa "Captura de vendedor", NO la diaria:
-    // su set permitido excluye /captures y su home es /vendor-capture. El
-    // colaborador sin esa capacidad mantiene /captures como captura y home.
-    const isVendor = legacyPerms ? legacyPerms[Permission.CAPTURE_TICKET_USE] === true : false;
-    const allowed = isVendor
-      ? ['/dashboard/vendor-capture', '/dashboard/route-tickets']
-      : ['/dashboard/captures', '/dashboard/route-tickets', '/dashboard/vendor-capture'];
-    if (allowed.some((p) => state.url.startsWith(p))) {
+    // Colaborador restringido (sin reportes de equipo/global): su única vista es
+    // la captura diaria. El vendedor usa su app dedicada (apps/vendor), no Trade.
+    if (state.url.startsWith('/dashboard/captures')) {
       return true;
     }
-    router.navigate([isVendor ? '/dashboard/vendor-capture' : '/dashboard/captures']);
+    router.navigate(['/dashboard/captures']);
     return false;
   }
 

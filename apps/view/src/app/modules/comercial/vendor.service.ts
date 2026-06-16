@@ -7,7 +7,7 @@ import {
   PriceRow,
   Order,
   OrderLine,
-} from '../portal/portal.service';
+} from './portal.service';
 import { AuthService } from '../../core/services/auth.service';
 
 export interface VendorCustomer {

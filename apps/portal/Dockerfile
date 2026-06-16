@@ -5,7 +5,7 @@
 # que proxya /api y el WebSocket al backend (servicio principal) vía $API_UPSTREAM
 # (mismo origen para el browser → sin CORS).
 #
-# Build context = RAÍZ del monorepo. En Railway: RAILWAY_DOCKERFILE_PATH=apps/vendor/Dockerfile.
+# Build context = RAÍZ del monorepo. En Railway: RAILWAY_DOCKERFILE_PATH=apps/portal/Dockerfile.
 # Sin BuildKit cache mounts (Railway exige id=s/<service-id>-...). Para acelerar,
 # agregá --mount=type=cache,id=s/<ID>-npm con el Service ID real una vez creado.
 # ─────────────────────────────────────────────────────────────────────────────
