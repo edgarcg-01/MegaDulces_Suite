@@ -21,6 +21,7 @@ export * from './lib/commercial-televenta/commercial-televenta.module';
 export * from './lib/commercial-route-control/commercial-route-control.module';
 export * from './lib/commercial-vendor-sales/commercial-vendor-sales.module';
 export * from './lib/commercial-vendor-routes/commercial-vendor-routes.module';
+export * from './lib/commercial-tracking/commercial-tracking.module';
 export * from './lib/portal-ai-order/portal-ai-order.module';
 export * from './lib/ticket-extractor/ticket-extractor.module';
 export * from './lib/mega-dulces-sync/mega-dulces-sync.module';
