@@ -1714,6 +1714,70 @@ export class ReportsService {
   }
 
   /**
+   * Traza GPS de una ruta (apartado Rutas → mapa): breadcrumbs de
+   * public.route_location_pings con route_id = la ruta, agrupados por vendedor y
+   * ordenados por captured_at. Cada track trae sus puntos + la última posición
+   * (marcador "camión"). Scope own/team + tenant explícito (tabla sin RLS).
+   */
+  async getRouteTrack(
+    routeId: string,
+    filters: { startDate?: string; endDate?: string },
+    user: any,
+  ): Promise<{ tracks: any[] }> {
+    if (!ReportsService.UUID_RE.test(routeId || '')) return { tracks: [] };
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+
+    let q = this.knex('public.route_location_pings as p')
+      .leftJoin('users as u', 'u.id', 'p.user_id')
+      .where('p.route_id', routeId)
+      .select('p.user_id', 'u.username', 'p.lat', 'p.lng', 'p.captured_at', 'p.speed_mps')
+      .orderBy('p.user_id', 'asc')
+      .orderBy('p.captured_at', 'asc');
+    if (tenantId) q = q.where('p.tenant_id', tenantId);
+    if (scope.type === 'own') q = q.where('p.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'p.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+    if (filters.startDate)
+      q.whereRaw("DATE(p.captured_at AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
+    if (filters.endDate)
+      q.whereRaw("DATE(p.captured_at AT TIME ZONE 'America/Mexico_City') <= ?", [filters.endDate]);
+
+    const rows = await q;
+    const byUser = new Map<string, any>();
+    for (const r of rows) {
+      let t = byUser.get(r.user_id);
+      if (!t) {
+        t = { user_id: r.user_id, username: r.username || '—', points: [] as any[] };
+        byUser.set(r.user_id, t);
+      }
+      t.points.push({
+        lat: Number(r.lat),
+        lng: Number(r.lng),
+        at: r.captured_at,
+        speed_mps: r.speed_mps != null ? Number(r.speed_mps) : null,
+      });
+    }
+    const tracks = Array.from(byUser.values()).map((t) => ({
+      user_id: t.user_id,
+      username: t.username,
+      points: t.points,
+      count: t.points.length,
+      last: t.points[t.points.length - 1] || null,
+    }));
+    return { tracks };
+  }
+
+  /**
    * Resumen de tiempos muertos agregado POR VENDEDOR sobre un rango (todas las
    * rutas del scope). On-the-fly desde daily_captures (los segmentos son
    * recomputables; no se persisten). Para dashboards "¿quién acumula tiempo

@@ -159,6 +159,20 @@ export class ReportsController {
     return this.reportsService.getRouteIdle(routeId, filters, user);
   }
 
+  @Get('routes/:routeId/track')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Traza GPS (breadcrumbs) por vendedor de una ruta + última posición — para el recorrido en el mapa',
+  })
+  getRouteTrack(
+    @ReqUser() user: any,
+    @Param('routeId') routeId: string,
+    @Query() filters: ReportsFilterDto,
+  ) {
+    return this.reportsService.getRouteTrack(routeId, filters, user);
+  }
+
   @Get('idle/summary')
   @RequirePermissions(Permission.RUTAS_VER)
   @ApiOperation({

@@ -21,6 +21,8 @@ export interface MapMarker {
   seq?: number;
   /** id opcional del marcador (ej. store_id) para resolver el click en el padre. */
   id?: string | number;
+  /** 'truck' dibuja un marcador de vehículo (posición actual del recorrido). */
+  kind?: 'pin' | 'truck';
 }
 
 /**
@@ -41,6 +43,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly markers = input<MapMarker[]>([]);
   /** puntos ordenados del recorrido; se dibuja una polyline que los une. */
   readonly path = input<{ lat: number; lng: number }[]>([]);
+  /** trazas GPS independientes (una polyline sólida por vendedor) con color propio. */
+  readonly tracks = input<{ points: { lat: number; lng: number }[]; color?: string }[]>([]);
   readonly height = input<string>('420px');
   /** emite al hacer click en un marcador (para master-detail en el padre). */
   readonly markerClick = output<MapMarker>();
@@ -54,6 +58,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       this.markers();
       this.path();
+      this.tracks();
       if (this.ready()) this.render();
     });
   }
@@ -83,14 +88,19 @@ export class MapComponent implements AfterViewInit, OnDestroy {
 
     for (const m of pts) {
       const color = m.color || 'var(--action, #F05A28)';
-      const html = `<span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${m.seq ?? ''}</span>`;
-      const icon = L.divIcon({ html, className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
-      const marker = L.marker([m.lat, m.lng], { icon });
+      const isTruck = m.kind === 'truck';
+      const html = isTruck
+        ? `<span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};color:#fff;font-size:14px;box-shadow:0 2px 7px rgba(0,0,0,.5);border:2.5px solid #fff"><i class="pi pi-truck"></i></span>`
+        : `<span style="display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-size:11px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.4);border:2px solid #fff">${m.seq ?? ''}</span>`;
+      const size = isTruck ? 30 : 22;
+      const icon = L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+      const marker = L.marker([m.lat, m.lng], { icon, zIndexOffset: isTruck ? 1000 : 0 });
       if (m.title) marker.bindPopup(m.title);
       marker.on('click', () => this.markerClick.emit(m));
       marker.addTo(this.layer);
     }
 
+    // Recorrido por visitas (línea punteada que une las paradas en orden).
     if (line.length >= 2) {
       L.polyline(
         line.map((p) => [p.lat, p.lng] as [number, number]),
@@ -98,7 +108,20 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       ).addTo(this.layer);
     }
 
-    const all = [...pts.map((m) => [m.lat, m.lng] as [number, number]), ...line.map((p) => [p.lat, p.lng] as [number, number])];
+    // Trazas GPS reales (una polyline sólida por vendedor).
+    const trackPts: [number, number][] = [];
+    for (const t of this.tracks()) {
+      const tp = (t.points || []).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+      if (tp.length >= 2) {
+        L.polyline(
+          tp.map((p) => [p.lat, p.lng] as [number, number]),
+          { color: t.color || 'var(--action, #F05A28)', weight: 4, opacity: 0.85 },
+        ).addTo(this.layer);
+      }
+      for (const p of tp) trackPts.push([p.lat, p.lng]);
+    }
+
+    const all = [...pts.map((m) => [m.lat, m.lng] as [number, number]), ...line.map((p) => [p.lat, p.lng] as [number, number]), ...trackPts];
     if (all.length === 1) {
       this.map.setView(all[0], 15);
     } else if (all.length > 1) {

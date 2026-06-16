@@ -59,6 +59,19 @@ interface RouteIdle {
   total_travel_min: number;
   dead_count: number;
 }
+interface RouteTrackPoint {
+  lat: number;
+  lng: number;
+  at: string;
+  speed_mps: number | null;
+}
+interface RouteTrack {
+  user_id: string;
+  username: string;
+  points: RouteTrackPoint[];
+  count: number;
+  last: RouteTrackPoint | null;
+}
 
 /**
  * Apartado "Rutas": análisis de ejecución por ruta.
@@ -535,15 +548,20 @@ interface RouteIdle {
                     <span class="ru-legend-item">
                       <i class="ru-legend-dot" style="background:var(--neutral-400)" aria-hidden="true"></i>Sin visitar
                     </span>
+                    @if (mapTracks().length) {
+                      <span class="ru-legend-item">
+                        <i class="ru-legend-dot" style="background:#0E9BA8" aria-hidden="true"></i>Recorrido GPS
+                      </span>
+                    }
                   </div>
                 </div>
                 <div class="surf-panel-body is-flush">
                   @if (loadingDetail()) {
                     <p-skeleton height="420px"></p-skeleton>
-                  } @else if (mapMarkers().length === 0) {
+                  } @else if (mapMarkers().length === 0 && mapTracks().length === 0) {
                     <div class="ru-map-empty">Sin coordenadas para mapear en esta ruta.</div>
                   } @else {
-                    <app-map [markers]="mapMarkers()" [path]="mapPath()" height="420px"></app-map>
+                    <app-map [markers]="mapMarkers()" [path]="mapPath()" [tracks]="mapTracks()" height="420px"></app-map>
                   }
                 </div>
               </div>
@@ -674,7 +692,10 @@ export class RoutesAnalysisComponent implements OnInit {
   stores = signal<RouteStore[]>([]);
   visits = signal<RouteVisit[]>([]);
   idle = signal<RouteIdle>({ segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 });
+  tracks = signal<RouteTrack[]>([]);
   vendorFilter = signal<string | null>(null);
+  /** Paleta categórica para las trazas GPS (estable por vendedor); evita morado/azul de acción. */
+  static readonly TRACK_PALETTE = ['#0E9BA8', '#13A864', '#E8833A', '#C13DA8', '#5B6CC9', '#D64545'];
   readonly targetMinutes = 15;
   readonly idleThreshold = 20;
   /** Circunferencia del donut de cobertura (r=16). */
@@ -788,8 +809,31 @@ export class RoutesAnalysisComponent implements OnInit {
       if (s.latitud != null && s.longitud != null)
         out.push({ lat: s.latitud, lng: s.longitud, color: 'var(--neutral-400)', title: `${s.nombre} (sin visitar)` });
     });
+    // Camión en la última posición conocida de cada traza GPS.
+    this.visibleTracks().forEach((t) => {
+      if (t.last && Number.isFinite(t.last.lat) && Number.isFinite(t.last.lng))
+        out.push({ lat: t.last.lat, lng: t.last.lng, kind: 'truck', color: this.trackColor(t.username), title: `${t.username} · última posición ${this.fmtTime(t.last.at)}` });
+    });
     return out;
   });
+  /** Trazas con puntos, filtradas por el vendedor seleccionado (si hay). */
+  visibleTracks = computed(() => {
+    const f = this.vendorFilter();
+    return this.tracks().filter((t) => (t.points?.length || 0) > 0 && (!f || t.username === f));
+  });
+  /** Trazas para el mapa: polyline sólida coloreada por vendedor. */
+  mapTracks = computed(() =>
+    this.visibleTracks().map((t) => ({
+      points: t.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+      color: this.trackColor(t.username),
+    })),
+  );
+  /** Color estable por vendedor (índice en la lista completa de trazas). */
+  private trackColor(username: string): string {
+    const pal = RoutesAnalysisComponent.TRACK_PALETTE;
+    const idx = this.tracks().findIndex((t) => t.username === username);
+    return pal[(idx < 0 ? 0 : idx) % pal.length];
+  }
   mapPath = computed(() =>
     this.filteredVisits()
       .filter((v) => v.latitud != null && v.longitud != null)
@@ -840,6 +884,7 @@ export class RoutesAnalysisComponent implements OnInit {
     this.selectedId.set(null);
     this.stores.set([]);
     this.visits.set([]);
+    this.tracks.set([]);
     this.vendorFilter.set(null);
   }
 
@@ -847,9 +892,10 @@ export class RoutesAnalysisComponent implements OnInit {
     this.loadingDetail.set(true);
     this.stores.set([]);
     this.visits.set([]);
+    this.tracks.set([]);
     this.idle.set({ segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 });
     const params = this.dateParams();
-    let pending = 3;
+    let pending = 4;
     const done = () => { if (--pending === 0) this.loadingDetail.set(false); };
     this.http.get<RouteStore[]>(`${environment.apiUrl}/reports/routes/${id}/stores`, { params }).subscribe({
       next: (r) => { this.stores.set(r || []); done(); }, error: done,
@@ -859,6 +905,9 @@ export class RoutesAnalysisComponent implements OnInit {
     });
     this.http.get<RouteIdle>(`${environment.apiUrl}/reports/routes/${id}/idle`, { params }).subscribe({
       next: (r) => { this.idle.set(r || { segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 }); done(); }, error: done,
+    });
+    this.http.get<{ tracks: RouteTrack[] }>(`${environment.apiUrl}/reports/routes/${id}/track`, { params }).subscribe({
+      next: (r) => { this.tracks.set(r?.tracks || []); done(); }, error: done,
     });
   }
 
