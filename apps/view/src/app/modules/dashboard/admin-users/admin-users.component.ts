@@ -186,10 +186,10 @@ export class AdminUsersComponent implements OnInit {
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((role) => {
         const supervisorControl = this.userForm.get('supervisor_id');
-        if (this.isSupervisedRole(role)) {
-          supervisorControl?.setValidators([Validators.required]);
-        } else {
-          supervisorControl?.clearValidators();
+        // El supervisor se RECOMIENDA para roles supervisados pero NO bloquea el
+        // guardado: requerirlo dejaba el form inválido y saveUser() abortaba en
+        // silencio cuando el supervisor aún no estaba asignado (o el dropdown venía vacío).
+        if (!this.isSupervisedRole(role)) {
           supervisorControl?.setValue(null);
         }
         supervisorControl?.updateValueAndValidity();
@@ -342,7 +342,17 @@ export class AdminUsersComponent implements OnInit {
   }
 
   saveUser(): void {
-    if (this.userForm.invalid || this.saving()) return;
+    if (this.saving()) return;
+    // Nunca fallar en silencio: si el form es inválido, marcar y avisar el motivo.
+    if (this.userForm.invalid) {
+      this.userForm.markAllAsTouched();
+      this.messageService.add({
+        severity: 'warn',
+        summary: 'Revisa el formulario',
+        detail: 'Faltan campos obligatorios (usuario y rol son requeridos).',
+      });
+      return;
+    }
     const formData = this.userForm.getRawValue();
 
     if (formData.role_name) {
