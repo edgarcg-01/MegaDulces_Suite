@@ -282,6 +282,13 @@ export class AdminUsersComponent implements OnInit {
       });
   }
 
+  /** Re-fetch silencioso de los catálogos que alimentan el form de usuario. */
+  private refreshLookups(): void {
+    this.loadRoles();
+    this.loadSupervisors();
+    this.loadZones();
+  }
+
   loadUsers(): void {
     this.loading.set(true);
     this.usersService
@@ -312,6 +319,7 @@ export class AdminUsersComponent implements OnInit {
       .get('password')
       ?.setValidators([Validators.required, Validators.minLength(6)]);
     this.userForm.get('password')?.updateValueAndValidity();
+    this.refreshLookups();
     this.displayDialog.set(true);
   }
 
@@ -334,6 +342,7 @@ export class AdminUsersComponent implements OnInit {
       activo: user.activo,
     });
 
+    this.refreshLookups();
     this.displayDialog.set(true);
   }
 
@@ -374,6 +383,7 @@ export class AdminUsersComponent implements OnInit {
             this.saving.set(false);
             this.displayDialog.set(false);
             this.loadUsers();
+            this.refreshLookups();
             this.messageService.add({
               severity: 'success',
               summary: 'Éxito',
@@ -399,6 +409,7 @@ export class AdminUsersComponent implements OnInit {
             this.saving.set(false);
             this.displayDialog.set(false);
             this.loadUsers();
+            this.refreshLookups();
             this.messageService.add({
               severity: 'success',
               summary: 'Éxito',
@@ -439,6 +450,7 @@ export class AdminUsersComponent implements OnInit {
       .subscribe({
         next: () => {
           this.loadUsers();
+          this.refreshLookups();
           this.messageService.add({
             severity: 'success',
             summary: 'Eliminado',
