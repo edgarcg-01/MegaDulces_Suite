@@ -48,7 +48,11 @@ const db = knex({
   try {
     // Guard: si daily_captures.route_id no existe (DB previa a 20260603190000),
     // no hay nada que inferir.
-    const hasRouteId = await db.schema.hasColumn('daily_captures', 'route_id');
+    // daily_captures puede ser una VISTA passthrough (schema field_ops); hasColumn
+    // contra public da falso negativo. Probamos con un SELECT real (respeta search_path).
+    let hasRouteId = true;
+    try { await db.raw('SELECT route_id FROM daily_captures LIMIT 1'); }
+    catch { hasRouteId = false; }
     if (!hasRouteId) {
       console.log('daily_captures.route_id no existe — nada que backfillear.');
       return;
