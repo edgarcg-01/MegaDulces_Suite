@@ -20,6 +20,17 @@ const HAVERSINE_SQL = `6371000 * 2 * asin(sqrt(
   power(sin(radians((c.longitude - ?) / 2)), 2)
 ))`;
 
+// (A) Una sola toma de GPS sincroniza el PdV completo: además del cliente,
+// vincula/refresca la tienda de Trade. Radio para auto-vincular la tienda más
+// cercana (más holgado que la detección de captura, por drift de GPS).
+const STORE_LINK_RADIUS_M = 50;
+/** Haversine en metros sobre trade.stores.latitud/longitud. Bindings: [lat, lat, lng]. */
+const STORE_HAVERSINE_SQL = `6371000 * 2 * asin(sqrt(
+  power(sin(radians((latitud - ?) / 2)), 2) +
+  cos(radians(?)) * cos(radians(latitud)) *
+  power(sin(radians((longitud - ?) / 2)), 2)
+))`;
+
 export interface AssignRouteDto {
   user_id: string;
   sales_route: string;
@@ -402,7 +413,73 @@ export class CommercialVendorRoutesService {
     await trx('commercial.customers')
       .where({ id: customerId })
       .update({ latitude: lat, longitude: lng, updated_at: trx.fn.now(), updated_by: me || null });
-    return { location_set: true, customer_id: customerId, latitude: lat, longitude: lng };
+
+    // (A) La misma toma sincroniza el PdV: vincula/refresca la tienda de Trade.
+    const storeId = await this.syncStoreLocation(trx, customerId, lat, lng, me);
+
+    return { location_set: true, customer_id: customerId, latitude: lat, longitude: lng, store_id: storeId };
+  }
+
+  /**
+   * (A) Desde UNA toma de GPS del cliente, sincroniza su tienda de Trade:
+   *  - si ya tiene store_id → propaga lat/lng al store (misma ubicación física);
+   *  - si no → vincula la tienda activa más cercana (≤ STORE_LINK_RADIUS_M) que NO
+   *    esté ya tomada por otro cliente (respeta el UNIQUE parcial) y le propaga la coord.
+   *
+   * Corre en un SAVEPOINT (trx anidada): si algo de la tienda falla, se revierte
+   * solo esa parte SIN abortar la trx del cliente (evita 25P02 / perder el alta de
+   * coords). Best-effort. Devuelve el store_id resultante o null.
+   */
+  private async syncStoreLocation(
+    trx: any,
+    customerId: string,
+    lat: number,
+    lng: number,
+    me: string | null,
+  ): Promise<string | null> {
+    let storeId: string | null = null;
+    try {
+      await trx.transaction(async (sp: any) => {
+        const cust = await sp('commercial.customers').where({ id: customerId }).first('store_id');
+        storeId = cust?.store_id || null;
+
+        if (!storeId) {
+          const latDelta = STORE_LINK_RADIUS_M / 111_320;
+          const lngDelta =
+            STORE_LINK_RADIUS_M / (111_320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.0001));
+          const nearest = await sp('trade.stores')
+            .where({ activo: true })
+            .whereNotNull('latitud')
+            .whereNotNull('longitud')
+            .whereBetween('latitud', [lat - latDelta, lat + latDelta])
+            .whereBetween('longitud', [lng - lngDelta, lng + lngDelta])
+            .select('id', sp.raw(`${STORE_HAVERSINE_SQL} as d`, [lat, lat, lng]))
+            .orderByRaw('d asc')
+            .first();
+          if (nearest && Number(nearest.d) <= STORE_LINK_RADIUS_M) {
+            const taken = await sp('commercial.customers')
+              .where({ store_id: nearest.id })
+              .whereNull('deleted_at')
+              .first('id');
+            if (!taken) {
+              await sp('commercial.customers')
+                .where({ id: customerId })
+                .update({ store_id: nearest.id, updated_at: sp.fn.now(), updated_by: me || null });
+              storeId = nearest.id;
+            }
+          }
+        }
+
+        if (storeId) {
+          await sp('trade.stores')
+            .where({ id: storeId })
+            .update({ latitud: lat, longitud: lng, updated_at: sp.fn.now(), updated_by: me || null });
+        }
+      });
+    } catch {
+      storeId = null; // el savepoint hizo rollback; la trx del cliente sigue intacta
+    }
+    return storeId;
   }
 
   /** V.6 — Setea (o corrige) las coords canónicas de un cliente, con guard anti-traslape. */
