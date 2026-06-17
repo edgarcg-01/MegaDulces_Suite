@@ -27,6 +27,7 @@ import { FraudEngineService } from './fraud-engine.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
+import { BaselineLearnerService } from './baseline-learner.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
 import { ListFindingsDto, ReviewFindingDto } from './dto/findings.dto';
 
@@ -53,6 +54,7 @@ export class SupervisorAiController {
     private readonly scoring: ScoringEngineService,
     private readonly salesExec: SalesExecutionService,
     private readonly ruleCalibration: RuleCalibrationService,
+    private readonly baselines: BaselineLearnerService,
   ) {}
 
   @Get('execution-360')
@@ -138,6 +140,7 @@ export class SupervisorAiController {
     const tenantId = user?.tenant_id;
     const featureStore = await this.exec360.computeForTenant(tenantId);
     const calibration = await this.ruleCalibration.computeForTenant(tenantId); // L2: recalibra antes de emitir
+    const baselines = await this.baselines.computeForTenant(tenantId); // L1: recomputa baselines (z-score)
     const findings = await this.findings.generateForTenant(tenantId);
     const fraud = await this.fraud.generateForTenant(tenantId); // determinista, sin LLM
     const actions = await this.actions.proposeForTenant(tenantId);
@@ -145,7 +148,7 @@ export class SupervisorAiController {
     const scoring = await this.scoring.scoreForTenant(tenantId); // usa findings+fraude
     const sales_execution = await this.salesExec.generateGapFindings(tenantId); // gateado por volumen de venta
     const snapshot = await this.exec360.snapshotForTenant(tenantId); // último: captura el estado final (incl. exec_score)
-    return { tenant_id: tenantId, feature_store: featureStore, calibration, findings, fraud, actions, opportunities, scoring, sales_execution, snapshot };
+    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, findings, fraud, actions, opportunities, scoring, sales_execution, snapshot };
   }
 
   @Post('vision/scan')
@@ -222,5 +225,18 @@ export class SupervisorAiController {
     @Body() body: { source?: string; override?: string | null },
   ) {
     return this.ruleCalibration.setOverride(findingType, body?.source || 'engine', body?.override ?? null, user);
+  }
+
+  @Get('learning/baselines')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary: 'Aprendizaje L1 (ADR-021): baselines por sujeto (lo "normal" aprendido). ?subject_type ?metric',
+  })
+  learningBaselines(
+    @ReqUser() user: any,
+    @Query('subject_type') subjectType?: string,
+    @Query('metric') metric?: string,
+  ) {
+    return this.baselines.list({ subject_type: subjectType, metric }, user);
   }
 }

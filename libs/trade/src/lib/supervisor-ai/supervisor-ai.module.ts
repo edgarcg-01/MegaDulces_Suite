@@ -12,6 +12,7 @@ import { FraudEngineService } from './fraud-engine.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
+import { BaselineLearnerService } from './baseline-learner.service';
 
 /**
  * Horus — Supervisor AI de ejecución (Trade Marketing). Read-only/compute sobre
@@ -35,6 +36,7 @@ import { RuleCalibrationService } from './rule-calibration.service';
     ScoringEngineService,
     SalesExecutionService,
     RuleCalibrationService,
+    BaselineLearnerService,
   ],
   exports: [Execution360Service, FindingsEngineService],
 })

@@ -11,6 +11,7 @@ import { FraudEngineService } from './fraud-engine.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
+import { BaselineLearnerService } from './baseline-learner.service';
 
 /**
  * Horus — orquestador del refresh del feature store (Sprint Horus.0).
@@ -38,6 +39,7 @@ export class ExecutionRefreshService {
     private readonly scoring: ScoringEngineService,
     private readonly salesExec: SalesExecutionService,
     private readonly ruleCalibration: RuleCalibrationService,
+    private readonly baselines: BaselineLearnerService,
   ) {}
 
   // 08:30 UTC = 02:30 America/Mexico_City (después del refresh de Customer360 a las 08:00 UTC).
@@ -72,6 +74,9 @@ export class ExecutionRefreshService {
           // L2 (ADR-021): recalibra la precisión de las reglas (desde el juicio humano
           // acumulado) ANTES de emitir → el motor suprime/capa las ruidosas en esta corrida.
           await this.ruleCalibration.computeForTenant(t.id);
+          // L1 (ADR-021): recomputa baselines por sujeto desde los snapshots → el motor
+          // los usa para el z-score (self_anomaly). Activa por sujeto al cruzar el piso.
+          await this.baselines.computeForTenant(t.id);
           // Motor de findings sobre el feature store recién computado (Horus.1).
           const f = await this.findings.generateForTenant(t.id);
           findingsOpen += f.open;

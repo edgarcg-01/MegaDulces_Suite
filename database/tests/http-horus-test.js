@@ -599,6 +599,87 @@ async function req(method, path, token, body) {
     console.log('  (skip override: sin reglas engine en el scorecard todavía)');
   }
 
+  console.log('\n── 21. Aprendizaje L1 (ADR-021): baselines por sujeto + z-score self_anomaly ──');
+  const cmpB = await req('POST', '/supervisor-ai/compute', token, {});
+  check(
+    'compute devuelve {baselines: {baselines, floor_met}} numéricos',
+    cmpB.body?.baselines &&
+      typeof cmpB.body.baselines.baselines === 'number' &&
+      typeof cmpB.body.baselines.floor_met === 'number',
+    cmpB.body?.baselines,
+  );
+  const bl = await req('GET', '/supervisor-ai/learning/baselines', token);
+  check('learning/baselines 200', bl.status === 200, bl.status);
+  check('baselines shape {rows,total}', Array.isArray(bl.body?.rows) && typeof bl.body?.total === 'number', bl.body);
+  console.log(`     baselines reales=${bl.body?.total ?? 0} (floor_met requiere ≥7 snapshots/sujeto — gate por calendario)`);
+
+  // Verificación REAL del aprendizaje: histórico sintético → el z-score DEBE disparar
+  // self_anomaly (cae vs SU propia normal, no vs umbral global). Subject de prueba + cleanup.
+  const SX = '0000000a-0000-0000-0000-00000000ba51';
+  const cleanupL1 = async () => {
+    const actIds = (await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: SX }).select('id')).map((a) => a.id);
+    if (actIds.length) await knex('commercial.supervisor_tasks').whereIn('action_id', actIds).del();
+    await knex('commercial.coaching_notes').where({ tenant_id: T, collaborator_id: SX }).del();
+    await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: SX }).del();
+    await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: SX }).del();
+    await knex('commercial.execution_baselines').where({ tenant_id: T, subject_id: SX }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: SX }).del();
+    await knex('commercial.execution_360').where({ tenant_id: T, subject_id: SX }).del();
+  };
+  await cleanupL1(); // por si una corrida previa abortó antes del cleanup
+  const hist = [85, 84, 86, 85, 83, 87, 85, 84]; // 8 días "normales" altos (~85) con leve varianza
+  const snaps = hist.map((v, i) => ({
+    tenant_id: T,
+    snapshot_date: knex.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date - ${i + 1}`),
+    subject_type: 'collaborator',
+    subject_id: SX,
+    window_days: 30,
+    label: '__horus_l1_test__',
+    avg_score: v,
+    visits_done: 6,
+  }));
+  await knex('commercial.execution_360_snapshots').insert(snaps);
+  await knex('commercial.execution_360')
+    .insert({
+      tenant_id: T,
+      subject_type: 'collaborator',
+      subject_id: SX,
+      window_days: 30,
+      label: '__horus_l1_test__',
+      visits_done: 6,
+      avg_score: 30, // HOY muy por debajo de su normal (~85)
+    })
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {}); // recomputa baselines (antes) + findings
+  const baseSX = await knex('commercial.execution_baselines')
+    .where({ tenant_id: T, subject_id: SX, metric: 'avg_score', window_days: 30 })
+    .first();
+  check(
+    'baseline del sujeto sintético floor_met (n≥7)',
+    !!baseSX && baseSX.floor_met === true && Number(baseSX.n_obs) >= 7,
+    baseSX ? { n: baseSX.n_obs, floor: baseSX.floor_met, mean: baseSX.mean } : 'sin baseline',
+  );
+  const anomaly = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: SX, finding_type: 'self_anomaly' })
+    .first();
+  check(
+    'el z-score DISPARÓ self_anomaly (cae vs SU baseline, invisible al umbral global)',
+    !!anomaly,
+    anomaly ? { sev: anomaly.severity, score: anomaly.score } : 'sin self_anomaly',
+  );
+  if (anomaly) {
+    const ev = typeof anomaly.evidence === 'string' ? JSON.parse(anomaly.evidence) : anomaly.evidence;
+    check(
+      'evidencia explicable (baseline_mean + z + current=30)',
+      ev && ev.baseline_mean != null && ev.z != null && Number(ev.current) === 30,
+      ev,
+    );
+  }
+  await cleanupL1();
+  const goneSX = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: SX }).first();
+  check('cleanup L1 OK (sin datos sintéticos residuales)', !goneSX, goneSX);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

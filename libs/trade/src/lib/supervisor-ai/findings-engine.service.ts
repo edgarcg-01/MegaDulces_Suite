@@ -9,6 +9,7 @@ import {
 import { Knex } from 'knex';
 import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
 import { RuleCalibrationService } from './rule-calibration.service';
+import { BaselineLearnerService } from './baseline-learner.service';
 
 /**
  * Horus — Motor de findings determinista (Sprint Horus.1).
@@ -51,6 +52,7 @@ export class FindingsEngineService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly calibration: RuleCalibrationService,
+    private readonly baselines: BaselineLearnerService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
@@ -82,6 +84,7 @@ export class FindingsEngineService {
     // siempre se SUPRIMEN (no se emiten); las medio-ruidosas se CAPAN a 'warn'. Mapa
     // por (finding_type:source); el motor escribe source='engine'.
     const calib = await this.calibration.getCalibration(tenantId);
+    const baselines = await this.baselines.getBaselines(tenantId); // L1: lo "normal" por sujeto (z-score)
     let suppressed = 0;
 
     const rows = await this.knex('commercial.execution_360')
@@ -160,6 +163,28 @@ export class FindingsEngineService {
             days_since_last_visit: daysSince,
             threshold: th.days_no_visit_max,
           });
+        }
+      }
+
+      // L1 (ADR-021): anomalía vs la PROPIA historia del sujeto (z-score sobre avg_score
+      // 30d). Complementa low_score (umbral global): capta la caída relativa que el umbral
+      // absoluto no ve (90→75) e ignora al "siempre bajo". Sujeta a la calibración L2.
+      if (r.window_days === 30 && avg != null && visits >= MIN_OBS) {
+        const b = baselines.get(`${r.subject_type}:${r.subject_id}:30:avg_score`);
+        if (b && b.floor_met && b.mean != null && b.stddev != null) {
+          const drop = b.mean - avg;
+          const z = b.stddev > 0 ? (avg - b.mean) / b.stddev : 0;
+          if (drop >= Math.max(2 * b.stddev, 8)) {
+            add('self_anomaly', z <= -3 || drop >= 25 ? 'critical' : 'warn', r, Math.round(drop * 100) / 100, {
+              metric: 'avg_score',
+              current: avg,
+              baseline_mean: Math.round(b.mean * 100) / 100,
+              baseline_stddev: Math.round(b.stddev * 100) / 100,
+              baseline_n_obs: b.n_obs,
+              z: Math.round(z * 100) / 100,
+              window_days: 30,
+            });
+          }
         }
       }
     }
