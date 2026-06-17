@@ -74,6 +74,39 @@ export class OpportunityEngineService {
   }
 
   /**
+   * Ejecuta un query OPCIONAL (enriquecimiento best-effort) sin envenenar la trx del
+   * request. El TenantContextInterceptor envuelve cada request autenticada en UNA trx;
+   * si un query falla, la trx queda abortada y TODO lo siguiente tira 25P02 ("current
+   * transaction is aborted") — aunque el error se haya atrapado. Un SAVEPOINT aísla el
+   * fallo (ROLLBACK al savepoint, no a toda la trx). Si no estamos en trx (cron, conexión
+   * pooled) el SAVEPOINT no aplica y caemos a query plano. Ver feedback_global_request_tx_25p02.
+   */
+  private async safeQuery<T>(fn: () => Promise<T>): Promise<T | null> {
+    let sp = false;
+    try {
+      await this.knex.raw('SAVEPOINT horus_opt');
+      sp = true;
+    } catch {
+      /* no estamos dentro de una transacción */
+    }
+    try {
+      const r = await fn();
+      if (sp) await this.knex.raw('RELEASE SAVEPOINT horus_opt');
+      return r;
+    } catch (e: any) {
+      if (sp) {
+        try {
+          await this.knex.raw('ROLLBACK TO SAVEPOINT horus_opt');
+        } catch {
+          /* noop */
+        }
+      }
+      this.logger.debug(`safeQuery opcional falló: ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Genera/actualiza las oportunidades de mejora para UN tenant. Lo invoca el
    * refresh tras proponer acciones de findings (y el endpoint /compute).
    */
@@ -245,14 +278,10 @@ export class OpportunityEngineService {
     // Nombre de los productos sugeridos (best-effort; si falla, degrada a genérico).
     const prodName = new Map<string, string>();
     if (suggestedProductIds.size) {
-      try {
-        const rows = await this.knex('catalog.products')
-          .whereIn('id', [...suggestedProductIds])
-          .select('id', 'name');
-        rows.forEach((p: any) => prodName.set(p.id, p.name));
-      } catch (e: any) {
-        this.logger.debug(`recover_shelf: sin nombres de producto (${e.message})`);
-      }
+      const rows = await this.safeQuery(() =>
+        this.knex('catalog.products').whereIn('id', [...suggestedProductIds]).select('id', 'name'),
+      );
+      (rows || []).forEach((p: any) => prodName.set(p.id, p.name));
     }
     for (const d of recoverDraft) {
       const pname = d.productId ? prodName.get(d.productId) : null;
@@ -286,14 +315,10 @@ export class OpportunityEngineService {
     }
     const routeNames = new Map<string, string>();
     if (routeRisk.size) {
-      try {
-        const rows = await this.knex('catalogs')
-          .whereIn('id', [...routeRisk.keys()])
-          .select('id', 'value');
-        rows.forEach((c: any) => routeNames.set(c.id, c.value));
-      } catch (e: any) {
-        this.logger.debug(`reprioritize_route: sin nombres de ruta (${e.message})`);
-      }
+      const rows = await this.safeQuery(() =>
+        this.knex('catalogs').whereIn('id', [...routeRisk.keys()]).select('id', 'value'),
+      );
+      (rows || []).forEach((c: any) => routeNames.set(c.id, c.value));
     }
     for (const [routeId, arr] of routeRisk) {
       if (arr.length < 2) continue;
