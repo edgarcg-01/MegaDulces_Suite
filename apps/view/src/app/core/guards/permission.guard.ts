@@ -27,6 +27,8 @@ const subjectMap: Record<string, string> = {
   [Permission.VER_SEGUIMIENTO]: 'seguimiento',
   [Permission.RUTAS_VER]: 'routes_analytics',
   [Permission.COMMERCIAL_MAP_VER]: 'commercial_map',
+  [Permission.SUPERVISOR_AI_VER]: 'supervisor_ai',
+  [Permission.SUPERVISOR_AI_APROBAR]: 'supervisor_ai',
 };
 
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {

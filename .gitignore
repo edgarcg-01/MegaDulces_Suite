@@ -63,3 +63,6 @@ database/_cli.json
 # ERP Kepler dump (228MB, no versionar — restaurar localmente con pg_restore)
 database/BACKUP.sql
 *.sql.dump
+
+# Backups/dumps sueltos de tiendas (data de prod, no versionar — p.ej. "backup tienda LPA...sql")
+database/backup*.sql

@@ -563,6 +563,45 @@ Capas:
 
 ---
 
+## ADR-020 — **Horus**: Supervisor AI de ejecución en campo (Trade)
+
+**Estado:** ✅ Aceptado (2026-06-16)
+
+**Fecha:** 2026-06-16
+
+**Contexto:**
+- El proyecto Trade es **auditoría de ejecución en PdV**: capturas de exhibiciones, scoring, cobertura de ruta, GPS. Hoy hay panel para supervisores (`/seguimiento`, `/routes`, `/commercial-map`, `/reports`) pero **el supervisor escanea todo a mano**; no hay diagnóstico, priorización ni alertas accionables automáticas.
+- Un supervisor humano no escala tres tareas: revisar el **100% de las fotos**, correlacionar el **GPS de toda la flotilla**, y dar **coaching consistente y diario**. El usuario pide un AI que haga "tareas de un supervisor de ventas o hasta más".
+- Ya existe infra AI reutilizable (Fase K): Claude Haiku 4.5 + visión ([LlmExtractorService](FASES/../../../libs/platform-core/src/lib/ai/llm-extractor.service.ts)), Voyage-3 + pgvector, throttling. Y un patrón de motor probado (Thot/ADR-016).
+- **ADR-016/FASE_M (línea 217)** ya decidió **no compartir motor** entre Trade y Comercial: "más capturado" ≠ "más pedido". Mezclar el ranker de auditoría con el camino-de-dinero es acoplamiento prematuro.
+
+**Decisión:**
+1. **El supervisor AI se llama `Horus`** (el halcón egipcio, el ojo que todo lo vigila — supervisión/ejecución). Motor hermano de Thot, mismo panteón, **frontera de proyecto respetada**: vive en `libs/trade`, reusa solo las primitivas AI de `platform-core`, **no importa `commercial-intelligence`**.
+2. **Hereda los invariantes de ADR-016:** el motor decide (determinista, explicable), el agente comunica (Claude redacta parte/coaching/conversa), **el LLM nunca toca el camino laboral crítico** (sancionar/reasignar/acusar de fraude = acción humana).
+3. **Nivel de autonomía = co-piloto (decisión Edgar 2026-06-16):** el AI no solo recomienda, **prepara la acción concreta** (reasignar ruta, abrir alerta, enviar coaching, marcar para revisión) y la deja en `pending_approval`; el supervisor **aprueba/rechaza con un clic**. Reusa el patrón de estado `pending_approval` de ADR-013.
+4. **Alcance = 3 capacidades:** (a) **parte diario** (motor de cobertura/score/idle/share + agente que redacta y prioriza), (b) **auditoría visual** (Claude vision audita el 100% de fotos vs concepto), (c) **detección de fraude/anomalías** (GPS↔tienda, tiempos imposibles, fotos recicladas). Visión y fraude producen *findings revisables*, no veredictos.
+5. **Feature store propio** `trade.execution_360` (ejes collaborator/route/store), refresco nocturno + on-demand (patrón Customer360Refresh, `TenantKnexService.run` + scope sintético). El motor lee de ahí; el agente lo consume vía tools.
+6. **Honestidad de datos como invariante** (igual que Thot): V1 se para en señales 🟢 (score, idle, foto); cobertura (`store_id` ~9% poblado), share (`perteneceMegaDulces` con `null`) y GPS quedan parciales y mejoran con la data. Foto reciclada usa **pHash (Cloudinary), no Voyage** (Voyage es texto).
+7. **Build por rebanadas verticales** (Horus.0 feature store → .1 motor findings → .2 agente parte diario → .3 pantalla → .4 co-piloto → .5 visión → .6 fraude → .7 feedback).
+
+**Alternativas consideradas:**
+- **Compartir el motor Thot:** rechazado — viola ADR-016/FASE_M (unidades distintas, acoplamiento prematuro al camino-de-dinero).
+- **Autónomo (AI ejecuta solo):** rechazado por riesgo laboral/operativo — reasignar o acusar sin humano es inaceptable; co-piloto da la velocidad sin el riesgo.
+- **Solo recomienda (asistente puro):** descartado por el usuario — quiere que prepare la acción, no solo el diagnóstico.
+- **LLM que calcula cobertura/score:** rechazado — debe ser determinista y auditable; el LLM solo redacta.
+
+**Consecuencias:**
+- ✅ Valor inmediato con datos 🟢 (parte diario) + tres capacidades que un humano no escala (visión 100%, GPS de flotilla, coaching diario).
+- ✅ Reusa infra AI ya en prod beta (Haiku, visión, throttling); el costo nuevo es el feature store + reglas + pantalla.
+- ✅ Co-piloto = velocidad con humano en el lazo; cero acciones laborales automáticas.
+- ⚠️ La métrica estrella (cobertura) no es confiable hasta reforzar `store_id`; explícito, no oculto.
+- ⚠️ La visión es el costo LLM real (1 llamada/foto) → encuadrar con muestreo/priorización; estimar volumen antes de Horus.5.
+- 🔄 Aditivo y reversible: cada finding/acción es apagable; sin feature store no rompe Trade existente.
+
+**Plan de implementación:** Detallado en [`FASES/FASE_HORUS_SUPERVISOR_AI.md`](FASES/FASE_HORUS_SUPERVISOR_AI.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

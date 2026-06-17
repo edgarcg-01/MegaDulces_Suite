@@ -3,7 +3,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
@@ -18,6 +17,9 @@ import { InputIconModule } from 'primeng/inputicon';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Order, OrderStatus } from '../comercial.service';
+import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
+import { OrderKpisComponent } from '../components/order-kpis.component';
+import { OrderFiltersComponent } from '../components/order-filters.component';
 
 type OrdersMode = 'pending' | 'history';
 
@@ -67,6 +69,8 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     IconFieldModule,
     InputIconModule,
     TooltipModule,
+    OrderKpisComponent,
+    OrderFiltersComponent,
   ],
   providers: [MessageService],
   template: `
@@ -125,164 +129,33 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       </header>
 
       <!-- SHEET 1: KPI STRIP ventana actual (adaptativo por modo) -->
-      <p-skeleton *ngIf="loadingKpis()" height="120px"></p-skeleton>
-      <div *ngIf="!loadingKpis()" class="sheet cols-12">
-        <!-- Hero ventas: span más amplio en pending (3 tiles), normal en history (4 tiles) -->
-        <article class="cell" [class.cell-span-6]="mode === 'pending'" [class.cell-span-3]="mode === 'history'">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-wallet"></i>
-          </span>
-          <span class="cell-label">{{ mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana' }}</span>
-          <span class="cell-value is-headline">{{ fmtMoneyShort(totalAmount()) }}</span>
-          <span class="cell-sub">{{ total() }} pedido{{ total() === 1 ? '' : 's' }} en período</span>
-        </article>
+      <app-order-kpis
+        [loading]="loadingKpis()"
+        [mode]="mode"
+        [totalAmount]="totalAmount()"
+        [total]="total()"
+        [statusCounts]="statusCounts()"
+      />
 
-        <ng-container *ngIf="mode === 'pending'">
-          <article class="cell cell-span-3">
-            <span class="cell-icon" aria-hidden="true">
-              <i class="pi pi-hourglass"></i>
-            </span>
-            <span class="cell-label">Por aprobar</span>
-            <span class="cell-value">{{ statusCounts()['pending_approval'] ?? 0 }}</span>
-            <span class="cell-sub">requieren acción</span>
-          </article>
-          <article class="cell cell-span-3">
-            <span class="cell-icon" aria-hidden="true">
-              <i class="pi pi-pencil"></i>
-            </span>
-            <span class="cell-label">Borradores</span>
-            <span class="cell-value">{{ statusCounts()['draft'] ?? 0 }}</span>
-            <span class="cell-sub">sin enviar a aprobación</span>
-          </article>
-        </ng-container>
-
-        <ng-container *ngIf="mode === 'history'">
-          <article class="cell cell-span-3">
-            <span class="cell-icon" aria-hidden="true">
-              <i class="pi pi-sync"></i>
-            </span>
-            <span class="cell-label">En curso</span>
-            <span class="cell-value">{{ statusCounts()['confirmed'] ?? 0 }}</span>
-            <span class="cell-sub">a despachar</span>
-          </article>
-          <article class="cell cell-span-3">
-            <span class="cell-icon" aria-hidden="true">
-              <i class="pi pi-check-circle"></i>
-            </span>
-            <span class="cell-label">Entregados</span>
-            <span class="cell-value">{{ statusCounts()['fulfilled'] ?? 0 }}</span>
-            <span class="cell-sub">cerrados</span>
-          </article>
-          <article class="cell cell-span-3">
-            <span class="cell-icon" aria-hidden="true">
-              <i class="pi pi-times-circle"></i>
-            </span>
-            <span class="cell-label">Cancelados</span>
-            <span class="cell-value">{{ statusCounts()['cancelled'] ?? 0 }}</span>
-            <span class="cell-sub">en el período</span>
-          </article>
-        </ng-container>
-      </div>
-
-      <!-- SHEET 2: FILTERS — toolbar densa, todas las alturas alineadas -->
-      <div class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush co-filters-cell">
-          <!-- Row 1: status chips -->
-          <nav class="co-chips" role="tablist" aria-label="Filtrar por estado">
-            <button
-              *ngFor="let f of filters()"
-              type="button"
-              class="co-chip"
-              [class.active]="statusFilter() === f.key"
-              role="tab"
-              [attr.aria-selected]="statusFilter() === f.key"
-              (click)="setStatus(f.key)"
-            >
-              <span>{{ f.label }}</span>
-              <span class="co-chip-count" *ngIf="statusCounts()[f.key] !== undefined">
-                {{ statusCounts()[f.key] }}
-              </span>
-            </button>
-          </nav>
-
-          <!-- Row 2: toolbar compacta — presets · date range · search · reset -->
-          <div class="co-toolbar">
-            <!-- Presets segment -->
-            <div class="co-segment" role="group" aria-label="Rango de fechas">
-              <button
-                *ngFor="let p of presets"
-                type="button"
-                class="co-seg-btn"
-                [class.active]="datePreset() === p.key"
-                (click)="setPreset(p.key)"
-              >{{ p.label }}</button>
-            </div>
-
-            <!-- Date range inline: from → to -->
-            <div class="co-daterange" role="group" aria-label="Rango personalizado">
-              <i class="pi pi-calendar co-daterange-icon" aria-hidden="true"></i>
-              <p-datepicker
-                [(ngModel)]="fromDate"
-                (ngModelChange)="onDateManualChange()"
-                dateFormat="dd/mm/yy"
-                [showClear]="false"
-                placeholder="Desde"
-                appendTo="body"
-                styleClass="co-date-input"
-              ></p-datepicker>
-              <i class="pi pi-arrow-right co-daterange-arrow" aria-hidden="true"></i>
-              <p-datepicker
-                [(ngModel)]="toDate"
-                (ngModelChange)="onDateManualChange()"
-                dateFormat="dd/mm/yy"
-                [showClear]="false"
-                placeholder="Hasta"
-                appendTo="body"
-                styleClass="co-date-input"
-              ></p-datepicker>
-            </div>
-
-            <!-- Spacer -->
-            <div class="co-toolbar-spacer"></div>
-
-            <!-- Search folio -->
-            <div class="co-search">
-              <i class="pi pi-search co-search-icon" aria-hidden="true"></i>
-              <input
-                type="search"
-                [(ngModel)]="folioSearch"
-                (ngModelChange)="onSearchChange($event)"
-                placeholder="Buscar folio (PD-2026-…)"
-                inputmode="search"
-                autocomplete="off"
-                autocapitalize="characters"
-                aria-label="Buscar por folio"
-              />
-              <button
-                *ngIf="folioSearch"
-                type="button"
-                class="co-search-clear"
-                (click)="clearSearch()"
-                aria-label="Limpiar búsqueda"
-              >
-                <i class="pi pi-times" aria-hidden="true"></i>
-              </button>
-            </div>
-
-            <!-- Reset si hay filtros activos -->
-            <button
-              *ngIf="hasActiveFilters()"
-              type="button"
-              class="co-reset"
-              (click)="resetFilters()"
-              pTooltip="Limpiar todos los filtros"
-            >
-              <i class="pi pi-refresh" aria-hidden="true"></i>
-              <span>Reset</span>
-            </button>
-          </div>
-        </article>
-      </div>
+      <!-- SHEET 2: FILTERS — toolbar densa (extraída a app-order-filters, CV.3) -->
+      <app-order-filters
+        [filters]="filters()"
+        [statusFilter]="statusFilter()"
+        [statusCounts]="statusCounts()"
+        [presets]="presets"
+        [datePreset]="datePreset()"
+        [fromDate]="fromDate"
+        [toDate]="toDate"
+        [folioSearch]="folioSearch"
+        [hasActiveFilters]="hasActiveFilters()"
+        (statusChange)="setStatus($any($event))"
+        (presetChange)="setPreset($event)"
+        (fromDateChange)="fromDate = $event; onDateManualChange()"
+        (toDateChange)="toDate = $event; onDateManualChange()"
+        (searchChange)="folioSearch = $event; onSearchChange($event)"
+        (clearSearch)="clearSearch()"
+        (resetFilters)="resetFilters()"
+      />
 
       <!-- SHEET 3: TABLE flush, edge-to-edge -->
       <div class="sheet cols-12">
@@ -394,7 +267,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       padding: .5rem .95rem;
       border: 0; background: transparent;
       border-radius: 8px;
-      font-size: .88rem; font-weight: var(--fw-medium);
+      font-size: var(--fs-body); font-weight: var(--fw-medium);
       color: var(--c-text-2);
       cursor: pointer;
       transition: background 120ms var(--ease-standard), color 120ms var(--ease-standard);
@@ -407,225 +280,6 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     }
     .co-mode-tab i { font-size: .85rem; }
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
-
-    /* ── FILTERS CELL: chips arriba + toolbar abajo ── */
-    .co-filters-cell { display: flex; flex-direction: column; }
-
-    /* Row 1: chips */
-    .co-chips {
-      display: flex;
-      gap: .375rem;
-      flex-wrap: wrap;
-      align-items: center;
-      padding: .625rem .875rem;
-      border-bottom: 1px solid var(--c-divider);
-    }
-    .co-chip {
-      flex-shrink: 0;
-      height: 28px;
-      background: transparent;
-      border: 1px solid var(--c-divider);
-      border-radius: 999px;
-      padding: 0 .65rem;
-      font-size: var(--fs-sm);
-      font-weight: var(--fw-medium);
-      color: var(--c-text-2);
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: .375rem;
-      transition: all 120ms var(--ease-standard);
-    }
-    .co-chip:hover {
-      border-color: var(--c-text-3);
-      color: var(--c-text-1);
-      background: var(--c-surface-2);
-    }
-    .co-chip.active {
-      background: var(--c-text-1);
-      border-color: var(--c-text-1);
-      color: var(--c-surface-1);
-    }
-    .co-chip-count {
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      font-size: var(--fs-micro);
-      font-weight: var(--fw-bold);
-      padding: .05rem .4rem;
-      border-radius: 999px;
-      font-variant-numeric: tabular-nums;
-      min-width: 18px;
-      text-align: center;
-    }
-    .co-chip.active .co-chip-count {
-      background: rgba(255,255,255,.20);
-      color: var(--c-surface-1);
-    }
-
-    /* Row 2: toolbar densa, todo a 32px de alto */
-    .co-toolbar {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-      padding: .625rem .875rem;
-      flex-wrap: wrap;
-    }
-    .co-toolbar-spacer { flex: 1; min-width: 0; }
-
-    /* Segmented control de presets — 32px */
-    .co-segment {
-      display: inline-flex;
-      align-items: stretch;
-      height: 32px;
-      background: var(--c-surface-2);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      padding: 2px;
-      gap: 2px;
-    }
-    .co-seg-btn {
-      background: transparent;
-      border: none;
-      padding: 0 .65rem;
-      font-size: var(--fs-xs);
-      font-weight: var(--fw-medium);
-      color: var(--c-text-2);
-      cursor: pointer;
-      border-radius: 6px;
-      transition: all 100ms var(--ease-standard);
-      white-space: nowrap;
-    }
-    .co-seg-btn:hover { color: var(--c-text-1); }
-    .co-seg-btn.active {
-      background: var(--c-surface-1);
-      color: var(--c-text-1);
-      box-shadow: 0 1px 2px rgba(0,0,0,.08);
-      font-weight: var(--fw-bold);
-    }
-
-    /* Date range inline: icon + from → to */
-    .co-daterange {
-      display: inline-flex;
-      align-items: center;
-      height: 32px;
-      gap: .25rem;
-      padding: 0 .5rem;
-      background: var(--c-surface-1);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      transition: border-color 120ms var(--ease-standard);
-    }
-    .co-daterange:focus-within {
-      border-color: var(--action);
-      box-shadow: 0 0 0 3px var(--action-ring);
-    }
-    .co-daterange-icon {
-      color: var(--c-text-3);
-      font-size: var(--fs-sm);
-    }
-    .co-daterange-arrow {
-      color: var(--c-text-3);
-      font-size: var(--fs-xs);
-      padding: 0 .15rem;
-    }
-    :host ::ng-deep .co-date-input.p-datepicker {
-      width: 90px;
-    }
-    :host ::ng-deep .co-date-input.p-datepicker .p-inputtext,
-    :host ::ng-deep .co-date-input.p-datepicker input {
-      border: none !important;
-      background: transparent !important;
-      padding: 0 !important;
-      height: 28px !important;
-      font-size: var(--fs-sm) !important;
-      color: var(--c-text-1) !important;
-      box-shadow: none !important;
-      width: 100%;
-    }
-    :host ::ng-deep .co-date-input.p-datepicker input::placeholder {
-      color: var(--c-text-3);
-    }
-    :host ::ng-deep .co-date-input.p-datepicker .p-datepicker-trigger {
-      display: none !important;
-    }
-
-    /* Search — 32px */
-    .co-search {
-      display: inline-flex;
-      align-items: center;
-      height: 32px;
-      width: 240px;
-      max-width: 100%;
-      background: var(--c-surface-1);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      padding: 0 .5rem;
-      gap: .35rem;
-      transition: border-color 120ms var(--ease-standard);
-    }
-    .co-search:focus-within {
-      border-color: var(--action);
-      box-shadow: 0 0 0 3px var(--action-ring);
-    }
-    .co-search-icon {
-      color: var(--c-text-3);
-      font-size: var(--fs-sm);
-      flex-shrink: 0;
-    }
-    .co-search input {
-      flex: 1;
-      border: none;
-      background: transparent;
-      outline: none;
-      font-size: var(--fs-sm);
-      color: var(--c-text-1);
-      min-width: 0;
-      padding: 0;
-      height: 28px;
-    }
-    .co-search input::placeholder {
-      color: var(--c-text-3);
-    }
-    .co-search-clear {
-      background: transparent;
-      border: none;
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      color: var(--c-text-3);
-      cursor: pointer;
-      display: grid;
-      place-items: center;
-      flex-shrink: 0;
-      font-size: var(--fs-xs);
-    }
-    .co-search-clear:hover {
-      color: var(--c-text-1);
-      background: var(--c-surface-2);
-    }
-
-    /* Reset button — solo cuando hay filtros activos */
-    .co-reset {
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
-      height: 32px;
-      padding: 0 .75rem;
-      background: transparent;
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      color: var(--c-text-2);
-      font-size: var(--fs-xs);
-      font-weight: var(--fw-medium);
-      cursor: pointer;
-      transition: all 120ms var(--ease-standard);
-    }
-    .co-reset:hover {
-      color: var(--c-text-1);
-      border-color: var(--c-text-1);
-      background: var(--c-surface-2);
-    }
-    .co-reset i { font-size: var(--fs-xs); }
 
     /* ── DELIVERY chip neutral (sólo el icono cambia entre por_ruta y long_trip) ── */
     .co-delivery {
@@ -671,7 +325,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       color: var(--c-text-2);
       display: grid;
       place-items: center;
-      font-size: 1.5rem;
+      font-size: var(--fs-h1);
     }
     .co-empty h3 {
       margin: 0 0 .375rem;
@@ -684,13 +338,6 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
       color: var(--c-text-2);
       font-size: var(--fs-sm);
       line-height: 1.4;
-    }
-
-    @media (max-width: 640px) {
-      .co-toolbar { gap: .5rem; }
-      .co-toolbar-spacer { display: none; }
-      .co-search { width: 100%; }
-      .co-daterange { flex: 1; }
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -726,7 +373,6 @@ export class ComercialOrdersComponent {
   fromDate: Date | null = null;
   toDate: Date | null = null;
   folioSearch = '';
-  private searchDebounce: any = null;
   readonly folioSearchSignal = signal('');
 
   readonly visibleRows = computed(() => {
@@ -810,10 +456,7 @@ export class ComercialOrdersComponent {
     this.load();
   }
 
-  onSearchChange(v: string): void {
-    if (this.searchDebounce) clearTimeout(this.searchDebounce);
-    this.searchDebounce = setTimeout(() => this.folioSearchSignal.set(v || ''), 180);
-  }
+  readonly onSearchChange = makeDebouncedSearch((v) => this.folioSearchSignal.set(v || ''), 180);
 
   clearSearch(): void {
     this.folioSearch = '';
@@ -863,27 +506,19 @@ export class ComercialOrdersComponent {
   /** Carga counts solo para los chips visibles en el modo actual. */
   loadCounts(): void {
     this.loadingKpis.set(true);
-    const queries: Record<string, ReturnType<typeof this.api.listOrders>> = {};
-    for (const f of this.filters()) {
-      if (f.key === 'all') continue;
-      queries[f.key] = this.api.listOrders({
-        status: f.key,
+    this.api
+      .orderCounts({
         from: this.toIso(this.fromDate),
         to: this.toIso(this.toDate),
-        pageSize: 1,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.statusCounts.set(r.counts || {});
+          this.loadingKpis.set(false);
+        },
+        error: () => this.loadingKpis.set(false),
       });
-    }
-    forkJoin(queries).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        const out: Record<string, number> = {};
-        for (const k of Object.keys(r)) {
-          out[k] = (r as any)[k]?.pagination?.total || 0;
-        }
-        this.statusCounts.set(out);
-        this.loadingKpis.set(false);
-      },
-      error: () => this.loadingKpis.set(false),
-    });
   }
 
   /** Cambiar entre tabs "Pendientes" e "Historial". */
@@ -892,13 +527,7 @@ export class ComercialOrdersComponent {
     this.router.navigate(['/comercial/orders', ...(m === 'history' ? ['history'] : [])]);
   }
 
-  onLazyLoad(e: { first?: number | null; rows?: number | null }): void {
-    const first = e.first ?? 0;
-    const rows = e.rows ?? this.pageSize();
-    this.page.set(Math.floor(first / rows) + 1);
-    this.pageSize.set(rows);
-    this.load();
-  }
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
   goDetail(o: Order): void {
     this.router.navigate(['/comercial/orders', o.id]);

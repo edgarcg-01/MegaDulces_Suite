@@ -236,6 +236,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
     { label: 'Rutas',             icon: 'pi pi-map',           route: '/dashboard/routes',               permission: Permission.RUTAS_VER             },
     { label: 'Mapa Comercial',    icon: 'pi pi-map-marker',    route: '/dashboard/commercial-map',       permission: Permission.COMMERCIAL_MAP_VER    },
+    { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
   ];
@@ -254,17 +255,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
         { label: 'Cartera de ventas', icon: 'pi pi-sitemap',    route: '/comercial/cartera',        permission: Permission.USUARIOS_ASIGNAR_RUTA },
-        { label: 'Ventas (ERP)',      icon: 'pi pi-database',   route: '/comercial/historical',     permission: Permission.COMMERCIAL_ORDERS_VER },
       ],
     },
     {
       title: 'Inventario',
       items: [
-        { label: 'Inventario',        icon: 'pi pi-box',                  route: '/comercial/inventory',          permission: Permission.COMMERCIAL_INVENTORY_VER },
-        { label: 'Almacenes',         icon: 'pi pi-warehouse',            route: '/comercial/warehouses',         permission: Permission.COMMERCIAL_WAREHOUSES_VER },
-        { label: 'Conteo físico',     icon: 'pi pi-qrcode',               route: '/comercial/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
-        { label: 'Folios inventario', icon: 'pi pi-clipboard',            route: '/comercial/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-        { label: 'Stock muerto',      icon: 'pi pi-exclamation-triangle', route: '/comercial/dead-stock',         permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Inventario',    icon: 'pi pi-box',       route: '/comercial/inventory',       permission: Permission.COMMERCIAL_INVENTORY_VER },
+        { label: 'Almacenes',     icon: 'pi pi-warehouse', route: '/comercial/warehouses',      permission: Permission.COMMERCIAL_WAREHOUSES_VER },
+        { label: 'Conteo físico', icon: 'pi pi-qrcode',    route: '/comercial/inventory/count', permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
       ],
     },
     {
@@ -286,9 +284,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   private adminNavItems: NavItem[] = [
-    { label: 'Usuarios',          icon: 'pi pi-users',   route: '/admin/users',   permission: Permission.USUARIOS_GESTIONAR },
-    { label: 'Cartera de ventas', icon: 'pi pi-sitemap', route: '/admin/cartera', permission: Permission.USUARIOS_ASIGNAR_RUTA },
-    { label: 'Roles',             icon: 'pi pi-shield',  route: '/admin/roles',   permission: Permission.ROLES_CONFIGURAR   },
+    { label: 'Usuarios', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_GESTIONAR },
+    { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_CONFIGURAR  },
   ];
 
   private logisticaNavItems: NavItem[] = [

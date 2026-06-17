@@ -32,6 +32,7 @@ export const routes: Routes = [
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'commercial-map', loadComponent: () => import('./modules/dashboard/commercial-map/commercial-map.component').then(m => m.CommercialMapComponent), canActivate: [permissionGuard(Permission.COMMERCIAL_MAP_VER)] },
+      { path: 'supervisor-ai', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai.component').then(m => m.SupervisorAiComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
       { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
@@ -267,11 +268,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
       },
       {
-        // Alias en Admin de la cartera de ventas (mismo componente que /comercial/cartera):
-        // asignar rutas a vendedores es gestión de personal, vive también acá.
+        // La cartera de ventas vive en /comercial/cartera (dominio comercial).
+        // Redirect para no romper enlaces viejos a /admin/cartera.
         path: 'cartera',
-        loadComponent: () => import('./modules/comercial/pages/comercial-cartera.component').then(m => m.ComercialCarteraComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
+        redirectTo: '/comercial/cartera',
+        pathMatch: 'full',
       },
       {
         path: 'roles',

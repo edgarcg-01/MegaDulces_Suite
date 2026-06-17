@@ -14,6 +14,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, PriceList, ProductPrice } from '../comercial.service';
+import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 
 @Component({
   selector: 'app-comercial-pricing',
@@ -541,7 +542,6 @@ export class ComercialPricingComponent {
   readonly pricesTotal = signal(0);
   pricesSearch = '';
   readonly pricesSearchSignal = signal('');
-  private searchDebounce: any = null;
 
   readonly editing = signal<PriceList | null>(null);
   readonly saving = signal(false);
@@ -606,23 +606,17 @@ export class ComercialPricingComponent {
       });
   }
 
-  onPricesLazyLoad(e: { first?: number | null; rows?: number | null }): void {
-    const first = e.first ?? 0;
-    const rows = e.rows ?? this.pricesPageSize();
-    this.pricesPage.set(Math.floor(first / rows) + 1);
-    this.pricesPageSize.set(rows);
-    this.loadPricesPage();
-  }
+  readonly onPricesLazyLoad = makeLazyLoad(this.pricesPage, this.pricesPageSize, () => this.loadPricesPage());
 
   onPricesSearchChange(v: string): void {
     this.pricesSearch = v;
-    if (this.searchDebounce) clearTimeout(this.searchDebounce);
-    this.searchDebounce = setTimeout(() => {
-      this.pricesSearchSignal.set((v || '').trim());
-      this.pricesPage.set(1);
-      this.loadPricesPage();
-    }, 250);
+    this.pricesSearchDebounced(v);
   }
+  private readonly pricesSearchDebounced = makeDebouncedSearch((v) => {
+    this.pricesSearchSignal.set((v || '').trim());
+    this.pricesPage.set(1);
+    this.loadPricesPage();
+  });
 
   clearPricesSearch(): void {
     this.pricesSearch = '';

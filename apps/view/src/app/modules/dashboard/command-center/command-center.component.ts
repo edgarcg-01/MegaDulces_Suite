@@ -17,6 +17,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
+import { CountUpDirective } from '../../../shared/directives/count-up.directive';
+import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import {
   CommandCenterService,
   OverviewResponse,
@@ -28,7 +32,27 @@ import {
   DailySeriesRow,
   RankingOutOfStockRow,
   ConversionSummary,
+  ConversionDailyRow,
+  ProductStockRow,
 } from './command-center.service';
+
+/** Shape mínimo para abrir el 360° de un cliente desde cualquier tabla. */
+interface CustomerPeekRef {
+  customer_id: string;
+  name: string;
+  code: string;
+  revenue?: number;
+}
+
+/** Shape mínimo para abrir el peek de un producto desde cualquier tabla. */
+interface ProductPeekRef {
+  product_id: string;
+  product_name: string;
+  brand_name: string;
+  units_sold?: number;
+  revenue?: number;
+  orders_count?: number;
+}
 
 @Component({
   selector: 'app-command-center',
@@ -39,6 +63,10 @@ import {
     SkeletonModule,
     ToastModule,
     TooltipModule,
+    SidePeekComponent,
+    Customer360PanelComponent,
+    CountUpDirective,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   templateUrl: './command-center.component.html',
@@ -46,6 +74,12 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommandCenterComponent implements OnInit {
+  readonly analyticsTabs: PageTab[] = [
+    { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt' },
+    { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database' },
+    { label: 'Stock muerto', route: '/comercial/dead-stock', icon: 'pi pi-exclamation-triangle' },
+  ];
+
   private readonly api = inject(CommandCenterService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -62,7 +96,22 @@ export class CommandCenterComponent implements OnInit {
   readonly dailySeries = signal<DailySeriesRow[]>([]);
   readonly rankingOOS = signal<RankingOutOfStockRow[]>([]);
   readonly conversion = signal<ConversionSummary | null>(null);
+  readonly conversionSeries = signal<ConversionDailyRow[]>([]);
   readonly dueCount = signal<number | null>(null);
+
+  // Reveal escalonado SOLO en el primer paint (nunca en refresh — DESIGN.md motion #5).
+  readonly stagger = signal(false);
+  private hasEntered = false;
+
+  // ── Side-peek: drill-down 360° del cliente (contenido en Customer360PanelComponent) ──
+  readonly peekOpen = signal(false);
+  readonly peekRow = signal<CustomerPeekRef | null>(null);
+
+  // ── Side-peek: drill-down de producto (stock por almacén) ──
+  readonly prodOpen = signal(false);
+  readonly prodRow = signal<ProductPeekRef | null>(null);
+  readonly prodStock = signal<ProductStockRow[]>([]);
+  readonly prodLoading = signal(false);
 
   readonly revenueSpark = computed(() => {
     const series = this.dailySeries();
@@ -98,6 +147,65 @@ export class CommandCenterComponent implements OnInit {
     return { pct, direction: pct >= 0 ? 'up' : 'down' as 'up' | 'down' };
   });
 
+  /** Mini-barras (entregados/día) — dato real de dailySeries (status fulfilled). */
+  readonly ordersBars = computed(() => this.bars(this.dailySeries().map((d) => d.orders_count)));
+  /** Mini-barras (clientes únicos/día) — dato real de dailySeries. */
+  readonly customersBars = computed(() => this.bars(this.dailySeries().map((d) => d.unique_customers)));
+  /** Mini-barras del Motor — ofertas/día, convertidas/día (conteos → barras). */
+  readonly offersBars = computed(() => this.bars(this.conversionSeries().map((d) => d.offers)));
+  readonly convertedBars = computed(() => this.bars(this.conversionSeries().map((d) => d.converted)));
+  /** Conversión es una TASA → sparkline línea (no barras), para diferenciarla de los conteos. */
+  readonly conversionSpark = computed(() => this.miniSpark(this.conversionSeries().map((d) => d.conversion_pct)));
+
+  /** "En curso": composición real del pipeline no-entregado (confirmed/draft/cancelled). */
+  readonly pipelineStack = computed(() => {
+    const o = this.overview()?.orders;
+    if (!o) return null;
+    const total = (o.confirmed || 0) + (o.draft || 0) + (o.cancelled || 0);
+    if (total <= 0) return null;
+    return {
+      confirmedPct: ((o.confirmed || 0) / total) * 100,
+      draftPct: ((o.draft || 0) / total) * 100,
+      cancelledPct: ((o.cancelled || 0) / total) * 100,
+    };
+  });
+
+  /** Sparkline línea para cards chicas (viewBox 100×28, stretch). */
+  private miniSpark(values: number[]) {
+    const n = values.length;
+    if (n < 2) return null;
+    const W = 100;
+    const H = 28;
+    const padY = 3;
+    const max = Math.max(...values);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    const stepX = W / (n - 1);
+    const pts = values.map((v, i) => ({
+      x: i * stepX,
+      y: padY + (H - 2 * padY) * (1 - (v - min) / range),
+    }));
+    const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const area = `${line} L${W},${H} L0,${H} Z`;
+    return { W, H, line, area, last: pts[pts.length - 1] };
+  }
+
+  /** Geometría de un mini-bar chart desde una serie de valores. viewBox 100×28, stretch. */
+  private bars(values: number[]) {
+    const n = values.length;
+    if (n < 2) return null;
+    const W = 100;
+    const H = 28;
+    const gap = 1.2;
+    const max = Math.max(...values, 1);
+    const barW = (W - gap * (n - 1)) / n;
+    const rects = values.map((v, i) => {
+      const h = max > 0 ? (v / max) * H : 0;
+      return { x: i * (barW + gap), y: H - h, w: barW, h };
+    });
+    return { W, H, rects };
+  }
+
   ngOnInit(): void {
     this.loadAll();
   }
@@ -122,11 +230,12 @@ export class CommandCenterComponent implements OnInit {
       oos: this.api.rankingOutOfStock(10, 200).pipe(catchError(() => of([] as RankingOutOfStockRow[]))),
       // Motor de Inteligencia (Fase M): best-effort — si no está disponible, no rompe el dashboard.
       conv: this.api.conversionSummary(30).pipe(catchError(() => of(null))),
+      convDaily: this.api.conversionDaily(30).pipe(catchError(() => of([] as ConversionDailyRow[]))),
       due: this.api.nbaDue(100).pipe(catchError(() => of([] as Array<{ customer_id: string }>))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ ov, tc, tp, sbb, ls, ic, ds, oos, conv, due }) => {
+        next: ({ ov, tc, tp, sbb, ls, ic, ds, oos, conv, convDaily, due }) => {
           this.overview.set(ov);
           this.topCustomers.set(tc);
           this.topProducts.set(tp);
@@ -136,7 +245,13 @@ export class CommandCenterComponent implements OnInit {
           this.dailySeries.set(ds);
           this.rankingOOS.set(oos);
           this.conversion.set(conv);
+          this.conversionSeries.set(convDaily);
           this.dueCount.set(conv ? due.length : null);
+          if (!this.hasEntered) {
+            this.hasEntered = true;
+            this.stagger.set(true);
+            setTimeout(() => this.stagger.set(false), 1200);
+          }
           this.loading.set(false);
         },
         error: (err) => {
@@ -243,5 +358,35 @@ export class CommandCenterComponent implements OnInit {
     const total = this.topProducts().reduce((s, r) => s + Number(r.revenue || 0), 0);
     if (total <= 0) return 0;
     return (Number(rev || 0) / total) * 100;
+  }
+
+  /** Abre el side-peek con el 360° del cliente (Top clientes o Inactivos).
+   *  El fetch + render lo resuelve Customer360PanelComponent vía [customerId]. */
+  openCustomer(row: CustomerPeekRef): void {
+    this.peekRow.set(row);
+    this.peekOpen.set(true);
+  }
+
+  /** Abre el side-peek de un producto con su stock por almacén. */
+  openProduct(row: ProductPeekRef): void {
+    this.prodRow.set(row);
+    this.prodStock.set([]);
+    this.prodLoading.set(true);
+    this.prodOpen.set(true);
+    this.api
+      .productStock(row.product_id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.prodStock.set(r.data || []);
+          this.prodLoading.set(false);
+        },
+        error: () => this.prodLoading.set(false),
+      });
+  }
+
+  /** Total disponible sumando almacenes (header del peek de producto). */
+  prodTotalAvailable(): number {
+    return this.prodStock().reduce((s, r) => s + Number(r.available_quantity || 0), 0);
   }
 }

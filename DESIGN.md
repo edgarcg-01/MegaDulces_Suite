@@ -4,6 +4,9 @@
 > Dirección **"Mercado"**, creada por `/design-consultation` (2026-06-04, extendida 2026-06-08).
 > Los tokens viven en [`apps/view/src/styles/tokens.css`](apps/view/src/styles/tokens.css). Este archivo manda sobre cualquier valor hardcodeado.
 > **Fundamentos (el *por qué* + estado del arte, con citas):** [`docs/DESIGN_FOUNDATIONS.md`](docs/DESIGN_FOUNDATIONS.md) — color perceptual (OKLCH/APCA), tokens DTCG, tipografía óptica, densidad, WCAG 2.2, motion. Este archivo es operativo; ése es la base teórica.
+> **Benchmark CRM/Inventario (cómo lo hacen Linear/Attio/Carbon/Polaris/Stripe, con números):** [`docs/DESIGN_BENCHMARK_CRM_INVENTORY.md`](docs/DESIGN_BENCHMARK_CRM_INVENTORY.md). Las reglas canónicas de datos densos de aquí abajo salen de ahí.
+
+> **Estado de implementación (2026-06-16):** la migración Operations (Hanken/Stone/sunset/ember en `:root`) **ya está aplicada** en `tokens.css` — la nota histórica "pendiente de aprobación" más abajo quedó vieja. El dark de Operations es **zinc neutro `#111111`** (decisión "esto es serio"), NO el espresso `#16130F` que describen las tablas históricas; el espresso quedó scopeado solo a `/portal`.
 
 ## Surfaces — dos modes del mismo sistema
 
@@ -268,6 +271,43 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 8. **Navegación** — sidebar hover-expand desktop (patrón VS Code) + bottom-nav mobile 4 items + drawer overflow (patrón FB / IG / Slack). Ya implementado en `LayoutComponent`.
 9. **Acción única** — `--action` sunset para CTA primario en formularios, modales, headers. Secundaria = ghost. Destructiva = `--bad-fg` ghost (botón ghost-bad pattern de la memoria `feedback_ghost_buttons_pattern`).
 10. **A11y línea base** — `focus-visible:ring-2 ring-action`, `aria-current="true"` en master selection, `aria-label` rica en botones sin texto, labels `for/id` formales en inputs, touch targets ≥ 44px mobile.
+
+### Reglas canónicas de datos densos (CRM / Inventario) — BINDING
+
+> Destiladas del benchmark de líderes. Aplican a toda surface Operations con tablas, registros o stock. Fuente y números: [`docs/DESIGN_BENCHMARK_CRM_INVENTORY.md`](docs/DESIGN_BENCHMARK_CRM_INVENTORY.md).
+
+1. **Elevación = una de dos, nunca ambas.** Superficies **in-page** (cards, filas, paneles, KPIs) = **borde 1px hairline `--border-color`, sin sombra**. **Overlays** (menú, popover, modal, ⌘K, toast, drawer) = **sombra + borde**. Prohibido card con sombra dentro de la página. (Attio/Linear)
+2. **Densidad de fila tokenizada.** Tabla Operations default **40px (`--row-h-md`)**; toggle a **32px (`--row-h-sm`)** para power users; **48px (`--row-h-lg`)** solo si la fila lleva avatar + 2 líneas. Nunca dos densidades en un mismo card. (Carbon)
+3. **Optimistic UI en toda mutación de 1 registro** (cambiar estado, asignar, editar inline, ajustar qty): mutar estado local sync → reconciliar con server → rollback visible en error. **Sin spinner** en estas acciones. (Linear)
+4. **Carga:** skeleton-shell a nivel ruta + **filas skeleton** a nivel data (shimmer, nunca spinner de bloque). Spinner solo <300ms inline. (Stripe/Linear)
+5. **Tabla:** header **sticky**; **primera columna congelada** (nombre entidad / SKU) en grids anchas; hover de fila con tint sutil; selección = checkbox + bg tintado; acciones de fila = icon-buttons ghost revelados en hover, a la derecha.
+6. **Acciones masivas:** al seleccionar ≥1 fila, sube una **bulk-bar** (slide-up ~200ms) con conteo + ops batch, reemplazando el toolbar.
+7. **Paginar** data transaccional/auditable (pedidos, facturas, ledger de stock) — server pagination 25–50 filas; **infinite virtualizado** solo en listas exploratorias o >200 filas visibles.
+8. **Detalle = side-peek drawer** (~480–560px, slide desde derecha, ~250ms) para ver/editar manteniendo la lista; **full page** solo para create/edit multi-sección complejo. (Attio)
+9. **Inline edit** para cambios de 1 campo (Enter commit / Esc cancel / Tab→derecha). Modal solo para confirmaciones destructivas o create con muchos requeridos.
+10. **Escala tipográfica de tabla** (ya en tokens Operations): header `--text-label` 11–12px/600 muted +0.02–0.06em · valor `--text-data` 13–14px/450 · meta `--text-meta` 12px muted · lh 1.25–1.35. `tabular-nums` **obligatorio** en toda celda numérica/dinero/qty/fecha (Geist Mono **y** números inline en Hanken).
+11. **Motion con techo duro:** 150ms micro · 250ms standard · **350ms máx**, ease-out. Animar **solo `transform`+`opacity`**; jamás `width/height/margin/padding` en tablas (reflow). No animar filas/celdas al cargar data.
+12. **Command palette ⌘K / Ctrl+K** cuando una surface tenga 20+ destinos/acciones: navegar **+ actuar** (cambiar estado, asignar, crear), fuzzy, solo-teclado, modal 560–640px con sombra.
+13. **A11y piso:** anillo de foco **2px ≥3:1 contraste** (`--action-ring`) en todo interactivo; **icon-button hit area ≥24px** (44px objetivo mobile); focus no obstruido por headers sticky.
+
+### Motion de KPI cards (BINDING)
+
+> Cómo hacer las cards dinámicas/gráficas sin romper "esto es serio". Fuente y números: [`docs/DESIGN_MOTION_KPI_CARDS.md`](docs/DESIGN_MOTION_KPI_CARDS.md).
+
+1. **Dinamismo = dato, no decoración.** El movimiento permitido es: count-up del número, sparkline/mini-chart de la serie, delta con flecha, flash-on-change. Prohibido: gradientes que laten, íconos girando, badges flotando, ember decorativo en tiles.
+2. **Tile canónico de 3 capas:** número (Geist Mono `tabular-nums`) + sparkline SVG inline + **delta multimodal `▲ +3.2%`** (flecha+signo+número, nunca solo color).
+3. **Count-up:** on-view (IntersectionObserver), **una vez**, ~900ms `--ease-out`, vía `rAF`→signal. Valor final en el DOM para SR. Bajo `prefers-reduced-motion` → instantáneo. **Nunca** en poll/re-render.
+4. **Micro-charts = SVG crudo (0 KB).** Nada de Chart.js/Apex para sparklines. uPlot solo si aparece panel time-series interactivo.
+5. **Entrada:** stagger one-time en primer paint (`translateY(8–12px)+opacity`, 150–250ms/card, stagger 30–60ms). Jamás en refresh.
+6. **Hover/press:** `:active scale(0.97)`; hover lift `translateY(-1px)` + revelar borde/acento, 120–150ms. Sin glow ni barrido de color.
+7. **Presupuesto:** todo **<300ms**, `ease-out`, **solo `transform`+`opacity`**, CSS para hover/entrada y rAF solo para count-up.
+8. **Skeleton dimensionado** (CLS 0) + crossfade ~180ms a data.
+9. **Variedad por tipo de dato — las cards NO deben ser todas iguales.** Cada KPI lleva la micro-viz que su dato pide, y eso las diferencia visualmente: **serie temporal → sparkline/mini-barras** · **ratio/cobertura → barra de progreso con %** · **actual vs meta → bullet** · **% acotado → ring** · **valor único sin serie → headline grande** (count-up, sin chart falso). Un strip donde las 4 cards son idénticas (mismo layout, solo cambia el número) es plano y se siente genérico — usar el tipo de métrica para dar ritmo visual. Nunca inventar una serie/chart si no hay dato real (eso es slop, §9).
+
+### Tokens de estado de dominio (mapear, no inventar hex)
+- **Inventario (escalada gradual):** in-stock → `--ok-*` · low-stock → `--warn-*` · out-of-stock → `--bad-*` · overstock (opcional) → `--info-*`. El umbral low→crítico mueve el chip de ámbar a rojo.
+- **CRM / pipeline:** new/lead → `--info-*` (slate/azul) · qualified/in-progress → `--warn-*` · won/fulfilled → `--ok-*` · lost/cancelled → `--bad-*` · on-hold/draft → chip neutral Stone-200.
+- **Regla:** siempre `p-tag [severity]` mapeado a estos semánticos. Nunca hex inline.
 
 ### SAFE choices (no inventar — es categoría operacional)
 - Master-detail patrón

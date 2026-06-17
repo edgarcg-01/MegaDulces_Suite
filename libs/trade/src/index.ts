@@ -14,6 +14,7 @@ export * from './lib/reports/reports.module';
 export * from './lib/scoring/scoring.module';
 export * from './lib/scoring/scoring-v2.module';
 export * from './lib/stores/stores.module';
+export * from './lib/supervisor-ai/supervisor-ai.module';
 export * from './lib/users/users.module';
 export * from './lib/visits/visits.module';
 export * from './lib/websocket/websocket.module';

@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, DeadStockReport, Warehouse } from '../comercial.service';
+import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 
 /**
  * Reporte de STOCK MUERTO: existencia > 0 sin venta en 90 días = capital parado
@@ -17,12 +18,14 @@ import { ComercialService, DeadStockReport, Warehouse } from '../comercial.servi
 @Component({
   selector: 'app-comercial-dead-stock',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
+
+      <app-page-tabs [tabs]="analyticsTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -105,6 +108,12 @@ import { ComercialService, DeadStockReport, Warehouse } from '../comercial.servi
   `],
 })
 export class ComercialDeadStockComponent {
+  readonly analyticsTabs: PageTab[] = [
+    { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt' },
+    { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database' },
+    { label: 'Stock muerto', route: '/comercial/dead-stock', icon: 'pi pi-exclamation-triangle' },
+  ];
+
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

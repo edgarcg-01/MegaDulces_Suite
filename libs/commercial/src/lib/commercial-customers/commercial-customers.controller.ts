@@ -88,6 +88,13 @@ export class CommercialCustomersController {
     return this.service.findMine();
   }
 
+  @Get('stats/new-daily')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({ summary: 'Altas de clientes por día (ventana) para mini-charts del KPI strip.' })
+  newDaily(@Query('days') days?: string) {
+    return this.service.newDaily(days ? parseInt(days, 10) || 30 : 30);
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({

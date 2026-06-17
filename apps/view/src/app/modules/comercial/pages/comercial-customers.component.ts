@@ -19,7 +19,11 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, Customer, Store } from '../comercial.service';
 import { LogisticaService, Route } from '../../logistica/logistica.service';
-import { debounceTime, Subject } from 'rxjs';
+import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
+import { CustomerFormDialogComponent } from '../components/customer-form-dialog.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
+import { CountUpDirective } from '../../../shared/directives/count-up.directive';
 
 @Component({
   selector: 'app-comercial-customers',
@@ -42,6 +46,10 @@ import { debounceTime, Subject } from 'rxjs';
     ToastModule,
     TooltipModule,
     ConfirmDialogModule,
+    CustomerFormDialogComponent,
+    SidePeekComponent,
+    Customer360PanelComponent,
+    CountUpDirective,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -84,25 +92,38 @@ import { debounceTime, Subject } from 'rxjs';
         <article class="cell cell-span-3">
           <span class="cell-icon" aria-hidden="true"><i class="pi pi-users"></i></span>
           <span class="cell-label">Activos</span>
-          <span class="cell-value is-headline">{{ kpis().active }}</span>
-          <span class="cell-sub">en la cartera</span>
+          <span class="cell-value is-headline" [appCountUp]="kpis().active" countUpFormat="int"></span>
+          <span class="cell-sub">en la cartera · altas/día 30d</span>
+          <div class="cu-minibars" *ngIf="newBars() as b" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+              <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+            </svg>
+          </div>
         </article>
         <article class="cell cell-span-3">
           <span class="cell-icon" aria-hidden="true"><i class="pi pi-directions"></i></span>
           <span class="cell-label">Con ruta</span>
-          <span class="cell-value">{{ kpis().withRoute }}</span>
+          <span class="cell-value" [appCountUp]="kpis().withRoute" countUpFormat="int"></span>
           <span class="cell-sub">asignada a reparto</span>
+          <div class="cu-ratio" [attr.aria-label]="routeRatio() + '% de activos con ruta'">
+            <div class="cu-ratio-track"><div class="cu-ratio-fill" [style.width.%]="routeRatio()"></div></div>
+            <span class="cu-ratio-pct">{{ routeRatio() }}%</span>
+          </div>
         </article>
         <article class="cell cell-span-3">
           <span class="cell-icon" aria-hidden="true"><i class="pi pi-map-marker"></i></span>
           <span class="cell-label">Tienda enlazada</span>
-          <span class="cell-value">{{ kpis().withStore }}</span>
+          <span class="cell-value" [appCountUp]="kpis().withStore" countUpFormat="int"></span>
           <span class="cell-sub">visibles en Trade</span>
+          <div class="cu-ratio" [attr.aria-label]="storeRatio() + '% de activos con tienda'">
+            <div class="cu-ratio-track"><div class="cu-ratio-fill" [style.width.%]="storeRatio()"></div></div>
+            <span class="cu-ratio-pct">{{ storeRatio() }}%</span>
+          </div>
         </article>
         <article class="cell cell-span-3">
           <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
           <span class="cell-label">Crédito asignado</span>
-          <span class="cell-value">{{ fmtMoneyShort(kpis().totalCredit) }}</span>
+          <span class="cell-value" [appCountUp]="kpis().totalCredit" countUpFormat="money-short"></span>
           <span class="cell-sub">suma de límites activos</span>
         </article>
       </div>
@@ -186,7 +207,8 @@ import { debounceTime, Subject } from 'rxjs';
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-c>
-          <tr>
+          <tr (click)="openCustomer(c)" (keydown.enter)="openCustomer(c)" tabindex="0" role="button"
+              [attr.aria-label]="'Ver 360° de ' + c.name" class="comm-row-clickable">
             <td><code class="comm-code">{{ c.code }}</code></td>
             <td>
               <div class="comm-cell-strong">{{ c.name }}</div>
@@ -222,7 +244,7 @@ import { debounceTime, Subject } from 'rxjs';
                 {{ c.active !== false ? 'Activo' : 'Inactivo' }}
               </span>
             </td>
-            <td class="comm-actions">
+            <td class="comm-actions" (click)="$event.stopPropagation()">
               <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
               <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
                       *ngIf="c.active !== false"
@@ -260,90 +282,17 @@ import { debounceTime, Subject } from 'rxjs';
       </div>
     </div>
 
-    <p-dialog
-      [(visible)]="dialogVisible"
-      [modal]="true"
-      [draggable]="false"
-      [style]="{ width: '560px' }"
-      [header]="editing() ? 'Editar cliente' : 'Nuevo cliente'"
-    >
-      <form [formGroup]="form" class="comm-form-grid" *ngIf="form">
-        <label>
-          <span>Código <em>*</em></span>
-          <input pInputText formControlName="code" placeholder="ej: ABARROTES-001" />
-        </label>
-        <label>
-          <span>Nombre <em>*</em></span>
-          <input pInputText formControlName="name" />
-        </label>
-        <label class="full">
-          <span>Razón social</span>
-          <input pInputText formControlName="legal_name" />
-        </label>
-        <label>
-          <span>RFC</span>
-          <input pInputText formControlName="rfc" maxlength="13" style="text-transform:uppercase" />
-        </label>
-        <label>
-          <span>Email</span>
-          <input pInputText formControlName="email" type="email" />
-        </label>
-        <label>
-          <span>Teléfono</span>
-          <input pInputText formControlName="phone" />
-        </label>
-        <label>
-          <span>Límite de crédito (MXN)</span>
-          <p-inputNumber formControlName="credit_limit" mode="currency" currency="MXN" locale="es-MX" />
-        </label>
-        <label>
-          <span>Días de pago</span>
-          <p-inputNumber formControlName="payment_terms_days" [min]="0" [max]="180" />
-        </label>
-        <label class="full">
-          <span>Ruta de reparto</span>
-          <p-select
-            formControlName="route_id"
-            [options]="routes()"
-            optionLabel="name"
-            optionValue="id"
-            placeholder="— Sin ruta asignada —"
-            [filter]="true"
-            filterBy="name"
-            [showClear]="true"
-            appendTo="body"
-            styleClass="store-select"
-          ></p-select>
-          <span class="comm-muted is-small">
-            La ruta se hereda automáticamente a cada pedido del cliente,
-            así logística puede armar embarques agrupados por ruta.
-          </span>
-        </label>
-        <label>
-          <span>WhatsApp</span>
-          <input pInputText formControlName="whatsapp" placeholder="10 dígitos (ej. 3331234567)" inputmode="tel" />
-          <span class="comm-muted is-small">Número del cliente para contacto/bot. Se normaliza a +52…</span>
-        </label>
-        <label class="full" *ngIf="editing()?.store_id as sid">
-          <span>Tienda de origen (Trade Marketing)</span>
-          <input pInputText [value]="storeName(sid)" disabled />
-          <span class="comm-muted is-small">
-            Cada tienda de Trade es un cliente (1:1). El vínculo se fija al alta de la tienda — es de solo lectura.
-          </span>
-        </label>
-        <label class="full">
-          <span>Notas internas</span>
-          <input pInputText formControlName="notes" placeholder="Visible solo para personal interno" />
-        </label>
-      </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="closeDialog()"></button>
-        <button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-                [loading]="saving()"
-                [disabled]="form.invalid"
-                (click)="save()"></button>
-      </ng-template>
-    </p-dialog>
+    <app-customer-form-dialog
+      [visible]="dialogVisible"
+      (visibleChange)="dialogVisible = $event"
+      [form]="form"
+      [editing]="editing()"
+      [saving]="saving()"
+      [routes]="routes()"
+      [editingStoreName]="editingStoreName()"
+      (save)="save()"
+      (cancel)="closeDialog()"
+    ></app-customer-form-dialog>
 
     <!-- J.6.3: dialog que muestra password temporal UNA SOLA VEZ -->
     <p-dialog
@@ -385,6 +334,16 @@ import { debounceTime, Subject } from 'rxjs';
         <button pButton label="Cerrar" icon="pi pi-check" (click)="accessDialogVisible = false"></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Side-peek: drill-down 360° del cliente (DESIGN.md regla #8) -->
+    <app-side-peek
+      [open]="peekOpen()"
+      (openChange)="peekOpen.set($event)"
+      [title]="peekRow()?.name || 'Cliente'"
+      [subtitle]="peekRow()?.code || null"
+    >
+      <app-customer-360-panel [customerId]="peekRow()?.id || null" />
+    </app-side-peek>
   `,
   styles: [`
     :host { display:block; }
@@ -419,8 +378,8 @@ import { debounceTime, Subject } from 'rxjs';
       transition: border-color 120ms var(--ease-standard);
     }
     .cu-search:focus-within {
-      border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
+      border-color: var(--action);
+      box-shadow: 0 0 0 3px var(--action-ring);
     }
     .cu-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     .cu-search input {
@@ -496,73 +455,33 @@ import { debounceTime, Subject } from 'rxjs';
     }
     .cu-cell-meta i { font-size: var(--fs-nano); color: var(--c-text-3); }
 
-    /* ── INLINE CHIP / ADD (view mode de tienda/ruta) ── */
+    /* ── CHIP de tienda/ruta en la lista (solo lectura) ── */
     .cu-link-cell { min-width: 160px; }
     .cu-store-chip { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--c-text-1); }
     .cu-store-chip i { color: var(--c-text-3); font-size: var(--fs-xs); }
-    .cu-inline-chip,
-    .cu-inline-add {
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
-      font-size: var(--fs-sm);
-      cursor: pointer;
-      padding: .3rem .55rem;
-      border-radius: 6px;
-      border: 1px solid transparent;
-      background: transparent;
-      transition: all 120ms var(--ease-standard);
-      white-space: nowrap;
-    }
-    .cu-inline-chip {
-      color: var(--c-text-1);
-    }
-    .cu-inline-chip i:first-child { color: var(--c-text-3); font-size: var(--fs-xs); }
-    .cu-chip-edit {
-      color: var(--c-text-3) !important;
-      font-size: var(--fs-nano) !important;
-      opacity: 0;
-      transition: opacity 120ms var(--ease-standard);
-    }
-    .cu-inline-chip:hover {
-      background: var(--c-surface-2);
-      border-color: var(--c-divider);
-    }
-    .cu-inline-chip:hover .cu-chip-edit { opacity: 1; }
-    .cu-inline-add {
-      color: var(--c-text-3);
-      border: 1px dashed var(--c-divider);
-      font-size: var(--fs-xs);
-    }
-    .cu-inline-add i { font-size: var(--fs-nano); }
-    .cu-inline-add:hover {
-      color: var(--c-text-1);
-      border-color: var(--c-text-2);
-      border-style: solid;
-      background: var(--c-surface-2);
-    }
 
-    /* Selects abiertos en edit mode — sin chrome PrimeNG visible */
-    .store-option, .route-option {
-      display: flex;
-      gap: .5rem;
-      align-items: flex-start;
+    /* ── MICRO-VIZ del KPI strip: cada card según su tipo de dato ──
+       Activos = mini-barras (altas/día, serie real). Cobertura = barra de ratio. */
+    .cu-minibars { margin-top: auto; padding-top: .75rem; width: 100%; height: 28px; }
+    .cu-minibars svg { width: 100%; height: 100%; display: block; }
+    .cu-minibars rect { fill: var(--c-text-3, var(--neutral-400)); }
+    .cu-minibars rect:last-of-type { fill: var(--action); }
+
+    .cu-ratio { display: flex; align-items: center; gap: .5rem; margin-top: auto; padding-top: .75rem; }
+    .cu-ratio-track {
+      flex: 1; height: 6px; border-radius: 999px;
+      background: var(--c-surface-2); overflow: hidden;
     }
-    .store-option i, .route-option i {
-      color: var(--c-text-3);
-      margin-top: .15rem;
+    .cu-ratio-fill {
+      height: 100%; border-radius: 999px; background: var(--action);
+      transition: width 500ms var(--ease-out, cubic-bezier(.23,1,.32,1));
     }
-    :host ::ng-deep .p-select.store-select { width: 100%; }
-    :host ::ng-deep .p-select.row-store-select,
-    :host ::ng-deep .p-select.row-route-select {
-      width: 100%;
-      font-size: var(--fs-sm);
+    .cu-ratio-pct {
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--c-text-2);
+      min-width: 34px; text-align: right;
     }
-    :host ::ng-deep .p-select.row-store-select .p-select-label,
-    :host ::ng-deep .p-select.row-route-select .p-select-label {
-      padding: .35rem .55rem;
-    }
-    .saving-spinner { color: var(--c-text-2); font-size: var(--fs-sm); margin-left: .35rem; }
+    @media (prefers-reduced-motion: reduce) { .cu-ratio-fill { transition: none; } }
 
     /* ── ESTADO dot + label (sin pill llena) ── */
     .cu-status {
@@ -598,7 +517,7 @@ import { debounceTime, Subject } from 'rxjs';
       color: var(--c-text-2);
       display: grid;
       place-items: center;
-      font-size: 1.5rem;
+      font-size: var(--fs-h1);
     }
     .cu-empty h3 {
       margin: 0 0 .375rem;
@@ -651,7 +570,7 @@ import { debounceTime, Subject } from 'rxjs';
       flex: 1;
     }
     .access-value code.pwd {
-      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-family: var(--font-mono);
       font-weight: var(--fw-bold);
       letter-spacing: .05em;
       color: var(--c-accent-fg);
@@ -676,9 +595,17 @@ export class ComercialCustomersComponent {
   onlyActiveValue = true;
   readonly onlyActive = signal(true);
 
+  // Side-peek: drill-down 360° (contenido en Customer360PanelComponent)
+  readonly peekOpen = signal(false);
+  readonly peekRow = signal<Customer | null>(null);
+
   readonly editing = signal<Customer | null>(null);
   readonly saving = signal(false);
   dialogVisible = false;
+  readonly editingStoreName = computed(() => {
+    const e = this.editing();
+    return e?.store_id ? this.storeName(e.store_id) : null;
+  });
 
   // J.6.3 — Portal B2B access
   readonly creatingAccessId = signal<string | null>(null);
@@ -697,6 +624,36 @@ export class ComercialCustomersComponent {
       totalCredit: active.reduce((s, c) => s + Number(c.credit_limit || 0), 0),
     };
   });
+
+  /** Altas de clientes/día (serie real) → mini-barras de la card "Activos". */
+  readonly newSeries = signal<number[]>([]);
+  readonly newBars = computed(() => this.bars(this.newSeries()));
+
+  /** Ratios de cobertura (% de activos) → barra de ratio en sus cards. */
+  readonly routeRatio = computed(() => {
+    const k = this.kpis();
+    return k.active > 0 ? Math.round((k.withRoute / k.active) * 100) : 0;
+  });
+  readonly storeRatio = computed(() => {
+    const k = this.kpis();
+    return k.active > 0 ? Math.round((k.withStore / k.active) * 100) : 0;
+  });
+
+  /** Geometría de un mini-bar chart. viewBox 100×28, stretch. */
+  private bars(values: number[]) {
+    const n = values.length;
+    if (n < 2) return null;
+    const W = 100;
+    const H = 28;
+    const gap = 1.2;
+    const max = Math.max(...values, 1);
+    const barW = (W - gap * (n - 1)) / n;
+    const rects = values.map((v, i) => {
+      const h = max > 0 ? (v / max) * H : 0;
+      return { x: i * (barW + gap), y: H - h, w: barW, h };
+    });
+    return { W, H, rects };
+  }
 
   // Tiendas de Trade Marketing — cache compartido para dropdown + lookup en lista.
   // Se carga una sola vez al montar el componente; el endpoint /api/stores
@@ -724,14 +681,7 @@ export class ComercialCustomersComponent {
     notes: [''],
   });
 
-  private readonly search$ = new Subject<string>();
-
   constructor() {
-    this.search$.pipe(debounceTime(250), takeUntilDestroyed()).subscribe((value) => {
-      this.searchTerm.set(value.trim());
-      this.page.set(1);
-      this.load();
-    });
     this.loadStores();
     this.loadRoutes();
     this.load();
@@ -742,6 +692,10 @@ export class ComercialCustomersComponent {
     this.api.listCustomers({ pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.summaryAll.set(r.data || []),
       error: () => this.summaryAll.set([]),
+    });
+    this.api.newCustomersDaily(30).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => this.newSeries.set((rows || []).map((r) => r.count)),
+      error: () => this.newSeries.set([]),
     });
   }
 
@@ -822,16 +776,18 @@ export class ComercialCustomersComponent {
       });
   }
 
-  onLazyLoad(e: { first?: number | null; rows?: number | null }): void {
-    const first = e.first ?? 0;
-    const rows = e.rows ?? this.pageSize();
-    this.page.set(Math.floor(first / rows) + 1);
-    this.pageSize.set(rows);
-    this.load();
-  }
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
-  onSearchChange(v: string): void {
-    this.search$.next(v);
+  readonly onSearchChange = makeDebouncedSearch((v) => {
+    this.searchTerm.set(v.trim());
+    this.page.set(1);
+    this.load();
+  });
+
+  /** Abre el side-peek con el 360° del cliente (clic en fila). */
+  openCustomer(c: Customer): void {
+    this.peekRow.set(c);
+    this.peekOpen.set(true);
   }
 
   openCreate(): void {

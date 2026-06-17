@@ -25,6 +25,7 @@ export type AppSubject =
   | 'seguimiento'
   | 'routes_analytics'
   | 'commercial_map'
+  | 'supervisor_ai'
   | 'commercial_customers'
   | 'commercial_warehouses'
   | 'commercial_pricing'

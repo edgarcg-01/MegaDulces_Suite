@@ -38,6 +38,7 @@ export class RolesGuard implements CanActivate {
     // en DB, cacheada en memoria con TTL 30s + invalidación en update.
     const permissions = await this.permsCache.getPermissionsForRole(
       user.role_name,
+      user.tenant_id,
     );
     const ability = buildAbility(permissions);
 

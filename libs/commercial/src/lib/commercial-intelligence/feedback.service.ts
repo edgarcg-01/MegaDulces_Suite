@@ -32,6 +32,13 @@ export interface ConversionByReason {
   by_reason: ReasonConversion[];
 }
 
+export interface ConversionDailyRow {
+  day: string;
+  offers: number;
+  converted: number;
+  conversion_pct: number;
+}
+
 /**
  * Feedback loop (Fase M, Sprint M.4) — capa "aprende" de ADR-016.
  *
@@ -126,6 +133,52 @@ export class FeedbackService {
         converted,
         conversion_pct: offers > 0 ? +((converted / offers) * 100).toFixed(1) : 0,
       };
+    });
+  }
+
+  /**
+   * Serie diaria de la conversión (mismo criterio que conversionSummary, agrupado
+   * por día de la oferta en TZ MX). Alimenta las mini-barras del Command Center.
+   */
+  async conversionDaily(days = 30): Promise<ConversionDailyRow[]> {
+    const windowDays = Math.min(Math.max(days, 1), 365);
+    return this.tk.run(async (trx) => {
+      const res = await trx.raw(
+        `
+        WITH offers AS (
+          SELECT
+            DATE_TRUNC('day', cs.created_at AT TIME ZONE 'America/Mexico_City')::date AS day,
+            EXISTS (
+              SELECT 1 FROM commercial.orders o
+              WHERE o.customer_id = cs.customer_id
+                AND o.status IN ('confirmed', 'fulfilled')
+                AND o.deleted_at IS NULL
+                AND o.created_at > cs.created_at
+                AND o.created_at <= cs.created_at + INTERVAL '7 days'
+            ) AS converted
+          FROM commercial.commerce_signals cs
+          WHERE cs.created_at >= NOW() - (? || ' days')::interval
+        )
+        SELECT
+          day,
+          COUNT(*)::int AS offers,
+          COUNT(*) FILTER (WHERE converted)::int AS converted
+        FROM offers
+        GROUP BY day
+        ORDER BY day ASC
+        `,
+        [windowDays],
+      );
+      return (res.rows || []).map((r: any) => {
+        const offers = Number(r.offers) || 0;
+        const converted = Number(r.converted) || 0;
+        return {
+          day: r.day,
+          offers,
+          converted,
+          conversion_pct: offers > 0 ? +((converted / offers) * 100).toFixed(1) : 0,
+        };
+      });
     });
   }
 

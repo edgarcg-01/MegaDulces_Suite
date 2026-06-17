@@ -196,6 +196,13 @@ export class CommercialIntelligenceController {
     return this.feedback.conversionSummary(days ? parseInt(days, 10) || 30 : 30);
   }
 
+  @Get('signals/daily')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({ summary: 'Serie diaria de conversión (ofertas/convertidas por día) para mini-charts.' })
+  signalsDaily(@Query('days') days?: string) {
+    return this.feedback.conversionDaily(days ? parseInt(days, 10) || 30 : 30);
+  }
+
   @Get('signals/conversion-by-reason')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({

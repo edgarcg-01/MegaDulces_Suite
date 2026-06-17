@@ -333,6 +333,11 @@ export class ComercialService {
   getCustomer(id: string) {
     return this.http.get<Customer>(`${this.base}/customers/${id}`);
   }
+  /** Altas de clientes por día (mini-charts del KPI strip). */
+  newCustomersDaily(days = 30): Observable<Array<{ day: string; count: number }>> {
+    const params = new HttpParams().set('days', String(days));
+    return this.http.get<Array<{ day: string; count: number }>>(`${this.base}/customers/stats/new-daily`, { params });
+  }
   createCustomer(body: Partial<Customer>) {
     return this.http.post<Customer>(`${this.base}/customers`, body);
   }
@@ -476,6 +481,15 @@ export class ComercialService {
     if (opts.page) params = params.set('page', String(opts.page));
     if (opts.pageSize) params = params.set('pageSize', String(opts.pageSize));
     return this.http.get<Paged<Order>>(`${this.base}/orders`, { params });
+  }
+  /** Conteo de pedidos por status en 1 request (reemplaza el N+1 de los chips). */
+  orderCounts(opts: { customer_id?: string; from?: string; to?: string; mine?: boolean } = {}) {
+    let params = new HttpParams();
+    if (opts.customer_id) params = params.set('customer_id', opts.customer_id);
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.mine) params = params.set('mine', 'true');
+    return this.http.get<{ counts: Record<string, number>; total: number }>(`${this.base}/orders/counts`, { params });
   }
   getOrder(id: string) {
     return this.http.get<OrderDetail>(`${this.base}/orders/${id}`);

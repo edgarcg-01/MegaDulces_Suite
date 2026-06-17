@@ -1071,6 +1071,50 @@ export class CommercialOrdersService {
     });
   }
 
+  /**
+   * Conteo de pedidos agrupado por status en UNA query (GROUP BY). Reemplaza el
+   * N+1 del front (un listOrders por chip). Respeta los mismos filtros base que
+   * list() + el scope customer_b2b. NO filtra por status: devuelve el conteo de
+   * todos para que el front pinte los chips que necesite.
+   */
+  async countsByStatus(query: ListOrdersQuery) {
+    return this.tk.run(async (trx) => {
+      let q2 = query;
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+        if (!myCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        q2 = { ...query, customer_id: myCustomerId };
+      }
+
+      let q = trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereNull('o.deleted_at');
+
+      if (q2.customer_id) q = q.where('o.customer_id', q2.customer_id);
+      if (q2.user_id) q = q.where('o.user_id', q2.user_id);
+      if (q2.mine) {
+        const meId = this.tenantCtx.get()?.userId || null;
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
+      }
+      if (q2.from) q = q.where('o.created_at', '>=', q2.from);
+      if (q2.to) q = q.where('o.created_at', '<=', q2.to);
+
+      const rows = await q.select('o.status').count('o.id as count').groupBy('o.status');
+
+      const counts: Record<string, number> = {};
+      let total = 0;
+      for (const r of rows as any[]) {
+        const n = Number(r.count) || 0;
+        counts[r.status] = n;
+        total += n;
+      }
+      return { counts, total };
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Helpers privados
   // ─────────────────────────────────────────────────────────────────

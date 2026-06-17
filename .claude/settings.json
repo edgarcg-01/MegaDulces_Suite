@@ -57,7 +57,8 @@
       "Bash(mkdir -p __TRACKED_VAR__/screenshots/after)",
       "Bash(cp /c/Users/Sistemas/CascadeProjects/Trade_marketing/.design-audit-tmp/after/*.png __TRACKED_VAR__/screenshots/after/)",
       "Bash(node c:\\\\tmp\\\\cm0-validate.js)",
-      "Bash(node c:/tmp/cm0-validate.js)"
+      "Bash(node c:/tmp/cm0-validate.js)",
+      "Bash(git branch *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Sistemas\\Downloads",

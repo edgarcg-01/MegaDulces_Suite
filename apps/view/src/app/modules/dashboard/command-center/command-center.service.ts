@@ -58,6 +58,7 @@ export interface LowStockResponse {
   items: Array<{
     warehouse_code: string;
     warehouse_name: string;
+    product_id: string;
     product_name: string;
     brand_name: string;
     quantity: number;
@@ -87,6 +88,7 @@ export interface RefreshResponse {
 export interface DailySeriesRow {
   day: string;
   orders_count: number;
+  unique_customers: number;
   revenue: number;
   net_revenue: number;
 }
@@ -168,11 +170,34 @@ export interface ConversionSummary {
   conversion_pct: number;
 }
 
+/** Serie diaria de conversión (mini-charts del Motor). */
+export interface ConversionDailyRow {
+  day: string;
+  offers: number;
+  converted: number;
+  conversion_pct: number;
+}
+
+/** Saldo de stock de un producto por almacén (drill-down de Top productos). */
+export interface ProductStockRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+}
+
+export interface ProductStockResponse {
+  data: ProductStockRow[];
+  pagination: { total: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class CommandCenterService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/analytics`;
   private readonly intelBase = `${environment.apiUrl}/commercial/intelligence`;
+  private readonly invBase = `${environment.apiUrl}/commercial/inventory`;
 
   overview(): Observable<OverviewResponse> {
     return this.http.get<OverviewResponse>(`${this.base}/overview`);
@@ -271,9 +296,21 @@ export class CommandCenterService {
     return this.http.get<ConversionSummary>(`${this.intelBase}/signals/summary`, { params });
   }
 
+  /** Serie diaria de conversión (mini-charts del Motor). */
+  conversionDaily(days = 30): Observable<ConversionDailyRow[]> {
+    const params = new HttpParams().set('days', days);
+    return this.http.get<ConversionDailyRow[]>(`${this.intelBase}/signals/daily`, { params });
+  }
+
   /** Clientes due-for-reorder hoy (para el contador del Command Center). */
   nbaDue(limit = 100): Observable<Array<{ customer_id: string }>> {
     const params = new HttpParams().set('limit', limit);
     return this.http.get<Array<{ customer_id: string }>>(`${this.intelBase}/nba`, { params });
+  }
+
+  /** Saldo de stock por almacén de un producto (drill-down de Top productos). */
+  productStock(productId: string): Observable<ProductStockResponse> {
+    const params = new HttpParams().set('product_id', productId).set('pageSize', 50);
+    return this.http.get<ProductStockResponse>(`${this.invBase}/stock`, { params });
   }
 }

@@ -534,6 +534,7 @@ export class CommercialAnalyticsService {
         .select(
           trx.raw(`DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')::date as day`),
           trx.raw('COUNT(*)::int as orders_count'),
+          trx.raw('COUNT(DISTINCT customer_id)::int as unique_customers'),
           trx.raw('COALESCE(SUM(total), 0)::numeric as revenue'),
           trx.raw('COALESCE(SUM(subtotal), 0)::numeric as net_revenue'),
         )
@@ -543,6 +544,7 @@ export class CommercialAnalyticsService {
       return rows.map((r) => ({
         day: r.day,
         orders_count: Number(r.orders_count),
+        unique_customers: Number(r.unique_customers),
         revenue: Number(r.revenue),
         net_revenue: Number(r.net_revenue),
       }));

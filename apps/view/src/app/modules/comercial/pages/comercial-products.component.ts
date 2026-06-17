@@ -23,6 +23,7 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ComercialService, Product, UpdateProductDto } from '../comercial.service';
+import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
 
@@ -482,7 +483,6 @@ export class ComercialProductsComponent {
   // Filtros
   searchInput = '';
   readonly searchSignal = signal('');
-  private searchDebounce: any = null;
 
   readonly activeFilter = signal<ActiveFilter>('all');
   readonly activeFilters: { key: ActiveFilter; label: string }[] = [
@@ -554,12 +554,12 @@ export class ComercialProductsComponent {
 
   onSearchChange(v: string): void {
     this.searchInput = v;
-    if (this.searchDebounce) clearTimeout(this.searchDebounce);
-    this.searchDebounce = setTimeout(() => {
-      this.searchSignal.set((v || '').trim());
-      this.reload();
-    }, 250);
+    this.searchDebounced(v);
   }
+  private readonly searchDebounced = makeDebouncedSearch((v) => {
+    this.searchSignal.set((v || '').trim());
+    this.reload();
+  });
 
   clearSearch(): void {
     this.searchInput = '';
@@ -585,13 +585,7 @@ export class ComercialProductsComponent {
     return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost;
   }
 
-  onLazyLoad(e: { first?: number | null; rows?: number | null }): void {
-    const first = e.first ?? 0;
-    const rows = e.rows ?? this.pageSize();
-    this.page.set(Math.floor(first / rows) + 1);
-    this.pageSize.set(rows);
-    this.load();
-  }
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
   openEdit(p: Product): void {
     // Buscar el detalle completo para traer prices_count, total_available.

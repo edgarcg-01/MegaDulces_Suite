@@ -15,6 +15,7 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
+import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { forkJoin } from 'rxjs';
 
 /**
@@ -25,13 +26,15 @@ import { forkJoin } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, MultiSelectModule, ToastModule,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, MultiSelectModule, ToastModule, PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
+
+      <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -128,6 +131,11 @@ import { forkJoin } from 'rxjs';
   `],
 })
 export class ComercialInventorySessionsComponent {
+  readonly inventoryTabs: PageTab[] = [
+    { label: 'Existencias', route: '/comercial/inventory', icon: 'pi pi-box', permission: Permission.COMMERCIAL_INVENTORY_VER },
+    { label: 'Folios', route: '/comercial/inventory/sessions', icon: 'pi pi-clipboard', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+  ];
+
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);

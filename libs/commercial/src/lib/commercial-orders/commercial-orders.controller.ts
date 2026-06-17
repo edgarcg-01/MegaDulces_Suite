@@ -87,6 +87,28 @@ export class CommercialOrdersController {
     });
   }
 
+  @Get('counts')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'Conteo de pedidos agrupado por status en 1 request (reemplaza el N+1 de los chips). Respeta filtros from/to/mine/customer_id.',
+  })
+  counts(
+    @Query('customer_id') customerId?: string,
+    @Query('user_id') userId?: string,
+    @Query('mine') mine?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.countsByStatus({
+      customer_id: customerId,
+      user_id: userId,
+      mine: mine === 'true',
+      from,
+      to,
+    });
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({

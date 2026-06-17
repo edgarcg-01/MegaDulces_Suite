@@ -233,6 +233,23 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
     });
   }
 
+  /** Altas de clientes por día (TZ MX) en la ventana. Para mini-charts del KPI strip. */
+  async newDaily(days = 30): Promise<Array<{ day: string; count: number }>> {
+    const windowDays = Math.min(Math.max(days, 1), 365);
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.customers')
+        .whereNull('deleted_at')
+        .whereRaw(`created_at >= NOW() - (? || ' days')::interval`, [windowDays])
+        .select(
+          trx.raw(`DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')::date as day`),
+          trx.raw('COUNT(*)::int as count'),
+        )
+        .groupByRaw(`DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')`)
+        .orderBy('day', 'asc');
+      return rows.map((r: any) => ({ day: r.day, count: Number(r.count) }));
+    });
+  }
+
   async findById(id: string) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
 

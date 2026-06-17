@@ -35,6 +35,10 @@ export enum Permission {
   // Módulo: Mapa Comercial (exhibidores Mega Dulces vs competencia en mapa + historial por tienda)
   COMMERCIAL_MAP_VER = 'COMMERCIAL_MAP_VER',
 
+  // Módulo: Supervisor AI de ejecución (Horus) — parte diario, auditoría visual, fraude (co-piloto)
+  SUPERVISOR_AI_VER = 'SUPERVISOR_AI_VER',
+  SUPERVISOR_AI_APROBAR = 'SUPERVISOR_AI_APROBAR',
+
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',

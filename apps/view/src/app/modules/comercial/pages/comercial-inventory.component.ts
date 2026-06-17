@@ -15,6 +15,8 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ComercialService, StockRow, Warehouse } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { makeLazyLoad } from '../../../shared/util';
+import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -33,11 +35,14 @@ import { Permission } from '../../../core/constants/permissions';
     InputTextModule,
     ToastModule,
     TooltipModule,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
+
+      <app-page-tabs [tabs]="inventoryTabs" />
 
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
@@ -449,6 +454,11 @@ import { Permission } from '../../../core/constants/permissions';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialInventoryComponent {
+  readonly inventoryTabs: PageTab[] = [
+    { label: 'Existencias', route: '/comercial/inventory', icon: 'pi pi-box', permission: Permission.COMMERCIAL_INVENTORY_VER },
+    { label: 'Folios', route: '/comercial/inventory/sessions', icon: 'pi pi-clipboard', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+  ];
+
   private readonly api = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
@@ -545,13 +555,7 @@ export class ComercialInventoryComponent {
     return 'is-active';
   }
 
-  onLazyLoad(e: { first?: number | null; rows?: number | null }): void {
-    const first = e.first ?? 0;
-    const rows = e.rows ?? this.pageSize();
-    this.page.set(Math.floor(first / rows) + 1);
-    this.pageSize.set(rows);
-    this.load();
-  }
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
   openAdjust(s: StockRow): void {
     this.adjusting.set(s);

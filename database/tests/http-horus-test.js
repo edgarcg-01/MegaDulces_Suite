@@ -1,0 +1,483 @@
+/* eslint-disable no-console */
+/**
+ * Smoke HTTP — Horus (Supervisor AI de ejecución, Trade). Sprints Horus.0 + .1.
+ *
+ * Verifica end-to-end:
+ *   POST /supervisor-ai/compute              → computa feature store + findings
+ *   GET  /supervisor-ai/execution-360        → feature store (collaborator/store ×7/30d)
+ *   GET  /supervisor-ai/execution-360?...    → filtros subject_type + window_days
+ *   GET  /supervisor-ai/findings             → bandeja (default open), priorizada
+ *   POST /supervisor-ai/findings/:id/review  → dismiss + IDEMPOTENCIA (no reaparece)
+ * + id inválido (400) + status inválido (400) + validación cruzada con la DB.
+ *
+ * Requisitos: API :3334 con Horus.0+.1 + migraciones aplicadas (npm run migrate:new).
+ * Login superoot (manage:all) pasa el gate SUPERVISOR_AI_VER/APROBAR.
+ * Correr: node database/tests/http-horus-test.js
+ */
+const knex = require('knex')(require('../knexfile-newdb.js').development);
+const T = '00000000-0000-0000-0000-00000000d01c';
+const BASE = 'http://localhost:3334/api';
+
+let pass = 0,
+  fail = 0;
+const failures = [];
+function check(name, cond, det) {
+  if (cond) {
+    console.log(`  OK   ${name}`);
+    pass++;
+  } else {
+    console.log(`  FAIL ${name}${det !== undefined ? ` — ${JSON.stringify(det)}` : ''}`);
+    failures.push(name);
+    fail++;
+  }
+}
+async function req(method, path, token, body) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const r = await fetch(`${BASE}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  let json = null;
+  try {
+    json = await r.json();
+  } catch (_) {}
+  return { status: r.status, body: json };
+}
+
+(async () => {
+  console.log('── 1. Login superoot ──');
+  const lr = await fetch(`${BASE}/auth-mt/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenant_slug: 'mega_dulces', username: 'superoot', password: 'superoot' }),
+  });
+  const token = (await lr.json())?.access_token;
+  check('JWT recibido', !!token);
+  if (!token) {
+    console.log('FATAL sin token');
+    process.exit(1);
+  }
+
+  console.log('\n── 2. POST /supervisor-ai/compute (feature store + findings) ──');
+  const c = await req('POST', '/supervisor-ai/compute', token, {});
+  check('compute 2xx', c.status === 200 || c.status === 201, c.status);
+  check('feature_store.rows_upserted > 0', (c.body?.feature_store?.rows_upserted || 0) > 0, c.body?.feature_store);
+  check(
+    'findings devuelve {open, resolved} numéricos',
+    c.body?.findings && typeof c.body.findings.open === 'number' && typeof c.body.findings.resolved === 'number',
+    c.body?.findings,
+  );
+  console.log(
+    `     rows_upserted=${c.body?.feature_store?.rows_upserted} | findings open=${c.body?.findings?.open} resolved=${c.body?.findings?.resolved}`,
+  );
+
+  console.log('\n── 3. GET /supervisor-ai/execution-360 ──');
+  const e = await req('GET', '/supervisor-ai/execution-360', token);
+  check('execution-360 200', e.status === 200, e.status);
+  const rows = e.body?.rows || [];
+  check('devuelve rows[]', rows.length > 0, rows.length);
+  check(
+    'cada row trae subject_type + window_days + visits_done',
+    rows.every(
+      (r) =>
+        ['collaborator', 'route', 'store'].includes(r.subject_type) &&
+        [7, 30].includes(Number(r.window_days)) &&
+        typeof r.visits_done === 'number',
+    ),
+    rows[0],
+  );
+  check('hay subject_type=collaborator', rows.some((r) => r.subject_type === 'collaborator'), rows.filter((r) => r.subject_type === 'collaborator').length);
+  check('hay ventanas 7 y 30', rows.some((r) => Number(r.window_days) === 7) && rows.some((r) => Number(r.window_days) === 30));
+  const dbCount = await knex('commercial.execution_360').where('tenant_id', T).count('* as n').first();
+  check('total endpoint == count DB', rows.length === Number(dbCount.n), { ep: rows.length, db: Number(dbCount.n) });
+  const collab30 = rows.find((r) => r.subject_type === 'collaborator' && Number(r.window_days) === 30);
+  console.log(`     ej. collaborator/30d: visits=${collab30?.visits_done} avg_score=${collab30?.avg_score} trend=${collab30?.score_trend}`);
+
+  console.log('\n── 4. Filtros (subject_type=collaborator&window_days=30) ──');
+  const ef = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  check('filtros 200', ef.status === 200, ef.status);
+  check(
+    'todas collaborator + window 30',
+    (ef.body?.rows || []).length > 0 && (ef.body?.rows || []).every((r) => r.subject_type === 'collaborator' && Number(r.window_days) === 30),
+    (ef.body?.rows || []).slice(0, 2),
+  );
+
+  console.log('\n── 5. GET /supervisor-ai/findings (bandeja open) ──');
+  const f = await req('GET', '/supervisor-ai/findings', token);
+  check('findings 200', f.status === 200, f.status);
+  const findings = f.body?.rows || [];
+  console.log(`     findings open=${findings.length} | tipos=${[...new Set(findings.map((x) => x.finding_type))].join(',') || '—'}`);
+
+  if (findings.length > 0) {
+    check(
+      'cada finding trae type+severity+status+evidence',
+      findings.every(
+        (x) => x.finding_type && ['info', 'warn', 'critical'].includes(x.severity) && x.status === 'open' && x.evidence,
+      ),
+      findings[0],
+    );
+    check(
+      'priorizado: severidad descendente',
+      (() => {
+        const rank = (s) => (s === 'critical' ? 0 : s === 'warn' ? 1 : 2);
+        for (let i = 1; i < findings.length; i++) if (rank(findings[i].severity) < rank(findings[i - 1].severity)) return false;
+        return true;
+      })(),
+      findings.map((x) => x.severity),
+    );
+
+    console.log('\n── 6. POST /findings/:id/review (dismiss) + IDEMPOTENCIA ──');
+    const target = findings[0];
+    const rv = await req('POST', `/supervisor-ai/findings/${target.id}/review`, token, { status: 'dismissed' });
+    check('review dismiss 2xx', rv.status === 200 || rv.status === 201, rv.status);
+    check('finding quedó dismissed', rv.body?.status === 'dismissed', rv.body?.status);
+    // Re-compute: el dismissed NO debe reaparecer como open (respeta decisión humana).
+    await req('POST', '/supervisor-ai/compute', token, {});
+    const fOpen = await req('GET', '/supervisor-ai/findings', token);
+    check('tras recompute, el dismissed NO vuelve a open', !(fOpen.body?.rows || []).some((x) => x.id === target.id), target.id);
+    const fDis = await req('GET', '/supervisor-ai/findings?status=dismissed', token);
+    check('el dismissed aparece en ?status=dismissed', (fDis.body?.rows || []).some((x) => x.id === target.id), target.id);
+    const dbF = await knex('commercial.supervisor_findings').where('id', target.id).first();
+    check('DB: el finding sigue dismissed', dbF?.status === 'dismissed', dbF?.status);
+  } else {
+    console.log('  (skip review/idempotencia: 0 findings — data chica; el motor corrió OK sin hallazgos)');
+  }
+
+  console.log('\n── 7. review id inválido → 400 ──');
+  const bad = await req('POST', '/supervisor-ai/findings/not-a-uuid/review', token, { status: 'dismissed' });
+  check('id no-uuid → 400', bad.status === 400, bad.status);
+
+  console.log('\n── 8. review status inválido → 400 ──');
+  const badS = await req('POST', '/supervisor-ai/findings/00000000-0000-0000-0000-000000000000/review', token, { status: 'banana' });
+  check('status inválido → 400', badS.status === 400, badS.status);
+
+  console.log('\n── 9. GET /supervisor-ai/briefing (parte diario, Horus.2) ──');
+  const br = await req('GET', '/supervisor-ai/briefing', token);
+  check('briefing 200', br.status === 200, br.status);
+  const b = br.body || {};
+  check(
+    'trae headline + summary (no vacíos)',
+    typeof b.headline === 'string' && b.headline.length > 0 && typeof b.summary === 'string' && b.summary.length > 0,
+    { h: b.headline, s: (b.summary || '').slice(0, 60) },
+  );
+  check('trae attention[]', Array.isArray(b.attention), b.attention);
+  check(
+    'trae stats (findings_total + collaborators)',
+    b.stats && typeof b.stats.findings_total === 'number' && typeof b.stats.collaborators === 'number',
+    b.stats,
+  );
+  check('source es agent|engine', b.source === 'agent' || b.source === 'engine', b.source);
+  console.log(`     source=${b.source} | headline="${b.headline}" | attention=${(b.attention || []).length}`);
+
+  console.log('\n── 10. Co-piloto: acciones (Horus.4) ──');
+  await req('POST', '/supervisor-ai/compute', token, {}); // asegura acciones frescas
+  const acts = await req('GET', '/supervisor-ai/actions', token);
+  check('actions 200', acts.status === 200, acts.status);
+  const actions = acts.body?.rows || [];
+  console.log(`     acciones pending=${actions.length} | tipos=${[...new Set(actions.map((a) => a.action_type))].join(',') || '—'}`);
+  if (actions.length > 0) {
+    check(
+      'cada acción trae title + type + status pending_approval',
+      actions.every((a) => a.title && a.action_type && a.status === 'pending_approval'),
+      actions[0],
+    );
+    const target = actions[0];
+    const ap = await req('POST', `/supervisor-ai/actions/${target.id}/approve`, token, {});
+    check('approve 2xx', ap.status === 200 || ap.status === 201, ap.status);
+    check('acción quedó executed', ap.body?.status === 'executed', ap.body?.status);
+    if (target.finding_id) {
+      const dbF = await knex('commercial.supervisor_findings').where('id', target.finding_id).first();
+      check('el finding asociado quedó confirmed', dbF?.status === 'confirmed', dbF?.status);
+    }
+    const acts2 = await req('GET', '/supervisor-ai/actions', token);
+    check('la acción aprobada ya NO está en pending', !(acts2.body?.rows || []).some((a) => a.id === target.id), target.id);
+    if (actions.length > 1) {
+      const t2 = actions[1];
+      const rj = await req('POST', `/supervisor-ai/actions/${t2.id}/reject`, token, {});
+      check('reject 2xx', rj.status === 200 || rj.status === 201, rj.status);
+      check('acción quedó rejected', rj.body?.status === 'rejected', rj.body?.status);
+    }
+  } else {
+    console.log('  (skip approve/reject: 0 acciones — no hay findings que las generen)');
+  }
+
+  console.log('\n── 11. Mejoras (H2.5): GET /supervisor-ai/opportunities ──');
+  await req('POST', '/supervisor-ai/compute', token, {}); // asegura mejoras frescas
+  const opps = await req('GET', '/supervisor-ai/opportunities', token);
+  check('opportunities 200', opps.status === 200, opps.status);
+  const opportunities = opps.body?.rows || [];
+  console.log(
+    `     mejoras pending=${opportunities.length} | tipos=${[...new Set(opportunities.map((o) => o.action_type))].join(',') || '—'}`,
+  );
+  if (opportunities.length > 0) {
+    check(
+      'cada mejora trae kind=opportunity + action_type + title',
+      opportunities.every((o) => o.kind === 'opportunity' && o.action_type && o.title),
+      opportunities[0],
+    );
+    check(
+      'al menos una mejora con rationale (el por qué)',
+      opportunities.some((o) => o.rationale && String(o.rationale).length > 0),
+      opportunities.map((o) => o.action_type),
+    );
+    const actsOpp = await req('GET', '/supervisor-ai/actions?kind=opportunity&status=pending_approval', token);
+    check(
+      'separación kind: /actions?kind=opportunity == /opportunities',
+      (actsOpp.body?.rows || []).length === opportunities.length,
+      { actions_kind: (actsOpp.body?.rows || []).length, opportunities: opportunities.length },
+    );
+    const actsFinding = await req('GET', '/supervisor-ai/actions?kind=finding&status=pending_approval', token);
+    check(
+      'las acciones de finding NO incluyen opportunities',
+      (actsFinding.body?.rows || []).every((a) => a.kind !== 'opportunity'),
+      (actsFinding.body?.rows || []).map((a) => a.kind),
+    );
+
+    console.log('\n── 12. Ejecutor real (H2.6): aprobar mejora → artefacto in-app ──');
+    const opp = opportunities[0];
+    const ap = await req('POST', `/supervisor-ai/actions/${opp.id}/approve`, token, {});
+    check('approve mejora 2xx', ap.status === 200 || ap.status === 201, ap.status);
+    check('mejora quedó executed', ap.body?.status === 'executed', ap.body?.status);
+    const result = typeof ap.body?.result === 'string' ? JSON.parse(ap.body.result) : ap.body?.result;
+    check(
+      'result con efecto REAL (coaching_note | task | set_target)',
+      ['coaching_note', 'task', 'set_target'].includes(result?.effect),
+      result,
+    );
+    check('result.reversible === true', result?.reversible === true, result);
+
+    if (result?.effect === 'coaching_note') {
+      const notes = await req('GET', '/supervisor-ai/coaching-notes', token);
+      check('coaching-notes 200', notes.status === 200, notes.status);
+      check(
+        'la nota de coaching creada aparece en el endpoint',
+        (notes.body?.rows || []).some((n) => n.id === result.coaching_note_id),
+        result.coaching_note_id,
+      );
+      const dbN = await knex('commercial.coaching_notes').where('id', result.coaching_note_id).first();
+      check('DB: coaching_note persistida', !!dbN, result.coaching_note_id);
+    } else if (result?.effect === 'task') {
+      const tasks = await req('GET', '/supervisor-ai/tasks', token);
+      check('tasks 200', tasks.status === 200, tasks.status);
+      check(
+        'la tarea creada aparece en el endpoint',
+        (tasks.body?.rows || []).some((t) => t.id === result.task_id),
+        result.task_id,
+      );
+      const dbT = await knex('commercial.supervisor_tasks').where('id', result.task_id).first();
+      check('DB: supervisor_task persistida con due_date', !!dbT && !!dbT.due_date, dbT);
+    }
+
+    const opps2 = await req('GET', '/supervisor-ai/opportunities', token);
+    check(
+      'la mejora aprobada ya NO está en pending',
+      !(opps2.body?.rows || []).some((o) => o.id === opp.id),
+      opp.id,
+    );
+  } else {
+    console.log('  (skip 11/12: 0 mejoras — el motor corrió sin oportunidades con la data actual)');
+  }
+
+  console.log('\n── 13. Visión (H2.2): coverage + scan + veredictos ──');
+  const cov0 = await req('GET', '/supervisor-ai/vision/coverage', token);
+  check('vision/coverage 200', cov0.status === 200, cov0.status);
+  check(
+    'coverage trae photos_total + analyzed + has_api_key',
+    cov0.body &&
+      typeof cov0.body.photos_total === 'number' &&
+      typeof cov0.body.analyzed === 'number' &&
+      typeof cov0.body.has_api_key === 'boolean',
+    cov0.body,
+  );
+  console.log(
+    `     fotos_total=${cov0.body?.photos_total} analizadas=${cov0.body?.analyzed} api_key=${cov0.body?.has_api_key}`,
+  );
+
+  const scan = await req('POST', '/supervisor-ai/vision/scan', token, { max: 5 });
+  check('vision/scan 2xx', scan.status === 200 || scan.status === 201, scan.status);
+  check(
+    'scan devuelve {scan, vision_findings}',
+    scan.body?.scan && typeof scan.body.scan.candidates === 'number' && !!scan.body.vision_findings,
+    scan.body,
+  );
+  const sc = scan.body?.scan || {};
+  console.log(
+    `     scan: candidates=${sc.candidates} analyzed=${sc.analyzed} errors=${sc.errors} reason=${sc.reason || '—'}`,
+  );
+
+  const vlist = await req('GET', '/supervisor-ai/vision?flagged=true', token);
+  check('vision list 200', vlist.status === 200, vlist.status);
+  check('vision list devuelve rows[]', Array.isArray(vlist.body?.rows), vlist.body);
+
+  if (cov0.body?.has_api_key && ((sc.analyzed || 0) > 0 || (cov0.body?.analyzed || 0) > 0)) {
+    const dbV = await knex('commercial.capture_vision').where('tenant_id', T).count('* as n').first();
+    check('DB: capture_vision tiene veredictos', Number(dbV.n) > 0, Number(dbV.n));
+    const sample = await knex('commercial.capture_vision')
+      .where('tenant_id', T)
+      .whereNotNull('photo_quality')
+      .first();
+    check('veredicto trae photo_quality (estructura)', !sample || typeof sample.photo_quality === 'string', sample?.photo_quality);
+    console.log('     (ANTHROPIC_API_KEY presente → visión real verificada contra DB)');
+  } else {
+    console.log('  (skip asserts de veredicto: sin ANTHROPIC_API_KEY o 0 fotos analizadas — pipeline verificado igual)');
+  }
+
+  console.log('\n── 14. Fraude / integridad (H2.4): reglas deterministas ──');
+  const fraudScan = await req('POST', '/supervisor-ai/fraud/scan', token, {});
+  check('fraud/scan 2xx', fraudScan.status === 200 || fraudScan.status === 201, fraudScan.status);
+  check(
+    'fraud/scan devuelve {open, resolved} numéricos',
+    fraudScan.body && typeof fraudScan.body.open === 'number' && typeof fraudScan.body.resolved === 'number',
+    fraudScan.body,
+  );
+  const dbFraud = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, source: 'fraud' })
+    .select('finding_type', 'subject_type', 'status', 'evidence');
+  console.log(
+    `     fraud open=${fraudScan.body?.open} | en DB source=fraud: ${dbFraud.length} | tipos=${[...new Set(dbFraud.map((f) => f.finding_type))].join(',') || '—'}`,
+  );
+
+  // Guardarraíl ADR-020: el fraude se DETECTA pero NO acciona solo (acusar es humano).
+  const fraudActions = await knex('commercial.supervisor_actions as a')
+    .join('commercial.supervisor_findings as f', 'f.id', 'a.finding_id')
+    .where({ 'a.tenant_id': T, 'f.source': 'fraud' })
+    .count('* as n')
+    .first();
+  check('fraude NO genera acción de co-piloto automática (ADR-020)', Number(fraudActions.n) === 0, Number(fraudActions.n));
+
+  if (dbFraud.length > 0) {
+    check(
+      'todo fraude: finding_type fraud_* + subject collaborator + source=fraud',
+      dbFraud.every((f) => /^fraud_/.test(f.finding_type) && f.subject_type === 'collaborator'),
+      dbFraud[0],
+    );
+    const openF = await req('GET', '/supervisor-ai/findings?status=open', token);
+    const inTray = (openF.body?.rows || []).filter((x) => /^fraud_/.test(x.finding_type));
+    check(
+      'los hallazgos de fraude abiertos aparecen en la bandeja',
+      inTray.length > 0 || !dbFraud.some((f) => f.status === 'open'),
+      { tray: inTray.length, openInDb: dbFraud.filter((f) => f.status === 'open').length },
+    );
+  } else {
+    console.log('  (0 hallazgos de fraude — data limpia en la ventana; pipeline + guardarraíl verificados igual)');
+  }
+
+  console.log('\n── 15. Motor multi-señal (H2.3): salud de ejecución explicable ──');
+  const cmp = await req('POST', '/supervisor-ai/compute', token, {});
+  check('compute devuelve scoring {scored}', cmp.body?.scoring && typeof cmp.body.scoring.scored === 'number', cmp.body?.scoring);
+  const ex = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  check('execution-360 200', ex.status === 200, ex.status);
+  const parseBd = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+  const scored = (ex.body?.rows || []).filter((r) => r.exec_score != null);
+  console.log(`     colaboradores con exec_score: ${scored.length}/${(ex.body?.rows || []).length}`);
+  if (scored.length > 0) {
+    check(
+      'exec_score en [0,100]',
+      scored.every((r) => Number(r.exec_score) >= 0 && Number(r.exec_score) <= 100),
+      scored.map((r) => r.exec_score),
+    );
+    check(
+      'cada exec_score trae breakdown.signals[]',
+      scored.every((r) => {
+        const bd = parseBd(r.exec_score_breakdown);
+        return bd && Array.isArray(bd.signals) && bd.signals.length > 0;
+      }),
+      parseBd(scored[0].exec_score_breakdown),
+    );
+    const sample = scored[0];
+    const bd = parseBd(sample.exec_score_breakdown);
+    const sum = (bd.signals || []).reduce((a, s) => a + Number(s.contribution), 0);
+    check(
+      'breakdown: suma de contribuciones ≈ exec_score (±1)',
+      Math.abs(sum - Number(sample.exec_score)) <= 1.0,
+      { sum: Math.round(sum * 100) / 100, score: Number(sample.exec_score) },
+    );
+    check(
+      'breakdown ordenado peor→mejor (1ra contribución es la menor)',
+      (bd.signals || []).length < 2 || Number(bd.signals[0].contribution) <= Number(bd.signals[bd.signals.length - 1].contribution),
+      bd.signals?.map((s) => s.contribution),
+    );
+    console.log(
+      `     ej. ${sample.label}: salud=${sample.exec_score} | más resta=${bd.signals?.[0]?.label} (${bd.signals?.[0]?.contribution})`,
+    );
+  } else {
+    console.log('  (skip asserts de score: 0 colaboradores con datos suficientes — confianza < 0.4)');
+  }
+
+  console.log('\n── 16. Venta↔ejecución (H2.7): correlación + cobertura + gate ──');
+  const se = await req('GET', '/supervisor-ai/sales-execution', token);
+  check('sales-execution 200', se.status === 200, se.status);
+  check(
+    'trae collaborators[] + stores[] + coverage',
+    Array.isArray(se.body?.collaborators) && Array.isArray(se.body?.stores) && !!se.body?.coverage,
+    Object.keys(se.body || {}),
+  );
+  const cov = se.body?.coverage || {};
+  check(
+    'coverage con métricas + sales_data_mature',
+    typeof cov.collaborators_with_sales === 'number' &&
+      typeof cov.stores_with_sales === 'number' &&
+      typeof cov.sales_data_mature === 'boolean',
+    cov,
+  );
+  console.log(
+    `     venta: ${cov.collaborators_with_sales}/${cov.collaborators_total} vendedores · ${cov.stores_with_sales}/${cov.stores_total} tiendas | maduro=${cov.sales_data_mature}`,
+  );
+  const cmp2 = await req('POST', '/supervisor-ai/compute', token, {});
+  const seCompute = cmp2.body?.sales_execution || {};
+  if (!cov.sales_data_mature) {
+    check(
+      'gate: gap DORMIDO por venta inmadura (reason o 0 open)',
+      seCompute.reason === 'insufficient_sales_data' || seCompute.open === 0,
+      seCompute,
+    );
+    const gapF = await knex('commercial.supervisor_findings')
+      .where({ tenant_id: T, finding_type: 'sales_execution_gap', status: 'open' })
+      .count('* as n')
+      .first();
+    check('no hay sales_execution_gap abiertos (data inmadura, ADR: no juzgar sobre ruido)', Number(gapF.n) === 0, Number(gapF.n));
+  } else {
+    check('venta madura → gap puede emitir (open numérico)', typeof seCompute.open === 'number', seCompute);
+  }
+
+  console.log('\n── 17. Feature Store v2 (H2.1): nivel de ejecución + duración + surtido ──');
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const ex2 = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  check('execution-360 200', ex2.status === 200, ex2.status);
+  const rows2 = ex2.body?.rows || [];
+  const withLevel = rows2.filter((r) => r.exec_level_score != null);
+  console.log(
+    `     con nivel=${withLevel.length}/${rows2.length} | ej. ${withLevel[0]?.label}: nivel=${withLevel[0]?.exec_level_score} min/vis=${withLevel[0]?.avg_visit_min} skus=${withLevel[0]?.avg_skus}`,
+  );
+  check('hay exec_level_score poblado', withLevel.length > 0, withLevel.length);
+  if (withLevel.length > 0) {
+    check(
+      'exec_level_score en [0,100]',
+      withLevel.every((r) => Number(r.exec_level_score) >= 0 && Number(r.exec_level_score) <= 100),
+      withLevel.map((r) => r.exec_level_score),
+    );
+    check(
+      'avg_visit_min poblado (>0)',
+      withLevel.some((r) => r.avg_visit_min != null && Number(r.avg_visit_min) > 0),
+      withLevel.map((r) => r.avg_visit_min),
+    );
+    check('avg_skus poblado', withLevel.some((r) => r.avg_skus != null), withLevel.map((r) => r.avg_skus));
+    const parseBd2 = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+    const withExecSignal = withLevel.filter((r) => {
+      const bd = parseBd2(r.exec_score_breakdown);
+      return bd?.signals?.some((s) => s.key === 'exec_level');
+    });
+    check('el score de salud (H2.3) ahora incorpora la señal exec_level', withExecSignal.length > 0, withExecSignal.length);
+  }
+
+  console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
+  if (fail) console.log('FALLOS:', failures.join(', '));
+  await knex.destroy();
+  process.exit(fail ? 1 : 0);
+})().catch((e) => {
+  console.error('ERR', e.stack || e.message);
+  process.exit(1);
+});

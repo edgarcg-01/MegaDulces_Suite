@@ -21,7 +21,9 @@ import {
   Promotion,
   PromotionType,
 } from '../comercial.service';
+import { makeLazyLoad } from '../../../shared/util';
 import { PROMOTION_META, PROMOTION_META_LIST, summarizePromotion } from '../promotions-meta';
+import { PromotionFormDialogComponent } from '../components/promotion-form-dialog.component';
 
 interface ProductOption {
   id: string;
@@ -50,6 +52,7 @@ interface ProductOption {
     ToastModule,
     ConfirmDialogModule,
     TooltipModule,
+    PromotionFormDialogComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -228,252 +231,33 @@ interface ProductOption {
       </div>
     </div>
 
-    <!-- Dialog: Step 1 (type selector) + Step 2 (config) -->
-    <p-dialog
-      [(visible)]="dialogVisible"
-      [modal]="true"
-      [draggable]="false"
-      [style]="{ width: '720px' }"
+    <!-- Dialog: Step 1 (type selector) + Step 2 (config) — extraído a app-promotion-form-dialog (CV.3) -->
+    <app-promotion-form-dialog
+      [visible]="dialogVisible"
+      (visibleChange)="dialogVisible = $event"
       [header]="dialogHeader()"
-      (onHide)="onDialogHide()"
-    >
-      <!-- STEP 1: Type selector -->
-      <ng-container *ngIf="wizardStep() === 'choose-type'">
-        <p class="step-intro">Elegí el tipo de promoción que querés crear:</p>
-        <div class="type-grid">
-          <button
-            *ngFor="let m of metaList"
-            type="button"
-            class="type-card"
-            (click)="chooseType(m.type)"
-          >
-            <div class="type-icon" [style.background]="m.color">
-              <i [class]="m.icon"></i>
-            </div>
-            <div class="type-body">
-              <div class="type-title">{{ m.label }}</div>
-              <div class="type-desc">{{ m.description }}</div>
-              <div class="type-example"><i class="pi pi-info-circle"></i> {{ m.example }}</div>
-            </div>
-          </button>
-        </div>
-      </ng-container>
-
-      <!-- STEP 2: Configure -->
-      <ng-container *ngIf="wizardStep() === 'configure' && form">
-        <div class="step-header" *ngIf="!editing()">
-          <button pButton icon="pi pi-arrow-left" label="Cambiar tipo" severity="secondary" [text]="true" size="small" (click)="backToChoose()"></button>
-          <span class="pm-type-chip">
-            <i [class]="meta(selectedType()!).icon" aria-hidden="true"></i>
-            {{ meta(selectedType()!).label }}
-          </span>
-        </div>
-
-        <form [formGroup]="form" class="comm-form-grid">
-          <!-- Comunes -->
-          <label>
-            <span>Código <em>*</em></span>
-            <input pInputText formControlName="code" placeholder="ej: NAVIDAD-2026" />
-          </label>
-          <label>
-            <span>Nombre <em>*</em></span>
-            <input pInputText formControlName="name" placeholder="Ej: Descuento Navidad" />
-          </label>
-          <label class="full">
-            <span>Descripción</span>
-            <textarea pTextarea formControlName="description" rows="2" placeholder="Visible en reportes y al cliente."></textarea>
-          </label>
-          <label class="full">
-            <span>Banner (URL de imagen)</span>
-            <input pInputText formControlName="banner_url" placeholder="https://res.cloudinary.com/.../banner.png" />
-            <small class="comm-muted is-small">Opcional. Se muestra como portada en el portal (home + promociones). Subí la imagen a Cloudinary y pegá la URL.</small>
-          </label>
-          <div class="full" *ngIf="form.value.banner_url">
-            <img
-              [src]="form.value.banner_url"
-              alt="Vista previa del banner"
-              class="promo-banner-preview"
-              (error)="bannerPreviewError.set(true)"
-              (load)="bannerPreviewError.set(false)"
-            />
-            <small class="comm-muted is-small" *ngIf="bannerPreviewError()">
-              No se pudo cargar la imagen. Verificá la URL.
-            </small>
-          </div>
-
-          <!-- Type-specific fields -->
-          <ng-container [ngSwitch]="selectedType()">
-            <!-- percent_off_product -->
-            <ng-container *ngSwitchCase="'percent_off_product'">
-              <label class="full">
-                <span>Producto <em>*</em></span>
-                <p-select
-                  formControlName="product_id"
-                  [options]="productOptions()"
-                  optionLabel="nombre"
-                  optionValue="id"
-                  [filter]="true"
-                  filterBy="nombre,brand"
-                  placeholder="Buscar producto…"
-                  appendTo="body"
-                ></p-select>
-              </label>
-              <label>
-                <span>Descuento (%) <em>*</em></span>
-                <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
-              </label>
-            </ng-container>
-
-            <!-- percent_off_basket -->
-            <ng-container *ngSwitchCase="'percent_off_basket'">
-              <label>
-                <span>Descuento (%) <em>*</em></span>
-                <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
-              </label>
-              <label>
-                <span>Mínimo de pedido (opcional)</span>
-                <p-inputNumber formControlName="min_order_amount" mode="currency" currency="MXN" locale="es-MX" [min]="0" placeholder="Sin mínimo" />
-              </label>
-            </ng-container>
-
-            <!-- nxm -->
-            <ng-container *ngSwitchCase="'nxm'">
-              <label class="full">
-                <span>Producto <em>*</em></span>
-                <p-select formControlName="product_id" [options]="productOptions()" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Buscar producto…" appendTo="body"></p-select>
-              </label>
-              <label>
-                <span>Compra (N) <em>*</em></span>
-                <p-inputNumber formControlName="n_buy" [min]="2" [showButtons]="true" />
-              </label>
-              <label>
-                <span>Paga (M) <em>*</em></span>
-                <p-inputNumber formControlName="m_pay" [min]="1" [showButtons]="true" />
-              </label>
-              <div class="comm-form-hint full" *ngIf="form.value.n_buy && form.value.m_pay">
-                <i class="pi pi-info-circle"></i>
-                Cliente lleva <b>{{ form.value.n_buy }}</b> unidades, paga sólo <b>{{ form.value.m_pay }}</b>.
-                Ahorro = {{ form.value.n_buy - form.value.m_pay }} unidad(es) gratis.
-              </div>
-            </ng-container>
-
-            <!-- volume_discount -->
-            <ng-container *ngSwitchCase="'volume_discount'">
-              <label class="full">
-                <span>Producto <em>*</em></span>
-                <p-select formControlName="product_id" [options]="productOptions()" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Buscar producto…" appendTo="body"></p-select>
-              </label>
-              <div class="tiers-section full">
-                <div class="tiers-header">
-                  <span>Tiers de descuento <em>*</em></span>
-                  <button pButton type="button" icon="pi pi-plus" label="Agregar tier" size="small" severity="secondary" (click)="addTier()"></button>
-                </div>
-                <div class="tiers-list">
-                  <div *ngFor="let t of tiersValue; let i = index" class="tier-row">
-                    <span class="tier-from">Desde</span>
-                    <p-inputNumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
-                    <span class="tier-arrow">→</span>
-                    <p-inputNumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
-                    <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeTier(i)"></button>
-                  </div>
-                  <div *ngIf="tiersValue.length === 0" class="muted">Sin tiers. Agregá al menos uno.</div>
-                </div>
-              </div>
-            </ng-container>
-
-            <!-- bundle_fixed_price -->
-            <ng-container *ngSwitchCase="'bundle_fixed_price'">
-              <div class="tiers-section full">
-                <div class="tiers-header">
-                  <span>Productos del pack <em>*</em></span>
-                  <button pButton type="button" icon="pi pi-plus" label="Agregar producto" size="small" severity="secondary" (click)="addBundleItem()"></button>
-                </div>
-                <div class="tiers-list">
-                  <div *ngFor="let it of bundleValue; let i = index" class="bundle-row">
-                    <p-select
-                      [(ngModel)]="it.product_id"
-                      [ngModelOptions]="{ standalone: true }"
-                      [options]="productOptions()"
-                      optionLabel="nombre"
-                      optionValue="id"
-                      [filter]="true"
-                      filterBy="nombre,brand"
-                      placeholder="Producto…"
-                      appendTo="body"
-                      styleClass="bundle-product"
-                    ></p-select>
-                    <span>×</span>
-                    <p-inputNumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
-                    <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeBundleItem(i)"></button>
-                  </div>
-                  <div *ngIf="bundleValue.length === 0" class="muted">Agregá al menos 2 productos.</div>
-                </div>
-              </div>
-              <label class="full">
-                <span>Precio fijo del pack <em>*</em></span>
-                <p-inputNumber formControlName="price" mode="currency" currency="MXN" locale="es-MX" [min]="1" />
-              </label>
-            </ng-container>
-
-            <!-- cross_sell_discount -->
-            <ng-container *ngSwitchCase="'cross_sell_discount'">
-              <label class="full">
-                <span>Si compra (trigger) <em>*</em></span>
-                <p-select formControlName="trigger_product_id" [options]="productOptions()" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Producto que dispara…" appendTo="body"></p-select>
-              </label>
-              <label class="full">
-                <span>Descuento en (target) <em>*</em></span>
-                <p-select formControlName="target_product_id" [options]="productOptions()" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Producto descontado…" appendTo="body"></p-select>
-              </label>
-              <label>
-                <span>Descuento (%) <em>*</em></span>
-                <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
-              </label>
-            </ng-container>
-          </ng-container>
-
-          <!-- Comunes: vigencia y configuración -->
-          <div class="full divider"><span>Vigencia y configuración</span></div>
-          <label>
-            <span>Desde</span>
-            <p-datepicker formControlName="starts_at" [showIcon]="true" placeholder="Sin fecha — desde siempre" appendTo="body"></p-datepicker>
-          </label>
-          <label>
-            <span>Hasta</span>
-            <p-datepicker formControlName="ends_at" [showIcon]="true" placeholder="Sin fecha — sin fin" appendTo="body"></p-datepicker>
-          </label>
-          <label>
-            <span>Prioridad</span>
-            <p-inputNumber formControlName="priority" [min]="0" [max]="1000" [showButtons]="true" />
-          </label>
-          <label>
-            <span>Tope global de usos</span>
-            <p-inputNumber formControlName="usage_limit" [min]="1" placeholder="Ilimitado" />
-          </label>
-          <label class="checkbox-line full">
-            <p-inputSwitch formControlName="active" />
-            <span>Activa al guardar</span>
-          </label>
-        </form>
-      </ng-container>
-
-      <ng-template pTemplate="footer">
-        <ng-container *ngIf="wizardStep() === 'configure'">
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="closeDialog()"></button>
-          <button
-            pButton
-            [label]="editing() ? 'Guardar' : 'Crear promoción'"
-            icon="pi pi-check"
-            [loading]="saving()"
-            [disabled]="!canSave()"
-            (click)="save()"
-          ></button>
-        </ng-container>
-        <ng-container *ngIf="wizardStep() === 'choose-type'">
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="closeDialog()"></button>
-        </ng-container>
-      </ng-template>
-    </p-dialog>
+      [wizardStep]="wizardStep()"
+      [selectedType]="selectedType()"
+      [editing]="editing()"
+      [form]="form"
+      [saving]="saving()"
+      [canSave]="canSave()"
+      [productOptions]="productOptions()"
+      [metaList]="metaList"
+      [tiers]="tiersValue"
+      [bundle]="bundleValue"
+      [bannerPreviewError]="bannerPreviewError()"
+      (hide)="onDialogHide()"
+      (chooseType)="chooseType($event)"
+      (backToChoose)="backToChoose()"
+      (cancel)="closeDialog()"
+      (save)="save()"
+      (addTier)="addTier()"
+      (removeTier)="removeTier($event)"
+      (addBundleItem)="addBundleItem()"
+      (removeBundleItem)="removeBundleItem($event)"
+      (bannerError)="bannerPreviewError.set($event)"
+    ></app-promotion-form-dialog>
   `,
   styles: [`
     :host { display:block; }
@@ -889,13 +673,7 @@ export class ComercialPromotionsComponent {
     this.reload();
   }
 
-  onLazyLoad(e: { first?: number | null; rows?: number | null }): void {
-    const first = e.first ?? 0;
-    const rows = e.rows ?? this.pageSize();
-    this.page.set(Math.floor(first / rows) + 1);
-    this.pageSize.set(rows);
-    this.load();
-  }
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
   // ── Helpers visuales ─────────────────────────────────────────────
 

@@ -16,7 +16,7 @@
 }
 
 /* Icono de alerta inline en cell-label */
-.cc-ico-bad { margin-right: 0.375rem; color: var(--c-bad); }
+.cc-ico-bad { margin-right: 0.5rem; color: var(--c-bad); }
 
 /* Más respiración entre sheets (entre tablas) */
 :host ::ng-deep .surf-page.cc { gap: 1.5rem; }
@@ -26,7 +26,7 @@
 
 /* Padding más generoso dentro de cells de KPI */
 :host ::ng-deep .cc .cell:not(.is-flush) {
-  padding: 1.5rem 1.75rem;
+  padding: 1.5rem;
 }
 
 /* Tablas con padding vertical algo mayor (respiración entre rows) */
@@ -57,7 +57,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--c-text-1);
 }
-.cc-delta i { font-size: 0.7rem; color: var(--c-text-2); }
+.cc-delta i { font-size: var(--fs-micro); color: var(--c-text-2); }
 
 .cc-spark {
   margin-top: auto;
@@ -67,6 +67,36 @@
   display: block;
 }
 .cc-spark svg { width: 100%; height: 100%; display: block; }
+
+/* ── MINI-BARS (entregados/día, clientes/día) — dato real de dailySeries ── */
+.cc-minibars {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  width: 100%;
+  height: 30px;
+}
+.cc-minibars svg { width: 100%; height: 100%; display: block; }
+.cc-minibars rect { fill: var(--c-text-3, var(--neutral-400)); }
+.cc-minibars rect:last-of-type { fill: var(--action); }
+
+/* ── STACKED BAR ("En curso": composición del pipeline no-entregado) ── */
+.cc-stack {
+  margin-top: auto;
+  display: flex;
+  height: 6px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--c-surface-2);
+}
+.cc-stack-seg { height: 100%; }
+.cc-stack-seg.is-confirmed { background: var(--info-fg); }
+.cc-stack-seg.is-draft     { background: var(--c-text-3, var(--neutral-400)); }
+.cc-stack-seg.is-cancelled { background: var(--bad-fg); }
+
+/* ── SPARKLINE MINI (tasa de conversión/día — línea, no barras) ── */
+.cc-spark-mini { margin-top: auto; padding-top: 0.75rem; width: 100%; height: 30px; }
+.cc-spark-mini svg { width: 100%; height: 100%; display: block; }
 
 /* ── RANK BADGES ── */
 .cc-rank-badge {
@@ -84,7 +114,7 @@
 .cc-rank-badge.is-sm { width: 18px; height: 18px; font-size: var(--fs-nano); }
 .cc-rank-badge.is-bad {
   width: auto; padding: 0 0.5rem; border-radius: 999px;
-  background: var(--bad-soft-bg, rgba(220, 38, 38, 0.10));
+  background: var(--bad-soft-bg);
   color: var(--c-bad);
 }
 
@@ -96,12 +126,12 @@
   display: flex !important;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   font-size: var(--fs-sm);
   border-bottom: none !important;
 }
 .cc-table-empty i {
-  font-size: 1rem;
+  font-size: var(--fs-h3);
   opacity: 0.6;
 }
 
@@ -112,7 +142,7 @@
   gap: 1rem;
   padding: 1.25rem 1.5rem 1.5rem;
 }
-.cc-brand-row { display: flex; flex-direction: column; gap: 0.375rem; }
+.cc-brand-row { display: flex; flex-direction: column; gap: 0.5rem; }
 .cc-brand-head {
   display: flex;
   justify-content: space-between;
@@ -130,7 +160,7 @@
 .cc-brand-share {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.4rem;
+  gap: 0.5rem;
   font-variant-numeric: tabular-nums;
   color: var(--c-text-1);
 }
@@ -156,3 +186,81 @@
 @media (prefers-reduced-motion: reduce) {
   .cc-bar-fill { transition: none; }
 }
+
+/* ── Reveal de entrada (one-time, primer paint). nth-of-type cuenta solo los
+ *    <div class="sheet"> (toast=p-toast, header=<header>, peeks=app-side-peek). ── */
+.cc.cc-stagger .sheet {
+  animation: ccSheetIn 260ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) both;
+}
+.cc.cc-stagger .sheet:nth-of-type(2) { animation-delay: 45ms; }
+.cc.cc-stagger .sheet:nth-of-type(3) { animation-delay: 90ms; }
+.cc.cc-stagger .sheet:nth-of-type(4) { animation-delay: 135ms; }
+.cc.cc-stagger .sheet:nth-of-type(5) { animation-delay: 180ms; }
+.cc.cc-stagger .sheet:nth-of-type(n + 6) { animation-delay: 225ms; }
+
+@keyframes ccSheetIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc.cc-stagger .sheet { animation: none; }
+}
+
+/* ── Filas clickeables (drill-down) ── */
+:host ::ng-deep .cc tr.is-clickable { cursor: pointer; }
+:host ::ng-deep .cc tr.is-clickable:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: -2px;
+}
+
+/* ── Contenido del side-peek de producto (el 360° de cliente vive en Customer360PanelComponent) ── */
+.cc-peek-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--border-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.cc-peek-metric {
+  background: var(--card-bg);
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.cc-peek-label {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-2);
+}
+.cc-peek-val {
+  font-family: var(--font-mono);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  color: var(--c-text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-peek-section-label {
+  margin: 1.25rem 0 0.75rem;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-text-2);
+}
+
+.cc-peek-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  color: var(--c-text-2);
+  text-align: center;
+}
+.cc-peek-empty i { font-size: var(--fs-h2); opacity: 0.5; }

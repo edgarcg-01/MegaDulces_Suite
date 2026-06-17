@@ -83,6 +83,9 @@ exports.seed = async function (knex) {
     // Comercial — Cierre de ruta
     ROUTE_TICKET_CAPTURE: true,
     ROUTE_CONTROL_VER: true,
+    // Horus — Supervisor AI de ejecución (Trade)
+    SUPERVISOR_AI_VER: true,
+    SUPERVISOR_AI_APROBAR: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -130,6 +133,9 @@ exports.seed = async function (knex) {
         COMMERCIAL_ORDERS_FULFILL: true,
         COMMERCIAL_PROMOTIONS_VER: true,
         COMMERCIAL_TELEVENTA_VER: true,
+        // Horus — Supervisor AI: ve el parte/hallazgos y aprueba acciones (co-piloto)
+        SUPERVISOR_AI_VER: true,
+        SUPERVISOR_AI_APROBAR: true,
       },
     },
     {
@@ -154,6 +160,8 @@ exports.seed = async function (knex) {
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_PROMOTIONS_VER: true,
         COMMERCIAL_PROMOTIONS_GESTIONAR: true,
+        // Horus — observa el parte/hallazgos; NO aprueba acciones laborales
+        SUPERVISOR_AI_VER: true,
       },
     },
     {

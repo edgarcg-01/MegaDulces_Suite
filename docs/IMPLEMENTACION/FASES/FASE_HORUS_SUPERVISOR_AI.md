@@ -1,0 +1,249 @@
+# Fase Horus — Supervisor AI de Ejecución en Campo (Trade)
+
+**ADR base:** [ADR-020](../02_DECISIONES_ARQUITECTURA.md#adr-020--horus-supervisor-ai-de-ejecución-en-campo-trade)
+
+**Duración estimada:** rebanada vertical "parte diario" en 1-2 sprints; las 3 capacidades (parte / visión / fraude) por rebanadas sucesivas.
+
+**Objetivo:** un **supervisor de ventas aumentado por AI** para el proyecto Trade (auditoría de ejecución en PdV). El motor calcula cobertura, calidad de ejecución, anomalías y prioridad de atención de forma determinista; el agente (Claude Haiku 4.5) redacta el diagnóstico, el coaching y conversa; la visión (Claude vision) audita el 100% de las fotos. El AI **prepara acciones** (reasignar ruta, abrir alerta, enviar coaching, marcar para revisión) que el supervisor humano **aprueba con un clic** — nunca ejecuta solo lo laboralmente sensible.
+
+> **Decisión 2026-06-16 (Edgar):** (1) nivel de autonomía = **co-piloto** — el AI recomienda *y* prepara la acción concreta, el humano aprueba; (2) alcance = **las 3 capacidades** (parte diario, auditoría visual de fotos, detección de fraude/anomalías); (3) entregable de planeación = este doc + ADR-020.
+
+---
+
+## La idea unificadora
+
+> **Dónde mirar hoy, por qué, y qué hacer al respecto — sin que el supervisor tenga que escanear 200 capturas a mano.**
+
+Un supervisor humano no escala tres cosas: revisar el 100% de las fotos, correlacionar el GPS de toda la flotilla, y dar coaching consistente y diario a cada colaborador. Horus automatiza exactamente esas tres, deja la decisión en el humano, y traduce números a lenguaje de supervisor.
+
+No es un feature: es **feature store + motor de decisión + agente + co-piloto de acciones + loop de feedback**, replicando el patrón que [Thot](FASE_THOT_MOTOR.md) estableció para Comercial.
+
+---
+
+## Relación con Thot (y por qué van separados)
+
+El proyecto ya decidió (FASE_M línea 217, ADR-016) **no construir un motor compartido** todavía: "más capturado" (presencia/auditoría, Trade) ≠ "más pedido" (compromiso económico, Comercial) — unidades distintas, y acoplar el ranker de captura con el camino-de-dinero es acoplamiento prematuro.
+
+| | **Thot** (Comercial) | **Horus** (Trade) |
+|---|---|---|
+| Unidad de análisis | `customer_id` (qué pedir) | `collaborator` / `route` / `store` (cómo se ejecuta) |
+| Pregunta | "la oferta correcta al cliente correcto" | "dónde mirar hoy y qué hacer" |
+| Fuente | `commercial.orders` | `daily_captures`, `daily_assignments`, `route_location_pings` |
+| Vive en | `libs/commercial/.../commercial-intelligence` | `libs/trade/.../supervisor-ai` |
+
+**Comparten solo las primitivas AI** de `platform-core` (`LlmExtractorService`, `EmbeddingsService`, throttling). Horus **no importa** `commercial-intelligence`. Núcleo compartido = patrón replicado, no lib única (se extrae solo cuando haya 3er consumidor).
+
+---
+
+## Pre-requisitos (qué ya existe y se reusa)
+
+- ✅ `daily_captures` con `exhibiciones` JSONB (concepto, ubicación, nivel, productos, `fotoUrl`, `perteneceMegaDulces`), `score_final_pct`, `hora_inicio/fin`, `lat/lng`, `route_id`, `store_id` — [daily-captures.service.ts](../../../libs/trade/src/lib/daily-captures/daily-captures.service.ts).
+- ✅ scoring-v2 versionado → `score_final_pct` confiable — [scoring-v2.service.ts](../../../libs/trade/src/lib/scoring/scoring-v2.service.ts).
+- ✅ `daily_assignments` (ruta esperada por user × día) → base de cobertura.
+- ✅ `route_location_pings` (GPS breadcrumbs) + `getIdleSummary` / `getRouteTrack` — [reports.service.ts](../../../libs/trade/src/lib/reports/reports.service.ts).
+- ✅ **LLM**: [LlmExtractorService](../../../libs/platform-core/src/lib/ai/llm-extractor.service.ts) → Claude Haiku 4.5 vía fetch + tool_use; ya hace **visión** (`extractFromTicketImage`) → reusable para auditar fotos.
+- ✅ **Embeddings/pgvector**: [EmbeddingsService](../../../libs/platform-core/src/lib/ai/embeddings.service.ts) → Voyage-3 (texto; **no sirve para fotos recicladas** → ver Horus.6).
+- ✅ `AlertsScannerService` (cron @5min) — patrón de orquestación a copiar.
+- ✅ TenantContext/RLS + `TenantKnexService.run()` — obligatorio en todo handler; cron con scope sintético (patrón Customer360Refresh).
+- 🟡 `store_id` poblado solo ~9% (memoria) → cobertura poco confiable hasta reforzar captura de tienda.
+- 🟡 GPS parcial (tracking web foreground; nativo diferido).
+
+---
+
+## Arquitectura — 5 capas
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ CAPA 3 — CANALES   pantalla /dashboard/supervisor-ai · push      │  entrega
+├─────────────────────────────────────────────────────────────────┤
+│ CAPA 2 — AGENTE    Claude Haiku: parte diario, coaching, /ask    │  comunica
+│                    Claude Vision: audita fotos de exhibición     │
+├─────────────────────────────────────────────────────────────────┤
+│ CAPA 1 — MOTOR     cobertura · calidad/score · idle · anomalías  │  DECIDE
+│         (DECIDE)   share propio vs competencia · priorización    │  (determinista)
+│                    + CO-PILOTO: prepara acción → pending_approval│
+├─────────────────────────────────────────────────────────────────┤
+│ CAPA 0 — EXECUTION trade.execution_360 (collaborator/route/store)│  feature store
+│         FEATURE     cobertura · score+trend · idle · share · ... │  nocturno + on-demand
+├─────────────────────────────────────────────────────────────────┤
+│ CAPA 4 — FEEDBACK  supervisor confirma/descarta finding →        │  APRENDE
+│                    recalibra umbrales (trade.execution_thresholds)│
+└─────────────────────────────────────────────────────────────────┘
+        ↑ todo dentro de TenantContext/RLS (TenantKnexService.run)
+```
+
+### Invariantes (heredadas de ADR-016)
+1. **El motor decide, el agente comunica.** El agente llama al motor como tools; nunca inventa cobertura ni scores.
+2. **El LLM nunca toca el camino crítico.** Sancionar, reasignar, acusar de fraude = acción humana. El AI deja la acción en `pending_approval`; el supervisor aprueba/rechaza. (Reusa el patrón de estado `pending_approval` de ADR-013.)
+3. **Visión y fraude producen *findings* revisables, no veredictos.** Una foto marcada "reciclada" abre un finding, no una sanción.
+
+### Tool-belt del agente (Capa 2)
+`get_execution_360`(subject) · `list_findings`(filtros) · `get_coverage`(route) · `get_collaborator_scorecard`(user) · `get_store_competitive`(store) · `propose_action`(type, payload) — todos scoped por tenant vía `TenantKnexService.run()`.
+
+---
+
+## Inventario de señales (qué prometer en V1)
+
+| Señal | Fuente | Estado | Usar en |
+|---|---|---|---|
+| Calidad / score + tendencia | `score_final_pct` + scoring-v2 | 🟢 fuerte | V1 |
+| Tiempos / idle | `hora_inicio/fin`, `getIdleSummary` | 🟢 fuerte | V1 |
+| Cobertura fotográfica | `exhibiciones[].fotoUrl` | 🟢 fuerte | V1/V2 |
+| Cobertura visitado vs asignado | `store_id` × `daily_assignments` | 🟡 `store_id` ~9% | V1 (parcial) |
+| Share propio vs competencia | `exhibiciones[].perteneceMegaDulces` | 🟡 muchos `null` | V1 |
+| GPS↔tienda, breadcrumbs | `route_location_pings` × `stores.lat/lng` | 🟡 parcial | V3 |
+| Foto reciclada | pHash (Cloudinary), **no Voyage** | ⬜ por construir | V3 |
+
+V1 se para en lo 🟢; lo 🟡 se trata como "mejora a medida que la data crece" (igual que Thot dejó estacionalidad dormida).
+
+---
+
+## Schema propuesto (`trade.*`, RLS forzado, FK compuesta `(tenant_id, id)`)
+
+**`trade.execution_360`** — feature store (PK `tenant_id, subject_type, subject_id, window`):
+`subject_type` ∈ {collaborator, route, store}, `window` ∈ {7d, 30d}; `coverage_pct`, `visits_planned/done`, `avg_score`, `score_trend`, `idle_min_avg`, `own_share_pct`, `competitor_share_pct`, `days_since_last_visit`, `photo_coverage_pct`, `anomaly_count`, `computed_at`.
+
+**`trade.supervisor_findings`** — la evidencia detectada:
+`finding_type` (low_coverage / score_drop / idle_anomaly / gps_mismatch / impossible_time / photo_mismatch / recycled_photo / competitor_gain / store_at_risk), `severity` (info/warn/critical), `subject_type/id`, `capture_id?`, `score`, `evidence` JSONB (datos deterministas, **no texto LLM**), `explanation` (redacción del agente, opcional), `source` (engine/vision/embedding), `status` (open/reviewed/dismissed/confirmed), `reviewed_by/at`.
+
+**`trade.supervisor_actions`** — el co-piloto:
+`finding_id?`, `action_type` (reassign_route / open_alert / send_coaching / flag_for_review / request_recapture), `payload` JSONB, `proposed_by='horus'`, `status` (pending_approval/approved/rejected/executed/expired), `approved_by/at`, `executed_at`, `result` JSONB.
+
+**`trade.execution_thresholds`** — umbrales configurables por tenant (capa 4): coverage_min, score_drop_pct, idle_max_min, gps_mismatch_m, photo_sim_threshold…
+
+---
+
+## Endpoints (`/api/trade/supervisor`, permiso base `SUPERVISOR_AI_VER`)
+
+- `POST /compute` — recomputa `execution_360` (cron + on-demand, scope tenant).
+- `GET /briefing?date=` — parte diario: findings priorizados + texto del agente + ranking de atención.
+- `GET /findings?subject=&status=&type=` — bandeja de hallazgos.
+- `POST /findings/:id/review` `{status: confirmed|dismissed}` — **feedback loop**.
+- `POST /audit-photos` `{capture_id?|date}` — dispara visión (Horus.5).
+- `GET /actions?status=pending_approval` — bandeja de acciones.
+- `POST /actions/:id/approve` (`SUPERVISOR_AI_APROBAR`) → ejecuta el `action_type`.
+- `POST /actions/:id/reject`.
+- `POST /ask` `{question}` — agente conversacional (deferred, Horus.7).
+
+Throttle AI (`@Throttle`): `/audit-photos` y `/ask` en tier acotado (10/min) como los demás endpoints AI.
+
+---
+
+## Sprints
+
+### Horus.0 — Execution Feature Store ⬜
+Tabla `trade.execution_360` + `ExecutionRefreshService` (cron nocturno + on-demand por tenant, `TenantKnexService.run`, scope sintético). Computa cobertura/score/idle/share desde `daily_captures` + `daily_assignments` reusando agregaciones de `ReportsService`. **Base de todo.**
+
+### Horus.1 — Motor de findings determinista ⬜
+`ExecutionEngineService`: reglas explicables sobre `execution_360` → `supervisor_findings` (low_coverage, score_drop, idle_anomaly, competitor_gain, store_at_risk). Umbrales desde `execution_thresholds`. Cero LLM.
+
+### Horus.2 — Agente: parte diario ⬜
+`SupervisorAgentService`: una llamada Haiku con los findings agregados → redacta el parte + ranking de atención. El texto va a `findings.explanation` / respuesta de `/briefing`. **= capacidad "parte diario".**
+
+### Horus.3 — Pantalla `/dashboard/supervisor-ai` ⬜
+Componente standalone: parte del día, bandeja de findings (filtros), drill-down por colaborador/ruta/tienda (reusar [SidePeek + Customer360Panel](../../../apps/view/src/app/shared/components/)). Permiso + nav item. Sync permission enum FE↔BE + mapping `ability.factory` (evitar 403).
+
+### Horus.4 — Co-piloto: acciones con aprobación ⬜
+`trade.supervisor_actions` + `propose_action` (el motor sugiere) + `approve/reject` + ejecutores: `reassign_route` (escribe `daily_assignments`), `open_alert` (reusa `AlertsService`), `send_coaching` (push/notif), `flag_for_review`. **= nivel "co-piloto".**
+
+### Horus.5 — Visión: auditoría de fotos ⬜
+`PhotoAuditService`: por `fotoUrl`, llama Claude vision (reusa `extractFromTicketImage`) con tool `audit_exhibition_photo` → `{matches_concept, well_executed 0..1, out_of_stock, looks_recycled, notes}` → findings. **= capacidad "auditoría visual".** Encuadre de costo: priorizar exhibiciones propias / muestreo / solo capturas que el motor marcó sospechosas.
+
+### Horus.6 — Fraude / anomalías ⬜
+Determinista: `gps_mismatch` (ping/captura vs `stores.lat/lng` > umbral), `impossible_time` (duración mínima por N exhibiciones / capturas solapadas del mismo user), `recycled_photo` (**pHash de Cloudinary**, no Voyage). Siempre humano en el lazo. **= capacidad "detección de fraude".**
+
+### Horus.7 — Feedback loop + agente conversacional ⬜ (parcial deferred)
+`review` de findings (confirmed/dismissed) recalibra `execution_thresholds`. `/ask` conversacional (RAG sobre el feature store) — deferred si el tiempo aprieta.
+
+---
+
+## Secuencia de construcción recomendada
+
+`Horus.0 → .1 → .2 → .3` da el **parte diario funcionando end-to-end con pantalla** (máximo valor, solo datos 🟢). Luego `.4` (co-piloto), `.5` (visión), `.6` (fraude), `.7` (feedback). Cada paso es una rebanada que aporta valor sola.
+
+---
+
+## Riesgos / decisiones a vigilar
+
+- **Calidad de datos:** la cobertura no es confiable hasta subir `store_id` del ~9% — reforzar la captura de tienda (GPS/manual) es prerequisito real de la métrica estrella.
+- **Laboral:** todo finding de fraude → `pending_approval`, jamás auto-acción. Acusar a un colaborador es acto humano.
+- **Costo LLM:** parte diario = 1 llamada/día (barato). Visión = 1/foto (la cara) → encuadrar con muestreo/priorización. Estimar fotos/día reales de Mega Dulces antes de Horus.5.
+- **Foto reciclada ≠ Voyage:** Voyage-3 es texto. Usar pHash (Cloudinary lo expone) o comparación perceptual; no embeddings de texto.
+- **Fronteras:** no importar `commercial-intelligence`. Horus vive en `libs/trade`.
+- **RLS:** `TenantKnexService.run()` en cada handler; MVs/feature store con filtro `tenant_id` explícito (RLS no aplica a MV).
+
+## Deferred (post primera pasada)
+- `/ask` agente conversacional con RAG.
+- Propensión/scoring per-tienda (necesita volumen).
+- Embeddings de imagen propios (si pHash resulta insuficiente).
+
+---
+
+## Horus v2 — expansión "supervisor de verdad" (2026-06-17)
+
+Tras feedback de Edgar ("no cumple ni el 1% — más inteligencia, 100% acceso a Trade, triplicar conocimiento, opciones de mejora") se rediseña Horus de **detector de umbrales** a **supervisor**. Diagnóstico: el v1 aplasta una visita riquísima (posición en anaquel con pesos Caja=100…, nivel de ejecución, productos exactos, **la foto**, GPS, duración, venta) a ~7 métricas; ignora la foto (**59.7%** de exhibiciones la tienen), GPS, timing, cobertura planeada y venta; y aprobar una acción no hacía nada (`external_delivery:'deferred'`).
+
+Auditoría de datos (read-only, 2026-06-17): 121 caps/30d (407/60d), **5 colaboradores**, score mediana 38.9% (p25 25.9), `score_final_pct` **46%** poblado, `store_id` **33%**, exhibiciones 35% propio / 65% competencia (**0% sin clasificar**), foto 60%.
+
+### Arquitectura objetivo (7 capas, patrón Thot)
+`L0 Feature Store v2 (100% Trade, ~25+ señales) → L1 Visión (Claude mira la foto → veredictos estructurados) → L2 motor multi-señal → L3 findings + fraude → L4 Improvement Engine → L5 ejecutor real → L6 feedback loop + Ask-Horus`. Invariante intacto (ADR-016/020): la visión LLM extrae hechos, **el motor determinista decide**, co-piloto `pending_approval`.
+
+### Sprints v2 (renumeran la lista vieja)
+| v2 | Qué | Estado |
+|---|---|---|
+| H2.0 | Housekeeping: aplicar mig `170000` pendiente | en handoff |
+| H2.1 | **Feature Store v2** (data-backed: nivel/duración/surtido ✅; posición/cobertura/roll-ups diferidos por datos) | 🟡 PARCIAL EN CÓDIGO 2026-06-17 |
+| H2.2 | **Visión de fotos** → `commercial.capture_vision` (share observado, planograma, stockout, foto válida) | ✅ EN CÓDIGO 2026-06-17 |
+| H2.3 | **Motor multi-señal** (score de ejecución 0-100 explicable; complementa las reglas) | ✅ EN CÓDIGO 2026-06-17 |
+| H2.4 | **Findings v2 + Fraude** (declarado≠observado, GPS, velocidad imposible, foto duplicada) | ✅ EN CÓDIGO 2026-06-17 |
+| **H2.5** | **Improvement Engine** — `OpportunityEngineService` (coaching_focus / recover_shelf / reprioritize_route / replicate_best) | ✅ EN CÓDIGO 2026-06-17 |
+| **H2.6** | **Ejecutor real** — aprobar crea `coaching_notes` / `supervisor_tasks` (in-app, reversible) | ✅ EN CÓDIGO 2026-06-17 |
+| H2.7 | **Venta↔ejecución** (correlación con route_tickets/vendor_sale_lines, read-only) | ✅ EN CÓDIGO 2026-06-17 |
+| H2.8 | **Feedback loop + Ask-Horus** (atribución hallazgo→resultado, auto-tune; Q&A read-only) | ⬜ (= vieja Horus.7) |
+
+Diferido honesto: ML real (5 colaboradores = poco volumen, Thot tampoco lo hizo aún); entrega externa WhatsApp/push (infra Fase F). Único costo nuevo: visión Claude (~407 fotos/60d, Haiku barato, incremental).
+
+### H2.5 + H2.6 — entregado (arranque por "valor visible")
+- **Migraciones** `20260617100000` (supervisor_actions += `kind`/`rationale`, `action_type` ampliado a 10 tipos) · `110000` (`commercial.coaching_notes`) · `120000` (`commercial.supervisor_tasks`). hardenRls en las nuevas.
+- **`OpportunityEngineService`**: lee execution_360 + detalle crudo 60d; 4 reglas de mejora (coaching_focus diagnostica la debilidad concreta; recover_shelf elige producto propio por whitespace de ruta, nombre best-effort de `catalog.products`; reprioritize_route plan de ≥2 tiendas; replicate_best). UPSERT `kind='opportunity'` (dedup `opp:*`), expira separado de findings. Hook en refresh + `/compute`.
+- **Ejecutor real** en `SupervisorActionsService.approveAction`: familia coaching→`coaching_notes`, familia campo→`supervisor_tasks` (due=mañana MX, asignado al último captor), `set_target`→`users.meta_puntos`. `result` con ids del artefacto + `reversible:true`; push externo sigue diferido.
+- **Endpoints**: `GET /supervisor-ai/opportunities`, `/actions?kind=`, `/tasks`, `/coaching-notes`.
+- **Pantalla**: sección "Mejoras sugeridas" (con el porqué) + panel "Hecho por Horus" (tareas + coaching creados).
+- **Builds api+view verdes + smoke `http-horus-test.js` 48/48 VERDE** (2026-06-17, secciones 11-12 incluidas): tras `migrate:new` + restart, las mejoras se generan, aprobar crea la nota/tarea persistida en DB y la separación finding/opportunity (`/actions?kind=`) se verifica. Pendiente: validación visual de la pantalla.
+
+### H2.2 — entregado (el salto de inteligencia: Horus mira las fotos)
+- **Migración** `20260617140000` (`commercial.capture_vision`, hardenRls, dedup por `photo_key` = fotoPublicId || capture_id:idx → incremental).
+- **`PhotoAuditService`** (`libs/trade/.../photo-audit.service.ts`): por cada foto de exhibición (Cloudinary, `daily_captures.exhibiciones[].fotoUrl`, ~60% cobertura) hace fetch→base64→Claude Haiku con tool `audit_exhibition_photo` → veredicto estructurado `{is_shelf, own_brand_visible, competitor_visible, shelf_quality 0..1, out_of_stock, photo_quality}`. **Acotado por costo**: incremental (salta lo analizado), `MAX_PER_RUN=12`, concurrencia 4, tope de bytes; **sin `ANTHROPIC_API_KEY` → no-op graciosa (retryable)**. Replica el patrón de llamada de `SupervisorAgentService` (self-contained, sin acoplar platform-core).
+- **Cruce declarado-vs-observado** → `mismatch=true` (gating duro: es anaquel legible + declaró propio + solo se ve competencia) = semilla de fraude para H2.4.
+- **`generateVisionFindings`** (source='vision'): agrega por tienda (`vision_stockout`) y colaborador (`vision_mismatch`, `vision_invalid`), respeta decisiones humanas, auto-resuelve. El co-piloto les arma acción (ACTION_FOR: stockout→visit, mismatch/invalid→flag_recapture).
+- **Endpoints** `POST /vision/scan` (escanea + regenera findings/acciones), `GET /vision` (veredictos, flagged primero), `GET /vision/coverage`. Hook en el cron nocturno (lote de 20).
+- **Pantalla**: panel "Auditoría visual" (cobertura analizadas/total + banderas + fotos flageadas con thumbnail) + botón "Escanear fotos".
+- **Builds api+view verdes + smoke `http-horus-test.js` 56/56 VERDE con VISIÓN REAL** (2026-06-17): `ANTHROPIC_API_KEY` presente → Claude analizó fotos reales de Cloudinary y `commercial.capture_vision` quedó poblada con veredictos (corrieron los asserts condicionales de DB de la sección 13). Pendiente: validación visual de la pantalla.
+
+### H2.4 — entregado (3ª capacidad: fraude / integridad)
+- **Migración** `20260617150000` (amplía el CHECK de `supervisor_findings.source` para admitir `'fraud'`). Sin tabla nueva — el fraude reusa la infra de findings.
+- **`FraudEngineService`** (`libs/trade/.../fraud-engine.service.ts`): reglas DETERMINISTAS (física + tiempo, cero LLM) sobre `daily_captures` (GPS validado + hora_inicio/fin siempre presentes): `fraud_gps_mismatch` (haversine captura↔tienda > 300 m), `fraud_impossible_speed` (> 130 km/h entre capturas consecutivas del mismo vendedor, con `min_move` anti-jitter), `fraud_fast_visit` (duración < 15 s × exhibición), `fraud_overlap` (intervalos de captura solapados), `fraud_recycled_photo` (misma `fotoUrl` en ≥2 capturas). Agregados por colaborador, `source='fraud'`, idempotentes + auto-resuelven; `capture_id` como evidencia.
+- **GUARDARRAÍL ADR-020**: detecta pero NO acusa. Los `fraud_*` **no están en ACTION_FOR** → cero acción de co-piloto automática; van a la bandeja para que el SUPERVISOR confirme/descarte (acusar a un colaborador es acto humano).
+- En `POST /supervisor-ai/compute` + `POST /supervisor-ai/fraud/scan` + cron nocturno. Frontend: labels + badge "integridad" (rojo) en la bandeja de hallazgos.
+- **Builds api+view verdes + smoke `http-horus-test.js` 61/61 VERDE** (2026-06-17): el motor **detectó fraude en data real** (hallazgos `fraud_*` bien formados, presentes en la bandeja) y el guardarraíl se verificó (0 acciones de co-piloto nacidas de un finding de fraude). Diferido: foto reciclada por **pHash de Cloudinary** (hoy detecta reuso de `fotoUrl` exacta, no re-fotografiado).
+
+### H2.3 — entregado (motor multi-señal: salud de ejecución explicable)
+- **Migración** `20260617160000` (`execution_360` += `exec_score` 0-100 + `exec_score_breakdown` JSONB).
+- **`ScoringEngineService`** (`libs/trade/.../scoring-engine.service.ts`): score de ejecución por sujeto al estilo Thot. Señales normalizadas a [0,1] con pesos — colaborador: calidad 0.40 · tendencia 0.15 · foto 0.15 · share propio 0.15 · **integridad** 0.15 (cruza `supervisor_findings source='fraud'`); tienda: share 0.45 · calidad 0.30 · frescura 0.25. **Robusto a datos faltantes**: excluye señales nulas y renormaliza; si la confianza (peso presente) < 0.4 → `exec_score` null (no inventa salud sin datos). `exec_score_breakdown` = contribución por señal ordenada peor→mejor ("qué resta") → explicable, cero LLM.
+- **Complementa, no reemplaza** las reglas/findings (la salud es holística; los findings son problemas puntuales accionables). Corre **último** en `/compute` + cron (usa findings + fraude ya computados).
+- Frontend: columna **Salud** (badge verde/ámbar/rojo) + "↓ señal más débil" + orden peor-primero en la tabla de colaboradores.
+- **Builds api+view verdes + smoke VERDE 0 FAIL** (2026-06-17): 5/5 colaboradores con `exec_score` explicable (ej. `angel_vazquez` salud≈50, "más resta = share propio"), breakdown suma ≈ score y orden peor→mejor verificados. Es la base de ML futuro: features + pesos explícitos.
+
+### H2.7 — entregado (venta↔ejecución, con análisis crítico de datos)
+- **Audit primero** (`database/scripts/horus-sales-audit.js`, read-only): la venta de campo es **demo-only** — `route_tickets` = 4 ventas de un solo día (2026-06-03), 1 vendedor; `vendor_sale_lines` = 2 tiendas, 1 vendedor, 3 productos. Enlace: 1/5 captores con venta, 2/34 tiendas. **Conclusión: no hay con qué correlacionar de forma defendible** → no se inventa un motor de findings sobre ruido (anti-patrón "diseñar sobre data que no existe").
+- **`SalesExecutionService`** (read-only, sin importar Thot): `getCorrelation` cruza `exec_score` con venta (`route_tickets` por `vendor_user_id` + `vendor_sale_lines` por tienda) y clasifica en cuadrantes (ejecuta_y_vende / **ejecuta_sin_venta** = el gap / vende_sin_ejecutar / ambos_bajos). Doble como **diagnóstico de cobertura** ("N/M vendedores y tiendas registran venta") — el insight accionable hoy es impulsar el registro de venta en campo.
+- **`sales_execution_gap`** ("ejecuta bien pero 0 venta") **GATEADO** por `MIN_VENDORS_WITH_SALES=4`: dormido hasta que la venta madure (auto-resuelve mientras). Sin migración (reusa tablas + `source='engine'`).
+- Endpoint `GET /supervisor-ai/sales-execution`; gap en `/compute` + cron; panel "Venta vs ejecución" (cobertura + cuadrantes). **Smoke 60/60 VERDE** (2026-06-17): `/sales-execution` 200, cobertura refleja la venta demo-only, y el gate deja el gap **dormido** (0 `sales_execution_gap` abiertos) — verificado que NO se inventan hallazgos sobre ruido.
+
+### H2.1 — entregado parcial (Feature Store v2, data-backed)
+- **Audit primero** (`database/scripts/horus-features-audit.js`, read-only, 30d): **nivelEjecucion 94% · hora_fin 100% (mediana 8.8 min) · productos 99%** → señales sólidas. **route_id 0% en capturas · daily_assignments sin columna `date` usable · scoring_pesos inaccesible por la conexión** → diferidos (no se diseña sobre data ausente). El audit también reveló una **rúbrica de nivel MIXTA** (conviven alto/medio/bajo/crítico con excelente/estandar/basico).
+- **Migración** `20260617170000` (`execution_360` += `exec_level_score` 0-100, `avg_visit_min`, `avg_skus`).
+- **`Execution360Service`** explota el JSONB: normaliza la rúbrica mixta a peso 0..1 (alto/excelente=1 · medio/estandar=0.6 · bajo/basico=0.3 · crítico=0.1), duración real de visita (hora_fin−hora_inicio) y surtido (productos/exhibición).
+- **`ScoringEngineService`** incorpora `exec_level` al score de salud (rebalance — colaborador: quality .32 / exec_level .18 / trend .13 / photo .12 / own .12 / integrity .13; tienda: own .38 / quality .25 / exec_level .17 / freshness .20). Como renormaliza sobre señales presentes, la salud se vuelve más fina sin reescribir el motor.
+- Frontend: columnas **Nivel** + **Min/vis** en la tabla de colaboradores. Smoke sección 17. Pendiente: `migrate:new` (`20260617170000`) + restart → smoke.
+- **Diferido H2.1b**: roll-ups por zona (`users.zona_id` 93%) / supervisor (74%) — viables, no prioritarios; position-quality y coverage esperan que `scoring_pesos` / `daily_assignments` sean accesibles.

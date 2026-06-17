@@ -1,5 +1,7 @@
-<div class="surf-page cc">
+<div class="surf-page cc" [class.cc-stagger]="stagger()">
   <p-toast></p-toast>
+
+  <app-page-tabs [tabs]="analyticsTabs" />
 
   <header class="surf-page-head">
     <div class="surf-page-head-text">
@@ -43,7 +45,7 @@
         <i class="pi pi-dollar"></i>
       </span>
       <span class="cell-label">Ventas brutas · 30d</span>
-      <span class="cell-value is-headline cc-hero-value">{{ fmtMoneyShort(overview()?.revenue?.gross) }}</span>
+      <span class="cell-value is-headline cc-hero-value" [appCountUp]="overview()?.revenue?.gross ?? 0" countUpFormat="money-short"></span>
       <span class="cell-sub cc-hero-sub">
         <span
           *ngIf="revenueDelta() as d"
@@ -81,10 +83,15 @@
         <i class="pi pi-check-circle"></i>
       </span>
       <span class="cell-label">Pedidos entregados</span>
-      <span class="cell-value">{{ fmtNumber(overview()?.orders?.fulfilled) }}</span>
+      <span class="cell-value" [appCountUp]="overview()?.orders?.fulfilled ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">
         Ticket prom {{ fmtMoneyShort(overview()?.orders?.avg_order_value) }}
       </span>
+      <div class="cc-minibars" *ngIf="ordersBars() as b" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+        </svg>
+      </div>
     </article>
 
     <article class="cell cell-span-3">
@@ -92,10 +99,15 @@
         <i class="pi pi-sync"></i>
       </span>
       <span class="cell-label">En curso</span>
-      <span class="cell-value">{{ fmtNumber(overview()?.orders?.confirmed) }}</span>
+      <span class="cell-value" [appCountUp]="overview()?.orders?.confirmed ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">
         {{ fmtNumber(overview()?.orders?.draft) }} borradores · {{ fmtNumber(overview()?.orders?.cancelled) }} cancelados
       </span>
+      <div class="cc-stack" *ngIf="pipelineStack() as p" aria-hidden="true">
+        <span class="cc-stack-seg is-confirmed" [style.width.%]="p.confirmedPct"></span>
+        <span class="cc-stack-seg is-draft" [style.width.%]="p.draftPct"></span>
+        <span class="cc-stack-seg is-cancelled" [style.width.%]="p.cancelledPct"></span>
+      </div>
     </article>
 
     <article class="cell cell-span-6">
@@ -103,8 +115,13 @@
         <i class="pi pi-users"></i>
       </span>
       <span class="cell-label">Clientes únicos · 30d</span>
-      <span class="cell-value">{{ fmtNumber(overview()?.unique_customers) }}</span>
+      <span class="cell-value" [appCountUp]="overview()?.unique_customers ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">Compraron al menos una vez en los últimos 30 días</span>
+      <div class="cc-minibars" *ngIf="customersBars() as b" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+        </svg>
+      </div>
     </article>
   </div>
 
@@ -113,26 +130,43 @@
     <article class="cell cell-span-3">
       <span class="cell-icon" aria-hidden="true"><i class="pi pi-refresh"></i></span>
       <span class="cell-label">Reorden hoy</span>
-      <span class="cell-value">{{ fmtNumber(dueCount()) }}</span>
+      <span class="cell-value" [appCountUp]="dueCount() ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">Clientes due-for-reorder</span>
     </article>
     <article class="cell cell-span-3">
       <span class="cell-icon" aria-hidden="true"><i class="pi pi-megaphone"></i></span>
       <span class="cell-label">Ofertas · {{ conv.window_days }}d</span>
-      <span class="cell-value">{{ fmtNumber(conv.offers) }}</span>
+      <span class="cell-value" [appCountUp]="conv.offers ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">Nudges mostrados/enviados</span>
+      <div class="cc-minibars" *ngIf="offersBars() as b" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+        </svg>
+      </div>
     </article>
     <article class="cell cell-span-3">
       <span class="cell-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
       <span class="cell-label">Convertidas</span>
-      <span class="cell-value">{{ fmtNumber(conv.converted) }}</span>
+      <span class="cell-value" [appCountUp]="conv.converted ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">Con pedido dentro de 7 días</span>
+      <div class="cc-minibars" *ngIf="convertedBars() as b" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+        </svg>
+      </div>
     </article>
     <article class="cell cell-span-3">
       <span class="cell-icon" aria-hidden="true"><i class="pi pi-percentage"></i></span>
       <span class="cell-label">Conversión</span>
-      <span class="cell-value">{{ fmtNumber(conv.conversion_pct, 1) }}%</span>
+      <span class="cell-value" [appCountUp]="conv.conversion_pct ?? 0" countUpFormat="percent1"></span>
       <span class="cell-sub">Oferta → pedido</span>
+      <div class="cc-spark-mini" *ngIf="conversionSpark() as s" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
+          <path [attr.d]="s.area" fill="var(--action)" fill-opacity="0.10"/>
+          <path [attr.d]="s.line" fill="none" stroke="var(--action)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2" fill="var(--action)"/>
+        </svg>
+      </div>
     </article>
   </div>
 
@@ -184,7 +218,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let r of topCustomers(); let i = index">
+            <tr
+              *ngFor="let r of topCustomers(); let i = index"
+              class="is-clickable"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'Ver 360° de ' + r.name"
+              (click)="openCustomer(r)"
+              (keydown.enter)="openCustomer(r)"
+            >
               <td><span class="cc-rank-badge">{{ r.rank || i + 1 }}</span></td>
               <td>
                 <div class="strong">{{ r.name }}</div>
@@ -222,7 +264,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let r of topProducts(); let i = index">
+            <tr
+              *ngFor="let r of topProducts(); let i = index"
+              class="is-clickable"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'Ver stock de ' + r.product_name"
+              (click)="openProduct(r)"
+              (keydown.enter)="openProduct(r)"
+            >
               <td><span class="cc-rank-badge">{{ r.rank_by_revenue || i + 1 }}</span></td>
               <td>
                 <div class="strong">{{ r.product_name }}</div>
@@ -265,7 +315,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let i of lowStock()!.items">
+            <tr
+              *ngFor="let i of lowStock()!.items"
+              class="is-clickable"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'Ver stock de ' + i.product_name"
+              (click)="openProduct(i)"
+              (keydown.enter)="openProduct(i)"
+            >
               <td>
                 <div class="strong">{{ i.product_name }}</div>
                 <div class="muted small">{{ i.brand_name }}</div>
@@ -311,7 +369,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let c of inactiveCustomers()!.customers">
+            <tr
+              *ngFor="let c of inactiveCustomers()!.customers"
+              class="is-clickable"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'Ver 360° de ' + c.name"
+              (click)="openCustomer(c)"
+              (keydown.enter)="openCustomer(c)"
+            >
               <td>
                 <div class="strong">{{ c.name }}</div>
                 <div class="muted small">{{ c.code }}</div>
@@ -375,4 +441,86 @@
       </div>
     </article>
   </div>
+
+  <!-- Side-peek: drill-down 360° del cliente (DESIGN.md regla #8) -->
+  <app-side-peek
+    [open]="peekOpen()"
+    (openChange)="peekOpen.set($event)"
+    [title]="peekRow()?.name || 'Cliente'"
+    [subtitle]="peekRow()?.code || null"
+  >
+    <app-customer-360-panel
+      [customerId]="peekRow()?.customer_id || null"
+      [revenue30d]="peekRow()?.revenue ?? null"
+    />
+  </app-side-peek>
+
+  <!-- Side-peek: drill-down de producto (stock por almacén) -->
+  <app-side-peek
+    [open]="prodOpen()"
+    (openChange)="prodOpen.set($event)"
+    [title]="prodRow()?.product_name || 'Producto'"
+    [subtitle]="prodRow()?.brand_name || null"
+  >
+    @if (prodRow(); as p) {
+      <div class="cc-peek-grid">
+        @if (p.units_sold != null) {
+          <div class="cc-peek-metric">
+            <span class="cc-peek-label">Unidades · 30d</span>
+            <span class="cc-peek-val">{{ fmtNumber(p.units_sold) }}</span>
+          </div>
+          <div class="cc-peek-metric">
+            <span class="cc-peek-label">Ventas · 30d</span>
+            <span class="cc-peek-val">{{ fmtMoneyShort(p.revenue) }}</span>
+          </div>
+          <div class="cc-peek-metric">
+            <span class="cc-peek-label">Pedidos · 30d</span>
+            <span class="cc-peek-val">{{ fmtNumber(p.orders_count) }}</span>
+          </div>
+        }
+        <div class="cc-peek-metric">
+          <span class="cc-peek-label">Disponible (total)</span>
+          <span class="cc-peek-val">{{ fmtNumber(prodTotalAvailable()) }}</span>
+        </div>
+      </div>
+    }
+
+    <div class="cc-peek-section-label">Stock por almacén</div>
+    @if (prodLoading()) {
+      <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
+    } @else if (prodStock().length > 0) {
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Almacén</th>
+              <th class="num">Disp.</th>
+              <th class="num">Reserv.</th>
+              <th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let s of prodStock()">
+              <td>
+                <div class="strong">{{ s.warehouse_name }}</div>
+                <div class="muted small"><code class="comm-code">{{ s.warehouse_code }}</code></div>
+              </td>
+              <td class="num">
+                <span class="comm-pill no-dot" [class]="stockPillClass(s.available_quantity)">
+                  {{ fmtNumber(s.available_quantity) }}
+                </span>
+              </td>
+              <td class="num">{{ fmtNumber(s.reserved_quantity) }}</td>
+              <td class="num">{{ fmtNumber(s.quantity) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="cc-peek-empty">
+        <i class="pi pi-box" aria-hidden="true"></i>
+        <span>Sin stock registrado en almacenes.</span>
+      </div>
+    }
+  </app-side-peek>
 </div>
