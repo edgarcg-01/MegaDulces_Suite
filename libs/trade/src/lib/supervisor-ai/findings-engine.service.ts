@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import { RuleCalibrationService } from './rule-calibration.service';
 
 /**
  * Horus — Motor de findings determinista (Sprint Horus.1).
@@ -49,6 +50,7 @@ export class FindingsEngineService {
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly calibration: RuleCalibrationService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
@@ -72,9 +74,15 @@ export class FindingsEngineService {
    * Genera/actualiza los findings de motor para UN tenant desde el feature store.
    * Lo invoca el refresh tras recomputar execution_360 (y el endpoint /compute).
    */
-  async generateForTenant(tenantId: string): Promise<{ open: number; resolved: number }> {
-    if (!tenantId) return { open: 0, resolved: 0 };
+  async generateForTenant(tenantId: string): Promise<{ open: number; resolved: number; suppressed: number }> {
+    if (!tenantId) return { open: 0, resolved: 0, suppressed: 0 };
     const th = await this.getThresholds(tenantId);
+
+    // L2 (ADR-021): calibración aprendida. Las reglas que el supervisor descarta casi
+    // siempre se SUPRIMEN (no se emiten); las medio-ruidosas se CAPAN a 'warn'. Mapa
+    // por (finding_type:source); el motor escribe source='engine'.
+    const calib = await this.calibration.getCalibration(tenantId);
+    let suppressed = 0;
 
     const rows = await this.knex('commercial.execution_360')
       .where('tenant_id', tenantId)
@@ -82,11 +90,17 @@ export class FindingsEngineService {
 
     const findings: any[] = [];
     const add = (findingType: string, severity: string, r: any, score: number, evidence: any) => {
+      const c = calib.get(`${findingType}:engine`);
+      if (c?.suppressed) {
+        suppressed++;
+        return; // regla aprendida como ruidosa → no molesta al supervisor
+      }
+      const sev = c?.cap === 'warn' && severity === 'critical' ? 'warn' : severity;
       findings.push({
         tenant_id: tenantId,
         dedup_key: `${findingType}:${r.subject_type}:${r.subject_id}:${r.window_days}`,
         finding_type: findingType,
-        severity,
+        severity: sev,
         subject_type: r.subject_type,
         subject_id: r.subject_id,
         label: r.label ? String(r.label).slice(0, 160) : null,
@@ -177,7 +191,7 @@ export class FindingsEngineService {
       })
       .update({ status: 'resolved', updated_at: this.knex.fn.now() });
 
-    return { open: findings.length, resolved: Number(resolved) || 0 };
+    return { open: findings.length, resolved: Number(resolved) || 0, suppressed };
   }
 
   /** Bandeja de hallazgos (default: status=open), priorizada por severidad + score. */

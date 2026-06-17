@@ -10,6 +10,7 @@ import { PhotoAuditService } from './photo-audit.service';
 import { FraudEngineService } from './fraud-engine.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
+import { RuleCalibrationService } from './rule-calibration.service';
 
 /**
  * Horus — orquestador del refresh del feature store (Sprint Horus.0).
@@ -36,6 +37,7 @@ export class ExecutionRefreshService {
     private readonly fraud: FraudEngineService,
     private readonly scoring: ScoringEngineService,
     private readonly salesExec: SalesExecutionService,
+    private readonly ruleCalibration: RuleCalibrationService,
   ) {}
 
   // 08:30 UTC = 02:30 America/Mexico_City (después del refresh de Customer360 a las 08:00 UTC).
@@ -67,6 +69,9 @@ export class ExecutionRefreshService {
         try {
           const r = await this.exec360.computeForTenant(t.id);
           rowsUpserted += r.rows_upserted;
+          // L2 (ADR-021): recalibra la precisión de las reglas (desde el juicio humano
+          // acumulado) ANTES de emitir → el motor suprime/capa las ruidosas en esta corrida.
+          await this.ruleCalibration.computeForTenant(t.id);
           // Motor de findings sobre el feature store recién computado (Horus.1).
           const f = await this.findings.generateForTenant(t.id);
           findingsOpen += f.open;

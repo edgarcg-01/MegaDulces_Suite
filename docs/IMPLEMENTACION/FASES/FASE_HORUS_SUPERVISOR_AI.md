@@ -266,3 +266,31 @@ Workflow multi-agente (8 lentes + síntesis + crítico adversarial, 43 oportunid
 **Batch 4 — más señal + adaptativo**: #9 planogram declarado-vs-observado (la mejor de visión; share-of-shelf NO, sin ground-truth) · feedback loop H2.8 (auto-tune de umbrales) **solo después** de que el supervisor adopte el hábito de revisar (depende del Batch 2).
 
 **NO vale la pena hoy (muro de datos):** cobertura planeado-vs-hecho (sin `daily_assignments.date`), fraude por traza GPS como regla (2/5 trackean), atribución como *prueba* de eficacia (ruidosa, 5 colaboradores), cadencia predictiva por tienda (store_id 33%), WhatsApp/push (Fase F sin decidir), mapa Leaflet de jornada (cobertura GPS fina).
+
+---
+
+## Track Aprendizaje (Horus.L) — que Horus aprenda Trade (2026-06-17, ADR-021)
+
+Expande el viejo "H2.8 feedback loop" a un subsistema completo. **Principio:** el motor aprende (determinista/estadístico, auditable, overridable); el LLM sigue fuera del lazo. **Idea-espina:** la mayoría del aprendizaje está gateada por **calendario**, no por código → enviar colectores baratos ya (arrancar el reloj), prender cada learner cuando su data madura.
+
+**Las 3 señales ya se recolectan** (verificado en schema): `supervisor_findings.status` (juicio del supervisor), `coaching_notes.acknowledged_at`/`supervisor_tasks.status` (acuse del campo), `execution_360_snapshots` (histórico diario, Batch 1). Faltaba el lazo que las realimente.
+
+| Sprint | Aprende | Data / gate | Estado |
+|---|---|---|---|
+| **L0** Memoria | Substrato histórico (snapshots append-only) | — | ✅ (Batch 1; arranca al pushear a prod) |
+| **L2** Auto-calibración | Precisión de cada regla (confirmed/dismissed) → suprime/capa las ruidosas | `findings.status`; produce al revisar | ✅ **EN CÓDIGO 2026-06-17** |
+| **L1** Baselines | Lo "normal" por sujeto (z-score vs su propia historia) | snapshots ≥N (~2–4 sem) | ⬜ siguiente |
+| **L7** Panel "Lo que aprendió" | Visibilidad + override humano | — | ⬜ con L1 |
+| **L3** Efectividad | ¿la acción movió el resultado? pre/post + **diff-in-diff** | snapshots+acciones ≥3–4 sem | ⬜ gated |
+| **L4** Pesos adaptativos | Ajuste de WEIGHTS por tenant (modo sombra hasta ventas reales) | ~8–12 sem + ventas | 🔒 gated |
+| **L5/L6** Predictivo/relacional | Pronóstico + patrones entre sujetos | store_id ≫33%, route_id ≫0%, venta real | 🚫 diferido |
+
+### L2 — Auto-calibración de reglas ✅ EN CÓDIGO 2026-06-17 (el primer "aprende" real)
+- **Mig `20260617190000`** `commercial.execution_rule_stats` (1 row/(tenant,finding_type,source); precision, reviewed_total, floor_met, auto_suppressed, severity_cap, **manual_override** = pin humano, weight). Patrón Horus (idempotente, RLS forzado, FK identity.tenants, grant app_runtime).
+- **`RuleCalibrationService`**: agrega `supervisor_findings.status` → `precision = confirmed/(confirmed+dismissed)`. Con `reviewed_total ≥ 8` (floor): precision `< 0.20` → **suprime**, `0.20–0.40` → **capa severidad a warn**. Recomputa cada corrida (reversible); `manual_override` NO va en el merge (se conserva).
+- **Read-back en `FindingsEngine`**: `getCalibration()` → el `add()` salta las suprimidas y capa las medio-ruidosas. Cableado en el cron (antes de `generateForTenant`) y en `/compute`.
+- **Endpoints**: `GET /supervisor-ai/learning/rules` (scorecard, con `effective_suppressed`), `POST /supervisor-ai/learning/recompute`, `POST /supervisor-ai/learning/rules/:findingType/override` `{override: enabled|suppressed|null}` (SUPERVISOR_AI_APROBAR).
+- **Caveat auto-bloqueo**: regla suprimida deja de emitir → no genera juicios → precisión congelada; salida = override humano (`enabled`). Diseño aceptado (ADR-021).
+- Smoke **sección 20** (recompute + scorecard + dismiss→scorecard + override suprime en el motor + recompute conserva pin + cleanup). Build api verde.
+
+### Próximo: L1 (baselines) + L7 (panel), luego L3 (diff-in-diff). L4/L5/L6 gated por calendario/datos.

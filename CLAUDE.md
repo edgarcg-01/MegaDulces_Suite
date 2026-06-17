@@ -214,6 +214,7 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 - **ADR-016** ✅ 2026-06-10 — Motor de Inteligencia Comercial (respuesta a comparativa yom.ai): **el motor decide, el agente comunica, el LLM fuera del camino del dinero**. 5 capas (Customer 360 → Decisión → Agente → Canales → Feedback). Build por rebanada vertical. Plan en [`FASE_M`](docs/IMPLEMENTACION/FASES/FASE_M_MOTOR_INTELIGENCIA.md).
 - **ADR-018** ✅ 2026-06-11 — **Thot**: motor comercial multi-señal (rotación/margen/afinidad/zona/momentum/whitespace), heurístico→ML→agente, feedback loop = entrenamiento. Evoluciona ADR-016.
 - **ADR-020** ✅ 2026-06-16 — **Horus**: Supervisor AI de ejecución en Trade. Hereda ADR-016 (motor decide / agente comunica / LLM fuera de lo laboral). Nivel **co-piloto** (acción → `pending_approval`). Motor SEPARADO de Thot (`libs/trade`). 3 capacidades: parte diario, visión de fotos, fraude. Plan en [`FASE_HORUS`](docs/IMPLEMENTACION/FASES/FASE_HORUS_SUPERVISOR_AI.md).
+- **ADR-021** ✅ 2026-06-17 — **Aprendizaje de Horus** (track Horus.L): el motor aprende (determinista/auditable/overridable), el LLM sigue fuera del lazo. Taxonomía L0 memoria→L1 baselines→L2 auto-calibración→L3 efectividad (diff-in-diff)→L4 pesos adaptativos→L5/L6 diferidos. **Ship-collector-before-learner** (gate por calendario, no código). L2 ✅ en código (precisión por regla → suprime/capa ruidosas; pin humano). Plan en [`FASE_HORUS`](docs/IMPLEMENTACION/FASES/FASE_HORUS_SUPERVISOR_AI.md).
 
 ---
 

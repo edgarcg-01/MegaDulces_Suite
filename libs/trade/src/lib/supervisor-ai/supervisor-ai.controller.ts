@@ -26,6 +26,7 @@ import { PhotoAuditService } from './photo-audit.service';
 import { FraudEngineService } from './fraud-engine.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
+import { RuleCalibrationService } from './rule-calibration.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
 import { ListFindingsDto, ReviewFindingDto } from './dto/findings.dto';
 
@@ -51,6 +52,7 @@ export class SupervisorAiController {
     private readonly fraud: FraudEngineService,
     private readonly scoring: ScoringEngineService,
     private readonly salesExec: SalesExecutionService,
+    private readonly ruleCalibration: RuleCalibrationService,
   ) {}
 
   @Get('execution-360')
@@ -135,6 +137,7 @@ export class SupervisorAiController {
   async compute(@ReqUser() user: any) {
     const tenantId = user?.tenant_id;
     const featureStore = await this.exec360.computeForTenant(tenantId);
+    const calibration = await this.ruleCalibration.computeForTenant(tenantId); // L2: recalibra antes de emitir
     const findings = await this.findings.generateForTenant(tenantId);
     const fraud = await this.fraud.generateForTenant(tenantId); // determinista, sin LLM
     const actions = await this.actions.proposeForTenant(tenantId);
@@ -142,7 +145,7 @@ export class SupervisorAiController {
     const scoring = await this.scoring.scoreForTenant(tenantId); // usa findings+fraude
     const sales_execution = await this.salesExec.generateGapFindings(tenantId); // gateado por volumen de venta
     const snapshot = await this.exec360.snapshotForTenant(tenantId); // último: captura el estado final (incl. exec_score)
-    return { tenant_id: tenantId, feature_store: featureStore, findings, fraud, actions, opportunities, scoring, sales_execution, snapshot };
+    return { tenant_id: tenantId, feature_store: featureStore, calibration, findings, fraud, actions, opportunities, scoring, sales_execution, snapshot };
   }
 
   @Post('vision/scan')
@@ -190,5 +193,34 @@ export class SupervisorAiController {
   })
   salesExecution(@ReqUser() user: any) {
     return this.salesExec.getCorrelation(user);
+  }
+
+  @Get('learning/rules')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary: 'Aprendizaje L2 (ADR-021): scorecard de precisión por regla — qué hallazgos de Horus sirven',
+  })
+  learningRules(@ReqUser() user: any) {
+    return this.ruleCalibration.list(user);
+  }
+
+  @Post('learning/recompute')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({ summary: 'Aprendizaje L2: recomputa la calibración de reglas del tenant (on-demand)' })
+  learningRecompute(@ReqUser() user: any) {
+    return this.ruleCalibration.computeForTenant(user?.tenant_id);
+  }
+
+  @Post('learning/rules/:findingType/override')
+  @RequirePermissions(Permission.SUPERVISOR_AI_APROBAR)
+  @ApiOperation({
+    summary: 'Aprendizaje L2: pin humano de una regla (enabled | suppressed | null). El learner no lo pisa.',
+  })
+  learningOverride(
+    @ReqUser() user: any,
+    @Param('findingType') findingType: string,
+    @Body() body: { source?: string; override?: string | null },
+  ) {
+    return this.ruleCalibration.setOverride(findingType, body?.source || 'engine', body?.override ?? null, user);
   }
 }

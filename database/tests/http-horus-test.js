@@ -516,6 +516,89 @@ async function req(method, path, token, body) {
     console.log('  (skip propagación: sin acción de coaching pendiente — estado consumido por corridas previas)');
   }
 
+  console.log('\n── 20. Aprendizaje L2 (ADR-021): auto-calibración de reglas ──');
+  const recomp = await req('POST', '/supervisor-ai/learning/recompute', token, {});
+  check('learning/recompute 2xx', recomp.status === 200 || recomp.status === 201, recomp.status);
+  check(
+    'recompute devuelve {rules, suppressed} numéricos',
+    recomp.body && typeof recomp.body.rules === 'number' && typeof recomp.body.suppressed === 'number',
+    recomp.body,
+  );
+
+  const lr2 = await req('GET', '/supervisor-ai/learning/rules', token);
+  check('learning/rules 200', lr2.status === 200, lr2.status);
+  const ruleRows = lr2.body?.rows || [];
+  check('rules shape {rows,total}', Array.isArray(ruleRows) && typeof lr2.body?.total === 'number', lr2.body);
+  if (ruleRows.length > 0) {
+    check(
+      'cada regla trae finding_type+source+reviewed_total+effective_suppressed',
+      ruleRows.every(
+        (r) =>
+          r.finding_type &&
+          r.source &&
+          Number.isFinite(Number(r.reviewed_total)) &&
+          typeof r.effective_suppressed === 'boolean',
+      ),
+      ruleRows[0],
+    );
+    console.log(
+      `     reglas=${ruleRows.length} | ` +
+        ruleRows
+          .map((r) => `${r.finding_type}:${r.source} p=${r.precision ?? 'n/a'} jz=${r.reviewed_total}${r.effective_suppressed ? ' [supr]' : ''}`)
+          .join(' · '),
+    );
+  }
+
+  // Funcional: descartar un finding open → el scorecard lo cuenta como juzgado.
+  const openF = await req('GET', '/supervisor-ai/findings?status=open', token);
+  const victim = (openF.body?.rows || []).find((x) => x.source === 'engine');
+  if (victim) {
+    await req('POST', `/supervisor-ai/findings/${victim.id}/review`, token, { status: 'dismissed' });
+    await req('POST', '/supervisor-ai/learning/recompute', token, {});
+    const lr3 = await req('GET', '/supervisor-ai/learning/rules', token);
+    const stat = (lr3.body?.rows || []).find((r) => r.finding_type === victim.finding_type && r.source === 'engine');
+    check(
+      'el dismiss se refleja en el scorecard (reviewed_total ≥ 1, n_dismissed ≥ 1)',
+      !!stat && Number(stat.reviewed_total) >= 1 && Number(stat.n_dismissed) >= 1,
+      stat,
+    );
+  } else {
+    console.log('  (skip funcional dismiss→scorecard: sin finding engine open — estado consumido por corridas previas)');
+  }
+
+  // Override humano: pin 'suppressed' → el motor deja de emitir esa regla (y conserva el pin).
+  const engRules = ruleRows.filter((r) => r.source === 'engine');
+  const pinType = engRules[0]?.finding_type || victim?.finding_type;
+  if (pinType) {
+    const ov = await req('POST', `/supervisor-ai/learning/rules/${pinType}/override`, token, { override: 'suppressed' });
+    check('override suppressed 2xx', ov.status === 200 || ov.status === 201, ov.status);
+    const lrOv = await req('GET', '/supervisor-ai/learning/rules', token);
+    const ovStat = (lrOv.body?.rows || []).find((r) => r.finding_type === pinType && r.source === 'engine');
+    check('override → effective_suppressed=true', ovStat?.effective_suppressed === true, ovStat);
+
+    // El motor respeta la supresión: tras recomputar, 0 findings open de ese tipo.
+    await req('POST', '/supervisor-ai/compute', token, {});
+    const openAfter = await req('GET', '/supervisor-ai/findings?status=open', token);
+    check(
+      'motor respeta override: 0 findings open del tipo suprimido',
+      !(openAfter.body?.rows || []).some((x) => x.finding_type === pinType && x.source === 'engine'),
+      (openAfter.body?.rows || []).filter((x) => x.finding_type === pinType).length,
+    );
+
+    // El learner NO pisa el pin humano.
+    await req('POST', '/supervisor-ai/learning/recompute', token, {});
+    const lrKeep = await req('GET', '/supervisor-ai/learning/rules', token);
+    const keepStat = (lrKeep.body?.rows || []).find((r) => r.finding_type === pinType && r.source === 'engine');
+    check('recompute conserva el pin humano (manual_override=suppressed)', keepStat?.manual_override === 'suppressed', keepStat?.manual_override);
+
+    // Cleanup: quitar el pin para no afectar re-runs + regenerar el tipo restaurado.
+    const un = await req('POST', `/supervisor-ai/learning/rules/${pinType}/override`, token, { override: null });
+    check('quitar override (cleanup) 2xx', un.status === 200 || un.status === 201, un.status);
+    await req('POST', '/supervisor-ai/compute', token, {});
+  } else {
+    console.log('  (skip override: sin reglas engine en el scorecard todavía)');
+  }
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

@@ -602,6 +602,41 @@ Capas:
 
 ---
 
+## ADR-021 — **Aprendizaje de Horus**: motor que aprende, no LLM que decide (track Horus.L)
+
+**Estado:** ✅ Aceptado (2026-06-17)
+
+**Fecha:** 2026-06-17
+
+**Contexto:**
+- Horus (ADR-020) hoy es **100% heurístico/determinista**: pesos del score constantes a mano, reglas de findings/fraude/oportunidad fijas. El "feedback loop" existente (`reviewFinding`) solo **propaga** la decisión humana (descartar un hallazgo soft-borra su nota), **no aprende** de ella. El usuario pide que Horus "aprenda todo sobre Trade".
+- Las **3 señales** que un lazo de aprendizaje necesita **ya se recolectan**: juicio del supervisor (`supervisor_findings.status` = confirmed/dismissed), acuse del campo (`coaching_notes.acknowledged_at`, `supervisor_tasks` status), y el **substrato histórico** (`execution_360_snapshots`, append-only diario — Batch 1). El lazo está **abierto**: nada se realimenta al motor.
+- **Muro de datos (audit 2026-06-17), invariante:** `user_id`~100% (colaborador ✅), `store_id`~33% (tienda parcial), `route_id`~0% (ruta nula — no diseñar), `score_final_pct`/`hora_fin`/`nivelEjecucion` confiables, **ventas demo-only (1 vendedor/2 tiendas)**. No se diseñan reglas sobre data que no existe.
+
+**Decisión:**
+1. **El motor aprende, el LLM sigue fuera.** El aprendizaje ajusta **umbrales, supresión, pesos y prioridad** — todo numérico, auditable y **overridable por el humano**. Nunca decide sancionar/reasignar. Hereda ADR-016/ADR-020 (el motor decide, el agente comunica, el LLM fuera del camino laboral).
+2. **Taxonomía de "aprender" en orden de dependencia y factibilidad:** **L0** memoria (snapshots, ✅ hecho) → **L1** baselines por sujeto (lo "normal") → **L2** auto-calibración (precisión de las propias reglas) → **L3** efectividad/atribución (¿la acción movió el resultado?) → **L4** pesos adaptativos por tenant → **L5/L6** predictivo/relacional (diferidos por el muro de datos).
+3. **Ship the collector before the learner.** La mayoría del aprendizaje está gateada por **calendario**, no por código: L3/L4 no producen salida hasta acumular semanas de snapshots. Por eso primero se envían los colectores baratos (arrancar el reloj) y cada learner "prende" cuando su data madura. *Pushear el snapshot (Batch 1) a prod = arrancar el reloj.*
+4. **Un solo hogar por tenant para lo aprendido** (tablas `execution_*` en `commercial.*`, patrón Horus: idempotentes, RLS forzado, FK `identity.tenants`, grant `app_runtime`, acceso vía `KNEX_CONNECTION` + tenant explícito). Los motores **leen** esos params y modulan; el panel L7 los hace visibles + ofrece override.
+5. **Piso de observaciones en todo learner** (cold-start): por debajo del piso cae al default global y se etiqueta "aprendiendo". Aprender de 3 muestras es ruido.
+6. **Honestidad del objetivo:** sin ventas reales, Horus aprende a optimizar **calidad de ejecución** (su mandato), **no** "qué dispara ventas". Explícito, no oculto.
+
+**Alternativas consideradas:**
+- **LLM que aprende/decide (fine-tune, agente autónomo):** rechazado — viola ADR-016; el aprendizaje debe ser determinista/auditable, no una caja negra en el camino laboral.
+- **Saltar directo a ML (L4/L5):** rechazado — no hay volumen ni ventas; sería ajustar sobre ruido. Heurístico→estadístico→ML, gateado por data (ADR-018).
+- **Atribución pre/post ingenua (L3 sin control):** rechazado — la regresión a la media sobre-acredita (accionás sobre el peor, rebota solo). L3 obliga a **diff-in-diff** contra un control.
+
+**Consecuencias:**
+- ✅ Primer "aprende" real factible **ya** = **L2** (Horus sabe cuáles de sus hallazgos sirven y suprime los ruidosos) — ataca la credibilidad del supervisor.
+- ✅ Aditivo/reversible: cada param se recomputa; si la precisión se recupera, des-suprime; el humano siempre puede fijar (override).
+- ⚠️ **Auto-bloqueo:** una regla suprimida deja de emitir → no genera nuevos juicios → precisión congelada; la salida es el override humano (diseño aceptado: una regla descartada >80% DEBE callar).
+- ⚠️ L3/L4 **calendario-gated**: no producen valor hasta semanas/meses de snapshots; L4 pleno espera ventas reales.
+- 🚫 L5/L6 **diferidos** hasta que caiga el muro de datos (store_id ≫33%, route_id ≫0%, venta real).
+
+**Plan de implementación:** Track "Aprendizaje (Horus.L)" en [`FASES/FASE_HORUS_SUPERVISOR_AI.md`](FASES/FASE_HORUS_SUPERVISOR_AI.md). L2 = ✅ en código (2026-06-17).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.
