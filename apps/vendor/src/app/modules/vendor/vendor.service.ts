@@ -602,4 +602,44 @@ export class VendorService {
       { params: p },
     );
   }
+
+  // ── Horus: lo que el Supervisor IA dejó para ESTE colaborador (self-scoped) ──
+  private readonly supBase = environment.apiUrl + '/supervisor-ai/field';
+
+  mySupervisorTasks(): Observable<SupervisorTask[]> {
+    return this.http
+      .get<{ rows: SupervisorTask[] }>(`${this.supBase}/my-tasks`)
+      .pipe(map((r) => r.rows || []));
+  }
+  mySupervisorCoaching(): Observable<SupervisorCoaching[]> {
+    return this.http
+      .get<{ rows: SupervisorCoaching[] }>(`${this.supBase}/my-coaching`)
+      .pipe(map((r) => r.rows || []));
+  }
+  ackSupervisorTask(id: string): Observable<{ id: string; status: string }> {
+    return this.http.post<{ id: string; status: string }>(`${this.supBase}/tasks/${id}/ack`, {});
+  }
+  ackSupervisorCoaching(id: string): Observable<{ id: string; status: string }> {
+    return this.http.post<{ id: string; status: string }>(`${this.supBase}/coaching/${id}/ack`, {});
+  }
+}
+
+export interface SupervisorTask {
+  id: string;
+  task_type: 'visit' | 'recover' | 'reprioritize' | 'recapture';
+  title: string;
+  details?: Record<string, unknown>;
+  status: string;
+  due_date?: string | null;
+  store_id?: string | null;
+  route_id?: string | null;
+  created_at: string;
+}
+
+export interface SupervisorCoaching {
+  id: string;
+  category: string;
+  message: string;
+  status: string;
+  created_at: string;
 }

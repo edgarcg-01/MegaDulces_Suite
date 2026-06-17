@@ -13,7 +13,14 @@ import { CardModule } from 'primeng/card';
 import { SkeletonModule } from 'primeng/skeleton';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError } from 'rxjs';
-import { VendorService, HomeCustomer, NbaDue, VendorOrder } from '../vendor.service';
+import {
+  VendorService,
+  HomeCustomer,
+  NbaDue,
+  VendorOrder,
+  SupervisorTask,
+  SupervisorCoaching,
+} from '../vendor.service';
 import { Order } from '../../portal/portal.service';
 
 /**
@@ -60,6 +67,26 @@ import { Order } from '../../portal/portal.service';
             <span class="nd">Pidió {{ fmtMoney(p.pending_total) }} por el Portal. Revisá y aprobá.</span>
           </span>
           <i class="pi pi-chevron-right go"></i>
+        </button>
+      </ng-container>
+
+      <ng-container *ngIf="supCoaching().length > 0 || supTasks().length > 0">
+        <div class="group">De tu supervisor · IA</div>
+        <button class="nrow" *ngFor="let c of supCoaching()" (click)="ackCoaching(c)">
+          <span class="nic ai"><i class="pi pi-comment"></i></span>
+          <span class="nb">
+            <span class="nt">Coaching</span>
+            <span class="nd">{{ c.message }}</span>
+          </span>
+          <span class="ack">Visto</span>
+        </button>
+        <button class="nrow" *ngFor="let t of supTasks()" (click)="ackTask(t)">
+          <span class="nic warn"><i [class]="taskIcon(t.task_type)"></i></span>
+          <span class="nb">
+            <span class="nt">{{ t.title }}</span>
+            <span class="nd">Tarea de campo · tocá para marcar hecha</span>
+          </span>
+          <span class="ack">Hecho</span>
         </button>
       </ng-container>
 
@@ -111,6 +138,7 @@ import { Order } from '../../portal/portal.service';
       .nt { display: block; font-weight: 700; font-size: 0.875rem; color: var(--text-main); }
       .nd { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 1px; }
       .go { color: var(--text-faint); font-size: 0.85rem; flex-shrink: 0; }
+      .ack { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); flex-shrink: 0; padding: 0.2rem 0.55rem; border: 1px solid var(--border-color); border-radius: 999px; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -125,10 +153,18 @@ export class VendorNotificationsComponent implements OnInit {
   readonly due = signal<NbaDue[]>([]);
   readonly todayOrders = signal<Order[]>([]);
   readonly carga = signal<VendorOrder[]>([]);
+  readonly supCoaching = signal<SupervisorCoaching[]>([]);
+  readonly supTasks = signal<SupervisorTask[]>([]);
   readonly cargaLabel = this.nextBusinessDayLabel();
 
   readonly totalCount = computed(
-    () => this.preventa().length + this.due().length + this.todayOrders().length + (this.carga().length ? 1 : 0),
+    () =>
+      this.preventa().length +
+      this.due().length +
+      this.todayOrders().length +
+      this.supCoaching().length +
+      this.supTasks().length +
+      (this.carga().length ? 1 : 0),
   );
 
   ngOnInit(): void {
@@ -137,15 +173,19 @@ export class VendorNotificationsComponent implements OnInit {
       due: this.api.nbaDue().pipe(catchError(() => of([] as NbaDue[]))),
       today: this.api.myOrdersToday().pipe(catchError(() => of([] as Order[]))),
       carga: this.api.cargaOrders().pipe(catchError(() => of([] as VendorOrder[]))),
+      coaching: this.api.mySupervisorCoaching().pipe(catchError(() => of([] as SupervisorCoaching[]))),
+      tasks: this.api.mySupervisorTasks().pipe(catchError(() => of([] as SupervisorTask[]))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ home, due, today, carga }) => {
+        next: ({ home, due, today, carga, coaching, tasks }) => {
           this.preventa.set(home.filter((c) => c.has_preventa_pending));
           this.due.set(due);
           this.todayOrders.set(today);
           const iso = this.nextBizIso();
           this.carga.set(carga.filter((o) => !o.requested_delivery_date || o.requested_delivery_date.slice(0, 10) === iso));
+          this.supCoaching.set(coaching);
+          this.supTasks.set(tasks);
           this.loading.set(false);
         },
         error: () => this.loading.set(false),
@@ -160,6 +200,31 @@ export class VendorNotificationsComponent implements OnInit {
   }
   goCarga(): void {
     this.router.navigate(['/vendor/carga']);
+  }
+
+  /** Acuse optimista: lo saco del inbox y persisto en background (self-scoped en el backend). */
+  ackCoaching(c: SupervisorCoaching): void {
+    this.supCoaching.update((l) => l.filter((x) => x.id !== c.id));
+    this.api
+      .ackSupervisorCoaching(c.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ error: () => undefined });
+  }
+  ackTask(t: SupervisorTask): void {
+    this.supTasks.update((l) => l.filter((x) => x.id !== t.id));
+    this.api
+      .ackSupervisorTask(t.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ error: () => undefined });
+  }
+  taskIcon(t: string): string {
+    return t === 'visit'
+      ? 'pi pi-map-marker'
+      : t === 'recover'
+        ? 'pi pi-shopping-cart'
+        : t === 'reprioritize'
+          ? 'pi pi-sort-alt-slash'
+          : 'pi pi-camera';
   }
 
   /** ISO del próximo día hábil (domingo no hay reparto → sáb pasa a lun). */

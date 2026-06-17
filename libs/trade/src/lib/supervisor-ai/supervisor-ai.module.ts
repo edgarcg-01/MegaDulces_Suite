@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SupervisorAiController } from './supervisor-ai.controller';
+import { SupervisorFieldController } from './supervisor-field.controller';
 import { Execution360Service } from './execution-360.service';
 import { ExecutionRefreshService } from './execution-refresh.service';
 import { FindingsEngineService } from './findings-engine.service';
@@ -20,7 +21,7 @@ import { SalesExecutionService } from './sales-execution.service';
  * módulos globales.
  */
 @Module({
-  controllers: [SupervisorAiController],
+  controllers: [SupervisorAiController, SupervisorFieldController],
   providers: [
     Execution360Service,
     ExecutionRefreshService,

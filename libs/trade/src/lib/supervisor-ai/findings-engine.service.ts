@@ -217,6 +217,33 @@ export class FindingsEngineService {
       })
       .returning('*');
     if (!updated.length) throw new NotFoundException('Finding no encontrado');
+
+    // Crítico: al DESCARTAR un finding ya accionado, sus artefactos (nota de coaching /
+    // tarea) quedarían vivos en la app del colaborador. Soft-borrarlos propaga la decisión
+    // humana al campo. coaching_notes enlaza por finding_id; supervisor_tasks por action_id.
+    if (status === 'dismissed') {
+      const scope = (qb: any) => {
+        if (tenantId) qb.where('tenant_id', tenantId);
+      };
+      await this.knex('commercial.coaching_notes')
+        .where('finding_id', id)
+        .whereNull('deleted_at')
+        .modify(scope)
+        .update({ deleted_at: this.knex.fn.now(), updated_at: this.knex.fn.now() });
+      const acts = await this.knex('commercial.supervisor_actions')
+        .where('finding_id', id)
+        .modify(scope)
+        .select('id');
+      const actionIds = acts.map((a: any) => a.id);
+      if (actionIds.length) {
+        await this.knex('commercial.supervisor_tasks')
+          .whereIn('action_id', actionIds)
+          .whereNull('deleted_at')
+          .modify(scope)
+          .update({ status: 'cancelled', deleted_at: this.knex.fn.now(), updated_at: this.knex.fn.now() });
+      }
+    }
+
     return updated[0];
   }
 }

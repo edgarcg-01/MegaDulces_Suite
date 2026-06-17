@@ -449,4 +449,74 @@ export class SupervisorActionsService {
     const rows = await q;
     return { rows, total: rows.length };
   }
+
+  // ── Field-facing (Batch 2 / #1): el colaborador VE y ACUSA lo suyo ──
+  // Estrictamente self-scoped por JWT.sub + tenant → no requiere permiso de dominio.
+
+  private userId(user: any): string | null {
+    const id = user?.sub || user?.id || user?.userId || null;
+    return id && UUID_RE.test(String(id)) ? String(id) : null;
+  }
+
+  /** Tareas de campo asignadas AL usuario autenticado (pendientes). */
+  async myTasks(user: any) {
+    const tenantId = this.tenantId(user);
+    const uid = this.userId(user);
+    if (!uid) return { rows: [], total: 0 };
+    let q = this.knex('commercial.supervisor_tasks')
+      .select('id', 'task_type', 'title', 'details', 'status', 'due_date', 'store_id', 'route_id', 'created_at')
+      .whereNull('deleted_at')
+      .where('assigned_to_user', uid)
+      .where('status', 'pending');
+    if (tenantId) q = q.where('tenant_id', tenantId);
+    q = q.orderBy('created_at', 'desc').limit(50);
+    const rows = await q;
+    return { rows, total: rows.length };
+  }
+
+  /** Notas de coaching dirigidas al usuario autenticado (abiertas / vistas). */
+  async myCoaching(user: any) {
+    const tenantId = this.tenantId(user);
+    const uid = this.userId(user);
+    if (!uid) return { rows: [], total: 0 };
+    let q = this.knex('commercial.coaching_notes')
+      .select('id', 'category', 'message', 'status', 'created_at')
+      .whereNull('deleted_at')
+      .where('collaborator_id', uid)
+      .whereIn('status', ['open', 'acknowledged']);
+    if (tenantId) q = q.where('tenant_id', tenantId);
+    q = q.orderBy('created_at', 'desc').limit(50);
+    const rows = await q;
+    return { rows, total: rows.length };
+  }
+
+  /** Acuse de tarea: el colaborador la marca hecha (solo la SUYA). */
+  async ackTask(id: string, user: any) {
+    if (!UUID_RE.test(id || '')) throw new BadRequestException('id inválido');
+    const tenantId = this.tenantId(user);
+    const uid = this.userId(user);
+    if (!uid) throw new BadRequestException('usuario inválido');
+    let q = this.knex('commercial.supervisor_tasks').where({ id, assigned_to_user: uid }).whereNull('deleted_at');
+    if (tenantId) q = q.where('tenant_id', tenantId);
+    const updated = await q
+      .update({ status: 'done', done_at: this.knex.fn.now(), updated_at: this.knex.fn.now() })
+      .returning(['id', 'status']);
+    if (!updated.length) throw new NotFoundException('Tarea no encontrada');
+    return updated[0];
+  }
+
+  /** Acuse de coaching: el colaborador lo marca visto (solo el SUYO). */
+  async ackCoaching(id: string, user: any) {
+    if (!UUID_RE.test(id || '')) throw new BadRequestException('id inválido');
+    const tenantId = this.tenantId(user);
+    const uid = this.userId(user);
+    if (!uid) throw new BadRequestException('usuario inválido');
+    let q = this.knex('commercial.coaching_notes').where({ id, collaborator_id: uid }).whereNull('deleted_at');
+    if (tenantId) q = q.where('tenant_id', tenantId);
+    const updated = await q
+      .update({ status: 'acknowledged', acknowledged_at: this.knex.fn.now(), updated_at: this.knex.fn.now() })
+      .returning(['id', 'status']);
+    if (!updated.length) throw new NotFoundException('Nota no encontrada');
+    return updated[0];
+  }
 }

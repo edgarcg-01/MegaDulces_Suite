@@ -484,6 +484,38 @@ async function req(method, path, token, body) {
   check('snapshot idempotente por día (re-compute NO duplica)', Number(dbSnap2.n) === Number(dbSnap.n), { first: Number(dbSnap.n), second: Number(dbSnap2.n) });
   console.log(`     snapshots hoy=${dbSnap.n} (estable tras re-compute=${dbSnap2.n})`);
 
+  console.log('\n── 19. Loop al campo (Batch 2 / #1): endpoints field + dismiss propaga ──');
+  const myTasks = await req('GET', '/supervisor-ai/field/my-tasks', token);
+  check('field/my-tasks 200 (self-scoped)', myTasks.status === 200, myTasks.status);
+  check('my-tasks shape {rows,total}', Array.isArray(myTasks.body?.rows) && typeof myTasks.body?.total === 'number', myTasks.body);
+  const myCoach = await req('GET', '/supervisor-ai/field/my-coaching', token);
+  check('field/my-coaching 200 (self-scoped)', myCoach.status === 200, myCoach.status);
+  check('my-coaching shape {rows,total}', Array.isArray(myCoach.body?.rows), myCoach.body);
+
+  // Propagación del dismiss: aprobar coaching → nota; descartar su finding → nota soft-borrada.
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const actsAll = await req('GET', '/supervisor-ai/actions?status=pending_approval', token);
+  const coachAct = (actsAll.body?.rows || []).find(
+    (a) => ['coaching', 'coaching_focus', 'replicate_best'].includes(a.action_type) && a.finding_id,
+  );
+  if (coachAct) {
+    const ap = await req('POST', `/supervisor-ai/actions/${coachAct.id}/approve`, token, {});
+    const result = typeof ap.body?.result === 'string' ? JSON.parse(ap.body.result) : ap.body?.result;
+    const noteId = result?.coaching_note_id;
+    if (noteId) {
+      const before = await knex('commercial.coaching_notes').where('id', noteId).first();
+      check('nota de coaching creada y viva', !!before && before.deleted_at == null, before?.deleted_at);
+      const rv = await req('POST', `/supervisor-ai/findings/${coachAct.finding_id}/review`, token, { status: 'dismissed' });
+      check('dismiss del finding 2xx', rv.status === 200 || rv.status === 201, rv.status);
+      const after = await knex('commercial.coaching_notes').where('id', noteId).first();
+      check('dismiss PROPAGÓ: la nota quedó soft-borrada (no huérfana en el campo)', !!after && after.deleted_at != null, after?.deleted_at);
+    } else {
+      console.log('  (skip propagación: approve no devolvió coaching_note_id)');
+    }
+  } else {
+    console.log('  (skip propagación: sin acción de coaching pendiente — estado consumido por corridas previas)');
+  }
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();
