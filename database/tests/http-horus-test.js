@@ -473,6 +473,17 @@ async function req(method, path, token, body) {
     check('el score de salud (H2.3) ahora incorpora la señal exec_level', withExecSignal.length > 0, withExecSignal.length);
   }
 
+  console.log('\n── 18. Snapshot t0 (histórico append-only) ──');
+  const cmp3 = await req('POST', '/supervisor-ai/compute', token, {});
+  check('compute devuelve snapshot {snapshotted}', cmp3.body?.snapshot && typeof cmp3.body.snapshot.snapshotted === 'number', cmp3.body?.snapshot);
+  const todaySql = "snapshot_date = (now() AT TIME ZONE 'America/Mexico_City')::date";
+  const dbSnap = await knex('commercial.execution_360_snapshots').where('tenant_id', T).whereRaw(todaySql).count('* as n').first();
+  check('snapshots de HOY persistidos', Number(dbSnap.n) > 0, Number(dbSnap.n));
+  await req('POST', '/supervisor-ai/compute', token, {}); // re-compute mismo día
+  const dbSnap2 = await knex('commercial.execution_360_snapshots').where('tenant_id', T).whereRaw(todaySql).count('* as n').first();
+  check('snapshot idempotente por día (re-compute NO duplica)', Number(dbSnap2.n) === Number(dbSnap.n), { first: Number(dbSnap.n), second: Number(dbSnap2.n) });
+  console.log(`     snapshots hoy=${dbSnap.n} (estable tras re-compute=${dbSnap2.n})`);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

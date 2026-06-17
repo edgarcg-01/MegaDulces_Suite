@@ -247,3 +247,22 @@ Diferido honesto: ML real (5 colaboradores = poco volumen, Thot tampoco lo hizo 
 - **`ScoringEngineService`** incorpora `exec_level` al score de salud (rebalance — colaborador: quality .32 / exec_level .18 / trend .13 / photo .12 / own .12 / integrity .13; tienda: own .38 / quality .25 / exec_level .17 / freshness .20). Como renormaliza sobre señales presentes, la salud se vuelve más fina sin reescribir el motor.
 - Frontend: columnas **Nivel** + **Min/vis** en la tabla de colaboradores. Smoke sección 17. Pendiente: `migrate:new` (`20260617170000`) + restart → smoke.
 - **Diferido H2.1b**: roll-ups por zona (`users.zona_id` 93%) / supervisor (74%) — viables, no prioritarios; position-quality y coverage esperan que `scoring_pesos` / `daily_assignments` sean accesibles.
+
+---
+
+## Backlog priorizado — auditoría de oportunidades (2026-06-17)
+
+Workflow multi-agente (8 lentes + síntesis + crítico adversarial, 43 oportunidades crudas). Orden de ejecución acordado:
+
+**Batch 1 — correctitud + no-perder-historia + seguridad de deploy** 🔨 EN CÓDIGO 2026-06-17:
+- **#2 Blindar `approveAction`**: helper `safeQuery` (SAVEPOINT) en los reads best-effort (último-captor + set_target SELECT/UPDATE) → no envenenan la trx del request (clase 25P02). La atomicidad de las 3 escrituras ya la da el rollback del interceptor. *Crítico: el 25P02 solo afecta requests (botones), NO el cron (pooled).*
+- **Snapshot t0** (urgente): mig `20260617180000` `commercial.execution_360_snapshots` (append-only, 1 row/sujeto/ventana/día, idempotente) + `Execution360Service.snapshotForTenant` corriendo último en /compute + cron. `execution_360` es UPSERT in-place → sin snapshot, cada día de histórico se pierde irrecuperable.
+- **#8 Migración-en-boot**: auditadas las 12 migraciones Horus = idempotentes (hasTable/hasColumn/IF EXISTS) + transaccionales (rollback atómico). Gate post-deploy: `horus-prod-verify.js`.
+
+**Batch 2 — #1 cerrar el loop al campo** (el desbloqueo estructural): `GET /my-tasks` + `/my-coaching` scoped por JWT + consumo en el inbox del vendedor + acuse (status→read/done). Sin esto todo el motor muere en la bandeja del supervisor. *Crítico: el inbox vive en apps/vendor; captores no-vendedores quedan fuera; `reviewFinding` dismiss debe propagar a la nota/tarea ya emitida.*
+
+**Batch 3 — palanca de datos + red de costo**: #4 finding `capture_quality` (store_id por colaborador, Horus mejora su insumo) · #5 backfill store_id por GPS (⚠️ hereda riesgo incidente RVDAM01: match en mercados densos) · #6 telemetría de tokens/costo + `@Throttle` en /vision/scan + tope diario.
+
+**Batch 4 — más señal + adaptativo**: #9 planogram declarado-vs-observado (la mejor de visión; share-of-shelf NO, sin ground-truth) · feedback loop H2.8 (auto-tune de umbrales) **solo después** de que el supervisor adopte el hábito de revisar (depende del Batch 2).
+
+**NO vale la pena hoy (muro de datos):** cobertura planeado-vs-hecho (sin `daily_assignments.date`), fraude por traza GPS como regla (2/5 trackean), atribución como *prueba* de eficacia (ruidosa, 5 colaboradores), cadencia predictiva por tienda (store_id 33%), WhatsApp/push (Fase F sin decidir), mapa Leaflet de jornada (cobertura GPS fina).

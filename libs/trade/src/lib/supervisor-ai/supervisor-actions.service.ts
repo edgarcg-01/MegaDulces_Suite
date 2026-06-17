@@ -247,6 +247,38 @@ export class SupervisorActionsService {
   }
 
   /**
+   * Ejecuta un query OPCIONAL sin envenenar la trx del request (25P02): el
+   * TenantContextInterceptor envuelve cada request en UNA trx; un query que falla
+   * —aunque se atrape— la aborta y todo lo siguiente tira "current transaction is
+   * aborted". Un SAVEPOINT aísla el fallo (ROLLBACK al savepoint, no a toda la trx);
+   * si no hay trx (cron pooled) cae a query plano. Ver feedback_global_request_tx_25p02.
+   */
+  private async safeQuery<T>(fn: () => Promise<T>): Promise<T | null> {
+    let sp = false;
+    try {
+      await this.knex.raw('SAVEPOINT horus_act');
+      sp = true;
+    } catch {
+      /* fuera de una transacción */
+    }
+    try {
+      const r = await fn();
+      if (sp) await this.knex.raw('RELEASE SAVEPOINT horus_act');
+      return r;
+    } catch (e: any) {
+      if (sp) {
+        try {
+          await this.knex.raw('ROLLBACK TO SAVEPOINT horus_act');
+        } catch {
+          /* noop */
+        }
+      }
+      this.logger.debug(`safeQuery opcional falló: ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Ejecutor real del co-piloto: traduce la acción APROBADA en un artefacto in-app
    * concreto y reversible. Familia coaching → commercial.coaching_notes (visible al
    * colaborador). Familia campo → commercial.supervisor_tasks (tarea para mañana,
@@ -320,22 +352,18 @@ export class SupervisorActionsService {
             : null;
       let assignedTo: string | null =
         subjectType === 'collaborator' && UUID_RE.test(subjectId) ? subjectId : null;
-      try {
-        if (!assignedTo && storeId) {
-          const last = await this.knex('daily_captures')
-            .where({ tenant_id: tenantId, store_id: storeId })
+      // Auto-asignación best-effort al último captor — vía SAVEPOINT para no
+      // envenenar la trx del request si la query falla (25P02).
+      if (!assignedTo && (storeId || routeId)) {
+        const col = storeId ? 'store_id' : 'route_id';
+        const val = storeId || routeId;
+        const last = await this.safeQuery(() =>
+          this.knex('daily_captures')
+            .where({ tenant_id: tenantId, [col]: val })
             .orderBy('hora_inicio', 'desc')
-            .first('user_id');
-          assignedTo = last?.user_id || null;
-        } else if (!assignedTo && routeId) {
-          const last = await this.knex('daily_captures')
-            .where({ tenant_id: tenantId, route_id: routeId })
-            .orderBy('hora_inicio', 'desc')
-            .first('user_id');
-          assignedTo = last?.user_id || null;
-        }
-      } catch {
-        /* asignación best-effort */
+            .first('user_id'),
+        );
+        assignedTo = (last as any)?.user_id || null;
       }
       const inserted = await this.knex('commercial.supervisor_tasks')
         .insert({
@@ -372,19 +400,23 @@ export class SupervisorActionsService {
       if (!userId || !(target > 0)) {
         return { effect: 'noop', reversible: false, note: 'set_target sin objetivo/colaborador válido.' };
       }
-      try {
+      // SELECT+UPDATE dentro de un SAVEPOINT: si users es vista no-actualizable o el
+      // SELECT falla, el rollback al savepoint deja la trx del request sana (no 25P02).
+      const res = await this.safeQuery(async () => {
         const u = await this.knex('users').where({ tenant_id: tenantId, id: userId }).first('meta_puntos');
         await this.knex('users').where({ tenant_id: tenantId, id: userId }).update({ meta_puntos: target });
-        return {
-          effect: 'set_target',
-          previous_target: u?.meta_puntos ?? null,
-          new_target: target,
-          reversible: true,
-          note: 'Objetivo de puntos actualizado.',
-        };
-      } catch (e: any) {
-        return { effect: 'noop', reversible: false, note: `No se pudo fijar el objetivo (${e.message}).` };
+        return { prev: (u as any)?.meta_puntos ?? null };
+      });
+      if (!res) {
+        return { effect: 'noop', reversible: false, note: 'No se pudo fijar el objetivo.' };
       }
+      return {
+        effect: 'set_target',
+        previous_target: res.prev,
+        new_target: target,
+        reversible: true,
+        note: 'Objetivo de puntos actualizado.',
+      };
     }
 
     // Tipo desconocido → registro interno (compat hacia atrás).

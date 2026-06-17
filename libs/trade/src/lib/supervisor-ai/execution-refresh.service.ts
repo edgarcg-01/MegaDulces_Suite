@@ -79,6 +79,7 @@ export class ExecutionRefreshService {
           await this.opportunities.generateForTenant(t.id);
           await this.scoring.scoreForTenant(t.id); // motor multi-señal (usa findings+fraude)
           await this.salesExec.generateGapFindings(t.id); // venta↔ejecución (gateado por volumen)
+          await this.exec360.snapshotForTenant(t.id); // último: snapshot diario append-only (histórico)
           tenantsProcessed++;
         } catch (e: any) {
           errors++;

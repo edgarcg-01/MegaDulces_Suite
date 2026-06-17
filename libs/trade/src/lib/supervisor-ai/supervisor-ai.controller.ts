@@ -141,7 +141,8 @@ export class SupervisorAiController {
     const opportunities = await this.opportunities.generateForTenant(tenantId);
     const scoring = await this.scoring.scoreForTenant(tenantId); // usa findings+fraude
     const sales_execution = await this.salesExec.generateGapFindings(tenantId); // gateado por volumen de venta
-    return { tenant_id: tenantId, feature_store: featureStore, findings, fraud, actions, opportunities, scoring, sales_execution };
+    const snapshot = await this.exec360.snapshotForTenant(tenantId); // último: captura el estado final (incl. exec_score)
+    return { tenant_id: tenantId, feature_store: featureStore, findings, fraud, actions, opportunities, scoring, sales_execution, snapshot };
   }
 
   @Post('vision/scan')

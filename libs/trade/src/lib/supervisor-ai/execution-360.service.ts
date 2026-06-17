@@ -251,6 +251,51 @@ export class Execution360Service {
     return { rows_upserted: rows.length };
   }
 
+  /**
+   * Snapshot append-only del feature store (1 row/sujeto/ventana/día). Se llama AL
+   * FINAL del pipeline (post-scoring) para capturar también exec_score. El feature
+   * store es UPSERT in-place y pisa el histórico; sin esto no hay base para tendencia
+   * ni atribución hallazgo→resultado. Idempotente por día (UPSERT por fecha).
+   */
+  async snapshotForTenant(tenantId: string): Promise<{ snapshotted: number }> {
+    if (!tenantId) return { snapshotted: 0 };
+    const rows = await this.knex('commercial.execution_360')
+      .where('tenant_id', tenantId)
+      .select(
+        'subject_type',
+        'subject_id',
+        'window_days',
+        'label',
+        'visits_done',
+        'avg_score',
+        'exec_score',
+        'exec_level_score',
+        'own_share_pct',
+        'competitor_share_pct',
+        'photo_coverage_pct',
+        'days_since_last_visit',
+      );
+    if (rows.length === 0) return { snapshotted: 0 };
+
+    const today = this.knex.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date`);
+    const snap = rows.map((r: any) => ({ ...r, tenant_id: tenantId, snapshot_date: today }));
+    await this.knex('commercial.execution_360_snapshots')
+      .insert(snap)
+      .onConflict(['tenant_id', 'snapshot_date', 'subject_type', 'subject_id', 'window_days'])
+      .merge([
+        'label',
+        'visits_done',
+        'avg_score',
+        'exec_score',
+        'exec_level_score',
+        'own_share_pct',
+        'competitor_share_pct',
+        'photo_coverage_pct',
+        'days_since_last_visit',
+      ]);
+    return { snapshotted: snap.length };
+  }
+
   private buildRow(
     tenantId: string,
     subjectType: 'collaborator' | 'store',
