@@ -278,10 +278,10 @@ Expande el viejo "H2.8 feedback loop" a un subsistema completo. **Principio:** e
 | Sprint | Aprende | Data / gate | Estado |
 |---|---|---|---|
 | **L0** Memoria | Substrato histórico (snapshots append-only) | — | ✅ (Batch 1; arranca al pushear a prod) |
-| **L2** Auto-calibración | Precisión de cada regla (confirmed/dismissed) → suprime/capa las ruidosas | `findings.status`; produce al revisar | ✅ **EN CÓDIGO 2026-06-17** |
-| **L1** Baselines | Lo "normal" por sujeto (z-score vs su propia historia) | snapshots ≥N (~2–4 sem) | ⬜ siguiente |
-| **L7** Panel "Lo que aprendió" | Visibilidad + override humano | — | ⬜ con L1 |
-| **L3** Efectividad | ¿la acción movió el resultado? pre/post + **diff-in-diff** | snapshots+acciones ≥3–4 sem | ⬜ gated |
+| **L2** Auto-calibración | Precisión de cada regla (confirmed/dismissed) → suprime/capa las ruidosas | `findings.status`; produce al revisar | ✅ **EN CÓDIGO 2026-06-17 — smoke §20 verde (84 OK)** |
+| **L1** Baselines | Lo "normal" por sujeto (z-score vs su propia historia) | snapshots ≥7 días | ✅ **EN CÓDIGO 2026-06-17 — smoke §21 verde (91 OK)** |
+| **L7** Panel "Lo que aprendió" | Visibilidad + override humano | — | ✅ **EN CÓDIGO 2026-06-17 — build view verde** |
+| **L3** Efectividad | ¿la acción movió el resultado? pre/post + **diff-in-diff** | snapshots+acciones ≥3–4 sem | ⬜ gated (siguiente) |
 | **L4** Pesos adaptativos | Ajuste de WEIGHTS por tenant (modo sombra hasta ventas reales) | ~8–12 sem + ventas | 🔒 gated |
 | **L5/L6** Predictivo/relacional | Pronóstico + patrones entre sujetos | store_id ≫33%, route_id ≫0%, venta real | 🚫 diferido |
 
@@ -291,6 +291,16 @@ Expande el viejo "H2.8 feedback loop" a un subsistema completo. **Principio:** e
 - **Read-back en `FindingsEngine`**: `getCalibration()` → el `add()` salta las suprimidas y capa las medio-ruidosas. Cableado en el cron (antes de `generateForTenant`) y en `/compute`.
 - **Endpoints**: `GET /supervisor-ai/learning/rules` (scorecard, con `effective_suppressed`), `POST /supervisor-ai/learning/recompute`, `POST /supervisor-ai/learning/rules/:findingType/override` `{override: enabled|suppressed|null}` (SUPERVISOR_AI_APROBAR).
 - **Caveat auto-bloqueo**: regla suprimida deja de emitir → no genera juicios → precisión congelada; salida = override humano (`enabled`). Diseño aceptado (ADR-021).
-- Smoke **sección 20** (recompute + scorecard + dismiss→scorecard + override suprime en el motor + recompute conserva pin + cleanup). Build api verde.
+- Smoke **sección 20** (recompute + scorecard + dismiss→scorecard + override suprime en el motor + recompute conserva pin + cleanup). Build api verde. **Verificado: smoke 84 OK / 0 FAIL.**
 
-### Próximo: L1 (baselines) + L7 (panel), luego L3 (diff-in-diff). L4/L5/L6 gated por calendario/datos.
+### L1 — Baselines por sujeto ✅ EN CÓDIGO 2026-06-17 (smoke §21 verde, 91 OK)
+- **Mig `20260617200000`** `commercial.execution_baselines` (long por métrica: avg_score/exec_score/exec_level_score/own_share/photo_coverage; mean/stddev/n_obs/min/max/floor_met; patrón Horus).
+- **`BaselineLearnerService`**: 1 agregación SQL (count/avg/stddev_samp/min/max por métrica, ventana 60d) → unpivot a long. `floor_met = n_obs ≥ 7` snapshots. Recomputa cada corrida.
+- **Read-back `self_anomaly` en `FindingsEngine`**: z-score sobre avg_score 30d contra la PROPIA historia; emite si `caída ≥ max(2·stddev, 8)` pts (sev por z/magnitud). Capta el 90→75 (invisible al umbral global) e ignora al "siempre bajo". **Pasa por la calibración L2** (las dos capas componen).
+- Cableado en cron y `/compute` (antes de findings) + `GET /supervisor-ai/learning/baselines`.
+- Smoke **sección 21** verifica el aprendizaje REAL: inyecta histórico sintético (8 días ~85) + estado actual 30 → el z-score dispara `self_anomaly` con evidencia explicable → **cleanup completo**. Gate honesto: en data real activa por sujeto al cruzar 7 snapshots.
+
+### L7 — Panel "Lo que Horus aprendió" ✅ EN CÓDIGO 2026-06-17 (build view verde)
+- Sección en `/dashboard/supervisor-ai`: **scorecard de reglas** (precisión, juicios, estado activa/aprendiendo/auto-suprimida/capada/manual) con botón **Silenciar/Reactivar** (override humano, `SUPERVISOR_AI_APROBAR`) + **"lo normal" por colaborador** (score normal ≈ mean ± stddev, solo floor_met; "aprendiendo" si falta historia). Hace visible y auditable el aprendizaje (invariante co-piloto). Sin migración (consume `/learning/rules` + `/learning/baselines`).
+
+### Próximo: L3 (efectividad, diff-in-diff) cuando acumulen ~3–4 sem de snapshots. L4/L5/L6 gated por calendario/datos.

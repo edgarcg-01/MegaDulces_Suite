@@ -144,7 +144,39 @@ export interface SalesExecResponse {
   coverage: SalesExecCoverage | null;
 }
 
+export interface RuleStatRow {
+  finding_type: string;
+  source: string;
+  n_total: number;
+  n_open: number;
+  n_confirmed: number;
+  n_dismissed: number;
+  n_reviewed: number;
+  reviewed_total: number;
+  precision: number | null;
+  floor_met: boolean;
+  auto_suppressed: boolean;
+  severity_cap: string | null;
+  manual_override: string | null;
+  weight: number;
+  effective_suppressed: boolean;
+}
+
+export interface BaselineRow {
+  subject_type: string;
+  subject_id: string;
+  window_days: number;
+  metric: string;
+  mean: number | null;
+  stddev: number | null;
+  n_obs: number;
+  min_val: number | null;
+  max_val: number | null;
+  floor_met: boolean;
+}
+
 export type ReviewStatus = 'dismissed' | 'confirmed' | 'reviewed';
+export type RuleOverride = 'enabled' | 'suppressed' | null;
 
 @Injectable({ providedIn: 'root' })
 export class SupervisorAiService {
@@ -237,5 +269,32 @@ export class SupervisorAiService {
 
   salesExecution(): Observable<SalesExecResponse> {
     return this.http.get<SalesExecResponse>(`${this.base}/sales-execution`);
+  }
+
+  // Aprendizaje (Horus.L / ADR-021): lo que Horus aprendió sobre sí mismo + lo "normal".
+  learningRules(): Observable<{ rows: RuleStatRow[]; total: number; computed_at: string | null }> {
+    return this.http.get<{ rows: RuleStatRow[]; total: number; computed_at: string | null }>(
+      `${this.base}/learning/rules`,
+    );
+  }
+
+  learningBaselines(
+    filters: { subject_type?: string; metric?: string } = {},
+  ): Observable<{ rows: BaselineRow[]; total: number; computed_at: string | null }> {
+    let params = new HttpParams();
+    if (filters.subject_type) params = params.set('subject_type', filters.subject_type);
+    if (filters.metric) params = params.set('metric', filters.metric);
+    return this.http.get<{ rows: BaselineRow[]; total: number; computed_at: string | null }>(
+      `${this.base}/learning/baselines`,
+      { params },
+    );
+  }
+
+  learningRecompute(): Observable<{ rules: number; suppressed: number }> {
+    return this.http.post<{ rules: number; suppressed: number }>(`${this.base}/learning/recompute`, {});
+  }
+
+  learningOverride(findingType: string, override: RuleOverride, source = 'engine'): Observable<RuleStatRow> {
+    return this.http.post<RuleStatRow>(`${this.base}/learning/rules/${findingType}/override`, { override, source });
   }
 }

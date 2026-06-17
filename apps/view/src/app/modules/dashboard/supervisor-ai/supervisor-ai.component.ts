@@ -29,6 +29,9 @@ import {
   SalesExecRow,
   SalesExecResponse,
   ReviewStatus,
+  RuleStatRow,
+  BaselineRow,
+  RuleOverride,
 } from './supervisor-ai.service';
 
 const FINDING_LABELS: Record<string, string> = {
@@ -406,6 +409,73 @@ const QUADRANT_LABELS: Record<string, string> = {
             }
           </section>
         }
+
+        <!-- Lo que Horus aprendió (Aprendizaje L1 + L2, ADR-021) -->
+        <section class="card">
+          <div class="vision__head">
+            <h2 class="card__title">Lo que Horus aprendió</h2>
+            <span class="src" pTooltip="El motor aprende de tu feedback; el LLM queda fuera del lazo (ADR-021)">aprendizaje</span>
+          </div>
+
+          <h3 class="sub">Precisión de las reglas (aprende de tus confirmaciones y descartes)</h3>
+          @if (ruleStats().length === 0) {
+            <p class="empty">Sin estadística de reglas todavía. Confirmá o descartá hallazgos y Horus aprenderá cuáles sirven.</p>
+          } @else {
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Regla</th>
+                  <th class="num">Juicios</th>
+                  <th class="num">Precisión</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (r of ruleStats(); track r.finding_type + r.source) {
+                  <tr>
+                    <td>
+                      {{ findingLabel(r.finding_type) }}
+                      @if (r.source !== 'engine') {
+                        <span class="srctag" [class.srctag--fraud]="r.source === 'fraud'">{{ r.source }}</span>
+                      }
+                    </td>
+                    <td class="num">{{ r.reviewed_total }}</td>
+                    <td class="num">{{ r.precision != null ? (r.precision * 100 | number: '1.0-0') + '%' : '—' }}</td>
+                    <td><span class="rstate" [ngClass]="ruleStateClass(r)">{{ ruleStateLabel(r) }}</span></td>
+                    <td class="num">
+                      @if (r.effective_suppressed) {
+                        <button type="button" class="rbtn" (click)="setRuleOverride(r, 'enabled')" pTooltip="Reactivar esta regla">Reactivar</button>
+                      } @else {
+                        <button type="button" class="rbtn rbtn--mute" (click)="setRuleOverride(r, 'suppressed')" pTooltip="Silenciar esta regla">Silenciar</button>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+
+          <h3 class="sub">Lo "normal" por colaborador (línea base aprendida)</h3>
+          @if (baselineFloorMet().length === 0) {
+            <p class="empty">
+              Aprendiendo la normalidad… se necesitan ≥7 días de histórico por colaborador.
+              {{ baselines().length }} en formación.
+            </p>
+          } @else {
+            <ul class="findings">
+              @for (b of baselineFloorMet(); track b.subject_id) {
+                <li class="finding">
+                  <span class="sev act-ic"><i class="pi pi-chart-line"></i></span>
+                  <div class="finding__body">
+                    <span class="finding__label">{{ baselineLabel(b) }}</span>
+                    <span class="finding__type">score normal ≈ {{ b.mean }} ± {{ b.stddev }} ({{ b.n_obs }} días)</span>
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+        </section>
       }
 
       <p-toast />
@@ -486,6 +556,14 @@ const QUADRANT_LABELS: Record<string, string> = {
       .qtag { font-size: .68rem; font-weight: 600; padding: .12rem .45rem; border-radius: 6px; background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #78716c); }
       .qtag--gap { background: color-mix(in srgb, var(--warn, #d97706) 16%, transparent); color: var(--warn, #b45309); }
       .qtag--ok { background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent); color: var(--ok, #15803d); }
+      .rstate { font-size: .68rem; font-weight: 600; padding: .12rem .45rem; border-radius: 6px; background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #78716c); }
+      .rstate--ok { background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent); color: var(--ok, #15803d); }
+      .rstate--warn { background: color-mix(in srgb, var(--warn, #d97706) 16%, transparent); color: var(--warn, #b45309); }
+      .rstate--off { background: color-mix(in srgb, var(--bad, #dc2626) 12%, transparent); color: var(--bad, #dc2626); }
+      .rstate--learn { background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #a8a29e); }
+      .rbtn { font-size: .72rem; font-weight: 600; padding: .2rem .5rem; border-radius: 6px; border: 1px solid var(--border, #e7e5e4); background: var(--card-bg, #fff); color: var(--text-soft, #57534e); cursor: pointer; }
+      .rbtn:hover { border-color: var(--action, #ea580c); color: var(--action, #ea580c); }
+      .rbtn--mute:hover { border-color: var(--bad, #dc2626); color: var(--bad, #dc2626); }
     `,
   ],
 })
@@ -507,6 +585,8 @@ export class SupervisorAiComponent implements OnInit {
   readonly visionFlagged = signal<VisionRow[]>([]);
   readonly scanning = signal(false);
   readonly salesExec = signal<SalesExecResponse | null>(null);
+  readonly ruleStats = signal<RuleStatRow[]>([]);
+  readonly baselines = signal<BaselineRow[]>([]);
 
   ngOnInit(): void {
     this.load();
@@ -527,9 +607,13 @@ export class SupervisorAiComponent implements OnInit {
       exec: this.api
         .execution360({ subject_type: 'collaborator', window_days: 30 })
         .pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
+      rules: this.api.learningRules().pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
+      bases: this.api
+        .learningBaselines({ subject_type: 'collaborator', metric: 'avg_score' })
+        .pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ brief, finds, acts, opps, tasks, notes, cov, vis, salesEx, exec }) => {
+      .subscribe(({ brief, finds, acts, opps, tasks, notes, cov, vis, salesEx, exec, rules, bases }) => {
         this.briefing.set(brief);
         this.findings.set(finds.rows ?? []);
         this.actions.set(acts.rows ?? []);
@@ -539,6 +623,8 @@ export class SupervisorAiComponent implements OnInit {
         this.visionCoverage.set(cov);
         this.visionFlagged.set(vis.rows ?? []);
         this.salesExec.set(salesEx);
+        this.ruleStats.set(rules.rows ?? []);
+        this.baselines.set(bases.rows ?? []);
         // Peor salud primero: el supervisor ve arriba a quién atender.
         this.collaborators.set(
           (exec.rows ?? []).slice().sort((a, b) => {
@@ -758,5 +844,54 @@ export class SupervisorAiComponent implements OnInit {
         : t === 'reprioritize'
           ? 'pi pi-sort-alt-slash'
           : 'pi pi-camera';
+  }
+
+  // ── Aprendizaje (L1 + L2) ──
+  ruleStateLabel(r: RuleStatRow): string {
+    if (r.manual_override === 'suppressed') return 'silenciada (manual)';
+    if (r.manual_override === 'enabled') return 'forzada activa';
+    if (!r.floor_met) return 'aprendiendo';
+    if (r.auto_suppressed) return 'auto-suprimida';
+    if (r.severity_cap) return 'severidad capada';
+    return 'activa';
+  }
+  ruleStateClass(r: RuleStatRow): string {
+    if (r.effective_suppressed) return 'rstate--off';
+    if (!r.floor_met) return 'rstate--learn';
+    if (r.severity_cap) return 'rstate--warn';
+    return 'rstate--ok';
+  }
+  setRuleOverride(r: RuleStatRow, override: RuleOverride): void {
+    this.api
+      .learningOverride(r.finding_type, override, r.source)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.ruleStats.update((list) =>
+            list.map((x) =>
+              x.finding_type === r.finding_type && x.source === r.source
+                ? {
+                    ...x,
+                    manual_override: override,
+                    effective_suppressed:
+                      override === 'suppressed' ? true : override === 'enabled' ? false : x.auto_suppressed,
+                  }
+                : x,
+            ),
+          );
+          this.toast.add({
+            severity: 'success',
+            summary: override === 'suppressed' ? 'Regla silenciada' : 'Regla reactivada',
+            detail: this.findingLabel(r.finding_type),
+          });
+        },
+        error: () => this.toast.add({ severity: 'error', summary: 'No se pudo cambiar la regla' }),
+      });
+  }
+  baselineFloorMet(): BaselineRow[] {
+    return this.baselines().filter((b) => b.floor_met && b.metric === 'avg_score');
+  }
+  baselineLabel(b: BaselineRow): string {
+    return this.collaborators().find((c) => c.subject_id === b.subject_id)?.label || 'Colaborador';
   }
 }
