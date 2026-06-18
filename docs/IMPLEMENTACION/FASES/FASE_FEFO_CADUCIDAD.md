@@ -1,6 +1,6 @@
 # Fase P2 — Caducidad / lote / FEFO
 
-> **Estado: 🔨 P2.0 EN CÓDIGO — 2026-06-18.** Tabla `commercial.stock_lots` + backfill creados y **verificados local** (32835 lotes `NA`, invariante suma-lotes=stock OK, RLS forzado, mig `20260618200000`). Decisión en [ADR-022](../02_DECISIONES_ARQUITECTURA.md). Gate del ERP resuelto (ver abajo): la data sincronizada NO trae caducidad → P2.1 = **captura en recepción**.
+> **Estado: 🔨 P2.0 + P2.1a EN CÓDIGO — 2026-06-18.** `commercial.stock_lots` (mig `20260618200000`) + **trigger del invariante** (mig `20260618210000`) que mantiene `SUM(lotes.quantity)=stock.quantity` para todos los writers, con decremento FEFO — verificado contra el order flow (J.6.1 19/0). Decisión en [ADR-022](../02_DECISIONES_ARQUITECTURA.md). Gate ERP resuelto: la data sincronizada NO trae caducidad → **P2.1b = captura en recepción** (siguiente, desbloquea P2.2/P2.3).
 
 Digitaliza el control de **caducidad** para Mega Dulces (distribuidora de dulces): no vender producto vencido, rotar por **FEFO** (First Expired First Out) y medir/alertar la merma por vencimiento. Reduce merma 30–50% (benchmark industria).
 
@@ -45,13 +45,14 @@ INDEX (tenant_id, warehouse_id, product_id, expiry_date)  -- FEFO: ORDER BY expi
 | Fase | Tema | Entrega |
 |---|---|---|
 | **P2.0** ✅ | Schema `stock_lots` + backfill | ✅ 2026-06-18 (mig `20260618200000`): tabla aditiva (RLS forzado, FKs compuestas a tablas reales, unique `NULLS NOT DISTINCT`, índice FEFO), backfill de 1 lote `NA` por fila de `stock` (32835), invariante verificado local (0 desbalances). Falta el helper que mantenga el invariante en escrituras → P2.1. |
-| **P2.1** | Captura del lote en recepción / sync ERP | `recordMovement('in')` acepta `lot_code`+`expiry_date`; mantiene `stock`↔`stock_lots` en la misma trx. Importer ERP si aplica (gate). |
+| **P2.1a** ✅ | Trigger del invariante stock↔stock_lots | ✅ 2026-06-18 (mig `20260618210000`): trigger `AFTER UPDATE OF quantity ON commercial.stock` mantiene `SUM(lotes.quantity)=stock.quantity` para **todos** los writers (cero cambios al order flow). NA balancea; baja que excede el buffer NA → decremento **FEFO** de lotes reales (caducidad ASC) — esto **ya cubre el grueso de P2.3**. Verificado: lógica (rollback) + **J.6.1 order flow 19/0** + inventario 22/0. Reserved por lote diferido (P2.3). |
+| **P2.1b** ⬜ | Captura lote/caducidad en recepción | `recordMovement('in')` acepta `lot_code`+`expiry_date` → upsert del lote real **antes** del update de stock (el trigger mantiene NA balanceado). Código de API (requiere reinicio para probar). **Prerequisito de P2.2/P2.3**: sin captura, todos los lotes son `NA` (sin caducidad). |
 | **P2.2** | **Alertas + gate de caducidad** (valor inmediato) | Cron de próximos-a-vencer + dashboard "Por vencer"; gate opcional para bloquear consumo/venta de lotes vencidos (configurable por tenant). |
 | **P2.3** | **FEFO en el consumo** | `OrderStockService.consume` decrementa lotes por `expiry_date` ASC (vence primero). Registra qué lote(s) consumió. |
 | **P2.4** | Conteo físico por lote | Extender Fase I: snapshot/conteo por lote; regla de reconciliación del invariante. |
 | **P2.5** | FEFO en vendedor/portal | Mostrar caducidad / próximos a vencer al armar pedido; opcional impedir vender casi-vencido. |
 
-**Orden de valor:** P2.0 → P2.2 (alertas, el "no vender vencido" rápido) → P2.3 (FEFO real) → P2.1 completo (sync ERP) → P2.4/P2.5.
+**Orden de valor real:** P2.0 ✅ → P2.1a ✅ (trigger; ya da el FEFO-decrement) → **P2.1b captura** ← siguiente, desbloquea todo (sin lotes reales con fecha no hay nada que alertar/rotar) → P2.2 alertas "por vencer" → P2.3 (registrar el lote consumido en el ledger; el decremento FEFO ya lo hace el trigger) → P2.4 conteo por lote → P2.5 vendedor/portal.
 
 ## Riesgos / decisiones abiertas
 

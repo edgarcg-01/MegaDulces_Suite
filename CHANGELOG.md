@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Added — P2.1a FEFO: trigger del invariante stock↔stock_lots (+ FEFO-decrement)
+- **Trigger `trg_rebalance_stock_lots`** (mig `20260618210000`) `AFTER INSERT OR UPDATE OF quantity ON
+  commercial.stock`: mantiene `SUM(stock_lots.quantity) = stock.quantity` para **todos** los writers
+  (order flow, ajustes, reconcile, route) **sin tocar código de servicio**. El lote `NA` balancea; una
+  baja que excede el buffer NA **decrementa lotes reales FEFO** (caducidad ASC) → ya cubre el grueso
+  del consumo FEFO (P2.3).
+- Reserved a nivel de lote **diferido** (P2.3): se ponen en 0 los `reserved_quantity` de lotes; el
+  reserved sigue intacto en `commercial.stock`. La fase 1 mantiene el invariante de **quantity**.
+- **Verificado**: lógica del trigger (aumento / recepción de lote real / baja con decremento FEFO, en
+  trx con rollback) + **order flow real** (`http-shipment-hook-fulfill-test` 19/0, el consume escribe
+  stock y dispara el trigger) + inventario 22/0. Cambio DB-only (no requiere reinicio de API).
+- Siguiente **P2.1b**: captura `lot_code`+`expiry_date` en recepción (`recordMovement('in')`) — sin
+  ella todos los lotes son `NA`. Ver `FASES/FASE_FEFO_CADUCIDAD.md`.
+
 ### Added — P2.0 Caducidad/FEFO: sub-ledger de lotes `commercial.stock_lots` (ADR-022)
 - **Nueva tabla `commercial.stock_lots`** (mig `20260618200000`): descompone `commercial.stock` por
   `(lote, fecha_caducidad)`. `commercial.stock` sigue siendo el **total autoritativo**; invariante
