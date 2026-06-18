@@ -204,10 +204,11 @@ interface DiagProbe {
         border-top: 1px solid var(--border-color);
         display: flex;
         justify-content: space-around;
-        /* Sin padding-bottom acá: la safe-area la absorbe el área táctil de cada
-           botón (abajo), así tocar la franja del home indicator activa el menú
-           en vez de quedar como espacio muerto. */
-        padding: 0;
+        /* Patrón canónico iOS: la BARRA reserva la safe-area con su propio
+           padding-bottom: env(safe-area-inset-bottom) (sin cap) → su background
+           (--layout-bg) llena la zona del home indicator hasta el borde físico,
+           fundido con la página. Requiere viewport-fit=cover (está en index.html). */
+        padding: 0 0 env(safe-area-inset-bottom);
         z-index: 10;
         box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
       }
@@ -221,15 +222,13 @@ interface DiagProbe {
         justify-content: center;
         text-decoration: none;
         color: var(--text-muted);
-        /* Íconos/label más grandes para OCUPAR la banda (no dejarla vacía) + área
-           táctil hasta el borde. El clearance del home indicator va CAPEADO a
-           1.5rem con min(): si iOS reporta el inset inflado (tamaño toolbar de
-           Safari), NO reserva de más — solo lo justo para no pisar la barrita. */
-        padding: 0.7rem 0.25rem calc(0.5rem + min(env(safe-area-inset-bottom, 0px), 1.5rem));
+        /* La safe-area la reserva la barra (padding-bottom: env) → acá padding
+           normal. El ícono/label queda arriba de la zona del home indicator. */
+        padding: 0.6rem 0.25rem;
         font-size: 0.72rem;
         white-space: nowrap;
       }
-      .vendor-bottom-nav a i { font-size: 1.45rem; }
+      .vendor-bottom-nav a i { font-size: 1.4rem; }
       .vendor-bottom-nav a.active {
         color: var(--brand-700);
         font-weight: 600;
