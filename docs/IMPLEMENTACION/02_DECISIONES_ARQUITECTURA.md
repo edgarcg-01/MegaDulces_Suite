@@ -637,6 +637,44 @@ Capas:
 
 ---
 
+## ADR-022 — Caducidad / lote / FEFO: sub-ledger de lotes **aditivo**, FEFO en el consumo, rollout por fases
+
+**Estado:** 🔵 Propuesto (2026-06-18) — diseño para aprobar antes de codear P2.0.
+
+**Fecha:** 2026-06-18
+
+**Contexto:**
+- Mega Dulces es **distribuidora de dulces**: el producto **caduca**. Vender vencido = merma + riesgo regulatorio (alimentos MX). **FEFO** (First Expired First Out) es la práctica estándar y reduce merma **30–50%** (benchmark industria, gap-analysis Fase I.5).
+- Modelo actual: `commercial.stock` por `(tenant, warehouse, product)` = **una cantidad por SKU/almacén, SIN lote ni caducidad**. Los pedidos reservan/consumen contra ese total (sin conciencia de lote). El conteo físico (Fase I) es por `(warehouse, product)`.
+- **Dos mundos de stock** (ver análisis Fase I): `commercial.stock` (operacional, UUID — lo usan pedidos/portal/vendedor/analytics) + `inventory.warehouse_stock` (mundo Kepler por SKU, fuente del snapshot de conteo físico).
+- **Incógnita bloqueante:** ¿el ERP Kepler / `productos_activos` provee **lote + fecha de caducidad**? Define si los lotes se **sincronizan** del ERP o se **capturan** en recepción. Pendiente inspeccionar el esquema (ver [[reference_erp_kepler_schema]] / productos_activos).
+- Single dev; `commercial.stock` es **heavily-used** (order flow confirmado/verificado). Un big-bang rewrite es alto riesgo.
+
+**Decisión (a validar):**
+1. **Sub-ledger de lotes ADITIVO, no rewrite.** Nueva tabla `commercial.stock_lots`: `(tenant, warehouse, product, lot_code, expiry_date) → quantity, reserved_quantity`. `commercial.stock` **sigue siendo el total autoritativo**, con invariante `SUM(stock_lots.quantity) por (wh,product) = stock.quantity`. El order flow / conteo / portal existentes **no se reescriben**; FEFO se capa encima.
+2. **FEFO en el CONSUMO (fase 1), no en la reserva.** Al `consume` (fulfill) se decrementan lotes por **caducidad ascendente** (el que vence primero, sale primero). La reserva sigue contra el total; la asignación de lote se resuelve al consumir. (Reserva-por-lote = fase posterior.)
+3. **Caducidad como gate + alerta.** (a) Alertas de **próximos a vencer** (cron estilo low-stock) + dashboard; (b) gate opcional **bloquear venta/consumo de lotes vencidos** (configurable por tenant).
+4. **Captura del lote dual-source:** si el ERP trae lote+caducidad → **sync** (importer); si no → **capturar** en `recordMovement('in')` (recepción) con `lot_code`+`expiry_date`. Diseñar para ambos; arrancar con captura + sync cuando se confirme el ERP.
+5. **Mundo `inventory` (Kepler SKU) fuera de fase 1.** FEFO aplica a `commercial.stock` (lo operacional). Conteo físico por lote = fase posterior.
+6. **Patrón del proyecto:** `stock_lots` con `tenant_id`, RLS forzado, FK compuesta, grant `app_runtime`, idempotente. Helper único que mantenga `stock` ↔ `stock_lots` en la misma trx.
+
+**Alternativas consideradas:**
+- **Caducidad ligera (solo fecha en `stock` + alertas, sin cantidad por lote):** rechazada como destino — no permite FEFO real (no sabés qué unidades son de qué lote) ni trazabilidad por lote (regulatorio). Sirve solo como stopgap; el sub-ledger la subsume.
+- **Rewrite de `commercial.stock` a PK `(wh, product, lot)`:** rechazada — big-bang sobre el order flow heavily-used; rompe conteo/portal de golpe; alto riesgo para single-dev. El sub-ledger aditivo logra lo mismo incrementalmente.
+- **Lote sin caducidad (solo trazabilidad):** insuficiente — el driver es la caducidad (FEFO), no solo el rastreo.
+
+**Consecuencias:**
+- ✅ Aditivo/reversible: order flow y Fase I siguen igual mientras se construyen los lotes; el invariante suma-lotes=total mantiene consistencia.
+- ✅ Valor incremental: las **alertas de vencimiento** (P2.2) entregan el "no vender vencido" **antes** que el FEFO completo.
+- ⚠️ **Doble escritura:** cada movimiento ahora mantiene `stock` Y `stock_lots` consistentes en la misma trx (mismo patrón que hoy `stock`↔ledger; mitigar con helper único, no escribir uno sin el otro).
+- ⚠️ **Productos sin lote/caducidad** (no perecederos o sin dato): necesitan un lote `default/NA` para sostener el invariante. Diseñar el caso explícitamente.
+- ⚠️ **Conteo físico vs lotes:** hasta el conteo-por-lote, reconciliar el total puede desbalancear lotes → regla de reconciliación (ajustar el lote que vence primero, o exigir desglose).
+- 🚫 Diferidos: reserva-por-lote, conteo-por-lote, FEFO en el picking del vendedor/portal.
+
+**Plan de implementación:** Fases P2.0–P2.5 en [`FASES/FASE_FEFO_CADUCIDAD.md`](FASES/FASE_FEFO_CADUCIDAD.md). **Gate de P2.0:** confirmar si el ERP provee lote+caducidad (define sync vs captura).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.
