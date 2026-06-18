@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — Inventario físico: ledger auditable + costo en modo `inventory` (P1/A3)
+- **Nueva tabla `inventory.warehouse_stock_movements`** (mig `20260618170000`): bitácora append-only
+  por SKU, espejo de `commercial.stock_movements` para el mundo `inventory.*` (RLS forzado, grant
+  `app_runtime`). La reconciliación de folios en **modo inventory** ya **deja rastro** (`adjust` con
+  before/after, `reference_type=inventory_count`) — antes ajustaba `inventory.warehouse_stock` sin
+  auditoría.
+- **`getProgress.value_at_variance` deja de salir $0 en modo inventory**: costo proxy derivado de
+  `inventory.products` (`venta_valor_costo_anual / venta_unidad_anual`), con fallback a
+  `catalog.products.cost_base`. El supervisor ya ve el $ en riesgo en folios inventory-source.
+- Pendiente: test E2E del modo inventory (el smoke I.5 cubre modo commercial). Ver `FASE_I_INVENTARIO.md` §I.5.
+
 ### Fixed — Inventario físico (conteo): endurecimiento de correctness (P0)
 - **Freeze integrity guard en `reconcile`**: si el almacén no quedó congelado y hubo movimientos
   de stock desde que se abrió el folio, la reconciliación (set absoluto al físico) **borraba esas

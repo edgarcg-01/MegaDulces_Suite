@@ -103,7 +103,7 @@ Build `api` verde. **Sin cobertura de smoke a nivel servicio** (el smoke I.1 es 
 Del gap-analysis vs industria. **Lo que falta** para pasar de "conteo digital" a "control de inventario continuo":
 
 **P1 — quick wins de valor:**
-- Ledger + costo en **modo `inventory`** (hoy reconcile inventory no deja `stock_movements` y `value_at_variance`=0 → ajuste no auditable, supervisor no ve $ en riesgo).
+- **A3 — Ledger + costo en modo `inventory` ✅ 2026-06-18.** Nueva tabla `inventory.warehouse_stock_movements` (espejo por-SKU de `commercial.stock_movements`, RLS forzado, mig `20260618170000`); la reconciliación en modo inventory ahora deja bitácora `adjust` (before/after, `reference_type=inventory_count`). `getProgress.value_at_variance` ya no sale 0: costo proxy = `venta_valor_costo_anual / venta_unidad_anual` de `inventory.products` (fallback a `catalog.cost_base`). **Pendiente:** test E2E del modo inventory (requiere sembrar `inventory.warehouse_stock`; el smoke I.5 cubre modo commercial).
 - **Reason-codes estructurados** (merma/dañado/robo/error de captura) en vez de `notes` libre + **KPI de IRA** (Inventory Record Accuracy) por almacén/contador/tiempo.
 - **Tolerancia de varianza** configurable (±%/±$/clase ABC) → count-back obligatorio solo de lo que excede.
 

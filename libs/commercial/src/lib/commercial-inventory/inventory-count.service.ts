@@ -468,6 +468,10 @@ export class InventoryCountService {
 
       const [agg] = await trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
+        // Costo en modo inventory (item por sku, sin product_id): proxy = costo
+        // anual / unidades anuales del catálogo ERP. Así value_at_variance deja
+        // de salir 0 en folios inventory-source.
+        .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
         .where('i.count_id', countId)
         .select(
           trx.raw('COUNT(*)::int AS total'),
@@ -477,7 +481,7 @@ export class InventoryCountService {
           trx.raw(`COUNT(*) FILTER (WHERE i.status = 'discrepancy')::int AS discrepancies`),
           trx.raw(`COUNT(*) FILTER (WHERE i.status = 'resolved')::int AS resolved`),
           trx.raw(
-            `COALESCE(SUM(ABS(COALESCE(i.variance,0)) * COALESCE(p.cost_base,0)) FILTER (WHERE i.status='resolved'), 0)::numeric AS value_at_variance`,
+            `COALESCE(SUM(ABS(COALESCE(i.variance,0)) * COALESCE(p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)) FILTER (WHERE i.status='resolved'), 0)::numeric AS value_at_variance`,
           ),
         );
 
@@ -770,6 +774,26 @@ export class InventoryCountService {
           `No se puede reconciliar: ${unresolved.length} item(s) sin valor final. Corré "calcular discrepancias" o resolvelos.`,
         );
 
+      // ── FREEZE INTEGRITY GUARD ── (validez del conteo; va con los demás guards
+      // de validez, ANTES del de autoridad). El ajuste fija el saldo de forma
+      // ABSOLUTA al físico contado contra un teórico (expected_qty) fotografiado
+      // al abrir. Si el almacén NO quedó congelado y hubo movimientos desde
+      // entonces (ventas, ajustes, carga de ruta), ese set absoluto BORRARÍA esos
+      // movimientos y la varianza estaría mal atribuida → bloquear, no corromper.
+      // (Solo modo commercial: inventory.warehouse_stock no lo mueven los pedidos.)
+      if (count.stock_source !== 'inventory') {
+        const since = count.started_at || count.created_at;
+        const moved = await trx('commercial.stock_movements')
+          .where({ warehouse_id: count.warehouse_id })
+          .whereRaw(`reference_type IS DISTINCT FROM 'inventory_count'`) // null-safe: cuenta también movimientos sin ref
+          .where('created_at', '>=', since)
+          .count<{ n: string }[]>('* as n');
+        if (Number(moved[0]?.n || 0) > 0)
+          throw new ConflictException(
+            `No se puede reconciliar: hubo ${moved[0].n} movimiento(s) de stock en el almacén desde que se abrió el folio ${count.folio}. El conteo no es confiable porque el almacén no quedó congelado. Cancela el folio y vuelve a contarlo con "Congelar movimientos" activo.`,
+          );
+      }
+
       // ── SEGREGACIÓN DE FUNCIONES: el reconciliador no puede ser quien contó ──
       const counters = new Set<string>();
       items.forEach((it) => {
@@ -782,29 +806,8 @@ export class InventoryCountService {
           'Segregación de funciones: quien participó en el conteo no puede autorizar la reconciliación.',
         );
 
-      const isInv = count.stock_source === 'inventory';
-
-      // ── FREEZE INTEGRITY GUARD ──
-      // El ajuste fija el saldo de forma ABSOLUTA al físico contado contra un
-      // teórico (expected_qty) fotografiado al abrir. Si el almacén NO quedó
-      // congelado y hubo movimientos desde entonces (ventas, ajustes, carga de
-      // ruta), ese set absoluto BORRARÍA esos movimientos y la varianza estaría
-      // mal atribuida. Mejor bloquear que corromper el saldo. (Solo aplica al
-      // modo commercial: inventory.warehouse_stock no lo mueven los pedidos.)
-      if (!isInv) {
-        const since = count.started_at || count.created_at;
-        const moved = await trx('commercial.stock_movements')
-          .where({ warehouse_id: count.warehouse_id })
-          .whereNot('reference_type', 'inventory_count')
-          .where('created_at', '>=', since)
-          .count<{ n: string }[]>('* as n');
-        if (Number(moved[0]?.n || 0) > 0)
-          throw new ConflictException(
-            `No se puede reconciliar: hubo ${moved[0].n} movimiento(s) de stock en el almacén desde que se abrió el folio ${count.folio}. El conteo no es confiable porque el almacén no quedó congelado. Cancela el folio y vuelve a contarlo con "Congelar movimientos" activo.`,
-          );
-      }
-
       // ── Aplicar ajustes en la MISMA transacción ──
+      const isInv = count.stock_source === 'inventory';
       let adjusted = 0;
       let totalDelta = 0;
       const skippedReserved: string[] = [];
@@ -815,8 +818,14 @@ export class InventoryCountService {
         const delta = +(finalQty - expected).toFixed(3);
         if (delta === 0) continue;
 
-        // Modo inventory: ajusta inventory.warehouse_stock por sku (upsert).
+        // Modo inventory: ajusta inventory.warehouse_stock por sku (upsert) +
+        // bitácora en inventory.warehouse_stock_movements (ajuste auditable).
         if (isInv) {
+          const wsRow = await trx('inventory.warehouse_stock')
+            .where({ warehouse_id: count.warehouse_id, sku: it.product_sku })
+            .forUpdate()
+            .first();
+          const wsBefore = wsRow ? Number(wsRow.quantity) : 0;
           await trx('inventory.warehouse_stock')
             .insert({
               tenant_id: trx.raw('public.current_tenant_id()'),
@@ -827,6 +836,19 @@ export class InventoryCountService {
             })
             .onConflict(['tenant_id', 'warehouse_id', 'sku'])
             .merge({ quantity: finalQty, updated_at: trx.fn.now(), updated_by: uid });
+          await trx('inventory.warehouse_stock_movements').insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            warehouse_id: count.warehouse_id,
+            sku: it.product_sku,
+            movement_type: 'adjust',
+            quantity: Math.abs(+(finalQty - wsBefore).toFixed(3)),
+            quantity_before: wsBefore,
+            quantity_after: finalQty,
+            reference_type: 'inventory_count',
+            reference_id: countId,
+            notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
+            created_by: uid,
+          });
           adjusted++;
           totalDelta = +(totalDelta + delta).toFixed(3);
           continue;
