@@ -485,6 +485,95 @@ export class InventoryCountService {
     return VARIANCE_REASONS;
   }
 
+  /**
+   * KPI de exactitud de inventario (IRA) sobre folios RECONCILIADOS.
+   *   - ira_pct: exactitud por piezas (items dentro de tolerancia / total).
+   *   - value_accuracy_pct: 1 − (Σ|varianza|·costo / Σ teórico·costo).
+   *   - net_variance_value: merma (−) o sobrante (+) neto en $.
+   *   - by_reason: desglose del shrinkage por causa (habilitado por reason_code).
+   *   - recent_folios: IRA + merma neta por folio.
+   * Tolerancia (default 0 = exacto): item exacto si |varianza| ≤ teórico·tol%/100.
+   * Costo: catalog.cost_base, fallback proxy inventory.products. (SUPERVISAR)
+   */
+  async iraMetrics(q: { warehouse_id?: string; from?: string; to?: string; tolerance_pct?: number }) {
+    if (q.warehouse_id && !UUID.test(q.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    const tolPct = Number.isFinite(Number(q.tolerance_pct)) ? Math.max(0, Number(q.tolerance_pct)) : 0;
+
+    return this.tk.run(async (trx) => {
+      const filters = [`c.status = 'reconciled'`];
+      const binds: any[] = [];
+      if (q.warehouse_id) { filters.push(`c.warehouse_id = ?`); binds.push(q.warehouse_id); }
+      if (q.from) { filters.push(`c.reconciled_at >= ?`); binds.push(q.from); }
+      if (q.to) { filters.push(`c.reconciled_at < ?`); binds.push(q.to); }
+      const cost = `COALESCE(p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)`;
+      const accurate = `ABS(COALESCE(i.variance, 0)) <= (i.expected_qty * ${tolPct} / 100.0)`;
+      const baseFrom = `
+        FROM commercial.inventory_counts c
+        JOIN commercial.inventory_count_items i ON i.tenant_id = c.tenant_id AND i.count_id = c.id
+        LEFT JOIN public.products p ON p.id = i.product_id
+        LEFT JOIN inventory.products ip ON ip.sku = i.product_sku
+        LEFT JOIN commercial.warehouses w ON w.tenant_id = c.tenant_id AND w.id = c.warehouse_id
+        WHERE ${filters.join(' AND ')}`;
+
+      const ov = (await trx.raw(
+        `SELECT COUNT(*)::int AS total_items,
+                COUNT(*) FILTER (WHERE ${accurate})::int AS accurate_items,
+                COUNT(DISTINCT c.id)::int AS folios,
+                COALESCE(SUM(i.expected_qty * ${cost}), 0)::numeric AS expected_value,
+                COALESCE(SUM(ABS(COALESCE(i.variance,0)) * ${cost}), 0)::numeric AS abs_variance_value,
+                COALESCE(SUM(COALESCE(i.variance,0) * ${cost}), 0)::numeric AS net_variance_value
+         ${baseFrom}`, binds)).rows[0];
+
+      const byReason = (await trx.raw(
+        `SELECT COALESCE(i.reason_code, 'sin_clasificar') AS reason_code,
+                COUNT(*)::int AS items,
+                COALESCE(SUM(ABS(COALESCE(i.variance,0))), 0)::numeric AS units,
+                COALESCE(SUM(ABS(COALESCE(i.variance,0)) * ${cost}), 0)::numeric AS value
+         ${baseFrom} AND COALESCE(i.variance,0) <> 0
+         GROUP BY 1 ORDER BY value DESC`, binds)).rows;
+
+      const recent = (await trx.raw(
+        `SELECT c.id AS count_id, c.folio, c.warehouse_id, w.code AS warehouse_code, c.reconciled_at,
+                COUNT(*)::int AS items,
+                COUNT(*) FILTER (WHERE ${accurate})::int AS accurate,
+                COALESCE(SUM(COALESCE(i.variance,0) * ${cost}), 0)::numeric AS net_variance_value
+         ${baseFrom}
+         GROUP BY c.id, c.folio, c.warehouse_id, w.code, c.reconciled_at
+         ORDER BY c.reconciled_at DESC LIMIT 50`, binds)).rows;
+
+      const total = Number(ov.total_items) || 0;
+      const accurateN = Number(ov.accurate_items) || 0;
+      const expVal = Number(ov.expected_value) || 0;
+      const absVar = Number(ov.abs_variance_value) || 0;
+      return {
+        tolerance_pct: tolPct,
+        folios: Number(ov.folios) || 0,
+        total_items: total,
+        accurate_items: accurateN,
+        ira_pct: total ? +((accurateN / total) * 100).toFixed(2) : null,
+        value_accuracy_pct: expVal ? +((1 - absVar / expVal) * 100).toFixed(2) : null,
+        net_variance_value: +Number(ov.net_variance_value).toFixed(2),
+        abs_variance_value: +absVar.toFixed(2),
+        expected_value: +expVal.toFixed(2),
+        by_reason: byReason.map((r: any) => ({
+          reason_code: r.reason_code,
+          items: Number(r.items),
+          units: +Number(r.units).toFixed(3),
+          value: +Number(r.value).toFixed(2),
+        })),
+        recent_folios: recent.map((r: any) => ({
+          count_id: r.count_id, folio: r.folio,
+          warehouse_id: r.warehouse_id, warehouse_code: r.warehouse_code,
+          reconciled_at: r.reconciled_at,
+          items: Number(r.items), accurate: Number(r.accurate),
+          ira_pct: Number(r.items) ? +((Number(r.accurate) / Number(r.items)) * 100).toFixed(2) : null,
+          net_variance_value: +Number(r.net_variance_value).toFixed(2),
+        })),
+      };
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Tablero del supervisor: avance, discrepancias, valor en riesgo. (SUPERVISAR)
   // ─────────────────────────────────────────────────────────────────────────

@@ -145,7 +145,10 @@ import { RoutePingService } from '../../core/services/route-ping.service';
         bottom: 0;
         left: 0;
         right: 0;
-        background: var(--card-bg);
+        /* Fondo = el de la PÁGINA (no --card-bg): así la nav + la franja del
+           home indicator se funden con el contenido y no se ve un bloque de
+           otro tono ("borde") abajo. La separación la da solo el border-top. */
+        background: var(--layout-bg);
         border-top: 1px solid var(--border-color);
         display: flex;
         justify-content: space-around;

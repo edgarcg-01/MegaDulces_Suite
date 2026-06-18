@@ -64,6 +64,23 @@ export class InventoryCountController {
     return this.service.varianceReasons();
   }
 
+  @Get('ira')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'KPI de exactitud de inventario (IRA) + shrinkage por causa (folios reconciliados)' })
+  ira(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('tolerance_pct') tolerancePct?: string,
+  ) {
+    return this.service.iraMetrics({
+      warehouse_id: warehouseId,
+      from,
+      to,
+      tolerance_pct: tolerancePct != null ? Number(tolerancePct) : undefined,
+    });
+  }
+
   @Post('open')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Abrir folio + snapshot del teórico (por almacén)' })

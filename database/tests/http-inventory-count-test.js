@@ -78,6 +78,11 @@ function check(name, cond, detail) {
     vr.status === 200 && Array.isArray(vr.body) && vr.body.some((r) => r.code === 'caducado'),
     { status: vr.status, n: Array.isArray(vr.body) ? vr.body.length : null });
 
+  const ira = await req('GET', '/commercial/inventory/counts/ira', null, token);
+  check('endpoint IRA responde con shape (ira_pct + by_reason + recent_folios)',
+    ira.status === 200 && ('ira_pct' in (ira.body || {})) && Array.isArray(ira.body?.by_reason) && Array.isArray(ira.body?.recent_folios),
+    { status: ira.status });
+
   let openFolio = null;
   const cancel = async (id) => { if (id) await req('POST', `/commercial/inventory/counts/${id}/cancel`, { reason: 'smoke teardown' }, token); };
 
