@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — P2.0 Caducidad/FEFO: sub-ledger de lotes `commercial.stock_lots` (ADR-022)
+- **Nueva tabla `commercial.stock_lots`** (mig `20260618200000`): descompone `commercial.stock` por
+  `(lote, fecha_caducidad)`. `commercial.stock` sigue siendo el **total autoritativo**; invariante
+  `SUM(stock_lots.quantity) por (tenant,wh,product) = stock.quantity`. Base para FEFO sin reescribir
+  el order flow. RLS forzado, FKs compuestas a tablas reales (`identity.tenants`,
+  `commercial.warehouses`, `catalog.products`), unique natural `NULLS NOT DISTINCT`, índice FEFO.
+- **Backfill**: 1 lote `NA` (sin caducidad) por cada fila de `stock` (32 835 local) → invariante OK
+  desde el día 1, verificado (0 desbalances).
+- **Gate del ERP resuelto**: la data sincronizada **no trae caducidad** → P2.1 será **captura en
+  recepción** (no sync). Plan P2.0–P2.5 en `FASES/FASE_FEFO_CADUCIDAD.md`. Sin cambios de runtime aún.
+
 ### Added — Inventario físico: tolerancia + count-back (P1, cierra fase)
 - **Umbral de recuento por folio** (`recount_threshold_pct`, mig `20260618190000`, default 0 = off):
   en `computeDiscrepancies`, items cuyos conteos **coinciden** pero cuya |varianza vs teórico| excede
