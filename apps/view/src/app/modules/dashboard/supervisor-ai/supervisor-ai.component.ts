@@ -23,6 +23,7 @@ import {
   FindingRow,
   DiagnosisRow,
   ActionRow,
+  ActionExplanation,
   TaskRow,
   CoachingNoteRow,
   VisionRow,
@@ -312,6 +313,36 @@ const QUADRANT_LABELS: Record<string, string> = {
                         </span>
                       }
                     </div>
+                    <button type="button" class="explain-btn" (click)="toggleExplain(a)">
+                      <i class="pi" [ngClass]="explainOf(a.id)?.open ? 'pi-chevron-up' : 'pi-question-circle'"></i>
+                      {{ explainOf(a.id)?.open ? 'Ocultar razonamiento' : '¿Por qué?' }}
+                    </button>
+                    @if (explainOf(a.id); as ex) {
+                      @if (ex.open) {
+                        <div class="explain">
+                          @if (ex.loading) {
+                            <span class="explain__loading">Horus está explicando…</span>
+                          } @else if (ex.data) {
+                            <p class="explain__narrative">
+                              {{ ex.data.narrative }}
+                              <span
+                                class="src"
+                                [class.src--agent]="ex.data.source === 'agent'"
+                                [pTooltip]="ex.data.source === 'agent' ? 'Redactado por el agente (Claude)' : 'Redacción determinista (sin LLM)'"
+                              >{{ ex.data.source === 'agent' ? 'IA' : 'motor' }}</span>
+                            </p>
+                            <ol class="chain">
+                              @for (c of ex.data.reasoning_chain; track $index) {
+                                <li class="chain__step">
+                                  <span class="chain__k">{{ c.step }}</span>
+                                  <span class="chain__v">{{ c.text }}</span>
+                                </li>
+                              }
+                            </ol>
+                          }
+                        </div>
+                      }
+                    }
                   </div>
                   <div class="finding__actions">
                     <button type="button" class="btn-approve" (click)="approve(a)">Aprobar</button>
@@ -660,6 +691,15 @@ const QUADRANT_LABELS: Record<string, string> = {
       .rbtn--mute:hover { border-color: var(--bad, #dc2626); color: var(--bad, #dc2626); }
       .diagcause { font-size: .72rem; font-weight: 600; color: var(--action, #c2410c); margin-left: .4rem; }
       .diag-conf { background: color-mix(in srgb, var(--action, #ea580c) 12%, transparent); color: var(--action, #c2410c); font-weight: 600; }
+      .explain-btn { align-self: flex-start; margin-top: .4rem; font-size: .74rem; font-weight: 600; color: var(--text-soft, #78716c); background: none; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; padding: 0; }
+      .explain-btn:hover { color: var(--action, #ea580c); }
+      .explain { margin-top: .5rem; padding: .6rem .7rem; border-left: 2px solid var(--action, #ea580c); background: var(--layout-bg, #f5f5f4); border-radius: 0 8px 8px 0; }
+      .explain__loading { font-size: .82rem; color: var(--text-soft, #78716c); font-style: italic; }
+      .explain__narrative { margin: 0 0 .5rem; font-size: .86rem; line-height: 1.45; color: var(--text, #44403c); }
+      .chain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+      .chain__step { display: flex; gap: .5rem; font-size: .8rem; }
+      .chain__k { flex: 0 0 5.5rem; font-weight: 700; color: var(--text-soft, #a8a29e); text-transform: uppercase; letter-spacing: .03em; font-size: .64rem; padding-top: .15rem; }
+      .chain__v { color: var(--text, #57534e); flex: 1 1 auto; }
     `,
   ],
 })
@@ -684,6 +724,8 @@ export class SupervisorAiComponent implements OnInit {
   readonly salesExec = signal<SalesExecResponse | null>(null);
   readonly ruleStats = signal<RuleStatRow[]>([]);
   readonly baselines = signal<BaselineRow[]>([]);
+  // R3: explicaciones del razonamiento por acción (on-demand, cacheadas en cliente).
+  readonly explain = signal<Record<string, { open: boolean; loading: boolean; data: ActionExplanation | null }>>({});
 
   ngOnInit(): void {
     this.load();
@@ -847,6 +889,34 @@ export class SupervisorAiComponent implements OnInit {
           this.toast.add({ severity: 'info', summary: isOpp ? 'Mejora descartada' : 'Acción rechazada' });
         },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudo rechazar' }),
+      });
+  }
+
+  // R3: pide a Horus que explique el razonamiento de una acción (cadena + prosa del agente).
+  explainOf(id: string): { open: boolean; loading: boolean; data: ActionExplanation | null } | undefined {
+    return this.explain()[id];
+  }
+  toggleExplain(a: ActionRow): void {
+    const cur = this.explain();
+    const entry = cur[a.id];
+    if (entry?.open) {
+      this.explain.set({ ...cur, [a.id]: { ...entry, open: false } });
+      return;
+    }
+    if (entry?.data) {
+      this.explain.set({ ...cur, [a.id]: { ...entry, open: true } });
+      return;
+    }
+    this.explain.set({ ...cur, [a.id]: { open: true, loading: true, data: null } });
+    this.api
+      .explainAction(a.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => this.explain.update((m) => ({ ...m, [a.id]: { open: true, loading: false, data: d } })),
+        error: () => {
+          this.explain.update((m) => ({ ...m, [a.id]: { open: false, loading: false, data: null } }));
+          this.toast.add({ severity: 'error', summary: 'No se pudo explicar la acción' });
+        },
       });
   }
 

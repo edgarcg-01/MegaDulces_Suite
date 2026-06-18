@@ -135,6 +135,15 @@ export class SupervisorAiController {
     return this.actions.listCoachingNotes({ status }, user);
   }
 
+  @Get('actions/:id/explain')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary: 'R3: explica el razonamiento de una acción (cadena determinista + redacción del agente, fallback sin LLM)',
+  })
+  explainAction(@ReqUser() user: any, @Param('id') id: string) {
+    return this.agent.explainAction(id, user);
+  }
+
   @Post('actions/:id/approve')
   @RequirePermissions(Permission.SUPERVISOR_AI_APROBAR)
   @ApiOperation({ summary: 'Aprueba una acción del co-piloto (ejecuta interno + confirma el finding)' })

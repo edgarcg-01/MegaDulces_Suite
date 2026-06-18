@@ -207,6 +207,13 @@ export interface BaselineRow {
   floor_met: boolean;
 }
 
+export interface ActionExplanation {
+  narrative: string;
+  source: 'agent' | 'engine';
+  reasoning_chain: Array<{ step: string; text: string }>;
+  action: { id: string; title: string; action_type: string; confidence: number | null; root_cause: string | null };
+}
+
 export type ReviewStatus = 'dismissed' | 'confirmed' | 'reviewed';
 export type RuleOverride = 'enabled' | 'suppressed' | null;
 
@@ -282,6 +289,11 @@ export class SupervisorAiService {
     let params = new HttpParams();
     if (status) params = params.set('status', status);
     return this.http.get<{ rows: CoachingNoteRow[]; total: number }>(`${this.base}/coaching-notes`, { params });
+  }
+
+  // R3: explica el razonamiento de una acción (cadena determinista + redacción del agente).
+  explainAction(id: string): Observable<ActionExplanation> {
+    return this.http.get<ActionExplanation>(`${this.base}/actions/${id}/explain`);
   }
 
   approveAction(id: string): Observable<ActionRow> {

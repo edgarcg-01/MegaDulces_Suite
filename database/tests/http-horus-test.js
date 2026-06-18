@@ -1081,6 +1081,48 @@ async function req(method, path, token, body) {
   const goneR2 = await knex('commercial.supervisor_actions').where({ tenant_id: T }).whereIn('subject_id', [OF, DG]).first();
   check('cleanup R2 OK (sin acciones sintéticas residuales)', !goneR2, goneR2);
 
+  console.log('\n── 29. Horus.R · R3: explicación del razonamiento (cadena + agente) ──');
+  const EX = '0000000a-0000-0000-0000-00000000bab0';
+  const cleanR3 = async () => {
+    await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: EX }).del();
+    await knex('commercial.supervisor_diagnoses').where({ tenant_id: T, subject_id: EX }).del();
+    await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: EX }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: EX }).del();
+    await knex('commercial.execution_360').where({ tenant_id: T, subject_id: EX }).del();
+  };
+  await cleanR3();
+  await knex('commercial.execution_360')
+    .insert({ tenant_id: T, subject_type: 'collaborator', subject_id: EX, window_days: 30, label: '__r3_explain__', visits_done: 5, avg_score: 10, position_quality: 15 })
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const exAction = await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: EX, kind: 'diagnosis' }).first();
+  check('hay acción de diagnóstico para explicar', !!exAction, exAction ? exAction.action_type : 'sin acción');
+  if (exAction) {
+    const ex = await req('GET', `/supervisor-ai/actions/${exAction.id}/explain`, token);
+    check('GET /actions/:id/explain 200', ex.status === 200, ex.status);
+    check('narrativa no vacía', typeof ex.body?.narrative === 'string' && ex.body.narrative.length > 10, ex.body?.narrative);
+    check('source ∈ {agent, engine}', ['agent', 'engine'].includes(ex.body?.source), ex.body?.source);
+    const chain = ex.body?.reasoning_chain || [];
+    check('cadena de razonamiento con ≥3 pasos', Array.isArray(chain) && chain.length >= 3, chain.length);
+    const steps = chain.map((c) => c.step);
+    check(
+      'cadena incluye diagnóstico + decisión + confianza',
+      steps.includes('diagnóstico') && steps.includes('decisión') && steps.includes('confianza'),
+      steps,
+    );
+    check(
+      'la explicación referencia la acción correcta (root_cause)',
+      ex.body?.action?.id === exAction.id && ex.body?.action?.root_cause === 'execution_quality_decline',
+      ex.body?.action,
+    );
+  }
+  const badEx = await req('GET', '/supervisor-ai/actions/not-a-uuid/explain', token);
+  check('explain con id inválido → 400', badEx.status === 400, badEx.status);
+  await cleanR3();
+  const goneR3 = await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: EX }).first();
+  check('cleanup R3 OK (sin acción sintética residual)', !goneR3, goneR3);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

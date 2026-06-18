@@ -1,6 +1,15 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Horus — Agente del parte diario (Sprint Horus.2).
@@ -118,6 +127,196 @@ export class SupervisorAgentService {
       source: drafted ? 'agent' : 'engine',
       generated_at: nowIso,
     };
+  }
+
+  // ── R3: explicación del razonamiento de UNA recomendación ──────────────────
+  // El motor arma la CADENA determinista (evidencia→diagnóstico→decisión→confianza→
+  // impacto, auditable); el agente la REDACTA en prosa. Fallback determinista sin LLM.
+  // El LLM nunca decide: recibe la decisión ya tomada y solo la hace legible (ADR-016/020).
+
+  async explainAction(
+    id: string,
+    user: any,
+  ): Promise<{
+    narrative: string;
+    source: 'agent' | 'engine';
+    reasoning_chain: Array<{ step: string; text: string }>;
+    action: { id: string; title: string; action_type: string; confidence: number | null; root_cause: string | null };
+  }> {
+    if (!UUID_RE.test(id || '')) throw new BadRequestException('id inválido');
+    const tenantId = this.tenantId(user);
+
+    let q = this.knex('commercial.supervisor_actions').where('id', id);
+    if (tenantId) q = q.where('tenant_id', tenantId);
+    const action = await q.first();
+    if (!action) throw new NotFoundException('Acción no encontrada');
+
+    let diagnosis: any = null;
+    let finding: any = null;
+    if (action.diagnosis_id && tenantId) {
+      diagnosis = await this.knex('commercial.supervisor_diagnoses')
+        .where({ id: action.diagnosis_id, tenant_id: tenantId })
+        .first();
+    } else if (action.finding_id && tenantId) {
+      finding = await this.knex('commercial.supervisor_findings')
+        .where({ id: action.finding_id, tenant_id: tenantId })
+        .first();
+    }
+
+    const chain = this.buildChain(action, diagnosis, finding);
+
+    let narrative: string | null = null;
+    if (this.apiKey) {
+      narrative = await this.draftExplanation(action, chain).catch((e: any) => {
+        this.logger.warn(`explain LLM falló (${e.message}); fallback determinista`);
+        return null;
+      });
+    }
+    const source: 'agent' | 'engine' = narrative ? 'agent' : 'engine';
+    if (!narrative) narrative = this.deterministicExplanation(action, chain);
+
+    return {
+      narrative,
+      source,
+      reasoning_chain: chain,
+      action: {
+        id: action.id,
+        title: action.title,
+        action_type: action.action_type,
+        confidence: action.confidence != null ? Number(action.confidence) : null,
+        root_cause: action.root_cause ?? null,
+      },
+    };
+  }
+
+  /** Cadena de razonamiento determinista y auditable a partir de la decisión ya tomada. */
+  private buildChain(
+    action: any,
+    diagnosis: any,
+    finding: any,
+  ): Array<{ step: string; text: string }> {
+    const chain: Array<{ step: string; text: string }> = [];
+
+    let evidencia = '';
+    if (diagnosis) {
+      const ev = safeParse(typeof diagnosis.evidence === 'string' ? diagnosis.evidence : JSON.stringify(diagnosis.evidence || {}));
+      const symptoms = Array.isArray(ev.symptoms) ? ev.symptoms : [];
+      evidencia = symptoms.map((s: any) => s.phrase).filter(Boolean).join('; ');
+    } else if (finding) {
+      evidencia = `${this.findingLabel(finding.finding_type)} — ${this.evidenceText({
+        finding_type: finding.finding_type,
+        severity: finding.severity,
+        subject_type: finding.subject_type,
+        label: finding.label,
+        score: finding.score,
+        evidence: finding.evidence,
+      } as any)}`;
+    }
+    chain.push({ step: 'evidencia', text: evidencia || '—' });
+
+    if (diagnosis) {
+      chain.push({ step: 'diagnóstico', text: diagnosis.summary || 'causa raíz correlacionada' });
+    } else if (finding) {
+      chain.push({ step: 'síntoma', text: this.findingLabel(finding.finding_type) });
+    }
+
+    chain.push({ step: 'decisión', text: action.title });
+
+    if (action.confidence != null) {
+      chain.push({
+        step: 'confianza',
+        text: `${Math.round(Number(action.confidence) * 100)}% (precisión histórica de la regla × corroboración)`,
+      });
+    }
+    const imp = safeParse(typeof action.expected_impact === 'string' ? action.expected_impact : JSON.stringify(action.expected_impact || {}));
+    if (imp && imp.baseline_mean != null) {
+      chain.push({ step: 'impacto', text: `volver a su normal ≈ ${Math.round(Number(imp.baseline_mean))}%` });
+    }
+    return chain;
+  }
+
+  private deterministicExplanation(action: any, chain: Array<{ step: string; text: string }>): string {
+    const who = action.label || action.subject_type;
+    const get = (s: string) => chain.find((c) => c.step === s)?.text;
+    const parts: string[] = [`${who}.`];
+    const diag = get('diagnóstico');
+    if (diag) parts.push(`${diag}.`);
+    const ev = get('evidencia');
+    if (ev && ev !== '—') parts.push(`Señales: ${ev}.`);
+    parts.push(`Acción sugerida: ${action.title}.`);
+    const conf = get('confianza');
+    if (conf) parts.push(`Confianza ${conf}.`);
+    const imp = get('impacto');
+    if (imp) parts.push(`Impacto esperado: ${imp}.`);
+    return parts.join(' ');
+  }
+
+  /** Claude redacta la explicación a partir de la cadena YA decidida (no recalcula nada). */
+  private async draftExplanation(
+    action: any,
+    chain: Array<{ step: string; text: string }>,
+  ): Promise<string> {
+    const lines = [
+      'Eres el asistente de un supervisor de ventas de campo (trade marketing).',
+      'El MOTOR ya decidió esta recomendación y su cadena de razonamiento. NO recalcules ni inventes',
+      'números, nombres o tiendas: usá SOLO lo provisto. Redacta una explicación breve (2-3 frases',
+      'en español) de POR QUÉ se recomienda esta acción, en tono de supervisor, con la herramienta',
+      'explain_recommendation.',
+      '',
+      `Sujeto: ${action.label || action.subject_type}`,
+      `Acción propuesta: ${action.title}`,
+      'Cadena de razonamiento (motor, determinista):',
+      ...chain.map((c) => `- ${c.step}: ${c.text}`),
+    ];
+    const ctrl = new AbortController();
+    const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          max_tokens: 512,
+          tool_choice: { type: 'tool', name: 'explain_recommendation' },
+          tools: [
+            {
+              name: 'explain_recommendation',
+              description:
+                'Explica al supervisor por qué conviene esta acción, a partir de la cadena de ' +
+                'razonamiento YA calculada por el motor. Usá SOLO lo provisto; no inventes datos.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  explanation: {
+                    type: 'string',
+                    description: 'Explicación de 2-3 frases en español, tono de supervisor.',
+                  },
+                },
+                required: ['explanation'],
+              },
+            },
+          ],
+          messages: [{ role: 'user', content: lines.join('\n') }],
+        }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(tId);
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Anthropic ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const json = (await res.json()) as { content: Array<{ type: string; name?: string; input?: any }> };
+    const toolUse = json.content?.find((c) => c.type === 'tool_use' && c.name === 'explain_recommendation');
+    const txt = toolUse?.input?.explanation;
+    if (typeof txt !== 'string' || !txt.trim()) throw new Error('Claude no devolvió explanation');
+    return txt.trim();
   }
 
   // ── Helpers de presentación (deterministas) ───────────────────────────────
