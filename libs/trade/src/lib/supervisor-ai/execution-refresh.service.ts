@@ -4,6 +4,7 @@ import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { Execution360Service } from './execution-360.service';
 import { FindingsEngineService } from './findings-engine.service';
+import { DiagnosisEngineService } from './diagnosis-engine.service';
 import { SupervisorActionsService } from './supervisor-actions.service';
 import { OpportunityEngineService } from './opportunity-engine.service';
 import { PhotoAuditService } from './photo-audit.service';
@@ -32,6 +33,7 @@ export class ExecutionRefreshService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly exec360: Execution360Service,
     private readonly findings: FindingsEngineService,
+    private readonly diagnosis: DiagnosisEngineService,
     private readonly actions: SupervisorActionsService,
     private readonly opportunities: OpportunityEngineService,
     private readonly photoAudit: PhotoAuditService,
@@ -85,6 +87,9 @@ export class ExecutionRefreshService {
           // emite findings de visión; el co-piloto los incorpora abajo.
           await this.photoAudit.scanForTenant(t.id, { max: 20 });
           await this.photoAudit.generateVisionFindings(t.id);
+          // R1 (Horus.R): correlaciona los findings ya emitidos en causas raíz
+          // ANTES de proponer acciones → el co-piloto (R2) acciona el diagnóstico.
+          await this.diagnosis.generateForTenant(t.id);
           await this.actions.proposeForTenant(t.id);
           await this.opportunities.generateForTenant(t.id);
           await this.scoring.scoreForTenant(t.id); // motor multi-señal (usa findings+fraude)

@@ -19,6 +19,7 @@ import {
 } from '@megadulces/platform-core';
 import { Execution360Service } from './execution-360.service';
 import { FindingsEngineService } from './findings-engine.service';
+import { DiagnosisEngineService } from './diagnosis-engine.service';
 import { SupervisorAgentService } from './supervisor-agent.service';
 import { SupervisorActionsService } from './supervisor-actions.service';
 import { OpportunityEngineService } from './opportunity-engine.service';
@@ -46,6 +47,7 @@ export class SupervisorAiController {
   constructor(
     private readonly exec360: Execution360Service,
     private readonly findings: FindingsEngineService,
+    private readonly diagnosis: DiagnosisEngineService,
     private readonly agent: SupervisorAgentService,
     private readonly actions: SupervisorActionsService,
     private readonly opportunities: OpportunityEngineService,
@@ -78,6 +80,22 @@ export class SupervisorAiController {
   @ApiOperation({ summary: 'Descarta/confirma/revisa un hallazgo (feedback loop, co-piloto)' })
   reviewFinding(@ReqUser() user: any, @Param('id') id: string, @Body() body: ReviewFindingDto) {
     return this.findings.reviewFinding(id, body.status, user);
+  }
+
+  @Get('diagnoses')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary: 'Diagnósticos de causa raíz (R1): correlación de ≥2 findings del mismo sujeto. Default open.',
+  })
+  listDiagnoses(@ReqUser() user: any, @Query('status') status?: string) {
+    return this.diagnosis.list({ status }, user);
+  }
+
+  @Post('diagnoses/:id/review')
+  @RequirePermissions(Permission.SUPERVISOR_AI_APROBAR)
+  @ApiOperation({ summary: 'Descarta/confirma/revisa un diagnóstico de causa raíz (feedback humano)' })
+  reviewDiagnosis(@ReqUser() user: any, @Param('id') id: string, @Body() body: { status: string }) {
+    return this.diagnosis.review(id, body?.status, user);
   }
 
   @Get('briefing')
@@ -143,12 +161,13 @@ export class SupervisorAiController {
     const baselines = await this.baselines.computeForTenant(tenantId); // L1: recomputa baselines (z-score)
     const findings = await this.findings.generateForTenant(tenantId);
     const fraud = await this.fraud.generateForTenant(tenantId); // determinista, sin LLM
+    const diagnoses = await this.diagnosis.generateForTenant(tenantId); // R1: causa raíz (correlación de findings)
     const actions = await this.actions.proposeForTenant(tenantId);
     const opportunities = await this.opportunities.generateForTenant(tenantId);
     const scoring = await this.scoring.scoreForTenant(tenantId); // usa findings+fraude
     const sales_execution = await this.salesExec.generateGapFindings(tenantId); // gateado por volumen de venta
     const snapshot = await this.exec360.snapshotForTenant(tenantId); // último: captura el estado final (incl. exec_score)
-    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, findings, fraud, actions, opportunities, scoring, sales_execution, snapshot };
+    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, findings, fraud, diagnoses, actions, opportunities, scoring, sales_execution, snapshot };
   }
 
   @Post('vision/scan')

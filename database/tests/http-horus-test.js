@@ -942,6 +942,82 @@ async function req(method, path, token, body) {
   const goneK5 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: IX }).first();
   check('cleanup K5 OK (sin sujeto sintético residual)', !goneK5, goneK5);
 
+  console.log('\n── 27. Horus.R · R1: diagnóstico de causa raíz (correlación de síntomas) ──');
+  const DX = '0000000a-0000-0000-0000-00000000ba90'; // diagnosticado: 2 síntomas
+  const DY = '0000000a-0000-0000-0000-00000000ba91'; // atómico: 1 síntoma
+  const cleanR1 = async () => {
+    for (const id of [DX, DY]) {
+      await knex('commercial.supervisor_diagnoses').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.execution_360').where({ tenant_id: T, subject_id: id }).del();
+    }
+  };
+  await cleanR1();
+  // DX: score bajo (10<25 → low_score) + posición floja (15<35 → weak_position) = 2 síntomas.
+  // DY: solo score bajo = 1 síntoma (debe quedar atómico, sin diagnóstico).
+  await knex('commercial.execution_360')
+    .insert([
+      { tenant_id: T, subject_type: 'collaborator', subject_id: DX, window_days: 30, label: '__r1_diag_test__', visits_done: 5, avg_score: 10, position_quality: 15 },
+      { tenant_id: T, subject_type: 'collaborator', subject_id: DY, window_days: 30, label: '__r1_atomic_test__', visits_done: 5, avg_score: 10 },
+    ])
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+
+  // El sujeto con 2 síntomas → UN diagnóstico que CORRELACIONA low_score + weak_position.
+  const diag = await knex('commercial.supervisor_diagnoses')
+    .where({ tenant_id: T, subject_id: DX, root_cause: 'execution_quality_decline' })
+    .first();
+  check(
+    'diagnóstico execution_quality_decline disparó (correlaciona low_score + weak_position)',
+    !!diag,
+    diag ? { sev: diag.severity, conf: diag.confidence } : 'sin diagnóstico',
+  );
+  if (diag) {
+    const fids = typeof diag.finding_ids === 'string' ? JSON.parse(diag.finding_ids) : diag.finding_ids;
+    check('linkea ≥2 findings (los 2 síntomas)', Array.isArray(fids) && fids.length >= 2, fids);
+    check(
+      'confianza poblada en (0,1]',
+      diag.confidence != null && Number(diag.confidence) > 0 && Number(diag.confidence) <= 1,
+      diag.confidence,
+    );
+    check('severidad = critical (hereda del síntoma más grave)', diag.severity === 'critical', diag.severity);
+    const ev = typeof diag.evidence === 'string' ? JSON.parse(diag.evidence) : diag.evidence;
+    check(
+      'evidence trae action_hint=coaching_focus + symptoms (≥2 frases)',
+      ev && ev.action_hint === 'coaching_focus' && Array.isArray(ev.symptoms) && ev.symptoms.length >= 2,
+      ev,
+    );
+  }
+
+  // El sujeto con 1 solo síntoma queda ATÓMICO: NO genera diagnóstico (el valor de R1 es correlacionar).
+  const diagAtomic = await knex('commercial.supervisor_diagnoses').where({ tenant_id: T, subject_id: DY }).first();
+  check('1 síntoma aislado NO genera diagnóstico (queda atómico)', !diagAtomic, diagAtomic ? diagAtomic.root_cause : 'ok');
+
+  // Endpoint GET /diagnoses lo lista (default open).
+  const dl = await req('GET', '/supervisor-ai/diagnoses', token);
+  check('GET /diagnoses 200', dl.status === 200, dl.status);
+  check('el diagnóstico aparece en GET /diagnoses', (dl.body?.rows || []).some((r) => r.subject_id === DX), (dl.body?.rows || []).length);
+
+  // Feedback humano: descartar → NO se reabre al recomputar (respeta la decisión humana).
+  if (diag) {
+    const rv = await req('POST', `/supervisor-ai/diagnoses/${diag.id}/review`, token, { status: 'dismissed' });
+    check('review dismiss 2xx', rv.status === 200 || rv.status === 201, rv.status);
+    await req('POST', '/supervisor-ai/compute', token, {});
+    const afterRv = await knex('commercial.supervisor_diagnoses').where({ id: diag.id }).first();
+    check(
+      'diagnóstico descartado NO se reabre al recomputar (respeta decisión humana)',
+      afterRv && afterRv.status === 'dismissed',
+      afterRv ? afterRv.status : 'desaparecido',
+    );
+  }
+
+  await cleanR1();
+  const goneR1 = await knex('commercial.supervisor_diagnoses').where({ tenant_id: T }).whereIn('subject_id', [DX, DY]).first();
+  check('cleanup R1 OK (sin diagnósticos sintéticos residuales)', !goneR1, goneR1);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

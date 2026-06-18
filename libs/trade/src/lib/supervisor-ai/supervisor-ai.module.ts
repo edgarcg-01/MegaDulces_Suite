@@ -4,6 +4,7 @@ import { SupervisorFieldController } from './supervisor-field.controller';
 import { Execution360Service } from './execution-360.service';
 import { ExecutionRefreshService } from './execution-refresh.service';
 import { FindingsEngineService } from './findings-engine.service';
+import { DiagnosisEngineService } from './diagnosis-engine.service';
 import { SupervisorAgentService } from './supervisor-agent.service';
 import { SupervisorActionsService } from './supervisor-actions.service';
 import { OpportunityEngineService } from './opportunity-engine.service';
@@ -28,6 +29,7 @@ import { BaselineLearnerService } from './baseline-learner.service';
     Execution360Service,
     ExecutionRefreshService,
     FindingsEngineService,
+    DiagnosisEngineService,
     SupervisorAgentService,
     SupervisorActionsService,
     OpportunityEngineService,

@@ -21,6 +21,7 @@ import {
   BriefingResponse,
   Execution360Row,
   FindingRow,
+  DiagnosisRow,
   ActionRow,
   TaskRow,
   CoachingNoteRow,
@@ -53,6 +54,14 @@ const FINDING_LABELS: Record<string, string> = {
   fraud_fast_visit: 'visita demasiado corta',
   fraud_recycled_photo: 'foto reciclada',
   sales_execution_gap: 'ejecuta bien pero sin venta',
+};
+
+const ROOT_CAUSE_LABELS: Record<string, string> = {
+  execution_quality_decline: 'la baja de score viene de ejecución floja',
+  time_management_impact: 'el tiempo muerto golpea el desempeño',
+  sustained_decline: 'caída sostenida (sin causa localizada)',
+  store_at_risk_compound: 'tienda en riesgo compuesto',
+  team_sustained_decline: 'el equipo arrastra el promedio',
 };
 
 const QUADRANT_LABELS: Record<string, string> = {
@@ -121,6 +130,60 @@ const QUADRANT_LABELS: Record<string, string> = {
                 }
               </ul>
             }
+          </section>
+        }
+
+        <!-- Diagnóstico de causa raíz (R1) — Horus correlaciona síntomas -->
+        @if (diagnoses().length > 0) {
+          <section class="card">
+            <div class="vision__head">
+              <h2 class="card__title">Diagnóstico de causa raíz ({{ diagnoses().length }})</h2>
+              <span
+                class="src"
+                pTooltip="Horus correlaciona varios síntomas del mismo sujeto en UNA causa raíz (razonamiento determinista, sin LLM)"
+              >razonamiento</span>
+            </div>
+            <ul class="findings">
+              @for (d of diagnoses(); track d.id) {
+                <li class="finding finding--opp">
+                  <span class="sev" [ngClass]="sevClass(d.severity)">{{ sevLabel(d.severity) }}</span>
+                  <div class="finding__body">
+                    <span class="finding__label">
+                      {{ d.label || d.subject_type }}
+                      @if (subjTag(d.subject_type); as st) {
+                        <span class="subjtag">{{ st }}</span>
+                      }
+                      <span class="diagcause">{{ rootCauseLabel(d.root_cause) }}</span>
+                    </span>
+                    <span class="finding__why">{{ d.summary }}</span>
+                    <div class="chips">
+                      @for (s of d.evidence.symptoms || []; track $index) {
+                        <span class="chip">{{ s.phrase }}</span>
+                      }
+                      @if (d.confidence != null) {
+                        <span class="chip diag-conf" pTooltip="Corroboración: cuántas señales independientes coinciden">
+                          confianza {{ d.confidence * 100 | number: '1.0-0' }}%
+                        </span>
+                      }
+                    </div>
+                  </div>
+                  <div class="finding__actions">
+                    <button
+                      type="button"
+                      class="icon-btn-ghost-ok"
+                      pTooltip="Confirmar (es real)"
+                      (click)="reviewDiagnosis(d, 'confirmed')"
+                    ><i class="pi pi-check"></i></button>
+                    <button
+                      type="button"
+                      class="icon-btn-ghost-bad"
+                      pTooltip="Descartar (no aplica)"
+                      (click)="reviewDiagnosis(d, 'dismissed')"
+                    ><i class="pi pi-times"></i></button>
+                  </div>
+                </li>
+              }
+            </ul>
           </section>
         }
 
@@ -575,6 +638,8 @@ const QUADRANT_LABELS: Record<string, string> = {
       .rbtn { font-size: .72rem; font-weight: 600; padding: .2rem .5rem; border-radius: 6px; border: 1px solid var(--border, #e7e5e4); background: var(--card-bg, #fff); color: var(--text-soft, #57534e); cursor: pointer; }
       .rbtn:hover { border-color: var(--action, #ea580c); color: var(--action, #ea580c); }
       .rbtn--mute:hover { border-color: var(--bad, #dc2626); color: var(--bad, #dc2626); }
+      .diagcause { font-size: .72rem; font-weight: 600; color: var(--action, #c2410c); margin-left: .4rem; }
+      .diag-conf { background: color-mix(in srgb, var(--action, #ea580c) 12%, transparent); color: var(--action, #c2410c); font-weight: 600; }
     `,
   ],
 })
@@ -587,6 +652,7 @@ export class SupervisorAiComponent implements OnInit {
   readonly recomputing = signal(false);
   readonly briefing = signal<BriefingResponse | null>(null);
   readonly findings = signal<FindingRow[]>([]);
+  readonly diagnoses = signal<DiagnosisRow[]>([]);
   readonly actions = signal<ActionRow[]>([]);
   readonly opportunities = signal<ActionRow[]>([]);
   readonly tasks = signal<TaskRow[]>([]);
@@ -608,6 +674,7 @@ export class SupervisorAiComponent implements OnInit {
     forkJoin({
       brief: this.api.briefing().pipe(catchError(() => of(null))),
       finds: this.api.findings({ status: 'open' }).pipe(catchError(() => of({ rows: [], total: 0 }))),
+      diags: this.api.diagnoses('open').pipe(catchError(() => of({ rows: [], total: 0 }))),
       acts: this.api.actions('pending_approval').pipe(catchError(() => of({ rows: [], total: 0 }))),
       opps: this.api.opportunities('pending_approval').pipe(catchError(() => of({ rows: [], total: 0 }))),
       tasks: this.api.tasks().pipe(catchError(() => of({ rows: [], total: 0 }))),
@@ -624,9 +691,10 @@ export class SupervisorAiComponent implements OnInit {
         .pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ brief, finds, acts, opps, tasks, notes, cov, vis, salesEx, exec, rules, bases }) => {
+      .subscribe(({ brief, finds, diags, acts, opps, tasks, notes, cov, vis, salesEx, exec, rules, bases }) => {
         this.briefing.set(brief);
         this.findings.set(finds.rows ?? []);
+        this.diagnoses.set(diags.rows ?? []);
         this.actions.set(acts.rows ?? []);
         this.opportunities.set(opps.rows ?? []);
         this.tasks.set(tasks.rows ?? []);
@@ -703,6 +771,27 @@ export class SupervisorAiComponent implements OnInit {
           });
         },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudo actualizar el hallazgo' }),
+      });
+  }
+
+  rootCauseLabel(c: string): string {
+    return ROOT_CAUSE_LABELS[c] || c;
+  }
+
+  reviewDiagnosis(d: DiagnosisRow, status: ReviewStatus): void {
+    this.api
+      .reviewDiagnosis(d.id, status)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.diagnoses.update((list) => list.filter((x) => x.id !== d.id));
+          this.toast.add({
+            severity: 'success',
+            summary: status === 'dismissed' ? 'Diagnóstico descartado' : 'Diagnóstico confirmado',
+            detail: d.label || this.rootCauseLabel(d.root_cause),
+          });
+        },
+        error: () => this.toast.add({ severity: 'error', summary: 'No se pudo actualizar el diagnóstico' }),
       });
   }
 

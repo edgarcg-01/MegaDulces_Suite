@@ -64,6 +64,26 @@ export interface FindingRow {
   created_at: string;
 }
 
+export interface DiagnosisRow {
+  id: string;
+  root_cause: string;
+  severity: 'info' | 'warn' | 'critical';
+  subject_type: string;
+  subject_id: string;
+  label: string | null;
+  finding_ids: string[];
+  finding_types: string[];
+  confidence: number | null;
+  summary: string | null;
+  evidence: {
+    action_hint?: string;
+    corroboration?: number;
+    symptoms?: Array<{ type: string; severity: string; phrase: string }>;
+  };
+  status: string;
+  created_at: string;
+}
+
 export interface ActionRow {
   id: string;
   finding_id: string | null;
@@ -217,6 +237,16 @@ export class SupervisorAiService {
 
   review(id: string, status: ReviewStatus): Observable<FindingRow> {
     return this.http.post<FindingRow>(`${this.base}/findings/${id}/review`, { status });
+  }
+
+  // R1 (Horus.R): diagnósticos de causa raíz — correlación de ≥2 findings del mismo sujeto.
+  diagnoses(status = 'open'): Observable<{ rows: DiagnosisRow[]; total: number }> {
+    const params = new HttpParams().set('status', status);
+    return this.http.get<{ rows: DiagnosisRow[]; total: number }>(`${this.base}/diagnoses`, { params });
+  }
+
+  reviewDiagnosis(id: string, status: ReviewStatus): Observable<{ id: string; status: string }> {
+    return this.http.post<{ id: string; status: string }>(`${this.base}/diagnoses/${id}/review`, { status });
   }
 
   compute(): Observable<{ feature_store: { rows_upserted: number }; findings: { open: number; resolved: number } }> {
