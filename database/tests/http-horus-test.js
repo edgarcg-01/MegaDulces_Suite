@@ -801,6 +801,53 @@ async function req(method, path, token, body) {
   const goneK4 = await knex('commercial.execution_360').where('tenant_id', T).whereIn('subject_id', synthIds).first();
   check('cleanup K4 OK (sin tiendas sintéticas residuales)', !goneK4, goneK4);
 
+  console.log('\n── 24. Horus 360 · K6: roll-ups por zona + supervisor ──');
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const exZ = await req('GET', '/supervisor-ai/execution-360?subject_type=zone&window_days=30', token);
+  check('execution-360 zone 200 (DTO acepta zone)', exZ.status === 200, exZ.status);
+  const zoneRows = exZ.body?.rows || [];
+  console.log(`     zonas con roll-up=${zoneRows.length}`);
+  check('hay subject_type=zone (roll-up org)', zoneRows.length > 0, zoneRows.length);
+  if (zoneRows.length > 0) {
+    check('zona trae métricas core (visits_done numérico)', typeof zoneRows[0].visits_done === 'number', zoneRows[0]);
+  }
+  const exS = await req('GET', '/supervisor-ai/execution-360?subject_type=supervisor&window_days=30', token);
+  check('execution-360 supervisor 200', exS.status === 200, exS.status);
+  check('hay subject_type=supervisor (roll-up por equipo)', (exS.body?.rows || []).length > 0, (exS.body?.rows || []).length);
+
+  // Verificación REAL: low_score aplica a roll-up org. Inyecto una zona con score bajo → dispara.
+  const ZX = '0000000a-0000-0000-0000-00000000ba60';
+  const cleanK6 = async () => {
+    await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: ZX }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: ZX }).del();
+    await knex('commercial.execution_360').where({ tenant_id: T, subject_id: ZX }).del();
+  };
+  await cleanK6();
+  await knex('commercial.execution_360')
+    .insert({
+      tenant_id: T,
+      subject_type: 'zone',
+      subject_id: ZX,
+      window_days: 30,
+      label: '__zona_test__',
+      visits_done: 5,
+      avg_score: 10,
+    })
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const ls = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: ZX, finding_type: 'low_score' })
+    .first();
+  check(
+    'low_score disparó sobre la zona de score bajo (10 < 25) con subject_type=zone',
+    !!ls && ls.subject_type === 'zone',
+    ls ? { sev: ls.severity, st: ls.subject_type } : 'sin low_score',
+  );
+  await cleanK6();
+  const goneK6 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: ZX }).first();
+  check('cleanup K6 OK (sin zona sintética residual)', !goneK6, goneK6);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

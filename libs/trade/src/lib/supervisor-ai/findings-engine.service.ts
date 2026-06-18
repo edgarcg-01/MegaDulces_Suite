@@ -135,7 +135,10 @@ export class FindingsEngineService {
       const compShare = r.competitor_share_pct != null ? Number(r.competitor_share_pct) : null;
       const daysSince = r.days_since_last_visit != null ? Number(r.days_since_last_visit) : null;
 
-      if (r.subject_type === 'collaborator' && visits >= MIN_OBS) {
+      // K6: score_drop/low_score aplican a colaborador y a roll-ups org (zona/supervisor):
+      // "la zona Norte cayó" / "el equipo del supervisor X está bajo". Mismo umbral, el
+      // label denormalizado distingue el sujeto. Pasa por calibración L2.
+      if (['collaborator', 'zone', 'supervisor'].includes(r.subject_type) && visits >= MIN_OBS) {
         // score_drop: caída reciente (7d vs 7d previos) — la señal más accionable.
         if (r.window_days === 7 && trend != null && trend <= -th.score_drop_pct) {
           const mag = -trend;

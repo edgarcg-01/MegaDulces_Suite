@@ -291,7 +291,12 @@ const QUADRANT_LABELS: Record<string, string> = {
                 <li class="finding">
                   <span class="sev" [ngClass]="sevClass(f.severity)">{{ sevLabel(f.severity) }}</span>
                   <div class="finding__body">
-                    <span class="finding__label">{{ f.label || f.subject_type }}</span>
+                    <span class="finding__label">
+                      {{ f.label || f.subject_type }}
+                      @if (subjTag(f.subject_type); as st) {
+                        <span class="subjtag">{{ st }}</span>
+                      }
+                    </span>
                     <span class="finding__type">
                       @if (f.source === 'fraud' || f.source === 'vision') {
                         <span class="srctag" [class.srctag--fraud]="f.source === 'fraud'">{{
@@ -551,6 +556,7 @@ const QUADRANT_LABELS: Record<string, string> = {
       code { font-family: var(--font-mono, monospace); background: var(--layout-bg, #f5f5f4); padding: .05rem .3rem; border-radius: 4px; font-size: .85em; }
       .srctag { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: .05rem .3rem; border-radius: 4px; margin-right: .35rem; background: color-mix(in srgb, var(--action, #ea580c) 12%, transparent); color: var(--action, #c2410c); }
       .srctag--fraud { background: color-mix(in srgb, var(--bad, #dc2626) 14%, transparent); color: var(--bad, #dc2626); }
+      .subjtag { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: .05rem .3rem; border-radius: 4px; margin-left: .35rem; background: color-mix(in srgb, var(--ember-grad, #6366f1) 12%, transparent); color: var(--text-soft, #57534e); vertical-align: middle; }
       .health { display: inline-block; min-width: 2.1rem; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; padding: .1rem .4rem; border-radius: 6px; background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #78716c); }
       .health--ok { background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent); color: var(--ok, #15803d); }
       .health--warn { background: color-mix(in srgb, var(--warn, #d97706) 16%, transparent); color: var(--warn, #b45309); }
@@ -737,6 +743,9 @@ export class SupervisorAiComponent implements OnInit {
   }
   sevLabel(s: string): string {
     return s === 'critical' ? 'Crítico' : s === 'warn' ? 'Alerta' : 'Info';
+  }
+  subjTag(t: string): string {
+    return t === 'zone' ? 'zona' : t === 'supervisor' ? 'equipo' : '';
   }
   findingLabel(type: string): string {
     return FINDING_LABELS[type] || type;

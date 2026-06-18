@@ -198,6 +198,22 @@ export class Execution360Service {
     const storeName = new Map<string, string>();
     storeRows.forEach((s: any) => storeName.set(s.id, s.nombre));
 
+    // K6: mapa de usuarios (zona/supervisor del colaborador) + nombres de zona, para
+    // el roll-up org. users/zones son vistas passthrough resolubles vía KNEX_CONNECTION.
+    const userInfo = new Map<string, { zona_id: string | null; supervisor_id: string | null; name: string }>();
+    const userName = new Map<string, string>();
+    const userRows = await this.knex('users')
+      .where('tenant_id', tenantId)
+      .select('id', 'nombre', 'username', 'zona_id', 'supervisor_id');
+    userRows.forEach((u: any) => {
+      const nm = u.nombre || u.username || 'Usuario';
+      userInfo.set(u.id, { zona_id: u.zona_id, supervisor_id: u.supervisor_id, name: nm });
+      userName.set(u.id, nm);
+    });
+    const zoneName = new Map<string, string>();
+    const zoneRows = await this.knex('zones').where('tenant_id', tenantId).select('id', 'name');
+    zoneRows.forEach((z: any) => zoneName.set(z.id, z.name));
+
     // K1: nombres de concepto/ubicación (catalogs.value) para el desglose. Best-effort
     // con SAVEPOINT — `catalogs` puede no resolver en prod (schema/search_path) y esto
     // corre PRIMERO en /compute; sin el savepoint, un fallo envenenaría toda la trx (25P02).
@@ -222,6 +238,8 @@ export class Execution360Service {
 
     const byCollaborator = new Map<string, SubjectAgg>();
     const byStore = new Map<string, SubjectAgg>();
+    const byZone = new Map<string, SubjectAgg>(); // K6
+    const bySupervisor = new Map<string, SubjectAgg>(); // K6
     const ensure = (map: Map<string, SubjectAgg>, key: string, label: string): SubjectAgg => {
       let a = map.get(key);
       if (!a) {
@@ -337,19 +355,47 @@ export class Execution360Service {
         } else if (daysAgo <= 60) apply(a.w30prev);
       };
 
-      if (r.user_id) fan(ensure(byCollaborator, r.user_id, r.captured_by_username || 'Colaborador'));
+      if (r.user_id) {
+        fan(ensure(byCollaborator, r.user_id, r.captured_by_username || 'Colaborador'));
+        // K6: la misma captura sube a la zona y al supervisor del colaborador.
+        const ui = userInfo.get(r.user_id);
+        if (ui?.zona_id) fan(ensure(byZone, ui.zona_id, zoneName.get(ui.zona_id) || 'Zona'));
+        if (ui?.supervisor_id) fan(ensure(bySupervisor, ui.supervisor_id, userName.get(ui.supervisor_id) || 'Supervisor'));
+      }
       if (r.store_id) fan(ensure(byStore, r.store_id, storeName.get(r.store_id) || 'Tienda'));
     }
 
     const rows: any[] = [];
-    const pushRows = (type: 'collaborator' | 'store', map: Map<string, SubjectAgg>) => {
+    const pushRows = (
+      type: 'collaborator' | 'store' | 'zone' | 'supervisor',
+      map: Map<string, SubjectAgg>,
+      withDetail = true, // org (zone/supervisor) NO lleva by_concept/planograma (detalle por-sujeto)
+    ) => {
       for (const [id, a] of map) {
         rows.push(this.buildRow(tenantId, type, id, 7, a.label, a.w7, a.w7prev, now, null, null, catName, null, 0));
-        rows.push(this.buildRow(tenantId, type, id, 30, a.label, a.w30, a.w30prev, now, a.concepts, a.locations, catName, a.markedPlano, planogramTotal));
+        rows.push(
+          this.buildRow(
+            tenantId,
+            type,
+            id,
+            30,
+            a.label,
+            a.w30,
+            a.w30prev,
+            now,
+            withDetail ? a.concepts : null,
+            withDetail ? a.locations : null,
+            catName,
+            withDetail ? a.markedPlano : null,
+            withDetail ? planogramTotal : 0,
+          ),
+        );
       }
     };
     pushRows('collaborator', byCollaborator);
     pushRows('store', byStore);
+    pushRows('zone', byZone, false); // K6
+    pushRows('supervisor', bySupervisor, false); // K6
 
     if (rows.length === 0) return { rows_upserted: 0 };
 
@@ -427,7 +473,7 @@ export class Execution360Service {
 
   private buildRow(
     tenantId: string,
-    subjectType: 'collaborator' | 'store',
+    subjectType: 'collaborator' | 'store' | 'zone' | 'supervisor',
     subjectId: string,
     windowDays: number,
     label: string,

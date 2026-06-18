@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 export class ListExecution360Dto {
   @IsOptional()
   @IsString()
-  @IsIn(['collaborator', 'route', 'store'])
+  @IsIn(['collaborator', 'route', 'store', 'zone', 'supervisor'])
   subject_type?: string;
 
   @IsOptional()

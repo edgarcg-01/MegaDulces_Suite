@@ -333,6 +333,13 @@ Objetivo: que Horus explote TODA la señal usable de cada módulo de Trade. **Do
 - **Regla `planogram_gap` PEER-RELATIVA** (tienda 30d): exhibe < 50% de la **mediana de sus pares** (guard mediana≥4, visits≥3) → conservador, alta precisión. Pasa por calibración L2. **CAVEAT (logueado): solo tiendas con store_id ~33%; dormido si todas las tiendas están parejas-bajo** (honesto, como sales_execution_gap) — su valor pleno llega con D1.
 - FE: label + evidencia `planogram_gap`. Smoke **sección 23** (feature real + prueba del disparo inyectando pares altos que dominan la mediana + tienda baja + cleanup). **Pendiente: migrate:new (`20260618110000`) + restart → smoke 1-23.**
 
+### K6 — Roll-ups por zona + supervisor ✅ EN CÓDIGO 2026-06-18 (builds api+view verdes)
+- Audit: `users.zona_id` 89% + `users.supervisor_id` 71% + `zones.name` → diagnóstico a nivel ORG (qué zona/equipo ejecuta peor), no solo el individuo.
+- **Mig `20260618120000`** amplía el CHECK `execution_360.subject_type` a `zone`/`supervisor` (findings/snapshots/baselines no tienen CHECK → sin cambio). DTO del filtro ampliado.
+- `Execution360Service` carga `users`(zona/supervisor/nombre)+`zones`(name) y, por cada captura, **sube la misma señal a la zona y al supervisor del colaborador** (reusa SubjectAgg/fan/buildRow). Org NO lleva by_concept/planograma (detalle por-sujeto) vía flag `withDetail=false`.
+- **Reglas `low_score`/`score_drop` ampliadas** a `zone`/`supervisor` ("la zona Norte cayó" / "el equipo del supervisor X está bajo"). Mismo umbral; el label denormalizado distingue. Pasa por calibración L2.
+- FE: tag `zona`/`equipo` en la bandeja de hallazgos. Smoke **sección 24** (roll-ups org reales + prueba de low_score sobre una zona sintética + cleanup). **Pendiente: migrate:new (`20260618120000`) + restart → smoke 1-24.**
+
 ### Pendientes Horus 360
-- **K3** catálogo+pesos scoring · **K6** roll-ups zona/supervisor · **K5** idle+traza GPS · **K7** check-in×captura.
+- **K3** catálogo+pesos scoring · **K5** idle+traza GPS · **K7** check-in×captura.
 - **Eje B (datos)**: D1 store_id en captura (33%→alto) · D2 daily_assignments.date · **D3 ventaAdicional** (rescata K2) · D4 route_id.
