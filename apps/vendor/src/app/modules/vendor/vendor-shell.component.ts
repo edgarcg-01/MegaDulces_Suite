@@ -147,10 +147,14 @@ interface DiagProbe {
   styles: [
     `
       .vendor-shell {
-        min-height: 100dvh;
+        /* Patrón de Trade (apps/view): altura FIJA de viewport + overflow-hidden
+           → el documento NO scrollea (mata el rubber-band de iOS que revela el
+           canvas del <html> abajo); el scroll lo absorbe el <main> interno. */
+        height: 100dvh;
         display: flex;
         flex-direction: column;
         background: var(--layout-bg);
+        overflow: hidden;
       }
       .vendor-header {
         display: flex;
@@ -175,6 +179,12 @@ interface DiagProbe {
       .vendor-user a.header-active { color: var(--brand-700); }
       .vendor-main {
         flex: 1;
+        /* min-height:0 es CRUCIAL en un flex child para que pueda encoger y
+           scrollear internamente (si no, desborda el shell). overflow-y:auto +
+           momentum scroll iOS. */
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
         padding: 1rem;
         padding-bottom: calc(5rem + env(safe-area-inset-bottom));
         max-width: 800px;
