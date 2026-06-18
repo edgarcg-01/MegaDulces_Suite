@@ -340,6 +340,12 @@ Objetivo: que Horus explote TODA la señal usable de cada módulo de Trade. **Do
 - **Reglas `low_score`/`score_drop` ampliadas** a `zone`/`supervisor` ("la zona Norte cayó" / "el equipo del supervisor X está bajo"). Mismo umbral; el label denormalizado distingue. Pasa por calibración L2.
 - FE: tag `zona`/`equipo` en la bandeja de hallazgos. Smoke **sección 24** (roll-ups org reales + prueba de low_score sobre una zona sintética + cleanup). **Pendiente: migrate:new (`20260618120000`) + restart → smoke 1-24.**
 
+### K3 — Catálogo + pesos oficiales (calidad de posición) ✅ EN CÓDIGO 2026-06-18 (builds verdes)
+- Audit `catalogs.puntuacion`: **niveles** Alto 1.0/Medio 0.70/Bajo 0.40/Crítico 0.20 (mi heurística estaba desviada), **ubicaciones** Caja 100…Detrás 10, **conceptos** 0.5-2.0. Es la rúbrica OFICIAL del negocio.
+- **Mig `20260618130000`** `execution_360 += position_quality` (0-100). `Execution360Service` carga `catalogs.puntuacion` de ubicaciones (junto con los nombres K1) y promedia el peso oficial de la ubicación por exhibición → **desbloquea la "position-quality" que H2.1 había diferido** ("scoring_pesos inaccesible" → los pesos viven en catalogs).
+- **Regla `weak_position`** (colaborador/tienda 30d, position_quality < 35, visits≥3): exhibe en posiciones débiles (anaquel/detrás) según la rúbrica oficial. Umbral absoluto (posiciones objetivamente rankeadas). Pasa por calibración L2.
+- FE: label + evidencia `weak_position`. Smoke **sección 25** (feature real + prueba del disparo + cleanup). **Diferido K3.2**: usar los niveles oficiales (catalog) en vez del heurístico LEVEL_WEIGHT (refina exec_level, ripple amplio → tras verificar). **Pendiente: migrate:new (`20260618130000`) + restart → smoke 1-25.**
+
 ### Pendientes Horus 360
-- **K3** catálogo+pesos scoring · **K5** idle+traza GPS · **K7** check-in×captura.
+- **K5** idle+traza GPS · **K7** check-in×captura · **K3.2** niveles oficiales (refina exec_level).
 - **Eje B (datos)**: D1 store_id en captura (33%→alto) · D2 daily_assignments.date · **D3 ventaAdicional** (rescata K2) · D4 route_id.

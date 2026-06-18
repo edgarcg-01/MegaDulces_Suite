@@ -246,6 +246,24 @@ export class FindingsEngineService {
           });
         }
       }
+
+      // K3 (Horus 360): calidad de posición. Sujeto que exhibe en posiciones débiles
+      // (Anaquel/Detrás) según los pesos OFICIALES del catálogo (catalogs ubicaciones).
+      // Umbral absoluto: las posiciones están objetivamente rankeadas. Pasa por L2.
+      if (
+        r.window_days === 30 &&
+        (r.subject_type === 'collaborator' || r.subject_type === 'store') &&
+        r.position_quality != null &&
+        visits >= MIN_OBS &&
+        Number(r.position_quality) < 35
+      ) {
+        const pq = Number(r.position_quality);
+        add('weak_position', pq < 20 ? 'warn' : 'info', r, Math.round((35 - pq) * 100) / 100, {
+          position_quality: pq,
+          threshold: 35,
+          window_days: 30,
+        });
+      }
     }
 
     const keys = findings.map((f) => f.dedup_key);

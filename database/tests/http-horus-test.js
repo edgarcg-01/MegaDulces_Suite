@@ -848,6 +848,54 @@ async function req(method, path, token, body) {
   const goneK6 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: ZX }).first();
   check('cleanup K6 OK (sin zona sintética residual)', !goneK6, goneK6);
 
+  console.log('\n── 25. Horus 360 · K3: calidad de posición (pesos oficiales) + weak_position ──');
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const exPos = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  const rowsPos = exPos.body?.rows || [];
+  const withPos = rowsPos.filter((r) => r.position_quality != null);
+  console.log(`     con position_quality=${withPos.length}/${rowsPos.length}${withPos[0] ? ' · ej. ' + withPos[0].position_quality + '/100' : ''}`);
+  check('feature position_quality poblado (pesos oficiales de ubicación)', withPos.length > 0, withPos.length);
+  if (withPos.length > 0) {
+    check(
+      'position_quality en [0,100]',
+      withPos.every((r) => Number(r.position_quality) >= 0 && Number(r.position_quality) <= 100),
+      withPos.map((r) => r.position_quality),
+    );
+  }
+
+  // Verificación REAL de weak_position: inyecto un sujeto con posición débil → dispara.
+  const PX = '0000000a-0000-0000-0000-00000000ba70';
+  const cleanK3 = async () => {
+    await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: PX }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: PX }).del();
+    await knex('commercial.execution_360').where({ tenant_id: T, subject_id: PX }).del();
+  };
+  await cleanK3();
+  await knex('commercial.execution_360')
+    .insert({
+      tenant_id: T,
+      subject_type: 'collaborator',
+      subject_id: PX,
+      window_days: 30,
+      label: '__pos_test__',
+      visits_done: 5,
+      position_quality: 15, // mayormente anaquel/detrás
+    })
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const wp = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: PX, finding_type: 'weak_position' })
+    .first();
+  check('weak_position disparó sobre posición débil (15 < 35)', !!wp, wp ? { sev: wp.severity, score: wp.score } : 'sin weak_position');
+  if (wp) {
+    const ev = typeof wp.evidence === 'string' ? JSON.parse(wp.evidence) : wp.evidence;
+    check('evidencia explicable (position_quality=15)', ev && Number(ev.position_quality) === 15, ev);
+  }
+  await cleanK3();
+  const goneK3 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: PX }).first();
+  check('cleanup K3 OK (sin sujeto sintético residual)', !goneK3, goneK3);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

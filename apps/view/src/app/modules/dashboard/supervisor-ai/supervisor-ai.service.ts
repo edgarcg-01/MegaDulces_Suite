@@ -47,6 +47,7 @@ export interface Execution360Row {
   by_location?: Record<string, { label: string | null; n: number; level_avg: number | null }> | null;
   planogram_present?: number | null;
   planogram_total?: number | null;
+  position_quality?: number | null;
 }
 
 export interface FindingRow {

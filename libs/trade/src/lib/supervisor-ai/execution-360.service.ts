@@ -29,6 +29,8 @@ type Bucket = {
   durSum: number; // H2.1: minutos de visita acumulados
   durCount: number;
   skuSum: number; // H2.1: productos marcados acumulados
+  posSum: number; // K3: puntuación oficial de ubicación acumulada
+  posCount: number;
   lastVisit: number; // epoch ms
 };
 
@@ -78,6 +80,8 @@ const emptyBucket = (): Bucket => ({
   durSum: 0,
   durCount: 0,
   skuSum: 0,
+  posSum: 0,
+  posCount: 0,
   lastVisit: 0,
 });
 
@@ -218,14 +222,18 @@ export class Execution360Service {
     // con SAVEPOINT — `catalogs` puede no resolver en prod (schema/search_path) y esto
     // corre PRIMERO en /compute; sin el savepoint, un fallo envenenaría toda la trx (25P02).
     const catName = new Map<string, string>();
+    const ubiWeight = new Map<string, number>(); // K3: peso oficial de la ubicación (catalogs.puntuacion)
     const catRows =
       (await this.safeQuery(() =>
         this.knex('catalogs')
           .whereIn('catalog_id', ['conceptos', 'ubicaciones'])
           .whereNull('deleted_at')
-          .select('id', 'value'),
+          .select('id', 'value', 'puntuacion', 'catalog_id'),
       )) || [];
-    catRows.forEach((c: any) => catName.set(c.id, c.value));
+    catRows.forEach((c: any) => {
+      catName.set(c.id, c.value);
+      if (c.catalog_id === 'ubicaciones' && c.puntuacion != null) ubiWeight.set(c.id, Number(c.puntuacion));
+    });
 
     // K4: planograma activo del tenant (product_ids) para medir adherencia. safeQuery
     // por si trade.planogram_skus no resuelve en prod (corre en /compute → anti-25P02).
@@ -273,6 +281,8 @@ export class Execution360Service {
       let levelSum = 0;
       let levelCount = 0;
       let skuSum = 0;
+      let posSum = 0; // K3: puntuación oficial de la ubicación
+      let posCount = 0;
       // K1: detalle por exhibición (concepto/ubicación) para el desglose 30d.
       const exDetails: {
         cid?: string;
@@ -296,6 +306,11 @@ export class Execution360Service {
           levelSum += lw;
           levelCount++;
         }
+        const uw = e.ubicacionId ? ubiWeight.get(e.ubicacionId) : undefined; // K3
+        if (uw != null) {
+          posSum += uw;
+          posCount++;
+        }
         if (Array.isArray(e.productosMarcados)) {
           skuSum += e.productosMarcados.length;
           for (const pid of e.productosMarcados) capMarked.add(String(pid));
@@ -316,6 +331,8 @@ export class Execution360Service {
         b.levelSum += levelSum;
         b.levelCount += levelCount;
         b.skuSum += skuSum;
+        b.posSum += posSum; // K3
+        b.posCount += posCount;
         if (durMin != null) {
           b.durSum += durMin;
           b.durCount++;
@@ -418,6 +435,7 @@ export class Execution360Service {
         'by_location',
         'planogram_present',
         'planogram_total',
+        'position_quality',
         'anomaly_count',
         'computed_at',
         'updated_at',
@@ -497,6 +515,7 @@ export class Execution360Service {
     const execLevel = cur.levelCount > 0 ? round2((cur.levelSum / cur.levelCount) * 100) : null;
     const avgVisitMin = cur.durCount > 0 ? round2(cur.durSum / cur.durCount) : null;
     const avgSkus = cur.photoTotal > 0 ? round2(cur.skuSum / cur.photoTotal) : null;
+    const positionQuality = cur.posCount > 0 ? round2(cur.posSum / cur.posCount) : null; // K3
 
     // K1: desglose por concepto/ubicación (solo 30d; null en 7d).
     const clToJson = (m?: Map<string, CLBucket> | null): string | null => {
@@ -540,6 +559,7 @@ export class Execution360Service {
       by_location: byLocation, // K1
       planogram_present: markedPlano ? markedPlano.size : null, // K4
       planogram_total: markedPlano && planogramTotal ? planogramTotal : null, // K4
+      position_quality: positionQuality, // K3
       anomaly_count: 0, // Horus.6
       computed_at: this.knex.fn.now(),
       updated_at: this.knex.fn.now(),
