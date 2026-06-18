@@ -1,0 +1,5 @@
+# Los scripts de arranque de contenedores DEBEN ser LF: un shebang con CRLF
+# (#!/bin/sh\r) hace que Linux no encuentre el intérprete y el contenedor no
+# arranca (falla silenciosa de deploy). Forzar LF aunque se editen en Windows.
+*.sh text eol=lf
+start.sh text eol=lf
