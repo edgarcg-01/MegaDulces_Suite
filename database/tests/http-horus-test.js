@@ -735,6 +735,72 @@ async function req(method, path, token, body) {
   const goneK1 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: SX3 }).first();
   check('cleanup K1 OK (sin datos sintéticos residuales)', !goneK1, goneK1);
 
+  console.log('\n── 23. Horus 360 · K4: adherencia al planograma + planogram_gap ──');
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const exP = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  const rowsP = exP.body?.rows || [];
+  const withPlano = rowsP.filter((r) => r.planogram_total != null && r.planogram_present != null);
+  console.log(`     sujetos con planograma medido=${withPlano.length}/${rowsP.length} · total planograma=${withPlano[0]?.planogram_total ?? '?'}`);
+  check('feature planograma poblado (present + total numéricos)', withPlano.length > 0, withPlano.length);
+  if (withPlano.length > 0) {
+    check('planogram_total > 0 (planograma cargado)', Number(withPlano[0].planogram_total) > 0, withPlano[0].planogram_total);
+  }
+
+  // Verificación REAL de planogram_gap (peer-relativo): inyecto pares ALTOS que dominan
+  // la mediana + 1 tienda BAJA → debe dispararse sobre la baja. Cleanup completo.
+  const mk = (i) => `0000000a-0000-0000-0000-${String(710000000000 + i).padStart(12, '0')}`;
+  const realN = Number(
+    (
+      await knex('commercial.execution_360')
+        .where({ tenant_id: T, subject_type: 'store', window_days: 30 })
+        .whereNotNull('planogram_present')
+        .where('visits_done', '>=', 3)
+        .count('* as n')
+        .first()
+    ).n,
+  );
+  const nHigh = realN + 5; // domina la mediana de pares reales (suelen tener present bajo)
+  const lowId = mk(9999);
+  const synthIds = [lowId];
+  for (let i = 0; i < nHigh; i++) synthIds.push(mk(i));
+  const cleanK4 = async () => {
+    await knex('commercial.supervisor_findings').where('tenant_id', T).whereIn('subject_id', synthIds).del();
+    await knex('commercial.execution_360_snapshots').where('tenant_id', T).whereIn('subject_id', synthIds).del();
+    await knex('commercial.execution_360').where('tenant_id', T).whereIn('subject_id', synthIds).del();
+  };
+  await cleanK4();
+  const synthRows = synthIds.map((id) => ({
+    tenant_id: T,
+    subject_type: 'store',
+    subject_id: id,
+    window_days: 30,
+    label: '__k4_test__',
+    visits_done: 6,
+    planogram_present: id === lowId ? 2 : 40,
+    planogram_total: 852,
+  }));
+  await knex('commercial.execution_360')
+    .insert(synthRows)
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const pg = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: lowId, finding_type: 'planogram_gap' })
+    .first();
+  check('planogram_gap disparó sobre la tienda baja (2 vs mediana de pares)', !!pg, pg ? { sev: pg.severity, score: pg.score } : 'sin planogram_gap');
+  if (pg) {
+    const ev = typeof pg.evidence === 'string' ? JSON.parse(pg.evidence) : pg.evidence;
+    check('evidencia explicable (present=2 + peer_median ≥ 4)', ev && Number(ev.planogram_present) === 2 && Number(ev.peer_median) >= 4, ev);
+  }
+  // El par ALTO (present 40) NO debe dispararse.
+  const pgHigh = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: mk(0), finding_type: 'planogram_gap' })
+    .first();
+  check('el par alto (present 40) NO dispara planogram_gap', !pgHigh, pgHigh ? pgHigh.id : 'ok');
+  await cleanK4();
+  const goneK4 = await knex('commercial.execution_360').where('tenant_id', T).whereIn('subject_id', synthIds).first();
+  check('cleanup K4 OK (sin tiendas sintéticas residuales)', !goneK4, goneK4);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

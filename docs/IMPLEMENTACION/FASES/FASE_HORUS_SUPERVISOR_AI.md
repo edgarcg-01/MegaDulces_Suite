@@ -326,6 +326,13 @@ Objetivo: que Horus explote TODA la señal usable de cada módulo de Trade. **Do
 - FE: labels + evidencia (`weak_concept`, `self_anomaly`) + tipos `by_concept`/`by_location`.
 - Smoke **sección 22**: desglose real poblado + prueba sintética de `weak_concept` (concepto a 20 vs nivel 70 → dispara) + cleanup. **Pendiente: migrate:new (`20260618100000`) + restart → smoke 1-22.**
 
+### K4 — Planograma declarado-vs-observado ✅ EN CÓDIGO 2026-06-18 (builds api+view verdes)
+- **Paso 0 audit**: `orden_exhibicion` 100% poblado, `productosMarcados`↔`planogram_skus.product_id` mapean (304/631 marcados ∈ planograma), pero solo 304/852 SKUs se exhiben alguna vez y el grano (tienda) está capado a store_id 33% → **target absoluto NO aplica** (planograma tenant-wide).
+- **Mig `20260618110000`** `execution_360 += planogram_present/planogram_total` (30d). present = SKUs del planograma exhibidos (`productosMarcados ∩ trade.planogram_skus`); total = planograma activo (852). Es CONOCIMIENTO para ambos sujetos.
+- `Execution360Service` carga el set del planograma (safeQuery, schema `trade` explícito, anti-25P02) + acumula SKUs marcados distintos por sujeto (30d).
+- **Regla `planogram_gap` PEER-RELATIVA** (tienda 30d): exhibe < 50% de la **mediana de sus pares** (guard mediana≥4, visits≥3) → conservador, alta precisión. Pasa por calibración L2. **CAVEAT (logueado): solo tiendas con store_id ~33%; dormido si todas las tiendas están parejas-bajo** (honesto, como sales_execution_gap) — su valor pleno llega con D1.
+- FE: label + evidencia `planogram_gap`. Smoke **sección 23** (feature real + prueba del disparo inyectando pares altos que dominan la mediana + tienda baja + cleanup). **Pendiente: migrate:new (`20260618110000`) + restart → smoke 1-23.**
+
 ### Pendientes Horus 360
-- **K4** planograma adherencia por SKU · **K3** catálogo+pesos scoring · **K6** roll-ups zona/supervisor · **K5** idle+traza GPS · **K7** check-in×captura.
+- **K3** catálogo+pesos scoring · **K6** roll-ups zona/supervisor · **K5** idle+traza GPS · **K7** check-in×captura.
 - **Eje B (datos)**: D1 store_id en captura (33%→alto) · D2 daily_assignments.date · **D3 ventaAdicional** (rescata K2) · D4 route_id.

@@ -91,6 +91,20 @@ export class FindingsEngineService {
       .where('tenant_id', tenantId)
       .select('*');
 
+    // K4: mediana de adherencia al planograma entre tiendas (base del finding peer-relativo;
+    // el planograma es tenant-wide, sin target absoluto por tienda).
+    const storePlano = rows
+      .filter(
+        (r: any) =>
+          r.subject_type === 'store' &&
+          Number(r.window_days) === 30 &&
+          r.planogram_present != null &&
+          num(r.visits_done, 0) >= MIN_OBS,
+      )
+      .map((r: any) => Number(r.planogram_present))
+      .sort((a: number, b: number) => a - b);
+    const planoMedian = storePlano.length ? storePlano[Math.floor(storePlano.length / 2)] : 0;
+
     const findings: any[] = [];
     const add = (findingType: string, severity: string, r: any, score: number, evidence: any) => {
       const c = calib.get(`${findingType}:engine`);
@@ -162,6 +176,23 @@ export class FindingsEngineService {
           add('store_at_risk', daysSince > th.days_no_visit_max * 2 ? 'critical' : 'warn', r, daysSince, {
             days_since_last_visit: daysSince,
             threshold: th.days_no_visit_max,
+          });
+        }
+        // K4 (Horus 360): adherencia al planograma PEER-RELATIVA. Tienda que exhibe mucho
+        // menos del planograma que la mediana de sus pares (≤50%). Conservador → alta
+        // precisión. CAVEAT: solo tiendas con store_id (~33%). Pasa por calibración L2.
+        if (
+          r.planogram_present != null &&
+          planoMedian >= 4 &&
+          visits >= MIN_OBS &&
+          Number(r.planogram_present) < planoMedian * 0.5
+        ) {
+          const present = Number(r.planogram_present);
+          add('planogram_gap', present < planoMedian * 0.25 ? 'warn' : 'info', r, planoMedian - present, {
+            planogram_present: present,
+            peer_median: planoMedian,
+            planogram_total: r.planogram_total != null ? Number(r.planogram_total) : null,
+            window_days: 30,
           });
         }
       }

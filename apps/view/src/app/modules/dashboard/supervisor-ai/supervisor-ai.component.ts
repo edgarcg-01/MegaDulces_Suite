@@ -41,6 +41,7 @@ const FINDING_LABELS: Record<string, string> = {
   store_at_risk: 'tienda sin visita',
   self_anomaly: 'cae vs su propio normal',
   weak_concept: 'concepto flojo (ejecuta peor un tipo de exhibidor)',
+  planogram_gap: 'poco planograma vs pares',
   vision_stockout: 'quiebre de stock (foto)',
   vision_mismatch: 'declarado ≠ observado (foto)',
   vision_invalid: 'fotos inválidas',
@@ -755,6 +756,8 @@ export class SupervisorAiComponent implements OnInit {
         return `score ${e['current'] ?? '?'} vs su normal ${e['baseline_mean'] ?? '?'} (${e['baseline_n_obs'] ?? '?'} días)`;
       case 'weak_concept':
         return `${e['concept'] ?? 'concepto'} a ${e['concept_level'] ?? '?'} vs su nivel ${e['overall_level'] ?? '?'} (${e['exhibiciones'] ?? '?'} exh.)`;
+      case 'planogram_gap':
+        return `exhibe ${e['planogram_present'] ?? '?'} SKUs del planograma vs ${e['peer_median'] ?? '?'} de sus pares`;
       case 'vision_stockout':
         return `quiebre de stock en ${e['stockout_photos'] ?? '?'} foto(s)`;
       case 'vision_mismatch':

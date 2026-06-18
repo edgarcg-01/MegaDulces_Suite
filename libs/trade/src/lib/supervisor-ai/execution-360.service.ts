@@ -60,6 +60,7 @@ type SubjectAgg = {
   w30prev: Bucket;
   concepts: Map<string, CLBucket>; // K1: por conceptoId (30d)
   locations: Map<string, CLBucket>; // K1: por ubicacionId (30d)
+  markedPlano: Set<string>; // K4: product_ids del planograma exhibidos (30d, distintos)
 };
 
 const DAY_MS = 86_400_000;
@@ -210,6 +211,15 @@ export class Execution360Service {
       )) || [];
     catRows.forEach((c: any) => catName.set(c.id, c.value));
 
+    // K4: planograma activo del tenant (product_ids) para medir adherencia. safeQuery
+    // por si trade.planogram_skus no resuelve en prod (corre en /compute → anti-25P02).
+    const planoRows =
+      (await this.safeQuery(() =>
+        this.knex('trade.planogram_skus').whereNull('deleted_at').select('product_id'),
+      )) || [];
+    const planogramSet = new Set<string>(planoRows.map((p: any) => String(p.product_id)));
+    const planogramTotal = planogramSet.size;
+
     const byCollaborator = new Map<string, SubjectAgg>();
     const byStore = new Map<string, SubjectAgg>();
     const ensure = (map: Map<string, SubjectAgg>, key: string, label: string): SubjectAgg => {
@@ -223,6 +233,7 @@ export class Execution360Service {
           w30prev: emptyBucket(),
           concepts: new Map(),
           locations: new Map(),
+          markedPlano: new Set(),
         };
         map.set(key, a);
       }
@@ -253,6 +264,7 @@ export class Execution360Service {
         comp: boolean;
         photo: boolean;
       }[] = [];
+      const capMarked = new Set<string>(); // K4: product_ids marcados en esta captura
       for (const e of Execution360Service.parseArray(r.exhibiciones)) {
         photoTotal++;
         const hasPhoto = !!e.fotoUrl;
@@ -266,7 +278,10 @@ export class Execution360Service {
           levelSum += lw;
           levelCount++;
         }
-        if (Array.isArray(e.productosMarcados)) skuSum += e.productosMarcados.length;
+        if (Array.isArray(e.productosMarcados)) {
+          skuSum += e.productosMarcados.length;
+          for (const pid of e.productosMarcados) capMarked.add(String(pid));
+        }
         exDetails.push({ cid: e.conceptoId, lid: e.ubicacionId, lw, own: isOwn, comp: isComp, photo: hasPhoto });
       }
 
@@ -318,6 +333,7 @@ export class Execution360Service {
             if (d.cid) bumpCL(a.concepts, d.cid, d);
             if (d.lid) bumpCL(a.locations, d.lid, d);
           }
+          for (const pid of capMarked) if (planogramSet.has(pid)) a.markedPlano.add(pid); // K4
         } else if (daysAgo <= 60) apply(a.w30prev);
       };
 
@@ -328,8 +344,8 @@ export class Execution360Service {
     const rows: any[] = [];
     const pushRows = (type: 'collaborator' | 'store', map: Map<string, SubjectAgg>) => {
       for (const [id, a] of map) {
-        rows.push(this.buildRow(tenantId, type, id, 7, a.label, a.w7, a.w7prev, now, null, null, catName));
-        rows.push(this.buildRow(tenantId, type, id, 30, a.label, a.w30, a.w30prev, now, a.concepts, a.locations, catName));
+        rows.push(this.buildRow(tenantId, type, id, 7, a.label, a.w7, a.w7prev, now, null, null, catName, null, 0));
+        rows.push(this.buildRow(tenantId, type, id, 30, a.label, a.w30, a.w30prev, now, a.concepts, a.locations, catName, a.markedPlano, planogramTotal));
       }
     };
     pushRows('collaborator', byCollaborator);
@@ -354,6 +370,8 @@ export class Execution360Service {
         'avg_skus',
         'by_concept',
         'by_location',
+        'planogram_present',
+        'planogram_total',
         'anomaly_count',
         'computed_at',
         'updated_at',
@@ -419,6 +437,8 @@ export class Execution360Service {
     concepts?: Map<string, CLBucket> | null,
     locations?: Map<string, CLBucket> | null,
     catName?: Map<string, string>,
+    markedPlano?: Set<string> | null,
+    planogramTotal?: number,
   ): any {
     const avg = cur.scoreCount > 0 ? round2(cur.scoreSum / cur.scoreCount) : null;
     const avgPrev = prev.scoreCount > 0 ? prev.scoreSum / prev.scoreCount : null;
@@ -472,6 +492,8 @@ export class Execution360Service {
       avg_skus: avgSkus, // H2.1
       by_concept: byConcept, // K1
       by_location: byLocation, // K1
+      planogram_present: markedPlano ? markedPlano.size : null, // K4
+      planogram_total: markedPlano && planogramTotal ? planogramTotal : null, // K4
       anomaly_count: 0, // Horus.6
       computed_at: this.knex.fn.now(),
       updated_at: this.knex.fn.now(),
