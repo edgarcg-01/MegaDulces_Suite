@@ -91,6 +91,32 @@ export class AlertsService {
     });
   }
 
+  emitExpiringLots(tenantId: string, params: {
+    product_id: string;
+    product_name: string;
+    brand_name: string | null;
+    warehouse_code: string;
+    lot_code: string;
+    expiry_date: string;
+    quantity: number;
+    days_to_expiry: number;
+  }): void {
+    const expired = params.days_to_expiry < 0;
+    const severity: AlertSeverity =
+      expired || params.days_to_expiry <= ALERT_THRESHOLDS.EXPIRING_LOTS_CRITICAL_DAYS ? 'critical' : 'warn';
+    this.emit(tenantId, {
+      type: 'expiring_lots',
+      severity,
+      title: expired
+        ? `Lote VENCIDO: ${params.product_name}`
+        : `Lote por vencer: ${params.product_name}`,
+      message: expired
+        ? `${params.quantity} u · lote ${params.lot_code} · venció hace ${Math.abs(params.days_to_expiry)} días (${params.warehouse_code})`
+        : `${params.quantity} u · lote ${params.lot_code} · vence en ${params.days_to_expiry} días (${params.warehouse_code})`,
+      data: params,
+    });
+  }
+
   emitVipInactive(tenantId: string, params: {
     customer_id: string;
     customer_code: string;

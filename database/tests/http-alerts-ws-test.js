@@ -247,6 +247,28 @@ function wait(ms) {
   // No asserteamos que low_stock haya emitido — depende de si quedaron productos bajo umbral
   // tras los pedidos previos. Solo verificamos que el endpoint funciona.
 
+  // P2.2b — expiring_lots: almacén dedicado + lote a +3d → scan emite alerta de caducidad.
+  // Almacén dedicado para no contaminar MD-CENTRAL; al soft-deletearlo queda inactive
+  // (w.active=false) y deja de escanearse en runs futuros. Solo lotes con expiry real
+  // disparan esta alerta (el backfill usó expiry NULL), así que no hay flood.
+  console.log('\n── 6b. P2.2b · alerta de lote por vencer ──');
+  const expTs = Date.now().toString().slice(-8);
+  const expWhResp = await http('POST', '/commercial/warehouses', { code: `EXPALERT-${expTs}`, name: `Exp Alert ${expTs}`, is_default: false }, t1Token);
+  const expWhId = expWhResp.body?.id;
+  const expWhCode = `EXPALERT-${expTs}`;
+  const expDate = new Date(Date.now() + 3 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  await http('POST', '/commercial/inventory/movements', {
+    warehouse_id: expWhId, product_id: expensive.product_id, movement_type: 'in', quantity: 7, lot_code: `CRIT-${expTs}`, expiry_date: expDate,
+  }, t1Token);
+  t1.alerts.length = 0;
+  const scan2 = await http('POST', '/commercial/alerts/scan-now', null, t1Token);
+  check('scan-now (expiring) status 2xx', scan2.status >= 200 && scan2.status < 300);
+  await wait(700);
+  const expAlert = t1.alerts.find((a) => a.type === 'expiring_lots' && a.data?.warehouse_code === expWhCode);
+  check('recibimos expiring_lots alert para el lote a +3d', !!expAlert, { expiring_alerts: t1.alerts.filter((a) => a.type === 'expiring_lots').length });
+  check('expiring_lots severidad critical (<= 7d)', expAlert?.severity === 'critical', { sev: expAlert?.severity });
+  if (expWhId) await http('DELETE', `/commercial/warehouses/${expWhId}`, null, t1Token);
+
   // Stats
   console.log('\n── 7. Stats ──');
   const stats = await http('GET', '/commercial/alerts/stats', null, t1Token);

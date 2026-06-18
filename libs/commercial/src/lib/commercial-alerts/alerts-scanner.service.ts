@@ -9,6 +9,7 @@ import { ALERT_THRESHOLDS } from './alerts.types';
  * Scanner cron que detecta condiciones de alerta sin trigger inmediato:
  *   - low_stock_critical: productos con available_quantity bajo umbral.
  *   - vip_inactive: customers con credit_limit alto sin compras recientes.
+ *   - expiring_lots: lotes con caducidad próxima (<= N días) o ya vencidos (FEFO).
  *
  * Corre cada 5 min. Itera TODOS los tenants activos (no usa RLS porque opera
  * como postgres user). Para cada tenant setea contexto y escanea.
@@ -122,6 +123,46 @@ export class AlertsScannerService {
           customer_name: v.name,
           credit_limit: Number(v.credit_limit),
           days_inactive: v.days_inactive,
+        });
+        this.markEmitted(key);
+        count++;
+      }
+
+      // 3. Lotes por vencer / vencidos (FEFO)
+      const expiring = await trx('commercial.stock_lots as sl')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'sl.warehouse_id')
+        .leftJoin('public.products as p', 'p.id', 'sl.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .whereNotNull('sl.expiry_date')
+        .where('sl.quantity', '>', 0)
+        .whereRaw(`sl.expiry_date <= CURRENT_DATE + (? || ' days')::interval`, [
+          ALERT_THRESHOLDS.EXPIRING_LOTS_DAYS,
+        ])
+        .where('w.active', true)
+        .where('p.activo', true)
+        .select(
+          'sl.product_id',
+          'p.nombre as product_name',
+          'b.nombre as brand_name',
+          'w.code as warehouse_code',
+          'sl.lot_code',
+          trx.raw(`to_char(sl.expiry_date, 'YYYY-MM-DD') as expiry_date`),
+          trx.raw('sl.quantity::numeric as quantity'),
+          trx.raw('(sl.expiry_date - CURRENT_DATE)::int as days_to_expiry'),
+        );
+
+      for (const lot of expiring) {
+        const key = `${tenantId}:expiring:${lot.product_id}:${lot.warehouse_code}:${lot.lot_code}`;
+        if (this.onCooldown(key)) continue;
+        this.alerts.emitExpiringLots(tenantId, {
+          product_id: lot.product_id,
+          product_name: lot.product_name,
+          brand_name: lot.brand_name,
+          warehouse_code: lot.warehouse_code,
+          lot_code: lot.lot_code,
+          expiry_date: lot.expiry_date,
+          quantity: Number(lot.quantity),
+          days_to_expiry: Number(lot.days_to_expiry),
         });
         this.markEmitted(key);
         count++;

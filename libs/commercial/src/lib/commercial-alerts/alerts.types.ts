@@ -8,6 +8,7 @@
 
 export type AlertType =
   | 'low_stock_critical' // available_quantity < threshold
+  | 'expiring_lots'      // lote con caducidad próxima o vencida (FEFO)
   | 'large_order'        // order.total > threshold al confirmar
   | 'vip_inactive'       // customer con credit_limit alto sin compra en N días
   | 'order_confirmed'    // every order confirm (informativo)
@@ -31,4 +32,6 @@ export const ALERT_THRESHOLDS = {
   LOW_STOCK_AVAILABLE: 50,         // available < 50 unidades = crítico
   VIP_CREDIT_LIMIT_MXN: 15000,     // customer con credit_limit >= $15k = VIP
   VIP_INACTIVE_DAYS: 14,           // VIP sin compra en 14 días = alert
+  EXPIRING_LOTS_DAYS: 30,          // lote que vence en <= 30 días = alert (incluye ya vencidos)
+  EXPIRING_LOTS_CRITICAL_DAYS: 7,  // <= 7 días o vencido = critical
 } as const;

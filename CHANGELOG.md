@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — P2.2b FEFO: cron de alerta de lotes por vencer
+- **`AlertsScannerService` scan #3** (`expiring_lots`): detecta lotes de `commercial.stock_lots` con
+  `expiry_date <= hoy+30d` y `quantity > 0` (incluye **vencidos**) → emite alerta WS vía nuevo
+  `AlertsService.emitExpiringLots` con severidad `critical` (≤7 días o vencido) o `warn`. Reusa el
+  patrón de `low_stock` (scoping por `SET LOCAL app.tenant_id`, cooldown 1h anti-spam). Cron global
+  sigue gateado por `ENABLE_COMMERCIAL_ALERTS`; `POST /commercial/alerts/scan-now` lo dispara manual.
+- Nuevo tipo `expiring_lots` en `AlertType` + umbrales `EXPIRING_LOTS_DAYS=30` / `EXPIRING_LOTS_CRITICAL_DAYS=7`.
+- Build api verde + check WS en el smoke de alerts (almacén dedicado + lote a +3d → recibe alerta `critical`;
+  almacén soft-deleteado queda inactive y no se re-escanea). ⏳ requiere **reinicio** para probar live.
+- P2.1b + P2.2a ✅ **verificados LIVE** (smoke I.5 26/26 tras reinicio): captura de lote, `/lots`, `/expiring`.
+- Roadmap actualizado: P2.2b dividido → P2.2b alerta (✅ código) / P2.2c dashboard "Por vencer" / P2.2d
+  gate de venta de vencidos (diseño primero — conflige con el invariante del trigger).
+
 ### Added — P2.2a FEFO: endpoint de lotes por vencer (base de alertas de caducidad)
 - **`GET /commercial/inventory/expiring?days=30&warehouse_id=`** (gate VER): lotes con caducidad
   ≤ hoy+`days` y stock > 0 (incluye **vencidos** — `days_to_expiry` puede ser ≤0), con
