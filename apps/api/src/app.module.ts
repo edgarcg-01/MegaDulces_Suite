@@ -43,6 +43,7 @@ import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialOrdersModule } from '@megadulces/commercial';
+import { CommercialCargaModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
 import { CommercialRecommendationsModule } from '@megadulces/commercial';
@@ -96,6 +97,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialPricingModule,
       CommercialInventoryModule,
       CommercialOrdersModule,
+      CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialAlertsModule,
       CommercialRecommendationsModule,

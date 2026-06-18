@@ -22,6 +22,7 @@ const TESTS = [
   { file: 'test-newdb-inventory-count.js', label: 'I.1 inventario físico (folio+snapshot+conteo ciego+coverage+freeze+reconcile)', needsApi: false },
   // HTTP E2E (requieren API)
   { file: 'http-e2e-test.js', label: 'B.1 HTTP CRUD + order flow', needsApi: true },
+  { file: 'http-carga-load-status-test.js', label: 'Carga: checklist sí/no cargamos (load-status E2E)', needsApi: true },
   { file: 'http-tenant-isolation-test.js', label: 'B HTTP tenant isolation', needsApi: true },
   { file: 'http-analytics-test.js', label: 'C.0 analytics endpoints', needsApi: true },
   { file: 'http-analytics-mv-test.js', label: 'C.1 materialized views', needsApi: true },

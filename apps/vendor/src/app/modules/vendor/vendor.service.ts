@@ -24,6 +24,27 @@ export interface VendorCustomer {
   active: boolean;
 }
 
+/** Estado de carga de una línea (lo que devuelve el backend). */
+export interface CargaLoadStatusRow {
+  order_id: string;
+  product_id: string;
+  status: 'loaded' | 'not_loaded';
+  reason: string | null;
+  quantity: number | null;
+  product_name: string | null;
+  delivery_date: string | null;
+}
+/** Payload para marcar una línea de carga. status='pending' borra la fila. */
+export interface SetCargaLoadStatus {
+  order_id: string;
+  product_id: string;
+  status: 'loaded' | 'not_loaded' | 'pending';
+  reason?: string | null;
+  quantity?: number | null;
+  product_name?: string | null;
+  delivery_date?: string | null;
+}
+
 /** Pedido pendiente del cliente, embebido en el feed del home. */
 export interface HomePendingOrder {
   id: string;
@@ -414,6 +435,25 @@ export class VendorService {
     return this.http
       .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
       .pipe(map((r) => r.data || []));
+  }
+
+  // ─── Carga: checklist 'sí cargamos / no cargamos' (registrado en backend) ───
+
+  /** Estados de carga (loaded/not_loaded) de las líneas de los pedidos dados. */
+  cargaLoadStatuses(orderIds: string[]): Observable<CargaLoadStatusRow[]> {
+    if (!orderIds.length) return of([]);
+    const params = new HttpParams().set('order_ids', orderIds.join(','));
+    return this.http.get<CargaLoadStatusRow[]>(`${this.base}/carga/load-status`, { params });
+  }
+
+  /** Marca una línea: loaded / not_loaded (+motivo) / pending (borra la fila). */
+  setCargaLoadStatus(dto: SetCargaLoadStatus): Observable<unknown> {
+    return this.http.put(`${this.base}/carga/load-status`, dto);
+  }
+
+  /** Marca varias líneas de una (toggle por pedido o por producto). */
+  setCargaLoadStatusBulk(items: SetCargaLoadStatus[]): Observable<unknown> {
+    return this.http.post(`${this.base}/carga/load-status/bulk`, { items });
   }
 
   // ─── Home "Mi ruta": feed unificado + autoventa ───

@@ -10,6 +10,7 @@ export * from './lib/commercial-warehouses/commercial-warehouses.module';
 export * from './lib/commercial-pricing/commercial-pricing.module';
 export * from './lib/commercial-inventory/commercial-inventory.module';
 export * from './lib/commercial-orders/commercial-orders.module';
+export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-alerts/commercial-alerts.module';
 export * from './lib/commercial-recommendations/commercial-recommendations.module';
