@@ -281,17 +281,37 @@ const QUADRANT_LABELS: Record<string, string> = {
           </section>
         }
 
-        <!-- Acciones sugeridas (co-piloto) -->
+        <!-- Acciones sugeridas (co-piloto) — ordenadas por prioridad (motor) -->
         @if (actions().length > 0) {
           <section class="card">
             <h2 class="card__title">Acciones sugeridas ({{ actions().length }})</h2>
             <ul class="findings">
               @for (a of actions(); track a.id) {
-                <li class="finding">
+                <li class="finding finding--opp">
                   <span class="sev act-ic"><i [class]="actionPi(a.action_type)"></i></span>
                   <div class="finding__body">
-                    <span class="finding__label">{{ a.title }}</span>
+                    <span class="finding__label">
+                      {{ a.title }}
+                      @if (a.kind === 'diagnosis') {
+                        <span class="diagcause" pTooltip="Nace de un diagnóstico de causa raíz (correlaciona varios síntomas)">causa raíz</span>
+                      }
+                    </span>
+                    @if (a.rationale) {
+                      <span class="finding__why">{{ a.rationale }}</span>
+                    }
                     <span class="finding__type">{{ actionLabel(a.action_type) }}</span>
+                    <div class="chips">
+                      @if (a.confidence != null) {
+                        <span class="chip diag-conf" pTooltip="Precisión histórica de la regla (aprendida) × corroboración">
+                          confianza {{ a.confidence * 100 | number: '1.0-0' }}%
+                        </span>
+                      }
+                      @if (a.expected_impact) {
+                        <span class="chip" pTooltip="Su nivel normal aprendido (L1): el techo si la acción funciona">
+                          objetivo ≈ {{ a.expected_impact.baseline_mean | number: '1.0-0' }}% (su normal)
+                        </span>
+                      }
+                    </div>
                   </div>
                   <div class="finding__actions">
                     <button type="button" class="btn-approve" (click)="approve(a)">Aprobar</button>
@@ -695,7 +715,9 @@ export class SupervisorAiComponent implements OnInit {
         this.briefing.set(brief);
         this.findings.set(finds.rows ?? []);
         this.diagnoses.set(diags.rows ?? []);
-        this.actions.set(acts.rows ?? []);
+        // Acciones = respuesta a problemas (finding + diagnosis). Las opportunities
+        // van en su propia sección "Mejoras". El backend ya las ordena por prioridad.
+        this.actions.set((acts.rows ?? []).filter((a) => a.kind !== 'opportunity'));
         this.opportunities.set(opps.rows ?? []);
         this.tasks.set(tasks.rows ?? []);
         this.coachingNotes.set(notes.rows ?? []);

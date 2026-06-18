@@ -1018,6 +1018,69 @@ async function req(method, path, token, body) {
   const goneR1 = await knex('commercial.supervisor_diagnoses').where({ tenant_id: T }).whereIn('subject_id', [DX, DY]).first();
   check('cleanup R1 OK (sin diagnósticos sintéticos residuales)', !goneR1, goneR1);
 
+  console.log('\n── 28. Horus.R · R2: decisión con confianza + impacto + N→1 ──');
+  const OF = '0000000a-0000-0000-0000-00000000baa0'; // huérfano: 1 síntoma → acción atómica
+  const DG = '0000000a-0000-0000-0000-00000000baa1'; // diagnosticado: 2 síntomas → 1 acción consolidada
+  const cleanR2 = async () => {
+    for (const id of [OF, DG]) {
+      await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.supervisor_diagnoses').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: id }).del();
+      await knex('commercial.execution_360').where({ tenant_id: T, subject_id: id }).del();
+    }
+  };
+  await cleanR2();
+  // OF: solo posición floja (15<35 → weak_position), score normal → 1 síntoma atómico.
+  // DG: score bajo (10) + posición floja (15) → 2 síntomas → diagnóstico → 1 acción.
+  await knex('commercial.execution_360')
+    .insert([
+      { tenant_id: T, subject_type: 'collaborator', subject_id: OF, window_days: 30, label: '__r2_orphan__', visits_done: 5, avg_score: 70, position_quality: 15 },
+      { tenant_id: T, subject_type: 'collaborator', subject_id: DG, window_days: 30, label: '__r2_diag__', visits_done: 5, avg_score: 10, position_quality: 15 },
+    ])
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+
+  // (a) Huérfano: weak_position antes NO proponía nada; R2 lo cubre con coaching_focus + decisión.
+  const ofAction = await knex('commercial.supervisor_actions')
+    .where({ tenant_id: T, subject_id: OF, kind: 'finding', action_type: 'coaching_focus' })
+    .first();
+  check('finding huérfano (weak_position) ahora SÍ propone acción (coaching_focus)', !!ofAction, ofAction ? ofAction.action_type : 'sin acción');
+  if (ofAction) {
+    check('acción atómica trae confianza en (0,1]', ofAction.confidence != null && Number(ofAction.confidence) > 0 && Number(ofAction.confidence) <= 1, ofAction.confidence);
+    check('acción atómica trae prioridad > 0', ofAction.priority != null && Number(ofAction.priority) > 0, ofAction.priority);
+  }
+
+  // (b) Diagnosticado: 2 síntomas → UNA acción kind=diagnosis con diagnosis_id (N→1).
+  const dgActions = await knex('commercial.supervisor_actions')
+    .where({ tenant_id: T, subject_id: DG })
+    .whereIn('kind', ['finding', 'diagnosis']);
+  const dgDiag = dgActions.find((a) => a.kind === 'diagnosis');
+  check('diagnóstico → acción kind=diagnosis (coaching_focus)', !!dgDiag && dgDiag.action_type === 'coaching_focus', dgDiag ? dgDiag.action_type : 'sin acción de diagnóstico');
+  if (dgDiag) {
+    check('la acción referencia el diagnosis_id', !!dgDiag.diagnosis_id, dgDiag.diagnosis_id);
+    check('trae root_cause = execution_quality_decline', dgDiag.root_cause === 'execution_quality_decline', dgDiag.root_cause);
+    check('trae rationale (la cadena del diagnóstico)', !!dgDiag.rationale, dgDiag.rationale ? 'ok' : 'sin rationale');
+    check('confianza del diagnóstico en (0,1]', dgDiag.confidence != null && Number(dgDiag.confidence) > 0 && Number(dgDiag.confidence) <= 1, dgDiag.confidence);
+  }
+  const dgFindingActions = dgActions.filter((a) => a.kind === 'finding');
+  check('los síntomas bundleados NO generan acciones sueltas (N→1)', dgFindingActions.length === 0, dgFindingActions.map((a) => a.action_type));
+
+  // (c) GET /actions ordena por prioridad (desc) y trae los campos de decisión.
+  const al = await req('GET', '/supervisor-ai/actions?status=pending_approval', token);
+  check('GET /actions 200', al.status === 200, al.status);
+  const arows = (al.body?.rows || []).filter((r) => r.priority != null);
+  check('hay acciones con prioridad poblada', arows.length > 0, arows.length);
+  if (arows.length >= 2) {
+    const ordered = arows.every((r, i) => i === 0 || Number(arows[i - 1].priority) >= Number(r.priority));
+    check('acciones ordenadas por prioridad desc', ordered, arows.slice(0, 5).map((r) => r.priority));
+  }
+
+  await cleanR2();
+  const goneR2 = await knex('commercial.supervisor_actions').where({ tenant_id: T }).whereIn('subject_id', [OF, DG]).first();
+  check('cleanup R2 OK (sin acciones sintéticas residuales)', !goneR2, goneR2);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

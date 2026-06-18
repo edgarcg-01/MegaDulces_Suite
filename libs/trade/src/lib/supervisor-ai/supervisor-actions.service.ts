@@ -8,6 +8,9 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import { DiagnosisEngineService } from './diagnosis-engine.service';
+import { RuleCalibrationService } from './rule-calibration.service';
+import { BaselineLearnerService } from './baseline-learner.service';
 
 /**
  * Horus — Co-piloto de acciones (Sprint Horus.4).
@@ -29,11 +32,29 @@ const ACTION_FOR: Record<string, string> = {
   low_score: 'coaching',
   competitor_dominance: 'visit',
   store_at_risk: 'visit',
+  // Horus 360 (R2): los findings de ejecución fina ahora SÍ proponen acción atómica
+  // cuando no están bundleados en un diagnóstico (R1).
+  self_anomaly: 'coaching',
+  weak_concept: 'coaching_focus',
+  weak_position: 'coaching_focus',
+  idle_anomaly: 'coaching',
+  planogram_gap: 'recover_shelf',
   // Findings de visión (H2.2):
   vision_stockout: 'visit',
   vision_mismatch: 'flag_recapture',
   vision_invalid: 'flag_recapture',
 };
+
+// R1→R2: traducción del diagnóstico (action_hint) a una acción coherente del co-piloto.
+const DIAGNOSIS_ACTION: Record<string, string> = {
+  execution_quality_decline: 'coaching_focus',
+  time_management_impact: 'coaching',
+  sustained_decline: 'coaching',
+  store_at_risk_compound: 'recover_shelf',
+  team_sustained_decline: 'escalate',
+};
+
+const SEV_WEIGHT: Record<string, number> = { info: 1, warn: 2, critical: 3 };
 
 type FindingForAction = {
   id: string;
@@ -42,6 +63,7 @@ type FindingForAction = {
   subject_type: string;
   subject_id: string;
   label: string | null;
+  source: string;
   evidence: any;
 };
 
@@ -57,12 +79,30 @@ function parseEvidence(v: any): Record<string, any> {
   return {};
 }
 
+function parseArray(v: any): any[] {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    try {
+      const p = JSON.parse(v);
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+const round3 = (x: number) => Math.round(x * 1000) / 1000;
+
 @Injectable()
 export class SupervisorActionsService {
   private readonly logger = new Logger(SupervisorActionsService.name);
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly diagnosis: DiagnosisEngineService,
+    private readonly calibration: RuleCalibrationService,
+    private readonly baselines: BaselineLearnerService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
@@ -82,6 +122,16 @@ export class SupervisorActionsService {
         return `Visita a ${who}: competencia ${e.competitor_share_pct ?? '?'}% del exhibidor`;
       case 'store_at_risk':
         return `Agendar visita a ${who}: ${e.days_since_last_visit ?? '?'} días sin visita`;
+      case 'self_anomaly':
+        return `Coaching a ${who}: cayó a ${e.current ?? '?'} vs su normal ${e.baseline_mean ?? '?'}`;
+      case 'weak_concept':
+        return `Coaching enfocado a ${who}: concepto "${e.concept ?? '?'}" flojo (${e.concept_level ?? '?'} vs ${e.overall_level ?? '?'})`;
+      case 'weak_position':
+        return `Coaching enfocado a ${who}: mejorar posición en anaquel (calidad ${e.position_quality ?? '?'}/100)`;
+      case 'idle_anomaly':
+        return `Coaching a ${who}: ${e.idle_min_avg ?? '?'} min muertos entre visitas`;
+      case 'planogram_gap':
+        return `Recuperar anaquel en ${who}: ${e.planogram_present ?? '?'} SKUs del planograma vs pares`;
       case 'vision_stockout':
         return `Visita a ${who}: quiebre de stock detectado en foto (${e.stockout_photos ?? '?'} fotos)`;
       case 'vision_mismatch':
@@ -108,14 +158,58 @@ export class SupervisorActionsService {
   async proposeForTenant(tenantId: string): Promise<{ proposed: number; expired: number }> {
     if (!tenantId) return { proposed: 0, expired: 0 };
 
+    // R2: inputs de decisión — precisión aprendida (L2), baselines (L1), diagnósticos (R1).
+    const confMap = await this.calibration.getConfidence(tenantId);
+    const baseMap = await this.baselines.getBaselines(tenantId);
+    const diagnoses = await this.diagnosis.getOpenForTenant(tenantId);
+
     const findings: FindingForAction[] = await this.knex('commercial.supervisor_findings')
       .where({ tenant_id: tenantId, status: 'open' })
-      .select('id', 'finding_type', 'severity', 'subject_type', 'subject_id', 'label', 'evidence');
+      .select('id', 'finding_type', 'severity', 'subject_type', 'subject_id', 'label', 'source', 'evidence');
 
     const actions: any[] = [];
+
+    // ── 1) Acción por DIAGNÓSTICO (R1): UNA acción coherente que reemplaza las N sueltas.
+    const claimed = new Set<string>(); // finding_ids ya representados por un diagnóstico
+    for (const d of diagnoses) {
+      const fids = parseArray(d.finding_ids);
+      fids.forEach((id: any) => typeof id === 'string' && claimed.add(id));
+      const actionType = DIAGNOSIS_ACTION[d.root_cause];
+      if (!actionType) continue;
+      const types = parseArray(d.finding_types);
+      const l2vals = types.length ? types.map((t: string) => confMap.get(`${t}:engine`) ?? 0.6) : [0.6];
+      const l2avg = l2vals.reduce((a, b) => a + b, 0) / l2vals.length;
+      const conf = round3(((d.confidence != null ? Number(d.confidence) : 0.6) + l2avg) / 2);
+      const impact = this.impactFor(d.subject_type, d.subject_id, baseMap);
+      actions.push({
+        tenant_id: tenantId,
+        finding_id: null,
+        dedup_key: `diag:${d.subject_type}:${d.subject_id}:${d.root_cause}`,
+        action_type: actionType,
+        kind: 'diagnosis',
+        subject_type: d.subject_type,
+        subject_id: d.subject_id,
+        label: d.label ? String(d.label).slice(0, 160) : null,
+        title: this.diagTitle(d).slice(0, 300),
+        rationale: d.summary ? String(d.summary).slice(0, 2000) : null,
+        payload: JSON.stringify({ root_cause: d.root_cause, finding_types: types }),
+        confidence: conf,
+        expected_impact: impact ? JSON.stringify(impact) : null,
+        priority: this.priorityOf(d.severity, conf, impact),
+        diagnosis_id: d.id,
+        root_cause: d.root_cause,
+        proposed_by: 'horus',
+        status: 'pending_approval',
+      });
+    }
+
+    // ── 2) Acción ATÓMICA por finding NO bundleado en un diagnóstico.
     for (const f of findings) {
+      if (claimed.has(f.id)) continue; // ya lo representa el diagnóstico (N→1)
       const actionType = ACTION_FOR[f.finding_type];
       if (!actionType) continue;
+      const conf = confMap.get(`${f.finding_type}:${f.source || 'engine'}`) ?? 0.6;
+      const impact = this.impactFor(f.subject_type, f.subject_id, baseMap);
       actions.push({
         tenant_id: tenantId,
         finding_id: f.id,
@@ -126,7 +220,13 @@ export class SupervisorActionsService {
         subject_id: f.subject_id,
         label: f.label ? String(f.label).slice(0, 160) : null,
         title: this.titleFor(f).slice(0, 300),
+        rationale: null,
         payload: JSON.stringify({ finding_type: f.finding_type, severity: f.severity }),
+        confidence: round3(conf),
+        expected_impact: impact ? JSON.stringify(impact) : null,
+        priority: this.priorityOf(f.severity, conf, impact),
+        diagnosis_id: null,
+        root_cause: null,
         proposed_by: 'horus',
         status: 'pending_approval',
       });
@@ -142,7 +242,13 @@ export class SupervisorActionsService {
           finding_id: this.knex.raw('EXCLUDED.finding_id'),
           label: this.knex.raw('EXCLUDED.label'),
           title: this.knex.raw('EXCLUDED.title'),
+          rationale: this.knex.raw('EXCLUDED.rationale'),
           payload: this.knex.raw('EXCLUDED.payload'),
+          confidence: this.knex.raw('EXCLUDED.confidence'),
+          expected_impact: this.knex.raw('EXCLUDED.expected_impact'),
+          priority: this.knex.raw('EXCLUDED.priority'),
+          diagnosis_id: this.knex.raw('EXCLUDED.diagnosis_id'),
+          root_cause: this.knex.raw('EXCLUDED.root_cause'),
           // Respeta decisiones humanas; reabre solo lo expirado.
           status: this.knex.raw(
             `CASE WHEN commercial.supervisor_actions.status IN ('approved','rejected','executed') THEN commercial.supervisor_actions.status ELSE 'pending_approval' END`,
@@ -151,9 +257,10 @@ export class SupervisorActionsService {
         });
     }
 
-    // Expirar las pending de findings cuyo finding ya no aplica (NO toca opportunities).
+    // Expira las pending de finding/diagnosis que ya no aplican (NO toca opportunities).
     const expired = await this.knex('commercial.supervisor_actions')
-      .where({ tenant_id: tenantId, kind: 'finding', status: 'pending_approval' })
+      .where({ tenant_id: tenantId, status: 'pending_approval' })
+      .whereIn('kind', ['finding', 'diagnosis'])
       .modify((qb) => {
         if (keys.length) qb.whereNotIn('dedup_key', keys);
       })
@@ -162,13 +269,50 @@ export class SupervisorActionsService {
     return { proposed: actions.length, expired: Number(expired) || 0 };
   }
 
+  /** Impacto esperado (techo): volver a su normal aprendido (L1). Solo donde hay baseline limpio. */
+  private impactFor(
+    subjectType: string,
+    subjectId: string,
+    baseMap: Map<string, { mean: number | null; floor_met: boolean }>,
+  ): { metric: string; baseline_mean: number; basis: string } | null {
+    if (subjectType !== 'collaborator') return null; // baseline limpio hoy solo p/ colaborador (avg_score)
+    const b = baseMap.get(`collaborator:${subjectId}:30:avg_score`);
+    if (!b || !b.floor_met || b.mean == null) return null;
+    return { metric: 'avg_score', baseline_mean: Number(b.mean), basis: 'baseline' };
+  }
+
+  /** Prioridad = severidad × confianza × bonus-de-impacto. Solo para ordenar la bandeja. */
+  private priorityOf(severity: string, confidence: number, impact: any): number {
+    const sev = SEV_WEIGHT[severity] ?? 2;
+    return round3(sev * confidence * (impact ? 1.3 : 1));
+  }
+
+  /** Título legible de la acción de un diagnóstico (R1). */
+  private diagTitle(d: any): string {
+    const who = d.label || d.subject_type;
+    switch (d.root_cause) {
+      case 'execution_quality_decline':
+        return `Coaching enfocado a ${who}: la baja de score viene de ejecución`;
+      case 'time_management_impact':
+        return `Coaching a ${who}: el tiempo muerto golpea el desempeño`;
+      case 'sustained_decline':
+        return `Acompañar a ${who}: caída sostenida en ruta`;
+      case 'store_at_risk_compound':
+        return `Visita de recuperación a ${who} (tienda en riesgo)`;
+      case 'team_sustained_decline':
+        return `Escalar: ${who} arrastra el promedio del equipo`;
+      default:
+        return `Acción sobre ${who}`;
+    }
+  }
+
   async listActions(filters: { status?: string; kind?: string }, user: any) {
     const tenantId = this.tenantId(user);
     let q = this.knex('commercial.supervisor_actions').select('*');
     if (tenantId) q = q.where('tenant_id', tenantId);
     q = q.where('status', filters.status || 'pending_approval');
     if (filters.kind) q = q.where('kind', filters.kind);
-    q = q.orderBy('created_at', 'desc');
+    q = q.orderByRaw('priority DESC NULLS LAST').orderBy('created_at', 'desc');
     const rows = await q;
     return { rows, total: rows.length };
   }

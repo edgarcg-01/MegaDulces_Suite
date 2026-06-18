@@ -88,13 +88,19 @@ export interface ActionRow {
   id: string;
   finding_id: string | null;
   action_type: string;
-  kind?: 'finding' | 'opportunity';
+  kind?: 'finding' | 'opportunity' | 'diagnosis';
   subject_type: string;
   label: string | null;
   title: string;
   rationale?: string | null;
   status: string;
   created_at: string;
+  // R2 (decisión): metadata determinista de la recomendación.
+  confidence?: number | null;
+  priority?: number | null;
+  expected_impact?: { metric: string; baseline_mean: number; basis: string } | null;
+  root_cause?: string | null;
+  diagnosis_id?: string | null;
 }
 
 export interface TaskRow {

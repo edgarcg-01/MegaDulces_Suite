@@ -166,6 +166,27 @@ export class RuleCalibrationService {
     return map;
   }
 
+  /**
+   * Multiplicador de CONFIANZA por (finding_type:source) para R2 (decisión del co-piloto):
+   * la precisión histórica de la regla aprendida (L2). Cold-start (sin floor) → 0.6 neutro
+   * (no premiamos ni castigamos una regla sin juicio). manual_override='enabled' → ≥0.8
+   * (el humano la respaldó). Una regla que el supervisor confirma siempre → ~1.0.
+   */
+  async getConfidence(tenantId: string): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (!tenantId) return map;
+    const rows = await this.knex('commercial.execution_rule_stats')
+      .where('tenant_id', tenantId)
+      .select('finding_type', 'source', 'precision', 'floor_met', 'manual_override');
+    for (const r of rows) {
+      const base =
+        r.floor_met && r.precision != null ? Math.max(0.3, Math.min(1, Number(r.precision))) : 0.6;
+      const conf = r.manual_override === 'enabled' ? Math.max(base, 0.8) : base;
+      map.set(`${r.finding_type}:${r.source}`, Math.round(conf * 1000) / 1000);
+    }
+    return map;
+  }
+
   /** Scorecard para el panel L7 (qué aprendió Horus sobre sus reglas). */
   async list(user: any) {
     const tenantId = this.tenantId(user);
