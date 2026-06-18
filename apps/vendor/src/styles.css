@@ -257,19 +257,22 @@ html, body {
 
 html {
   overflow-y: scroll;
-  /* iOS PWA + viewport-fit=cover: el <html> extiende hasta los bordes físicos y
-     su background rellena las safe-areas (detrás de la status bar y el home
-     indicator). Debe ser el color del CHROME (--card-bg = header/bottom-nav),
-     NO el del contenido (--layout-bg), o la franja de la safe-area se ve de otro
-     tono que la nav (el "margen" que se notaba abajo). */
-  background-color: var(--card-bg);
+  /* iOS standalone (iOS 18, verificado 2026-06-18 con overlay diagnóstico):
+     innerHeight (894) < screenHeight (956) → queda una franja de ~62px ABAJO,
+     fuera del layout viewport, que la bottom-nav (position:fixed;bottom:0) NO
+     puede cubrir; la pinta el canvas del <html>. El header (sticky, padding-top
+     = safe-area-inset-top) ya tapa la franja de ARRIBA con --card-bg, así que el
+     <html> SOLO se ve en esa franja de ABAJO → debe matchear la nav/página
+     (--layout-bg). Si es --card-bg, se ve un borde más claro abajo (#1A1A1A vs
+     #111111). Por eso va --layout-bg, NO --card-bg. */
+  background-color: var(--layout-bg);
 }
 
-/* ThemeService agrega .theme-monochrome a <html> además de <body>, pero los tokens
-   viven en body.theme-monochrome → html no los hereda. Hardcodeamos el color del
-   chrome dark (= --card-bg de Operations) para que la safe-area matchee header/nav. */
+/* ThemeService pone .theme-monochrome en <html> y <body>, pero los tokens viven en
+   body.theme-monochrome → html no los hereda. Hardcodeamos el --layout-bg dark
+   (= el de la nav/página) para que la franja de abajo no se vea más clara. */
 html.theme-monochrome {
-  background-color: #1A1A1A;
+  background-color: #111111;
 }
 
 body {

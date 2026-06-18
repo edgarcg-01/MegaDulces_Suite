@@ -292,11 +292,12 @@ export class VendorShellComponent {
   openDiag(): void {
     this.settingsOpen.set(false);
     this.copied.set(false);
-    // leer post-render: el rect del bottom-nav debe estar montado
+    // Esperar a que el settings-backdrop (fixed, inset:0) se desmonte ANTES de
+    // leer: si no, elementFromPoint() lo golpea a él en vez del nav/fondo real.
     setTimeout(() => {
       this.diag.set(this.readProbes());
       this.diagOpen.set(true);
-    }, 0);
+    }, 80);
   }
 
   closeDiag(): void {
