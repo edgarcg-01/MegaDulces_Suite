@@ -57,6 +57,13 @@ export class InventoryCountController {
     return this.service.assignableUsers(role === 'supervisor' ? 'supervisor' : 'counter');
   }
 
+  @Get('variance-reasons')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Catálogo de motivos de varianza (para clasificar al resolver discrepancias)' })
+  varianceReasons() {
+    return this.service.varianceReasons();
+  }
+
   @Post('open')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Abrir folio + snapshot del teórico (por almacén)' })

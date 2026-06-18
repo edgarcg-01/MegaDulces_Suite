@@ -49,7 +49,27 @@ export interface SubmitCountDto {
 export interface ResolveItemDto {
   final_qty: number;
   notes?: string;
+  reason_code?: string;
 }
+
+/**
+ * Taxonomía de motivos de varianza (clasificación de la diferencia físico vs
+ * teórico). Validada a nivel servicio — el negocio puede extenderla sin migración.
+ * `caducado` es clave para dulcería (producto vencido).
+ */
+export const VARIANCE_REASONS: { code: string; label: string }[] = [
+  { code: 'merma', label: 'Merma (pérdida no explicada)' },
+  { code: 'caducado', label: 'Caducado / vencido' },
+  { code: 'dañado', label: 'Dañado' },
+  { code: 'robo', label: 'Robo / hurto' },
+  { code: 'error_conteo', label: 'Error de conteo previo' },
+  { code: 'error_sistema', label: 'Error de sistema / captura (venta no registrada)' },
+  { code: 'devolucion', label: 'Devolución no registrada' },
+  { code: 'transferencia', label: 'Transferencia no registrada' },
+  { code: 'encontrado', label: 'Encontrado / sobrante' },
+  { code: 'otro', label: 'Otro (detallar en notas)' },
+];
+export const VARIANCE_REASON_CODES = VARIANCE_REASONS.map((r) => r.code);
 
 @Injectable()
 export class InventoryCountService {
@@ -434,6 +454,10 @@ export class InventoryCountService {
       throw new BadRequestException('id inválido');
     if (typeof dto.final_qty !== 'number' || dto.final_qty < 0)
       throw new BadRequestException('final_qty debe ser >= 0');
+    if (dto.reason_code && !VARIANCE_REASON_CODES.includes(dto.reason_code))
+      throw new BadRequestException(
+        `reason_code inválido. Usar uno de: ${VARIANCE_REASON_CODES.join(', ')}`,
+      );
 
     return this.tk.run(async (trx) => {
       const item = await trx('commercial.inventory_count_items')
@@ -448,11 +472,17 @@ export class InventoryCountService {
           variance,
           status: 'resolved',
           notes: dto.notes || item.notes,
+          reason_code: dto.reason_code || item.reason_code,
           updated_at: trx.fn.now(),
           updated_by: this.userId(),
         });
-      return { ok: true, item_id: itemId, final_qty: dto.final_qty, variance };
+      return { ok: true, item_id: itemId, final_qty: dto.final_qty, variance, reason_code: dto.reason_code || item.reason_code || null };
     });
+  }
+
+  /** Catálogo de motivos de varianza para el dropdown del supervisor. */
+  varianceReasons() {
+    return VARIANCE_REASONS;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -619,6 +649,7 @@ export class InventoryCountService {
           'i.variance',
           'i.status',
           'i.notes',
+          'i.reason_code',
           'p.cost_base',
         )
         .orderByRaw(`CASE i.status WHEN 'discrepancy' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END`)
@@ -846,6 +877,7 @@ export class InventoryCountService {
             quantity_after: finalQty,
             reference_type: 'inventory_count',
             reference_id: countId,
+            reason_code: it.reason_code || null,
             notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
             created_by: uid,
           });
@@ -901,6 +933,7 @@ export class InventoryCountService {
           quantity_after: finalQty,
           reference_type: 'inventory_count',
           reference_id: countId,
+          reason_code: it.reason_code || null,
           notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
           created_by: uid,
         });

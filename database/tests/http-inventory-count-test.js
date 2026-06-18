@@ -73,6 +73,11 @@ function check(name, cond, detail) {
   }, token);
   check('stock inicial 100 sembrado', seed.status === 201 || seed.status === 200, seed.body);
 
+  const vr = await req('GET', '/commercial/inventory/counts/variance-reasons', null, token);
+  check('catálogo de motivos de varianza disponible (incluye caducado)',
+    vr.status === 200 && Array.isArray(vr.body) && vr.body.some((r) => r.code === 'caducado'),
+    { status: vr.status, n: Array.isArray(vr.body) ? vr.body.length : null });
+
   let openFolio = null;
   const cancel = async (id) => { if (id) await req('POST', `/commercial/inventory/counts/${id}/cancel`, { reason: 'smoke teardown' }, token); };
 
@@ -101,12 +106,13 @@ function check(name, cond, detail) {
     let item = (items.body?.data || items.body || []).find((i) => i.product_id === productId);
     check('item resuelto por compute (final=90)', Number(item?.final_qty) === 90, item);
     const itemId = item?.id;
-    await req('POST', `/commercial/inventory/counts/${openFolio}/items/${itemId}/resolve`, { final_qty: 95, notes: 'override smoke' }, token);
+    await req('POST', `/commercial/inventory/counts/${openFolio}/items/${itemId}/resolve`, { final_qty: 95, notes: 'override smoke', reason_code: 'merma' }, token);
     await req('POST', `/commercial/inventory/counts/${openFolio}/compute`, {}, token); // re-compute
     items = await req('GET', `/commercial/inventory/counts/${openFolio}/items`, null, token);
     item = (items.body?.data || items.body || []).find((i) => i.product_id === productId);
     check('A2: override (95) sobrevive al re-compute (no revierte a 90)', Number(item?.final_qty) === 95, item);
     check('A2: item sigue resolved tras re-compute', item?.status === 'resolved', { status: item?.status });
+    check('reason-codes: clasificación (merma) persiste tras re-compute', item?.reason_code === 'merma', { reason_code: item?.reason_code });
     await cancel(openFolio); openFolio = null;
 
     // ── A1: freeze integrity guard ──

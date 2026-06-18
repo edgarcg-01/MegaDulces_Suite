@@ -651,8 +651,12 @@ export class ComercialService {
     return this.http.post<{ status: string; resolved: number; discrepancies: number }>(`${this.base}/inventory/counts/${countId}/compute`, {});
   }
 
-  inventoryResolveItem(countId: string, itemId: string, body: { final_qty: number; notes?: string }) {
-    return this.http.post<{ ok: boolean; item_id: string; final_qty: number; variance: number }>(`${this.base}/inventory/counts/${countId}/items/${itemId}/resolve`, body);
+  inventoryResolveItem(countId: string, itemId: string, body: { final_qty: number; notes?: string; reason_code?: string }) {
+    return this.http.post<{ ok: boolean; item_id: string; final_qty: number; variance: number; reason_code: string | null }>(`${this.base}/inventory/counts/${countId}/items/${itemId}/resolve`, body);
+  }
+
+  inventoryVarianceReasons() {
+    return this.http.get<{ code: string; label: string }[]>(`${this.base}/inventory/counts/variance-reasons`);
   }
 
   inventoryReconcile(countId: string) {
@@ -849,6 +853,7 @@ export interface InventoryCountItem {
   variance: number | string | null;
   status: 'pending' | 'counted' | 'discrepancy' | 'resolved';
   notes: string | null;
+  reason_code: string | null;
   cost_base: number | string | null;
 }
 

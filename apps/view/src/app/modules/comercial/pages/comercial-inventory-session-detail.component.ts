@@ -13,6 +13,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { SelectModule } from 'primeng/select';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { debounceTime } from 'rxjs/operators';
 import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser, InventoryInterruptions, InventoryCountSession } from '../comercial.service';
@@ -31,7 +32,7 @@ import { Permission } from '../../../core/constants/permissions';
   imports: [
     CommonModule, FormsModule, RouterModule,
     ButtonModule, TableModule, TagModule, DialogModule, InputNumberModule, InputTextModule,
-    ToastModule, ConfirmDialogModule, SelectButtonModule, MultiSelectModule,
+    ToastModule, ConfirmDialogModule, SelectButtonModule, MultiSelectModule, SelectModule,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -219,7 +220,9 @@ import { Permission } from '../../../core/constants/permissions';
             <p class="in-resolve-meta">Teórico: <b>{{ resolveItem()?.expected_qty }}</b> · C1: {{ resolveItem()?.count_1 ?? '—' }} · C2: {{ resolveItem()?.count_2 ?? '—' }} · C3: {{ resolveItem()?.count_3 ?? '—' }}</p>
             <label>Cantidad física final</label>
             <p-inputNumber [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputNumber>
-            <label>Motivo (merma, dañado, error de captura…)</label>
+            <label>Motivo de la varianza</label>
+            <p-select [options]="reasonCodes()" optionLabel="label" optionValue="code" [(ngModel)]="resolveReason" placeholder="Clasificar (opcional)" [showClear]="true" appendTo="body" styleClass="in-w-full"></p-select>
+            <label>Nota (detalle libre)</label>
             <input pInputText [(ngModel)]="resolveNotes" class="in-w-full" placeholder="Opcional" />
           </div>
         }
@@ -315,6 +318,8 @@ export class ComercialInventorySessionDetailComponent {
   resolveItem = signal<InventoryCountItem | null>(null);
   resolveQty = signal<number | null>(null);
   resolveNotes = signal<string>('');
+  resolveReason = signal<string | null>(null);
+  reasonCodes = signal<{ code: string; label: string }[]>([]);
 
   isTerminal = computed(() => {
     const s = this.progress()?.status;
@@ -349,6 +354,7 @@ export class ComercialInventorySessionDetailComponent {
     if (this.canAssign()) this.loadAssignments();
     this.loadInterruptions();
     this.loadSessions();
+    this.loadReasons();
 
     // Monitoreo en vivo: cada evento del folio refresca el tablero (debounced
     // para no recargar en cada escaneo de una ráfaga).
@@ -361,6 +367,12 @@ export class ComercialInventorySessionDetailComponent {
         this.loadInterruptions();
       });
     this.destroyRef.onDestroy(() => this.monitor.disconnect());
+  }
+
+  private loadReasons() {
+    this.svc.inventoryVarianceReasons()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.reasonCodes.set(r), error: () => { /* no crítico */ } });
   }
 
   private loadInterruptions() {
@@ -495,7 +507,8 @@ export class ComercialInventorySessionDetailComponent {
   openResolve(it: InventoryCountItem) {
     this.resolveItem.set(it);
     this.resolveQty.set(it.final_qty != null ? +it.final_qty : (it.count_1 != null ? +it.count_1 : null));
-    this.resolveNotes.set('');
+    this.resolveNotes.set(it.notes || '');
+    this.resolveReason.set(it.reason_code || null);
     this.resolveVisible.set(true);
   }
 
@@ -504,7 +517,7 @@ export class ComercialInventorySessionDetailComponent {
     const qty = this.resolveQty();
     if (!it || qty === null) return;
     this.resolving.set(true);
-    this.svc.inventoryResolveItem(this.countId, it.id, { final_qty: qty, notes: this.resolveNotes() || undefined })
+    this.svc.inventoryResolveItem(this.countId, it.id, { final_qty: qty, notes: this.resolveNotes() || undefined, reason_code: this.resolveReason() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {

@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Added — Inventario físico: reason-codes de varianza (P1)
+- **Clasificación estructurada del motivo de varianza** al resolver un item (merma / caducado /
+  dañado / robo / error_conteo / error_sistema / devolución / transferencia / encontrado / otro)
+  en vez de solo `notes` libre. `caducado` es clave para dulcería. Taxonomía validada a nivel
+  servicio (`VARIANCE_REASONS`), extensible sin migración.
+- **Migración `20260618180000`**: columna `reason_code` en `inventory_count_items` y propagada al
+  **ledger** (`commercial.stock_movements` + `inventory.warehouse_stock_movements`) → analytics/IRA
+  podrán agregar shrinkage por causa sin re-joinear los items del folio.
+- **Endpoint** `GET /commercial/inventory/counts/variance-reasons` (gate SUPERVISAR) para el dropdown.
+- **Frontend**: el dialog "Resolver item" (`/comercial/inventory/sessions/:id`) ahora tiene un
+  selector de motivo (`p-select`) + nota de detalle; la clasificación persiste y sobrevive a
+  re-computar discrepancias. Smoke I.5 extendido (catálogo + persistencia de `merma`).
+- Habilita el siguiente P1 (KPI de IRA + dashboard de shrinkage por causa).
+
 ### Added — Inventario físico: ledger auditable + costo en modo `inventory` (P1/A3)
 - **Nueva tabla `inventory.warehouse_stock_movements`** (mig `20260618170000`): bitácora append-only
   por SKU, espejo de `commercial.stock_movements` para el mundo `inventory.*` (RLS forzado, grant
