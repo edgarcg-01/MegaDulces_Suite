@@ -159,6 +159,51 @@ export class Execution360Service {
     return [];
   }
 
+  /**
+   * K5: tiempo muerto por colaborador (30d). Misma definición que
+   * ReportsService.computeIdleSegments (gap = hora_inicio[i+1] − hora_fin[i] entre
+   * capturas del mismo colaborador y día; gaps < 5min = ruido; "muerto" > 20min).
+   * Inline (sin coords → idle = gap, conservador: NO descuenta traslado) para no
+   * acoplar el módulo reports. avg = promedio del gap por colaborador.
+   */
+  private static computeIdleByUser(
+    caps: any[],
+    now: number,
+  ): Map<string, { avg: number; dead: number; n: number }> {
+    const rows = caps
+      .filter((c) => c.user_id && c.hora_inicio && (now - new Date(c.hora_inicio).getTime()) / DAY_MS <= 30)
+      .sort((a, b) =>
+        a.user_id < b.user_id
+          ? -1
+          : a.user_id > b.user_id
+            ? 1
+            : new Date(a.hora_inicio).getTime() - new Date(b.hora_inicio).getTime(),
+      );
+    const acc = new Map<string, { sum: number; n: number; dead: number }>();
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const cur = rows[i];
+      if (prev.user_id !== cur.user_id) continue;
+      if (prev.day != null && cur.day != null && String(prev.day) !== String(cur.day)) continue;
+      const fin = prev.hora_fin ? new Date(prev.hora_fin).getTime() : null;
+      const ini = cur.hora_inicio ? new Date(cur.hora_inicio).getTime() : null;
+      if (fin == null || ini == null) continue;
+      const gapMin = (ini - fin) / 60000;
+      if (gapMin < 5) continue; // IDLE_MIN_GAP_MIN: ruido/solapado
+      let e = acc.get(cur.user_id);
+      if (!e) {
+        e = { sum: 0, n: 0, dead: 0 };
+        acc.set(cur.user_id, e);
+      }
+      e.sum += gapMin;
+      e.n++;
+      if (gapMin > 20) e.dead++; // IDLE_DEAD_THRESHOLD_MIN
+    }
+    const out = new Map<string, { avg: number; dead: number; n: number }>();
+    for (const [uid, e] of acc) out.set(uid, { avg: round2(e.sum / e.n), dead: e.dead, n: e.n });
+    return out;
+  }
+
   /** Lee el feature store (endpoint GET). Scoped por tenant explícito. */
   async list(filters: { subject_type?: string; window_days?: number }, user: any) {
     const tenantId = this.tenantId(user);
@@ -185,6 +230,7 @@ export class Execution360Service {
       .where('dc.tenant_id', tenantId)
       .whereRaw("dc.hora_inicio >= now() - interval '60 days'")
       .select(
+        'dc.id',
         'dc.user_id',
         'dc.captured_by_username',
         'dc.store_id',
@@ -192,6 +238,7 @@ export class Execution360Service {
         'dc.hora_inicio',
         'dc.hora_fin',
         'dc.exhibiciones',
+        this.knex.raw(`(dc.hora_inicio AT TIME ZONE 'America/Mexico_City')::date as day`), // K5: día MX p/idle
       );
 
     // Nombres de tienda para el label de subject_type='store'.
@@ -382,6 +429,8 @@ export class Execution360Service {
       if (r.store_id) fan(ensure(byStore, r.store_id, storeName.get(r.store_id) || 'Tienda'));
     }
 
+    const idleByUser = Execution360Service.computeIdleByUser(caps, now); // K5: tiempo muerto 30d
+
     const rows: any[] = [];
     const pushRows = (
       type: 'collaborator' | 'store' | 'zone' | 'supervisor',
@@ -414,6 +463,14 @@ export class Execution360Service {
     pushRows('zone', byZone, false); // K6
     pushRows('supervisor', bySupervisor, false); // K6
 
+    // K5: idle_min_avg en las filas de colaborador 30d (post-pass).
+    for (const row of rows) {
+      if (row.subject_type === 'collaborator' && row.window_days === 30) {
+        const idle = idleByUser.get(row.subject_id);
+        if (idle && idle.n > 0) row.idle_min_avg = idle.avg;
+      }
+    }
+
     if (rows.length === 0) return { rows_upserted: 0 };
 
     await this.knex('commercial.execution_360')
@@ -424,6 +481,7 @@ export class Execution360Service {
         'visits_done',
         'avg_score',
         'score_trend',
+        'idle_min_avg',
         'own_share_pct',
         'competitor_share_pct',
         'photo_coverage_pct',

@@ -264,6 +264,23 @@ export class FindingsEngineService {
           window_days: 30,
         });
       }
+
+      // K5 (Horus 360): tiempo muerto alto. Colaborador con gap promedio entre visitas
+      // muy alto (idle conservador, sin descontar traslado → umbral generoso). Pasa por L2.
+      if (
+        r.subject_type === 'collaborator' &&
+        r.window_days === 30 &&
+        r.idle_min_avg != null &&
+        visits >= MIN_OBS &&
+        Number(r.idle_min_avg) > 90
+      ) {
+        const idle = Number(r.idle_min_avg);
+        add('idle_anomaly', idle > 150 ? 'warn' : 'info', r, Math.round(idle * 100) / 100, {
+          idle_min_avg: idle,
+          threshold: 90,
+          window_days: 30,
+        });
+      }
     }
 
     const keys = findings.map((f) => f.dedup_key);

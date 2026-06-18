@@ -346,6 +346,11 @@ Objetivo: que Horus explote TODA la señal usable de cada módulo de Trade. **Do
 - **Regla `weak_position`** (colaborador/tienda 30d, position_quality < 35, visits≥3): exhibe en posiciones débiles (anaquel/detrás) según la rúbrica oficial. Umbral absoluto (posiciones objetivamente rankeadas). Pasa por calibración L2.
 - FE: label + evidencia `weak_position`. Smoke **sección 25** (feature real + prueba del disparo + cleanup). **Diferido K3.2**: usar los niveles oficiales (catalog) en vez del heurístico LEVEL_WEIGHT (refina exec_level, ripple amplio → tras verificar). **Pendiente: migrate:new (`20260618130000`) + restart → smoke 1-25.**
 
+### K5 — Tiempo muerto (idle) ✅ EN CÓDIGO 2026-06-18 (builds verdes, SIN migración)
+- `idle_min_avg` ya existía como columna null (slot de H2.1) → **K5 solo la POBLA** (sin migración). `Execution360Service.computeIdleByUser` (static, inline) = misma definición que `ReportsService.computeIdleSegments`: gap = hora_inicio[i+1]−hora_fin[i] entre capturas del mismo colaborador y día; gaps<5min ruido; conservador (sin coords → idle=gap, no descuenta traslado). Se agrega `dc.id`+`day` (MX) a la query de capturas; post-pass asigna `idle_min_avg` a las filas colaborador-30d; `idle_min_avg` añadido al merge UPSERT.
+- **Regla `idle_anomaly`** (colaborador 30d, idle_min_avg > 90min, visits≥3): gap promedio entre visitas muy alto. Umbral generoso (idle conservador). Pasa por calibración L2.
+- FE: label + evidencia `idle_anomaly`. Smoke **sección 26** (idle computado sin crashear + prueba del disparo con idle sintético + cleanup). **Honesto**: idle solo se mide en colaboradores con multi-captura/día (puede ser null si la data es esparsa). **Pendiente: restart (sin migración nueva) + smoke 1-26.**
+
 ### Pendientes Horus 360
-- **K5** idle+traza GPS · **K7** check-in×captura · **K3.2** niveles oficiales (refina exec_level).
+- **K7** check-in×captura · **K3.2** niveles oficiales (refina exec_level) · **K5b** traza GPS (route_location_pings, ~2/5 trackean).
 - **Eje B (datos)**: D1 store_id en captura (33%→alto) · D2 daily_assignments.date · **D3 ventaAdicional** (rescata K2) · D4 route_id.

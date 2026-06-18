@@ -896,6 +896,52 @@ async function req(method, path, token, body) {
   const goneK3 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: PX }).first();
   check('cleanup K3 OK (sin sujeto sintético residual)', !goneK3, goneK3);
 
+  console.log('\n── 26. Horus 360 · K5: tiempo muerto (idle) + idle_anomaly ──');
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const exI = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  check('execution-360 collaborator 200 (idle computado sin crashear)', exI.status === 200, exI.status);
+  const rowsI = exI.body?.rows || [];
+  const withIdle = rowsI.filter((r) => r.idle_min_avg != null);
+  console.log(`     colaboradores con idle medido=${withIdle.length}/${rowsI.length} (requiere multi-captura/día)`);
+  check(
+    'idle_min_avg es número o null en cada row',
+    rowsI.every((r) => r.idle_min_avg == null || Number.isFinite(Number(r.idle_min_avg))),
+    rowsI[0],
+  );
+
+  // Verificación REAL de idle_anomaly: inyecto un colaborador con idle alto → dispara.
+  const IX = '0000000a-0000-0000-0000-00000000ba80';
+  const cleanK5 = async () => {
+    await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: IX }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: IX }).del();
+    await knex('commercial.execution_360').where({ tenant_id: T, subject_id: IX }).del();
+  };
+  await cleanK5();
+  await knex('commercial.execution_360')
+    .insert({
+      tenant_id: T,
+      subject_type: 'collaborator',
+      subject_id: IX,
+      window_days: 30,
+      label: '__idle_test__',
+      visits_done: 5,
+      idle_min_avg: 200, // ~3.3h promedio entre visitas
+    })
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const ia = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: IX, finding_type: 'idle_anomaly' })
+    .first();
+  check('idle_anomaly disparó sobre idle alto (200 > 90)', !!ia, ia ? { sev: ia.severity, score: ia.score } : 'sin idle_anomaly');
+  if (ia) {
+    const ev = typeof ia.evidence === 'string' ? JSON.parse(ia.evidence) : ia.evidence;
+    check('evidencia explicable (idle_min_avg=200)', ev && Number(ev.idle_min_avg) === 200, ev);
+  }
+  await cleanK5();
+  const goneK5 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: IX }).first();
+  check('cleanup K5 OK (sin sujeto sintético residual)', !goneK5, goneK5);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();
