@@ -15,6 +15,10 @@ interface DiagProbe {
   viewport: { innerW: number; innerH: number; screenW: number; screenH: number; dpr: number };
   visualViewport: { w: number; h: number; offsetTop: number; offsetLeft: number } | null;
   bottomNav: { top: number; bottom: number; height: number; gapToScreenBottom: number } | null;
+  bgColors: { html: string; body: string; shell: string; nav: string; main: string };
+  navPaddingBottom: string;
+  bottomViewportGap: number;
+  elementAt: { navMid: string; navBottom: string; viewportBottom: string };
   ua: string;
 }
 
@@ -131,6 +135,9 @@ interface DiagProbe {
             <div>safe-area bottom <b>{{ d.safeAreaInset.bottom }}</b></div>
             <div>nav gap <b [class.bad]="d.bottomNav && d.bottomNav.gapToScreenBottom > 2">{{ d.bottomNav?.gapToScreenBottom }}px</b></div>
             <div>innerH {{ d.viewport.innerH }} · screenH {{ d.viewport.screenH }} · dpr {{ d.viewport.dpr }}</div>
+            <div>nav bg <b>{{ d.bgColors.nav }}</b> · pad-b <b>{{ d.navPaddingBottom }}</b></div>
+            <div>viewport gap <b [class.bad]="d.bottomViewportGap > 2">{{ d.bottomViewportGap }}px</b></div>
+            <div>borde inf: {{ d.elementAt.viewportBottom }}</div>
           </div>
           <pre class="diag-json">{{ diag() | json }}</pre>
         </div>
@@ -324,6 +331,20 @@ export class VendorShellComponent {
     const vv = (window as Window & { visualViewport?: VisualViewport }).visualViewport;
     const w = window as unknown as { __BUILD_VERSION__?: string; __BUILD_TIMESTAMP__?: string };
 
+    // Colores computados + qué elemento hay en cada punto del fondo (decisivo:
+    // dice si la "banda" es el respiro del nav, un hueco de viewport, o qué bg).
+    const shellEl = document.querySelector('.vendor-shell');
+    const mainEl = document.querySelector('.vendor-main');
+    const navAnchor = navEl?.querySelector('a') as HTMLElement | null;
+    const bg = (el: Element | null) => (el ? getComputedStyle(el).backgroundColor : 'n/a');
+    const at = (x: number, y: number): string => {
+      const el = document.elementFromPoint(x, y);
+      if (!el) return 'null (fuera del viewport)';
+      const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+      return `${el.tagName.toLowerCase()}${cls ? '.' + cls : ''} bg=${getComputedStyle(el).backgroundColor}`;
+    };
+    const cx = Math.round(window.innerWidth / 2);
+
     return {
       build: { commit: w.__BUILD_VERSION__ || 'n/a', ts: w.__BUILD_TIMESTAMP__ || 'n/a' },
       displayMode: {
@@ -349,6 +370,20 @@ export class VendorShellComponent {
             gapToScreenBottom: Math.round(window.innerHeight - r.bottom),
           }
         : null,
+      bgColors: {
+        html: bg(document.documentElement),
+        body: bg(document.body),
+        shell: bg(shellEl),
+        nav: bg(navEl),
+        main: bg(mainEl),
+      },
+      navPaddingBottom: navAnchor ? getComputedStyle(navAnchor).paddingBottom : 'n/a',
+      bottomViewportGap: window.screen.height - window.innerHeight,
+      elementAt: {
+        navMid: r ? at(cx, Math.round((r.top + r.bottom) / 2)) : 'n/a',
+        navBottom: r ? at(cx, Math.round(r.bottom) - 2) : 'n/a',
+        viewportBottom: at(cx, window.innerHeight - 2),
+      },
       ua: navigator.userAgent,
     };
   }
