@@ -39,6 +39,8 @@ const FINDING_LABELS: Record<string, string> = {
   low_score: 'score bajo',
   competitor_dominance: 'competencia domina el exhibidor',
   store_at_risk: 'tienda sin visita',
+  self_anomaly: 'cae vs su propio normal',
+  weak_concept: 'concepto flojo (ejecuta peor un tipo de exhibidor)',
   vision_stockout: 'quiebre de stock (foto)',
   vision_mismatch: 'declarado ≠ observado (foto)',
   vision_invalid: 'fotos inválidas',
@@ -749,6 +751,10 @@ export class SupervisorAiComponent implements OnInit {
         return `competencia ${e['competitor_share_pct'] ?? '?'}% del exhibidor`;
       case 'store_at_risk':
         return `${e['days_since_last_visit'] ?? '?'} días sin visita`;
+      case 'self_anomaly':
+        return `score ${e['current'] ?? '?'} vs su normal ${e['baseline_mean'] ?? '?'} (${e['baseline_n_obs'] ?? '?'} días)`;
+      case 'weak_concept':
+        return `${e['concept'] ?? 'concepto'} a ${e['concept_level'] ?? '?'} vs su nivel ${e['overall_level'] ?? '?'} (${e['exhibiciones'] ?? '?'} exh.)`;
       case 'vision_stockout':
         return `quiebre de stock en ${e['stockout_photos'] ?? '?'} foto(s)`;
       case 'vision_mismatch':

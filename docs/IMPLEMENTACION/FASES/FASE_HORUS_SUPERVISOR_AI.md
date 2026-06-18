@@ -303,4 +303,29 @@ Expande el viejo "H2.8 feedback loop" a un subsistema completo. **Principio:** e
 ### L7 — Panel "Lo que Horus aprendió" ✅ EN CÓDIGO 2026-06-17 (build view verde)
 - Sección en `/dashboard/supervisor-ai`: **scorecard de reglas** (precisión, juicios, estado activa/aprendiendo/auto-suprimida/capada/manual) con botón **Silenciar/Reactivar** (override humano, `SUPERVISOR_AI_APROBAR`) + **"lo normal" por colaborador** (score normal ≈ mean ± stddev, solo floor_met; "aprendiendo" si falta historia). Hace visible y auditable el aprendizaje (invariante co-piloto). Sin migración (consume `/learning/rules` + `/learning/baselines`).
 
-### Próximo: L3 (efectividad, diff-in-diff) cuando acumulen ~3–4 sem de snapshots. L4/L5/L6 gated por calendario/datos.
+### Próximo (Aprendizaje): L3 (efectividad, diff-in-diff) cuando acumulen ~3–4 sem de snapshots. L4/L5/L6 gated por calendario/datos.
+
+---
+
+## Track Horus 360 — conocimiento total de Trade (2026-06-18)
+
+Objetivo: que Horus explote TODA la señal usable de cada módulo de Trade. **Dos techos:** (1) **extracción** — lo que el código saca de los datos que existen (~código, de ~55-60% a ~85-90%); (2) **datos** — lo que los datos contienen (Eje B: generación + adopción). Regla dura: **no construir extractor sobre campo en ~0%**. Cada regla nueva entra a la **calibración L2** → expansión segura.
+
+### Paso 0 — audit de población (`horus-jsonb-audit.js`, read-only, 2026-06-18)
+117 exhibiciones/30d. **conceptoId 93.2%** (5 tipos), **ubicacionId 93.2%** (6), productosMarcados 99.1%, puntuacionCalculada 92.3%, rangoCompra 66.7%, nivelEjecucionId 78.6%. **`ventaAdicional` > 0 = 0.0% (suma $0)** → el wizard tiene el campo pero NADIE lo llena. Planograma: 852 SKUs, **0 categorías** pobladas.
+
+### Decisiones del audit
+- **K1 (concepto+ubicación) = GO** (93% poblado).
+- **K2 (venta-por-exhibidor) = MUERTO**: `ventaAdicional` siempre $0 → NO se codea extractor (sería inventar señal); se mueve al **Eje B** (que el dato se capture). *El audit evitó trabajo inútil — exactamente la regla "no diseñar sobre datos que no existen".*
+- **K4 reshape**: sin categorías → adherencia por SKU (`productosMarcados` ∩ planograma 852, ambos UUID de producto).
+
+### K1 — Desglose por concepto + ubicación ✅ EN CÓDIGO 2026-06-18 (builds api+view verdes)
+- **Mig `20260618100000`** `execution_360 += by_concept/by_location` (JSONB, ventana 30d, `{catalogId: {label, n, level_avg, own_share_pct, photo_pct}}`).
+- **`Execution360Service`**: acumula por `conceptoId`/`ubicacionId` por exhibición (30d), resuelve nombres vía `catalogs.value` (lookup con **SAVEPOINT** — `catalogs` puede no resolver en prod y corre primero en /compute → anti-25P02).
+- **Regla `weak_concept` en FindingsEngine**: el peor concepto del sujeto con `n≥3` y `level_avg ≤ overall−25` → coaching concreto ("flojeás la cabecera"). Pasa por calibración L2.
+- FE: labels + evidencia (`weak_concept`, `self_anomaly`) + tipos `by_concept`/`by_location`.
+- Smoke **sección 22**: desglose real poblado + prueba sintética de `weak_concept` (concepto a 20 vs nivel 70 → dispara) + cleanup. **Pendiente: migrate:new (`20260618100000`) + restart → smoke 1-22.**
+
+### Pendientes Horus 360
+- **K4** planograma adherencia por SKU · **K3** catálogo+pesos scoring · **K6** roll-ups zona/supervisor · **K5** idle+traza GPS · **K7** check-in×captura.
+- **Eje B (datos)**: D1 store_id en captura (33%→alto) · D2 daily_assignments.date · **D3 ventaAdicional** (rescata K2) · D4 route_id.

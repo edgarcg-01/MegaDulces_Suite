@@ -187,6 +187,31 @@ export class FindingsEngineService {
           }
         }
       }
+
+      // K1 (Horus 360): desglose por concepto. Si un tipo de exhibidor lo ejecuta
+      // notablemente PEOR que su propio promedio → coaching concreto ("flojeás la
+      // cabecera"). Toma el peor concepto con datos suficientes. Sujeta a calibración L2.
+      if (r.window_days === 30 && r.exec_level_score != null && r.by_concept) {
+        const overall = Number(r.exec_level_score);
+        const byC = typeof r.by_concept === 'string' ? JSON.parse(r.by_concept) : r.by_concept;
+        let worst: any = null;
+        for (const cid of Object.keys(byC || {})) {
+          const c = byC[cid];
+          if (c && c.n >= MIN_OBS && c.level_avg != null && (!worst || c.level_avg < worst.level_avg)) {
+            worst = { ...c, cid };
+          }
+        }
+        if (worst && overall - Number(worst.level_avg) >= 25) {
+          const gap = Math.round((overall - Number(worst.level_avg)) * 100) / 100;
+          add('weak_concept', gap >= 40 ? 'warn' : 'info', r, gap, {
+            concept: worst.label || worst.cid,
+            concept_level: Number(worst.level_avg),
+            overall_level: overall,
+            exhibiciones: worst.n,
+            window_days: 30,
+          });
+        }
+      }
     }
 
     const keys = findings.map((f) => f.dedup_key);

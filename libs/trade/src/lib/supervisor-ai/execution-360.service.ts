@@ -32,12 +32,34 @@ type Bucket = {
   lastVisit: number; // epoch ms
 };
 
+// K1: bucket por concepto/ubicación (solo ventana 30d). 1 conteo por exhibición.
+type CLBucket = {
+  n: number;
+  levelSum: number;
+  levelCount: number;
+  own: number;
+  competitor: number;
+  photoWith: number;
+  photoTotal: number;
+};
+const emptyCL = (): CLBucket => ({
+  n: 0,
+  levelSum: 0,
+  levelCount: 0,
+  own: 0,
+  competitor: 0,
+  photoWith: 0,
+  photoTotal: 0,
+});
+
 type SubjectAgg = {
   label: string;
   w7: Bucket;
   w7prev: Bucket;
   w30: Bucket;
   w30prev: Bucket;
+  concepts: Map<string, CLBucket>; // K1: por conceptoId (30d)
+  locations: Map<string, CLBucket>; // K1: por ubicacionId (30d)
 };
 
 const DAY_MS = 86_400_000;
@@ -87,6 +109,36 @@ export class Execution360Service {
 
   private tenantId(user: any): string | undefined {
     return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  }
+
+  /**
+   * Envuelve un read OPCIONAL en SAVEPOINT: si falla dentro de la trx del request no
+   * la envenena (25P02), cae a null. Sin trx (cron pooled) corre plano. Ver
+   * feedback_global_request_tx_25p02.
+   */
+  private async safeQuery<T>(fn: () => Promise<T>): Promise<T | null> {
+    let sp = false;
+    try {
+      await this.knex.raw('SAVEPOINT horus_e360');
+      sp = true;
+    } catch {
+      /* sin trx activa */
+    }
+    try {
+      const r = await fn();
+      if (sp) await this.knex.raw('RELEASE SAVEPOINT horus_e360');
+      return r;
+    } catch (e: any) {
+      if (sp) {
+        try {
+          await this.knex.raw('ROLLBACK TO SAVEPOINT horus_e360');
+        } catch {
+          /* noop */
+        }
+      }
+      this.logger.debug(`safeQuery opcional falló: ${e.message}`);
+      return null;
+    }
   }
 
   private static parseArray(v: any): any[] {
@@ -145,12 +197,33 @@ export class Execution360Service {
     const storeName = new Map<string, string>();
     storeRows.forEach((s: any) => storeName.set(s.id, s.nombre));
 
+    // K1: nombres de concepto/ubicación (catalogs.value) para el desglose. Best-effort
+    // con SAVEPOINT — `catalogs` puede no resolver en prod (schema/search_path) y esto
+    // corre PRIMERO en /compute; sin el savepoint, un fallo envenenaría toda la trx (25P02).
+    const catName = new Map<string, string>();
+    const catRows =
+      (await this.safeQuery(() =>
+        this.knex('catalogs')
+          .whereIn('catalog_id', ['conceptos', 'ubicaciones'])
+          .whereNull('deleted_at')
+          .select('id', 'value'),
+      )) || [];
+    catRows.forEach((c: any) => catName.set(c.id, c.value));
+
     const byCollaborator = new Map<string, SubjectAgg>();
     const byStore = new Map<string, SubjectAgg>();
     const ensure = (map: Map<string, SubjectAgg>, key: string, label: string): SubjectAgg => {
       let a = map.get(key);
       if (!a) {
-        a = { label, w7: emptyBucket(), w7prev: emptyBucket(), w30: emptyBucket(), w30prev: emptyBucket() };
+        a = {
+          label,
+          w7: emptyBucket(),
+          w7prev: emptyBucket(),
+          w30: emptyBucket(),
+          w30prev: emptyBucket(),
+          concepts: new Map(),
+          locations: new Map(),
+        };
         map.set(key, a);
       }
       return a;
@@ -171,17 +244,30 @@ export class Execution360Service {
       let levelSum = 0;
       let levelCount = 0;
       let skuSum = 0;
+      // K1: detalle por exhibición (concepto/ubicación) para el desglose 30d.
+      const exDetails: {
+        cid?: string;
+        lid?: string;
+        lw: number | null;
+        own: boolean;
+        comp: boolean;
+        photo: boolean;
+      }[] = [];
       for (const e of Execution360Service.parseArray(r.exhibiciones)) {
         photoTotal++;
-        if (e.fotoUrl) photoWith++;
-        if (e.perteneceMegaDulces === true) own++;
-        else if (e.perteneceMegaDulces === false) competitor++;
+        const hasPhoto = !!e.fotoUrl;
+        if (hasPhoto) photoWith++;
+        const isOwn = e.perteneceMegaDulces === true;
+        const isComp = e.perteneceMegaDulces === false;
+        if (isOwn) own++;
+        else if (isComp) competitor++;
         const lw = levelWeight(e.nivelEjecucion);
         if (lw != null) {
           levelSum += lw;
           levelCount++;
         }
         if (Array.isArray(e.productosMarcados)) skuSum += e.productosMarcados.length;
+        exDetails.push({ cid: e.conceptoId, lid: e.ubicacionId, lw, own: isOwn, comp: isComp, photo: hasPhoto });
       }
 
       const apply = (b: Bucket) => {
@@ -204,12 +290,35 @@ export class Execution360Service {
         if (t > b.lastVisit) b.lastVisit = t;
       };
 
+      // K1: acumula el detalle por exhibición en un bucket concepto/ubicación.
+      const bumpCL = (map: Map<string, CLBucket>, key: string, d: (typeof exDetails)[number]) => {
+        let b = map.get(key);
+        if (!b) {
+          b = emptyCL();
+          map.set(key, b);
+        }
+        b.n++;
+        if (d.lw != null) {
+          b.levelSum += d.lw;
+          b.levelCount++;
+        }
+        if (d.own) b.own++;
+        else if (d.comp) b.competitor++;
+        b.photoTotal++;
+        if (d.photo) b.photoWith++;
+      };
+
       const fan = (a: SubjectAgg) => {
         // w7 ⊂ w30 (ventanas independientes, no excluyentes); los "prev" sí lo son.
         if (daysAgo <= 7) apply(a.w7);
         else if (daysAgo <= 14) apply(a.w7prev);
-        if (daysAgo <= 30) apply(a.w30);
-        else if (daysAgo <= 60) apply(a.w30prev);
+        if (daysAgo <= 30) {
+          apply(a.w30);
+          for (const d of exDetails) {
+            if (d.cid) bumpCL(a.concepts, d.cid, d);
+            if (d.lid) bumpCL(a.locations, d.lid, d);
+          }
+        } else if (daysAgo <= 60) apply(a.w30prev);
       };
 
       if (r.user_id) fan(ensure(byCollaborator, r.user_id, r.captured_by_username || 'Colaborador'));
@@ -219,8 +328,8 @@ export class Execution360Service {
     const rows: any[] = [];
     const pushRows = (type: 'collaborator' | 'store', map: Map<string, SubjectAgg>) => {
       for (const [id, a] of map) {
-        rows.push(this.buildRow(tenantId, type, id, 7, a.label, a.w7, a.w7prev, now));
-        rows.push(this.buildRow(tenantId, type, id, 30, a.label, a.w30, a.w30prev, now));
+        rows.push(this.buildRow(tenantId, type, id, 7, a.label, a.w7, a.w7prev, now, null, null, catName));
+        rows.push(this.buildRow(tenantId, type, id, 30, a.label, a.w30, a.w30prev, now, a.concepts, a.locations, catName));
       }
     };
     pushRows('collaborator', byCollaborator);
@@ -243,6 +352,8 @@ export class Execution360Service {
         'exec_level_score',
         'avg_visit_min',
         'avg_skus',
+        'by_concept',
+        'by_location',
         'anomaly_count',
         'computed_at',
         'updated_at',
@@ -305,6 +416,9 @@ export class Execution360Service {
     cur: Bucket,
     prev: Bucket,
     now: number,
+    concepts?: Map<string, CLBucket> | null,
+    locations?: Map<string, CLBucket> | null,
+    catName?: Map<string, string>,
   ): any {
     const avg = cur.scoreCount > 0 ? round2(cur.scoreSum / cur.scoreCount) : null;
     const avgPrev = prev.scoreCount > 0 ? prev.scoreSum / prev.scoreCount : null;
@@ -317,6 +431,25 @@ export class Execution360Service {
     const execLevel = cur.levelCount > 0 ? round2((cur.levelSum / cur.levelCount) * 100) : null;
     const avgVisitMin = cur.durCount > 0 ? round2(cur.durSum / cur.durCount) : null;
     const avgSkus = cur.photoTotal > 0 ? round2(cur.skuSum / cur.photoTotal) : null;
+
+    // K1: desglose por concepto/ubicación (solo 30d; null en 7d).
+    const clToJson = (m?: Map<string, CLBucket> | null): string | null => {
+      if (!m || m.size === 0) return null;
+      const o: Record<string, any> = {};
+      for (const [id, b] of m) {
+        const oc = b.own + b.competitor;
+        o[id] = {
+          label: catName?.get(id) || null,
+          n: b.n,
+          level_avg: b.levelCount > 0 ? round2((b.levelSum / b.levelCount) * 100) : null,
+          own_share_pct: oc > 0 ? round2((b.own / oc) * 100) : null,
+          photo_pct: b.photoTotal > 0 ? round2((b.photoWith / b.photoTotal) * 100) : null,
+        };
+      }
+      return JSON.stringify(o);
+    };
+    const byConcept = clToJson(concepts);
+    const byLocation = clToJson(locations);
 
     return {
       tenant_id: tenantId,
@@ -337,6 +470,8 @@ export class Execution360Service {
       exec_level_score: execLevel, // H2.1
       avg_visit_min: avgVisitMin, // H2.1
       avg_skus: avgSkus, // H2.1
+      by_concept: byConcept, // K1
+      by_location: byLocation, // K1
       anomaly_count: 0, // Horus.6
       computed_at: this.knex.fn.now(),
       updated_at: this.knex.fn.now(),

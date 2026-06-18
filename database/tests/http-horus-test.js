@@ -680,6 +680,61 @@ async function req(method, path, token, body) {
   const goneSX = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: SX }).first();
   check('cleanup L1 OK (sin datos sintéticos residuales)', !goneSX, goneSX);
 
+  console.log('\n── 22. Horus 360 · K1: desglose por concepto + ubicación + weak_concept ──');
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const exK = await req('GET', '/supervisor-ai/execution-360?subject_type=collaborator&window_days=30', token);
+  check('execution-360 200', exK.status === 200, exK.status);
+  const rowsK = exK.body?.rows || [];
+  const withConcept = rowsK.filter((r) => r.by_concept && Object.keys(r.by_concept).length > 0);
+  console.log(`     colaboradores con desglose por concepto=${withConcept.length}/${rowsK.length}`);
+  check('hay rows con by_concept poblado (dato real ~93%)', withConcept.length > 0, withConcept.length);
+  if (withConcept.length > 0) {
+    const c = Object.values(withConcept[0].by_concept)[0];
+    check('cada concepto trae {n, level_avg}', !!c && typeof c.n === 'number' && 'level_avg' in c, c);
+  }
+
+  // Verificación REAL de weak_concept: inyecto un concepto flojo → el motor lo detecta.
+  const SX3 = '0000000a-0000-0000-0000-00000000ba53';
+  const cleanK1 = async () => {
+    await knex('commercial.supervisor_findings').where({ tenant_id: T, subject_id: SX3 }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: SX3 }).del();
+    await knex('commercial.execution_baselines').where({ tenant_id: T, subject_id: SX3 }).del();
+    await knex('commercial.execution_360').where({ tenant_id: T, subject_id: SX3 }).del();
+  };
+  await cleanK1();
+  await knex('commercial.execution_360')
+    .insert({
+      tenant_id: T,
+      subject_type: 'collaborator',
+      subject_id: SX3,
+      window_days: 30,
+      label: '__horus_k1_test__',
+      visits_done: 6,
+      avg_score: 70,
+      exec_level_score: 70, // su nivel general
+      by_concept: JSON.stringify({
+        'c-test': { label: '__cabecera_test__', n: 5, level_avg: 20, own_share_pct: 50, photo_pct: 40 },
+      }),
+    })
+    .onConflict(['tenant_id', 'subject_type', 'subject_id', 'window_days'])
+    .merge();
+  await req('POST', '/supervisor-ai/compute', token, {});
+  const wc = await knex('commercial.supervisor_findings')
+    .where({ tenant_id: T, subject_id: SX3, finding_type: 'weak_concept' })
+    .first();
+  check('weak_concept disparó sobre el concepto flojo inyectado (20 vs 70)', !!wc, wc ? { sev: wc.severity, score: wc.score } : 'sin weak_concept');
+  if (wc) {
+    const ev = typeof wc.evidence === 'string' ? JSON.parse(wc.evidence) : wc.evidence;
+    check(
+      'evidencia explicable (concept + concept_level=20 + overall_level=70)',
+      ev && ev.concept && Number(ev.concept_level) === 20 && Number(ev.overall_level) === 70,
+      ev,
+    );
+  }
+  await cleanK1();
+  const goneK1 = await knex('commercial.execution_360').where({ tenant_id: T, subject_id: SX3 }).first();
+  check('cleanup K1 OK (sin datos sintéticos residuales)', !goneK1, goneK1);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

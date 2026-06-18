@@ -43,6 +43,8 @@ export interface Execution360Row {
   exec_level_score?: number | null;
   avg_visit_min?: number | null;
   avg_skus?: number | null;
+  by_concept?: Record<string, { label: string | null; n: number; level_avg: number | null; own_share_pct: number | null; photo_pct: number | null }> | null;
+  by_location?: Record<string, { label: string | null; n: number; level_avg: number | null }> | null;
 }
 
 export interface FindingRow {
