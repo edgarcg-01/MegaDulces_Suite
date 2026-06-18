@@ -61,6 +61,37 @@ function check(name, cond, detail) {
       clist.some((x) => Number(x.aff_lift) > 0 || x.reason === 'affinity'),
       clist.slice(0, 3).map((x) => `${x.product_name}:${x.aff_lift}`));
 
+    console.log('\n── 3. Promo como señal de empuje (CV.5: cohesión empuje↔promos) ──');
+    // Elegir un producto SIN directriz (precedencia: estrategia > promo) para que
+    // reason='promo' sea determinista. Lista amplia: el top suele estar dominado
+    // por directrices ("Marca del mes" boostea toda la marca).
+    const pick = await req('GET', `/commercial/intelligence/thot/suggest/${customer}?limit=50`, token);
+    const nonDir = (pick.body || []).filter((x) => x.reason !== 'estrategia');
+    const target = nonDir[0] || (pick.body || [])[0];
+    check('hay producto base (sin directriz) para promocionar', !!target && target.reason !== 'estrategia', target?.reason);
+    if (target) {
+      const promoCode = 'THOT-CV5-TEST';
+      await knex('commercial.promotions').where({ tenant_id: T, code: promoCode }).del();
+      await knex('commercial.promotions').insert({
+        tenant_id: T,
+        code: promoCode,
+        name: 'Test CV5 Empuje',
+        promotion_type: 'percent_off_product',
+        rules: JSON.stringify({ product_id: target.product_id, percent: 10 }),
+        priority: 50,
+        active: true,
+      });
+      const s2 = await req('GET', `/commercial/intelligence/thot/suggest/${customer}?limit=50`, token);
+      const found = (s2.body || []).find((x) => x.product_id === target.product_id);
+      check('producto en promo sigue sugerido', !!found, found?.product_id);
+      check('marcado on_promo=true', !!found && found.on_promo === true, { on_promo: found?.on_promo });
+      check('reason=promo + label "En promoción"', !!found && found.reason === 'promo', {
+        reason: found?.reason,
+        label: found?.reason_label,
+      });
+      await knex('commercial.promotions').where({ tenant_id: T, code: promoCode }).del();
+    }
+
     console.log(`\n════════ Total: ${pass} pass / ${fail} fail ════════`);
     if (fail) console.log('Failures:\n  - ' + failures.join('\n  - '));
     code = fail === 0 ? 0 : 1;

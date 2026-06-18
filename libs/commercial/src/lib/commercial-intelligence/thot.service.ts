@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { extractPromoProducts } from '../commercial-promotions/promotion-products.util';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -15,8 +16,9 @@ export interface ThotSuggestion {
   zona_index: number;
   present: boolean; // el PdV ya exhibe este producto (capturas de Trade)
   pdv_marks: number; // veces marcado en las capturas de ese PdV
+  on_promo: boolean; // tiene una promoción activa (CV.5 — señal empuje↔promos)
   score: number;
-  reason: 'estrategia' | 'whitespace' | 'affinity' | 'recompra' | 'zona' | 'rotacion' | 'margen' | 'demanda';
+  reason: 'estrategia' | 'promo' | 'whitespace' | 'affinity' | 'recompra' | 'zona' | 'rotacion' | 'margen' | 'demanda';
   reason_label: string;
 }
 
@@ -70,6 +72,19 @@ export class ThotService {
       }
       if (!priceListId) return [];
 
+      // CV.5 — promo como señal de empuje: productos con promoción activa/vigente
+      // pesan en el score (igual que una directriz) y exponen reason='promo'. La
+      // forma promo→productos vive en el módulo de promociones (su dueño).
+      const now = new Date();
+      const activePromos = await trx('commercial.promotions')
+        .where({ active: true })
+        .whereNull('deleted_at')
+        .andWhere((q: any) => q.whereNull('starts_at').orWhere('starts_at', '<=', now))
+        .andWhere((q: any) => q.whereNull('ends_at').orWhere('ends_at', '>', now))
+        .select('code', 'name', 'promotion_type', 'rules', 'priority');
+      const promoByProduct = extractPromoProducts(activePromos);
+      const promoLiteral = `{${[...promoByProduct.keys()].join(',')}}`;
+
       const res = await trx.raw(
         `
         WITH cart_aff AS (
@@ -108,7 +123,8 @@ export class ThotService {
                  CASE WHEN pv.product_id IS NOT NULL AND pv.last_seen IS NOT NULL
                       THEN GREATEST(0, 1 - EXTRACT(EPOCH FROM (NOW() - pv.last_seen)) / (180 * 86400.0))
                       ELSE (pv.product_id IS NOT NULL)::int END AS present_recency,
-                 (CASE p.rotation_tier WHEN 'alta' THEN 1 WHEN 'media' THEN 0.6 WHEN 'baja' THEN 0.2 ELSE 0.1 END) AS rot_w
+                 (CASE p.rotation_tier WHEN 'alta' THEN 1 WHEN 'media' THEN 0.6 WHEN 'baja' THEN 0.2 ELSE 0.1 END) AS rot_w,
+                 (p.id = ANY(?::uuid[])) AS on_promo
           FROM catalog.products p
           JOIN commercial.product_prices pp
             ON pp.product_id = p.id AND pp.tenant_id = p.tenant_id
@@ -136,12 +152,13 @@ export class ThotService {
                  * (1 + 2.0 * LEAST(aff_lift / 15.0, 1) + 0.5 * zona_index)
                + 0.45 * strat_boost
                + 0.6 * (zona_index * (CASE WHEN present THEN 0 ELSE 1 END))
-               + 0.25 * present_recency AS score
+               + 0.25 * present_recency
+               + 0.5 * (CASE WHEN on_promo THEN 1 ELSE 0 END) AS score
         FROM cand
         ORDER BY score DESC NULLS LAST
         LIMIT ?
         `,
-        [cartLiteral, priceListId, zona, customerId, cartLiteral, limit],
+        [cartLiteral, promoLiteral, priceListId, zona, customerId, cartLiteral, limit],
       );
 
       const hasCart = cart.length > 0;
@@ -156,9 +173,11 @@ export class ThotService {
           const margin = r.margin_net == null ? null : Number(r.margin_net);
           const present = r.present === true || r.present === 't';
           const pdvMarks = Number(r.pdv_marks) || 0;
+          const onPromo = r.on_promo === true || r.on_promo === 't';
           let reason: ThotSuggestion['reason'] = 'demanda';
           let label = 'Recomendado';
           if (Number(r.strat_boost) > 0 && r.strat_reason) { reason = 'estrategia'; label = r.strat_reason; }
+          else if (onPromo) { reason = 'promo'; label = 'En promoción'; }
           else if (!present && zonaIdx >= 0.5) { reason = 'whitespace'; label = 'Falta en tu tienda'; }
           else if (hasCart && aff >= 0.3) { reason = 'affinity'; label = 'Va con lo que llevas'; }
           else if (present && pdvMarks > 0) { reason = 'recompra'; label = 'Ya lo manejas'; }
@@ -177,6 +196,7 @@ export class ThotService {
             zona_index: Math.round(zonaIdx * 100) / 100,
             present,
             pdv_marks: pdvMarks,
+            on_promo: onPromo,
             score: Math.round(Number(r.score) * 1000) / 1000,
             reason,
             reason_label: label,
