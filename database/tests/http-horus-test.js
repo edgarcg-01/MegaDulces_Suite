@@ -83,7 +83,7 @@ async function req(method, path, token, body) {
     'cada row trae subject_type + window_days + visits_done',
     rows.every(
       (r) =>
-        ['collaborator', 'route', 'store'].includes(r.subject_type) &&
+        ['collaborator', 'route', 'store', 'zone', 'supervisor'].includes(r.subject_type) &&
         [7, 30].includes(Number(r.window_days)) &&
         typeof r.visits_done === 'number',
     ),
