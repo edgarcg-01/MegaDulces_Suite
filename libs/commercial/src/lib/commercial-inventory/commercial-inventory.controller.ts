@@ -62,6 +62,19 @@ export class CommercialInventoryController {
     return this.service.listLots(warehouseId, productId);
   }
 
+  @Get('expiring')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'Lotes próximos a vencer o ya vencidos (?days=30&warehouse_id=) — P2.2' })
+  expiring(
+    @Query('days') days?: string,
+    @Query('warehouse_id') warehouseId?: string,
+  ) {
+    return this.service.listExpiring({
+      days: days != null ? Number(days) : undefined,
+      warehouse_id: warehouseId,
+    });
+  }
+
   @Post('movements')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
   @ApiOperation({

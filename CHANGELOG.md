@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — P2.2a FEFO: endpoint de lotes por vencer (base de alertas de caducidad)
+- **`GET /commercial/inventory/expiring?days=30&warehouse_id=`** (gate VER): lotes con caducidad
+  ≤ hoy+`days` y stock > 0 (incluye **vencidos** — `days_to_expiry` puede ser ≤0), con
+  producto/almacén/`value_at_cost`, orden por caducidad ASC. Base del dashboard/cron de caducidad
+  (P2.2b). Build api verde + checks en smoke I.5 (ventana 90 incluye el lote a +60d, ventana 30 no).
+- Endurecido el smoke I.5: un endpoint ausente ya no tumba la suite (guard array-or-not).
+- ⏳ P2.1b + P2.2a son código de API → requieren **reinicio** para probar live.
+
 ### Added — P2.1b FEFO: captura de lote/caducidad en recepción + lectura de lotes
 - **`POST /commercial/inventory/movements`** (`recordMovement`) acepta `lot_code` + `expiry_date`
   (YYYY-MM-DD) en movimientos `'in'` (recepción): upserta el **lote real** en `commercial.stock_lots`

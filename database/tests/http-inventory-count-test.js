@@ -90,8 +90,17 @@ function check(name, cond, detail) {
   }, token);
   check('P2.1b: recepción con lote+caducidad aceptada', lotMv.status === 201 || lotMv.status === 200, { status: lotMv.status });
   const lots = await req('GET', `/commercial/inventory/stock/${whId}/${productId}/lots`, null, token);
-  const lotRow = (lots.body || []).find((l) => l.lot_code === 'LOT-SMOKE');
-  check('P2.1b: lote real capturado (qty 10 + caducidad)', !!lotRow && Number(lotRow.quantity) === 10 && !!lotRow.expiry_date, { lots: lots.body });
+  const lotArr = Array.isArray(lots.body) ? lots.body : (Array.isArray(lots.body?.data) ? lots.body.data : []);
+  const lotRow = lotArr.find((l) => l.lot_code === 'LOT-SMOKE');
+  check('P2.1b: lote real capturado (qty 10 + caducidad)', !!lotRow && Number(lotRow.quantity) === 10 && !!lotRow.expiry_date, { status: lots.status, body: lots.body });
+
+  // P2.2 — el lote (+60d) aparece en /expiring con ventana amplia, no con ventana corta
+  const expWide = await req('GET', `/commercial/inventory/expiring?days=90&warehouse_id=${whId}`, null, token);
+  const wideArr = Array.isArray(expWide.body) ? expWide.body : [];
+  check('P2.2: lote a +60d aparece en /expiring?days=90', wideArr.some((l) => l.lot_code === 'LOT-SMOKE'), { status: expWide.status, n: wideArr.length });
+  const expNarrow = await req('GET', `/commercial/inventory/expiring?days=30&warehouse_id=${whId}`, null, token);
+  const narrowArr = Array.isArray(expNarrow.body) ? expNarrow.body : [];
+  check('P2.2: lote a +60d NO aparece en /expiring?days=30', expNarrow.status === 200 && !narrowArr.some((l) => l.lot_code === 'LOT-SMOKE'), { status: expNarrow.status, n: narrowArr.length });
 
   let openFolio = null;
   const cancel = async (id) => { if (id) await req('POST', `/commercial/inventory/counts/${id}/cancel`, { reason: 'smoke teardown' }, token); };

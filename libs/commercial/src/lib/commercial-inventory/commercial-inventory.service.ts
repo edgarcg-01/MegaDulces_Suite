@@ -316,6 +316,43 @@ export class CommercialInventoryService {
   }
 
   /**
+   * P2.2 — lotes próximos a vencer (o ya vencidos) con stock > 0, dentro de
+   * `days` días (default 30). Base de alertas/dashboard de caducidad. (VER)
+   */
+  async listExpiring(query: { days?: number; warehouse_id?: string }) {
+    const days = Number.isFinite(Number(query.days)) ? Math.max(0, Math.floor(Number(query.days))) : 30;
+    if (query.warehouse_id && !UUID_REGEX.test(query.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      let q = trx('commercial.stock_lots as l')
+        .join('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'l.tenant_id').andOn('w.id', '=', 'l.warehouse_id');
+        })
+        .leftJoin('public.products as p', 'p.id', 'l.product_id')
+        .whereNotNull('l.expiry_date')
+        .where('l.quantity', '>', 0)
+        .whereRaw('l.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
+      if (query.warehouse_id) q = q.where('l.warehouse_id', query.warehouse_id);
+      return q
+        .select(
+          'l.id',
+          'l.lot_code',
+          'l.expiry_date',
+          'l.quantity',
+          'l.warehouse_id',
+          'w.code as warehouse_code',
+          'l.product_id',
+          'p.sku as sku',
+          'p.nombre as product_name',
+          trx.raw('(l.expiry_date - CURRENT_DATE)::int as days_to_expiry'),
+          trx.raw('(l.quantity * COALESCE(p.cost_base, 0))::numeric as value_at_cost'),
+        )
+        .orderBy('l.expiry_date', 'asc')
+        .limit(500);
+    });
+  }
+
+  /**
    * Ajuste a un saldo deseado (calcula delta internamente, genera movement
    * tipo 'adjust' con la diferencia firmada). Útil para auditorías físicas.
    */
