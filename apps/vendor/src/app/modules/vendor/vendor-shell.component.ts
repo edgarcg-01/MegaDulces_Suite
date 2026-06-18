@@ -152,7 +152,10 @@ import { RoutePingService } from '../../core/services/route-ping.service';
         border-top: 1px solid var(--border-color);
         display: flex;
         justify-content: space-around;
-        padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+        /* Sin padding-bottom acá: la safe-area la absorbe el área táctil de cada
+           botón (abajo), así tocar la franja del home indicator activa el menú
+           en vez de quedar como espacio muerto. */
+        padding: 0;
         z-index: 10;
         box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
       }
@@ -165,7 +168,10 @@ import { RoutePingService } from '../../core/services/route-ping.service';
         gap: 0.125rem;
         text-decoration: none;
         color: var(--text-muted);
-        padding: 0.5rem 0.25rem;
+        /* Área táctil que llega hasta el borde (incluye la safe-area), pero el
+           ícono+label quedan arriba del home indicator. Así el espacio "se usa"
+           para el menú sin pelear con el gesto del sistema. */
+        padding: 0.6rem 0.25rem calc(0.6rem + env(safe-area-inset-bottom));
         font-size: 0.68rem;
         white-space: nowrap;
       }
