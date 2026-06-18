@@ -105,14 +105,16 @@ export class OrderStockService {
         `Stock físico insuficiente para entregar producto ${productId}: ${qBefore} < ${quantity}`,
       );
     }
-    // P2.2d (warn): si lo bueno (no-vencido) no cubre la cantidad, el trigger
-    // (FEFO no-vencido primero) forzará despacho desde lotes vencidos por el sobrante.
-    const goodRow = await trx('commercial.stock_lots')
+    // Snapshot de lotes ANTES del decremento (P2.2d + P2.3). `is_good` viene de
+    // CURRENT_DATE en SQL (sin riesgo de TZ). El trigger hará el FEFO real al
+    // actualizar stock; acá observamos before/after para registrar el consumo por lote.
+    const lotsBefore = await trx('commercial.stock_lots')
       .where({ warehouse_id: warehouseId, product_id: productId })
-      .whereRaw('(expiry_date IS NULL OR expiry_date >= CURRENT_DATE)')
-      .sum({ good: 'quantity' })
-      .first();
-    const expiredConsumed = Math.max(0, quantity - Number(goodRow?.good || 0));
+      .select('id', 'lot_code', 'expiry_date', 'quantity')
+      .select(trx.raw('(expiry_date IS NULL OR expiry_date >= CURRENT_DATE) as is_good'));
+    // P2.2d (warn): si lo bueno (no-vencido) no cubre la cantidad, el sobrante saldrá de vencidos.
+    const goodAvail = lotsBefore.reduce((s: number, l: any) => s + (l.is_good ? Number(l.quantity) : 0), 0);
+    const expiredConsumed = Math.max(0, quantity - goodAvail);
     // Una preventa NO reservó stock al confirmar → liberar solo lo que estaba
     // reservado para este order (puede ser 0) y consumir la cantidad física.
     // Para un pedido reservado, release === quantity (comportamiento previo).
@@ -139,6 +141,31 @@ export class OrderStockService {
       reference_id: orderId,
       created_by: this.tenantCtx.get()?.userId || null,
     });
+
+    // P2.3 — trazabilidad por lote: diff before/after (el trigger ya decrementó FEFO)
+    // → registrar de QUÉ lote(s) salió esta venta, con la referencia del pedido.
+    const lotsAfter = await trx('commercial.stock_lots')
+      .where({ warehouse_id: warehouseId, product_id: productId })
+      .select('id', 'quantity');
+    const afterById = new Map<string, number>(lotsAfter.map((l: any) => [l.id, Number(l.quantity)]));
+    const lotRows: any[] = [];
+    for (const b of lotsBefore) {
+      const delta = Number(b.quantity) - (afterById.get(b.id) ?? 0);
+      if (delta > 0)
+        lotRows.push({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          warehouse_id: warehouseId,
+          product_id: productId,
+          lot_code: b.lot_code,
+          expiry_date: b.expiry_date,
+          movement_type: 'sale',
+          quantity: delta,
+          reference_type: 'order',
+          reference_id: orderId,
+          created_by: this.tenantCtx.get()?.userId || null,
+        });
+    }
+    if (lotRows.length) await trx('commercial.stock_lot_movements').insert(lotRows);
 
     return { expiredConsumed };
   }

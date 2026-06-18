@@ -75,6 +75,26 @@ export class CommercialInventoryController {
     });
   }
 
+  @Get('lot-movements')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
+  @ApiOperation({
+    summary:
+      'Trazabilidad por lote: qué venta consumió qué lote (?lot_code= para recall, ?reference_id= para los lotes de un pedido, ?product_id=/?warehouse_id=) — P2.3. Gate AJUSTAR (log de operaciones, como /movements).',
+  })
+  lotMovements(
+    @Query('lot_code') lotCode?: string,
+    @Query('product_id') productId?: string,
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('reference_id') referenceId?: string,
+  ) {
+    return this.service.listLotMovements({
+      lot_code: lotCode,
+      product_id: productId,
+      warehouse_id: warehouseId,
+      reference_id: referenceId,
+    });
+  }
+
   @Post('movements')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
   @ApiOperation({

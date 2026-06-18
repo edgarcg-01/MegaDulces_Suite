@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added — P2.3 FEFO: trazabilidad del lote consumido por cada venta
+- **`commercial.stock_lot_movements`** (mig `20260618230000`, RLS forzado, append-only, FKs compuestas a
+  tablas reales): ledger por lote de qué se consumió, cuánto, y por qué referencia (pedido).
+- **`OrderStockService.consume`** ahora hace **diff before/after** de `stock_lots` (el trigger ya hace el
+  decremento FEFO; acá se **observa** el resultado real, sin re-simular) y registra una fila por lote
+  consumido, ligada al `order_id`. Misma trx; sin cambios de comportamiento ni montos.
+- **`GET /commercial/inventory/lot-movements`** (gate `AJUSTAR`, como `/movements`): filtros `lot_code`
+  (recall "¿qué pedidos consumieron el lote X?"), `reference_id` ("¿de qué lotes salió el pedido Y?"),
+  `product_id`/`warehouse_id`.
+- Build api verde + check en smoke alerts (pedido que despacha lote vencido → lot-movement qty 5 ligado
+  al pedido). ⏳ requiere **reinicio** (es código de API). Deferred: trazar ajustes/reconcile a nivel lote.
+
 ### Added — P2.2c FEFO: dashboard "Por vencer" (cierra P2.2)
 - **Página `/comercial/inventory/expiring`** (gate `COMMERCIAL_INVENTORY_VER`, tab "Por vencer" en el strip
   de inventario): consume `GET /commercial/inventory/expiring`. KPIs (valor en riesgo al costo / # lotes /

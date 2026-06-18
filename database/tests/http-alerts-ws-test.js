@@ -290,6 +290,11 @@ function wait(ms) {
   const sxAlert = t1.alerts.find((a) => a.type === 'sold_expired' && a.data?.order_id === sxDraft.body.id);
   check('recibimos sold_expired alert al despachar vencido', !!sxAlert, { sold_expired: t1.alerts.filter((a) => a.type === 'sold_expired').length });
   check('sold_expired severidad warn', sxAlert?.severity === 'warn', { sev: sxAlert?.severity });
+  // P2.3 — trazabilidad: el lote consumido quedó registrado en el ledger, ligado al pedido.
+  const lm = await http('GET', `/commercial/inventory/lot-movements?reference_id=${sxDraft.body.id}`, null, t1Token);
+  const lmArr = Array.isArray(lm.body) ? lm.body : [];
+  const lmRow = lmArr.find((m) => m.lot_code === `EXP-${sxTs}`);
+  check('P2.3: lot-movement registrado para el pedido (lote vencido, qty 5)', !!lmRow && Number(lmRow.quantity) === 5, { status: lm.status, n: lmArr.length });
   if (sxWhId) await http('DELETE', `/commercial/warehouses/${sxWhId}`, null, t1Token);
 
   // Stats

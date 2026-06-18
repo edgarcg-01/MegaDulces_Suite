@@ -353,6 +353,40 @@ export class CommercialInventoryService {
   }
 
   /**
+   * P2.3 — trazabilidad por lote: movimientos de lote (qué venta consumió qué lote).
+   * Filtros: `lot_code` (recall por lote), `reference_id` (lotes de un pedido),
+   * `product_id`/`warehouse_id`. (AJUSTAR — es log de operaciones, como /movements.)
+   */
+  async listLotMovements(query: { lot_code?: string; product_id?: string; warehouse_id?: string; reference_id?: string }) {
+    if (query.warehouse_id && !UUID_REGEX.test(query.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    if (query.product_id && !UUID_REGEX.test(query.product_id))
+      throw new BadRequestException('product_id inválido');
+    if (query.reference_id && !UUID_REGEX.test(query.reference_id))
+      throw new BadRequestException('reference_id inválido');
+    return this.tk.run(async (trx) => {
+      let q = trx('commercial.stock_lot_movements as m')
+        .join('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
+        })
+        .leftJoin('public.products as p', 'p.id', 'm.product_id');
+      if (query.lot_code) q = q.where('m.lot_code', query.lot_code);
+      if (query.product_id) q = q.where('m.product_id', query.product_id);
+      if (query.warehouse_id) q = q.where('m.warehouse_id', query.warehouse_id);
+      if (query.reference_id) q = q.where('m.reference_id', query.reference_id);
+      return q
+        .select(
+          'm.id', 'm.lot_code', 'm.expiry_date', 'm.movement_type', 'm.quantity',
+          'm.warehouse_id', 'w.code as warehouse_code',
+          'm.product_id', 'p.sku as sku', 'p.nombre as product_name',
+          'm.reference_type', 'm.reference_id', 'm.created_at',
+        )
+        .orderBy('m.created_at', 'desc')
+        .limit(500);
+    });
+  }
+
+  /**
    * Ajuste a un saldo deseado (calcula delta internamente, genera movement
    * tipo 'adjust' con la diferencia firmada). Útil para auditorías físicas.
    */
