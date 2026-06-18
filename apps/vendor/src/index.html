@@ -42,6 +42,11 @@
   <link rel="manifest" href="assets/manifest.webmanifest">
 
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
+
+  <!-- Sello de build: start.sh reemplaza los placeholders en runtime (index.html se
+       sirve no-cache → siempre refleja el contenedor vivo). El overlay de Ajustes
+       lo muestra para saber QUÉ build corre en el device (deploy-vs-cache). -->
+  <script>window.__BUILD_VERSION__='BUILD_COMMIT_PLACEHOLDER';window.__BUILD_TIMESTAMP__='BUILD_TS_PLACEHOLDER';</script>
 </head>
 <body>
   <app-root></app-root>
