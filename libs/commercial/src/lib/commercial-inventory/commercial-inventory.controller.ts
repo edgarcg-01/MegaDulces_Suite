@@ -52,6 +52,16 @@ export class CommercialInventoryController {
     return this.service.getStockForProduct(warehouseId, productId);
   }
 
+  @Get('stock/:warehouse_id/:product_id/lots')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'Lotes (lote + caducidad) de un producto en un almacén, orden FEFO (P2.1b)' })
+  getLots(
+    @Param('warehouse_id') warehouseId: string,
+    @Param('product_id') productId: string,
+  ) {
+    return this.service.listLots(warehouseId, productId);
+  }
+
   @Post('movements')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_AJUSTAR)
   @ApiOperation({

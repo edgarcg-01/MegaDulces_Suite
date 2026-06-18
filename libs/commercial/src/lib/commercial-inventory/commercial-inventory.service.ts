@@ -23,6 +23,9 @@ export interface RecordMovementDto {
   reference_type?: string;
   reference_id?: string;
   notes?: string;
+  /** P2.1b — captura de lote/caducidad en recepción (solo aplica a 'in'). */
+  lot_code?: string;
+  expiry_date?: string; // YYYY-MM-DD
 }
 
 export interface AdjustStockDto {
@@ -173,6 +176,8 @@ export class CommercialInventoryService {
 
   async recordMovement(dto: RecordMovementDto) {
     this.validateMovement(dto);
+    if (dto.expiry_date && !/^\d{4}-\d{2}-\d{2}$/.test(dto.expiry_date))
+      throw new BadRequestException('expiry_date debe ser YYYY-MM-DD');
 
     return this.tk.run(async (trx) => {
       const userId = await this.getUserIdFromCtx();
@@ -240,6 +245,21 @@ export class CommercialInventoryService {
           break;
       }
 
+      // P2.1b — captura de lote/caducidad en recepción ('in'): upsert del lote
+      // real ANTES del update de stock; el trigger trg_rebalance_stock_lots
+      // mantiene el lote 'NA' balanceado para que SUM(lotes)=stock siga valiendo.
+      if (dto.movement_type === 'in' && dto.lot_code) {
+        await trx.raw(
+          `INSERT INTO commercial.stock_lots
+             (tenant_id, warehouse_id, product_id, lot_code, expiry_date, quantity, reserved_quantity, received_at, updated_by)
+           VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, 0, now(), ?)
+           ON CONFLICT (tenant_id, warehouse_id, product_id, lot_code, expiry_date)
+           DO UPDATE SET quantity = commercial.stock_lots.quantity + EXCLUDED.quantity,
+                         received_at = now(), updated_at = now(), updated_by = EXCLUDED.updated_by`,
+          [dto.warehouse_id, dto.product_id, dto.lot_code.trim(), dto.expiry_date || null, dto.quantity, userId],
+        );
+      }
+
       // Upsert del saldo
       if (stockRow) {
         await trx('commercial.stock')
@@ -279,6 +299,19 @@ export class CommercialInventoryService {
         .returning('*');
 
       return movement;
+    });
+  }
+
+  /** P2.1b — lotes (lote + caducidad) de un producto en un almacén, en orden FEFO. */
+  async listLots(warehouseId: string, productId: string) {
+    if (!UUID_REGEX.test(warehouseId) || !UUID_REGEX.test(productId))
+      throw new BadRequestException('warehouse_id/product_id inválido');
+    return this.tk.run(async (trx) => {
+      return trx('commercial.stock_lots')
+        .where({ warehouse_id: warehouseId, product_id: productId })
+        .select('id', 'lot_code', 'expiry_date', 'quantity', 'reserved_quantity', 'received_at', 'updated_at')
+        .orderByRaw('expiry_date ASC NULLS LAST')
+        .orderBy('lot_code');
     });
   }
 

@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — P2.1b FEFO: captura de lote/caducidad en recepción + lectura de lotes
+- **`POST /commercial/inventory/movements`** (`recordMovement`) acepta `lot_code` + `expiry_date`
+  (YYYY-MM-DD) en movimientos `'in'` (recepción): upserta el **lote real** en `commercial.stock_lots`
+  **antes** del update de stock, y el trigger `trg_rebalance_stock_lots` mantiene el lote `NA`
+  balanceado (SUM(lotes)=stock sigue valiendo).
+- **`GET /commercial/inventory/stock/:warehouse_id/:product_id/lots`** (gate VER): lotes de un
+  producto en un almacén, **orden FEFO** (caducidad ASC, NULLS al final). Habilita P2.2 (alertas
+  "por vencer") y P2.5 (mostrar caducidad al vender).
+- Build api verde + check en smoke I.5. ⏳ Requiere **reinicio de API** para probar live (código de API).
+
 ### Added — P2.1a FEFO: trigger del invariante stock↔stock_lots (+ FEFO-decrement)
 - **Trigger `trg_rebalance_stock_lots`** (mig `20260618210000`) `AFTER INSERT OR UPDATE OF quantity ON
   commercial.stock`: mantiene `SUM(stock_lots.quantity) = stock.quantity` para **todos** los writers

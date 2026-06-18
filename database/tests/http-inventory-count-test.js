@@ -83,6 +83,16 @@ function check(name, cond, detail) {
     ira.status === 200 && ('ira_pct' in (ira.body || {})) && Array.isArray(ira.body?.by_reason) && Array.isArray(ira.body?.recent_folios),
     { status: ira.status });
 
+  // P2.1b — captura de lote/caducidad en recepción + lectura de lotes (FEFO)
+  const expDate = new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const lotMv = await req('POST', '/commercial/inventory/movements', {
+    warehouse_id: whId, product_id: productId, movement_type: 'in', quantity: 10, lot_code: 'LOT-SMOKE', expiry_date: expDate,
+  }, token);
+  check('P2.1b: recepción con lote+caducidad aceptada', lotMv.status === 201 || lotMv.status === 200, { status: lotMv.status });
+  const lots = await req('GET', `/commercial/inventory/stock/${whId}/${productId}/lots`, null, token);
+  const lotRow = (lots.body || []).find((l) => l.lot_code === 'LOT-SMOKE');
+  check('P2.1b: lote real capturado (qty 10 + caducidad)', !!lotRow && Number(lotRow.quantity) === 10 && !!lotRow.expiry_date, { lots: lots.body });
+
   let openFolio = null;
   const cancel = async (id) => { if (id) await req('POST', `/commercial/inventory/counts/${id}/cancel`, { reason: 'smoke teardown' }, token); };
 
