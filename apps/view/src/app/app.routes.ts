@@ -126,6 +126,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
       },
       {
+        // Fase I.5 — KPI de exactitud de inventario (IRA)
+        path: 'inventory/ira',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-ira.component').then(m => m.ComercialInventoryIraComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]

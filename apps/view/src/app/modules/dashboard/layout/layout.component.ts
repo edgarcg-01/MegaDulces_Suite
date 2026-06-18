@@ -263,6 +263,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Inventario',    icon: 'pi pi-box',       route: '/comercial/inventory',       permission: Permission.COMMERCIAL_INVENTORY_VER },
         { label: 'Almacenes',     icon: 'pi pi-warehouse', route: '/comercial/warehouses',      permission: Permission.COMMERCIAL_WAREHOUSES_VER },
         { label: 'Conteo físico', icon: 'pi pi-qrcode',    route: '/comercial/inventory/count', permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
+        { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/comercial/inventory/ira',  permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
       ],
     },
     {

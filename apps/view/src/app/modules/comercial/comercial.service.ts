@@ -659,6 +659,15 @@ export class ComercialService {
     return this.http.get<{ code: string; label: string }[]>(`${this.base}/inventory/counts/variance-reasons`);
   }
 
+  inventoryIra(params: { warehouse_id?: string; from?: string; to?: string; tolerance_pct?: number } = {}) {
+    let p = new HttpParams();
+    if (params.warehouse_id) p = p.set('warehouse_id', params.warehouse_id);
+    if (params.from) p = p.set('from', params.from);
+    if (params.to) p = p.set('to', params.to);
+    if (params.tolerance_pct != null) p = p.set('tolerance_pct', String(params.tolerance_pct));
+    return this.http.get<InventoryIra>(`${this.base}/inventory/counts/ira`, { params: p });
+  }
+
   inventoryReconcile(countId: string) {
     return this.http.post<{ status: string; folio: string; items_adjusted: number; net_delta: number }>(`${this.base}/inventory/counts/${countId}/reconcile`, {});
   }
@@ -855,6 +864,23 @@ export interface InventoryCountItem {
   notes: string | null;
   reason_code: string | null;
   cost_base: number | string | null;
+}
+
+export interface InventoryIra {
+  tolerance_pct: number;
+  folios: number;
+  total_items: number;
+  accurate_items: number;
+  ira_pct: number | null;
+  value_accuracy_pct: number | null;
+  net_variance_value: number;
+  abs_variance_value: number;
+  expected_value: number;
+  by_reason: { reason_code: string; items: number; units: number; value: number }[];
+  recent_folios: {
+    count_id: string; folio: string; warehouse_id: string; warehouse_code: string | null;
+    reconciled_at: string; items: number; accurate: number; ira_pct: number | null; net_variance_value: number;
+  }[];
 }
 
 export interface RouteTicketAdmin {

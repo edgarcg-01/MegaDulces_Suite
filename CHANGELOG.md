@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — Inventario físico: KPI de exactitud (IRA) + shrinkage por causa (P1)
+- **Endpoint `GET /commercial/inventory/counts/ira`** (gate SUPERVISAR): sobre folios
+  **reconciliados** (filtros `warehouse_id`/`from`/`to`/`tolerance_pct`) computa **IRA por piezas**
+  (items dentro de tolerancia / total), **exactitud por valor** (1 − Σ|Δ|·costo / Σ teórico·costo),
+  **variación neta** (merma/sobrante en $), **shrinkage por causa** (desglose por `reason_code`) y
+  **IRA por folio**. Tolerancia configurable (default 0 = exacto; benchmark industria meta >97%).
+- **Frontend** nueva página `/comercial/inventory/ira` ("Exactitud (IRA)", nav gate SUPERVISAR):
+  KPI cards (IRA / exactitud valor / variación neta / folios), filtro por almacén + tolerancia,
+  tabla de shrinkage por causa y folios recientes con IRA y merma. Smoke I.5 verifica el shape.
+
 ### Added — Inventario físico: reason-codes de varianza (P1)
 - **Clasificación estructurada del motivo de varianza** al resolver un item (merma / caducado /
   dañado / robo / error_conteo / error_sistema / devolución / transferencia / encontrado / otro)
