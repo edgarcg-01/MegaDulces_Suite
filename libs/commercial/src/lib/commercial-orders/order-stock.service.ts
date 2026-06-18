@@ -98,6 +98,13 @@ export class OrderStockService {
     }
     const qBefore = Number(stockRow.quantity);
     const rBefore = Number(stockRow.reserved_quantity);
+    // Una preventa NO reservó stock al confirmar → al entregar puede no alcanzar
+    // el físico. Rebotar con 409 claro antes de violar el CHECK quantity>=0.
+    if (qBefore < quantity) {
+      throw new ConflictException(
+        `Stock físico insuficiente para entregar producto ${productId}: ${qBefore} < ${quantity}`,
+      );
+    }
     // Una preventa NO reservó stock al confirmar → liberar solo lo que estaba
     // reservado para este order (puede ser 0) y consumir la cantidad física.
     // Para un pedido reservado, release === quantity (comportamiento previo).
@@ -133,6 +140,7 @@ export class OrderStockService {
     quantity: number,
     orderId: string,
   ): Promise<void> {
+    await this.assertNotFrozen(trx, warehouseId);
     const stockRow = await trx('commercial.stock')
       .where({ warehouse_id: warehouseId, product_id: productId })
       .forUpdate()

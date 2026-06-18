@@ -188,13 +188,20 @@ Falta solo:
 - [ ] L.6.4 Importar los 1199 SKUs curados de Mega Dulces (desde lista o ERP)
 - [ ] L.6.5 Update referencias en `libs/trade/*` para usar `trade.planogram_skus` en filtros de captura
 
-### L.7 — Split `AlertsScannerService` ⬜
+### L.7 — Split `AlertsScannerService` ❌ ABANDONADO (2026-06-18)
 
-- [ ] L.7.1 Crear `commercial-alerts/low-stock-scanner.service.ts`
-- [ ] L.7.2 Crear `commercial-alerts/vip-inactive-scanner.service.ts`
-- [ ] L.7.3 Mover lógica desde `alerts-scanner.service.ts`
-- [ ] L.7.4 Drop `alerts-scanner.service.ts` viejo
-- [ ] L.7.5 Update tests + module providers
+El split quedó a medias: L.7.1/L.7.2 crearon los servicios pero **nunca se cablearon**
+en `CommercialAlertsModule` (sus `@Cron` jamás corrieron) y `alerts-scanner.service.ts`
+siguió siendo el único scanner vivo. Resultado: código muerto + footgun de doble emisión
+si alguien cableaba el nuevo sin limpiar el viejo. **Decisión:** se borraron los 2 huérfanos;
+`AlertsScannerService` (monolito, gateado por `ENABLE_COMMERCIAL_ALERTS`) queda como única
+fuente de `low_stock` + `vip_inactive`. Reabrir solo si se justifica el single-responsibility.
+
+- [x] ~~L.7.1 Crear `low-stock-scanner.service.ts`~~ → creado y **borrado** (huérfano)
+- [x] ~~L.7.2 Crear `vip-inactive-scanner.service.ts`~~ → creado y **borrado** (huérfano)
+- [ ] ~~L.7.3 Mover lógica desde `alerts-scanner.service.ts`~~ (no hecho — lógica queda en el monolito)
+- [ ] ~~L.7.4 Drop `alerts-scanner.service.ts` viejo~~ (no — es la fuente viva)
+- [ ] ~~L.7.5 Update tests + module providers~~
 
 ### L.8 — Cleanup ⬜
 

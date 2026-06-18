@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Fixed — Stock: freeze guard en `release` + error claro al entregar sin físico
+- **`OrderStockService.release` ahora respeta el freeze guard** (`assertNotFrozen`), igual que
+  `reserve`/`consume`. Antes, con un conteo físico congelado (`freeze_movements`), cancelar /
+  borrar / reducir-línea de un pedido **sí movía `reserved_quantity`** a media cuenta y falseaba
+  la varianza. **Cambio de comportamiento:** esas acciones ahora devuelven **409** mientras el
+  almacén tenga un folio de inventario abierto (intencional — el conteo es breve, se reintenta al cerrar).
+- **`OrderStockService.consume`**: si el físico no alcanza al entregar (caso preventa, que no
+  reserva al confirmar por diseño), rebota con **409 claro** en vez de la violación cruda de
+  `CHECK quantity>=0`. No cambia el diseño de preventa.
+
+### Removed — Scanners de alertas huérfanos (split L.7 abortado)
+- Borrados `commercial-alerts/low-stock-scanner.service.ts` y `vip-inactive-scanner.service.ts`:
+  nunca se registraron como providers (sus `@Cron` jamás corrieron). `AlertsScannerService` queda
+  como única fuente de `low_stock` + `vip_inactive` (gateado por `ENABLE_COMMERCIAL_ALERTS`).
+  Elimina el footgun de doble emisión. Ver `FASE_L_SCHEMA_REORG.md` §L.7.
+
 ### Added — CM.6 · "Productos más frecuentes" por tienda en el Mapa Comercial
 - En el detalle de tienda (`/dashboard/commercial-map`), nueva sección con los **productos que más
   aparecen en las capturas de esa tienda** (`daily_captures.exhibiciones[].productosMarcados`):
