@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Inventario físico: tolerancia + count-back (P1, cierra fase)
+- **Umbral de recuento por folio** (`recount_threshold_pct`, mig `20260618190000`, default 0 = off):
+  en `computeDiscrepancies`, items cuyos conteos **coinciden** pero cuya |varianza vs teórico| excede
+  `expected·pct/100` **no se auto-resuelven** → quedan en `discrepancy` para forzar recuento/revisión
+  antes de mover el saldo (control estándar: out-of-tolerance ⇒ count-back).
+- **Frontend**: input "Umbral de recuento %" en el dialog de abrir folio (`/comercial/inventory/sessions`).
+- Smoke I.5 cubre el caso fuera-de-tolerancia. **Cierra P1** (A3 ledger + reason-codes + IRA + tolerancia).
+
 ### Added — Inventario físico: KPI de exactitud (IRA) + shrinkage por causa (P1)
 - **Endpoint `GET /commercial/inventory/counts/ira`** (gate SUPERVISAR): sobre folios
   **reconciliados** (filtros `warehouse_id`/`from`/`to`/`tolerance_pct`) computa **IRA por piezas**

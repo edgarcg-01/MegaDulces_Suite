@@ -137,6 +137,19 @@ function check(name, cond, detail) {
     check('A1: reconcile BLOQUEADO por movimiento sin congelar (409)', rec.status === 409, { status: rec.status, body: rec.body });
     check('A1: el mensaje explica el motivo (movimiento/congelar)', /movimiento|congel/i.test(JSON.stringify(rec.body || '')), rec.body);
     await cancel(openFolio); openFolio = null;
+
+    // ── T: count-back por tolerancia (umbral de recuento) ──
+    console.log('\n── 6. T · conteos coinciden pero fuera de tolerancia → discrepancy (no auto-resuelve) ──');
+    f = await req('POST', '/commercial/inventory/counts/open', { warehouse_id: whId, blind_double_count: false, recount_threshold_pct: 10 }, token);
+    openFolio = f.body?.id;
+    check('folio T abierto (umbral 10%)', !!openFolio, f.body);
+    await req('POST', `/commercial/inventory/counts/${openFolio}/count`, { product_id: productId, quantity: 1 }, token); // muy lejos del teórico (~100)
+    await req('POST', `/commercial/inventory/counts/${openFolio}/advance-pass`, {}, token);
+    await req('POST', `/commercial/inventory/counts/${openFolio}/compute`, {}, token);
+    const tItems = await req('GET', `/commercial/inventory/counts/${openFolio}/items`, null, token);
+    const tItem = (tItems.body?.data || tItems.body || []).find((i) => i.product_id === productId);
+    check('count-back: conteo fuera de tolerancia → discrepancy (NO auto-resuelto)', tItem?.status === 'discrepancy' && tItem?.final_qty == null, { status: tItem?.status, final_qty: tItem?.final_qty });
+    await cancel(openFolio); openFolio = null;
   } finally {
     await cancel(openFolio);
     // soft-delete del almacén de test (best-effort)

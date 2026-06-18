@@ -35,6 +35,8 @@ export interface OpenCountDto {
   type?: 'full' | 'cycle';
   freeze_movements?: boolean;
   blind_double_count?: boolean;
+  /** Umbral % de varianza que fuerza recuento (count-back). 0 = off. */
+  recount_threshold_pct?: number;
   notes?: string;
 }
 
@@ -109,6 +111,7 @@ export class InventoryCountService {
     const type = dto.type || 'full';
     const freeze = dto.freeze_movements !== false; // default true
     const blind = dto.blind_double_count !== false; // default true
+    const recountThreshold = Math.min(100, Math.max(0, Number(dto.recount_threshold_pct) || 0)); // 0 = off
 
     return this.tk.run(async (trx) => {
       const uid = this.userId();
@@ -147,6 +150,7 @@ export class InventoryCountService {
           status: 'counting',
           freeze_movements: freeze,
           blind_double_count: blind,
+          recount_threshold_pct: recountThreshold,
           stock_source: stockSource,
           notes: dto.notes || null,
           started_at: trx.fn.now(),
@@ -391,6 +395,7 @@ export class InventoryCountService {
 
     return this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
+      const threshold = Number(count.recount_threshold_pct) || 0;
       const items = await trx('commercial.inventory_count_items')
         .where({ count_id: countId })
         .select('*');
@@ -428,11 +433,25 @@ export class InventoryCountService {
 
         if (finalQty != null) {
           const variance = +(finalQty - Number(it.expected_qty)).toFixed(3);
-          status = 'resolved';
-          resolved++;
-          await trx('commercial.inventory_count_items')
-            .where({ id: it.id })
-            .update({ final_qty: finalQty, variance, status, updated_at: trx.fn.now() });
+          // Count-back: conteos coincidentes pero |varianza| fuera de tolerancia
+          // → NO auto-resolver; queda en discrepancy para recuento/revisión.
+          if (threshold > 0 && Math.abs(variance) > Math.abs(Number(it.expected_qty)) * threshold / 100) {
+            discrepancies++;
+            await trx('commercial.inventory_count_items')
+              .where({ id: it.id })
+              .update({
+                status: 'discrepancy',
+                variance,
+                notes: it.notes || `Fuera de tolerancia (±${threshold}%): requiere recuento o resolución manual.`,
+                updated_at: trx.fn.now(),
+              });
+          } else {
+            status = 'resolved';
+            resolved++;
+            await trx('commercial.inventory_count_items')
+              .where({ id: it.id })
+              .update({ final_qty: finalQty, variance, status, updated_at: trx.fn.now() });
+          }
         } else if (status === 'discrepancy') {
           await trx('commercial.inventory_count_items')
             .where({ id: it.id })

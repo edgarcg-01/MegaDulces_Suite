@@ -9,6 +9,7 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { InputSwitchModule } from 'primeng/inputswitch';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
@@ -26,7 +27,7 @@ import { forkJoin } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, MultiSelectModule, ToastModule, PageTabsComponent,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -98,6 +99,10 @@ import { forkJoin } from 'rxjs';
             </div>
           </div>
 
+          <label>Umbral de recuento (%)</label>
+          <p-inputNumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2" styleClass="in-w-full"></p-inputNumber>
+          <small>0 = sin umbral. Si dos conteos coinciden pero difieren del teórico más que este %, el SKU queda como discrepancia (recuento/revisión) en vez de auto-resolverse.</small>
+
           @if (canAssign()) {
             <label>Contadores (quiénes van a contar)</label>
             <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
@@ -151,6 +156,7 @@ export class ComercialInventorySessionsComponent {
   formType = signal<'full' | 'cycle'>('full');
   formFreeze = signal(true);
   formBlind = signal(true);
+  formThreshold = signal(0);
 
   canAssign = signal(this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_ASIGNAR] === true);
   counterOpts = signal<{ label: string; value: string }[]>([]);
@@ -206,6 +212,7 @@ export class ComercialInventorySessionsComponent {
       type: this.formType(),
       freeze_movements: this.formFreeze(),
       blind_double_count: this.formBlind(),
+      recount_threshold_pct: this.formThreshold(),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({

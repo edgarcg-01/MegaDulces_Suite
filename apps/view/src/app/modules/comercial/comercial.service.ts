@@ -604,7 +604,7 @@ export class ComercialService {
     return this.http.get<InventoryCount[]>(`${this.base}/inventory/counts`, { params });
   }
 
-  openInventoryCount(body: { warehouse_id: string; type?: 'full' | 'cycle'; freeze_movements?: boolean; blind_double_count?: boolean; notes?: string }) {
+  openInventoryCount(body: { warehouse_id: string; type?: 'full' | 'cycle'; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; notes?: string }) {
     return this.http.post<InventoryCount & { expected_items: number }>(`${this.base}/inventory/counts/open`, body);
   }
 
