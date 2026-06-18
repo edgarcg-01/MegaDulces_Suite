@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Fixed — Inventario físico (conteo): endurecimiento de correctness (P0)
+- **Freeze integrity guard en `reconcile`**: si el almacén no quedó congelado y hubo movimientos
+  de stock desde que se abrió el folio, la reconciliación (set absoluto al físico) **borraba esas
+  ventas**. Ahora `reconcile` **bloquea** con error claro si detecta `stock_movements` (ref ≠
+  `inventory_count`) desde `started_at` (modo `commercial`).
+- **`computeDiscrepancies` ya no revierte resoluciones manuales**: re-correr "calcular
+  discrepancias" devolvía items `resolved`→`discrepancy` (bloqueando el reconcile) y pisaba
+  overrides del supervisor. Ahora salta los `resolved`.
+- **Segregación en el 3er conteo (desempate)**: `submitCount` rechaza `count_3` de quien ya hizo
+  `count_1`/`count_2` de ese SKU (antes solo `count_2` tenía segregación).
+- Verificado en LOCAL que `inventory_count_items.product_id` es nullable + FK dropeada (modo
+  `inventory`). **Pendiente confirmar en prod**. Roadmap P1/P2 en `FASE_I_INVENTARIO.md` §I.5.
+
 ### Fixed — Stock: freeze guard en `release` + error claro al entregar sin físico
 - **`OrderStockService.release` ahora respeta el freeze guard** (`assertNotFrozen`), igual que
   `reserve`/`consume`. Antes, con un conteo físico congelado (`freeze_movements`), cancelar /

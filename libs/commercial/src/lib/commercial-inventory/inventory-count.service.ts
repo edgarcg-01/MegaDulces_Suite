@@ -290,6 +290,14 @@ export class InventoryCountService {
       const pass = Number(count.current_pass) || 1;
       let slot: string;
       if (count.status === 'review' || dto.recount) {
+        // Segregación del desempate: el 3er conteo no lo puede hacer quien ya
+        // contó este SKU en la 1ra o 2da pasada (si no, no rompe el empate de
+        // forma independiente). Que lo cuente otra persona, o que el supervisor
+        // lo resuelva manualmente (resolveItem).
+        if (uid && (item.counted_by_1 === uid || item.counted_by_2 === uid))
+          throw new ConflictException(
+            'No podés hacer el tercer conteo (desempate) de un SKU que vos mismo contaste antes.',
+          );
         slot = 'count_3';
         patch.count_3 = dto.quantity;
         patch.counted_by_3 = uid;
@@ -370,6 +378,10 @@ export class InventoryCountService {
       let discrepancies = 0;
       let resolved = 0;
       for (const it of items) {
+        // No re-procesar lo ya resuelto: re-correr "calcular discrepancias" no
+        // debe pisar la resolución manual del supervisor ni revertir un item
+        // 'resolved' de vuelta a 'discrepancy' (bloquearía el reconcile).
+        if (it.status === 'resolved') continue;
         const c1 = it.count_1 != null ? Number(it.count_1) : null;
         const c2 = it.count_2 != null ? Number(it.count_2) : null;
         const c3 = it.count_3 != null ? Number(it.count_3) : null;
@@ -770,8 +782,29 @@ export class InventoryCountService {
           'Segregación de funciones: quien participó en el conteo no puede autorizar la reconciliación.',
         );
 
-      // ── Aplicar ajustes en la MISMA transacción ──
       const isInv = count.stock_source === 'inventory';
+
+      // ── FREEZE INTEGRITY GUARD ──
+      // El ajuste fija el saldo de forma ABSOLUTA al físico contado contra un
+      // teórico (expected_qty) fotografiado al abrir. Si el almacén NO quedó
+      // congelado y hubo movimientos desde entonces (ventas, ajustes, carga de
+      // ruta), ese set absoluto BORRARÍA esos movimientos y la varianza estaría
+      // mal atribuida. Mejor bloquear que corromper el saldo. (Solo aplica al
+      // modo commercial: inventory.warehouse_stock no lo mueven los pedidos.)
+      if (!isInv) {
+        const since = count.started_at || count.created_at;
+        const moved = await trx('commercial.stock_movements')
+          .where({ warehouse_id: count.warehouse_id })
+          .whereNot('reference_type', 'inventory_count')
+          .where('created_at', '>=', since)
+          .count<{ n: string }[]>('* as n');
+        if (Number(moved[0]?.n || 0) > 0)
+          throw new ConflictException(
+            `No se puede reconciliar: hubo ${moved[0].n} movimiento(s) de stock en el almacén desde que se abrió el folio ${count.folio}. El conteo no es confiable porque el almacén no quedó congelado. Cancela el folio y vuelve a contarlo con "Congelar movimientos" activo.`,
+          );
+      }
+
+      // ── Aplicar ajustes en la MISMA transacción ──
       let adjusted = 0;
       let totalDelta = 0;
       const skippedReserved: string[] = [];

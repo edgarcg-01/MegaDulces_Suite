@@ -87,6 +87,30 @@ Dos páginas (superficie Operations, tabla densa):
 
 Fase I = **🟢 frontend + backend completos (beta scope)**. Falta solo validación visual en browser con lector real.
 
-## Próximo (deferred I.4)
+## I.5 — Endurecimiento de correctness (P0 ✅ 2026-06-18)
 
-Cycle counts programados (ABC), offline Dexie, asignación de zonas a contadores, reconciliación parcial por zona, 2º conteo aleatorio anti-colusión, UoM/conversión.
+Auditoría de correctness + comparación con prácticas de industria (cycle counting/ABC, IRA con tolerancia, FEFO/caducidad, shrinkage NRF ~1.6% de ventas). La base ya era grado-enterprise (blind double count + segregación + coverage + freeze + auditoría). Cerrados los 3 fixes de mayor riesgo + 1 verificación, todos en [`inventory-count.service.ts`](../../../libs/commercial/src/lib/commercial-inventory/inventory-count.service.ts):
+
+- **A1 — Freeze integrity guard en `reconcile`.** El ajuste fija el saldo de forma **absoluta** contra un teórico fotografiado al abrir; si el almacén no quedó congelado y hubo movimientos desde entonces, el set absoluto **borraba esas ventas** (lost-update) y mal-atribuía la varianza como merma. `reconcile` ahora **bloquea** si hay `stock_movements` (ref ≠ `inventory_count`) en el almacén desde `started_at` (solo modo `commercial`; `inventory.warehouse_stock` no lo mueven los pedidos).
+- **A2 — `computeDiscrepancies` salta items `resolved`.** Re-correr "calcular discrepancias" revertía resoluciones manuales (`resolved`→`discrepancy`) y pisaba overrides → bloqueaba el reconcile. Ahora no re-procesa lo ya resuelto.
+- **A4 — Segregación en el 3er conteo (desempate).** `submitCount` rechaza `count_3` de quien ya hizo `count_1`/`count_2` de ese SKU (antes solo `count_2` tenía segregación). Escape: que cuente otra persona o el supervisor resuelve manual.
+- **A5 — Verificado** que `inventory_count_items.product_id` es **nullable + FK dropeada** en LOCAL (migración `20260615170000`). ⚠️ **Pendiente confirmar en prod/.245** antes de confiar en modo `inventory` allí (el `INSERT` del snapshot inventory falla con 23502 si no está aplicada).
+
+Build `api` verde. **Sin cobertura de smoke a nivel servicio** (el smoke I.1 es DB-direct y no ejercita el service) → pendiente test de servicio para A1/A2/A4.
+
+## Roadmap de inventario (priorizado, post-P0)
+
+Del gap-analysis vs industria. **Lo que falta** para pasar de "conteo digital" a "control de inventario continuo":
+
+**P1 — quick wins de valor:**
+- Ledger + costo en **modo `inventory`** (hoy reconcile inventory no deja `stock_movements` y `value_at_variance`=0 → ajuste no auditable, supervisor no ve $ en riesgo).
+- **Reason-codes estructurados** (merma/dañado/robo/error de captura) en vez de `notes` libre + **KPI de IRA** (Inventory Record Accuracy) por almacén/contador/tiempo.
+- **Tolerancia de varianza** configurable (±%/±$/clase ABC) → count-back obligatorio solo de lo que excede.
+
+**P2 — estratégico (mueven el negocio):**
+- **Caducidad / lote / FEFO** — crítico para dulcería; hoy no hay lote ni fecha de expiración. Reduce merma 30–50% y es tema regulatorio en alimentos.
+- **ABC + conteo cíclico programado** — apalanca la rotación que ya calcula Thot; agendar A mensual / C trimestral; generar folios automáticos. Pasa del "evento anual que congela todo" a control continuo.
+- **Offline (Dexie)** para conteo en zonas sin WiFi (infra ya existe en captures/vendor).
+- **Bin-level** + asignación por zona a contadores; 2º conteo **aleatorio** anti-colusión; reconciliación **parcial por zona**; **aprobación por umbral $** (ajustes chicos auto, grandes requieren gerente).
+
+(Ver también "Riesgos abiertos" #4–#11 arriba — UoM/conversión, fallback sin barcode, multi-ubicación.)
