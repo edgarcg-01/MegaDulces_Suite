@@ -667,14 +667,17 @@ export class CommercialOrdersService {
 
     const lines = await trx('commercial.order_lines').where({ order_id: orderId });
 
+    const expiredHits: Array<{ product_id: string; quantity_from_expired: number }> = [];
     for (const line of lines) {
-      await this.stock.consume(
+      const { expiredConsumed } = await this.stock.consume(
         trx,
         order.warehouse_id,
         line.product_id,
         Number(line.quantity),
         orderId,
       );
+      if (expiredConsumed > 0)
+        expiredHits.push({ product_id: line.product_id, quantity_from_expired: expiredConsumed });
     }
 
     const [updated] = await trx('commercial.orders')
@@ -701,6 +704,15 @@ export class CommercialOrdersService {
       customer_name: customer?.name || order.customer_id,
       total: Number(updated.total),
     });
+
+    if (expiredHits.length) {
+      this.alerts.emitSoldExpired(tenantId, {
+        order_id: orderId,
+        order_code: updated.code,
+        customer_name: customer?.name || order.customer_id,
+        items: expiredHits,
+      });
+    }
 
     return updated;
   }

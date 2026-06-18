@@ -135,6 +135,22 @@ export class AlertsService {
     });
   }
 
+  emitSoldExpired(tenantId: string, params: {
+    order_id: string;
+    order_code: string;
+    customer_name: string;
+    items: Array<{ product_id: string; quantity_from_expired: number }>;
+  }): void {
+    const totalUnits = params.items.reduce((s, i) => s + i.quantity_from_expired, 0);
+    this.emit(tenantId, {
+      type: 'sold_expired',
+      severity: 'warn',
+      title: `Pedido ${params.order_code} despachó producto vencido`,
+      message: `${totalUnits} u de ${params.items.length} producto(s) salieron de lote vencido — ${params.customer_name}`,
+      data: params,
+    });
+  }
+
   /** Test manual para smoke. */
   emitTest(tenantId: string, message?: string): void {
     this.emit(tenantId, {

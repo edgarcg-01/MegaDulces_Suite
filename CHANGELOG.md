@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Added — P2.2d FEFO: no despachar vencido primero + aviso `sold_expired` (warn, NO block)
+- **Decisión** (addendum ADR-022): la política de venta de vencidos es **avisar, no bloquear** — para
+  no meter el motor en el camino del dinero (reserva). Reversible a block configurable si el negocio lo pide.
+- **Trigger expired-last** (mig `20260618220000`, `CREATE OR REPLACE` de `fn_rebalance_stock_lots`): el
+  decremento FEFO ahora consume **lotes no-vencidos primero** (`ORDER BY (expiry<hoy) ASC, expiry ASC`),
+  vencidos solo como último recurso. La venta normal ya no despacha producto caducado. Invariante intacto.
+  **Verificado** (`database/scripts/verify-fefo-expired-last.js`: bueno baja 10→5, vencido queda 10) +
+  order flow **J.6.1 19/0** sin cambios.
+- **Aviso `sold_expired`**: `OrderStockService.consume` devuelve `expiredConsumed` (= `qty − bueno_no_vencido`);
+  `OrdersService.fulfillInTransaction` acumula los hits y emite alerta WS `warn` (`AlertsService.emitSoldExpired`)
+  cuando un despacho tocó lote vencido. Cambio **no-bloqueante** y sin alterar montos. Nuevo tipo `sold_expired`.
+- Build api verde + check WS en smoke alerts (almacén con solo lote vencido → fulfill → recibe `sold_expired`).
+  ⏳ la parte de aviso requiere **reinicio** para probar live (el trigger ya está activo, es DB-level).
+
 ### Added — P2.2b FEFO: cron de alerta de lotes por vencer
 - **`AlertsScannerService` scan #3** (`expiring_lots`): detecta lotes de `commercial.stock_lots` con
   `expiry_date <= hoy+30d` y `quantity > 0` (incluye **vencidos**) → emite alerta WS vía nuevo

@@ -9,6 +9,7 @@
 export type AlertType =
   | 'low_stock_critical' // available_quantity < threshold
   | 'expiring_lots'      // lote con caducidad próxima o vencida (FEFO)
+  | 'sold_expired'       // un fulfill despachó unidades desde lote(s) vencido(s) (warn)
   | 'large_order'        // order.total > threshold al confirmar
   | 'vip_inactive'       // customer con credit_limit alto sin compra en N días
   | 'order_confirmed'    // every order confirm (informativo)

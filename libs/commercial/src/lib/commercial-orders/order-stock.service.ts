@@ -87,7 +87,7 @@ export class OrderStockService {
     productId: string,
     quantity: number,
     orderId: string,
-  ): Promise<void> {
+  ): Promise<{ expiredConsumed: number }> {
     await this.assertNotFrozen(trx, warehouseId);
     const stockRow = await trx('commercial.stock')
       .where({ warehouse_id: warehouseId, product_id: productId })
@@ -105,6 +105,14 @@ export class OrderStockService {
         `Stock físico insuficiente para entregar producto ${productId}: ${qBefore} < ${quantity}`,
       );
     }
+    // P2.2d (warn): si lo bueno (no-vencido) no cubre la cantidad, el trigger
+    // (FEFO no-vencido primero) forzará despacho desde lotes vencidos por el sobrante.
+    const goodRow = await trx('commercial.stock_lots')
+      .where({ warehouse_id: warehouseId, product_id: productId })
+      .whereRaw('(expiry_date IS NULL OR expiry_date >= CURRENT_DATE)')
+      .sum({ good: 'quantity' })
+      .first();
+    const expiredConsumed = Math.max(0, quantity - Number(goodRow?.good || 0));
     // Una preventa NO reservó stock al confirmar → liberar solo lo que estaba
     // reservado para este order (puede ser 0) y consumir la cantidad física.
     // Para un pedido reservado, release === quantity (comportamiento previo).
@@ -131,6 +139,8 @@ export class OrderStockService {
       reference_id: orderId,
       created_by: this.tenantCtx.get()?.userId || null,
     });
+
+    return { expiredConsumed };
   }
 
   async release(

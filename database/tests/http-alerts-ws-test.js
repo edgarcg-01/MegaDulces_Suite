@@ -269,6 +269,29 @@ function wait(ms) {
   check('expiring_lots severidad critical (<= 7d)', expAlert?.severity === 'critical', { sev: expAlert?.severity });
   if (expWhId) await http('DELETE', `/commercial/warehouses/${expWhId}`, null, t1Token);
 
+  // P2.2d — sold_expired (warn): almacén con SOLO lote vencido → el fulfill despacha
+  // vencido (no hay bueno) → debe emitir aviso warn. No bloquea (política warn-only).
+  console.log('\n── 6c. P2.2d · aviso sold_expired al despachar vencido ──');
+  const sxTs = Date.now().toString().slice(-8);
+  const sxWhResp = await http('POST', '/commercial/warehouses', { code: `SOLDEXP-${sxTs}`, name: `Sold Exp ${sxTs}`, is_default: false }, t1Token);
+  const sxWhId = sxWhResp.body?.id;
+  const pastDate = new Date(Date.now() - 1 * 24 * 3600 * 1000).toISOString().slice(0, 10); // ayer = vencido
+  await http('POST', '/commercial/inventory/movements', {
+    warehouse_id: sxWhId, product_id: expensive.product_id, movement_type: 'in', quantity: 5, lot_code: `EXP-${sxTs}`, expiry_date: pastDate,
+  }, t1Token);
+  const sxDraft = await http('POST', '/commercial/orders', { customer_id: customer.id, warehouse_id: sxWhId }, t1Token);
+  await http('POST', `/commercial/orders/${sxDraft.body.id}/lines`, { product_id: expensive.product_id, quantity: 5 }, t1Token);
+  await http('POST', `/commercial/orders/${sxDraft.body.id}/confirm`, null, t1Token);
+  await http('POST', `/commercial/orders/${sxDraft.body.id}/approve`, null, t1Token);
+  t1.alerts.length = 0;
+  const sxFf = await http('POST', `/commercial/orders/${sxDraft.body.id}/fulfill`, null, t1Token);
+  check('fulfill del pedido con lote vencido OK', sxFf.body?.status === 'fulfilled', { status: sxFf.body?.status });
+  await wait(700);
+  const sxAlert = t1.alerts.find((a) => a.type === 'sold_expired' && a.data?.order_id === sxDraft.body.id);
+  check('recibimos sold_expired alert al despachar vencido', !!sxAlert, { sold_expired: t1.alerts.filter((a) => a.type === 'sold_expired').length });
+  check('sold_expired severidad warn', sxAlert?.severity === 'warn', { sev: sxAlert?.severity });
+  if (sxWhId) await http('DELETE', `/commercial/warehouses/${sxWhId}`, null, t1Token);
+
   // Stats
   console.log('\n── 7. Stats ──');
   const stats = await http('GET', '/commercial/alerts/stats', null, t1Token);

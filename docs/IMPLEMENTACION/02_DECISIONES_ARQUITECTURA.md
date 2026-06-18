@@ -639,7 +639,7 @@ Capas:
 
 ## ADR-022 — Caducidad / lote / FEFO: sub-ledger de lotes **aditivo**, FEFO en el consumo, rollout por fases
 
-**Estado:** 🔵 Propuesto (2026-06-18) — diseño para aprobar antes de codear P2.0.
+**Estado:** 🟢 Aceptado (2026-06-18) — P2.0–P2.2b + P2.2d en código (ver [`FASES/FASE_FEFO_CADUCIDAD.md`](FASES/FASE_FEFO_CADUCIDAD.md)). Pivot clave: el invariante lo mantiene un **trigger** (no un helper por writer).
 
 **Fecha:** 2026-06-18
 
@@ -672,6 +672,10 @@ Capas:
 - 🚫 Diferidos: reserva-por-lote, conteo-por-lote, FEFO en el picking del vendedor/portal.
 
 **Plan de implementación:** Fases P2.0–P2.5 en [`FASES/FASE_FEFO_CADUCIDAD.md`](FASES/FASE_FEFO_CADUCIDAD.md). **Gate de P2.0:** confirmar si el ERP provee lote+caducidad (define sync vs captura).
+
+**Addendum 2026-06-18 (P2.1a — invariante por trigger):** se rechazó "helper único por writer" (punto 6) a favor de un **trigger** `AFTER UPDATE OF quantity ON commercial.stock` que rebalancea `stock_lots` para **todos** los writers — cero cambios al order flow. El lote `NA` (caducidad NULL) es el balanceador.
+
+**Addendum 2026-06-18 (P2.2d — política de vencidos = WARN, no block):** sobre el punto 3(b), la decisión es **avisar, NO bloquear**. Bloquear exigiría excluir lo vencido del "disponible" dentro de `OrderStockService.reserve` — es decir, **meter el motor en el camino del dinero** (contra ADR-016). En su lugar: (1) el trigger FEFO consume **no-vencido primero** (toca vencido solo si no queda bueno) y (2) `OrdersService.fulfill` emite aviso `sold_expired` (severity `warn`) cuando un despacho se vio forzado a tomar lote vencido. Reversible a un block configurable-por-tenant si el negocio lo pide. Verificado: `database/scripts/verify-fefo-expired-last.js` + J.6.1 19/0.
 
 ---
 
