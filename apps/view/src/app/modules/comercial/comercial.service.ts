@@ -310,6 +310,20 @@ export interface StockMovement {
   created_by_username?: string;
 }
 
+export interface ExpiringLot {
+  id: string;
+  lot_code: string;
+  expiry_date: string;
+  quantity: number | string;
+  warehouse_id: string;
+  warehouse_code: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  days_to_expiry: number;
+  value_at_cost: number | string;
+}
+
 export interface Paged<T> {
   data: T[];
   total_amount?: number;
@@ -469,6 +483,13 @@ export class ComercialService {
     if (opts.page) params = params.set('page', String(opts.page));
     if (opts.pageSize) params = params.set('pageSize', String(opts.pageSize));
     return this.http.get<Paged<StockMovement>>(`${this.base}/inventory/movements`, { params });
+  }
+  /** P2.2 — lotes próximos a vencer / vencidos (FEFO), con valor en riesgo al costo. */
+  listExpiringLots(opts: { days?: number; warehouse_id?: string } = {}) {
+    let params = new HttpParams();
+    if (opts.days != null) params = params.set('days', String(opts.days));
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    return this.http.get<ExpiringLot[]>(`${this.base}/inventory/expiring`, { params });
   }
 
   // ── Orders ─────────────────────────────────────────────────────────

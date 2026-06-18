@@ -132,6 +132,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
       },
       {
+        // P2.2c — lotes por vencer / vencidos (FEFO)
+        path: 'inventory/expiring',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-expiring.component').then(m => m.ComercialInventoryExpiringComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]

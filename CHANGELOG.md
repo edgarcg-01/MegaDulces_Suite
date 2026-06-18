@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — P2.2c FEFO: dashboard "Por vencer" (cierra P2.2)
+- **Página `/comercial/inventory/expiring`** (gate `COMMERCIAL_INVENTORY_VER`, tab "Por vencer" en el strip
+  de inventario): consume `GET /commercial/inventory/expiring`. KPIs (valor en riesgo al costo / # lotes /
+  # ya vencidos), tabla con tag de días-a-caducar (vencido + ≤7d = `danger`, ≤15d = `warn`), filtro de
+  ventana (7/15/30/60/90 días) + almacén. Fila resaltada si está vencida.
+- `ComercialService.listExpiringLots()` + interfaz `ExpiringLot`. Build view verde. ⏳ verificación visual manual.
+- **P2.2 (caducidad/FEFO) = completa** beta scope: captura → endpoint → alerta cron → gate warn → dashboard.
+  Verificado live: I.5 26/26, alerts WS 25/25, trigger expired-last (script + J.6.1 19/0). Siguiente: P2.3.
+
 ### Added — P2.2d FEFO: no despachar vencido primero + aviso `sold_expired` (warn, NO block)
 - **Decisión** (addendum ADR-022): la política de venta de vencidos es **avisar, no bloquear** — para
   no meter el motor en el camino del dinero (reserva). Reversible a block configurable si el negocio lo pide.
