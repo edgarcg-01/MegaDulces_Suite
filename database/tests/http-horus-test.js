@@ -1123,6 +1123,59 @@ async function req(method, path, token, body) {
   const goneR3 = await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: EX }).first();
   check('cleanup R3 OK (sin acción sintética residual)', !goneR3, goneR3);
 
+  console.log('\n── 30. Horus.R · R4: verificación de resultado (diff-in-diff, L3) ──');
+  const OV = '0000000a-0000-0000-0000-00000000bac0';
+  const cleanR4 = async () => {
+    await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: OV }).del();
+    await knex('commercial.execution_360_snapshots').where({ tenant_id: T, subject_id: OV }).del();
+  };
+  await cleanR4();
+  // Acción aprobada/ejecutada hace 35 días (madura ≥28).
+  const insAct = await knex('commercial.supervisor_actions')
+    .insert({
+      tenant_id: T,
+      dedup_key: `r4test:${OV}`,
+      action_type: 'coaching',
+      kind: 'finding',
+      subject_type: 'collaborator',
+      subject_id: OV,
+      label: '__r4_outcome__',
+      title: 'Coaching test R4',
+      payload: '{}',
+      status: 'executed',
+      proposed_by: 'horus',
+      executed_at: knex.raw(`now() - interval '35 days'`),
+      outcome_status: 'pending',
+    })
+    .returning('id');
+  const actionId = insAct?.[0]?.id || insAct?.[0];
+  // Snapshots: antes BAJO (10) en [E-14,E], después ALTO (50) en [E+7,E+28].
+  await knex('commercial.execution_360_snapshots').insert([
+    { tenant_id: T, subject_type: 'collaborator', subject_id: OV, window_days: 30, label: '__r4_outcome__', avg_score: 10, snapshot_date: knex.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date - 38`) },
+    { tenant_id: T, subject_type: 'collaborator', subject_id: OV, window_days: 30, label: '__r4_outcome__', avg_score: 50, snapshot_date: knex.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date - 15`) },
+  ]);
+
+  const meas = await req('POST', '/supervisor-ai/outcomes/measure', token, {});
+  check('POST /outcomes/measure 2xx', meas.status === 200 || meas.status === 201, meas.status);
+  const measured = await knex('commercial.supervisor_actions').where({ id: actionId }).first();
+  check('outcome medido (status=measured)', measured && measured.outcome_status === 'measured', measured ? measured.outcome_status : 'sin acción');
+  check('veredicto = worked (10 → 50)', measured && measured.outcome_verdict === 'worked', measured ? measured.outcome_verdict : '?');
+  check('outcome_delta neto > 0', measured && Number(measured.outcome_delta) > 0, measured ? measured.outcome_delta : '?');
+
+  const eff = await req('GET', '/supervisor-ai/learning/effectiveness', token);
+  check('GET /learning/effectiveness 200', eff.status === 200, eff.status);
+  const coachingEff = (eff.body?.rows || []).find((r) => r.action_type === 'coaching');
+  check('efectividad L3 agrega el outcome (worked ≥ 1 en coaching)', !!coachingEff && Number(coachingEff.worked) >= 1, coachingEff || 'sin fila coaching');
+
+  // Idempotencia: re-medir no cambia (ya no está pending).
+  await req('POST', '/supervisor-ai/outcomes/measure', token, {});
+  const reMeasured = await knex('commercial.supervisor_actions').where({ id: actionId }).first();
+  check('re-medir es idempotente (sigue measured/worked)', reMeasured && reMeasured.outcome_status === 'measured' && reMeasured.outcome_verdict === 'worked', reMeasured ? reMeasured.outcome_verdict : '?');
+
+  await cleanR4();
+  const goneR4 = await knex('commercial.supervisor_actions').where({ tenant_id: T, subject_id: OV }).first();
+  check('cleanup R4 OK (sin acción/outcome sintético residual)', !goneR4, goneR4);
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

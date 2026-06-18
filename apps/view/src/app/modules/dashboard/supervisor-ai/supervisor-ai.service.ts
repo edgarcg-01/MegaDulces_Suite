@@ -207,6 +207,30 @@ export interface BaselineRow {
   floor_met: boolean;
 }
 
+export interface EffectivenessRow {
+  key: string;
+  action_type: string;
+  measured: number;
+  worked: number;
+  no_effect: number;
+  backfired: number;
+  avg_delta: number | null;
+  effectiveness: number | null;
+}
+
+export interface OutcomeRow {
+  id: string;
+  action_type: string;
+  subject_type: string;
+  label: string | null;
+  title: string;
+  root_cause: string | null;
+  outcome_verdict: 'worked' | 'no_effect' | 'backfired' | 'inconclusive';
+  outcome_delta: number | null;
+  outcome_detail: { metric?: string; before?: number; after?: number; delta?: number; control?: number; net?: number } | null;
+  outcome_measured_at: string;
+}
+
 export interface ActionExplanation {
   narrative: string;
   source: 'agent' | 'engine';
@@ -346,6 +370,15 @@ export class SupervisorAiService {
 
   learningRecompute(): Observable<{ rules: number; suppressed: number }> {
     return this.http.post<{ rules: number; suppressed: number }>(`${this.base}/learning/recompute`, {});
+  }
+
+  // R4 (L3): efectividad de las acciones + outcomes medidos (qué funcionó).
+  learningEffectiveness(): Observable<{ rows: EffectivenessRow[]; total: number }> {
+    return this.http.get<{ rows: EffectivenessRow[]; total: number }>(`${this.base}/learning/effectiveness`);
+  }
+
+  outcomes(): Observable<{ rows: OutcomeRow[]; total: number }> {
+    return this.http.get<{ rows: OutcomeRow[]; total: number }>(`${this.base}/outcomes`);
   }
 
   learningOverride(findingType: string, override: RuleOverride, source = 'engine'): Observable<RuleStatRow> {

@@ -34,6 +34,8 @@ import {
   RuleStatRow,
   BaselineRow,
   RuleOverride,
+  EffectivenessRow,
+  OutcomeRow,
 } from './supervisor-ai.service';
 
 const FINDING_LABELS: Record<string, string> = {
@@ -599,6 +601,57 @@ const QUADRANT_LABELS: Record<string, string> = {
               }
             </ul>
           }
+
+          <h3 class="sub">Efectividad de las acciones · L3 (qué funciona de verdad)</h3>
+          @if (effectiveness().length === 0) {
+            <p class="empty">
+              Aún sin acciones medidas. El resultado se evalúa cuando una acción aprobada madura
+              (~3-4 semanas): Horus compara el métrico del sujeto antes vs después, descontando la
+              tendencia del equipo. Recién entonces aprende qué prescripciones mueven la aguja.
+            </p>
+          } @else {
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Causa / acción</th>
+                  <th class="num">Medidas</th>
+                  <th class="num">Funcionó</th>
+                  <th class="num">Efectividad</th>
+                  <th class="num">Δ prom</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (e of effectiveness(); track e.key) {
+                  <tr>
+                    <td>{{ effLabel(e) }}</td>
+                    <td class="num">{{ e.measured }}</td>
+                    <td class="num">{{ e.worked }}</td>
+                    <td class="num">{{ e.effectiveness != null ? (e.effectiveness * 100 | number: '1.0-0') + '%' : '—' }}</td>
+                    <td class="num" [ngClass]="deltaClass(e.avg_delta)">{{ deltaText(e.avg_delta) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            @if (outcomes().length > 0) {
+              <ul class="findings">
+                @for (o of outcomes(); track o.id) {
+                  <li class="finding">
+                    <span class="sev" [ngClass]="verdictClass(o.outcome_verdict)">{{ verdictLabel(o.outcome_verdict) }}</span>
+                    <div class="finding__body">
+                      <span class="finding__label">{{ o.label || o.title }}</span>
+                      <span class="finding__type">
+                        {{ actionLabel(o.action_type) }}
+                        @if (o.outcome_detail && o.outcome_detail.before != null && o.outcome_detail.after != null) {
+                          · {{ o.outcome_detail.before | number: '1.0-0' }} → {{ o.outcome_detail.after | number: '1.0-0' }}
+                          (neto {{ deltaText(o.outcome_delta) }})
+                        }
+                      </span>
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+          }
         </section>
       }
 
@@ -630,6 +683,7 @@ const QUADRANT_LABELS: Record<string, string> = {
       .sev--critical, .dot.sev--critical { background: color-mix(in srgb, var(--bad, #dc2626) 14%, transparent); color: var(--bad, #dc2626); }
       .sev--warn, .dot.sev--warn { background: color-mix(in srgb, var(--warn, #d97706) 16%, transparent); color: var(--warn, #b45309); }
       .sev--info, .dot.sev--info { background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #78716c); }
+      .sev--ok { background: color-mix(in srgb, var(--ok, #16a34a) 14%, transparent); color: var(--ok, #15803d); }
       .dot.sev--critical { background: var(--bad, #dc2626); }
       .dot.sev--warn { background: var(--warn, #d97706); }
       .dot.sev--info { background: var(--text-soft, #a8a29e); }
@@ -724,6 +778,8 @@ export class SupervisorAiComponent implements OnInit {
   readonly salesExec = signal<SalesExecResponse | null>(null);
   readonly ruleStats = signal<RuleStatRow[]>([]);
   readonly baselines = signal<BaselineRow[]>([]);
+  readonly effectiveness = signal<EffectivenessRow[]>([]);
+  readonly outcomes = signal<OutcomeRow[]>([]);
   // R3: explicaciones del razonamiento por acción (on-demand, cacheadas en cliente).
   readonly explain = signal<Record<string, { open: boolean; loading: boolean; data: ActionExplanation | null }>>({});
 
@@ -751,9 +807,11 @@ export class SupervisorAiComponent implements OnInit {
       bases: this.api
         .learningBaselines({ subject_type: 'collaborator', metric: 'avg_score' })
         .pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
+      eff: this.api.learningEffectiveness().pipe(catchError(() => of({ rows: [], total: 0 }))),
+      outc: this.api.outcomes().pipe(catchError(() => of({ rows: [], total: 0 }))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ brief, finds, diags, acts, opps, tasks, notes, cov, vis, salesEx, exec, rules, bases }) => {
+      .subscribe(({ brief, finds, diags, acts, opps, tasks, notes, cov, vis, salesEx, exec, rules, bases, eff, outc }) => {
         this.briefing.set(brief);
         this.findings.set(finds.rows ?? []);
         this.diagnoses.set(diags.rows ?? []);
@@ -768,6 +826,8 @@ export class SupervisorAiComponent implements OnInit {
         this.salesExec.set(salesEx);
         this.ruleStats.set(rules.rows ?? []);
         this.baselines.set(bases.rows ?? []);
+        this.effectiveness.set(eff.rows ?? []);
+        this.outcomes.set(outc.rows ?? []);
         // Peor salud primero: el supervisor ve arriba a quién atender.
         this.collaborators.set(
           (exec.rows ?? []).slice().sort((a, b) => {
@@ -1098,5 +1158,24 @@ export class SupervisorAiComponent implements OnInit {
   }
   baselineLabel(b: BaselineRow): string {
     return this.collaborators().find((c) => c.subject_id === b.subject_id)?.label || 'Colaborador';
+  }
+
+  // ── R4 (L3): efectividad de las acciones ──
+  effLabel(e: EffectivenessRow): string {
+    return ROOT_CAUSE_LABELS[e.key] || this.actionLabel(e.key);
+  }
+  deltaText(d: number | null | undefined): string {
+    if (d == null) return '—';
+    return d > 0 ? `+${d}` : `${d}`;
+  }
+  deltaClass(d: number | null | undefined): string {
+    if (d == null || d === 0) return '';
+    return d > 0 ? 'trend-up' : 'trend-down';
+  }
+  verdictLabel(v: string): string {
+    return v === 'worked' ? 'funcionó' : v === 'backfired' ? 'contraproducente' : v === 'no_effect' ? 'sin efecto' : 'sin datos';
+  }
+  verdictClass(v: string): string {
+    return v === 'worked' ? 'sev--ok' : v === 'backfired' ? 'sev--critical' : 'sev--warn';
   }
 }

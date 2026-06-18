@@ -13,6 +13,7 @@ import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
+import { OutcomeVerifierService } from './outcome-verifier.service';
 
 /**
  * Horus — orquestador del refresh del feature store (Sprint Horus.0).
@@ -42,6 +43,7 @@ export class ExecutionRefreshService {
     private readonly salesExec: SalesExecutionService,
     private readonly ruleCalibration: RuleCalibrationService,
     private readonly baselines: BaselineLearnerService,
+    private readonly outcomes: OutcomeVerifierService,
   ) {}
 
   // 08:30 UTC = 02:30 America/Mexico_City (después del refresh de Customer360 a las 08:00 UTC).
@@ -94,7 +96,10 @@ export class ExecutionRefreshService {
           await this.opportunities.generateForTenant(t.id);
           await this.scoring.scoreForTenant(t.id); // motor multi-señal (usa findings+fraude)
           await this.salesExec.generateGapFindings(t.id); // venta↔ejecución (gateado por volumen)
-          await this.exec360.snapshotForTenant(t.id); // último: snapshot diario append-only (histórico)
+          await this.exec360.snapshotForTenant(t.id); // snapshot diario append-only (histórico)
+          // R4 (Horus.R): mide los outcomes maduros (acciones aprobadas hace ~4 semanas) →
+          // cierra el lazo. Corre tras el snapshot (usa el histórico recién actualizado).
+          await this.outcomes.measureForTenant(t.id);
           tenantsProcessed++;
         } catch (e: any) {
           errors++;

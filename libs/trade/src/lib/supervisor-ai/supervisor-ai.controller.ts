@@ -29,6 +29,7 @@ import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
+import { OutcomeVerifierService } from './outcome-verifier.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
 import { ListFindingsDto, ReviewFindingDto } from './dto/findings.dto';
 
@@ -57,6 +58,7 @@ export class SupervisorAiController {
     private readonly salesExec: SalesExecutionService,
     private readonly ruleCalibration: RuleCalibrationService,
     private readonly baselines: BaselineLearnerService,
+    private readonly outcomes: OutcomeVerifierService,
   ) {}
 
   @Get('execution-360')
@@ -175,8 +177,9 @@ export class SupervisorAiController {
     const opportunities = await this.opportunities.generateForTenant(tenantId);
     const scoring = await this.scoring.scoreForTenant(tenantId); // usa findings+fraude
     const sales_execution = await this.salesExec.generateGapFindings(tenantId); // gateado por volumen de venta
-    const snapshot = await this.exec360.snapshotForTenant(tenantId); // último: captura el estado final (incl. exec_score)
-    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, findings, fraud, diagnoses, actions, opportunities, scoring, sales_execution, snapshot };
+    const snapshot = await this.exec360.snapshotForTenant(tenantId); // captura el estado final (incl. exec_score)
+    const outcomes = await this.outcomes.measureForTenant(tenantId); // R4: mide outcomes maduros (cierra el lazo)
+    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, findings, fraud, diagnoses, actions, opportunities, scoring, sales_execution, snapshot, outcomes };
   }
 
   @Post('vision/scan')
@@ -253,6 +256,29 @@ export class SupervisorAiController {
     @Body() body: { source?: string; override?: string | null },
   ) {
     return this.ruleCalibration.setOverride(findingType, body?.source || 'engine', body?.override ?? null, user);
+  }
+
+  @Get('outcomes')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({ summary: 'R4: outcomes medidos (qué pasó tras aprobar — diff-in-diff del métrico del sujeto)' })
+  listOutcomes(@ReqUser() user: any) {
+    return this.outcomes.listOutcomes(user);
+  }
+
+  @Post('outcomes/measure')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({ summary: 'R4: mide los outcomes maduros del tenant (acciones aprobadas hace ~4 semanas)' })
+  measureOutcomes(@ReqUser() user: any) {
+    return this.outcomes.measureForTenant(user?.tenant_id);
+  }
+
+  @Get('learning/effectiveness')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary: 'Aprendizaje L3 (ADR-021): efectividad por causa/acción — qué prescripciones mueven la aguja',
+  })
+  learningEffectiveness(@ReqUser() user: any) {
+    return this.outcomes.getEffectiveness(user);
   }
 
   @Get('learning/baselines')
