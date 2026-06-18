@@ -2,7 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  OnDestroy,
   OnInit,
+  ViewChild,
   computed,
   inject,
   signal,
@@ -62,7 +65,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       />
 
       <!-- Requisitos del día: venta + carga obligatorios -->
-      <div *ngIf="step() === 'pick' && !loadingList()" class="crt-reqs" [class.done]="requiredDone()">
+      <div *ngIf="step() === 'pick' && !loadingList() && !ocrError()" class="crt-reqs" [class.done]="requiredDone()">
         <div class="crt-reqs-head">
           <span class="crt-reqs-title">
             <i class="pi" [ngClass]="requiredDone() ? 'pi-check-circle' : 'pi-flag'" aria-hidden="true"></i>
@@ -87,7 +90,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       </div>
 
       <!-- Paso 1: elegir tipo -->
-      <div *ngIf="step() === 'pick'" class="crt-pick">
+      <div *ngIf="step() === 'pick' && !ocrError()" class="crt-pick">
         <button *ngFor="let t of types; let i = index" type="button" class="crt-tile"
           [attr.data-type]="t" (click)="choose(t)" [style.animation-delay.ms]="i * 80">
           <span class="crt-tile-glow" aria-hidden="true"></span>
@@ -105,9 +108,24 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       </div>
 
       <!-- Procesando OCR -->
-      <div *ngIf="processing()" class="crt-processing">
+      <div *ngIf="processing()" class="crt-processing" role="status" aria-live="polite">
         <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
         <span>Extrayendo datos del ticket…</span>
+      </div>
+
+      <!-- Falló el OCR: conservamos la foto y dejamos reintentar sin re-capturar -->
+      <div *ngIf="ocrError() && !processing()" class="crt-ocr-error">
+        <img *ngIf="photoPreview()" [src]="photoPreview()!" class="crt-preview" alt="Ticket capturado" />
+        <p class="crt-warn">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          No se pudo leer el ticket. Revisá tu conexión — tu foto sigue acá.
+        </p>
+        <button type="button" class="crt-save" (click)="retryOcr()">
+          <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar lectura
+        </button>
+        <button type="button" class="crt-change crt-ocr-retake" (click)="reset()">
+          <i class="pi pi-camera" aria-hidden="true"></i> Tomar otra foto
+        </button>
       </div>
 
       <!-- Paso 2: revisar + guardar -->
@@ -226,7 +244,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       </div>
 
       <!-- Tickets de hoy -->
-      <section *ngIf="step() === 'pick'" class="crt-recent">
+      <section *ngIf="step() === 'pick' && !ocrError()" class="crt-recent">
         <h2 class="crt-section">Tickets de hoy</h2>
         <div class="crt-list">
           <div *ngFor="let t of tickets()" class="crt-ticket" [attr.data-type]="t.ticket_type">
@@ -237,7 +255,15 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
             </div>
             <span class="crt-ticket-total">{{ t.total != null ? fmtMoney(t.total) : '—' }}</span>
           </div>
-          <div class="crt-empty" *ngIf="!loadingList() && tickets().length === 0">
+          <!-- Fallo de red al cargar la lista (distinto del vacío real) -->
+          <div class="crt-empty" *ngIf="!loadingList() && listError()">
+            <i class="pi pi-cloud" aria-hidden="true"></i>
+            <p>No se pudo cargar la lista.</p>
+            <button type="button" class="crt-change" (click)="retryList()">
+              <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar
+            </button>
+          </div>
+          <div class="crt-empty" *ngIf="!loadingList() && !listError() && tickets().length === 0">
             <i class="pi pi-receipt" aria-hidden="true"></i>
             <p>Aún no subiste tickets hoy.</p>
           </div>
@@ -332,6 +358,12 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         .crt-save:hover:not(:disabled)::after { animation: none; }
         .crt-change:hover { background: var(--surface-ground); color: var(--text-muted); border-color: var(--border-color); }
       }
+
+      /* ── OCR fallido (reintento sin re-capturar) ── */
+      .crt-ocr-error { display: flex; flex-direction: column; gap: 0.875rem; margin-bottom: 1.5rem; }
+      .crt-ocr-error .crt-warn { margin: 0; }
+      .crt-ocr-error .crt-save { margin-top: 0; }
+      .crt-ocr-retake { align-self: center; }
 
       /* ── procesando ── */
       .crt-processing {
@@ -482,10 +514,15 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class VendorCloseRouteComponent implements OnInit {
+export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   private readonly api = inject(VendorService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+
+  @ViewChild('fileInput') private fileInput?: ElementRef<HTMLInputElement>;
+
+  /** Formatter reutilizado — no instanciar Intl por cada cifra (estándar PWA perf). */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 
   readonly types: RouteTicketType[] = ['venta', 'carga', 'combustible'];
   readonly meta = TYPE_META;
@@ -497,6 +534,11 @@ export class VendorCloseRouteComponent implements OnInit {
   readonly photoPreview = signal<string | null>(null);
   readonly tickets = signal<RouteTicket[]>([]);
   readonly loadingList = signal(true);
+  /** Falló la lista (red) — distinto de "sin tickets hoy" (estándar PWA §5). */
+  readonly listError = signal(false);
+  /** Falló el OCR — conservamos la foto para reintentar sin volver a capturar. */
+  readonly ocrError = signal(false);
+  private retryFile: File | null = null;
   readonly cargaLines = signal<EditableCargaLine[]>([]); // productos detectados en carga
   // Ruta resuelta por el backend (el usuario NO la edita). Sin match → no se guarda.
   readonly routeMatched = signal(false);
@@ -531,13 +573,23 @@ export class VendorCloseRouteComponent implements OnInit {
     this.loadList();
   }
 
+  ngOnDestroy(): void {
+    clearTimeout(this.successTimer);
+    this.setPreview(null); // revoca el object URL pendiente
+  }
+
+  /** Setea el preview revocando el object URL anterior (evita fuga de blobs). */
+  private setPreview(url: string | null): void {
+    const prev = this.photoPreview();
+    if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+    this.photoPreview.set(url);
+  }
+
   choose(t: RouteTicketType): void {
     this.selectedType.set(t);
-    // dispara el file picker (definido en el template con #fileInput)
-    queueMicrotask(() => {
-      const el = document.querySelector<HTMLInputElement>('input[type=file]');
-      el?.click();
-    });
+    this.ocrError.set(false);
+    // dispara el file picker (#fileInput en el template)
+    queueMicrotask(() => this.fileInput?.nativeElement.click());
   }
 
   async onFile(ev: Event): Promise<void> {
@@ -548,59 +600,72 @@ export class VendorCloseRouteComponent implements OnInit {
     if (!file || !type) return;
 
     this.processing.set(true);
+    this.ocrError.set(false);
     try {
       const compressed = await this.compress(file);
-      this.photoPreview.set(URL.createObjectURL(compressed));
-      this.api
-        .procesarTicket(type, compressed)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (res) => {
-            this.lastResult = res;
-            this.form = {
-              route_code: res.fields.route_code ?? '',
-              ticket_date: res.fields.ticket_date ?? this.today(),
-              total: res.fields.total,
-              corte_number: res.fields.corte_number,
-              reference: res.fields.reference,
-              liters: res.fields.liters,
-              folio: res.fields.folio,
-            };
-            // Ruta resuelta por el backend contra el catálogo de su zona.
-            this.routeMatched.set(!!res.route_matched);
-            this.routeValue.set(res.route_value ?? null);
-            // carga: precargar productos detectados (solo los matcheados).
-            this.cargaLines.set(
-              (res.lines ?? [])
-                .filter((l) => !!l.product_id)
-                .map((l) => ({
-                  product_id: l.product_id as string,
-                  product_name: l.product_name ?? l.normalized,
-                  quantity: l.quantity || 1,
-                  include: true,
-                })),
-            );
-            this.processing.set(false);
-            this.step.set('review');
-          },
-          error: (e) => {
-            this.processing.set(false);
-            this.toast.add({ severity: 'error', summary: 'OCR falló', detail: e?.error?.message || 'Intenta de nuevo' });
-          },
-        });
+      this.retryFile = compressed; // permite reintentar el OCR sin re-fotografiar
+      this.setPreview(URL.createObjectURL(compressed));
+      this.runOcr(type, compressed);
     } catch {
       this.processing.set(false);
       this.toast.add({ severity: 'error', summary: 'Imagen inválida' });
     }
   }
 
+  /** Reintenta el OCR con la última foto capturada (sin abrir la cámara de nuevo). */
+  retryOcr(): void {
+    const type = this.selectedType();
+    if (!type || !this.retryFile) return;
+    this.ocrError.set(false);
+    this.processing.set(true);
+    this.runOcr(type, this.retryFile);
+  }
+
+  private runOcr(type: RouteTicketType, file: File): void {
+    this.api
+      .procesarTicket(type, file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.lastResult = res;
+          this.form = {
+            route_code: res.fields.route_code ?? '',
+            ticket_date: res.fields.ticket_date ?? this.today(),
+            total: res.fields.total,
+            corte_number: res.fields.corte_number,
+            reference: res.fields.reference,
+            liters: res.fields.liters,
+            folio: res.fields.folio,
+          };
+          // Ruta resuelta por el backend contra el catálogo de su zona.
+          this.routeMatched.set(!!res.route_matched);
+          this.routeValue.set(res.route_value ?? null);
+          // carga: precargar productos detectados (solo los matcheados).
+          this.cargaLines.set(
+            (res.lines ?? [])
+              .filter((l) => !!l.product_id)
+              .map((l) => ({
+                product_id: l.product_id as string,
+                product_name: l.product_name ?? l.normalized,
+                quantity: l.quantity || 1,
+                include: true,
+              })),
+          );
+          this.processing.set(false);
+          this.step.set('review');
+        },
+        error: (e) => {
+          this.processing.set(false);
+          // Conservamos la foto: el vendedor reintenta sin volver a capturar.
+          this.ocrError.set(true);
+          this.toast.add({ severity: 'error', summary: 'No se pudo leer el ticket', detail: e?.error?.message || 'Revisá tu conexión y reintentá' });
+        },
+      });
+  }
+
   canSave(): boolean {
     // La ruta debe haber matcheado una ruta real de su zona (no editable).
     return this.routeMatched() && !!this.form.ticket_date;
-  }
-
-  includedCount(): number {
-    return this.cargaLines().filter((l) => l.include).length;
   }
 
   save(): void {
@@ -639,10 +704,11 @@ export class VendorCloseRouteComponent implements OnInit {
             route: this.routeValue() || `RD ${this.form.route_code}`,
             total: this.form.total,
           });
-          this.photoPreview.set(null);
+          this.setPreview(null);
           this.selectedType.set(null);
           this.cargaLines.set([]);
           this.lastResult = null;
+          this.retryFile = null;
           this.step.set('success');
           this.loadList();
           // Auto-retorno al inicio tras unos segundos (o el usuario toca "Subir otro").
@@ -662,8 +728,10 @@ export class VendorCloseRouteComponent implements OnInit {
     clearTimeout(this.successTimer);
     this.step.set('pick');
     this.selectedType.set(null);
-    this.photoPreview.set(null);
+    this.setPreview(null);
     this.lastResult = null;
+    this.retryFile = null;
+    this.ocrError.set(false);
     this.cargaLines.set([]);
     this.routeMatched.set(false);
     this.routeValue.set(null);
@@ -673,6 +741,7 @@ export class VendorCloseRouteComponent implements OnInit {
 
   private loadList(): void {
     this.loadingList.set(true);
+    this.listError.set(false);
     this.api
       .listTickets({ pageSize: 30 })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -681,8 +750,16 @@ export class VendorCloseRouteComponent implements OnInit {
           this.tickets.set(r.data || []);
           this.loadingList.set(false);
         },
-        error: () => this.loadingList.set(false),
+        error: () => {
+          this.loadingList.set(false);
+          this.listError.set(true);
+        },
       });
+  }
+
+  /** Reintenta cargar la lista del día tras un fallo de red. */
+  retryList(): void {
+    this.loadList();
   }
 
   /** Downscale a 1920px máx + JPEG calidad 0.8 vía canvas (sin dependencias). */
@@ -722,11 +799,8 @@ export class VendorCloseRouteComponent implements OnInit {
     });
   }
 
-  typeSeverity(t: RouteTicketType): 'success' | 'info' | 'warn' {
-    return t === 'venta' ? 'success' : t === 'combustible' ? 'warn' : 'info';
-  }
   fmtMoney(n: any): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+    return this.money.format(Number(n) || 0);
   }
   /** ISO YYYY-MM-DD → dd/mm/yyyy (read-only display). 'sin detectar' si vacío. */
   fmtDate(iso: string | null): string {
@@ -734,8 +808,13 @@ export class VendorCloseRouteComponent implements OnInit {
     const [y, m, d] = iso.split('-');
     return y && m && d ? `${d}/${m}/${y}` : iso;
   }
+  /** Fecha local del dispositivo (YYYY-MM-DD). NO usar toISOString (es UTC →
+   *  al cerrar ruta de noche en MX rodaría al día siguiente). TZ del backend = MX. */
   private today(): string {
-    return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
   }
   private emptyForm() {
     return { route_code: '', ticket_date: this.today(), total: null, corte_number: null, reference: null, liters: null, folio: null };

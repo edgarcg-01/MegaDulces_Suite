@@ -40,14 +40,38 @@ import { OrderLine } from '../../portal/portal.service';
   template: `
     <p-confirmDialog></p-confirmDialog>
 
-    <h1 class="page-title">Por entregar</h1>
-    <p class="subtitle" *ngIf="!loading()">
-      {{ toApprove().length }} por aprobar · {{ toDeliver().length }} por entregar
-    </p>
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Por entregar</h1>
+        <p class="subtitle" *ngIf="!loading() && !loadError()">
+          {{ toApprove().length }} por aprobar · {{ toDeliver().length }} por entregar
+        </p>
+      </div>
+      <button
+        type="button"
+        class="refresh"
+        *ngIf="!loading()"
+        [class.spinning]="refreshing()"
+        [disabled]="refreshing()"
+        (click)="refresh()"
+        aria-label="Actualizar pendientes"
+      >
+        <i class="pi pi-refresh"></i>
+      </button>
+    </div>
 
     <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
 
-    <p-card *ngIf="!loading() && orders().length === 0">
+    <!-- Fallo de red (distinto de "sin pendientes") -->
+    <p-card *ngIf="!loading() && loadError() && orders().length === 0">
+      <div class="empty">
+        <i class="pi pi-cloud"></i>
+        <p>No se pudo cargar los pendientes.</p>
+        <button pButton label="Reintentar" icon="pi pi-refresh" size="small" [text]="true" (click)="reload()"></button>
+      </div>
+    </p-card>
+
+    <p-card *ngIf="!loading() && !loadError() && orders().length === 0">
       <div class="empty">
         <i class="pi pi-check-circle"></i>
         <p>No tenés pedidos pendientes en tu cartera.</p>
@@ -135,8 +159,15 @@ import { OrderLine } from '../../portal/portal.service';
   `,
   styles: [
     `
+      .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
       .page-title { margin: 0 0 0.25rem; font-size: 1.5rem; color: var(--text-main); }
       .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; }
+      .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
+      .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
+      .refresh i { font-size: 0.9rem; }
+      .refresh.spinning i { animation: pend-spin 0.8s linear infinite; }
+      @keyframes pend-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .refresh.spinning i { animation: none; } }
       .empty { text-align: center; padding: 1.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: var(--ok-fg); }
       .section { margin-bottom: 1.25rem; }
@@ -195,7 +226,16 @@ export class VendorPendingComponent implements OnInit {
   private readonly toast = inject(MessageService);
 
   readonly loading = signal(true);
+  /** Falló la carga (red) — distinto de "sin pendientes" (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly refreshing = signal(false);
   readonly orders = signal<VendorOrder[]>([]);
+
+  /** Formatters reutilizados — no instanciar Intl por fila (estándar PWA perf). */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  private readonly dateFmt = new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
 
   readonly toApprove = computed(() => this.orders().filter((o) => o.status === 'pending_approval'));
   readonly toDeliver = computed(() => this.orders().filter((o) => o.status === 'confirmed'));
@@ -209,8 +249,10 @@ export class VendorPendingComponent implements OnInit {
     this.reload();
   }
 
-  reload(): void {
-    this.loading.set(true);
+  reload(silent = false): void {
+    if (silent) this.refreshing.set(true);
+    else this.loading.set(true);
+    this.loadError.set(false);
     this.api
       .pendingDeliveries()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -218,12 +260,21 @@ export class VendorPendingComponent implements OnInit {
         next: (list) => {
           this.orders.set(list);
           this.loading.set(false);
+          this.refreshing.set(false);
         },
         error: () => {
           this.loading.set(false);
+          this.refreshing.set(false);
+          this.loadError.set(true);
           this.toast.add({ severity: 'error', summary: 'No se pudo cargar los pendientes' });
         },
       });
+  }
+
+  /** Refresh manual: trae pendientes nuevos sin blanquear la pantalla. */
+  refresh(): void {
+    if (this.refreshing()) return;
+    this.reload(true);
   }
 
   isOpen(id: string): boolean {
@@ -317,14 +368,10 @@ export class VendorPendingComponent implements OnInit {
   }
 
   fmtMoney(n: unknown): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+    return this.money.format(Number(n) || 0);
   }
   fmtTime(s: string): string {
-    return new Date(s).toLocaleString('es-MX', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '' : this.dateFmt.format(d);
   }
 }

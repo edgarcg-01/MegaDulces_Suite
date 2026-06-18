@@ -14,7 +14,7 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subject, debounceTime, switchMap } from 'rxjs';
+import { Subject, debounceTime, switchMap, of, catchError, map } from 'rxjs';
 import { VendorService, VendorCustomer } from '../vendor.service';
 
 @Component({
@@ -33,7 +33,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
     <p class="subtitle">Cualquier cliente del catálogo, esté o no en tu cartera</p>
 
     <div class="search">
-      <i class="pi pi-search"></i>
+      <i class="pi" [ngClass]="searching() ? 'pi-spin pi-spinner' : 'pi-search'"></i>
       <input
         pInputText
         type="search"
@@ -50,11 +50,23 @@ import { VendorService, VendorCustomer } from '../vendor.service';
 
     <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
 
-    <div *ngIf="!loading() && customers().length === 0" class="empty">
+    <!-- Fallo de red sin resultados previos -->
+    <div *ngIf="!loading() && loadError() && customers().length === 0" class="empty">
+      <i class="pi pi-cloud"></i>
+      <p>No se pudo buscar. Revisá tu conexión.</p>
+      <a pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="retry()"></a>
+    </div>
+
+    <div *ngIf="!loading() && !loadError() && customers().length === 0" class="empty">
       <i class="pi pi-search"></i>
       <p *ngIf="search">Sin resultados para "{{ search }}".</p>
       <p *ngIf="!search">Escribí para buscar un cliente.</p>
     </div>
+
+    <!-- Resultados previos en pantalla pero la última búsqueda falló -->
+    <button *ngIf="!loading() && loadError() && customers().length > 0" type="button" class="err-banner" (click)="retry()">
+      <i class="pi pi-exclamation-triangle"></i> No se pudo actualizar — tocá para reintentar
+    </button>
 
     <div *ngIf="!loading() && customers().length > 0" class="list">
       <button class="client" *ngFor="let c of customers()" (click)="navigateToTakeOrder(c)">
@@ -80,6 +92,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.8rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.25rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
+      .err-banner { display: flex; align-items: center; gap: 0.45rem; width: 100%; margin-bottom: 0.6rem; padding: 0.55rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--bad-soft-bg); border: 1px solid var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: 0.78rem; font-weight: 600; text-align: left; cursor: pointer; }
       .list { display: flex; flex-direction: column; gap: 0.5rem; animation: list-in 0.18s var(--ease-out, cubic-bezier(0.23,1,0.32,1)); }
       @keyframes list-in { from { opacity: 0; } to { opacity: 1; } }
       .client {
@@ -106,34 +119,60 @@ export class VendorCustomersComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
-  readonly loading = signal(true);
+  readonly loading = signal(true); // skeleton solo en la carga inicial
+  readonly searching = signal(false); // re-búsqueda: spinner sutil sin blanquear la lista
+  /** Falló la búsqueda (red) — distinto de "sin resultados" (estándar PWA §5). */
+  readonly loadError = signal(false);
   readonly customers = signal<VendorCustomer[]>([]);
 
   search = '';
+  private first = true;
   private readonly search$ = new Subject<string>();
 
   ngOnInit(): void {
     this.search$
       .pipe(
         debounceTime(250),
-        switchMap((s) => this.api.listCustomers({ search: s.trim() || undefined, pageSize: 100 })),
+        // catchError DENTRO del switchMap: un error de red NO mata el stream
+        // (sin esto, tras un fallo la búsqueda quedaba muerta hasta recargar).
+        switchMap((s) =>
+          this.api.listCustomers({ search: s.trim() || undefined, pageSize: 100 }).pipe(
+            map((r) => r.data),
+            catchError(() => {
+              this.loadError.set(true);
+              return of<VendorCustomer[] | null>(null);
+            }),
+          ),
+        ),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe({
-        next: (r) => {
-          this.customers.set(r.data);
-          this.loading.set(false);
-        },
-        error: () => this.loading.set(false),
+      .subscribe((data) => {
+        if (data !== null) {
+          this.customers.set(data);
+          this.loadError.set(false);
+        }
+        this.loading.set(false);
+        this.searching.set(false);
+        this.first = false;
       });
 
-    // Carga inicial
-    this.search$.next('');
+    this.runSearch(''); // carga inicial
   }
 
   onSearch(v: string): void {
-    this.loading.set(true);
+    this.runSearch(v);
+  }
+
+  private runSearch(v: string): void {
+    this.loadError.set(false);
+    if (this.first) this.loading.set(true);
+    else this.searching.set(true);
     this.search$.next(v);
+  }
+
+  /** Reintenta la última búsqueda tras un fallo de red. */
+  retry(): void {
+    this.runSearch(this.search);
   }
 
   navigateToTakeOrder(c: VendorCustomer): void {

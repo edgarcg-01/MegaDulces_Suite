@@ -2,12 +2,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  HostListener,
+  OnDestroy,
   OnInit,
+  ViewChild,
   computed,
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CardModule } from 'primeng/card';
@@ -41,13 +45,23 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
   ],
   template: `
     <!-- Hero full-bleed -->
-    <section class="hero" *ngIf="!loading()">
+    <section class="hero" *ngIf="!loading() && !showError()">
+      <button
+        type="button"
+        class="hero-refresh"
+        [class.spinning]="refreshing()"
+        [disabled]="refreshing()"
+        (click)="refresh()"
+        aria-label="Actualizar mi ruta"
+      >
+        <i class="pi pi-refresh"></i>
+      </button>
       <div class="hero-main">
         <div class="ring" [style.--pct]="progressPct()">
           <div class="inner"><b>{{ visitedCount() }}</b><span>/{{ customers().length }}</span></div>
         </div>
         <div class="hero-h">
-          <div class="ey">Hoy · {{ todayLabel() }}</div>
+          <div class="ey">Hoy · {{ todayLabel }}</div>
           <h1>{{ routeLabel() || 'Mi ruta' }}</h1>
           <div class="sub">{{ pendingVisits() }} por visitar</div>
         </div>
@@ -132,7 +146,18 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
 
       <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
 
-      <p-card *ngIf="!loading() && customers().length === 0">
+      <!-- Estado de error de red (distinto del vacío real) -->
+      <p-card *ngIf="showError()">
+        <div class="empty">
+          <i class="pi pi-cloud"></i>
+          <p>No se pudo cargar tu ruta.</p>
+          <p class="hint">Revisá tu conexión e intentá de nuevo.</p>
+          <button pButton label="Reintentar" icon="pi pi-refresh" (click)="load()"></button>
+        </div>
+      </p-card>
+
+      <!-- Vacío real: sin cartera asignada -->
+      <p-card *ngIf="showEmpty()">
         <div class="empty">
           <i class="pi pi-sitemap"></i>
           <p>No tenés cartera asignada todavía.</p>
@@ -182,12 +207,21 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
     <!-- Bottom-sheet de acciones por cliente -->
     <ng-container *ngIf="sheet() as c">
       <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
-      <div class="sheet" [class.closing]="sheetClosing()" role="dialog" aria-modal="true">
+      <div
+        #sheetEl
+        class="sheet"
+        [class.closing]="sheetClosing()"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="vsheet-title"
+        tabindex="-1"
+        (keydown)="trapFocus($event)"
+      >
         <div class="sheet-handle"></div>
         <div class="sheet-head">
           <span class="av">{{ initials(c.name) }}</span>
           <div>
-            <span class="n">{{ c.name }}</span>
+            <span class="n" id="vsheet-title">{{ c.name }}</span>
             <span class="cd">{{ c.code }}<ng-container *ngIf="c.sales_route"> · {{ c.sales_route }}</ng-container></span>
           </div>
         </div>
@@ -248,6 +282,18 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         from { transform: translate3d(-3%, -2%, 0) scale(1.04); }
         to   { transform: translate3d(4%, 3%, 0) scale(1.16); }
       }
+      .hero-refresh {
+        position: absolute; top: 1rem; right: 1rem; z-index: 2;
+        width: 2.1rem; height: 2.1rem; border-radius: 50%;
+        border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted);
+        display: grid; place-items: center; cursor: pointer;
+        transition: transform 0.08s var(--ease, ease);
+      }
+      .hero-refresh:active { transform: scale(0.92); }
+      .hero-refresh:disabled { opacity: 0.6; }
+      .hero-refresh i { font-size: 0.9rem; }
+      .hero-refresh.spinning i { animation: hero-spin 0.8s linear infinite; }
+      @keyframes hero-spin { to { transform: rotate(360deg); } }
       .hero-main { display: flex; align-items: center; gap: 1rem; position: relative; z-index: 1; }
       .ring {
         width: 66px; height: 66px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
@@ -422,19 +468,26 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         .hero::before { animation: none; }
         .ring { transition: none; }
         .client, .fab, .sheet-primary, .smart, .contact-btn { transition: none; }
+        .hero-refresh.spinning i { animation: none; }
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class VendorRouteHomeComponent implements OnInit {
+export class VendorRouteHomeComponent implements OnInit, OnDestroy {
   private readonly api = inject(VendorService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly geo = inject(GeolocationService);
+  private readonly doc = inject(DOCUMENT);
+
+  @ViewChild('sheetEl') private sheetEl?: ElementRef<HTMLElement>;
 
   readonly loading = signal(true);
+  /** Distingue "sin cartera" (vacío real) de un fallo de red (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly refreshing = signal(false);
   readonly customers = signal<HomeCustomer[]>([]);
   readonly ordersToday = signal<Order[]>([]);
   readonly sheet = signal<HomeCustomer | null>(null);
@@ -442,6 +495,21 @@ export class VendorRouteHomeComponent implements OnInit {
   readonly checking = signal(false);
   readonly dueIds = signal<Set<string>>(new Set());
   readonly onlyDue = signal(false);
+
+  /** Elemento que tenía el foco antes de abrir el sheet (para restaurarlo). */
+  private prevFocus: HTMLElement | null = null;
+
+  /** Cifra constante reutilizada — no instanciar Intl en cada llamada. */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  readonly todayLabel = new Date().toLocaleDateString('es-MX', { weekday: 'long' });
+
+  /** Estados mutuamente excluyentes de la pantalla (error de red ≠ vacío real). */
+  readonly showError = computed(
+    () => !this.loading() && this.loadError() && this.customers().length === 0,
+  );
+  readonly showEmpty = computed(
+    () => !this.loading() && !this.loadError() && this.customers().length === 0,
+  );
 
   /** Autodetección de llegada (GPS). */
   readonly detected = signal<NearbyCustomer | null>(null);
@@ -491,8 +559,20 @@ export class VendorRouteHomeComponent implements OnInit {
     this.load();
   }
 
-  load(): void {
-    this.loading.set(true);
+  ngOnDestroy(): void {
+    // Si el componente muere con el sheet abierto, no dejar el body bloqueado.
+    this.doc.body.style.removeProperty('overflow');
+  }
+
+  /**
+   * Carga la ruta del día. `silent` recarga sin blanquear la pantalla (refresh
+   * manual): conserva la data en pantalla y solo gira el ícono. Un fallo en
+   * refresh silencioso NO borra lo que ya se ve — solo avisa por toast.
+   */
+  load(silent = false): void {
+    if (silent) this.refreshing.set(true);
+    else this.loading.set(true);
+    this.loadError.set(false);
     forkJoin({
       home: this.api.home(),
       due: this.api.nbaDue().pipe(catchError(() => of([] as NbaDue[]))),
@@ -505,18 +585,35 @@ export class VendorRouteHomeComponent implements OnInit {
           this.dueIds.set(new Set(due.map((d) => d.customer_id)));
           this.ordersToday.set(today);
           this.loading.set(false);
+          this.refreshing.set(false);
           // Autodetección de llegada una vez que tenemos cartera + pendientes.
           if (home.length) void this.detectArrival();
         },
         error: () => {
           this.loading.set(false);
-          this.toast.add({ severity: 'error', summary: 'No se pudo cargar tu ruta' });
+          this.refreshing.set(false);
+          this.loadError.set(true);
+          this.toast.add({
+            severity: 'error',
+            summary: 'No se pudo cargar tu ruta',
+            detail: 'Revisá tu conexión e intentá de nuevo.',
+          });
         },
       });
   }
 
+  /** Refresh manual desde el hero (no blanquea la pantalla). */
+  refresh(): void {
+    if (this.refreshing()) return;
+    this.load(true);
+  }
+
   openSheet(c: HomeCustomer): void {
+    this.prevFocus = (this.doc.activeElement as HTMLElement) ?? null;
     this.sheet.set(c);
+    this.doc.body.style.setProperty('overflow', 'hidden');
+    // Mover el foco al sheet una vez renderizado.
+    setTimeout(() => this.sheetEl?.nativeElement?.focus(), 0);
     if (this.isDue(c)) {
       this.api.recordSignal(c.id, 'offer_shown', 'vendor').subscribe({ error: () => {} });
     }
@@ -531,7 +628,39 @@ export class VendorRouteHomeComponent implements OnInit {
     setTimeout(() => {
       this.sheet.set(null);
       this.sheetClosing.set(false);
+      this.doc.body.style.removeProperty('overflow');
+      this.prevFocus?.focus?.();
+      this.prevFocus = null;
     }, 200);
+  }
+
+  /** Cierra el sheet con Escape (no hay "back" del browser en la PWA instalada). */
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.sheet()) this.closeSheet();
+  }
+
+  /** Atrapa el Tab dentro del sheet mientras está abierto. */
+  trapFocus(e: KeyboardEvent): void {
+    if (e.key !== 'Tab') return;
+    const root = this.sheetEl?.nativeElement;
+    if (!root) return;
+    const f = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((el) => el.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    const active = this.doc.activeElement;
+    if (e.shiftKey && active === first) {
+      last.focus();
+      e.preventDefault();
+    } else if (!e.shiftKey && active === last) {
+      first.focus();
+      e.preventDefault();
+    }
   }
 
   /** Pide GPS y resuelve el cliente de la cartera más cercano (best-effort). */
@@ -643,13 +772,10 @@ export class VendorRouteHomeComponent implements OnInit {
     if (!parts.length) return '?';
     return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
   }
-  todayLabel(): string {
-    return new Date().toLocaleDateString('es-MX', { weekday: 'long' });
-  }
   trackId(_: number, c: HomeCustomer): string {
     return c.id;
   }
   fmtMoney(n: unknown): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+    return this.money.format(Number(n) || 0);
   }
 }

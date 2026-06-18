@@ -23,8 +23,18 @@ import { Order } from '../../portal/portal.service';
   imports: [CommonModule, RouterLink, CardModule, SkeletonModule, ButtonModule],
   template: `
     <section class="hero" *ngIf="!loading()">
+      <button
+        type="button"
+        class="hero-refresh"
+        [class.spinning]="refreshing()"
+        [disabled]="refreshing()"
+        (click)="refresh()"
+        aria-label="Actualizar mi día"
+      >
+        <i class="pi pi-refresh"></i>
+      </button>
       <div class="hero-h">
-        <div class="ey">Hoy · {{ todayLabel() }}</div>
+        <div class="ey">Hoy · {{ todayLabel }}</div>
         <h1>Mi día</h1>
       </div>
       <div class="kpis">
@@ -37,7 +47,16 @@ import { Order } from '../../portal/portal.service';
     <div class="body-pad">
       <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
 
-      <p-card *ngIf="!loading() && orders().length === 0">
+      <!-- Fallo de red (distinto de "sin pedidos hoy") -->
+      <p-card *ngIf="!loading() && loadError() && orders().length === 0">
+        <div class="empty">
+          <i class="pi pi-cloud"></i>
+          <p>No se pudo cargar tu día.</p>
+          <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
+        </div>
+      </p-card>
+
+      <p-card *ngIf="!loading() && !loadError() && orders().length === 0">
         <div class="empty">
           <i class="pi pi-calendar"></i>
           <p>Aún no tomaste pedidos hoy.</p>
@@ -80,6 +99,11 @@ import { Order } from '../../portal/portal.service';
         from { transform: translate3d(-3%, -2%, 0) scale(1.04); }
         to   { transform: translate3d(4%, 3%, 0) scale(1.16); }
       }
+      .hero-refresh { position: absolute; top: 1rem; right: 1rem; z-index: 2; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
+      .hero-refresh:active { transform: scale(0.92); } .hero-refresh:disabled { opacity: 0.6; }
+      .hero-refresh i { font-size: 0.9rem; }
+      .hero-refresh.spinning i { animation: today-spin 0.8s linear infinite; }
+      @keyframes today-spin { to { transform: rotate(360deg); } }
       .hero-h { position: relative; z-index: 1; }
       .hero-h .ey { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
       .hero-h h1 { margin: 2px 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.025em; line-height: 1.04; color: var(--text-main); }
@@ -106,7 +130,7 @@ import { Order } from '../../portal/portal.service';
         transition: transform 0.08s var(--ease, ease);
       }
       .orow:active { transform: scale(0.99); }
-      @media (prefers-reduced-motion: reduce) { .orow { transition: none; } .hero::before { animation: none; } }
+      @media (prefers-reduced-motion: reduce) { .orow { transition: none; } .hero::before { animation: none; } .hero-refresh.spinning i { animation: none; } }
       .oc { min-width: 0; }
       .code { display: block; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
       .time { font-size: 0.75rem; color: var(--text-muted); }
@@ -128,7 +152,15 @@ export class VendorTodayComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly loading = signal(true);
+  /** Falló la carga (red) — distinto de "sin pedidos hoy" (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly refreshing = signal(false);
   readonly orders = signal<Order[]>([]);
+
+  /** Formatters/constante reutilizados — no instanciar Intl ni Date por CD. */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  private readonly timeFmt = new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit' });
+  readonly todayLabel = new Date().toLocaleDateString('es-MX', { weekday: 'long' });
 
   readonly totalRevenue = computed(() =>
     this.orders()
@@ -138,6 +170,13 @@ export class VendorTodayComponent implements OnInit {
   readonly fulfilledCount = computed(() => this.orders().filter((o) => o.status === 'fulfilled').length);
 
   ngOnInit(): void {
+    this.load();
+  }
+
+  load(silent = false): void {
+    if (silent) this.refreshing.set(true);
+    else this.loading.set(true);
+    this.loadError.set(false);
     this.api
       .myOrdersToday()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -145,9 +184,20 @@ export class VendorTodayComponent implements OnInit {
         next: (orders) => {
           this.orders.set(orders);
           this.loading.set(false);
+          this.refreshing.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.loading.set(false);
+          this.refreshing.set(false);
+          this.loadError.set(true);
+        },
       });
+  }
+
+  /** Refresh manual: trae los pedidos del día sin blanquear la pantalla. */
+  refresh(): void {
+    if (this.refreshing()) return;
+    this.load(true);
   }
 
   goToOrder(o: Order): void {
@@ -173,13 +223,11 @@ export class VendorTodayComponent implements OnInit {
       default: return s;
     }
   }
-  todayLabel(): string {
-    return new Date().toLocaleDateString('es-MX', { weekday: 'long' });
-  }
   fmtMoney(n: unknown): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+    return this.money.format(Number(n) || 0);
   }
   fmtTime(s: string): string {
-    return new Date(s).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '' : this.timeFmt.format(d);
   }
 }

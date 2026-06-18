@@ -353,9 +353,63 @@ QA tras migrar:
 
 ---
 
+## PWA / App instalable (BINDING)
+
+> Alcance: toda app que se **instala** en el dispositivo. Hoy `apps/vendor` (mobile-first, vendedor en campo); candidatos: `/portal` y `apps/view`. Origen: auditoría del vendor 2026-06-18 (manifest copiado de `apps/view`, sin service worker, `theme-color` hardcodeado). Bases teóricas + fuentes en [`docs/DESIGN_FOUNDATIONS.md` §10](docs/DESIGN_FOUNDATIONS.md).
+
+### Tesis
+Una app instalada **promete capacidades nativas**: arranca offline, se ve como app (no como pestaña), respeta el notch, y no muere sin señal. Si instalás algo que falla igual que la web, rompiste el contrato. El vendedor en ruta es el caso límite: **señal intermitente es el estado normal, no el error.**
+
+### 1. Service worker — OBLIGATORIO en app instalable
+- Registrar con `provideServiceWorker` (Angular) + `ngsw-config.json` por app. Sin SW, "instalable" es una mentira: cero offline, cero caché, cero update flow.
+- **App shell + chunks lazy**: `prefetch`/`lazy` en `assetGroups` → la cáscara abre sin red.
+- **Datos (GET)**: `dataGroups` con `freshness` (red primero, cae a caché) para listas de ruta/cartera; `performance` (caché primero) solo para catálogo/recursos casi-estáticos. Definir `maxAge`/`maxSize` explícitos.
+- **Update flow visible**: al detectar `VersionReady`, ofrecer "Hay una nueva versión — actualizar" (no recargar a la fuerza en medio de un pedido).
+
+### 2. Manifest — por app, nunca copiado
+- **Prohibido reusar el manifest de otra app.** Cada `manifest.webmanifest` describe SU app.
+- `name` / `short_name`: nombre real user-facing (no `vendor-MD`).
+- `start_url`: la **ruta real de arranque** del rol (vendedor → `/vendor/route-home`), no `/`.
+- `shortcuts`: **solo rutas que existen en esa app**. Un shortcut a una ruta inexistente cae al `**` redirect = bug silencioso.
+- `theme_color` / `background_color`: derivados del tema (superficie de chrome = `--card-bg`), **no `#FFFFFF` fijo** si la app tiene dark mode.
+- `icons`: incluir `192` y `512` + variantes `purpose: "maskable"` (Android adaptive). `display: "standalone"`.
+
+### 3. Chrome del SO (status bar / splash / theme-color)
+- `theme-color` en `index.html` debe **derivar de `--card-bg`** (regla cross-proyecto, ver `feedback_pwa_mobile_chrome`), no un hex suelto.
+- Si el tema togglea en runtime (modo oscuro del shell), **actualizar el `<meta name="theme-color">` por JS** al cambiar — el meta estático no sigue al toggle.
+- iOS: `apple-mobile-web-app-status-bar-style: black-translucent` + `apple-mobile-web-app-title` real.
+
+### 4. Safe-area (notch / home indicator) — BINDING
+- Header sticky, bottom-nav, FAB y bottom-sheets usan `env(safe-area-inset-*)` (ya correcto en `vendor-shell` y `route-home` — **conservar**).
+- `viewport` con `viewport-fit=cover` siempre que se use `env(safe-area-inset-*)`.
+
+### 5. Offline UX — contrato de UI (aunque la cola sea deferred)
+- **Distinguir "vacío real" de "fallo de red".** Empty-state ("no tenés cartera") y error-state ("no se pudo cargar — reintentar") son pantallas DISTINTAS. Nunca mostrar el empty cuando fue un error de fetch. *(Bug vivo en `route-home`: `forkJoin` que falla cae al empty de "sin cartera".)*
+- Todo error de carga ofrece **Reintentar** explícito.
+- Escrituras críticas (tomar pedido, marcar visita) → destino futuro es **cola offline (Dexie)** con reintento; mientras siga deferred, el estado de red debe ser **visible** (banner "sin conexión", no fallar en silencio).
+- Indicador de conexión cuando la app está instalada (no hay barra del browser que lo delate).
+
+### 6. A11y de superpuestos en app instalada (sin chrome del browser)
+- Bottom-sheets / modales: **focus trap + cierre con Escape + `scroll-lock` del body + restaurar foco al abridor + `aria-labelledby`**. En instalada no existe "back del browser" como escape — el patrón debe bastarse solo. *(Gap vivo en el bottom-sheet de `route-home`.)*
+- Touch targets ≥44px en flujos críticos (ya se cumple en FAB/sheet-primary).
+
+### 7. Viewport / zoom
+- `user-scalable=no` + `maximum-scale=1` **rompe WCAG 1.4.4** (zoom). Se tolera como excepción documentada solo por la desalineación de inputs en iOS (`feedback_pwa_mobile_chrome`). Preferir arreglar el layout y **permitir zoom**; si se mantiene el bloqueo, justificarlo en el PR.
+
+### Antipatrones PWA (flag en review)
+- App "instalable" (con manifest) **sin service worker**.
+- Manifest copiado de otra app (shortcuts/start_url/colores de otra superficie).
+- `theme_color` / `theme-color` blanco fijo bajo una app con dark mode.
+- Empty-state mostrado en un fallo de red (sin Reintentar).
+- Modal/sheet sin focus-trap ni Escape en app instalada.
+- Escritura crítica que falla en silencio sin señal de "sin conexión".
+
+---
+
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-06-18 | Estándares PWA BINDING (SW obligatorio, manifest por-app, theme-color derivado, offline-UX contract) | Auditoría del vendor reveló app "instalable" sin service worker + manifest copiado de `apps/view` con shortcuts a rutas inexistentes. El vendedor en campo necesita offline real, no una web envuelta. |
 | 2026-06-08 | Extender "Mercado" como sistema único con 2 surfaces (Storefront + Operations) | Coherencia cross-app: cliente B2B y operador interno ven la MISMA empresa visual. Costo: tokens-only. Win: identidad de marca y reuso del trabajo del portal. |
 | 2026-06-08 | Operations = tool-mode-only (sin Fraunces ni decoración) | El usuario interno no tiene "storefront moments". Type bold + density + mono cifras = tesis "esto es serio". |
 | 2026-06-08 | Operations hereda Stone, sunset action, ember IA, espresso dark de Storefront | Reuso completo de paleta. Evita 2 fuentes de verdad. Migración es swap de tokens en `:root`. |

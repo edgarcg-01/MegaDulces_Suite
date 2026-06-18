@@ -2,12 +2,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  HostListener,
+  OnDestroy,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -126,7 +130,15 @@ const foldText = (s: string | null | undefined): string =>
           </div>
           <div class="prod" *ngFor="let p of displayed(); trackBy: trackProduct" [class.in]="cartQty(p.product_id) > 0">
             <div class="ph"><i class="pi pi-box"></i></div>
-            <div class="pb" [class.tappable]="hasPitch(p)" (click)="hasPitch(p) && openPitch(p)">
+            <div
+              class="pb"
+              [class.tappable]="hasPitch(p)"
+              [attr.role]="hasPitch(p) ? 'button' : null"
+              [attr.tabindex]="hasPitch(p) ? 0 : null"
+              (click)="hasPitch(p) && openPitch(p)"
+              (keydown.enter)="hasPitch(p) && openPitch(p)"
+              (keydown.space)="hasPitch(p) && openPitch(p); hasPitch(p) && $event.preventDefault()"
+            >
               <div class="pn">{{ p.product_name }}</div>
               <div class="pm">
                 <span class="rsn" *ngIf="!searchTerm().trim() && reasonFor(p.product_id) as rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
@@ -143,7 +155,7 @@ const foldText = (s: string | null | undefined): string =>
               <button (click)="incProduct(p)" aria-label="Más">+</button>
             </div>
             <ng-template #addBtn>
-              <button class="add" [disabled]="!!adding[p.product_id]" (click)="addToCart(p)" aria-label="Agregar"><i class="pi pi-plus"></i></button>
+              <button class="add" [disabled]="!!adding()[p.product_id]" (click)="addToCart(p)" aria-label="Agregar"><i class="pi pi-plus"></i></button>
             </ng-template>
           </div>
         </div>
@@ -172,10 +184,10 @@ const foldText = (s: string | null | undefined): string =>
 
       <!-- Sheet de pedido: lo seleccionado, con cantidades editables -->
       <div class="sheet-backdrop" *ngIf="cartOpen()" (click)="cartOpen.set(false)"></div>
-      <section class="cart-sheet" *ngIf="cartOpen()">
+      <section class="cart-sheet" *ngIf="cartOpen()" role="dialog" aria-modal="true" aria-labelledby="cart-sheet-title" tabindex="-1">
         <div class="sh-head">
           <div class="sh-title">
-            <h2>Tu pedido</h2>
+            <h2 id="cart-sheet-title">Tu pedido</h2>
             <span>{{ cartLines().length }} SKU · {{ cartUnitsTotal() }} u</span>
           </div>
           <button class="sh-x" (click)="cartOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
@@ -211,9 +223,9 @@ const foldText = (s: string | null | undefined): string =>
 
       <!-- Sheet "por qué ofrecerlo": speech para el vendedor -->
       <div class="sheet-backdrop" *ngIf="pitch()" (click)="pitch.set(null)"></div>
-      <section class="pitch-sheet" *ngIf="pitch() as pp">
+      <section class="pitch-sheet" *ngIf="pitch() as pp" role="dialog" aria-modal="true" aria-labelledby="pitch-sheet-title" tabindex="-1">
         <div class="sh-head">
-          <div class="sh-title"><h2>Por qué ofrecerlo</h2><span>{{ pp.product_name }}</span></div>
+          <div class="sh-title"><h2 id="pitch-sheet-title">Por qué ofrecerlo</h2><span>{{ pp.product_name }}</span></div>
           <button class="sh-x" (click)="pitch.set(null)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
         </div>
         <ul class="pitch-lines">
@@ -228,9 +240,9 @@ const foldText = (s: string | null | undefined): string =>
 
       <!-- Sheet de acciones de la visita (···) -->
       <div class="sheet-backdrop" *ngIf="actionsOpen()" (click)="actionsOpen.set(false)"></div>
-      <section class="act-sheet" *ngIf="actionsOpen()">
+      <section class="act-sheet" *ngIf="actionsOpen()" role="dialog" aria-modal="true" aria-labelledby="act-sheet-title" tabindex="-1">
         <div class="sh-head">
-          <div class="sh-title"><h2>Acciones de la visita</h2></div>
+          <div class="sh-title"><h2 id="act-sheet-title">Acciones de la visita</h2></div>
           <button class="sh-x" (click)="actionsOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
         </div>
         <button class="act-row" (click)="goCaptureExhibit()">
@@ -243,9 +255,9 @@ const foldText = (s: string | null | undefined): string =>
 
       <!-- Sheet de resultado de visita (terminar) -->
       <div class="sheet-backdrop" *ngIf="finishOpen()" (click)="finishOpen.set(false)"></div>
-      <section class="finish-sheet" *ngIf="finishOpen()">
+      <section class="finish-sheet" *ngIf="finishOpen()" role="dialog" aria-modal="true" aria-labelledby="finish-sheet-title" tabindex="-1">
         <div class="sh-head">
-          <div class="sh-title"><h2>¿Cómo finalizó la visita?</h2></div>
+          <div class="sh-title"><h2 id="finish-sheet-title">¿Cómo finalizó la visita?</h2></div>
           <button class="sh-x" (click)="finishOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
         </div>
 
@@ -454,7 +466,7 @@ const foldText = (s: string | null | undefined): string =>
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class VendorTakeOrderComponent implements OnInit {
+export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private readonly api = inject(VendorService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -462,6 +474,77 @@ export class VendorTakeOrderComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly haptic = inject(HapticService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly doc = inject(DOCUMENT);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+
+  /** Cifra reutilizada — no instanciar Intl en cada fila/total (estándar PWA perf). */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+  constructor() {
+    // Gestión central de los bottom-sheets (estándar PWA §6): mientras haya uno
+    // abierto, bloquea el scroll del body y, al cerrar, restaura el foco.
+    effect(() => {
+      const open = this.anySheetOpen();
+      const body = this.doc.body;
+      if (open) {
+        if (!this.sheetPrevFocus) this.sheetPrevFocus = (this.doc.activeElement as HTMLElement) ?? null;
+        body.style.setProperty('overflow', 'hidden');
+        setTimeout(() => this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"]')?.focus(), 0);
+      } else {
+        body.style.removeProperty('overflow');
+        this.sheetPrevFocus?.focus?.();
+        this.sheetPrevFocus = null;
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.doc.body.style.removeProperty('overflow');
+  }
+
+  /** ¿Hay algún bottom-sheet abierto? (carrito / pitch / acciones / finalizar). */
+  readonly anySheetOpen = computed(
+    () => this.cartOpen() || !!this.pitch() || this.actionsOpen() || this.finishOpen(),
+  );
+  private sheetPrevFocus: HTMLElement | null = null;
+
+  /** Cierra el sheet superior (no hay "back" del browser en la PWA instalada). */
+  private closeTopSheet(): void {
+    if (this.pitch()) this.pitch.set(null);
+    else if (this.finishOpen()) this.finishOpen.set(false);
+    else if (this.actionsOpen()) this.actionsOpen.set(false);
+    else if (this.cartOpen()) this.cartOpen.set(false);
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      if (this.anySheetOpen()) this.closeTopSheet();
+      return;
+    }
+    if (e.key === 'Tab' && this.anySheetOpen()) this.trapTab(e);
+  }
+
+  /** Atrapa el Tab dentro del sheet abierto. */
+  private trapTab(e: KeyboardEvent): void {
+    const dlg = this.host.nativeElement.querySelector<HTMLElement>('[role="dialog"]');
+    if (!dlg) return;
+    const nodes = dlg.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    const f: HTMLElement[] = Array.from(nodes).filter((el: HTMLElement) => el.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    const active = this.doc.activeElement;
+    if (e.shiftKey && active === first) {
+      last.focus();
+      e.preventDefault();
+    } else if (!e.shiftKey && active === last) {
+      first.focus();
+      e.preventDefault();
+    }
+  }
 
   readonly loading = signal(true);
   readonly customer = signal<VendorCustomer | null>(null);
@@ -511,7 +594,7 @@ export class VendorTakeOrderComponent implements OnInit {
   readonly minDate = new Date().toISOString().slice(0, 10);
   private customerId = '';
 
-  adding: Record<string, boolean> = {};
+  readonly adding = signal<Record<string, boolean>>({});
   /** Signal (no campo plano): un `computed` que lo lea reacciona al tipear. */
   readonly searchTerm = signal('');
 
@@ -690,12 +773,19 @@ export class VendorTakeOrderComponent implements OnInit {
     return Math.round(((rev - cost) / rev) * 100);
   });
 
+  /** product_id → cantidad total en el carrito (suma de líneas), computado 1 vez
+   *  por cambio del carrito en vez de filtrar/reducir por cada fila en cada CD. */
+  readonly qtyByProduct = computed(() => {
+    const m = new Map<string, number>();
+    for (const l of this.cartLines()) {
+      m.set(l.product_id, (m.get(l.product_id) ?? 0) + Number(l.quantity));
+    }
+    return m;
+  });
   /** Cantidad del producto en el carrito = SUMA de sus líneas (robusto a líneas
    *  duplicadas que el addLine del backend pudo crear con taps repetidos). */
   cartQty(productId: string): number {
-    return this.cartLines()
-      .filter((x) => x.product_id === productId)
-      .reduce((s, l) => s + Number(l.quantity), 0);
+    return this.qtyByProduct().get(productId) ?? 0;
   }
 
   ngOnInit(): void {
@@ -723,15 +813,16 @@ export class VendorTakeOrderComponent implements OnInit {
           this.prices.set(prices);
           this.warehouseId.set(warehouseId || '');
           this.pendingOrders.set(pending);
+          this.loading.set(false);
           if (existingDraft) {
             this.cartOrderId.set(existingDraft.id);
-            this.api.orderById(existingDraft.id).subscribe((full) => {
+            this.api.orderById(existingDraft.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((full) => {
               this.cartLines.set(full.lines || []);
               this.loadSuggestions(); // cart-aware una vez que cargan las líneas
             });
+          } else {
+            this.loadSuggestions();
           }
-          this.loading.set(false);
-          this.loadSuggestions();
         },
         error: (e) => {
           this.loading.set(false);
@@ -775,25 +866,27 @@ export class VendorTakeOrderComponent implements OnInit {
     if (p.stock_available != null && qty > Number(p.stock_available)) {
       this.toast.add({ severity: 'warn', summary: 'Sin stock suficiente', detail: `Sólo hay ${p.stock_available}. Queda en backorder.`, life: 4000 });
     }
-    this.adding[p.product_id] = true;
+    this.adding.update((m) => ({ ...m, [p.product_id]: true }));
     const ensure$ = this.cartOrderId()
       ? of({ id: this.cartOrderId()! } as any)
       : this.api.ensureDraftForCustomer(c.id, this.warehouseId(), 'route');
     ensure$
-      .pipe(switchMap((draft) => {
-        this.cartOrderId.set(draft.id);
-        return this.api.addLine(draft.id, p.product_id, qty);
-      }))
+      .pipe(
+        switchMap((draft) => {
+          this.cartOrderId.set(draft.id);
+          return this.api.addLine(draft.id, p.product_id, qty);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe({
         next: () => {
-          this.adding[p.product_id] = false;
+          this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           this.haptic.selection();
-          // reload primero, luego re-rankear cart-aware ("completá la canasta")
-          // sobre el carrito YA actualizado (evita la sugerencia con carrito viejo).
+          // reload primero, luego re-rankear cart-aware sobre el carrito ya actualizado.
           this.reloadCart(() => this.loadSuggestions());
         },
         error: (err) => {
-          this.adding[p.product_id] = false;
+          this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           this.haptic.notification('error');
           this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message });
         },
@@ -812,7 +905,7 @@ export class VendorTakeOrderComponent implements OnInit {
     const orderId = this.cartOrderId();
     if (!orderId) return;
     this.haptic.selection();
-    this.api.updateLine(orderId, line.id, qty).subscribe({
+    this.api.updateLine(orderId, line.id, qty).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => this.reloadCart(),
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message }),
     });
@@ -821,7 +914,7 @@ export class VendorTakeOrderComponent implements OnInit {
   removeLine(line: OrderLine): void {
     const orderId = this.cartOrderId();
     if (!orderId) return;
-    this.api.removeLine(orderId, line.id).subscribe({
+    this.api.removeLine(orderId, line.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => this.reloadCart(() => this.loadSuggestions()),
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message }),
     });
@@ -865,6 +958,7 @@ export class VendorTakeOrderComponent implements OnInit {
           .pipe(
             switchMap(() => this.api.confirm(orderId)),
             switchMap(() => this.api.approve(orderId)),
+            takeUntilDestroyed(this.destroyRef),
           )
           .subscribe({
             next: (o) => this.onDone(o),
@@ -993,7 +1087,7 @@ export class VendorTakeOrderComponent implements OnInit {
   private reloadCart(after?: () => void): void {
     const orderId = this.cartOrderId();
     if (!orderId) return;
-    this.api.orderById(orderId).subscribe({
+    this.api.orderById(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (full) => {
         const lines = full.lines || [];
         this.cartLines.set(lines);
@@ -1004,6 +1098,6 @@ export class VendorTakeOrderComponent implements OnInit {
   }
 
   fmtMoney(n: unknown): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+    return this.money.format(Number(n) || 0);
   }
 }

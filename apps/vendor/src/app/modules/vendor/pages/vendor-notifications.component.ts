@@ -149,6 +149,9 @@ export class VendorNotificationsComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly loading = signal(true);
+  /** Todas las fuentes fallaron (sin red) — distinto de "vas al día" (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly refreshing = signal(false);
   readonly preventa = signal<HomeCustomer[]>([]);
   readonly due = signal<NbaDue[]>([]);
   readonly todayOrders = signal<Order[]>([]);
@@ -156,6 +159,10 @@ export class VendorNotificationsComponent implements OnInit {
   readonly supCoaching = signal<SupervisorCoaching[]>([]);
   readonly supTasks = signal<SupervisorTask[]>([]);
   readonly cargaLabel = this.nextBusinessDayLabel();
+
+  /** Formatter reutilizado — no instanciar Intl por fila (estándar PWA perf). */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  private static readonly SOURCES = 6;
 
   readonly totalCount = computed(
     () =>
@@ -168,13 +175,26 @@ export class VendorNotificationsComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    this.load();
+  }
+
+  load(silent = false): void {
+    if (silent) this.refreshing.set(true);
+    else this.loading.set(true);
+    this.loadError.set(false);
+    // Cuenta cuántas fuentes fallaron: si fallan TODAS = sin red (no "vas al día").
+    let failures = 0;
+    const guard =
+      <T>(fb: T) =>
+      (src: import('rxjs').Observable<T>) =>
+        src.pipe(catchError(() => { failures++; return of(fb); }));
     forkJoin({
-      home: this.api.home().pipe(catchError(() => of([] as HomeCustomer[]))),
-      due: this.api.nbaDue().pipe(catchError(() => of([] as NbaDue[]))),
-      today: this.api.myOrdersToday().pipe(catchError(() => of([] as Order[]))),
-      carga: this.api.cargaOrders().pipe(catchError(() => of([] as VendorOrder[]))),
-      coaching: this.api.mySupervisorCoaching().pipe(catchError(() => of([] as SupervisorCoaching[]))),
-      tasks: this.api.mySupervisorTasks().pipe(catchError(() => of([] as SupervisorTask[]))),
+      home: this.api.home().pipe(guard<HomeCustomer[]>([])),
+      due: this.api.nbaDue().pipe(guard<NbaDue[]>([])),
+      today: this.api.myOrdersToday().pipe(guard<Order[]>([])),
+      carga: this.api.cargaOrders().pipe(guard<VendorOrder[]>([])),
+      coaching: this.api.mySupervisorCoaching().pipe(guard<SupervisorCoaching[]>([])),
+      tasks: this.api.mySupervisorTasks().pipe(guard<SupervisorTask[]>([])),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -186,10 +206,22 @@ export class VendorNotificationsComponent implements OnInit {
           this.carga.set(carga.filter((o) => !o.requested_delivery_date || o.requested_delivery_date.slice(0, 10) === iso));
           this.supCoaching.set(coaching);
           this.supTasks.set(tasks);
+          this.loadError.set(failures === VendorNotificationsComponent.SOURCES);
           this.loading.set(false);
+          this.refreshing.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.loading.set(false);
+          this.refreshing.set(false);
+          this.loadError.set(true);
+        },
       });
+  }
+
+  /** Refresh manual: recarga el inbox sin blanquear la pantalla. */
+  refresh(): void {
+    if (this.refreshing()) return;
+    this.load(true);
   }
 
   goPending(): void {

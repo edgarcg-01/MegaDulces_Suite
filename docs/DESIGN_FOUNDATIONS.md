@@ -272,10 +272,38 @@ Derivado de los findings, ordenado por **payoff / esfuerzo**. Todo es **tokens-f
 | 7 | Formalizar **3 capas de tokens** (raw→semántico→componente) + regla "componentes consumen semánticos". | Ambos | Medio | Gobernanza; abarata el rebranding. §4.2 |
 | 8 | Terminar la **capa de componentes Atomic** (ProductCard, Pill, Stepper, EmptyState, SearchBar). | Ambos | Alto | Gap #1 ya identificado en `DESIGN.md`; resuelve consistencia. §8.1 |
 | 9 | (Si entra Figma o crece el equipo) pipeline **Style Dictionary v4** con light/dark/density como dimensiones. | Infra | Alto | Una fuente DTCG → todas las plataformas. §4.1 |
+| 10 | **Service worker** (`provideServiceWorker` + `ngsw-config.json`) en `apps/vendor`: precache app-shell + dataGroups freshness + update flow. | Vendor/PWA | Medio | Hoy "instalable" sin offline real; campo = señal intermitente. §10.1–10.2 |
+| 11 | **Manifest por-app** correcto en vendor (name real, `start_url=/vendor/route-home`, shortcuts existentes, colores del tema, maskable). | Vendor/PWA | Bajo | Manifest copiado de `apps/view` con shortcuts rotos. §10.1, §10.3 |
+| 12 | `theme-color` derivado de `--card-bg` + actualización por JS al togglear tema. | Ambos/PWA | Bajo | Chrome del SO debe seguir el tema, no un hex fijo. §10.3 |
+| 13 | **Error-state vs empty-state** + Reintentar en cargas de datos (empezar por `route-home`). | Ambos | Bajo | El "vacío feliz" en fallo de red se lee como pérdida de datos. §10.6 |
 
 ---
 
-## 10. Caveats globales (leer antes de actuar)
+## 10. PWA / apps instalables — bases y estándares
+
+> Disparador: auditoría de `apps/vendor` (2026-06-18) — app instalable sin service worker, manifest reusado de otra app, `theme-color` fijo. Los estándares **accionables/binding** viven en `DESIGN.md` §"PWA / App instalable"; aquí va el *por qué* con fuente. RAG: 🟢 spec/MDN · 🟡 advocacy de calidad.
+
+### 10.1 🟢 "Instalable" tiene criterios concretos — manifest **y** service worker
+Para que un navegador ofrezca instalar, no basta el manifest: se sirve por HTTPS, manifest con `name`/`short_name`, `start_url`, `display` y un set de `icons` (incl. 192 y 512), **y un service worker registrado** (con handler de `fetch` en la mayoría de motores). Sin SW la app puede agregarse a inicio pero **no es offline-capable** y no obtiene el prompt de instalación real en Chromium. → un manifest sin SW es media promesa.
+
+### 10.2 🟢 El service worker es la capa de resiliencia, no un opcional
+El SW intercepta `fetch` y permite estrategias de caché por tipo de recurso. Para campo con señal intermitente, el consenso de patrones (Workbox / Angular SW) es: **precache del app-shell** (cáscara + chunks → arranque offline) + **runtime caching diferenciado** — *network-first/freshness* para datos que cambian (cartera, ruta), *cache-first/performance* para casi-estáticos (catálogo, íconos). Angular lo expresa como `assetGroups` + `dataGroups` en `ngsw-config.json` con `maxAge`/`maxSize`. Falta un **update flow** explícito (`VersionReady`) para no romper una sesión en curso.
+
+### 10.3 🟢 `theme-color` y chrome del SO siguen al tema, no son estáticos
+`<meta name="theme-color">` colorea la barra de estado/UI del navegador y la instalada; soporta `media="(prefers-color-scheme)"` para light/dark, pero si el tema **togglea en runtime** hay que actualizar el meta por JS — el valor estático no reacciona. iOS añade `apple-mobile-web-app-*` (status-bar-style, title) y no usa `theme_color` del manifest para el splash. → la superficie de chrome debe derivar del token de superficie (`--card-bg`), no de un hex suelto.
+
+### 10.4 🟢 Safe-area: `env()` + `viewport-fit=cover`
+En pantallas con notch/home-indicator, el contenido seguro se respeta con `env(safe-area-inset-{top,right,bottom,left})`, y **requiere** `viewport-fit=cover` en el `<meta viewport>` para que el viewport se extienda bajo el chrome del dispositivo. Aplica a headers sticky, bottom-nav, FAB y bottom-sheets.
+
+### 10.5 🟢 Bloquear zoom rompe WCAG 1.4.4 (Resize Text, AA)
+`user-scalable=no` / `maximum-scale=1` impide el zoom hasta 200%, fallo de SC 1.4.4. La práctica recomendada (MDN/WAI) es **no deshabilitar el zoom**; arreglar el layout responsivo. Si se mantiene por un bug de plataforma (desalineación de inputs en iOS), tratarlo como **excepción documentada**, no como default.
+
+### 10.6 🟡 Offline UX: estado de error ≠ estado vacío
+Principio de patrones offline-first (Workbox/PWA UX): cuando una carga falla por red, la UI debe **comunicar el fallo y ofrecer reintento**, nunca renderizar el "vacío feliz" (que el usuario lee como pérdida de datos). Las escrituras críticas se encolan (background sync / cola local con reintento) y el estado de conexión debe ser **visible** en la instalada, donde no hay barra de navegador que lo delate.
+
+---
+
+## 11. Caveats globales (leer antes de actuar)
 
 1. **APCA no es normativo.** Es un método autopublicado; su uniformidad perceptual es aserción del modelo, no certificada par-por-par. WCAG 3 (donde APCA es candidato) no llega antes de ~2028-2030 y su método de contraste sigue "por determinarse". → **APCA para diseñar, WCAG 2.x AA como gate legal.** Ignorar WCAG 2.x = riesgo de litigio.
 2. **OKLCH no está sobre-vendido aquí:** úsalo para *generar* rampas, no como métrica de contraste final (claim de "máxima uniformidad perceptual" fue refutado; la luminancia Y es marginalmente mejor para el flip exacto).
@@ -285,7 +313,7 @@ Derivado de los findings, ordenado por **payoff / esfuerzo**. Todo es **tokens-f
 
 ---
 
-## 11. Preguntas abiertas (lo que esta investigación NO cerró)
+## 12. Preguntas abiertas (lo que esta investigación NO cerró)
 
 Candidatas a una **segunda pasada de `/deep-research`** — son temas que pediste y no produjeron fuente primaria:
 
@@ -297,7 +325,7 @@ Candidatas a una **segunda pasada de `/deep-research`** — son temas que pedist
 
 ---
 
-## 12. Fuentes (por calidad)
+## 13. Fuentes (por calidad)
 
 **Primarias (spec / docs oficiales):**
 - W3C — [Why APCA](https://git.apcacontrast.com/documentation/WhyAPCA.html) · [SC 2.5.8 Target Size](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html) · [New in WCAG 2.2](https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/) · [Técnica C39 (reduced motion)](https://www.w3.org/WAI/WCAG22/Techniques/css/C39)
@@ -305,6 +333,7 @@ Candidatas a una **segunda pasada de `/deep-research`** — son temas que pedist
 - MDN — [font-optical-sizing](https://developer.mozilla.org/en-US/docs/Web/CSS/font-optical-sizing) · [prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion) · [OpenType opsz](https://learn.microsoft.com/en-us/typography/opentype/spec/dvaraxistag_opsz)
 - M3 — [easing & duration](https://m3.material.io/styles/motion/easing-and-duration) · [motion how-it-works](https://m3.material.io/styles/motion/overview/how-it-works)
 - [Carbon v10 data-table](https://v10.carbondesignsystem.com/components/data-table/usage/) · [Carbon component checklist](https://carbondesignsystem.com/contributing/component-checklist/) · [Atlassian contribution](https://atlassian.design/contribution) · [Polaris lifecycle](https://polaris-react.shopify.com/getting-started/components-lifecycle)
+- PWA — W3C [Web App Manifest](https://www.w3.org/TR/appmanifest/) · MDN [Service Worker API](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) · [Making PWAs installable](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable) · [meta theme-color](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta/name/theme-color) · [env() safe-area](https://developer.mozilla.org/en-US/docs/Web/CSS/env) · [SC 1.4.4 Resize Text](https://www.w3.org/WAI/WCAG22/Understanding/resize-text.html) · [Angular service worker config](https://angular.dev/ecosystem/service-workers/config) · [Workbox caching strategies](https://developer.chrome.com/docs/workbox/caching-strategies-overview)
 
 **Autoridad / secundarias:**
 - [Lea Verou — contrast-color](https://lea.verou.me/blog/2024/contrast-color/) · [Evil Martians — OKLCH](https://evilmartians.com/chronicles/oklch-in-css-why-quit-rgb-hsl) · [Pixel Ambacht — optical size](https://pixelambacht.nl/2021/optical-size-hidden-superpower/)

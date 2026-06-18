@@ -6,6 +6,44 @@
 
 ---
 
+## 2026-06-18 — CV.5: promoción activa como señal de empuje en Thot (CIERRE del sprint CV)
+
+**Contexto:** última fase del sprint CV = **"cohesión empuje↔promos"**. Hallazgo: las promociones (palanca de **precio**, aplicada en `orders.recalcOrderTotals`) y el empuje dirigido / Thot (palanca de **visibilidad**) estaban **siloed** — un producto en promo no era empujado ni señalado por el motor de sugerencias, aunque ambas palancas comparten el permiso `COMMERCIAL_PROMOTIONS_GESTIONAR`.
+
+**Cambio (commit `909c980`):** una promo activa/vigente ahora es **señal de `Thot.suggest`**, igual que una directriz (T.2):
+- `extractPromoProducts()` (`commercial-promotions/promotion-products.util.ts`) — pure helper, **dueño de la forma promo→productos** por tipo (`product_id` / `items[]` / `target_product_id`; `percent_off_basket` omitido = nivel canasta). NO duplica la aplicación del descuento (sigue en `recalcOrderTotals`); solo **LEE** a qué apunta.
+- `ThotService.suggest` lee promos activas en su **misma `trx`** (RLS), marca `on_promo`, suma piso `+0.5` al score y expone `reason='promo'` / label **"En promoción"**. Import intra-lib (pure fn, sin DI ni cruce de frontera Nx). 7 `?` ↔ 7 bindings revisados.
+- **No es código de dinero** (cambia sugerencias, no precios/stock).
+
+**Red:** `http-thot-test` extendido (§3): elige un producto **sin directriz** (precedencia `estrategia > promo`), crea un `percent_off_product`, verifica `on_promo=true` + `reason='promo'`, limpia (idempotente). **14/14 contra el build NUEVO** (proceso :3334 confirmado 1 s tras el build); §1/§2 sin regresión.
+
+**FE:** vendor take-order ya renderiza `reason_label` → **"En promoción" surface automático** (icono sparkles). Badge distintivo = polish diferido (QA visual).
+
+**Diferido:** señal de promo en `commercial-recommendations` (canasta D.4 — otro motor de empuje; fusión recommendations+thot está fuera de scope CV) y badge promo distintivo en FE.
+
+**Cierre del sprint CV:** CV.0-CV.3 (`6568d44`) + CV.4 `OrderStockService` (`976c8a9`) + CV.5 (`909c980`) → **sprint CV completo y commiteado**. Deferred del sprint: extracción de promociones + inventory-count del god service (sin red — ver entry CV.4) y saneo del testdata podrido de la regression.
+
+## 2026-06-18 — CV.4: extracción `OrderStockService` del god service de pedidos (con red)
+
+**Contexto:** sprint CV (consolidación `/comercial`), fase CV.4 = romper god services BE **"con red"** (regression como malla porque toca dinero/stock). Variante elegida por el usuario.
+
+**Baseline de la red:** `node database/run-all-tests.js` = 11/30. Los 19 fallos son **dato / MV-staleness, NO código**: `default_price_list_id` undefined (customers DEMO-001/TST-0002 ausentes), `mv=0`, combo-not-found, undefined de setup. La cobertura del order-flow estaba bloqueada por testdata faltante.
+
+**Extracción (commit `976c8a9`):** `OrderStockService` nuevo en `libs/commercial/.../commercial-orders/order-stock.service.ts` — movimiento **verbatim** de `reserve`/`consume`/`release`/`assertNotFrozen` (antes `*StockInline` privados). Mismos cuerpos, misma `trx` del caller → atomicidad + `FOR UPDATE` intactos. orders.service **1562→1410 líneas**, 7 call sites a `this.stock.*`, 0 referencias colgadas. Único dependency inyectado: `TenantContextService`.
+
+**Red verificada (no solo build):**
+- Restauré testdata customers (importer idempotente, 20 `TST-*` upserted) → destrabó la cobertura del order-flow.
+- `http-shipment-hook-fulfill`: combo real (producto con stock 494) → confirm → **stock reservado correcto** vía `this.stock.reserve()`.
+- **API confirmada corriendo el build NUEVO** (proceso `:3334` arrancó 12:30:29, 1 s tras el build 12:30:28) → el reserve que pasó es código refactorizado (Nest bootea con el módulo nuevo = DI resuelve `OrderStockService`; el método ejecuta). `consume`/`release` = mismo servicio/DI, call sites build-verde → confirmados por construcción.
+- `http-e2e` quedó **verde (OK 14/0)** — la restauración de TST-0002 eliminó el único fail.
+
+**Diferido (decisión "con red", documentada):**
+- **inventory-count** (1208 líneas): **sin red HTTP de runtime** (solo smoke DB-direct que prueba SQL/RLS, no el servicio TS). Su costura limpia (sesiones de conteo) comparte 3 helpers privados (`getCountOrThrow`/`userId`/`emitMonitor`) con el núcleo de dinero (`reconcile`) → extraer obliga a tocar el núcleo sin red.
+- **promociones** (~180 líneas en `recalcOrderTotals`): sin smoke de promos; red débil sobre la matemática de totales.
+- Camino correcto para completarlos: **escribir esos nets primero** (`http-inventory-count-test` open→submit→reconcile, smoke de promos), luego extraer.
+
+**Hallazgo (no arreglado, revertido para no ensuciar el test):** `http-e2e` tiene un bug latente — el fetch de precios del order-flow no maneja la forma paginada `{data:[]}` → `firstPrice` undefined → confirm/fulfill se saltan en silencio. Queda como oportunidad de hardening (junto con seleccionar producto-con-stock, como sí hace shipment-hook). La regression es brittle por testdata podrido (brand-uppercase drift rompe import de products/stock; falta vehículo `DEMO-001` para el tramo de consume). Falta **CV.5** (cohesión empuje↔promos).
+
 ## 2026-06-13 — Mapa Comercial (CM): exhibidores propios vs competencia en mapa + historial por tienda
 
 **Contexto:** pedido de un módulo en Trade Marketing que muestre en un mapa dónde están físicamente los exhibidores de Mega Dulces y de la competencia, y que al hacer clic en una tienda despliegue el historial completo de visitas/exhibiciones. Exploración previa decidió el diseño: **la fuente viva del historial es `daily_captures.exhibiciones` (JSONB)** — las tablas normalizadas `visits`/`exhibitions`/`exhibition_photos` son código muerto (la `visits.service` checkin/checkout no la usa el flujo actual). Cada exhibición ya trae el flag **`perteneceMegaDulces`** → la distinción propio/competencia existe a nivel de dato. **Alcance Opción A** (reusar el flag, nivel tienda, cero schema nuevo) + **GPS híbrido con fallback**, decidido con el usuario.

@@ -38,13 +38,36 @@ interface ProductAgg {
   standalone: true,
   imports: [CommonModule, SkeletonModule],
   template: `
-    <h1 class="page-title">Carga</h1>
-    <p class="subtitle" *ngIf="!loading()">Para entregar {{ deliveryLabel }}</p>
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Carga</h1>
+        <p class="subtitle" *ngIf="!loading()">Para entregar {{ deliveryLabel }}</p>
+      </div>
+      <button
+        type="button"
+        class="refresh"
+        *ngIf="!loading()"
+        [class.spinning]="refreshing()"
+        [disabled]="refreshing()"
+        (click)="refresh()"
+        aria-label="Actualizar carga"
+      >
+        <i class="pi pi-refresh"></i>
+      </button>
+    </div>
 
     <p-skeleton *ngIf="loading()" height="420px"></p-skeleton>
 
     <ng-container *ngIf="!loading()">
-      <div *ngIf="orders().length === 0" class="empty">
+      <!-- Fallo de red (distinto de "nada para cargar") -->
+      <div *ngIf="loadError() && orders().length === 0" class="empty">
+        <i class="pi pi-cloud"></i>
+        <p>No se pudo cargar.</p>
+        <span class="hint">Revisá tu conexión e intentá de nuevo.</span>
+        <button type="button" class="retry-btn" (click)="load()"><i class="pi pi-refresh"></i> Reintentar</button>
+      </div>
+
+      <div *ngIf="!loadError() && orders().length === 0" class="empty">
         <i class="pi pi-truck"></i>
         <p>Nada para cargar {{ deliveryLabel }}.</p>
         <span class="hint">Aparecen acá los pedidos confirmados de tu cartera.</span>
@@ -84,7 +107,17 @@ interface ProductAgg {
               <span class="tot">{{ fmtMoney(o.total) }}</span>
             </button>
             <ul class="olines">
-              <li *ngFor="let l of o.lines" [class.on]="isChecked(o.id, l.product_id)" (click)="toggleLine(o.id, l.product_id)">
+              <li
+                *ngFor="let l of o.lines"
+                role="checkbox"
+                tabindex="0"
+                [attr.aria-checked]="isChecked(o.id, l.product_id)"
+                [attr.aria-label]="num(l.quantity) + '× ' + (l.product_name || l.product_id)"
+                [class.on]="isChecked(o.id, l.product_id)"
+                (click)="toggleLine(o.id, l.product_id)"
+                (keydown.enter)="toggleLine(o.id, l.product_id)"
+                (keydown.space)="toggleLine(o.id, l.product_id); $event.preventDefault()"
+              >
                 <span class="check sm" [class.on]="isChecked(o.id, l.product_id)"><i class="pi pi-check"></i></span>
                 <span class="qty">{{ num(l.quantity) }}×</span>
                 <span class="lname">{{ l.product_name || l.product_id }}</span>
@@ -110,12 +143,20 @@ interface ProductAgg {
   styles: [
     `
       :host { display: block; }
+      .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
       .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
       .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; text-transform: capitalize; }
+      .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
+      .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
+      .refresh i { font-size: 0.9rem; }
+      .refresh.spinning i { animation: carga-spin 0.8s linear infinite; }
+      @keyframes carga-spin { to { transform: rotate(360deg); } }
       .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
       .empty p { margin: 0 0 0.35rem; }
       .empty .hint { font-size: 0.8rem; }
+      .retry-btn { margin-top: 0.9rem; display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); border-radius: var(--r-pill, 999px); padding: 0.45rem 0.9rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; }
+      .olines li:focus-visible { outline: 2px solid var(--action-ring, var(--action)); outline-offset: -2px; border-radius: var(--r-sm, 8px); }
 
       /* Banner */
       .cbanner {
@@ -180,6 +221,7 @@ interface ProductAgg {
 
       @media (prefers-reduced-motion: reduce) {
         .check, .ohead, .prow, .seg button { transition: none; }
+        .refresh.spinning i { animation: none; }
       }
     `,
   ],
@@ -190,9 +232,15 @@ export class VendorCargaComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly loading = signal(true);
+  /** Falló la carga (red) — distinto de "nada para cargar" (estándar PWA §5). */
+  readonly loadError = signal(false);
+  readonly refreshing = signal(false);
   readonly orders = signal<CargaOrder[]>([]);
   readonly view = signal<'orders' | 'products'>('orders');
   readonly checked = signal<Set<string>>(new Set());
+
+  /** Formatter reutilizado — no instanciar Intl por fila (estándar PWA perf). */
+  private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 
   private readonly deliveryDate = this.computeNextBusinessDay();
   private readonly deliveryIso = this.toIso(this.deliveryDate);
@@ -225,13 +273,39 @@ export class VendorCargaComponent implements OnInit {
   readonly missingUnits = computed(() => this.totalUnits() - this.loadedUnits());
   readonly allLoaded = computed(() => this.totalUnits() > 0 && this.missingUnits() === 0);
 
+  /** order_id → nº de líneas marcadas. Computado 1 vez por cambio de checks/pedidos
+   *  en vez de filtrar las líneas de cada pedido en cada ciclo de detección. */
+  private readonly orderLoadedMap = computed(() => {
+    const set = this.checked();
+    const m = new Map<string, number>();
+    for (const o of this.orders()) {
+      let n = 0;
+      for (const l of o.lines) if (set.has(this.lineKey(o.id, l.product_id))) n++;
+      m.set(o.id, n);
+    }
+    return m;
+  });
+  /** product_id → unidades marcadas (suma sobre todos los pedidos). */
+  private readonly productLoadedMap = computed(() => {
+    const set = this.checked();
+    const m = new Map<string, number>();
+    for (const o of this.orders())
+      for (const l of o.lines)
+        if (set.has(this.lineKey(o.id, l.product_id)))
+          m.set(l.product_id, (m.get(l.product_id) ?? 0) + this.num(l.quantity));
+    return m;
+  });
+
   ngOnInit(): void {
+    this.pruneOldChecklists();
     this.restore();
     this.load();
   }
 
-  load(): void {
-    this.loading.set(true);
+  load(silent = false): void {
+    if (silent) this.refreshing.set(true);
+    else this.loading.set(true);
+    this.loadError.set(false);
     this.api
       .cargaOrders()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -241,6 +315,7 @@ export class VendorCargaComponent implements OnInit {
           if (!due.length) {
             this.orders.set([]);
             this.loading.set(false);
+            this.refreshing.set(false);
             return;
           }
           forkJoin(
@@ -256,12 +331,25 @@ export class VendorCargaComponent implements OnInit {
               next: (withLines) => {
                 this.orders.set(withLines.filter((o) => o.lines.length > 0));
                 this.loading.set(false);
+                this.refreshing.set(false);
               },
-              error: () => this.loading.set(false),
+              error: () => this.onLoadError(),
             });
         },
-        error: () => this.loading.set(false),
+        error: () => this.onLoadError(),
       });
+  }
+
+  private onLoadError(): void {
+    this.loading.set(false);
+    this.refreshing.set(false);
+    this.loadError.set(true);
+  }
+
+  /** Refresh manual: trae pedidos nuevos sin blanquear la pantalla. */
+  refresh(): void {
+    if (this.refreshing()) return;
+    this.load(true);
   }
 
   /** Incluye si la entrega es el próximo día hábil o si no tiene fecha agendada. */
@@ -305,17 +393,13 @@ export class VendorCargaComponent implements OnInit {
     this.commit(s);
   }
   orderLoaded(o: CargaOrder): number {
-    return o.lines.filter((l) => this.isChecked(o.id, l.product_id)).length;
+    return this.orderLoadedMap().get(o.id) ?? 0;
   }
   orderDone(o: CargaOrder): boolean {
     return o.lines.length > 0 && this.orderLoaded(o) === o.lines.length;
   }
   productLoadedUnits(p: ProductAgg): number {
-    let n = 0;
-    for (const o of this.orders())
-      for (const l of o.lines)
-        if (l.product_id === p.product_id && this.isChecked(o.id, l.product_id)) n += this.num(l.quantity);
-    return n;
+    return this.productLoadedMap().get(p.product_id) ?? 0;
   }
   productDone(p: ProductAgg): boolean {
     return p.total > 0 && this.productLoadedUnits(p) === p.total;
@@ -333,6 +417,20 @@ export class VendorCargaComponent implements OnInit {
     try {
       const raw = localStorage.getItem(this.storeKey);
       if (raw) this.checked.set(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      /* ignore */
+    }
+  }
+  /** Limpia checklists de fechas pasadas (la PWA instalada vive mucho → no dejar
+   *  crecer localStorage sin tope). Conserva solo la carga vigente. */
+  private pruneOldChecklists(): void {
+    try {
+      const stale: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('vendor_carga_') && k !== this.storeKey) stale.push(k);
+      }
+      stale.forEach((k) => localStorage.removeItem(k));
     } catch {
       /* ignore */
     }
@@ -360,7 +458,7 @@ export class VendorCargaComponent implements OnInit {
   }
 
   fmtMoney(v: number | string | null | undefined): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(this.num(v));
+    return this.money.format(this.num(v));
   }
   num(v: number | string | null | undefined): number {
     return Number(v) || 0;

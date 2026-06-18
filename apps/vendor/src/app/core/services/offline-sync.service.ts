@@ -752,7 +752,17 @@ export class OfflineSyncService {
       // Best-effort: si falla, no afecta el estado sincronizado de la visita;
       // el próximo ciclo reintenta solo la venta.
       if (visita.pendingSale) {
-        await this.postPendingSale(visita, response, ocrItems, ticketMeta);
+        // Best-effort REAL: la visita ya quedó sincronizada (response OK arriba).
+        // Un fallo de la venta NO debe propagar → marcaría la visita como fallida
+        // y la re-postearía. sincronizarVentasHuerfanas la reintenta sola.
+        try {
+          await this.postPendingSale(visita, response, ocrItems, ticketMeta);
+        } catch (saleErr: any) {
+          console.warn(
+            `[OfflineSync] postPendingSale de visita ${visita.id} falló (no afecta la visita ya sincronizada):`,
+            saleErr?.message || saleErr,
+          );
+        }
       }
 
       // Notificar a UI (DailyCaptureService recarga `_captures` → desaparece
