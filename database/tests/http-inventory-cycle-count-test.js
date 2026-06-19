@@ -5,6 +5,7 @@
  * Verifica que un folio cíclico cuenta SOLO el subset pedido (no todo el almacén):
  *   - por clase ABC  → folio con los productos de esa clase.
  *   - por lista       → folio con exactamente esos productos.
+ *   - scheduler (ABC.3) → generate-cycle-folios crea 1 folio + anti-duplicado.
  * Almacén dedicado de 3 SKUs (sin ventas → los 3 caen en C tras refresh ABC).
  *
  * Requiere API en :3334 con openCycleCount + openCount(product_ids) (reiniciar tras ABC.2).
@@ -78,6 +79,18 @@ function check(name, cond, detail) {
     console.log('\n── 4. Validación: sin clase ni lista → 400 ──');
     const bad = await req('POST', '/commercial/inventory/counts/open-cycle', { warehouse_id: whId }, token);
     check('open-cycle sin abc_class ni product_ids → 400', bad.status === 400, { status: bad.status });
+
+    console.log('\n── 5. Scheduler (ABC.3): generate-cycle-folios + anti-duplicado ──');
+    const gen = await req('POST', '/commercial/inventory/abc/generate-cycle-folios', { warehouse_id: whId }, token);
+    check('generate 2xx', gen.status === 200 || gen.status === 201, { status: gen.status });
+    check('generó 1 folio (almacén con items due)', gen.body?.folios_created === 1 && gen.body?.warehouses_due === 1, gen.body);
+    const gen2 = await req('POST', '/commercial/inventory/abc/generate-cycle-folios', { warehouse_id: whId }, token);
+    check('re-generar → skipped=1, created=0 (anti-duplicado)', gen2.body?.skipped === 1 && gen2.body?.folios_created === 0, gen2.body);
+    const folios = await req('GET', `/commercial/inventory/counts?warehouse_id=${whId}`, null, token);
+    const folioArr = Array.isArray(folios.body) ? folios.body : (Array.isArray(folios.body?.data) ? folios.body.data : []);
+    const open = folioArr.find((f) => f.status === 'counting' && f.type === 'cycle');
+    check('hay 1 folio cíclico abierto auto-generado', !!open, { n: folioArr.length });
+    await cancel(open?.id);
   } finally {
     if (whId) await req('DELETE', `/commercial/warehouses/${whId}`, null, token).catch(() => {});
   }

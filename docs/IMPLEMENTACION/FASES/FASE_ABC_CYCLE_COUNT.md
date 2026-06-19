@@ -1,6 +1,6 @@
 # Fase ABC — Clasificación ABC + conteo cíclico programado
 
-> **Estado: 🔨 ABC.0 + ABC.1 + ABC.2 EN CÓDIGO — 2026-06-19** (diseño aprobado). Clasificación ABC + **due/agenda** (cycle-due) + **folio cíclico acotado** (open-cycle por clase/lista) operativos; falta 1 reinicio para verde live (smokes I.6 + I.7). Solo resta **ABC.3** (cron + UI) para automatizar. Item estratégico de inventario tras caducidad/FEFO (ver [FASE_I_INVENTARIO.md](FASE_I_INVENTARIO.md) §Roadmap P2).
+> **Estado: 🔨 ABC.0 + ABC.1 + ABC.2 + ABC.3a EN CÓDIGO — 2026-06-19** (diseño aprobado). Clasificación ABC + **due/agenda** (cycle-due) + **folio cíclico acotado** (open-cycle) + **scheduler/cron** (auto-genera folios de lo due) operativos. Backend de la fase **completo**; solo resta **ABC.3b (UI)**. Falta 1 reinicio para verde live (smokes I.6 + I.7). Item estratégico de inventario tras caducidad/FEFO (ver [FASE_I_INVENTARIO.md](FASE_I_INVENTARIO.md) §Roadmap P2).
 
 ## Objetivo
 
@@ -31,10 +31,11 @@ Beneficio: detectar y corregir errores de saldo **antes** del cierre anual; foco
 | **ABC.0** ✅ código | Clasificación | ✅ 2026-06-19: tabla `commercial.abc_classification` (mig `20260619100000`, RLS forzado, FKs compuestas) + `InventoryAbcService` (Pareto por almacén con **share acumulado exclusivo** — el top siempre A; DELETE+INSERT atómico) + `GET /commercial/inventory/abc` y `POST .../abc/refresh` (gate SUPERVISAR) + smoke I.6 + verificación DB-direct (`verify-abc-compute.js`: 32 849 clasificados, SQL válido). Build verde. ⏳ 1 reinicio para verde live de I.6. Nota: data local casi sin ventas → A=5/resto C (esperado; en prod se distribuye). |
 | **ABC.1** ✅ código | Due / agenda | ✅ 2026-06-19: `InventoryAbcService.cycleDue()` cruza `abc_classification` × historial reconciliado (`MAX(reconciled_at)` por (almacén,producto)) → `next_due = last_counted + cadencia(clase)` (A=30/B=90/C=365d), nunca-contado = due ya. `GET /commercial/inventory/abc/cycle-due?warehouse_id=&abc_class=&only_due=` (gate SUPERVISAR), orden A-primero/más-vencido-primero, summary `by_class`. Verificado DB-direct (`verify-abc-cycle-due.js`: orden, cadencia, due-flag) + smoke I.6 §5. Build verde. ⏳ reinicio para verde live. |
 | **ABC.2** ✅ código | Folio cíclico acotado | ✅ 2026-06-19: `openCount` acepta `product_ids?` → siembra solo ese subset (ambos modos; commercial por `product_id`, inventory mapea a `sku`). `openCycleCount` (por `abc_class` desde `abc_classification` o lista, capeado, **freeze=false** por default). `POST /commercial/inventory/counts/open-cycle` (gate SUPERVISAR). **Freeze-integrity guard scopeado a los productos del folio** (un movimiento de un SKU no-contado ya no bloquea el reconcile; para full = mismo comportamiento). Smoke I.7. Build verde. ⏳ reinicio para verde live. |
-| **ABC.3** | Cron + UI | `@Cron` diario (cap, prioriza A, anti-duplicado por folio abierto) + página/sección de agenda + clasificación. |
-| **ABC.4** ⬜ defer | Refinamientos | UI calendario, policy de cadencia por tenant, asignación por zona, aprobación por umbral $, 2º conteo aleatorio. |
+| **ABC.3a** ✅ código | Scheduler (cron) | ✅ 2026-06-19: `CycleCountSchedulerService` — `@Cron('0 0 8 * * *')` (gateado `ENABLE_CYCLE_COUNT_CRON=true`) itera tenants en `tenantCtx.run({tenantId})` (CLS sintético, patrón recommendations) → por almacén toma lo due (prioriza A, cap 50) y abre folio cíclico; anti-duplicado (si hay folio abierto → `skipped`). Endpoint manual `POST /commercial/inventory/abc/generate-cycle-folios` (scoped al tenant del JWT, opcional `warehouse_id`, gate SUPERVISAR). Smoke I.7 §5. Build verde. ⏳ reinicio para verde live. |
+| **ABC.3b** ⬜ | UI | Página de clasificación ABC + agenda (cycle-due) + botón "generar folios" / "recalcular ABC". Consume `/abc`, `/abc/cycle-due`, `/abc/refresh`, `/abc/generate-cycle-folios`. Verificación visual. |
+| **ABC.4** ⬜ defer | Refinamientos | policy de cadencia por tenant, asignación por zona, aprobación por umbral $, 2º conteo aleatorio. |
 
-**Orden de valor:** ABC.0 ✅ (clasificar) → ABC.2 ✅ (folio acotado — el corazón) → ABC.1 ✅ (due/agenda) → **ABC.3 (automatizar: cron + UI)** ← siguiente. Con ABC.0+1+2 el flujo manual ya está completo: clasificar → ver qué toca → contar solo eso.
+**Orden de valor:** ABC.0 ✅ (clasificar) → ABC.2 ✅ (folio acotado — el corazón) → ABC.1 ✅ (due/agenda) → ABC.3a ✅ (cron/scheduler) → **ABC.3b (UI)** ← único pendiente. El backend del control continuo está completo: clasificar → ver qué toca → contar solo eso → automatizarlo.
 
 ## Riesgos / decisiones abiertas
 

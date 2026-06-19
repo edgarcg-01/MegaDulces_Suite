@@ -6,6 +6,7 @@ import { InventoryCountService } from './inventory-count.service';
 import { InventoryCountController } from './inventory-count.controller';
 import { InventoryAbcService } from './inventory-abc.service';
 import { InventoryAbcController } from './inventory-abc.controller';
+import { CycleCountSchedulerService } from './cycle-count-scheduler.service';
 import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 @Module({
@@ -18,7 +19,7 @@ import { InventoryMonitorGateway } from './inventory-monitor.gateway';
     }),
   ],
   controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, InventoryMonitorGateway],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, InventoryMonitorGateway],
   exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService],
 })
 export class CommercialInventoryModule {}

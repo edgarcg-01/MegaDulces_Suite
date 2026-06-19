@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — ABC.3a: scheduler de conteo cíclico (cron + disparo manual)
+- `CycleCountSchedulerService` — `@Cron('0 0 8 * * *')` (gateado por `ENABLE_CYCLE_COUNT_CRON=true`):
+  itera tenants en `tenantCtx.run({tenantId})` (CLS sintético, patrón recommendations-refresh) → por
+  almacén toma lo que está due (ABC.1, prioriza A, cap 50) y abre un folio cíclico acotado (ABC.2).
+  Anti-duplicado: si el almacén ya tiene folio abierto → `skipped` (no re-crea).
+- **`POST /commercial/inventory/abc/generate-cycle-folios`** (gate SUPERVISAR, scoped al tenant del JWT,
+  opcional `warehouse_id`/`max_items`): disparo manual del scheduler (para QA / on-demand).
+- Backend del control continuo **completo** (clasificar → ver due → contar acotado → automatizar). Solo
+  resta ABC.3b (UI). Smoke I.7 §5 (genera 1 folio + anti-duplicado). Build verde. ⏳ requiere reinicio.
+
 ### Added — ABC.1: due/agenda de conteo cíclico (cycle-due)
 - `InventoryAbcService.cycleDue()` cruza `commercial.abc_classification` × historial reconciliado
   (`MAX(inventory_counts.reconciled_at)` por (almacén,producto) de folios `reconciled`) → calcula
