@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { PushDirectivesService } from './push-directives.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
+import { AutonomyService } from './autonomy.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SEV_WEIGHT: Record<string, number> = { info: 1, warn: 2, critical: 3 };
@@ -67,6 +68,7 @@ export class CommercialActionsService {
     private readonly tenantCtx: TenantContextService,
     private readonly directives: PushDirectivesService,
     private readonly calibration: CommercialCalibrationService,
+    private readonly autonomy: AutonomyService,
   ) {}
 
   private titleForFinding(f: any): string {
@@ -283,9 +285,13 @@ export class CommercialActionsService {
     if (action.status !== 'pending_approval') throw new BadRequestException(`La acción ya está ${action.status}`);
 
     const result = await this.executeAction(action);
+    return this.finalize(action, result, approvedBy, false);
+  }
 
+  /** Ejecuta+confirma una acción (compartido por approve humano y auto-ejecución L3). */
+  private async finalize(action: any, result: Record<string, any>, approvedBy: string | null, auto: boolean) {
     return this.tk.run(async (trx) => {
-      // Confirma el finding/diagnóstico de origen (el humano lo validó y accionó).
+      // Confirma el finding/diagnóstico de origen (validado y accionado).
       if (action.diagnosis_id) {
         await trx('commercial.commercial_diagnoses')
           .where({ id: action.diagnosis_id })
@@ -298,18 +304,60 @@ export class CommercialActionsService {
           .update({ status: 'confirmed', reviewed_by: approvedBy, reviewed_at: trx.fn.now(), updated_at: trx.fn.now() });
       }
       const [updated] = await trx('commercial.commercial_actions')
-        .where({ id })
+        .where({ id: action.id })
         .update({
           status: 'executed',
           approved_by: approvedBy,
           approved_at: trx.fn.now(),
           executed_at: trx.fn.now(),
+          auto_executed: auto,
           result: JSON.stringify(result),
           updated_at: trx.fn.now(),
         })
         .returning('*');
       return updated;
     });
+  }
+
+  /**
+   * L3 (ADR-023): pasa por las acciones pendientes y auto-ejecuta las que el dial de
+   * autonomía habilite (kill-switch + confianza ganada + caps). Corre TRAS proponer.
+   * Sin trx envolvente (cada finalize/executeAction maneja el suyo → no anida tk.run).
+   */
+  async runAutonomy(): Promise<{ auto: number; dry_run: number; evaluated: number }> {
+    const policyMap = await this.autonomy.getPolicyMap();
+    const global = policyMap.get('__global__');
+    if (!global || global.mode !== 'auto') return { auto: 0, dry_run: 0, evaluated: 0 };
+
+    const todayCounts = await this.autonomy.todayAutoCounts();
+    const pending = await this.tk.run(async (trx) =>
+      trx('commercial.commercial_actions').where({ status: 'pending_approval' }).select('*'),
+    );
+
+    let auto = 0;
+    let dryRun = 0;
+    for (const a of pending) {
+      const decision = this.autonomy.decide(
+        { action_type: a.action_type, confidence: a.confidence, expected_impact: a.expected_impact },
+        policyMap,
+        todayCounts,
+      );
+      if (decision === 'auto') {
+        const result = await this.executeAction(a);
+        await this.finalize(a, result, null, true);
+        todayCounts.set(a.action_type, (todayCounts.get(a.action_type) || 0) + 1);
+        auto++;
+      } else if (decision === 'dry_run') {
+        await this.tk.run(async (trx) =>
+          trx('commercial.commercial_actions')
+            .where({ id: a.id })
+            .update({ result: JSON.stringify({ dry_run: true, note: 'Thot habría auto-ejecutado (dry-run)' }), updated_at: trx.fn.now() }),
+        );
+        dryRun++;
+      }
+    }
+    if (auto > 0 || dryRun > 0) this.logger.log(`autonomía: ${auto} auto-ejecutadas, ${dryRun} dry-run de ${pending.length} pendientes`);
+    return { auto, dry_run: dryRun, evaluated: pending.length };
   }
 
   async rejectAction(id: string) {

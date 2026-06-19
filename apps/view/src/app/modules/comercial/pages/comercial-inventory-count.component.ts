@@ -49,7 +49,7 @@ interface FeedEntry {
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="surf-page in ic-page">
+    <div class="surf-page in ic-page" [class.is-counting]="sessionActive()">
       <p-toast position="top-center"></p-toast>
 
       <header class="surf-page-head">
@@ -119,6 +119,7 @@ interface FeedEntry {
             </div>
           </div>
 
+          <div class="ic-work">
           <!-- Captura -->
           <div class="ic-capture">
             <label class="ic-label" for="ic-code">Código de barras</label>
@@ -214,13 +215,23 @@ interface FeedEntry {
               }
             </div>
           }
+          </div>
         }
       }
     </div>
   `,
   styles: [`
-    /* Layout — flujo de captura enfocado (handheld), 1 columna centrada. */
+    /* Layout responsive — móvil/tablet-portrait: 1 columna enfocada. En ≥900px
+       (tablet-landscape, laptop; y el modo-foco que va a pantalla completa sin
+       sidebar) pasa a 2 columnas: captura sticky | feed, usando el espacio que
+       antes quedaba muerto. La columna ancha solo aplica mientras se cuenta. */
     .ic-page { max-width: 560px; margin: 0 auto; }
+    .ic-work { display: flex; flex-direction: column; }
+    @media (min-width: 900px) {
+      .ic-page.is-counting { max-width: 1080px; }
+      .ic-page.is-counting .ic-work { display: grid; grid-template-columns: minmax(0, 520px) 1fr; gap: 1.5rem; align-items: start; }
+      .ic-page.is-counting .ic-capture { position: sticky; top: 1rem; margin-bottom: 0; }
+    }
 
     /* Empty state operacional (sin folio) — voz técnica, sin CTA (lo abre el supervisor). */
     .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #5e564b); }

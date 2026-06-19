@@ -100,8 +100,9 @@ export class Customer360RefreshService {
             await this.findings.generateForTenant();
             await this.diagnosis.generateForTenant();
             await this.actions.proposeForTenant();
+            await this.actions.runAutonomy(); // ADR-022: auto-ejecuta lo que el dial habilite (default OFF → no-op)
           } catch (e: any) {
-            this.logger.warn(`commercial calib/findings/diagnoses/actions tenant=${tenantId} falló: ${e.message}`);
+            this.logger.warn(`commercial calib/findings/diagnoses/actions/autonomy tenant=${tenantId} falló: ${e.message}`);
           }
           resolve(r);
         } catch (e) {

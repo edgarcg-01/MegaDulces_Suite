@@ -26,6 +26,7 @@ import { CommercialFindingsService } from './commercial-findings.service';
 import { CommercialDiagnosisService } from './commercial-diagnosis.service';
 import { CommercialActionsService } from './commercial-actions.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
+import { AutonomyService } from './autonomy.service';
 
 @ApiTags('commercial-intelligence')
 @ApiBearerAuth()
@@ -44,6 +45,7 @@ export class CommercialIntelligenceController {
     private readonly diagnosis: CommercialDiagnosisService,
     private readonly actions: CommercialActionsService,
     private readonly calibration: CommercialCalibrationService,
+    private readonly autonomy: AutonomyService,
   ) {}
 
   // ─── Thot T.2: empuje dirigido (el negocio decide qué empujar) ───
@@ -231,6 +233,39 @@ export class CommercialIntelligenceController {
   @ApiOperation({ summary: 'T.L2: pin humano de una regla (enabled | suppressed | null). El learner no lo pisa.' })
   learningOverride(@Param('findingType') findingType: string, @Body() body: { override?: string | null }) {
     return this.calibration.setOverride(findingType, body?.override ?? null);
+  }
+
+  // ─── Thot ADR-022: autonomía acotada (el dial + auto-ejecución + auditoría) ───
+
+  @Get('autonomy/policies')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({ summary: 'Dial de autonomía por action_type (off/dry_run/auto + min_confidence/daily_cap/value_cap). __global__ = kill-switch.' })
+  autonomyPolicies() {
+    return this.autonomy.list();
+  }
+
+  @Patch('autonomy/policies/:actionType')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Ajusta el dial de un action_type (o __global__): mode/min_confidence/daily_cap/value_cap_mxn. Default OFF.' })
+  setAutonomyPolicy(
+    @Param('actionType') actionType: string,
+    @Body() body: { mode?: string; min_confidence?: number; daily_cap?: number; value_cap_mxn?: number | null },
+  ) {
+    return this.autonomy.setPolicy(actionType, body);
+  }
+
+  @Post('autonomy/run')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Pasa por las acciones pendientes y auto-ejecuta las que el dial habilite (kill-switch + confianza + caps).' })
+  autonomyRun() {
+    return this.actions.runAutonomy();
+  }
+
+  @Get('autonomy/log')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @ApiOperation({ summary: 'Panel "Thot actuó solo": acciones auto-ejecutadas (auditoría post-hoc + base para deshacer).' })
+  autonomyLog() {
+    return this.autonomy.autoLog();
   }
 
   // ─── Customer 360 (feature store) ───

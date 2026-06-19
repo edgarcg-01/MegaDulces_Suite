@@ -280,6 +280,65 @@ async function req(method, path, token, body) {
   const goneL2 = await knex('commercial.commercial_rule_stats').where({ tenant_id: T, finding_type: RULE }).first();
   check('cleanup L2 OK', !goneL2, goneL2);
 
+  console.log('\n── 10. ADR-023: autonomía acotada (OFF → habilitar dial → auto-ejecuta) ──');
+  const rpA = (
+    await knex.raw(
+      `SELECT p.id, p.nombre FROM catalog.products p
+       LEFT JOIN intelligence.pdv_presence pv ON pv.product_id = p.id AND pv.tenant_id = ?
+       WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND pv.product_id IS NULL LIMIT 1`,
+      [T, T],
+    )
+  ).rows[0];
+  check('hay producto real para autonomía', !!rpA, rpA || 'ninguno');
+  if (rpA) {
+    const cleanADR = async () => {
+      await knex('commercial.commercial_actions').where({ tenant_id: T, status: 'pending_approval' }).del(); // slate limpio (se re-proponen luego)
+      await knex('commercial.commercial_actions').where({ tenant_id: T, subject_id: rpA.id }).del();
+      await knex('intelligence.push_directives').where({ tenant_id: T, target_id: rpA.id }).whereRaw("reason ILIKE 'Thot:%'").del();
+      await knex('commercial.autonomy_policies').where({ tenant_id: T }).whereIn('action_type', ['__global__', 'push_product']).del();
+    };
+    await cleanADR();
+    // Una acción push_product pendiente, aislada (confianza 0.6 cold-start).
+    await knex('commercial.commercial_actions').insert({
+      tenant_id: T, dedup_key: `push_product:product:${rpA.id}:adr022`, kind: 'finding', action_type: 'push_product',
+      subject_type: 'product', subject_id: rpA.id, label: rpA.nombre, title: 'Empujar (test ADR-023)',
+      payload: '{}', confidence: 0.6, priority: 1.2, proposed_by: 'thot', status: 'pending_approval',
+    });
+
+    // (a) Dial OFF (default) → NO auto-ejecuta.
+    const off = await req('POST', '/commercial/intelligence/autonomy/run', token, {});
+    check('dial OFF: no auto-ejecuta (auto=0)', off.body?.auto === 0, off.body);
+    const sp = await knex('commercial.commercial_actions').where({ tenant_id: T, subject_id: rpA.id }).first();
+    check('la acción sigue pendiente (co-piloto)', sp && sp.status === 'pending_approval', sp ? sp.status : 'desaparecida');
+
+    // (b) Habilitar dial: kill-switch global + push_product en auto (umbral 0.5).
+    await req('PATCH', '/commercial/intelligence/autonomy/policies/__global__', token, { mode: 'auto' });
+    await req('PATCH', '/commercial/intelligence/autonomy/policies/push_product', token, { mode: 'auto', min_confidence: 0.5, daily_cap: 5 });
+    const run = await req('POST', '/commercial/intelligence/autonomy/run', token, {});
+    check('con dial auto: auto-ejecuta ≥1', (run.body?.auto || 0) >= 1, run.body);
+    const ex = await knex('commercial.commercial_actions').where({ tenant_id: T, subject_id: rpA.id }).first();
+    check('ejecutada SIN aprobación (status=executed, auto_executed=true)', ex && ex.status === 'executed' && ex.auto_executed === true, ex ? { s: ex.status, a: ex.auto_executed } : '?');
+    const dir = await knex('intelligence.push_directives').where({ tenant_id: T, target_id: rpA.id }).whereRaw("reason ILIKE 'Thot:%'").whereNull('deleted_at').first();
+    check('auto-ejecución creó el push_directive real (lazo cerrado)', !!dir, dir ? dir.id : 'sin directriz');
+    const log = await req('GET', '/commercial/intelligence/autonomy/log', token);
+    check('aparece en el panel "Thot actuó solo"', (log.body?.rows || []).length >= 1, (log.body?.rows || []).length);
+
+    // (c) Gate de confianza: subir el umbral por encima de la confianza → vuelve a co-piloto.
+    await knex('commercial.commercial_actions').insert({
+      tenant_id: T, dedup_key: `push_product:product:${rpA.id}:adr022b`, kind: 'finding', action_type: 'push_product',
+      subject_type: 'product', subject_id: rpA.id, label: rpA.nombre, title: 'Empujar 2 (test gate)',
+      payload: '{}', confidence: 0.6, priority: 1.2, proposed_by: 'thot', status: 'pending_approval',
+    });
+    await req('PATCH', '/commercial/intelligence/autonomy/policies/push_product', token, { mode: 'auto', min_confidence: 0.9 });
+    await req('POST', '/commercial/intelligence/autonomy/run', token, {});
+    const gated = await knex('commercial.commercial_actions').where({ tenant_id: T, dedup_key: `push_product:product:${rpA.id}:adr022b` }).first();
+    check('confianza < umbral → NO auto (autoridad ganada): sigue pendiente', gated && gated.status === 'pending_approval', gated ? gated.status : '?');
+
+    await cleanADR();
+    const goneADR = await knex('commercial.autonomy_policies').where({ tenant_id: T }).whereIn('action_type', ['__global__', 'push_product']).first();
+    check('cleanup ADR-023 OK (kill-switch reseteado a OFF)', !goneADR, goneADR);
+  }
+
   console.log(`\n══ Resultado: ${pass} OK, ${fail} FAIL ══`);
   if (fail) console.log('FALLOS:', failures.join(', '));
   await knex.destroy();

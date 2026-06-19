@@ -11,6 +11,7 @@ import { CommercialFindingsService } from './commercial-findings.service';
 import { CommercialDiagnosisService } from './commercial-diagnosis.service';
 import { CommercialActionsService } from './commercial-actions.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
+import { AutonomyService } from './autonomy.service';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
 /**
@@ -36,6 +37,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     CommercialDiagnosisService,
     CommercialActionsService,
     CommercialCalibrationService,
+    AutonomyService,
   ],
   exports: [
     Customer360Service,
@@ -48,6 +50,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     CommercialDiagnosisService,
     CommercialActionsService,
     CommercialCalibrationService,
+    AutonomyService,
   ],
 })
 export class CommercialIntelligenceModule {}

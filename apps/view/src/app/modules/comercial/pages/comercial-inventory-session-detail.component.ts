@@ -132,6 +132,10 @@ interface LiveCountEntry {
       @if (!isTerminal()) {
         <div class="in-actions">
           <button pButton icon="pi pi-calculator" label="Calcular discrepancias" size="small" severity="secondary" [loading]="computing()" (click)="compute()"></button>
+          @if (canAssign()) {
+            <button pButton icon="pi pi-users" label="Equipos por pasillo" size="small" [text]="true" severity="secondary"
+                    [routerLink]="['/comercial/inventory/sessions', countId, 'teams']"></button>
+          }
           @if (canReconcile()) {
             <button pButton icon="pi pi-check-circle" label="Reconciliar" size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"></button>
           }
