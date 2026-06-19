@@ -21,6 +21,17 @@ import { InventoryMonitorSocketService } from '../inventory-monitor-socket.servi
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 
+/** Entrada del feed en vivo del supervisor: un conteo individual recién hecho. */
+interface LiveCountEntry {
+  seq: number;
+  username: string;
+  product_name: string;
+  sku: string;
+  qty: number;
+  slot: string;
+  at: string;
+}
+
 /**
  * Detalle del folio para supervisor/reconciliador (Fase I.3): tablero (avance,
  * discrepancias, valor en riesgo) + tabla de items con teórico/varianza +
@@ -56,6 +67,41 @@ import { Permission } from '../../../core/constants/permissions';
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
+
+      <div class="in-body" [class.in-body-live]="!isTerminal()">
+      @if (!isTerminal()) {
+        <aside class="in-live-rail">
+          <div class="in-live-head">
+            <span class="in-live-title"><i class="pi pi-bolt"></i> En vivo</span>
+            @if (liveFeed().length) { <span class="in-live-count">{{ liveFeed().length }}</span> }
+            <button pButton [icon]="feedCollapsed() ? 'pi pi-chevron-down' : 'pi pi-chevron-up'" [text]="true" severity="secondary" size="small"
+                    class="in-live-toggle" [attr.aria-label]="feedCollapsed() ? 'Mostrar feed en vivo' : 'Ocultar feed en vivo'"
+                    (click)="feedCollapsed.set(!feedCollapsed())"></button>
+          </div>
+          @if (!feedCollapsed()) {
+            <div class="in-live-body">
+              @if (liveFeed().length) {
+                @for (e of liveFeed(); track e.seq) {
+                  <div class="in-live-row">
+                    <div class="in-live-main">
+                      <span class="in-live-prod">{{ e.product_name }}</span>
+                      <span class="in-live-meta">{{ e.username }} · {{ e.at | date:'HH:mm:ss' }}</span>
+                    </div>
+                    <span class="in-live-qty">{{ e.qty }}</span>
+                    <p-tag [value]="slotLabel(e.slot)" [severity]="e.slot === 'count_2' ? 'success' : (e.slot === 'count_3' ? 'warn' : 'info')"></p-tag>
+                  </div>
+                }
+              } @else {
+                <div class="in-live-empty">
+                  @if (live()) { <i class="pi pi-spin pi-spinner"></i> Esperando conteos… }
+                  @else { <i class="pi pi-wifi"></i> Conectando al monitoreo… }
+                </div>
+              }
+            </div>
+          }
+        </aside>
+      }
+      <div class="in-main">
 
       <!-- KPIs -->
       <div class="in-kpis">
@@ -211,6 +257,8 @@ import { Permission } from '../../../core/constants/permissions';
           <tr><td colspan="11" class="in-empty">Sin items para este filtro.</td></tr>
         </ng-template>
       </p-table>
+      </div>
+      </div>
 
       <!-- Dialog resolver -->
       <p-dialog [(visible)]="resolveVisible" header="Resolver item" [modal]="true" [style]="{ width: '420px' }">
@@ -286,6 +334,33 @@ import { Permission } from '../../../core/constants/permissions';
     .in-sessions { margin-bottom: 1rem; }
     .in-sessions-head { font-weight: 600; margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
     .in-sessions-head i { color: var(--action,#ea580c); }
+
+    /* Feed en vivo (#1) — productos apareciendo uno a uno. Lateral sticky en
+       laptop (≥1100px), tarjeta colapsable arriba en móvil/tablet. */
+    .in-body { display: grid; grid-template-columns: 1fr; gap: 1.25rem; align-items: start; }
+    @media (min-width: 1100px) {
+      .in-body-live { grid-template-columns: 1fr minmax(300px, 360px); }
+      .in-body-live .in-main { grid-column: 1; grid-row: 1; }
+      .in-body-live .in-live-rail { grid-column: 2; grid-row: 1; position: sticky; top: 1rem; }
+    }
+    .in-main { min-width: 0; }
+    .in-live-rail { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e8e2d7); border-radius: var(--r-lg, 16px); overflow: hidden; }
+    .in-live-head { display: flex; align-items: center; gap: .5rem; padding: .5rem .4rem .5rem .75rem; border-bottom: 1px solid var(--border-color, #e8e2d7); }
+    .in-live-title { display: inline-flex; align-items: center; gap: .4rem; font-weight: 700; font-size: .9rem; color: var(--text-main, #100d09); }
+    .in-live-title i { color: var(--action, #f05a28); }
+    .in-live-count { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: .75rem; font-weight: 700; color: var(--action, #f05a28); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); padding: .05rem .45rem; border-radius: var(--r-pill, 999px); }
+    .in-live-toggle { margin-left: auto; }
+    .in-live-body { max-height: 60vh; overflow-y: auto; }
+    @media (max-width: 1099.98px) { .in-live-body { max-height: 38vh; } }
+    .in-live-row { display: flex; align-items: center; gap: .6rem; padding: .55rem .75rem; border-bottom: 1px solid var(--border-color, #e8e2d7); animation: in-live-in .25s var(--ease-out, ease); }
+    .in-live-row:last-child { border-bottom: none; }
+    .in-live-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .in-live-prod { font-weight: 600; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main, #100d09); }
+    .in-live-meta { font-size: .72rem; color: var(--text-muted, #5e564b); }
+    .in-live-qty { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1rem; color: var(--text-main, #100d09); }
+    .in-live-empty { padding: 1.5rem .75rem; text-align: center; color: var(--text-muted, #5e564b); font-size: .85rem; }
+    @keyframes in-live-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { .in-live-row { animation: none; } }
   `],
 })
 export class ComercialInventorySessionDetailComponent {
@@ -298,6 +373,11 @@ export class ComercialInventorySessionDetailComponent {
   private readonly monitor = inject(InventoryMonitorSocketService);
 
   live = this.monitor.connected;
+
+  // Feed en vivo: conteos apilados al instante (uno a uno) para el supervisor.
+  liveFeed = signal<LiveCountEntry[]>([]);
+  feedCollapsed = signal(false);
+  private feedSeq = 0;
 
   countId = this.route.snapshot.paramMap.get('id')!;
   progress = signal<InventorySupervisorProgress | null>(null);
@@ -365,6 +445,23 @@ export class ComercialInventorySessionDetailComponent {
         this.load();
         this.loadSessions();
         this.loadInterruptions();
+      });
+
+    // Feed en vivo (sin debounce): cada conteo aparece al instante en el panel,
+    // reusando los eventos 'count' que el backend ya emite por escaneo.
+    this.monitor.event$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((e) => {
+        if (e.type !== 'count') return;
+        this.liveFeed.update((f) => [{
+          seq: ++this.feedSeq,
+          username: e['username'] || 'Contador',
+          product_name: e['product_name'] || e['sku'] || '—',
+          sku: e['sku'] || '',
+          qty: Number(e['qty'] ?? 0),
+          slot: e['slot'] || 'count_1',
+          at: e.at,
+        }, ...f].slice(0, 50));
       });
     this.destroyRef.onDestroy(() => this.monitor.disconnect());
   }
@@ -547,5 +644,11 @@ export class ComercialInventorySessionDetailComponent {
     if (s === 'discrepancy') return 'danger';
     if (s === 'counted') return 'info';
     return 'secondary';
+  }
+
+  slotLabel(slot: string): string {
+    if (slot === 'count_2') return '2do';
+    if (slot === 'count_3') return 'reconteo';
+    return '1er';
   }
 }
