@@ -679,6 +679,75 @@ Capas:
 
 ---
 
+## ADR-023 — **Autonomía acotada de Thot** (L3): el motor auto-ejecuta dentro de límites, el LLM sigue fuera del dinero
+
+**Estado:** 🟢 Aceptado (2026-06-19) — motor de autonomía en código (`default OFF`); ver track Thot.
+
+**Fecha:** 2026-06-19
+
+**Contexto:**
+- Thot llegó a paridad con Horus en razonamiento (T.R0 detección → T.R1 diagnóstico → T.R2 co-piloto con confianza/impacto-$ → T.R3 explicación → T.L2 calibración). Hasta acá Thot era **co-piloto** (ADR-016/020): propone, el humano aprueba **todo**.
+- El usuario pide **más autoridad**: que Thot **decida y actúe** en los apartados donde su opinión ayuda, no solo sugiera.
+- Riesgo: "autónomo sobre el dinero" sin bordes = caja negra decidiendo sobre precios/catálogo. ADR-016 lo prohibía explícitamente.
+
+**Decisión:**
+1. **Se cambia UNA parte de ADR-016 y se conserva la otra.** Cambia: "el humano aprueba todo" → el **motor determinista** puede **auto-ejecutar dentro de límites**. Se conserva: **el LLM sigue fuera del camino del dinero** (quien auto-decide es el motor determinista/auditable, no un modelo de lenguaje). El agente sigue solo comunicando.
+2. **Autoridad GANADA, no en bloque.** Dial por `action_type` (`commercial.autonomy_policies`): `mode` (off/dry_run/auto) + `min_confidence` + `daily_cap` + `value_cap_mxn`. Una acción auto-ejecuta **solo si**: kill-switch global en `auto` **∧** su política en `auto` **∧** confianza ≥ `min_confidence` (la confianza la da **L2** → solo auto lo que la calibración probó que acierta) **∧** impacto ≤ `value_cap` **∧** bajo el `daily_cap`. Cualquier gate que falle → vuelve a co-piloto.
+3. **Default OFF + kill-switch maestro.** Sin filas de política = todo co-piloto. Fila `__global__` = interruptor maestro. Shippear el motor **no cambia comportamiento** hasta que un humano flipee el dial.
+4. **Reversible primero.** `push_product` auto-ejecuta creando un `push_directive` real (el recomendador lo consume → lazo cerrado, reversible). El resto (`review_price`/`review_delist`/`reorder_outreach`) solo escribe **nota interna**: el efecto sensible (cambio de precio/catálogo, envío al cliente) sigue **diferido** (ADR-020) → auto es seguro aun en consecuentes, porque lo irreversible no está cableado.
+5. **Auditoría post-hoc + deshacer.** `commercial_actions.auto_executed` marca lo que Thot hizo solo → panel "Thot actuó solo" + base para revertir. `approved_by` queda null en auto.
+
+**Alternativas consideradas:**
+- **Autonomía plena (L4, decide y ejecuta sin límites):** rechazada — caja negra sobre el dinero; ningún gate de confianza/cap.
+- **Quedarse en co-piloto (L1) solo ampliando alcance:** descartada por el usuario — quería autoridad real, no solo más presencia.
+- **Autonomía por env-flag global on/off:** insuficiente — sin granularidad por tipo ni gate por confianza; o todo o nada.
+
+**Consecuencias:**
+- ✅ La autonomía se **gana con la calibración** (L2): mientras una regla no acumule precisión, su confianza (cold-start 0.6) no supera umbrales altos → no auto-ejecuta. El humano sube el umbral para exigir más evidencia.
+- ✅ Reversible/auditable: `default OFF`, kill-switch, caps, panel de lo auto-hecho.
+- ⚠️ Cuando se cablee un ejecutor **irreversible** (cambio de precio real, envío a cliente), los gates `value_cap`/`min_confidence` pasan a ser **críticos** y deben arrancar conservadores. Hoy son seguros porque el ejecutor de los consecuentes es diferido.
+- ⚠️ Cron auto-ejecuta en cada corrida si el dial está en `auto` — el `daily_cap` acota el volumen.
+
+**Plan de implementación:** track Thot (autonomy.service + commercial.autonomy_policies + runAutonomy). Smoke §10 (OFF no actúa / dial auto sí / gate de confianza). Rollout de apartados (toma de pedido, precios+promos, inventario, cartera+command center) encima de este motor.
+
+---
+
+## ADR-024 — Conteo zonificado: pasillos 2D + equipos (1 supervisor/pasillo, contadores proporcionales)
+
+**Estado:** 🟢 Aceptado (2026-06-19) — diseño confirmado con el usuario; PA.0 en código. Plan en [`FASES/FASE_PASILLOS_EQUIPOS.md`](FASES/FASE_PASILLOS_EQUIPOS.md).
+
+**Fecha:** 2026-06-19
+
+**Contexto:**
+- El conteo físico (Fase I) asigna una **lista plana** de contadores/supervisores por folio (`inventory_count_assignments`), sin noción de **dónde** cuenta cada quién.
+- La práctica de cycle/physical counting zonifica el almacén (zona → líder → equipo) y **balancea el staffing por carga** para que el conteo cierre parejo.
+- **No hay data espacial usable:** `catalog.products.location` = `Z000` en los 11,109 productos (el ERP no la trae). El concepto de pasillo hay que **crearlo y poblarlo a mano**.
+
+**Decisión:**
+1. **Pasillo como capa de LAYOUT permanente** (`commercial.warehouse_aisles`) con **posición 2D en grilla** (`grid_row/col` + `span`), reusable entre conteos. Mapeo SKU→pasillo en `commercial.stock.aisle_id` (grano `warehouse×product`).
+2. **Asignación como capa de TABLERO por folio** (extender `inventory_count_assignments` con `aisle_id`): supervisor + contadores **por pasillo, por conteo** — el supervisor NO se hornea en el pasillo porque la gente cambia cada conteo.
+3. **1 supervisor por pasillo**; si hay menos supervisores que pasillos → **clustering balanceado** (no bloquear).
+4. **Equipos proporcionales a unidades físicas** (`Σ stock.quantity`), con la carga como **fórmula tuneable**.
+5. **UI: editor 2D en grilla** (CSS grid, sin librería de mapas) + **asignación bulk** SKU→pasillo + **híbrido** (auto-generar proporcional + ajuste manual).
+6. FK de `aisle_id` **de columna simple** a `warehouse_aisles.id` para permitir `ON DELETE SET NULL` (un FK compuesto con `tenant_id` NOT NULL no puede nullear). RLS sostiene el aislamiento.
+
+**Alternativas consideradas:**
+- **Lienzo libre 2D** (rectángulos arrastrables): más fiel a un plano real, mucha más UI — rechazado para MVP a favor de grilla.
+- **Derivar pasillos del ERP (`location`):** imposible hoy (todo `Z000`); reactivar si el ERP puebla la ubicación real.
+- **Proxy automático (ABC/marca/rango) como pasillo:** rechazado como modelo (no es espacial real); se reutiliza solo como **herramienta de asignación bulk** dentro del alta manual.
+- **Hornear supervisor en el pasillo:** rechazado — la gente cambia por conteo; el supervisor es del folio.
+
+**Consecuencias:**
+- ✅ Aditivo: `aisle_id` nullable en stock/items/assignments; el order flow lo ignora; folios sin pasillos siguen como hoy (lista plana).
+- ✅ Encaja con el folio cíclico (ABC): un folio acotado se particiona por pasillo igual.
+- ⚠️ **El valor/riesgo está en el alta de data** (poblar pasillos + mapear 11k SKUs), no en el algoritmo (~50 líneas). La asignación bulk es obligatoria.
+- ⚠️ Carga = unidades puede sobre-staffear pasillos de poco surtido y mucho volumen → tuneable.
+- 🚫 Diferido: mundo `inventory.warehouse_stock`, lienzo libre, asignación por zona contigua avanzada.
+
+**Plan:** Fases PA.0–PA.4 en [`FASES/FASE_PASILLOS_EQUIPOS.md`](FASES/FASE_PASILLOS_EQUIPOS.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

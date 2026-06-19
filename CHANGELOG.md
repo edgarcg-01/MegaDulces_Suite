@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added — PA.0: schema de pasillos 2D + dimensión de pasillo en el conteo (ADR-024)
+- Arranca la **Fase PA** (conteo zonificado): el almacén se divide en **pasillos 2D**, 1 supervisor/pasillo,
+  equipo de contadores proporcional. Diseño en `FASES/FASE_PASILLOS_EQUIPOS.md` + **ADR-024**.
+- **`commercial.warehouse_aisles`** (mig `20260619140000`, RLS forzado): layout permanente — `code`, `name`,
+  posición 2D (`grid_row/col` + `span`), por almacén. + **`commercial.stock.aisle_id`** (mapeo SKU→pasillo,
+  grano warehouse×product) + **`inventory_count_assignments.aisle_id`** (tablero por folio; unique recreado a
+  `(tenant,count,aisle,user,role)` NULLS NOT DISTINCT para permitir supervisor en varios pasillos) +
+  **`inventory_count_items.aisle_id`** (foto al abrir → particiona el conteo).
+- FK de `aisle_id` = columna simple a `warehouse_aisles.id` con **`ON DELETE SET NULL`** (borrar un pasillo
+  NO borra stock/items; el order flow ignora `aisle_id`). Verificado DB-direct (alta, mapeo, carga en
+  unidades, SET NULL). Decisiones: dominio inventario · alta manual · proporcional a unidades · grilla · híbrido.
+
 ### Added — ABC.3b: UI de conteo cíclico (cierra la fase ABC)
 - Página **`/comercial/inventory/abc`** (tab "Cíclico" en el strip de inventario, gate SUPERVISAR).
   Superficie **Operations** (DESIGN.md): page-head Hanken bold, **KPI strip** (Por contar ahora · Valor
