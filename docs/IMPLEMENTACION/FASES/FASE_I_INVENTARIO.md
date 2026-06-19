@@ -112,7 +112,7 @@ Del gap-analysis vs industria. **Lo que falta** para pasar de "conteo digital" a
 
 **P2 — estratégico (mueven el negocio):**
 - **Caducidad / lote / FEFO** — crítico para dulcería; hoy no hay lote ni fecha de expiración. Reduce merma 30–50% y es tema regulatorio en alimentos.
-- **ABC + conteo cíclico programado** — apalanca la rotación que ya calcula Thot; agendar A mensual / C trimestral; generar folios automáticos. Pasa del "evento anual que congela todo" a control continuo.
+- **ABC + conteo cíclico programado** — apalanca la rotación que ya calcula Thot; agendar A mensual / C trimestral; generar folios automáticos. Pasa del "evento anual que congela todo" a control continuo. **→ 🔵 DISEÑADO 2026-06-19, ver [FASE_ABC_CYCLE_COUNT.md](FASE_ABC_CYCLE_COUNT.md).**
 - **Offline (Dexie)** para conteo en zonas sin WiFi (infra ya existe en captures/vendor).
 - **Bin-level** + asignación por zona a contadores; 2º conteo **aleatorio** anti-colusión; reconciliación **parcial por zona**; **aprobación por umbral $** (ajustes chicos auto, grandes requieren gerente).
 
