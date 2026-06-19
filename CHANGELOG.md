@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — PA.2: generador de equipos proporcional (1 supervisor/pasillo + contadores por unidades)
+- `WarehouseAislesService.generateTeamPlan` + **`POST /commercial/inventory/aisles/plan`** (gate `ASIGNAR`):
+  dado un almacén + pool del día (supervisor_ids / counter_ids; default = todos los asignables por permiso),
+  arma el plan — **1 supervisor por pasillo** si hay suficientes, o **clusters balanceados (LPT)** si hay
+  menos supervisores que pasillos; **contadores proporcionales a las unidades** de cada pasillo
+  (`c_i = max(min, round(C·w_i/W))`, con ajuste de redondeo para repartir exactamente C). Warnings de
+  faltantes (supervisores/contadores). **No persiste** (la asignación a un folio es PA.3).
+- Build api verde + smoke PA.2 (`http-inventory-team-plan-test.js`, registrado): 1:1 supervisor, Σ
+  contadores = pool, mín por pasillo, pasillo más pesado ≥ contadores, cluster con 1 supervisor. ⏳ reinicio.
+
 ### Added — PA.1b: editor 2D de pasillos (UI) + endpoint de marcas
 - Página **`/comercial/inventory/aisles`** (tab "Pasillos" en el strip de inventario, gate `ASIGNAR`).
   Surface Operations (DESIGN.md): **grilla CSS 2D** — cada pasillo en su `grid_row/col`+span, con
