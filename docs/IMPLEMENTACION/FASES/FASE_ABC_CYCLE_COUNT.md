@@ -1,6 +1,6 @@
 # Fase ABC — Clasificación ABC + conteo cíclico programado
 
-> **Estado: 🔨 ABC.0 EN CÓDIGO — 2026-06-19** (diseño aprobado). Clasificación ABC operativa; falta 1 reinicio para verde live del smoke I.6. Siguiente item estratégico de inventario tras caducidad/FEFO (ver [FASE_I_INVENTARIO.md](FASE_I_INVENTARIO.md) §Roadmap P2).
+> **Estado: 🔨 ABC.0 + ABC.2 EN CÓDIGO — 2026-06-19** (diseño aprobado). Clasificación ABC + **folio cíclico acotado** (open-cycle por clase/lista) operativos; falta 1 reinicio para verde live (smokes I.6 + I.7). Siguiente item estratégico de inventario tras caducidad/FEFO (ver [FASE_I_INVENTARIO.md](FASE_I_INVENTARIO.md) §Roadmap P2).
 
 ## Objetivo
 
@@ -30,11 +30,11 @@ Beneficio: detectar y corregir errores de saldo **antes** del cierre anual; foco
 |---|---|---|
 | **ABC.0** ✅ código | Clasificación | ✅ 2026-06-19: tabla `commercial.abc_classification` (mig `20260619100000`, RLS forzado, FKs compuestas) + `InventoryAbcService` (Pareto por almacén con **share acumulado exclusivo** — el top siempre A; DELETE+INSERT atómico) + `GET /commercial/inventory/abc` y `POST .../abc/refresh` (gate SUPERVISAR) + smoke I.6 + verificación DB-direct (`verify-abc-compute.js`: 32 849 clasificados, SQL válido). Build verde. ⏳ 1 reinicio para verde live de I.6. Nota: data local casi sin ventas → A=5/resto C (esperado; en prod se distribuye). |
 | **ABC.1** | Due / agenda | Cadencia por clase + cómputo de due (last-counted desde historial reconciliado) + `GET .../cycle-due?warehouse_id=` ("qué toca contar"). |
-| **ABC.2** | Folio cíclico acotado | `openCount` acepta subset de productos → folio chico. + `POST .../counts/open-cycle` (genera folio cíclico de lo due, capeado). Smoke E2E (abrir cíclico → contar → reconciliar → IRA). |
+| **ABC.2** ✅ código | Folio cíclico acotado | ✅ 2026-06-19: `openCount` acepta `product_ids?` → siembra solo ese subset (ambos modos; commercial por `product_id`, inventory mapea a `sku`). `openCycleCount` (por `abc_class` desde `abc_classification` o lista, capeado, **freeze=false** por default). `POST /commercial/inventory/counts/open-cycle` (gate SUPERVISAR). **Freeze-integrity guard scopeado a los productos del folio** (un movimiento de un SKU no-contado ya no bloquea el reconcile; para full = mismo comportamiento). Smoke I.7. Build verde. ⏳ reinicio para verde live. |
 | **ABC.3** | Cron + UI | `@Cron` diario (cap, prioriza A, anti-duplicado por folio abierto) + página/sección de agenda + clasificación. |
 | **ABC.4** ⬜ defer | Refinamientos | UI calendario, policy de cadencia por tenant, asignación por zona, aprobación por umbral $, 2º conteo aleatorio. |
 
-**Orden de valor:** ABC.0 (clasificar) → ABC.2 (folio acotado — el corazón) → ABC.1 (due) → ABC.3 (automatizar). Nota: ABC.2 depende de ABC.0 (clase) y se beneficia de ABC.1 (due), pero el seed-acotado se puede entregar y probar con una lista explícita antes del cálculo de due.
+**Orden de valor:** ABC.0 ✅ (clasificar) → ABC.2 ✅ (folio acotado — el corazón) → **ABC.1 (due/agenda)** ← siguiente → ABC.3 (automatizar). Nota: ABC.2 depende de ABC.0 (clase) y se beneficia de ABC.1 (due), pero el seed-acotado ya se entrega y prueba con clase/lista explícita antes del cálculo de due.
 
 ## Riesgos / decisiones abiertas
 

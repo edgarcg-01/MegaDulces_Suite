@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Added — ABC.2: conteo cíclico acotado (open-cycle)
+- El corazón del conteo cíclico: hoy `openCount` sembraba **todo** el almacén (`type='cycle'` no acotaba
+  nada). Ahora `openCount` acepta `product_ids?` → siembra solo ese subset (commercial por `product_id`;
+  inventory mapea a `sku` vía catalog). Nuevo `openCycleCount` + **`POST /commercial/inventory/counts/open-cycle`**
+  (gate SUPERVISAR): genera un folio `type='cycle'` por **clase ABC** (toma los productos de esa clase del
+  almacén desde `abc_classification`) o por **lista explícita**, capeado, con **freeze=false** por default
+  (un cíclico no congela el almacén; el full sigue congelando).
+- **Freeze-integrity guard scopeado a los productos del folio**: un movimiento de un SKU que el folio NO
+  está contando ya no bloquea el reconcile. Para un full count el comportamiento es idéntico (items =
+  snapshot completo); habilita el cíclico en caliente. (La I.5 A1 sigue válida: el movimiento del producto
+  contado sí bloquea.)
+- Smoke I.7 (`http-inventory-cycle-count-test.js`, registrado): open-cycle por clase → 3 items; por lista →
+  exactamente el subset; sin clase/lista → 400. Build api verde. ⏳ requiere **reinicio** para verde live.
+
 ### Added — ABC.0: clasificación ABC por (almacén, producto)
 - Primer paso de **conteo cíclico programado** (ver `FASES/FASE_ABC_CYCLE_COUNT.md`). Clasifica cada
   (almacén, producto) por **valor de consumo anualizado** (unidades vendidas en pedidos `fulfilled`,

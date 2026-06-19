@@ -38,6 +38,22 @@ export interface OpenCountDto {
   /** Umbral % de varianza que fuerza recuento (count-back). 0 = off. */
   recount_threshold_pct?: number;
   notes?: string;
+  /** ABC.2 — si se pasa, el folio cuenta SOLO estos productos (folio cíclico acotado). */
+  product_ids?: string[];
+}
+
+export interface OpenCycleCountDto {
+  warehouse_id: string;
+  /** Clase ABC a contar (A|B|C). Toma los productos de esa clase del almacén. */
+  abc_class?: string;
+  /** Lista explícita de productos (alternativa a abc_class). */
+  product_ids?: string[];
+  /** Tope de SKUs en el folio (default 100). */
+  max_items?: number;
+  freeze_movements?: boolean;
+  blind_double_count?: boolean;
+  recount_threshold_pct?: number;
+  notes?: string;
 }
 
 export interface SubmitCountDto {
@@ -159,7 +175,9 @@ export class InventoryCountService {
         })
         .returning('*');
 
-      // Snapshot del teórico al abrir.
+      // Snapshot del teórico al abrir. Si `product_ids` viene (folio cíclico
+      // acotado, ABC.2), siembra SOLO ese subset; si no, todo el almacén (full).
+      const subset = Array.isArray(dto.product_ids) && dto.product_ids.length > 0;
       let snapInserted: any;
       if (stockSource === 'inventory') {
         // por sku desde inventory.warehouse_stock (catálogo del almacén)
@@ -168,8 +186,9 @@ export class InventoryCountService {
              (tenant_id, count_id, product_sku, location, expected_qty, status)
            SELECT ws.tenant_id, ?, ws.sku, NULL, ws.quantity, 'pending'
              FROM inventory.warehouse_stock ws
-            WHERE ws.warehouse_id = ? AND ws.tenant_id = public.current_tenant_id()`,
-          [count.id, dto.warehouse_id],
+            WHERE ws.warehouse_id = ? AND ws.tenant_id = public.current_tenant_id()
+            ${subset ? 'AND ws.sku IN (SELECT cp.sku FROM catalog.products cp WHERE cp.id = ANY(?::uuid[]) AND cp.tenant_id = public.current_tenant_id())' : ''}`,
+          subset ? [count.id, dto.warehouse_id, dto.product_ids] : [count.id, dto.warehouse_id],
         );
       } else {
         // por product_id desde commercial.stock
@@ -179,8 +198,9 @@ export class InventoryCountService {
            SELECT s.tenant_id, ?, s.product_id, p.location, s.quantity, 'pending'
              FROM commercial.stock s
              LEFT JOIN public.products p ON p.id = s.product_id
-            WHERE s.warehouse_id = ? AND s.tenant_id = public.current_tenant_id()`,
-          [count.id, dto.warehouse_id],
+            WHERE s.warehouse_id = ? AND s.tenant_id = public.current_tenant_id()
+            ${subset ? 'AND s.product_id = ANY(?::uuid[])' : ''}`,
+          subset ? [count.id, dto.warehouse_id, dto.product_ids] : [count.id, dto.warehouse_id],
         );
       }
 
@@ -200,6 +220,48 @@ export class InventoryCountService {
         blind_double_count: blind,
         expected_items: expectedItems,
       };
+    });
+  }
+
+  /**
+   * ABC.2 — abre un folio CÍCLICO acotado: cuenta solo los productos de una clase
+   * ABC (o una lista explícita), no todo el almacén. Default freeze=false (un
+   * cíclico no congela el almacén; el guard de integridad ya está scopeado a los
+   * productos del folio). Ver FASE_ABC_CYCLE_COUNT.md.
+   */
+  async openCycleCount(dto: OpenCycleCountDto) {
+    if (!UUID.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
+    const maxItems = Math.min(2000, Math.max(1, Number(dto.max_items) || 100));
+
+    let productIds: string[];
+    if (Array.isArray(dto.product_ids) && dto.product_ids.length) {
+      productIds = dto.product_ids.slice(0, maxItems);
+    } else if (dto.abc_class) {
+      const cls = String(dto.abc_class).toUpperCase();
+      if (!['A', 'B', 'C'].includes(cls)) throw new BadRequestException('abc_class debe ser A, B o C');
+      productIds = await this.tk.run((trx) =>
+        trx('commercial.abc_classification')
+          .where({ warehouse_id: dto.warehouse_id, abc_class: cls })
+          .orderBy('annual_value', 'desc')
+          .limit(maxItems)
+          .pluck('product_id'),
+      );
+      if (!productIds.length)
+        throw new ConflictException(
+          `No hay productos clase ${cls} en este almacén. Corré "Recalcular ABC" primero (POST /commercial/inventory/abc/refresh).`,
+        );
+    } else {
+      throw new BadRequestException('Especificá abc_class o product_ids.');
+    }
+
+    return this.openCount({
+      warehouse_id: dto.warehouse_id,
+      type: 'cycle',
+      freeze_movements: dto.freeze_movements ?? false, // cíclico NO congela el almacén por default
+      blind_double_count: dto.blind_double_count,
+      recount_threshold_pct: dto.recount_threshold_pct,
+      notes: dto.notes || `Conteo cíclico${dto.abc_class ? ` clase ${String(dto.abc_class).toUpperCase()}` : ''}`,
+      product_ids: productIds,
     });
   }
 
@@ -922,14 +984,20 @@ export class InventoryCountService {
       // (Solo modo commercial: inventory.warehouse_stock no lo mueven los pedidos.)
       if (count.stock_source !== 'inventory') {
         const since = count.started_at || count.created_at;
+        // Scopeado a los productos DEL FOLIO: un movimiento de un SKU no contado no
+        // invalida este conteo. Para un full count los items = todo el snapshot, así
+        // que el comportamiento es el mismo; para un cíclico acotado, solo importan
+        // los movimientos de los productos que sí se están contando.
+        const countedProductIds = items.map((it) => it.product_id).filter(Boolean);
         const moved = await trx('commercial.stock_movements')
           .where({ warehouse_id: count.warehouse_id })
+          .whereIn('product_id', countedProductIds)
           .whereRaw(`reference_type IS DISTINCT FROM 'inventory_count'`) // null-safe: cuenta también movimientos sin ref
           .where('created_at', '>=', since)
           .count<{ n: string }[]>('* as n');
         if (Number(moved[0]?.n || 0) > 0)
           throw new ConflictException(
-            `No se puede reconciliar: hubo ${moved[0].n} movimiento(s) de stock en el almacén desde que se abrió el folio ${count.folio}. El conteo no es confiable porque el almacén no quedó congelado. Cancela el folio y vuelve a contarlo con "Congelar movimientos" activo.`,
+            `No se puede reconciliar: hubo ${moved[0].n} movimiento(s) de stock de los productos del folio ${count.folio} desde que se abrió. El conteo no es confiable porque no quedaron congelados. Cancela el folio y vuelve a contarlo con "Congelar movimientos" activo.`,
           );
       }
 

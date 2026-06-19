@@ -11,6 +11,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { InventoryCountService } from './inventory-count.service';
 import type {
   OpenCountDto,
+  OpenCycleCountDto,
   SubmitCountDto,
   ResolveItemDto,
 } from './inventory-count.service';
@@ -86,6 +87,16 @@ export class InventoryCountController {
   @ApiOperation({ summary: 'Abrir folio + snapshot del teórico (por almacén)' })
   open(@Body() body: OpenCountDto) {
     return this.service.openCount(body);
+  }
+
+  @Post('open-cycle')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary:
+      'Abrir folio CÍCLICO acotado por clase ABC o lista de productos (no congela el almacén) — ABC.2',
+  })
+  openCycle(@Body() body: OpenCycleCountDto) {
+    return this.service.openCycleCount(body);
   }
 
   @Post(':id/count')
