@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — ABC.1: due/agenda de conteo cíclico (cycle-due)
+- `InventoryAbcService.cycleDue()` cruza `commercial.abc_classification` × historial reconciliado
+  (`MAX(inventory_counts.reconciled_at)` por (almacén,producto) de folios `reconciled`) → calcula
+  `next_due = last_counted_at + cadencia(clase)` (A=30 / B=90 / C=365 días); nunca contado = due ya.
+- **`GET /commercial/inventory/abc/cycle-due`** (?warehouse_id=&abc_class=&only_due=, gate SUPERVISAR):
+  lista lo que toca contar, orden A-primero / más-vencido-primero, con `is_due`, `next_due`, `days_overdue`
+  y summary `by_class`. Con ABC.0+ABC.1+ABC.2 el flujo manual está completo (clasificar → ver qué toca →
+  contar solo eso).
+- Verificado DB-direct (`database/scripts/verify-abc-cycle-due.js`: orden A→C, cadencia 30/365,
+  nunca-contado → due + next_due null) + smoke I.6 §5. Build verde. ⏳ requiere reinicio para verde live.
+
 ### Added — ABC.2: conteo cíclico acotado (open-cycle)
 - El corazón del conteo cíclico: hoy `openCount` sembraba **todo** el almacén (`type='cycle'` no acotaba
   nada). Ahora `openCount` acepta `product_ids?` → siembra solo ese subset (commercial por `product_id`;

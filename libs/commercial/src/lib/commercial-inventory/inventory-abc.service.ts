@@ -13,6 +13,8 @@ import { TenantKnexService } from '@megadulces/platform-core';
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_WINDOW_DAYS = 90;
+/** ABC.1 — cadencia de conteo cíclico por clase (días). Configurable por tenant = ABC.4. */
+const CADENCE_DAYS = { A: 30, B: 90, C: 365 };
 
 @Injectable()
 export class InventoryAbcService {
@@ -84,6 +86,64 @@ export class InventoryAbcService {
       const classified = (inserted.rowCount ?? 0);
       this.logger.log(`ABC recomputado: ${classified} (almacén,producto) clasificados (ventana ${windowDays}d).`);
       return { classified, window_days: windowDays, by_class };
+    });
+  }
+
+  /**
+   * ABC.1 — qué toca contar (conteo cíclico): cruza la clasificación ABC con el
+   * historial reconciliado para calcular `next_due = last_counted_at + cadencia(clase)`.
+   * Nunca contado → due ya. Ordena por prioridad (A primero, más vencido primero).
+   */
+  async cycleDue(query: { warehouse_id?: string; abc_class?: string; only_due?: boolean } = {}) {
+    if (query.warehouse_id && !UUID.test(query.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    if (query.abc_class && !['A', 'B', 'C'].includes(String(query.abc_class).toUpperCase()))
+      throw new BadRequestException('abc_class debe ser A, B o C');
+    const onlyDue = query.only_due !== false; // default true
+
+    return this.tk.run(async (trx) => {
+      const filters: string[] = [];
+      const binds: any[] = [];
+      if (query.warehouse_id) { filters.push('a.warehouse_id = ?'); binds.push(query.warehouse_id); }
+      if (query.abc_class) { filters.push('a.abc_class = ?'); binds.push(String(query.abc_class).toUpperCase()); }
+      const whereInner = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+      const dueExpr = `(r.last_counted_at IS NULL OR r.last_counted_at + (r.cadence_days || ' days')::interval <= now())`;
+
+      const rows = (await trx.raw(
+        `
+        WITH last_counted AS (
+          SELECT c.warehouse_id, i.product_id, MAX(c.reconciled_at) AS last_counted_at
+            FROM commercial.inventory_counts c
+            JOIN commercial.inventory_count_items i ON i.count_id = c.id AND i.tenant_id = c.tenant_id
+           WHERE c.status = 'reconciled' AND i.product_id IS NOT NULL
+           GROUP BY c.warehouse_id, i.product_id
+        ),
+        ranked AS (
+          SELECT a.warehouse_id, a.product_id, a.abc_class, a.annual_value, lc.last_counted_at,
+                 (CASE a.abc_class WHEN 'A' THEN ${CADENCE_DAYS.A} WHEN 'B' THEN ${CADENCE_DAYS.B} ELSE ${CADENCE_DAYS.C} END) AS cadence_days
+            FROM commercial.abc_classification a
+            LEFT JOIN last_counted lc ON lc.warehouse_id = a.warehouse_id AND lc.product_id = a.product_id
+            ${whereInner}
+        )
+        SELECT r.warehouse_id, w.code AS warehouse_code, r.product_id, p.sku, p.nombre AS product_name,
+               r.abc_class, r.annual_value, r.last_counted_at, r.cadence_days,
+               (r.last_counted_at + (r.cadence_days || ' days')::interval) AS next_due,
+               ${dueExpr} AS is_due,
+               CASE WHEN r.last_counted_at IS NULL THEN NULL
+                    ELSE EXTRACT(DAY FROM now() - (r.last_counted_at + (r.cadence_days || ' days')::interval))::int END AS days_overdue
+          FROM ranked r
+          JOIN commercial.warehouses w ON w.id = r.warehouse_id
+          LEFT JOIN public.products p ON p.id = r.product_id
+          ${onlyDue ? `WHERE ${dueExpr}` : ''}
+         ORDER BY CASE r.abc_class WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END, r.last_counted_at ASC NULLS FIRST
+         LIMIT 2000
+        `,
+        binds,
+      )).rows;
+
+      const by_class: Record<string, number> = { A: 0, B: 0, C: 0 };
+      for (const r of rows) if (r.is_due) by_class[r.abc_class] = (by_class[r.abc_class] || 0) + 1;
+      return { cadence_days: CADENCE_DAYS, only_due: onlyDue, count: rows.length, by_class, items: rows };
     });
   }
 

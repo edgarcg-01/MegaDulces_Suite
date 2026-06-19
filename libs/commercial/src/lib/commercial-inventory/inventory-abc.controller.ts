@@ -28,4 +28,22 @@ export class InventoryAbcController {
       window_days: body?.window_days ?? (windowDays != null ? Number(windowDays) : undefined),
     });
   }
+
+  @Get('cycle-due')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary:
+      'Qué toca contar (conteo cíclico): ABC × historial reconciliado → next_due por cadencia de clase (?warehouse_id=&abc_class=&only_due=false) — ABC.1',
+  })
+  cycleDue(
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('abc_class') abcClass?: string,
+    @Query('only_due') onlyDue?: string,
+  ) {
+    return this.service.cycleDue({
+      warehouse_id: warehouseId,
+      abc_class: abcClass,
+      only_due: onlyDue === 'false' ? false : true,
+    });
+  }
 }
