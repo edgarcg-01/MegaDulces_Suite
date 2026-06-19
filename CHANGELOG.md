@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — PA.3: tablero de equipos por folio (staffing por pasillo) + smoke
+- `InventoryTeamService` + `InventoryTeamController`: `GET/POST /commercial/inventory/counts/:id/aisle-teams`
+  (board + set manual) y `POST .../generate-teams` (auto-generar). Persiste supervisor + contadores **por
+  pasillo** en `inventory_count_assignments.aisle_id`. **Generador parejo** (contadores ÷ pasillos, resto de
+  a 1). Frontend `/comercial/inventory/sessions/:id/teams` (grilla 2D, pool del día, auto + ajuste manual)
+  + botón "Equipos por pasillo" en el detalle del folio. Build view+api verde + **smoke PA.3** agregado.
+- **⚠️ Divergencia de generador (pendiente de reconciliar):** PA.3 usa reparto **parejo** (decisión del
+  usuario, override del proporcional de ADR-024). El `/aisles/plan` proporcional-por-unidades (PA.2) queda
+  como preview alternativo, no usado por el tablero. ⏳ reinicio + QA visual.
+
 ### Added — PA.2: generador de equipos proporcional (1 supervisor/pasillo + contadores por unidades)
 - `WarehouseAislesService.generateTeamPlan` + **`POST /commercial/inventory/aisles/plan`** (gate `ASIGNAR`):
   dado un almacén + pool del día (supervisor_ids / counter_ids; default = todos los asignables por permiso),

@@ -26,6 +26,7 @@ const TESTS = [
   { file: 'http-inventory-cycle-count-test.js', label: 'I.7 conteo cíclico acotado (open-cycle por clase/lista)', needsApi: true },
   { file: 'http-inventory-aisles-test.js', label: 'PA.1 pasillos 2D (CRUD + mapeo bulk SKU→pasillo + carga)', needsApi: true },
   { file: 'http-inventory-team-plan-test.js', label: 'PA.2 generador de equipos (1 sup/pasillo + contadores proporcionales)', needsApi: true },
+  { file: 'http-inventory-aisle-teams-test.js', label: 'PA.3 tablero de equipos por folio (board + generar parejo + set manual)', needsApi: true },
   { file: 'http-e2e-test.js', label: 'B.1 HTTP CRUD + order flow', needsApi: true },
   { file: 'http-carga-load-status-test.js', label: 'Carga: checklist sí/no cargamos (load-status E2E)', needsApi: true },
   { file: 'http-tenant-isolation-test.js', label: 'B HTTP tenant isolation', needsApi: true },
