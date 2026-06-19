@@ -256,7 +256,10 @@ html, body {
 }
 
 html {
-  overflow-y: scroll;
+  /* Documento NO scrollea: el scroll vive en .vendor-main (shell con overflow-hidden,
+     patrón Trade). El `overflow-y: scroll` heredado de apps/view forzaba un contexto
+     de scroll del documento que en iOS pelea con el viewport fijo / safe-areas. */
+  overflow: hidden;
   /* iOS standalone (iOS 18, verificado 2026-06-18 con overlay diagnóstico):
      innerHeight (894) < screenHeight (956) → queda una franja de ~62px ABAJO,
      fuera del layout viewport, que la bottom-nav (position:fixed;bottom:0) NO
