@@ -113,18 +113,19 @@ interface FeedEntry {
               <div class="ic-progress-fill" [style.width.%]="pct()"></div>
             </div>
             <div class="ic-progress-meta">
-              <span><b>{{ progress()?.counted ?? 0 }}</b> de {{ progress()?.total ?? 0 }} contados</span>
-              <span class="ic-remaining">{{ progress()?.remaining ?? 0 }} restantes</span>
-              <span class="ic-mine">vos: {{ progress()?.mine ?? 0 }}</span>
+              <span><b>{{ progress()?.counted ?? 0 }}</b> de <b>{{ progress()?.total ?? 0 }}</b> contados</span>
+              <span class="ic-remaining"><b>{{ progress()?.remaining ?? 0 }}</b> restantes</span>
+              <span class="ic-mine">vos: <b>{{ progress()?.mine ?? 0 }}</b></span>
             </div>
           </div>
 
           <!-- Captura -->
           <div class="ic-capture">
-            <label class="ic-label">Código de barras</label>
+            <label class="ic-label" for="ic-code">Código de barras</label>
             <div class="ic-code-row">
               <input
                 #codeInput
+                id="ic-code"
                 pInputText
                 type="text"
                 inputmode="numeric"
@@ -136,16 +137,20 @@ interface FeedEntry {
               />
               @if (scanSupported()) {
                 <button pButton type="button" icon="pi pi-camera" class="ic-scan-btn"
+                        aria-label="Escanear con la cámara"
                         pTooltip="Escanear con la cámara" (click)="startScan()"></button>
               }
             </div>
 
-            <!-- Overlay de cámara -->
+            <!-- Overlay de cámara — pantalla completa solo mientras escaneás. -->
             @if (scanning()) {
-              <div class="ic-scan-overlay">
+              <div class="ic-scan-overlay" role="dialog" aria-label="Escanear código de barras" (keydown.escape)="stopScan()">
                 <video #scanVideo class="ic-scan-video" playsinline muted></video>
-                <div class="ic-scan-frame"></div>
-                <button pButton label="Cancelar" icon="pi pi-times" severity="secondary" class="ic-scan-cancel" (click)="stopScan()"></button>
+                <div class="ic-scan-mask">
+                  <div class="ic-scan-frame"></div>
+                  <p class="ic-scan-hint">Apuntá al código de barras</p>
+                </div>
+                <button #scanCancel pButton label="Cancelar" icon="pi pi-times" class="ic-scan-cancel" (click)="stopScan()"></button>
               </div>
             }
 
@@ -164,9 +169,10 @@ interface FeedEntry {
               <div class="ic-prod ic-prod-bad"><i class="pi pi-exclamation-triangle"></i> Código no reconocido en el catálogo</div>
             }
 
-            <label class="ic-label">Cantidad física</label>
+            <label class="ic-label" for="ic-qty">Cantidad física</label>
             <p-inputNumber
               #qtyInput
+              inputId="ic-qty"
               [(ngModel)]="qty"
               [min]="0"
               [showButtons]="true"
@@ -213,57 +219,95 @@ interface FeedEntry {
     </div>
   `,
   styles: [`
-    .ic-start, .ic-done { text-align: center; padding: 2.5rem 1.25rem; background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 16px; }
-    .ic-start i, .ic-done i { font-size: 2.75rem; display: block; margin-bottom: .75rem; }
-    .ic-start i { color: var(--action,#ea580c); }
-    .ic-done i { color: var(--green-600,#16a34a); }
-    .ic-start h2, .ic-done h2 { font-size: 1.2rem; margin: 0 0 .4rem; }
-    .ic-start p, .ic-done p { color: var(--text-muted,#78716c); margin: 0 auto 1.25rem; max-width: 34ch; }
-    :host ::ng-deep .ic-start-btn { padding: .85rem 2rem; font-size: 1.05rem; }
-    .ic-phase-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .55rem .4rem .55rem .85rem; margin-bottom: 1rem; border-radius: 12px; background: color-mix(in srgb, var(--action,#ea580c) 12%, transparent); font-weight: 600; }
-    .ic-phase-banner i { margin-right: .35rem; }
-    .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
-    .ic-code-row .ic-input-code { flex: 1; }
-    :host ::ng-deep .ic-scan-btn { min-width: 56px; }
-    :host ::ng-deep .ic-scan-btn .p-button-icon { font-size: 1.4rem; }
-    .ic-scan-overlay { position: relative; margin-top: .6rem; border-radius: 12px; overflow: hidden; background: #000; }
-    .ic-scan-video { width: 100%; max-height: 50vh; object-fit: cover; display: block; }
-    .ic-scan-frame { position: absolute; inset: 18% 12%; border: 3px solid rgba(255,255,255,.85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0,0,0,.25); pointer-events: none; }
-    .ic-scan-cancel { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); }
-    .ic-prod { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; border-radius: 12px; margin-top: .25rem; }
-    .ic-prod i { font-size: 1.4rem; }
-    .ic-prod-loading { background: var(--surface-100,#f5f5f4); color: var(--text-muted,#78716c); }
-    .ic-prod-ok { background: color-mix(in srgb, var(--green-500,#22c55e) 12%, transparent); }
-    .ic-prod-ok i { color: var(--green-600,#16a34a); }
-    .ic-prod-bad { background: color-mix(in srgb, var(--red-500,#ef4444) 12%, transparent); color: var(--red-700,#b91c1c); }
-    .ic-prod-info { display: flex; flex-direction: column; min-width: 0; }
-    .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; }
-    .ic-prod-meta { font-size: .8rem; color: var(--text-muted,#78716c); }
+    /* Layout — flujo de captura enfocado (handheld), 1 columna centrada. */
     .ic-page { max-width: 560px; margin: 0 auto; }
-    .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #78716c); }
-    .ic-empty i { font-size: 2.5rem; opacity: .5; display: block; margin-bottom: .75rem; }
-    .ic-empty p { margin: 0 0 .25rem; font-weight: 600; }
+
+    /* Empty state operacional (sin folio) — voz técnica, sin CTA (lo abre el supervisor). */
+    .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #5e564b); }
+    .ic-empty i { font-size: 2.5rem; opacity: .5; display: block; margin-bottom: .75rem; color: var(--text-faint, #b0a595); }
+    .ic-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main, #100d09); }
+    .ic-empty small { color: var(--text-muted, #5e564b); }
+
+    /* Selector de folio */
     .ic-folio-row { margin-bottom: 1rem; }
     :host ::ng-deep .ic-folio-select { width: 100%; }
+
+    /* Estados de jornada (arranque / terminada) — card hairline, sin sombra (regla elevación). */
+    .ic-start, .ic-done { text-align: center; padding: 2.5rem 1.25rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e8e2d7); border-radius: var(--r-lg, 16px); }
+    .ic-start i, .ic-done i { font-size: 2.75rem; display: block; margin-bottom: .75rem; }
+    .ic-start i { color: var(--action, #f05a28); }
+    .ic-done i { color: var(--ok-fg, #16a34a); }
+    .ic-start h2, .ic-done h2 { font-size: 1.2rem; margin: 0 0 .4rem; color: var(--text-main, #100d09); }
+    .ic-start p, .ic-done p { color: var(--text-muted, #5e564b); margin: 0 auto 1.25rem; max-width: 34ch; line-height: 1.45; }
+    :host ::ng-deep .ic-start-btn { padding: .9rem 2rem; font-size: 1.05rem; min-height: 48px; }
+
+    /* Banner "conteo en curso" */
+    .ic-phase-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .5rem .5rem .9rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); color: var(--text-main, #100d09); font-weight: 600; }
+    .ic-phase-banner i { margin-right: .35rem; color: var(--action, #f05a28); }
+
+    /* Progreso ciego — barra + cifras tabulares (Geist Mono). */
     .ic-progress { margin-bottom: 1.25rem; }
-    .ic-progress-bar { height: 10px; border-radius: 99px; background: var(--surface-200, #e7e5e4); overflow: hidden; }
-    .ic-progress-fill { height: 100%; background: var(--action, #ea580c); transition: width .3s ease; }
-    .ic-progress-meta { display: flex; justify-content: space-between; gap: .5rem; font-size: .8rem; margin-top: .4rem; color: var(--text-muted, #78716c); }
-    .ic-progress-meta b { color: var(--text-color, #1c1917); }
+    .ic-progress-bar { height: 10px; border-radius: var(--r-pill, 999px); background: var(--border-color, #e8e2d7); overflow: hidden; }
+    .ic-progress-fill { height: 100%; background: var(--action, #f05a28); border-radius: inherit; transition: width .3s var(--ease-out, ease); }
+    .ic-progress-meta { display: flex; justify-content: space-between; gap: .5rem; font-size: .8rem; margin-top: .45rem; color: var(--text-muted, #5e564b); }
+    .ic-progress-meta b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #100d09); font-weight: 600; }
     .ic-mine { margin-left: auto; }
-    .ic-capture { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.5rem; }
-    .ic-label { font-size: .8rem; font-weight: 600; color: var(--text-muted, #78716c); margin-top: .5rem; }
-    :host ::ng-deep .ic-input { font-size: 1.25rem; padding: .85rem; width: 100%; }
-    :host ::ng-deep .ic-input-qty { text-align: center; }
+
+    /* Captura — tarjeta activa (lo que el contador mira en bucle). */
+    .ic-capture { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.5rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e8e2d7); border-radius: var(--r-lg, 16px); padding: 1rem 1rem 1.15rem; }
+    .ic-label { font-size: .75rem; font-weight: 600; color: var(--text-muted, #5e564b); text-transform: uppercase; letter-spacing: .04em; margin-top: .5rem; }
+    .ic-label:first-child { margin-top: 0; }
+    .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
+    .ic-code-row .ic-input-code { flex: 1; }
+    :host ::ng-deep .ic-input { font-size: 1.25rem; padding: .8rem .85rem; width: 100%; }
+    :host ::ng-deep .ic-input-code { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+    :host ::ng-deep .ic-input-qty { text-align: center; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.5rem; }
+    :host ::ng-deep .ic-input:focus-visible { outline: 2px solid var(--action, #f05a28); outline-offset: 1px; }
     :host ::ng-deep .p-inputnumber { width: 100%; }
+    /* Steppers neutros y grandes (Fitts) — el ÚNICO naranja es el CTA "Registrar". */
+    :host ::ng-deep .p-inputnumber-buttons-horizontal .p-inputnumber-button { min-width: 54px; background: var(--card-bg, #fff); border-color: var(--border-color, #e8e2d7); color: var(--text-main, #100d09); }
+    :host ::ng-deep .p-inputnumber-buttons-horizontal .p-inputnumber-button:hover { background: var(--hover-bg, #f5f1ea); color: var(--text-main, #100d09); }
+    :host ::ng-deep .ic-scan-btn { min-width: 56px; min-height: 56px; }
+    :host ::ng-deep .ic-scan-btn .p-button-icon { font-size: 1.4rem; }
+
+    /* Overlay de cámara — PANTALLA COMPLETA solo mientras escaneás; al cerrar
+       devuelve todo el espacio al loop. Es overlay → fixed + safe-area en cancelar. */
+    .ic-scan-overlay { position: fixed; inset: 0; z-index: 2000; background: #000; }
+    .ic-scan-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ic-scan-mask { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 0 1rem; pointer-events: none; }
+    .ic-scan-frame { width: min(80%, 360px); aspect-ratio: 5 / 3; border: 3px solid rgba(255,255,255,.92); border-radius: var(--r-md, 12px); box-shadow: 0 0 0 9999px rgba(0,0,0,.45); }
+    .ic-scan-hint { margin: 0; color: #fff; font-weight: 600; font-size: .95rem; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+    :host ::ng-deep .ic-scan-cancel { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); min-height: 50px; min-width: 170px; background: rgba(255,255,255,.95); color: var(--text-main, #100d09); border: none; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+    :host ::ng-deep .ic-scan-cancel:hover { background: #fff; color: var(--text-main, #100d09); }
+
+    /* Producto reconocido — feedback semántico tokenizado (dark-safe). */
+    .ic-prod { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; border-radius: var(--r-md, 12px); margin-top: .5rem; }
+    .ic-prod i { font-size: 1.4rem; flex-shrink: 0; }
+    .ic-prod-loading { background: var(--hover-bg, #f5f1ea); color: var(--text-muted, #5e564b); }
+    .ic-prod-ok { background: var(--ok-soft-bg, #dcfce7); color: var(--ok-soft-fg, #166534); }
+    .ic-prod-ok i { color: var(--ok-fg, #16a34a); }
+    .ic-prod-bad { background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b); }
+    .ic-prod-bad i { color: var(--bad-fg, #dc2626); }
+    .ic-prod-info { display: flex; flex-direction: column; min-width: 0; }
+    .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; color: var(--text-main, #100d09); }
+    .ic-prod-meta { font-size: .8rem; color: var(--text-muted, #5e564b); font-family: var(--font-mono, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+    /* Submit — CTA grande, zona del pulgar. */
     .ic-submit { margin-top: 1rem; width: 100%; }
-    :host ::ng-deep .ic-submit { padding: .9rem; font-size: 1.05rem; }
-    .ic-feed h3 { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); margin: 0 0 .5rem; }
-    .ic-feed-row { display: flex; align-items: center; gap: .75rem; padding: .6rem .25rem; border-bottom: 1px solid var(--surface-100, #f5f5f4); }
+    :host ::ng-deep .ic-submit { padding: .9rem; font-size: 1.05rem; min-height: 48px; }
+
+    /* Feed de últimos conteos */
+    .ic-feed h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted, #5e564b); margin: 0 0 .5rem; }
+    .ic-feed-row { display: flex; align-items: center; gap: .75rem; padding: .6rem .25rem; border-bottom: 1px solid var(--border-color, #e8e2d7); }
+    .ic-feed-row:last-child { border-bottom: none; }
     .ic-feed-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-    .ic-feed-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ic-feed-sku { font-size: .75rem; color: var(--text-muted, #78716c); font-family: var(--font-mono, monospace); }
-    .ic-feed-qty { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .ic-feed-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main, #100d09); }
+    .ic-feed-sku { font-size: .75rem; color: var(--text-muted, #5e564b); font-family: var(--font-mono, monospace); }
+    .ic-feed-qty { font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #100d09); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ic-progress-fill { transition: none; }
+    }
   `],
 })
 export class ComercialInventoryCountComponent {
@@ -275,6 +319,7 @@ export class ComercialInventoryCountComponent {
   @ViewChild('codeInput') codeInput?: ElementRef<HTMLInputElement>;
   @ViewChild('qtyInput', { read: ElementRef }) qtyInput?: ElementRef<HTMLElement>;
   @ViewChild('scanVideo') scanVideo?: ElementRef<HTMLVideoElement>;
+  @ViewChild('scanCancel', { read: ElementRef }) scanCancel?: ElementRef<HTMLElement>;
 
   // Escaneo por cámara (ZXing — universal: iOS Safari + Android).
   scanSupported = signal(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia);
@@ -366,6 +411,8 @@ export class ComercialInventoryCountComponent {
       return;
     }
     this.scanning.set(true);
+    // a11y: foco al botón Cancelar (también habilita Escape para cerrar).
+    setTimeout(() => this.scanCancel?.nativeElement?.focus(), 150);
     setTimeout(async () => {
       const v = this.scanVideo?.nativeElement;
       if (!v) return;
