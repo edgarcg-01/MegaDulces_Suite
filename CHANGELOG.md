@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — ABC.0: clasificación ABC por (almacén, producto)
+- Primer paso de **conteo cíclico programado** (ver `FASES/FASE_ABC_CYCLE_COUNT.md`). Clasifica cada
+  (almacén, producto) por **valor de consumo anualizado** (unidades vendidas en pedidos `fulfilled`,
+  ventana 90d → anualizada × `catalog.cost_base`), vía **Pareto por almacén** (share acumulado
+  **exclusivo**: el top mover siempre cae en A — el inclusivo mandaba a C al único mover de un almacén).
+- **`commercial.abc_classification`** (mig `20260619100000`, RLS forzado, FKs compuestas, unique natural
+  por (tenant,wh,product)). Recompute full atómico (DELETE+INSERT en una trx).
+- **`InventoryAbcService`** + **`GET /commercial/inventory/abc`** (?warehouse_id=&abc_class=) y
+  **`POST /commercial/inventory/abc/refresh`** (?window_days=), ambos gate `SUPERVISAR` (como IRA).
+- Verificado DB-direct (`database/scripts/verify-abc-compute.js`: 32 849 clasificados, SQL válido,
+  toda fila clase ∈ {A,B,C} + value_share ∈ [0,1]). Smoke I.6 (`http-inventory-abc-test.js`, registrado
+  en run-all-tests). Build api verde. ⏳ requiere **reinicio** para verde live (endpoints nuevos).
+
 ### Added — P2.3 FEFO: trazabilidad del lote consumido por cada venta
 - **`commercial.stock_lot_movements`** (mig `20260618230000`, RLS forzado, append-only, FKs compuestas a
   tablas reales): ledger por lote de qué se consumió, cuánto, y por qué referencia (pedido).

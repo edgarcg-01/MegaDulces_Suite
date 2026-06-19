@@ -4,6 +4,8 @@ import { CommercialInventoryService } from './commercial-inventory.service';
 import { CommercialInventoryController } from './commercial-inventory.controller';
 import { InventoryCountService } from './inventory-count.service';
 import { InventoryCountController } from './inventory-count.controller';
+import { InventoryAbcService } from './inventory-abc.service';
+import { InventoryAbcController } from './inventory-abc.controller';
 import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 @Module({
@@ -15,8 +17,8 @@ import { InventoryMonitorGateway } from './inventory-monitor.gateway';
       signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryMonitorGateway],
-  exports: [CommercialInventoryService, InventoryCountService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, InventoryMonitorGateway],
+  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService],
 })
 export class CommercialInventoryModule {}

@@ -1,6 +1,6 @@
 # Fase ABC — Clasificación ABC + conteo cíclico programado
 
-> **Estado: 🔵 DISEÑO (para aprobar antes de codear) — 2026-06-19.** Siguiente item estratégico de inventario tras caducidad/FEFO (ver [FASE_I_INVENTARIO.md](FASE_I_INVENTARIO.md) §Roadmap P2). Sin código aún.
+> **Estado: 🔨 ABC.0 EN CÓDIGO — 2026-06-19** (diseño aprobado). Clasificación ABC operativa; falta 1 reinicio para verde live del smoke I.6. Siguiente item estratégico de inventario tras caducidad/FEFO (ver [FASE_I_INVENTARIO.md](FASE_I_INVENTARIO.md) §Roadmap P2).
 
 ## Objetivo
 
@@ -28,7 +28,7 @@ Beneficio: detectar y corregir errores de saldo **antes** del cierre anual; foco
 
 | Fase | Tema | Entrega |
 |---|---|---|
-| **ABC.0** | Clasificación | Tabla `commercial.abc_classification` + servicio de cómputo (consumo×costo, Pareto A/B/C) + `GET .../abc` (ver clasificación) + `POST .../abc/refresh` (manual). Smoke. |
+| **ABC.0** ✅ código | Clasificación | ✅ 2026-06-19: tabla `commercial.abc_classification` (mig `20260619100000`, RLS forzado, FKs compuestas) + `InventoryAbcService` (Pareto por almacén con **share acumulado exclusivo** — el top siempre A; DELETE+INSERT atómico) + `GET /commercial/inventory/abc` y `POST .../abc/refresh` (gate SUPERVISAR) + smoke I.6 + verificación DB-direct (`verify-abc-compute.js`: 32 849 clasificados, SQL válido). Build verde. ⏳ 1 reinicio para verde live de I.6. Nota: data local casi sin ventas → A=5/resto C (esperado; en prod se distribuye). |
 | **ABC.1** | Due / agenda | Cadencia por clase + cómputo de due (last-counted desde historial reconciliado) + `GET .../cycle-due?warehouse_id=` ("qué toca contar"). |
 | **ABC.2** | Folio cíclico acotado | `openCount` acepta subset de productos → folio chico. + `POST .../counts/open-cycle` (genera folio cíclico de lo due, capeado). Smoke E2E (abrir cíclico → contar → reconciliar → IRA). |
 | **ABC.3** | Cron + UI | `@Cron` diario (cap, prioriza A, anti-duplicado por folio abierto) + página/sección de agenda + clasificación. |
