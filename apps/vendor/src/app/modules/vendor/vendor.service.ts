@@ -259,6 +259,28 @@ export class VendorService {
   }
 
   /**
+   * Alta rápida de cliente desde la app (campo). El backend genera el code y
+   * asigna la price list default → el cliente queda pedible de inmediato.
+   * Gateado por COMMERCIAL_ORDERS_CREAR (el vendedor ya lo tiene).
+   */
+  createCustomer(dto: {
+    name: string;
+    phone?: string;
+    whatsapp?: string;
+    rfc?: string;
+    legal_name?: string;
+    sales_route?: string;
+    notes?: string;
+    latitude?: number;
+    longitude?: number;
+  }): Observable<VendorCustomer> {
+    return this.http.post<VendorCustomer>(
+      `${this.base}/vendor-routes/customers`,
+      dto,
+    );
+  }
+
+  /**
    * Cartera del vendedor: clientes de las rutas de venta asignadas a este user
    * (commercial.vendor_sales_routes), ya ordenados por `visit_sequence` desde el
    * backend. Es la base de "Clientes por ver" / "Pedido nuevo".

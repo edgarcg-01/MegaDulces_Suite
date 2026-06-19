@@ -17,6 +17,7 @@ import {
   CheckInDto,
   SetLocationDto,
   FinishVisitDto,
+  CreateVendorCustomerDto,
 } from './commercial-vendor-routes.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -118,6 +119,16 @@ export class CommercialVendorRoutesController {
   })
   setLocation(@Param('id') id: string, @Body() body: SetLocationDto) {
     return this.service.setCustomerLocation(id, body);
+  }
+
+  @Post('customers')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
+  @ApiOperation({
+    summary:
+      'Alta rápida de cliente desde la app del vendedor (auto-genera code + price list default + geo opcional). Solo crea.',
+  })
+  createCustomer(@Body() body: CreateVendorCustomerDto) {
+    return this.service.createCustomer(body);
   }
 
   @Get()

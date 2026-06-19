@@ -1,13 +1,35 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RFC_REGEX = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+const E164_REGEX = /^\+\d{8,15}$/;
+
+/** Normaliza a E.164 (MX: 10 dígitos → +52...). Null si vacío; lanza si no forma un E.164 válido. */
+function normalizeWhatsapp(raw?: string | null): string | null {
+  if (raw == null) return null;
+  const hadPlus = String(raw).trim().startsWith('+');
+  const digits = String(raw).replace(/\D/g, '');
+  if (!digits) return null;
+  let e164: string;
+  if (hadPlus) e164 = '+' + digits;
+  else if (digits.length === 10) e164 = '+52' + digits;
+  else if (digits.length === 12 && digits.startsWith('52')) e164 = '+' + digits;
+  else if (digits.length === 13 && digits.startsWith('521')) e164 = '+52' + digits.slice(3);
+  else e164 = '+' + digits;
+  if (!E164_REGEX.test(e164)) {
+    throw new BadRequestException('whatsapp inválido: usar 10 dígitos (MX) o formato E.164 (+52...)');
+  }
+  return e164;
+}
 
 /** Radio default de "cliente cercano": más amplio que los 30 m de tiendas (clientes dispersos + drift GPS + estacionar). */
 const DEFAULT_NEARBY_RADIUS_M = 80;
@@ -75,6 +97,21 @@ export interface FinishVisitDto {
   /** Motivo si no hubo venta (ignorado si had_order o had_ticket). */
   no_sale_reason?: NoSaleReason;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+/** Alta rápida de cliente desde la app del vendedor (campo). */
+export interface CreateVendorCustomerDto {
+  name: string;
+  phone?: string;
+  whatsapp?: string;
+  rfc?: string;
+  legal_name?: string;
+  sales_route?: string;
+  /** Dirección / referencia libre — se guarda en notes. */
+  notes?: string;
+  /** Geo capturada al momento del alta (opcional). */
   latitude?: number;
   longitude?: number;
 }
@@ -623,6 +660,77 @@ export class CommercialVendorRoutesService {
         seq++;
       }
       return { ordered: updated, sales_route: route };
+    });
+  }
+
+  /**
+   * Alta rápida de cliente desde la app del vendedor. Genera el `code` (el
+   * vendedor no inventa códigos), asigna la price list default del tenant para
+   * que el cliente sea pedible de inmediato y guarda geo si viene. Solo CREA
+   * (nunca edita/borra) — gateado por COMMERCIAL_ORDERS_CREAR en el controller.
+   */
+  async createCustomer(dto: CreateVendorCustomerDto) {
+    const name = (dto.name || '').trim();
+    if (!name) throw new BadRequestException('name requerido');
+    if (dto.rfc && !RFC_REGEX.test(dto.rfc.toUpperCase())) {
+      throw new BadRequestException(
+        'rfc inválido (formato MX: 3-4 letras + 6 dígitos + 3 alfanuméricos)',
+      );
+    }
+    const whatsapp = normalizeWhatsapp(dto.whatsapp);
+    const lat = dto.latitude != null ? Number(dto.latitude) : null;
+    const lng = dto.longitude != null ? Number(dto.longitude) : null;
+    if ((lat != null && !Number.isFinite(lat)) || (lng != null && !Number.isFinite(lng))) {
+      throw new BadRequestException('lat/lng inválidos');
+    }
+
+    return this.tk.run(async (trx) => {
+      // Price list default del tenant → el cliente queda pedible al instante.
+      const defaultPl = await trx('commercial.price_lists')
+        .where({ is_default: true, active: true })
+        .whereNull('deleted_at')
+        .first();
+
+      // Code auto-generado (prefijo V- = alta de vendedor). El random hace
+      // despreciable la colisión: así no necesitamos retry dentro de la trx
+      // (un 23505 la abortaría → 25P02).
+      const code = 'V-' + randomBytes(5).toString('hex').toUpperCase();
+
+      try {
+        const [row] = await trx('commercial.customers')
+          .insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            code,
+            name,
+            legal_name: dto.legal_name?.trim() || null,
+            rfc: dto.rfc?.toUpperCase() || null,
+            phone: dto.phone?.trim() || null,
+            whatsapp,
+            sales_route: dto.sales_route?.trim().toUpperCase() || null,
+            default_price_list_id: defaultPl?.id || null,
+            credit_limit: 0,
+            payment_terms_days: 0, // cash-only beta
+            active: true,
+            notes: dto.notes?.trim() || null,
+            latitude: lat,
+            longitude: lng,
+          })
+          .returning('*');
+        return row;
+      } catch (e: any) {
+        if (e?.code === '23505') {
+          const c = String(e.constraint || '');
+          if (c.includes('whatsapp')) {
+            throw new ConflictException(
+              'Ese número de WhatsApp ya está registrado en otro cliente.',
+            );
+          }
+          throw new ConflictException(
+            'No se pudo crear el cliente (dato duplicado). Reintentá.',
+          );
+        }
+        throw e;
+      }
     });
   }
 }
