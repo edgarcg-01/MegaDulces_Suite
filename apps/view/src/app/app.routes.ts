@@ -150,6 +150,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
       },
       {
+        // PA.3 — tablero de equipos por folio (staffing por pasillo)
+        path: 'inventory/sessions/:id/teams',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-teams.component').then(m => m.ComercialInventoryTeamsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]

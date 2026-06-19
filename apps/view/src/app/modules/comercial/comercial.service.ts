@@ -388,6 +388,15 @@ export interface AisleList {
 
 export interface AisleBrand { id: string; nombre: string; sku_count: number; }
 
+export interface AisleTeamPerson { user_id: string; name: string; }
+export interface AisleTeam {
+  aisle_id: string; code: string; name: string;
+  grid_row: number; grid_col: number; span_rows: number; span_cols: number;
+  supervisor: AisleTeamPerson | null;
+  counters: AisleTeamPerson[];
+}
+export interface AisleTeamBoard { warehouse_id: string; status: string; aisles: AisleTeam[]; }
+
 export interface Paged<T> {
   data: T[];
   total_amount?: number;
@@ -602,6 +611,17 @@ export class ComercialService {
   }
   assignSkusToAisle(body: { warehouse_id: string; aisle_id: string | null; filter: { product_ids?: string[]; brand_id?: string; abc_class?: string; sku_from?: string; sku_to?: string; only_unassigned?: boolean } }) {
     return this.http.post<{ updated: number }>(`${this.base}/inventory/aisles/assign`, body);
+  }
+
+  // ── Tablero de equipos por folio (Fase PA.3) ────────────────────────
+  inventoryAisleTeams(countId: string) {
+    return this.http.get<AisleTeamBoard>(`${this.base}/inventory/counts/${countId}/aisle-teams`);
+  }
+  inventoryGenerateTeams(countId: string, body: { supervisor_ids: string[]; counter_ids: string[]; aisle_ids?: string[] }) {
+    return this.http.post<{ ok: boolean; aisles: number; supervisors_used: number; counters_assigned: number; aisles_without_supervisor: number; teams: AisleTeam[] }>(`${this.base}/inventory/counts/${countId}/generate-teams`, body);
+  }
+  inventorySetAisleTeams(countId: string, body: { teams: { aisle_id: string; supervisor_id?: string | null; counter_ids?: string[] }[] }) {
+    return this.http.post<{ ok: boolean; teams: AisleTeam[] }>(`${this.base}/inventory/counts/${countId}/aisle-teams`, body);
   }
 
   // ── Orders ─────────────────────────────────────────────────────────
