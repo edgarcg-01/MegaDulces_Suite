@@ -3,6 +3,10 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { Customer360Service } from './customer-360.service';
+import { CommercialFindingsService } from './commercial-findings.service';
+import { CommercialDiagnosisService } from './commercial-diagnosis.service';
+import { CommercialActionsService } from './commercial-actions.service';
+import { CommercialCalibrationService } from './commercial-calibration.service';
 
 /**
  * Refresh nightly del feature store customer_360 (Fase M, Sprint M.0).
@@ -20,6 +24,10 @@ export class Customer360RefreshService {
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly c360: Customer360Service,
+    private readonly findings: CommercialFindingsService,
+    private readonly diagnosis: CommercialDiagnosisService,
+    private readonly actions: CommercialActionsService,
+    private readonly calibration: CommercialCalibrationService,
   ) {}
 
   @Cron('0 0 8 * * *') // 8 AM UTC = 2 AM MX
@@ -84,7 +92,18 @@ export class Customer360RefreshService {
     return new Promise((resolve, reject) => {
       ctxSvc.run({ tenantId }, async () => {
         try {
-          resolve(await this.c360.computeForTenant());
+          const r = await this.c360.computeForTenant();
+          // T.R0/T.R1: findings comerciales + diagnóstico de causa raíz tras refrescar
+          // customer_360. Best-effort: un fallo no debe romper el refresh del 360.
+          try {
+            await this.calibration.computeForTenant(); // T.L2: recalibra ANTES de emitir
+            await this.findings.generateForTenant();
+            await this.diagnosis.generateForTenant();
+            await this.actions.proposeForTenant();
+          } catch (e: any) {
+            this.logger.warn(`commercial calib/findings/diagnoses/actions tenant=${tenantId} falló: ${e.message}`);
+          }
+          resolve(r);
         } catch (e) {
           reject(e);
         }

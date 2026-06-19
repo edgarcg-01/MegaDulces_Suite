@@ -22,6 +22,10 @@ import { CommerceAgentService } from './commerce-agent.service';
 import { FeedbackService, RecordSignalDto } from './feedback.service';
 import { ThotService } from './thot.service';
 import { PushDirectivesService, CreateDirectiveDto } from './push-directives.service';
+import { CommercialFindingsService } from './commercial-findings.service';
+import { CommercialDiagnosisService } from './commercial-diagnosis.service';
+import { CommercialActionsService } from './commercial-actions.service';
+import { CommercialCalibrationService } from './commercial-calibration.service';
 
 @ApiTags('commercial-intelligence')
 @ApiBearerAuth()
@@ -36,6 +40,10 @@ export class CommercialIntelligenceController {
     private readonly feedback: FeedbackService,
     private readonly thot: ThotService,
     private readonly directives: PushDirectivesService,
+    private readonly findings: CommercialFindingsService,
+    private readonly diagnosis: CommercialDiagnosisService,
+    private readonly actions: CommercialActionsService,
+    private readonly calibration: CommercialCalibrationService,
   ) {}
 
   // ─── Thot T.2: empuje dirigido (el negocio decide qué empujar) ───
@@ -111,6 +119,118 @@ export class CommercialIntelligenceController {
         .catch(() => undefined);
     }
     return suggestions;
+  }
+
+  // ─── Thot T.R0: findings comerciales (portafolio/distribución + churn) ───
+
+  @Get('findings')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary: 'Findings comerciales del motor (default open): dead-stock priceado, margen rezagado, brecha de distribución, churn. ?status= ?severity= ?subject_type=',
+  })
+  listFindings(
+    @Query('status') status?: string,
+    @Query('severity') severity?: string,
+    @Query('subject_type') subjectType?: string,
+  ) {
+    return this.findings.listFindings({ status, severity, subject_type: subjectType });
+  }
+
+  @Post('findings/compute')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Recomputa los findings comerciales del tenant actual (on-demand).' })
+  computeFindings() {
+    return this.findings.generateForTenant();
+  }
+
+  @Post('findings/:id/review')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Descarta/confirma/revisa un finding comercial (feedback humano).' })
+  reviewFinding(@Param('id') id: string, @Body() body: { status: string }) {
+    return this.findings.reviewFinding(id, body?.status);
+  }
+
+  // ─── Thot T.R1: diagnóstico de causa raíz (correlación de findings) ───
+
+  @Get('diagnoses')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Diagnósticos de causa raíz comercial (correlación de ≥2 findings del mismo sujeto). Default open.' })
+  listDiagnoses(@Query('status') status?: string) {
+    return this.diagnosis.list({ status });
+  }
+
+  @Post('diagnoses/compute')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Recomputa los diagnósticos de causa raíz del tenant (sobre los findings abiertos).' })
+  computeDiagnoses() {
+    return this.diagnosis.generateForTenant();
+  }
+
+  @Post('diagnoses/:id/review')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Descarta/confirma/revisa un diagnóstico de causa raíz comercial.' })
+  reviewDiagnosis(@Param('id') id: string, @Body() body: { status: string }) {
+    return this.diagnosis.review(id, body?.status);
+  }
+
+  // ─── Thot T.R2: co-piloto comercial (acciones con confianza/impacto$/prioridad) ───
+
+  @Get('actions')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Acciones del co-piloto comercial (default pending_approval), ordenadas por prioridad. ?kind=finding|diagnosis' })
+  listActions(@Query('status') status?: string, @Query('kind') kind?: string) {
+    return this.actions.listActions({ status, kind });
+  }
+
+  @Post('actions/compute')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Propone acciones del co-piloto desde diagnósticos + findings abiertos (N→1).' })
+  computeActions() {
+    return this.actions.proposeForTenant();
+  }
+
+  @Get('actions/:id/explain')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'T.R3: explica el razonamiento de una acción (cadena determinista + redacción del agente, fallback sin LLM).' })
+  explainAction(@Param('id') id: string) {
+    return this.agent.explainAction(id);
+  }
+
+  @Post('actions/:id/approve')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Aprueba una acción (ejecutor interno: push_product crea push_directive real; resto nota interna).' })
+  approveAction(@Param('id') id: string) {
+    return this.actions.approveAction(id);
+  }
+
+  @Post('actions/:id/reject')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Rechaza una acción del co-piloto comercial.' })
+  rejectAction(@Param('id') id: string) {
+    return this.actions.rejectAction(id);
+  }
+
+  // ─── Thot T.L2: aprendizaje (calibración de reglas por feedback humano) ───
+
+  @Get('learning/rules')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'T.L2: scorecard de precisión por regla — qué findings comerciales sirven (aprende de confirm/dismiss).' })
+  learningRules() {
+    return this.calibration.list();
+  }
+
+  @Post('learning/recompute')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'T.L2: recomputa la calibración de reglas del tenant (on-demand).' })
+  learningRecompute() {
+    return this.calibration.computeForTenant();
+  }
+
+  @Post('learning/rules/:findingType/override')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'T.L2: pin humano de una regla (enabled | suppressed | null). El learner no lo pisa.' })
+  learningOverride(@Param('findingType') findingType: string, @Body() body: { override?: string | null }) {
+    return this.calibration.setOverride(findingType, body?.override ?? null);
   }
 
   // ─── Customer 360 (feature store) ───

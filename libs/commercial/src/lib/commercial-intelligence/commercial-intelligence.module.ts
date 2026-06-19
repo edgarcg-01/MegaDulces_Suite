@@ -7,6 +7,10 @@ import { CommerceAgentService } from './commerce-agent.service';
 import { FeedbackService } from './feedback.service';
 import { ThotService } from './thot.service';
 import { PushDirectivesService } from './push-directives.service';
+import { CommercialFindingsService } from './commercial-findings.service';
+import { CommercialDiagnosisService } from './commercial-diagnosis.service';
+import { CommercialActionsService } from './commercial-actions.service';
+import { CommercialCalibrationService } from './commercial-calibration.service';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
 /**
@@ -28,6 +32,10 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     FeedbackService,
     ThotService,
     PushDirectivesService,
+    CommercialFindingsService,
+    CommercialDiagnosisService,
+    CommercialActionsService,
+    CommercialCalibrationService,
   ],
   exports: [
     Customer360Service,
@@ -36,6 +44,10 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     FeedbackService,
     ThotService,
     PushDirectivesService,
+    CommercialFindingsService,
+    CommercialDiagnosisService,
+    CommercialActionsService,
+    CommercialCalibrationService,
   ],
 })
 export class CommercialIntelligenceModule {}
