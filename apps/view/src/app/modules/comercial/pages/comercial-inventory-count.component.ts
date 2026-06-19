@@ -14,8 +14,9 @@ import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 import { App as CapApp } from '@capacitor/app';
 import type { PluginListenerHandle } from '@capacitor/core';
-import { ComercialService, InventoryCount, InventoryCounterProgress, InventoryCountResult, ResolvedProduct } from '../comercial.service';
+import { ComercialService, InventoryCount, InventoryCounterProgress, ResolvedProduct } from '../comercial.service';
 import { CountFocusService } from '../../../core/services/count-focus.service';
+import { InventoryOfflineService } from '../../../core/services/inventory-offline.service';
 
 interface FeedEntry {
   sku: string | null;
@@ -107,6 +108,16 @@ interface FeedEntry {
             <span><i class="pi pi-stopwatch"></i> Conteo en curso · Fase {{ currentPass() }}</span>
             <button pButton label="Terminar" icon="pi pi-flag-fill" severity="success" size="small" [loading]="finishing()" (click)="finishCount()"></button>
           </div>
+          <!-- Estado de red (offline-first): los conteos se encolan; cero pérdida. -->
+          @if (!offline.online() || offline.pending() > 0) {
+            <div class="ic-net" [class.ic-net-off]="!offline.online()">
+              @if (!offline.online()) {
+                <span><i class="pi pi-wifi"></i> Sin conexión — los conteos se guardan y se suben al reconectar.</span>
+              } @else {
+                <span><i class="pi pi-sync pi-spin"></i> Subiendo {{ offline.pending() }} pendiente(s)…</span>
+              }
+            </div>
+          }
           <!-- Progreso ciego -->
           <div class="ic-progress">
             <div class="ic-progress-bar">
@@ -256,6 +267,11 @@ interface FeedEntry {
     .ic-phase-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .5rem .5rem .9rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); color: var(--text-main, #100d09); font-weight: 600; }
     .ic-phase-banner i { margin-right: .35rem; color: var(--action, #f05a28); }
 
+    /* Banner de red (offline-first): conteos a salvo en la cola; cero pérdida. */
+    .ic-net { display: flex; align-items: center; gap: .4rem; padding: .5rem .8rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); font-size: .8rem; font-weight: 600; background: var(--warn-soft-bg, #fef3c7); color: var(--warn-soft-fg, #92400e); }
+    .ic-net-off { background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b); }
+    .ic-net i { font-size: 1rem; }
+
     /* Progreso ciego — barra + cifras tabulares (Geist Mono). */
     .ic-progress { margin-bottom: 1.25rem; }
     .ic-progress-bar { height: 10px; border-radius: var(--r-pill, 999px); background: var(--border-color, #e8e2d7); overflow: hidden; }
@@ -326,6 +342,7 @@ export class ComercialInventoryCountComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly focus = inject(CountFocusService);
+  readonly offline = inject(InventoryOfflineService);
 
   @ViewChild('codeInput') codeInput?: ElementRef<HTMLInputElement>;
   @ViewChild('qtyInput', { read: ElementRef }) qtyInput?: ElementRef<HTMLElement>;
@@ -556,9 +573,12 @@ export class ComercialInventoryCountComponent {
     el?.select();
   }
 
-  /** Resuelve el código a un producto y lo muestra (confirmación tipo checador). */
+  /** Resuelve el código a un producto. Online: cachea para offline (lazy).
+   *  Offline / falla: cae al cache local. Si no hay nada, igual se puede
+   *  registrar por barcode (se resuelve en el server al sincronizar). */
   private resolveCode() {
     const barcode = this.code().trim();
+    const id = this.selectedFolioId();
     if (!barcode) { this.resolved.set(null); this.notFound.set(false); return; }
     this.resolving.set(true);
     this.notFound.set(false);
@@ -566,8 +586,26 @@ export class ComercialInventoryCountComponent {
     this.svc.resolveInventoryProduct(barcode)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (p) => { this.resolved.set(p); this.resolving.set(false); },
-        error: () => { this.resolving.set(false); this.notFound.set(true); },
+        next: (p) => {
+          this.resolved.set(p);
+          this.resolving.set(false);
+          if (id) this.offline.cacheProduct(id, {
+            barcode, product_id: p.product_id ?? null, sku: p.sku ?? null,
+            product_name: p.product_name ?? null, location: p.location ?? null,
+          });
+        },
+        error: async () => {
+          if (id) {
+            const c = await this.offline.resolveLocal(id, barcode);
+            if (c) {
+              this.resolved.set({ product_id: c.product_id, sku: c.sku, product_name: c.product_name, location: c.location } as ResolvedProduct);
+              this.resolving.set(false);
+              return;
+            }
+          }
+          this.resolving.set(false);
+          this.notFound.set(true);
+        },
       });
   }
 
@@ -575,42 +613,41 @@ export class ComercialInventoryCountComponent {
     if (event.key === 'Enter') this.submit();
   }
 
-  submit() {
+  /** Offline-first: el conteo se PERSISTE local primero (cero pérdida) + feed
+   *  optimista; luego se sincroniza best-effort. El motor reintenta al reconectar
+   *  e idempotencia server-side (scan_uuid) evita duplicados en el replay. */
+  async submit() {
     const id = this.selectedFolioId();
     const barcode = this.code().trim();
     const quantity = this.qty();
     if (!id || !barcode || quantity === null || quantity === undefined) return;
 
     this.submitting.set(true);
-    // Si ya resolvimos el producto, mandamos su id (más confiable que el código).
-    const productId = this.resolved()?.product_id;
-    const payload = productId ? { product_id: productId, quantity } : { barcode, quantity };
-    this.svc.submitInventoryCount(id, payload)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r: InventoryCountResult) => {
-          this.feed.update((f) => [
-            { sku: r.sku, name: r.product_name, qty: r.quantity, slot: r.slot, ts: new Date() },
-            ...f,
-          ].slice(0, 15));
-          this.code.set('');
-          this.qty.set(null);
-          this.resolved.set(null);
-          this.notFound.set(false);
-          this.submitting.set(false);
-          this.refreshProgress();
-          this.focusCode();
-        },
-        error: (e) => {
-          this.submitting.set(false);
-          this.toast.add({
-            severity: 'warn',
-            summary: 'No se registró',
-            detail: e?.error?.message || 'Código no encontrado o folio cerrado',
-          });
-          this.focusCode();
-        },
-      });
+    const r = this.resolved();
+    const productId = r?.product_id ?? null;
+    const capturePass = this.currentPass();
+    const scanUuid = this.offline.newScanUuid();
+
+    // 1) Local primero — el escaneo nunca se pierde aunque no haya red.
+    await this.offline.queueScan({
+      scan_uuid: scanUuid, count_id: id,
+      product_id: productId, barcode: productId ? null : barcode,
+      quantity, capture_pass: capturePass,
+    });
+    // 2) Feed optimista (el server confirma el slot real al sincronizar).
+    this.feed.update((f) => [
+      { sku: r?.sku ?? null, name: r?.product_name ?? barcode, qty: quantity, slot: `count_${capturePass}`, ts: new Date() },
+      ...f,
+    ].slice(0, 15));
+    // 3) Limpiar para el próximo escaneo — no esperamos a la red.
+    this.code.set('');
+    this.qty.set(null);
+    this.resolved.set(null);
+    this.notFound.set(false);
+    this.submitting.set(false);
+    this.focusCode();
+    // 4) Sincronizar best-effort; refresca el avance si subió algo.
+    this.offline.flush().then((res) => { if (res.synced) this.refreshProgress(); });
   }
 
   private focusCode() {
