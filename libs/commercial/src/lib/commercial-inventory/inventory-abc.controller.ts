@@ -25,6 +25,13 @@ export class InventoryAbcController {
     return this.service.listAbc({ warehouse_id: warehouseId, abc_class: abcClass });
   }
 
+  @Get('summary')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Resumen ABC para KPIs: conteo+valor por clase, total, computed_at (?warehouse_id=)' })
+  summary(@Query('warehouse_id') warehouseId?: string) {
+    return this.service.summary({ warehouse_id: warehouseId });
+  }
+
   @Post('refresh')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Recomputa la clasificación ABC del tenant (?window_days=90) — ABC.0' })

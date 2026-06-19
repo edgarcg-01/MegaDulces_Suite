@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — ABC.3b: UI de conteo cíclico (cierra la fase ABC)
+- Página **`/comercial/inventory/abc`** (tab "Cíclico" en el strip de inventario, gate SUPERVISAR).
+  Superficie **Operations** (DESIGN.md): page-head Hanken bold, **KPI strip** (Por contar ahora · Valor
+  clasificado · barra de Distribución ABC) + **tabla densa** con dos vistas (`p-selectButton`): **Agenda
+  de conteo** (cycle-due, accionable) y **Clasificación ABC** (por valor de consumo).
+- Acciones: **Recalcular ABC** (ghost → `/abc/refresh`) y **Generar folios** (sunset → `/abc/generate-cycle-folios`,
+  habilitado al elegir almacén + confirm dialog). `p-tag [severity]` mapeado (A=success/B=warn/C=secondary;
+  due=danger/warn/secondary), `tabular-nums` en cifras, empty states con CTA, in-page hairline sin sombra.
+- Backend: nuevo **`GET /commercial/inventory/abc/summary`** (conteo+valor por clase para KPIs exactos sin
+  cargar todas las filas) + `ComercialService` { abcSummary, listAbc, cycleDue, refreshAbc, generateCycleFolios }.
+- **Fase ABC completa en código** (clasificar → due → contar acotado → automatizar → UI). Build view+api
+  verde + summary en smoke I.6. ⏳ QA visual + reinicio.
+
 ### Added — ABC.3a: scheduler de conteo cíclico (cron + disparo manual)
 - `CycleCountSchedulerService` — `@Cron('0 0 8 * * *')` (gateado por `ENABLE_CYCLE_COUNT_CRON=true`):
   itera tenants en `tenantCtx.run({tenantId})` (CLS sintético, patrón recommendations-refresh) → por

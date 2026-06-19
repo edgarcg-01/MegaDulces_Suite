@@ -89,6 +89,34 @@ export class InventoryAbcService {
     });
   }
 
+  /** Resumen agregado (KPIs): conteo + valor por clase, total, última corrida. Barato (GROUP BY). */
+  async summary(query: { warehouse_id?: string } = {}) {
+    if (query.warehouse_id && !UUID.test(query.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      let q = trx('commercial.abc_classification');
+      if (query.warehouse_id) q = q.where({ warehouse_id: query.warehouse_id });
+      const rows = await q
+        .select('abc_class')
+        .count<{ abc_class: string; n: string; v: string; last: string }[]>('* as n')
+        .sum('annual_value as v')
+        .max('computed_at as last')
+        .groupBy('abc_class');
+      const by_class: Record<string, { count: number; value: number }> = {
+        A: { count: 0, value: 0 }, B: { count: 0, value: 0 }, C: { count: 0, value: 0 },
+      };
+      let total_count = 0, total_value = 0;
+      let computed_at: string | null = null;
+      for (const r of rows) {
+        by_class[r.abc_class] = { count: Number(r.n), value: Number(r.v) };
+        total_count += Number(r.n);
+        total_value += Number(r.v);
+        if (r.last && (!computed_at || r.last > computed_at)) computed_at = r.last;
+      }
+      return { by_class, total_count, total_value, computed_at };
+    });
+  }
+
   /**
    * ABC.1 — qué toca contar (conteo cíclico): cruza la clasificación ABC con el
    * historial reconciliado para calcular `next_due = last_counted_at + cadencia(clase)`.

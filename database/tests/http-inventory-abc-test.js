@@ -44,6 +44,11 @@ function check(name, cond, detail) {
     sum);
   console.log(`    classified=${sum.classified} A=${sum.by_class?.A?.count} B=${sum.by_class?.B?.count} C=${sum.by_class?.C?.count}`);
 
+  const sm = await req('GET', '/commercial/inventory/abc/summary', null, token);
+  check('summary shape (by_class{A,B,C}.count + total_value + total_count)',
+    sm.status === 200 && !!sm.body?.by_class?.A && typeof sm.body.total_value === 'number' && typeof sm.body.total_count === 'number',
+    { status: sm.status });
+
   console.log('\n── 3. List (shape válido) ──');
   const all = await req('GET', '/commercial/inventory/abc', null, token);
   const rows = Array.isArray(all.body) ? all.body : [];

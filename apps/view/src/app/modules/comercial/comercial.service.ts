@@ -324,6 +324,50 @@ export interface ExpiringLot {
   value_at_cost: number | string;
 }
 
+export interface AbcRow {
+  warehouse_id: string;
+  warehouse_code: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  abc_class: 'A' | 'B' | 'C';
+  annual_value: number | string;
+  units_window: number | string;
+  value_share: number | string;
+  window_days: number;
+  computed_at: string;
+}
+
+export interface AbcSummary {
+  by_class: Record<'A' | 'B' | 'C', { count: number; value: number }>;
+  total_count: number;
+  total_value: number;
+  computed_at: string | null;
+}
+
+export interface CycleDueItem {
+  warehouse_id: string;
+  warehouse_code: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  abc_class: 'A' | 'B' | 'C';
+  annual_value: number | string;
+  last_counted_at: string | null;
+  cadence_days: number;
+  next_due: string | null;
+  is_due: boolean;
+  days_overdue: number | null;
+}
+
+export interface CycleDueResult {
+  cadence_days: Record<'A' | 'B' | 'C', number>;
+  only_due: boolean;
+  count: number;
+  by_class: Record<'A' | 'B' | 'C', number>;
+  items: CycleDueItem[];
+}
+
 export interface Paged<T> {
   data: T[];
   total_amount?: number;
@@ -490,6 +534,34 @@ export class ComercialService {
     if (opts.days != null) params = params.set('days', String(opts.days));
     if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
     return this.http.get<ExpiringLot[]>(`${this.base}/inventory/expiring`, { params });
+  }
+
+  // ── ABC + conteo cíclico (Fase ABC) ─────────────────────────────────
+  abcSummary(warehouseId?: string) {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http.get<AbcSummary>(`${this.base}/inventory/abc/summary`, { params });
+  }
+  listAbc(opts: { warehouse_id?: string; abc_class?: string } = {}) {
+    let params = new HttpParams();
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    if (opts.abc_class) params = params.set('abc_class', opts.abc_class);
+    return this.http.get<AbcRow[]>(`${this.base}/inventory/abc`, { params });
+  }
+  refreshAbc(windowDays?: number) {
+    return this.http.post<{ classified: number; window_days: number; by_class: Record<string, { count: number; value: number }> }>(
+      `${this.base}/inventory/abc/refresh`, { window_days: windowDays });
+  }
+  cycleDue(opts: { warehouse_id?: string; abc_class?: string; only_due?: boolean } = {}) {
+    let params = new HttpParams();
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    if (opts.abc_class) params = params.set('abc_class', opts.abc_class);
+    if (opts.only_due === false) params = params.set('only_due', 'false');
+    return this.http.get<CycleDueResult>(`${this.base}/inventory/abc/cycle-due`, { params });
+  }
+  generateCycleFolios(body: { warehouse_id?: string; max_items?: number }) {
+    return this.http.post<{ warehouses_due: number; folios_created: number; skipped: number; errors: number }>(
+      `${this.base}/inventory/abc/generate-cycle-folios`, body);
   }
 
   // ── Orders ─────────────────────────────────────────────────────────

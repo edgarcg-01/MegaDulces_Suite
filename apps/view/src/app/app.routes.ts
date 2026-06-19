@@ -138,6 +138,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
+        // ABC.3b — conteo cíclico (clasificación ABC + agenda)
+        path: 'inventory/abc',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-abc.component').then(m => m.ComercialInventoryAbcComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]
