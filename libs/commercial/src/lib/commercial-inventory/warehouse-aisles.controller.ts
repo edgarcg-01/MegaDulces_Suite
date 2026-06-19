@@ -59,14 +59,4 @@ export class WarehouseAislesController {
   assign(@Body() body: AssignSkusDto) {
     return this.service.assignSkus(body);
   }
-
-  @Post('plan')
-  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
-  @ApiOperation({
-    summary:
-      'Genera el plan de equipos: 1 supervisor/pasillo (o clusters) + contadores proporcionales a unidades. No persiste (eso es PA.3). Body: {warehouse_id, supervisor_ids?, counter_ids?, min_counters?} — PA.2',
-  })
-  plan(@Body() body: { warehouse_id: string; supervisor_ids?: string[]; counter_ids?: string[]; min_counters?: number }) {
-    return this.service.generateTeamPlan(body);
-  }
 }

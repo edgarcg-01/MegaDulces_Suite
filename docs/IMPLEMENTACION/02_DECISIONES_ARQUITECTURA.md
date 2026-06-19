@@ -746,6 +746,8 @@ Capas:
 
 **Plan:** Fases PA.0–PA.4 en [`FASES/FASE_PASILLOS_EQUIPOS.md`](FASES/FASE_PASILLOS_EQUIPOS.md).
 
+**Addendum 2026-06-19 (reparto PAREJO, no proporcional):** sobre el punto 4 — el reparto de contadores es **parejo** (contadores ÷ pasillos, resto de a 1; equipos difieren máx. 1), NO proporcional-a-unidades. Se construyó el proporcional (PA.2) y luego se **eliminó** por decisión del usuario (simplicidad > optimización de carga). El generador vive en el tablero por folio (`generate-teams`). Reintroducir proporcional como `mode` si el negocio lo pide.
+
 ---
 
 ## Cómo agregar un ADR nuevo

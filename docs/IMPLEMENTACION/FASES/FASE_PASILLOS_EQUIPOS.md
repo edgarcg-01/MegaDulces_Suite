@@ -1,6 +1,6 @@
 # Fase PA — Pasillos 2D + equipos de conteo
 
-> **Estado: 🔨 PA.0 + PA.1 (a+b) + PA.2 + PA.3 EN CÓDIGO — 2026-06-19.** Layout de pasillos (schema + backend + editor 2D) + generador + **tablero de asignación por folio** (persiste supervisor/contadores por pasillo). Siguiente: PA.4 (scoping del conteo por pasillo). **⚠️ Divergencia de generador:** PA.2 (`/aisles/plan`) reparte **proporcional a unidades** (compute, mío); PA.3 (`/counts/:id/generate-teams`) reparte **parejo** y **persiste** (decisión del usuario). El tablero usa el parejo; el proporcional queda como preview alternativo — reconciliar (ver Riesgos). Extensión de la Fase I (conteo físico) y de la Fase ABC (conteo cíclico). Organiza el conteo por **pasillos** (zonas 2D del almacén), con **1 supervisor por pasillo** y un **equipo de contadores proporcional** a cada uno. Decisión en [ADR-024](../02_DECISIONES_ARQUITECTURA.md).
+> **Estado: 🔨 PA.0 + PA.1 (a+b) + PA.3 EN CÓDIGO — 2026-06-19.** Layout de pasillos (schema + backend + editor 2D) + **tablero de asignación por folio** que persiste supervisor/contadores por pasillo, con **generador PAREJO** (contadores ÷ pasillos). Siguiente: PA.4 (scoping del conteo por pasillo). **Reparto = PAREJO** (decisión del usuario 2026-06-19; el generador proporcional-por-unidades de PA.2/ADR-024 fue **eliminado**). Extensión de la Fase I (conteo físico) y de la Fase ABC (conteo cíclico). Organiza el conteo por **pasillos** (zonas 2D del almacén), con **1 supervisor por pasillo** y un **equipo de contadores proporcional** a cada uno. Decisión en [ADR-024](../02_DECISIONES_ARQUITECTURA.md).
 
 ## Objetivo
 
@@ -10,7 +10,7 @@ Pasar del conteo con **lista plana de personas por folio** (lo que hay hoy) a un
 
 1. **Dominio:** conteo de inventario (almacén), no auditoría de tienda.
 2. **Data de pasillos:** **alta manual por almacén** (el ERP no la trae — `location` = `Z000` en los 11,109 productos). El sistema gestiona el concepto.
-3. **Proporcional a:** **unidades físicas** (`Σ stock.quantity` por pasillo). *Caveat:* el esfuerzo real es más `#SKUs` que unidades; la carga se implementa como **fórmula tuneable** (`unidades`, o `α·SKUs + β·unidades`) para corregir sin re-armar.
+3. **Reparto de contadores:** **PAREJO** (contadores ÷ pasillos; equipos difieren máx. 1). *(Cambio 2026-06-19: originalmente proporcional-a-unidades en ADR-024; el usuario lo simplificó a parejo y el generador proporcional fue eliminado.)*
 4. **Layout 2D:** **grilla** (filas × columnas, celda = pasillo; CSS grid, sin librería de mapas). No lienzo libre.
 5. **Asignación de contadores:** **híbrida** — botón "auto-generar" pre-llena un plan proporcional, y se ajusta manualmente arrastrando en el 2D.
 
@@ -50,16 +50,14 @@ commercial.inventory_count_items.aisle_id   -- foto al abrir → particiona el c
 
 FK de `aisle_id` es **de columna simple** a `warehouse_aisles.id` (PK), para permitir `ON DELETE SET NULL` (un FK compuesto con `tenant_id` no puede nullear porque `tenant_id` es NOT NULL). RLS + el flujo de alta garantizan que el pasillo sea del mismo tenant.
 
-## Algoritmo de equipos proporcional (unidades)
+## Algoritmo de equipos (reparto PAREJO)
 
 ```
-w_i = Σ stock.quantity de los SKUs del pasillo i        (carga tuneable)
-W   = Σ w_i ;  pool del día: S supervisores, C contadores
-SUPERVISOR: S ≥ n → 1 por pasillo ; S < n → clusters balanceados (bin-packing LPT)
-CONTADORES: c_i = max(min, round(C · w_i / W)) ; ajustar redondeo → Σ c_i = C
-            min = 2 si doble-conteo ciego, si no 1
-EDGE: C < n·min → conteo por olas o avisar "faltan contadores"
+pool del día: S supervisores, C contadores ; n pasillos
+SUPERVISOR: 1 por pasillo, en orden (sobran si S>n; si S<n quedan pasillos sin supervisor)
+CONTADORES: base = ⌊C/n⌋ ; los primeros (C mod n) pasillos reciben +1 → equipos difieren máx. 1
 ```
+**Decisión 2026-06-19: reparto PAREJO** (contadores ÷ pasillos), no proporcional-a-unidades. El generador proporcional (PA.2) se construyó y luego se **eliminó** por esta decisión. (Si en el futuro se quiere proporcional, reintroducir como `mode` en `generate-teams`.)
 
 ## Fases
 
@@ -68,7 +66,7 @@ EDGE: C < n·min → conteo por olas o avisar "faltan contadores"
 | **PA.0** | Schema | `warehouse_aisles` (+coords 2D) + `stock.aisle_id` + `assignments.aisle_id` (+unique) + `items.aisle_id`. Permiso (reusa `COMMERCIAL_INVENTORY_ASIGNAR`). |
 | **PA.1a** ✅ código | Backend de layout | ✅ 2026-06-19: `WarehouseAislesService` + `/commercial/inventory/aisles` (gate ASIGNAR): CRUD de pasillos (grid_row/col + span), `GET` con **carga por pasillo** (unidades + #SKUs) + bucket "Sin pasillo", **`POST .../assign`** mapeo **bulk** SKU→pasillo por filtro (product_ids / brand_id / abc_class / rango SKU / only_unassigned; `aisle_id=null` des-asigna). Guards: código único (409), borrar bloqueado si folio abierto lo usa, assign exige filtro. Build verde + smoke PA.1. ⏳ reinicio para verde live. |
 | **PA.1b** ✅ código | Editor 2D (UI) | ✅ 2026-06-19: página `/comercial/inventory/aisles` (tab "Pasillos", gate ASIGNAR). Surface Operations: **grilla CSS 2D** (celda = pasillo en su `grid_row/col`+span, con código/nombre/carga + barra de carga), select→**panel lateral** (editar nombre/posición + borrar con confirm + **asignación bulk** SKU→pasillo en 4 modos: marca/clase ABC/rango SKU/sin-asignar), tile "Sin pasillo", dialog "Nuevo pasillo". + endpoint backend `GET .../aisles/brands` (marcas con stock en el almacén, para el dropdown). Build view+api verde. ⏳ QA visual + reinicio. |
-| **PA.2** ✅ código | Generador proporcional | ✅ 2026-06-19: `WarehouseAislesService.generateTeamPlan` + `POST /commercial/inventory/aisles/plan` (gate ASIGNAR). 1 supervisor/pasillo (S≥n) o **clusters balanceados LPT** (S<n); contadores **proporcionales a unidades** (`c_i = max(min, round(C·w_i/W))`, ajuste de redondeo → Σ=C). Pool = supervisor_ids/counter_ids del día (default: todos los asignables por permiso). **No persiste** (eso es PA.3). Build verde + smoke PA.2 (1:1 sup / proporción / cluster). ⏳ reinicio. |
+| ~~PA.2~~ ❌ eliminado | ~~Generador proporcional~~ | ❌ 2026-06-19: se construyó un generador proporcional-a-unidades (`/aisles/plan`) pero el usuario decidió **reparto parejo**; el proporcional + su smoke fueron **eliminados** (commit de PA.3). El generador vive en PA.3 (`generate-teams`, parejo). |
 | **PA.3** ✅ código | Tablero de asignación 2D | ✅ 2026-06-19: `InventoryTeamService` + `InventoryTeamController` (`GET/POST /commercial/inventory/counts/:id/aisle-teams`, `POST .../generate-teams`): tablero por folio que persiste supervisor + contadores **por pasillo** en `inventory_count_assignments.aisle_id`. **Generador PAREJO** (contadores ÷ pasillos, resto de a 1 — decisión del usuario, override del proporcional). Frontend `/comercial/inventory/sessions/:id/teams` (grilla 2D, pool del día, auto-generar + ajuste manual por pasillo) + botón "Equipos por pasillo" en el detalle del folio. Build view+api verde + smoke PA.3. ⏳ reinicio + QA visual. |
 | **PA.4** | Scoping del conteo | Contador ve su pasillo / supervisor su avance + freeze-por-pasillo + reportes por pasillo. |
 
@@ -80,7 +78,7 @@ EDGE: C < n·min → conteo por olas o avisar "faltan contadores"
 - **Carga = unidades** puede sobre-staffear pasillos con poco surtido y mucho volumen → fórmula tuneable.
 - **Mundo `inventory.warehouse_stock` (Kepler SKU):** PA arranca sobre `commercial.stock` (UUID). El otro mundo = fase posterior.
 - **Supervisores < pasillos:** clustering balanceado (cubre-varios), no bloquear.
-- **Generador parejo (PA.3) vs proporcional (PA.2):** el usuario decidió **parejo** para el tablero que persiste (contadores ÷ pasillos). El `/aisles/plan` proporcional-por-unidades (PA.2, ADR-024) queda como **preview/alternativo** y NO lo usa el tablero. Decidir: (a) dejar ambos (parejo persiste, proporcional como preview), (b) que `generate-teams` acepte un `mode` (parejo|proporcional), o (c) eliminar el proporcional. **Pendiente de elección.**
+- **Generador parejo (PA.3):** ✅ resuelto 2026-06-19 — el usuario eligió **parejo** y se **eliminó** el proporcional (PA.2 `/aisles/plan` + su smoke). Si se quiere proporcional a futuro, reintroducir como `mode` en `generate-teams`.
 
 ## Relacionado
 - [ADR-024](../02_DECISIONES_ARQUITECTURA.md) (decisión).

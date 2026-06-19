@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Changed — reparto de equipos = PAREJO (se eliminó el generador proporcional PA.2)
+- Decisión del usuario 2026-06-19: el reparto de contadores por pasillo es **parejo** (contadores ÷ pasillos),
+  no proporcional-a-unidades. Se **eliminó** el generador proporcional de PA.2 (`WarehouseAislesService.generateTeamPlan`,
+  `POST /commercial/inventory/aisles/plan`, y su smoke `http-inventory-team-plan-test.js`). El generador
+  vive en el tablero por folio (PA.3 `generate-teams`, parejo). Addendum en ADR-024. Reintroducir proporcional
+  como `mode` si se necesita.
+
 ### Added — PA.3: tablero de equipos por folio (staffing por pasillo) + smoke
 - `InventoryTeamService` + `InventoryTeamController`: `GET/POST /commercial/inventory/counts/:id/aisle-teams`
   (board + set manual) y `POST .../generate-teams` (auto-generar). Persiste supervisor + contadores **por
