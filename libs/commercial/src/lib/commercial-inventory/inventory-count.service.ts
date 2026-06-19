@@ -191,11 +191,12 @@ export class InventoryCountService {
           subset ? [count.id, dto.warehouse_id, dto.product_ids] : [count.id, dto.warehouse_id],
         );
       } else {
-        // por product_id desde commercial.stock
+        // por product_id desde commercial.stock. PA.4: foto del pasillo (s.aisle_id)
+        // al abrir → particiona el conteo por pasillo.
         snapInserted = await trx.raw(
           `INSERT INTO commercial.inventory_count_items
-             (tenant_id, count_id, product_id, location, expected_qty, status)
-           SELECT s.tenant_id, ?, s.product_id, p.location, s.quantity, 'pending'
+             (tenant_id, count_id, product_id, aisle_id, location, expected_qty, status)
+           SELECT s.tenant_id, ?, s.product_id, s.aisle_id, p.location, s.quantity, 'pending'
              FROM commercial.stock s
              LEFT JOIN public.products p ON p.id = s.product_id
             WHERE s.warehouse_id = ? AND s.tenant_id = public.current_tenant_id()
@@ -853,6 +854,38 @@ export class InventoryCountService {
   }
 
   // ───── Asignaciones de personas al folio (Fase I.4) ─────
+
+  /** PA.4 — avance del conteo POR PASILLO (cobertura/discrepancias). (SUPERVISAR) */
+  async aisleProgress(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      const byAisle = await trx.raw(
+        `SELECT a.id AS aisle_id, a.code, a.name, a.grid_row, a.grid_col,
+                COUNT(i.id)::int AS total,
+                COUNT(i.id) FILTER (WHERE i.count_1 IS NOT NULL)::int AS counted,
+                COUNT(i.id) FILTER (WHERE i.count_1 IS NULL)::int AS uncounted,
+                COUNT(i.id) FILTER (WHERE i.status = 'discrepancy')::int AS discrepancies,
+                COUNT(i.id) FILTER (WHERE i.status = 'resolved')::int AS resolved
+           FROM commercial.warehouse_aisles a
+           LEFT JOIN commercial.inventory_count_items i ON i.aisle_id = a.id AND i.count_id = ?
+          WHERE a.warehouse_id = ? AND a.active = true
+          GROUP BY a.id, a.code, a.name, a.grid_row, a.grid_col
+          ORDER BY a.grid_row, a.grid_col`,
+        [countId, count.warehouse_id],
+      );
+      const un = await trx.raw(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE count_1 IS NOT NULL)::int AS counted,
+                COUNT(*) FILTER (WHERE count_1 IS NULL)::int AS uncounted,
+                COUNT(*) FILTER (WHERE status = 'discrepancy')::int AS discrepancies
+           FROM commercial.inventory_count_items
+          WHERE count_id = ? AND aisle_id IS NULL`,
+        [countId],
+      );
+      return { status: count.status, aisles: byAisle.rows, unassigned: un.rows[0] };
+    });
+  }
 
   /** Usuarios asignables como contador (CONTAR) o supervisor (SUPERVISAR). */
   async assignableUsers(role: 'counter' | 'supervisor') {

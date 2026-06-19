@@ -182,6 +182,13 @@ export class InventoryCountController {
     return this.service.getProgress(id);
   }
 
+  @Get(':id/aisle-progress')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'Avance del conteo POR PASILLO (cobertura/discrepancias) + bucket sin pasillo — PA.4' })
+  aisleProgress(@Param('id') id: string) {
+    return this.service.aisleProgress(id);
+  }
+
   @Get(':id/items')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Items del folio con teórico + varianza (no para contadores)' })

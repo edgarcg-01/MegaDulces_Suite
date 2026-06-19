@@ -3,8 +3,8 @@
  * PA.3 — Smoke HTTP del tablero de equipos por folio (staffing por pasillo).
  *
  * Almacén dedicado + 2 pasillos (2 SKUs c/u) + folio abierto → board, auto-generar
- * (parejo), set manual. user_id sin FK → pool sintético (UUIDs random). Cancela el
- * folio + borra pasillos/almacén en teardown.
+ * (parejo), set manual, **PA.4 aisle-progress** (items.aisle_id stampeado al abrir).
+ * user_id sin FK → pool sintético (UUIDs random). Cancela el folio + borra en teardown.
  *
  * Requiere API en :3334 con InventoryTeam{Service,Controller} (reiniciar tras PA.3).
  *   node database/tests/http-inventory-aisle-teams-test.js
@@ -76,6 +76,15 @@ function check(name, cond, detail) {
     const tm = set.body?.teams || [];
     const ta = tm.find((a) => a.aisle_id === aA), tb = tm.find((a) => a.aisle_id === aB);
     check('set manual aplicado (A=4, B=0)', ta?.counters.length === 4 && tb?.counters.length === 0, { a: ta?.counters.length, b: tb?.counters.length });
+
+    console.log('\n── 5. PA.4: aisle-progress (items.aisle_id stampeado al abrir) ──');
+    const prog = await req('GET', `/commercial/inventory/counts/${countId}/aisle-progress`, null, token);
+    const pAisles = prog.body?.aisles || [];
+    const pa = pAisles.find((x) => x.aisle_id === aA), pb = pAisles.find((x) => x.aisle_id === aB);
+    check('aisle-progress: pasillo A con 2 items (aisle_id stampeado al abrir)', Number(pa?.total) === 2, { a: pa });
+    check('aisle-progress: pasillo B con 2 items', Number(pb?.total) === 2, { b: pb });
+    check('aisle-progress: 0 items sin pasillo (todo mapeado)', Number(prog.body?.unassigned?.total) === 0, { un: prog.body?.unassigned });
+    check('aisle-progress: counted=0 (nada contado aún)', Number(pa?.counted) === 0, { counted: pa?.counted });
   } finally {
     if (countId) await req('POST', `/commercial/inventory/counts/${countId}/cancel`, { reason: 'smoke teardown' }, token).catch(() => {});
     if (aA) await req('DELETE', `/commercial/inventory/aisles/${aA}`, null, token).catch(() => {});

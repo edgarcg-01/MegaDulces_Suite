@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — PA.4a: conteo particionado por pasillo (foundation + avance por pasillo)
+- `openCount` ahora **stampa `items.aisle_id`** desde `commercial.stock.aisle_id` al abrir el folio (modo
+  commercial) → el conteo queda particionado por pasillo. (Modo inventory/SKU: aisle_id null, fase posterior.)
+- `aisleProgress(countId)` + **`GET /commercial/inventory/counts/:id/aisle-progress`** (gate SUPERVISAR):
+  por pasillo → total / contados / sin contar / discrepancias / resueltos, + bucket "sin pasillo".
+- Build api verde + checks en el smoke PA.3+PA.4 (2 pasillos × 2 items stampeados, 0 sin pasillo). ⏳ reinicio.
+  Siguiente PA.4b: el contador cuenta SOLO su pasillo (submitCount enforce) + freeze por pasillo.
+
 ### Changed — reparto de equipos = PAREJO (se eliminó el generador proporcional PA.2)
 - Decisión del usuario 2026-06-19: el reparto de contadores por pasillo es **parejo** (contadores ÷ pasillos),
   no proporcional-a-unidades. Se **eliminó** el generador proporcional de PA.2 (`WarehouseAislesService.generateTeamPlan`,
