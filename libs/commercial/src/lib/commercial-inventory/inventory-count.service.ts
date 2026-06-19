@@ -62,6 +62,12 @@ export interface SubmitCountDto {
   quantity: number;
   /** Forzar tercer conteo (reconteo ordenado por supervisor). */
   recount?: boolean;
+  /** OFF.0 — idempotencia offline: UUID del escaneo generado en el cliente.
+   *  Si ya se aplicó (replay de la cola), submitCount es no-op. */
+  scan_uuid?: string;
+  /** OFF.0 — fase (1|2) en que se CAPTURÓ el escaneo, para colocar el slot
+   *  correcto al sincronizar aunque el folio ya haya avanzado de fase. */
+  capture_pass?: number;
 }
 
 export interface ResolveItemDto {
@@ -293,10 +299,26 @@ export class InventoryCountService {
     const result = await this.tk.run(async (trx) => {
       const uid = this.userId();
 
+      // OFF.0 — FOR UPDATE: serializa por folio (excluye con reconcile) → ni el
+      // status ni current_pass cambian entre la lectura y la escritura. A ritmo
+      // humano de conteo la serialización por folio es imperceptible.
       const count = await trx('commercial.inventory_counts')
         .where({ id: countId })
+        .forUpdate()
         .first();
       if (!count) throw new NotFoundException('Folio no encontrado');
+
+      // OFF.0 — idempotencia: si este escaneo ya se aplicó (replay de la cola
+      // offline), no-op. Se chequea ANTES de los guards: un escaneo ya aplicado
+      // no debe re-evaluarse (p. ej. si el folio avanzó o cerró después).
+      if (dto.scan_uuid) {
+        const prior = await trx('commercial.inventory_count_scan_log')
+          .where({ count_id: countId, scan_uuid: dto.scan_uuid })
+          .first();
+        if (prior)
+          return { ok: true, duplicate: true, item_id: prior.item_id, slot: prior.slot, quantity: dto.quantity } as any;
+      }
+
       if (count.status !== 'counting' && count.status !== 'review')
         throw new ConflictException(
           `El folio está en estado '${count.status}'; no admite conteos.`,
@@ -369,14 +391,16 @@ export class InventoryCountService {
         [item] = await trx('commercial.inventory_count_items').insert(insertRow).returning('*');
       }
 
-      // Selección de slot según la FASE estricta del folio:
-      //   counting + pass 1 → count_1
-      //   counting + pass 2 → count_2 (ciego: contador distinto al de la 1ra pasada)
-      //   review            → count_3 (reconteo de discrepancias ordenado por supervisor)
+      // Selección de slot. OFF.0: si el escaneo trae capture_pass (cola offline),
+      // se coloca según la fase EN QUE SE CAPTURÓ, no la fase actual del folio →
+      // un count_1 encolado no se desvía a count_2 si el folio avanzó (preserva el
+      // doble-conteo ciego en replay). Online (sin capture_pass) = igual que antes.
       const patch: Record<string, any> = { updated_at: trx.fn.now(), updated_by: uid };
-      const pass = Number(count.current_pass) || 1;
+      const livePass = Number(count.current_pass) || 1;
+      const cp = dto.capture_pass === 1 || dto.capture_pass === 2 ? dto.capture_pass : null;
+      const effectivePass = cp ?? livePass;
       let slot: string;
-      if (count.status === 'review' || dto.recount) {
+      if (dto.recount || (count.status === 'review' && cp == null)) {
         // Segregación del desempate: el 3er conteo no lo puede hacer quien ya
         // contó este SKU en la 1ra o 2da pasada (si no, no rompe el empate de
         // forma independiente). Que lo cuente otra persona, o que el supervisor
@@ -389,7 +413,7 @@ export class InventoryCountService {
         patch.count_3 = dto.quantity;
         patch.counted_by_3 = uid;
         patch.counted_at_3 = trx.fn.now();
-      } else if (pass >= 2) {
+      } else if (effectivePass >= 2) {
         // Segundo conteo ciego: no podés verificar un SKU que vos mismo contaste
         // en la primera pasada (segregación). Re-escanear tu propio count_2 = corrige.
         if (uid && item.counted_by_1 === uid && item.count_2 == null) {
@@ -413,6 +437,21 @@ export class InventoryCountService {
         .where({ id: item.id })
         .update(patch);
 
+      // OFF.0 — registra el escaneo en el idempotency store (replay = no-op).
+      if (dto.scan_uuid) {
+        await trx('commercial.inventory_count_scan_log')
+          .insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            count_id: countId,
+            scan_uuid: dto.scan_uuid,
+            item_id: item.id,
+            slot,
+            applied_by: uid,
+          })
+          .onConflict(['tenant_id', 'count_id', 'scan_uuid'])
+          .ignore();
+      }
+
       // Identificación del producto para confirmar qué escaneó (no es dato ciego).
       let sku = productSku;
       let name = prodName;
@@ -432,6 +471,7 @@ export class InventoryCountService {
         ok: true,
         item_id: item.id,
         slot,
+        scan_uuid: dto.scan_uuid ?? null,
         product_id: productId,
         sku,
         product_name: name,
@@ -439,14 +479,17 @@ export class InventoryCountService {
         quantity: dto.quantity,
       };
     });
-    this.emitMonitor(countId, {
-      type: 'count',
-      slot: result.slot,
-      sku: result.sku,
-      product_name: result.product_name,
-      qty: result.quantity,
-      username: this.tenantCtx.get()?.username ?? null,
-    });
+    // OFF.0 — no re-emitimos en replays idempotentes (ya se emitió la 1ra vez).
+    if (!(result as any).duplicate) {
+      this.emitMonitor(countId, {
+        type: 'count',
+        slot: result.slot,
+        sku: (result as any).sku,
+        product_name: (result as any).product_name,
+        qty: result.quantity,
+        username: this.tenantCtx.get()?.username ?? null,
+      });
+    }
     return result;
   }
 
