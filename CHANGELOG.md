@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — PA.1a: backend de pasillos (CRUD + mapeo bulk SKU→pasillo + carga)
+- `WarehouseAislesService` + **`/commercial/inventory/aisles`** (gate `COMMERCIAL_INVENTORY_ASIGNAR`):
+  CRUD de pasillos (posición 2D `grid_row/col` + `span`); `GET ?warehouse_id=` devuelve cada pasillo con su
+  **carga** (unidades = `Σ quantity` + `#SKUs`) + el bucket **"Sin pasillo"**; **`POST .../assign`** mapea
+  SKUs→pasillo en **bulk** por filtro (`product_ids` / `brand_id` / `abc_class` / rango SKU / `only_unassigned`;
+  `aisle_id=null` des-asigna).
+- Guards: código único por almacén (409), borrar pasillo **bloqueado si un folio abierto lo usa**, `assign`
+  exige al menos un filtro (anti assign-all accidental). Setear `stock.aisle_id` NO dispara el trigger FEFO.
+- Build api verde + smoke PA.1 (`http-inventory-aisles-test.js`, registrado). ⏳ requiere **reinicio**.
+
 ### Added — PA.0: schema de pasillos 2D + dimensión de pasillo en el conteo (ADR-024)
 - Arranca la **Fase PA** (conteo zonificado): el almacén se divide en **pasillos 2D**, 1 supervisor/pasillo,
   equipo de contadores proporcional. Diseño en `FASES/FASE_PASILLOS_EQUIPOS.md` + **ADR-024**.

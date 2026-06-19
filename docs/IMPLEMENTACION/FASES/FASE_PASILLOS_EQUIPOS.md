@@ -1,6 +1,6 @@
 # Fase PA — Pasillos 2D + equipos de conteo
 
-> **Estado: 🔵 DISEÑO + PA.0 en curso — 2026-06-19.** Extensión de la Fase I (conteo físico) y de la Fase ABC (conteo cíclico). Organiza el conteo por **pasillos** (zonas 2D del almacén), con **1 supervisor por pasillo** y un **equipo de contadores proporcional** a cada uno. Decisión en [ADR-024](../02_DECISIONES_ARQUITECTURA.md).
+> **Estado: 🔨 PA.0 + PA.1a EN CÓDIGO — 2026-06-19.** Extensión de la Fase I (conteo físico) y de la Fase ABC (conteo cíclico). Organiza el conteo por **pasillos** (zonas 2D del almacén), con **1 supervisor por pasillo** y un **equipo de contadores proporcional** a cada uno. Decisión en [ADR-024](../02_DECISIONES_ARQUITECTURA.md).
 
 ## Objetivo
 
@@ -66,7 +66,8 @@ EDGE: C < n·min → conteo por olas o avisar "faltan contadores"
 | Fase | Tema | Entrega |
 |---|---|---|
 | **PA.0** | Schema | `warehouse_aisles` (+coords 2D) + `stock.aisle_id` + `assignments.aisle_id` (+unique) + `items.aisle_id`. Permiso (reusa `COMMERCIAL_INVENTORY_ASIGNAR`). |
-| **PA.1** | Editor de layout 2D | CRUD de pasillos posicionados en grilla + asignación **bulk** SKU→pasillo (por marca/ABC/rango + "Sin pasillo"). Backend + UI. **La fundación.** |
+| **PA.1a** ✅ código | Backend de layout | ✅ 2026-06-19: `WarehouseAislesService` + `/commercial/inventory/aisles` (gate ASIGNAR): CRUD de pasillos (grid_row/col + span), `GET` con **carga por pasillo** (unidades + #SKUs) + bucket "Sin pasillo", **`POST .../assign`** mapeo **bulk** SKU→pasillo por filtro (product_ids / brand_id / abc_class / rango SKU / only_unassigned; `aisle_id=null` des-asigna). Guards: código único (409), borrar bloqueado si folio abierto lo usa, assign exige filtro. Build verde + smoke PA.1. ⏳ reinicio para verde live. |
+| **PA.1b** ⬜ | Editor 2D (UI) | Grilla CSS (celda = pasillo, crear/posicionar) + panel de asignación **bulk** SKU→pasillo + carga visual por celda. Verificación visual. |
 | **PA.2** | Generador proporcional | Algoritmo unidades → plan (1 sup + N contadores por pasillo). Endpoint "generar plan". |
 | **PA.3** | Tablero de asignación 2D | Por folio: supervisor + contadores por pasillo, auto-generar + ajuste manual en el 2D. |
 | **PA.4** | Scoping del conteo | Contador ve su pasillo / supervisor su avance + freeze-por-pasillo + reportes por pasillo. |
