@@ -144,6 +144,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
       },
       {
+        // PA.1b — editor 2D de pasillos (layout + mapeo bulk SKU→pasillo)
+        path: 'inventory/aisles',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-aisles.component').then(m => m.ComercialInventoryAislesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
         path: 'warehouses',
         loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]

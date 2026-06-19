@@ -62,6 +62,21 @@ export class WarehouseAislesService {
     });
   }
 
+  /** Marcas CON stock en el almacén (para el dropdown de asignación bulk). */
+  async brandsInWarehouse(warehouseId: string) {
+    if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      return trx('commercial.stock as s')
+        .join('public.products as p', 'p.id', 's.product_id')
+        .join('public.brands as b', 'b.id', 'p.brand_id')
+        .where('s.warehouse_id', warehouseId)
+        .groupBy('b.id', 'b.nombre')
+        .select('b.id', 'b.nombre')
+        .select(trx.raw('COUNT(DISTINCT s.product_id)::int as sku_count'))
+        .orderBy('b.nombre', 'asc');
+    });
+  }
+
   async createAisle(dto: CreateAisleDto) {
     if (!UUID.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     if (!dto.code?.trim()) throw new BadRequestException('code requerido');

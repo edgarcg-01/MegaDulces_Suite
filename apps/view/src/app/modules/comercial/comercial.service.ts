@@ -368,6 +368,26 @@ export interface CycleDueResult {
   items: CycleDueItem[];
 }
 
+export interface WarehouseAisle {
+  id: string;
+  code: string;
+  name: string | null;
+  grid_row: number;
+  grid_col: number;
+  span_rows: number;
+  span_cols: number;
+  active: boolean;
+  sku_count?: number;
+  units?: number | string;
+}
+
+export interface AisleList {
+  aisles: WarehouseAisle[];
+  unassigned: { sku_count: number; units: number | string };
+}
+
+export interface AisleBrand { id: string; nombre: string; sku_count: number; }
+
 export interface Paged<T> {
   data: T[];
   total_amount?: number;
@@ -562,6 +582,26 @@ export class ComercialService {
   generateCycleFolios(body: { warehouse_id?: string; max_items?: number }) {
     return this.http.post<{ warehouses_due: number; folios_created: number; skipped: number; errors: number }>(
       `${this.base}/inventory/abc/generate-cycle-folios`, body);
+  }
+
+  // ── Pasillos 2D (Fase PA) ───────────────────────────────────────────
+  listAisles(warehouseId: string) {
+    return this.http.get<AisleList>(`${this.base}/inventory/aisles`, { params: new HttpParams().set('warehouse_id', warehouseId) });
+  }
+  aisleBrands(warehouseId: string) {
+    return this.http.get<AisleBrand[]>(`${this.base}/inventory/aisles/brands`, { params: new HttpParams().set('warehouse_id', warehouseId) });
+  }
+  createAisle(body: { warehouse_id: string; code: string; name?: string; grid_row?: number; grid_col?: number; span_rows?: number; span_cols?: number }) {
+    return this.http.post<WarehouseAisle>(`${this.base}/inventory/aisles`, body);
+  }
+  updateAisle(id: string, body: Partial<{ code: string; name: string; grid_row: number; grid_col: number; span_rows: number; span_cols: number; active: boolean }>) {
+    return this.http.patch<WarehouseAisle>(`${this.base}/inventory/aisles/${id}`, body);
+  }
+  deleteAisle(id: string) {
+    return this.http.delete<{ ok: boolean }>(`${this.base}/inventory/aisles/${id}`);
+  }
+  assignSkusToAisle(body: { warehouse_id: string; aisle_id: string | null; filter: { product_ids?: string[]; brand_id?: string; abc_class?: string; sku_from?: string; sku_to?: string; only_unassigned?: boolean } }) {
+    return this.http.post<{ updated: number }>(`${this.base}/inventory/aisles/assign`, body);
   }
 
   // ── Orders ─────────────────────────────────────────────────────────

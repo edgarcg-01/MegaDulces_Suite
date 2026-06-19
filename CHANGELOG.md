@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — PA.1b: editor 2D de pasillos (UI) + endpoint de marcas
+- Página **`/comercial/inventory/aisles`** (tab "Pasillos" en el strip de inventario, gate `ASIGNAR`).
+  Surface Operations (DESIGN.md): **grilla CSS 2D** — cada pasillo en su `grid_row/col`+span, con
+  código/nombre/carga (unidades + #SKUs) + barra de carga; **panel lateral** al seleccionar (editar
+  nombre/posición · borrar con confirm · **asignación bulk** SKU→pasillo en 4 modos: **marca / clase ABC /
+  rango SKU / sin-asignar**); tile "Sin pasillo"; dialog "Nuevo pasillo". `tabular-nums`, in-page hairline.
+- Backend: **`GET /commercial/inventory/aisles/brands`** (marcas con stock en el almacén, para el dropdown
+  de asignación) + `ComercialService` { listAisles, aisleBrands, createAisle, updateAisle, deleteAisle, assignSkusToAisle }.
+- **Layout de pasillos completo** (PA.0 schema + PA.1a backend + PA.1b UI). Build view+api verde.
+  ⏳ QA visual + reinicio. Siguiente: PA.2 (generador de equipos proporcional).
+
 ### Added — PA.1a: backend de pasillos (CRUD + mapeo bulk SKU→pasillo + carga)
 - `WarehouseAislesService` + **`/commercial/inventory/aisles`** (gate `COMMERCIAL_INVENTORY_ASIGNAR`):
   CRUD de pasillos (posición 2D `grid_row/col` + `span`); `GET ?warehouse_id=` devuelve cada pasillo con su

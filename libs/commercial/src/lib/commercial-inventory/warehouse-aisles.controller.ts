@@ -22,6 +22,13 @@ export class WarehouseAislesController {
     return this.service.listAisles(warehouseId);
   }
 
+  @Get('brands')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
+  @ApiOperation({ summary: 'Marcas con stock en el almacén (dropdown de asignación bulk) (?warehouse_id=) — PA.1' })
+  brands(@Query('warehouse_id') warehouseId: string) {
+    return this.service.brandsInWarehouse(warehouseId);
+  }
+
   @Post()
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
   @ApiOperation({ summary: 'Crear pasillo (posición 2D en grilla) — PA.1' })
