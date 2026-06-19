@@ -325,14 +325,21 @@ export class InventoryCountService {
         );
 
       // Opt-in (Fase I.4): si el folio tiene contadores asignados, solo ellos cuentan.
+      // PA.4b: si además están asignados a pasillos específicos (tablero PA.3),
+      // cada contador solo cuenta SKUs de SU(S) pasillo(s).
       const counters = await trx('commercial.inventory_count_assignments')
         .where({ count_id: countId, assignment_role: 'counter' })
-        .select('user_id');
+        .select('user_id', 'aisle_id');
       if (counters.length && !counters.some((a) => a.user_id === uid)) {
         throw new ForbiddenException(
           'No estás asignado como contador de este folio.',
         );
       }
+      // Scoped solo si TODAS mis filas son aisle-scoped; una fila aisle_id NULL =
+      // contador folio-wide (modo I.4) → sin restricción de pasillo.
+      const myAisles = counters.filter((a) => a.user_id === uid).map((a) => a.aisle_id);
+      const aisleScoped = myAisles.length > 0 && myAisles.every((x) => x != null);
+      const myAisleSet = new Set<string>(myAisles.filter(Boolean));
 
       // Resolver producto según la fuente del folio.
       const isInv = count.stock_source === 'inventory';
@@ -372,6 +379,22 @@ export class InventoryCountService {
         .forUpdate()
         .first();
 
+      // PA.4b — scoping por pasillo del contador.
+      if (aisleScoped) {
+        if (item) {
+          if (!item.aisle_id || !myAisleSet.has(item.aisle_id))
+            throw new ForbiddenException(
+              'Este SKU no pertenece a tu pasillo asignado. Si está mal mapeado, avisá al supervisor.',
+            );
+        } else if (myAisleSet.size !== 1) {
+          // sobrante no listado: solo lo da de alta un contador de UN pasillo (sin
+          // ambigüedad de a cuál pertenece). Multi-pasillo → que el supervisor lo mapee.
+          throw new ForbiddenException(
+            'SKU no listado en el conteo y cubrís varios pasillos: pedí al supervisor que lo mapee a un pasillo.',
+          );
+        }
+      }
+
       if (!item) {
         const insertRow: any = {
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -380,6 +403,8 @@ export class InventoryCountService {
           status: 'pending',
           updated_by: uid,
         };
+        // sobrante de un contador aisle-scoped → se atribuye a su (único) pasillo.
+        if (aisleScoped) insertRow.aisle_id = [...myAisleSet][0];
         if (isInv) {
           insertRow.product_sku = productSku;
         } else {

@@ -3,8 +3,10 @@
  * PA.3 — Smoke HTTP del tablero de equipos por folio (staffing por pasillo).
  *
  * Almacén dedicado + 2 pasillos (2 SKUs c/u) + folio abierto → board, auto-generar
- * (parejo), set manual, **PA.4 aisle-progress** (items.aisle_id stampeado al abrir).
- * user_id sin FK → pool sintético (UUIDs random). Cancela el folio + borra en teardown.
+ * (parejo), set manual, **PA.4a aisle-progress** (items.aisle_id stampeado al abrir)
+ * + **PA.4b scoping** (superoot scoped a A: cuenta A ok, B → 403, sobrante → A).
+ * user_id sin FK → pool sintético (UUIDs random); el scoping usa al propio superoot.
+ * Cancela el folio + borra en teardown.
  *
  * Requiere API en :3334 con InventoryTeam{Service,Controller} (reiniciar tras PA.3).
  *   node database/tests/http-inventory-aisle-teams-test.js
@@ -34,7 +36,9 @@ function check(name, cond, detail) {
   if (!token) process.exit(1);
 
   const stock = await req('GET', '/commercial/inventory/stock?pageSize=50', null, token);
-  const pids = [...new Set((stock.body?.data || stock.body || []).map((s) => s.product_id).filter(Boolean))].slice(0, 4);
+  const allPids = [...new Set((stock.body?.data || stock.body || []).map((s) => s.product_id).filter(Boolean))];
+  const pids = allPids.slice(0, 4);
+  const surplusId = allPids.slice(4, 5)[0]; // 5to SKU del catálogo, NO sembrado en este almacén → sobrante
   check('4 product_id de muestra', pids.length === 4, { n: pids.length });
   if (pids.length < 4) process.exit(1);
 
@@ -85,6 +89,23 @@ function check(name, cond, detail) {
     check('aisle-progress: pasillo B con 2 items', Number(pb?.total) === 2, { b: pb });
     check('aisle-progress: 0 items sin pasillo (todo mapeado)', Number(prog.body?.unassigned?.total) === 0, { un: prog.body?.unassigned });
     check('aisle-progress: counted=0 (nada contado aún)', Number(pa?.counted) === 0, { counted: pa?.counted });
+
+    console.log('\n── 6. PA.4b: scoping del contador (superoot = contador SOLO de A) ──');
+    const myId = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString()).sub;
+    await req('POST', `/commercial/inventory/counts/${countId}/aisle-teams`, {
+      teams: [
+        { aisle_id: aA, supervisor_id: sup[0], counter_ids: [myId] },     // YO cuento A
+        { aisle_id: aB, supervisor_id: sup[1], counter_ids: [randomUUID()] },
+      ],
+    }, token);
+    const okA = await req('POST', `/commercial/inventory/counts/${countId}/count`, { product_id: pids[0], quantity: 7 }, token);
+    check('cuenta SKU de MI pasillo (A) → ok', okA.status === 200 || okA.status === 201, { status: okA.status, body: okA.body });
+    const denyB = await req('POST', `/commercial/inventory/counts/${countId}/count`, { product_id: pids[2], quantity: 3 }, token);
+    check('rechaza SKU de OTRO pasillo (B) → 403', denyB.status === 403, { status: denyB.status, body: denyB.body });
+    if (surplusId) {
+      const sur = await req('POST', `/commercial/inventory/counts/${countId}/count`, { product_id: surplusId, quantity: 1 }, token);
+      check('sobrante no listado se atribuye a MI pasillo (ok)', sur.status === 200 || sur.status === 201, { status: sur.status, body: sur.body });
+    }
   } finally {
     if (countId) await req('POST', `/commercial/inventory/counts/${countId}/cancel`, { reason: 'smoke teardown' }, token).catch(() => {});
     if (aA) await req('DELETE', `/commercial/inventory/aisles/${aA}`, null, token).catch(() => {});
