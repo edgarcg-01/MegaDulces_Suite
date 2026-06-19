@@ -63,6 +63,7 @@ export const permissionToSubject: Record<string, AppSubject> = {
   [Permission.CAPTURE_TICKET_USE]: 'capture_ticket',
   [Permission.ROUTE_TICKET_CAPTURE]: 'route_ticket',
   [Permission.ROUTE_CONTROL_VER]: 'route_ticket',
+  [Permission.VENDOR_APP_ACCESS]: 'vendor_app',
 };
 
 const permissionToAction: Record<string, Action | Action[]> = {
@@ -126,6 +127,7 @@ const permissionToAction: Record<string, Action | Action[]> = {
   [Permission.CAPTURE_TICKET_USE]: 'read',
   [Permission.ROUTE_TICKET_CAPTURE]: ['read', 'create', 'update'],
   [Permission.ROUTE_CONTROL_VER]: 'read',
+  [Permission.VENDOR_APP_ACCESS]: 'read',
 };
 
 export function buildAbility(permissions: Record<string, boolean>): AppAbility {

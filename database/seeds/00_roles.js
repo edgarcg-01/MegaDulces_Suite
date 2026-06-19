@@ -67,6 +67,8 @@ exports.seed = async function (knex) {
     COMMERCIAL_TELEVENTA_OPERATE: true,
     // Vendedor con OCR de ticket (Fase V)
     CAPTURE_TICKET_USE: true,
+    // Acceso a la app de vendedor standalone
+    VENDOR_APP_ACCESS: true,
     // Logística (Fase J)
     LOGISTICS_FLEET_VER: true,
     LOGISTICS_FLEET_GESTIONAR: true,
@@ -111,6 +113,8 @@ exports.seed = async function (knex) {
     COMMERCIAL_ORDERS_FULFILL: true,
     COMMERCIAL_PROMOTIONS_VER: true,
     COMMERCIAL_TELEVENTA_VER: true,
+    // Override gerencial: puede entrar a la app de vendedor
+    VENDOR_APP_ACCESS: true,
   };
 
   // Jefe de marketing: análisis + define promociones. Comercial solo lectura.
@@ -153,6 +157,8 @@ exports.seed = async function (knex) {
     COMMERCIAL_ORDERS_CANCELAR: true,
     COMMERCIAL_ORDERS_FULFILL: true,
     COMMERCIAL_PAYMENTS_REGISTRAR: true,
+    // Vendedor de campo: usa la app de vendedor
+    VENDOR_APP_ACCESS: true,
   };
 
   // Nombres canónicos snake_case (se reemplazaron los crípticos `Jefe_M` →

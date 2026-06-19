@@ -4,7 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { HapticService } from '../../../core/services/haptic.service';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 @Component({
   selector: 'app-login',
@@ -17,6 +17,7 @@ export class LoginComponent implements OnInit {
   private fb = inject(FormBuilder);
   private authService = inject(AuthService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   public themeService = inject(ThemeService);
   private haptic = inject(HapticService);
 
@@ -30,6 +31,13 @@ export class LoginComponent implements OnInit {
 
   ngOnInit() {
     // Theme is managed globally by ThemeService
+
+    // El vendorGuard redirige acá con ?denied=vendor cuando el rol no tiene
+    // acceso a la app de vendedor (en vez del antiguo loop infinito).
+    if (this.route.snapshot.queryParamMap.get('denied') === 'vendor') {
+      this.errorMessage =
+        'Tu usuario no tiene acceso a la app de vendedor. Pide a tu administrador el permiso "Acceso a App Vendedor".';
+    }
   }
 
   toggleTheme() {

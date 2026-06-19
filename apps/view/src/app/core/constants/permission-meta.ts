@@ -69,6 +69,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_ORDERS_CANCELAR]: { label: 'Cancelar Pedidos', description: 'Cancelar pedidos y liberar el stock reservado.', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_ORDERS_FULFILL]: { label: 'Surtir Pedidos', description: 'Marcar pedidos como surtidos (consume stock).', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_PAYMENTS_REGISTRAR]: { label: 'Registrar Cobros', description: 'Registrar pagos de pedidos (cash en beta).', category: 'Comercial · Pedidos' },
+  [Permission.VENDOR_APP_ACCESS]: { label: 'Acceso a App Vendedor', description: 'Permite entrar a la app de vendedor standalone (cartera, levantar pedidos, visitas y captura).', category: 'Comercial · Pedidos' },
 
   // Comercial — promociones
   [Permission.COMMERCIAL_PROMOTIONS_VER]: { label: 'Ver Promociones', description: 'Consultar campañas y promociones vigentes.', category: 'Comercial · Promociones' },

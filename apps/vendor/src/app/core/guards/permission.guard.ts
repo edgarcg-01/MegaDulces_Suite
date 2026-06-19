@@ -45,14 +45,11 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
     const hasFallback = legacyPerms ? legacyPerms[requiredPermission] === true : false;
 
     if (!hasAccess && !hasFallback) {
-      const legacyScope = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
-      if (legacyScope || perms.can('read', 'reports_team') || perms.can('read', 'reports_global')) {
-        router.navigate(['/dashboard']);
-      } else {
-        // El vendedor (CAPTURE_TICKET_USE) aterriza en su captura, no en la diaria.
-        const isVendor = legacyPerms ? legacyPerms[Permission.CAPTURE_TICKET_USE] === true : false;
-        router.navigate([isVendor ? '/dashboard/vendor-capture' : '/dashboard/captures']);
-      }
+      // En la app de vendedor standalone NO existen /dashboard ni /captures.
+      // El usuario ya pasó vendorGuard (es vendedor válido): si le falta este
+      // permiso puntual, lo mandamos a su home /vendor — nunca a rutas de otra
+      // app, que con el catch-all '**' provocarían un loop infinito.
+      router.navigate(['/vendor']);
       return false;
     }
 

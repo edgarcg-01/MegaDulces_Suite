@@ -80,6 +80,8 @@ exports.seed = async function (knex) {
     LOGISTICS_CONFIG_GESTIONAR: true,
     // Fase V — Vendedor con OCR de ticket
     CAPTURE_TICKET_USE: true,
+    // Acceso a la app de vendedor standalone
+    VENDOR_APP_ACCESS: true,
     // Comercial — Cierre de ruta
     ROUTE_TICKET_CAPTURE: true,
     ROUTE_CONTROL_VER: true,
@@ -136,6 +138,8 @@ exports.seed = async function (knex) {
         // Horus — Supervisor AI: ve el parte/hallazgos y aprueba acciones (co-piloto)
         SUPERVISOR_AI_VER: true,
         SUPERVISOR_AI_APROBAR: true,
+        // Override gerencial: puede entrar a la app de vendedor
+        VENDOR_APP_ACCESS: true,
       },
     },
     {
@@ -183,6 +187,7 @@ exports.seed = async function (knex) {
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CREAR: true,
         COMMERCIAL_PAYMENTS_REGISTRAR: true,
+        VENDOR_APP_ACCESS: true, // vendedor de campo: usa la app de vendedor
       },
     },
     {
@@ -222,6 +227,7 @@ exports.seed = async function (knex) {
         VER_SEGUIMIENTO: true,
         CAPTURE_TICKET_USE: true,
         ROUTE_TICKET_CAPTURE: true,
+        VENDOR_APP_ACCESS: true,
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_PRICING_VER: true,
         COMMERCIAL_INVENTORY_VER: true,

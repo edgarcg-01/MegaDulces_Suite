@@ -77,6 +77,9 @@ export enum Permission {
   // Fase V — Vendedor de campo con OCR de ticket
   CAPTURE_TICKET_USE = 'CAPTURE_TICKET_USE',
 
+  // Acceso a la app de vendedor standalone (gate administrable desde /admin/roles)
+  VENDOR_APP_ACCESS = 'VENDOR_APP_ACCESS',
+
   // Módulo: Comercial — Cierre de ruta (tickets venta/carga/combustible)
   ROUTE_TICKET_CAPTURE = 'ROUTE_TICKET_CAPTURE', // vendedor: subir/ver sus tickets
   ROUTE_CONTROL_VER = 'ROUTE_CONTROL_VER', // admin: ver todos + reportes de ruta

@@ -1,23 +1,24 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { Permission } from '../../core/constants/permissions';
 
 /**
- * Guard del Modo Vendedor. Whitelist explícita de roles:
- *   - `vendedor` (target principal)
- *   - `admin` / `superadmin` (testing / soporte)
- *   - `jefe_marketing` / `supervisor` (override gerencial)
+ * Guard del Modo Vendedor. El acceso se controla por el permiso
+ * `VENDOR_APP_ACCESS`, administrable desde /admin/roles (viaja en el
+ * `permissions` map del JWT).
  *
- * Bloqueados con redirect explícito:
- *   - `customer_b2b` → /portal/catalog (su flujo natural)
- *   - `tele_operator` → /televenta/queue (NO debería entrar acá, tienen su propio modo)
- *   - cualquier otro role no autorizado → /dashboard
+ * `LEGACY_VENDOR_ROLES` es un fallback TRANSITORIO por role_name: mantiene el
+ * acceso de los usuarios cuyo JWT todavía no trae el permiso (token emitido
+ * antes del backfill / sin re-login). Quitar cuando todos los roles relevantes
+ * tengan VENDOR_APP_ACCESS en su role_permissions.
  *
- * Antes este guard solo bloqueaba `customer_b2b` y dejaba pasar a cualquier
- * otro role autenticado — incluido `tele_operator`, que tiene su propio flow
- * y no debe interferir con la cartera de vendedores en campo.
+ * Rechazo: cerrar sesión y volver a /login con aviso. NUNCA redirigir a
+ * /dashboard, /portal/* ni /televenta/* — esas rutas NO existen en esta app
+ * standalone y, combinadas con el catch-all '**', producían un loop infinito
+ * de routing (el síntoma "se queda en loop" al entrar).
  */
-const VENDOR_ALLOWED_ROLES = new Set([
+const LEGACY_VENDOR_ROLES = new Set([
   'vendedor',
   'admin',
   'superadmin',
@@ -34,22 +35,17 @@ export const vendorGuard: CanActivateFn = () => {
     return false;
   }
 
-  const role = auth.user()?.role_name;
-  if (!role) {
-    router.navigateByUrl('/login');
-    return false;
+  const user = auth.user();
+  const hasPermission =
+    user?.permissions?.[Permission.VENDOR_APP_ACCESS] === true;
+  const legacyAllowed =
+    !!user?.role_name && LEGACY_VENDOR_ROLES.has(user.role_name);
+
+  if (hasPermission || legacyAllowed) {
+    return true;
   }
-  if (role === 'customer_b2b') {
-    router.navigateByUrl('/portal/catalog');
-    return false;
-  }
-  if (role === 'tele_operator') {
-    router.navigateByUrl('/televenta/queue');
-    return false;
-  }
-  if (!VENDOR_ALLOWED_ROLES.has(role)) {
-    router.navigateByUrl('/dashboard');
-    return false;
-  }
-  return true;
+
+  auth.logout();
+  router.navigate(['/login'], { queryParams: { denied: 'vendor' } });
+  return false;
 };
