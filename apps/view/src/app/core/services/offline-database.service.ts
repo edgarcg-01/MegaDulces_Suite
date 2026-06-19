@@ -133,6 +133,40 @@ export interface TiendaPendiente {
   ultimo_intento: string;
 }
 
+/**
+ * OFF.2 (Fase OFF — conteo offline) — outbox de escaneos del conteo físico.
+ * `scan_uuid` = PK + idempotency key (el backend dedup con inventory_count_scan_log).
+ * `capture_pass` viaja para colocar el slot correcto aunque el folio avance al sync.
+ */
+export interface InventoryScanPending {
+  scan_uuid: string;
+  count_id: string;
+  product_id: string | null;
+  barcode: string | null;
+  quantity: number;
+  capture_pass: number;
+  client_ts: string;
+  sincronizado: boolean;
+  intentos_fallidos: number;
+  ultimo_intento: string;
+  estado?: 'pendiente' | 'descartado'; // descartado = folio cerrado al sincronizar
+  motivo_descarte?: string;
+}
+
+/**
+ * OFF.1 — catálogo del folio cacheado para resolver barcode→producto sin red.
+ * `id` = `${count_id}:${barcode}`.
+ */
+export interface InventoryCatalogEntry {
+  id: string;
+  count_id: string;
+  barcode: string;
+  product_id: string | null;
+  sku: string | null;
+  product_name: string | null;
+  location: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OfflineDatabaseService extends Dexie {
   tiendas!: Table<TiendaOffline, string>;
@@ -142,6 +176,8 @@ export class OfflineDatabaseService extends Dexie {
   photos!: Table<PhotoBlob, string>;
   tiendasPendientes!: Table<TiendaPendiente, string>;
   routePings!: Table<RoutePing, string>;
+  inventoryScans!: Table<InventoryScanPending, string>;
+  inventoryCatalog!: Table<InventoryCatalogEntry, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
@@ -196,6 +232,21 @@ export class OfflineDatabaseService extends Dexie {
       photos: 'id, visitaId, createdAt',
       tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
       routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
+    });
+
+    // v6: conteo de inventario offline (Fase OFF). inventoryScans = outbox de
+    // escaneos (PK scan_uuid, idempotente server-side); inventoryCatalog = cache
+    // barcode→producto del folio para resolver sin red.
+    this.version(6).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+      routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
+      inventoryScans: 'scan_uuid, count_id, sincronizado, intentos_fallidos',
+      inventoryCatalog: 'id, count_id, barcode',
     });
 
     // Hooks para auditoría
