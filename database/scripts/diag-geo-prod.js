@@ -17,5 +17,21 @@ if (!URL) { console.error('Falta PROD_DATABASE_URL'); process.exit(1); }
     latitude: x.latitude, longitude: x.longitude,
     lat_type: x.lat_type, lng_type: x.lng_type,
   })));
+
+  const tot = await c.query(
+    `SELECT count(*)::int total,
+            count(*) FILTER (WHERE latitude IS NOT NULL AND longitude IS NOT NULL)::int con_geo
+       FROM commercial.customers WHERE deleted_at IS NULL`);
+  console.log('\nCustomers con coordenadas (global):', tot.rows[0]);
+
+  const byRoute = await c.query(
+    `SELECT sales_route, count(*)::int total,
+            count(*) FILTER (WHERE latitude IS NOT NULL AND longitude IS NOT NULL)::int con_geo
+       FROM commercial.customers
+      WHERE deleted_at IS NULL AND sales_route IN ('RUTA 27','RUTA 28','RUTA 23')
+      GROUP BY sales_route ORDER BY sales_route`);
+  console.log('Por rutas de angel (autodetección busca acá):');
+  console.table(byRoute.rows);
+
   await c.end();
 })().catch(e => { console.error('ERROR:', e.message); process.exit(1); });

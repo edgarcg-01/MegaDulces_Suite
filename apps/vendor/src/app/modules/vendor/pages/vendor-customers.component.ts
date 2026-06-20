@@ -165,6 +165,12 @@ import { VendorService, VendorCustomer } from '../vendor.service';
           <span class="lbl">Capturar exhibición</span>
         </button>
 
+        <button class="action" (click)="saveLocation(c)" [disabled]="savingLoc()">
+          <i class="pi" [ngClass]="savingLoc() ? 'pi-spin pi-spinner' : 'pi-map-marker'"></i>
+          <span class="lbl">Guardar ubicación de la tienda</span>
+        </button>
+        <p *ngIf="locMsg()" class="loc-msg">{{ locMsg() }}</p>
+
         <div class="contact" *ngIf="c.phone || c.whatsapp">
           <a *ngIf="c.phone" class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
           <a *ngIf="c.whatsapp" class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
@@ -267,6 +273,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
       .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
       .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: 0.875rem; border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
+      .loc-msg { margin: 0.5rem 0 0; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-align: center; }
       @media (prefers-reduced-motion: reduce) {
         .sheet, .sheet.closing, .sheet-backdrop, .sheet-backdrop.closing { animation: none; }
         .sheet-primary, .action { transition: none; }
@@ -290,6 +297,8 @@ export class VendorCustomersComponent implements OnInit {
   // ─── Menú de opciones (bottom-sheet) ───
   readonly sheet = signal<VendorCustomer | null>(null);
   readonly sheetClosing = signal(false);
+  readonly savingLoc = signal(false);
+  readonly locMsg = signal<string | null>(null);
 
   // ─── Alta de cliente nuevo ───
   readonly showForm = signal(false);
@@ -358,6 +367,8 @@ export class VendorCustomersComponent implements OnInit {
   // ─── Menú de opciones ───
 
   openSheet(c: VendorCustomer): void {
+    this.locMsg.set(null);
+    this.savingLoc.set(false);
     this.sheet.set(c);
   }
 
@@ -383,6 +394,42 @@ export class VendorCustomersComponent implements OnInit {
   goCapture(): void {
     this.closeSheet();
     this.router.navigate(['/vendor/capture']);
+  }
+
+  /**
+   * Guarda la ubicación de la tienda con el GPS del vendedor (estando en sitio).
+   * Puebla customer.latitude/longitude → habilita la autodetección de llegada del
+   * home, que hoy casi no funciona porque la mayoría de clientes no tiene coords.
+   */
+  saveLocation(c: VendorCustomer): void {
+    if (!navigator.geolocation) {
+      this.locMsg.set('Tu dispositivo no permite ubicación.');
+      return;
+    }
+    this.savingLoc.set(true);
+    this.locMsg.set('Obteniendo ubicación…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this.api
+          .setCustomerLocation(c.id, pos.coords.latitude, pos.coords.longitude, true)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.savingLoc.set(false);
+              this.locMsg.set('Ubicación guardada ✓');
+            },
+            error: () => {
+              this.savingLoc.set(false);
+              this.locMsg.set('No se pudo guardar la ubicación.');
+            },
+          });
+      },
+      () => {
+        this.savingLoc.set(false);
+        this.locMsg.set('No se pudo obtener tu ubicación.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
   }
 
   waLink(wa: string): string {
