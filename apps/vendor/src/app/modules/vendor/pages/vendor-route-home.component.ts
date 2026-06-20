@@ -142,6 +142,9 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             spellcheck="false"
           />
         </span>
+        <button type="button" class="add-client" (click)="addCustomer()" aria-label="Agregar cliente nuevo">
+          <i class="pi pi-user-plus"></i>
+        </button>
       </div>
 
       <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
@@ -365,10 +368,12 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .geo-hint.retry { cursor: pointer; }
       .geo-hint.retry i { color: var(--action); }
 
-      .search-bar { margin-bottom: 0.75rem; }
-      .search-wrap { display: block; position: relative; }
+      .search-bar { margin-bottom: 0.75rem; display: flex; gap: 0.5rem; align-items: center; }
+      .search-wrap { display: block; position: relative; flex: 1; min-width: 0; }
       .search-wrap input { width: 100%; padding-left: 2.25rem; border-radius: var(--r-pill, 999px); }
       .search-wrap i { position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+      .add-client { flex-shrink: 0; width: 2.9rem; height: 2.9rem; border-radius: var(--r-pill, 999px); border: none; background: var(--action); color: #fff; display: grid; place-items: center; font-size: 1.15rem; cursor: pointer; box-shadow: 0 1px 2px rgba(16,13,9,0.08); transition: transform 0.07s var(--ease, ease); }
+      .add-client:active { transform: scale(0.94); }
       .empty { text-align: center; padding: 2rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
       .empty p { margin: 0 0 0.5rem; } .empty .hint { font-size: 0.8rem; margin-bottom: 1rem; }
