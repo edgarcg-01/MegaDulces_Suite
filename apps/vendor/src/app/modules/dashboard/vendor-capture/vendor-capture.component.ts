@@ -4,11 +4,13 @@ import {
   OnDestroy,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -85,9 +87,6 @@ const ALLOWED_IMAGE_TYPES = [
           </div>
         </div>
         <div class="flex gap-2 w-full md:w-auto">
-          <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar captura" icon="pi pi-play"
-                    (onClick)="start()" [disabled]="needsRoute() || starting()"
-                    styleClass="p-button-brand w-full md:w-auto"></p-button>
           <p-button *ngIf="svc.hasActiveVisit()" label="Cancelar" icon="pi pi-times"
                     severity="secondary" [outlined]="true" (onClick)="cancel()"
                     [disabled]="saving()" styleClass="w-full md:w-auto"></p-button>
@@ -150,23 +149,49 @@ const ALLOWED_IMAGE_TYPES = [
         </select>
       </div>
 
-      <!-- Sin tienda tras iniciar -->
-      <div *ngIf="svc.hasActiveVisit() && !store()"
+      <!-- Sin tienda tras iniciar (no mientras aún detecta) -->
+      <div *ngIf="svc.hasActiveVisit() && !store() && !starting()"
            class="bg-amber-500/5 border border-amber-500/30 p-3 sm:p-4 rounded-2xl flex items-center gap-3">
         <i class="pi pi-exclamation-triangle text-amber-500 text-xl" aria-hidden="true"></i>
         <div class="text-sm text-content-main">No se detectó una tienda cercana. Acercate al PdV y tocá <strong>Cancelar</strong> y reintentá.</div>
       </div>
 
-      <!-- Empty state (sin visita activa) -->
-      <ng-container *ngIf="!svc.hasActiveVisit()">
+      <!-- Auto-inicio: loading mientras captura GPS + detecta tienda (sin pantalla intermedia). -->
+      <div *ngIf="starting()" class="p-12 text-center bg-surface-card border border-divider rounded-xl">
+        <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-brand-orange">
+          <i class="pi pi-spin pi-spinner text-2xl"></i>
+        </div>
+        <h3 class="text-lg font-bold text-content-main mb-2">Iniciando visita…</h3>
+        <p class="text-sm text-content-dim max-w-sm mx-auto">Capturando tu ubicación y detectando la tienda.</p>
+      </div>
+
+      <!-- Sin visita y sin iniciar: error+reintento, elegí ruta, o preparando. -->
+      <ng-container *ngIf="!svc.hasActiveVisit() && !starting()">
         <div class="p-12 text-center bg-surface-card border border-divider rounded-xl">
-          <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
-            <i class="pi pi-map-marker text-2xl"></i>
-          </div>
-          <h3 class="text-lg font-bold text-content-main mb-2">Listo para iniciar tu ruta</h3>
-          <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">Tomá la foto del exhibidor y el ticket de venta. El sistema capturará tu ubicación GPS.</p>
-          <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="start()"
-                    [disabled]="needsRoute() || starting()" styleClass="p-button-brand"></p-button>
+          <ng-container *ngIf="startError(); else needRouteOrPrep">
+            <div class="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto mb-4 text-amber-500">
+              <i class="pi pi-exclamation-triangle text-2xl"></i>
+            </div>
+            <h3 class="text-lg font-bold text-content-main mb-2">No se pudo iniciar la visita</h3>
+            <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">{{ startError() }}</p>
+            <p-button label="Reintentar" icon="pi pi-refresh" (onClick)="start()"
+                      [disabled]="needsRoute() || starting()" styleClass="p-button-brand"></p-button>
+          </ng-container>
+          <ng-template #needRouteOrPrep>
+            <ng-container *ngIf="needsRoute(); else preparing">
+              <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
+                <i class="pi pi-map text-2xl"></i>
+              </div>
+              <h3 class="text-lg font-bold text-content-main mb-2">Elegí tu ruta</h3>
+              <p class="text-sm text-content-dim max-w-sm mx-auto">Seleccioná tu ruta de hoy arriba para iniciar la visita.</p>
+            </ng-container>
+            <ng-template #preparing>
+              <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-brand-orange">
+                <i class="pi pi-spin pi-spinner text-2xl"></i>
+              </div>
+              <h3 class="text-lg font-bold text-content-main mb-2">Preparando…</h3>
+            </ng-template>
+          </ng-template>
         </div>
       </ng-container>
 
@@ -327,11 +352,31 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   private readonly routePing = inject(RoutePingService);
   private readonly toast = inject(MessageService);
   private readonly offlineSync = inject(OfflineSyncService);
+  private readonly router = inject(Router);
   private readonly apiUrl = environment.apiUrl;
 
   readonly user = this.auth.user;
 
   readonly starting = signal(false);
+  /** Mensaje de fallo del auto-inicio (GPS/tienda) para el estado de reintento. */
+  readonly startError = signal<string | null>(null);
+  /** Guard: el auto-inicio corre una sola vez por entrada a la pantalla. */
+  private autoStartTried = false;
+
+  constructor() {
+    // Auto-inicia la visita apenas hay ruta resuelta (elimina la pantalla
+    // intermedia "Listo para iniciar"): captura GPS + detecta la tienda sin un
+    // tap extra. queueMicrotask saca el start() del ciclo del effect (no escribe
+    // signals dentro del effect). Corre una sola vez por instancia (autoStartTried).
+    effect(() => {
+      const route = this.svc.activeRoute();
+      const active = this.svc.hasActiveVisit();
+      if (route && !active && !this.autoStartTried && !this.starting()) {
+        this.autoStartTried = true;
+        queueMicrotask(() => void this.start());
+      }
+    });
+  }
   readonly exhibidorFile = signal<File | null>(null);
   readonly exhibidorPreview = signal<string | null>(null);
   readonly ticketPhotos = signal<string[]>([]); // previews; el vendedor puede tomar varias fotos del mismo ticket
@@ -377,12 +422,14 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       return;
     }
     this.starting.set(true);
+    this.startError.set(null);
     try {
       await this.svc.iniciarVisita();
       if (!this.store()) {
         this.toast.add({ severity: 'warn', summary: 'Sin tienda', detail: 'No se detectó una tienda cercana. Acercate al PdV e intentá de nuevo.' });
       }
     } catch (e: any) {
+      this.startError.set(e?.message || 'No se pudo capturar la ubicación. Verificá que el GPS esté activado.');
       this.toast.add({ severity: 'error', summary: 'Error de GPS', detail: e?.message || 'No se pudo capturar la ubicación.' });
     } finally {
       this.starting.set(false);
@@ -391,6 +438,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
   cancel(): void {
     this.reset();
+    this.router.navigate(['/vendor']);
   }
 
   onSelectStore(id: string): void {
