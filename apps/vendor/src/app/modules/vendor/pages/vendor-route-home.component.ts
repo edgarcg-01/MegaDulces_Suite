@@ -134,7 +134,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             pInputText
             type="search"
             placeholder="Filtrar mi ruta"
-            [(ngModel)]="search"
+            [ngModel]="search()"
+            (ngModelChange)="search.set($event)"
             inputmode="search"
             enterkeyhint="search"
             autocapitalize="none"
@@ -201,7 +202,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           </span>
           <i class="pi pi-ellipsis-v more"></i>
         </button>
-        <div class="filter-empty" *ngIf="filtered().length === 0">Sin resultados para "{{ search }}".</div>
+        <div class="filter-empty" *ngIf="filtered().length === 0">Sin resultados para "{{ search() }}".</div>
       </div>
     </div>
 
@@ -530,7 +531,8 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     return this.customers().find((c) => c.id === d.id) || null;
   });
 
-  search = '';
+  /** Signal (no propiedad plana): un computed() solo reacciona a signals. */
+  readonly search = signal('');
 
   readonly visitedCount = computed(() => this.customers().filter((c) => c.visited_today).length);
   readonly pendingVisits = computed(() => this.customers().filter((c) => !c.visited_today).length);
@@ -554,7 +556,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     return this.customers().filter((c) => ids.has(c.id)).length;
   });
   readonly filtered = computed(() => {
-    const term = this.search.trim().toLowerCase();
+    const term = this.search().trim().toLowerCase();
     const ids = this.dueIds();
     let all = this.customers();
     if (this.onlyDue()) all = all.filter((c) => ids.has(c.id));
