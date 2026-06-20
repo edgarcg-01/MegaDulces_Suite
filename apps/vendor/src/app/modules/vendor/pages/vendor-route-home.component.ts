@@ -156,13 +156,16 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         </div>
       </p-card>
 
-      <!-- Vacío real: sin cartera asignada -->
+      <!-- Vacío real: sin clientes en la ronda de hoy -->
       <p-card *ngIf="showEmpty()">
         <div class="empty">
           <i class="pi pi-sitemap"></i>
-          <p>No tenés cartera asignada todavía.</p>
-          <p class="hint">Pedile a tu supervisor que te asigne tus rutas de venta.</p>
-          <a pButton label="Buscar un cliente" icon="pi pi-search" severity="secondary" [text]="true" routerLink="/vendor/search"></a>
+          <p>No hay clientes en tu ronda de hoy.</p>
+          <p class="hint">Agregá un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
+          <div class="empty-actions">
+            <button pButton label="Agregar cliente" icon="pi pi-plus" (click)="addCustomer()"></button>
+            <a pButton label="Buscar un cliente" icon="pi pi-search" severity="secondary" [text]="true" routerLink="/vendor/search"></a>
+          </div>
         </div>
       </p-card>
 
@@ -369,6 +372,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .empty { text-align: center; padding: 2rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
       .empty p { margin: 0 0 0.5rem; } .empty .hint { font-size: 0.8rem; margin-bottom: 1rem; }
+      .empty-actions { display: flex; flex-direction: column; gap: 0.5rem; align-items: center; }
 
       .list { display: flex; flex-direction: column; gap: 0.5rem; }
       .client {
@@ -693,6 +697,11 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     const list = this.customers();
     const next = list.find((c) => !c.visited_today) || list[0];
     if (next) this.router.navigate(['/vendor/take-order', next.id], { queryParams: { mode: 'futuro' } });
+  }
+
+  /** Ronda vacía: alta de cliente nuevo (abre el form de alta en /vendor/search). */
+  addCustomer(): void {
+    this.router.navigate(['/vendor/search'], { queryParams: { new: 1 } });
   }
 
   isDue(c: HomeCustomer): boolean {

@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CardModule } from 'primeng/card';
 import { SkeletonModule } from 'primeng/skeleton';
 import { InputTextModule } from 'primeng/inputtext';
@@ -201,6 +201,7 @@ export class VendorCustomersComponent implements OnInit {
   private readonly api = inject(VendorService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly loading = signal(true); // skeleton solo en la carga inicial
   readonly searching = signal(false); // re-búsqueda: spinner sutil sin blanquear la lista
@@ -248,6 +249,11 @@ export class VendorCustomersComponent implements OnInit {
       });
 
     this.runSearch(''); // carga inicial
+
+    // Llegada desde "Agregar cliente" del home (ronda vacía): abre el form directo.
+    if (this.route.snapshot.queryParamMap.get('new') === '1') {
+      this.toggleForm();
+    }
   }
 
   onSearch(v: string): void {
