@@ -685,6 +685,41 @@ export class CommercialVendorRoutesService {
     }
 
     return this.tk.run(async (trx) => {
+      const me = this.tenantCtx.get()?.userId || null;
+
+      // Auto-asignar a la cartera del vendedor para que el cliente aparezca en
+      // "Mi ruta": sin sales_route + visit_days que matcheen, vendor-cartera.sql
+      // lo deja fuera. Tomamos la ruta de HOY (o la primera de su cartera) y los
+      // días en que el vendedor recorre esa ruta (daily_assignments de trade).
+      let salesRoute = dto.sales_route?.trim().toUpperCase() || null;
+      let visitDays: number[] = [];
+      if (!salesRoute && me) {
+        const asg = await trx('public.daily_assignments as da')
+          .join('public.catalogs as cat', function () {
+            this.on('cat.id', '=', 'da.route_id')
+              .andOnVal('cat.catalog_id', '=', 'rutas')
+              .andOnNull('cat.deleted_at');
+          })
+          .where('da.user_id', me)
+          .select(
+            'cat.value as ruta',
+            'da.day_of_week',
+            trx.raw(
+              `(da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int) as is_today`,
+            ),
+          );
+        if (asg.length) {
+          const byRoute = new Map<string, Set<number>>();
+          for (const a of asg) {
+            if (!byRoute.has(a.ruta)) byRoute.set(a.ruta, new Set());
+            byRoute.get(a.ruta)!.add(Number(a.day_of_week));
+          }
+          const chosen = asg.find((a: any) => a.is_today)?.ruta || asg[0].ruta;
+          salesRoute = chosen;
+          visitDays = [...(byRoute.get(chosen) || [])].sort((x, y) => x - y);
+        }
+      }
+
       // Price list default del tenant → el cliente queda pedible al instante.
       const defaultPl = await trx('commercial.price_lists')
         .where({ is_default: true, active: true })
@@ -706,7 +741,10 @@ export class CommercialVendorRoutesService {
             rfc: dto.rfc?.toUpperCase() || null,
             phone: dto.phone?.trim() || null,
             whatsapp,
-            sales_route: dto.sales_route?.trim().toUpperCase() || null,
+            sales_route: salesRoute,
+            visit_days: visitDays.length
+              ? trx.raw('?::smallint[]', ['{' + visitDays.join(',') + '}'])
+              : null,
             default_price_list_id: defaultPl?.id || null,
             credit_limit: 0,
             payment_terms_days: 0, // cash-only beta
