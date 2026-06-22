@@ -224,7 +224,10 @@ Backfill por **departamento/línea** de `catalog.products` (dulces ≈ `50181900
 
 ---
 
-## J12.4 — ETA (heurístico → histórico)  🔨  [V1 hecho · V2 histórico diferido]
+## J12.4 — ETA (heurístico → histórico)  ✅  [V1+V2 · alerta-vs-ventana data-bloqueada]
+
+> **2026-06-22 — V2 hecho:** la velocidad del ETA se calibra del histórico real (Σkm/Σhoras de embarques cerrados 90d, acotada 5–90 km/h; fallback config→30), reporta `speed_source`. Pendiente (data-bloqueado): alerta de retraso vs ventana del cliente — los pedidos no tienen ventana horaria.
+
 
 **Por qué:** "¿a qué hora caen?" es la pregunta diaria del cliente. No se necesita ML para empezar.
 
@@ -259,7 +262,10 @@ Backfill por **departamento/línea** de `catalog.products` (dulces ≈ `50181900
 
 ---
 
-## J12.6 — Mantenimiento preventivo + combustible (nivel Fleetio)  🔨  [V1 sin hardware]
+## J12.6 — Mantenimiento preventivo + combustible (nivel Fleetio)  🔨  [V1 + fuel_transactions]
+
+> **2026-06-22 — combustible hecho:** tabla `logistics.fuel_transactions` (litros/monto/odómetro/estación por unidad) + CRUD (`/fleet/fuel`) + UI en flotilla. **Pendiente:** OT automáticas por cron + alerta WS (requiere wiring de infra de alertas cross-módulo) e inventario de refacciones (sub-módulo propio).
+
 
 **Por qué:** ya tienes `vehicle_maintenance` con `next_service_km/date` pero manual; y guardas `fuel_efficiency_km_l` pero **no comparas contra el real**.
 
@@ -279,7 +285,10 @@ Backfill por **departamento/línea** de `catalog.products` (dulces ≈ `50181900
 
 ---
 
-## J12.7 — Dashboard de ROI + API pública  🔨  [dashboard hecho · API pública diferida]
+## J12.7 — Dashboard de ROI + API pública  🔨  [dashboard + km ahorrados · API pública diferida]
+
+> **2026-06-22 — km ahorrados hecho:** `logistics.route_optimizations` registra km sin optimizar (orden de captura) vs optimizado por embarque; `roiSummary` suma `km_saved_optimization` del período y el dashboard ROI lo muestra. **Diferido:** API pública + webhooks (superficie sensible: auth/keys/rate-limit/firma/retries → amerita pasada de diseño propia, no meterla a medias a prod).
+
 
 **Por qué:** Samsara vende "8X ROI" sobre combustible + mantenimiento + seguros. Tú tienes el dato (costeo por viaje) pero **no lo cuentas**. Y tu multi-tenant ya está listo para abrir API.
 
