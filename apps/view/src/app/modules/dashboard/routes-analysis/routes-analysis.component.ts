@@ -862,16 +862,16 @@ export class RoutesAnalysisComponent implements OnInit {
       next: (res) => {
         this.routes.set(res?.routes || []);
         this.loadingMaster.set(false);
-        if (!this.selectedId() && this.routes().length && this.isDesktop()) {
+        // Auto-seleccionar la primera ruta en TODOS los dispositivos: el selector
+        // de rutas vive dentro del bloque que solo se pinta con una ruta elegida,
+        // así que en móvil sin auto-select la página quedaba en el placeholder sin
+        // forma de elegir. El selector full-width arriba permite cambiar de ruta.
+        if (!this.selectedId() && this.routes().length) {
           this.select(this.routes()[0].id);
         }
       },
       error: () => this.loadingMaster.set(false),
     });
-  }
-
-  private isDesktop(): boolean {
-    return typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches;
   }
 
   select(id: string): void {

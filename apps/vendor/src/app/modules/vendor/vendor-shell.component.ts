@@ -149,7 +149,9 @@ interface DiagProbe {
       .vendor-shell {
         /* Patrón de Trade (apps/view): altura FIJA de viewport + overflow-hidden
            → el documento NO scrollea (mata el rubber-band de iOS que revela el
-           canvas del <html> abajo); el scroll lo absorbe el <main> interno. */
+           canvas del <html> abajo); el scroll lo absorbe el <main> interno.
+           100vh = fallback iOS viejo; 100dvh lo pisa donde existe. */
+        height: 100vh;
         height: 100dvh;
         display: flex;
         flex-direction: column;
@@ -186,17 +188,20 @@ interface DiagProbe {
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: 1rem;
-        padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+        /* El nav ya NO es fixed (es hijo flex) → main no necesita reservar su
+           alto. Las páginas con cart-bar flotante ponen su propio padding. */
+        padding-bottom: 1rem;
         max-width: 800px;
         width: 100%;
         margin: 0 auto;
         box-sizing: border-box;
       }
       .vendor-bottom-nav {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
+        /* Último hijo flex del shell 100dvh (NO position:fixed): así la columna
+           header+main+nav llena EXACTO el viewport dinámico y no queda hueco
+           abajo en iOS (los fixed se anclan al layout viewport, que difiere del
+           dvh → era la "banda vacía"). */
+        flex-shrink: 0;
         /* Fondo = el de la PÁGINA (no --card-bg): así la nav + la franja del
            home indicator se funden con el contenido y no se ve un bloque de
            otro tono ("borde") abajo. La separación la da solo el border-top. */
@@ -204,10 +209,9 @@ interface DiagProbe {
         border-top: 1px solid var(--border-color);
         display: flex;
         justify-content: space-around;
-        /* Patrón canónico iOS: la BARRA reserva la safe-area con su propio
-           padding-bottom: env(safe-area-inset-bottom) (sin cap) → su background
-           (--layout-bg) llena la zona del home indicator hasta el borde físico,
-           fundido con la página. Requiere viewport-fit=cover (está en index.html). */
+        /* La BARRA reserva la safe-area con su propio padding-bottom:
+           env(safe-area-inset-bottom) → su background llena la zona del home
+           indicator hasta el borde físico. Requiere viewport-fit=cover (index.html). */
         padding: 0 0 env(safe-area-inset-bottom);
         z-index: 10;
         box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
