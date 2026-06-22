@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { solveOpenRoute, GeoPoint } from './route-solver';
+import { solveOpenRoute, GeoPoint, haversineKm } from './route-solver';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -212,6 +212,7 @@ export class LogisticsRoutingService {
       const recipients = await trx('logistics.guide_recipients as r')
         .leftJoin('commercial.customers as c', 'c.id', 'r.customer_id')
         .whereIn('r.guide_id', guideIds)
+        .orderBy('r.created_at', 'asc') // orden de captura = baseline sin optimizar
         .select('r.id', 'r.customer_name', 'c.latitude', 'c.longitude');
 
       const stops: GeoPoint[] = recipients
@@ -225,7 +226,19 @@ export class LogisticsRoutingService {
           ? { lat: Number(wh.latitude), lng: Number(wh.longitude) }
           : { lat: stops.reduce((s, p) => s + p.lat, 0) / stops.length, lng: stops.reduce((s, p) => s + p.lng, 0) / stops.length };
 
+      // Baseline: distancia en orden de captura (sin optimizar).
+      let naiveKm = 0;
+      let prev = origin;
+      for (const s of stops) { naiveKm += haversineKm(prev, s); prev = s; }
+      naiveKm = Math.round(naiveKm * 100) / 100;
+
       const result = solveOpenRoute(origin, stops);
+      const savedKm = Math.round(Math.max(0, naiveKm - result.total_km) * 100) / 100;
+      await trx('logistics.route_optimizations').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        shipment_id: shipmentId, naive_km: naiveKm, optimized_km: result.total_km,
+        saved_km: savedKm, stops: stops.length,
+      });
 
       // Persistir sequence_order (1..N) y limpiar el de los no localizables.
       let seq = 1;
@@ -238,7 +251,7 @@ export class LogisticsRoutingService {
         .whereNotIn('id', [...locatedIds])
         .update({ sequence_order: null });
 
-      return { ...result, located: stops.length, unlocated, origin_from: wh?.latitude != null ? 'warehouse' : 'centroid' };
+      return { ...result, naive_km: naiveKm, saved_km: savedKm, located: stops.length, unlocated, origin_from: wh?.latitude != null ? 'warehouse' : 'centroid' };
     });
   }
 }

@@ -985,6 +985,7 @@ export interface RoiSummary {
   fuel_cost: number;
   fuel_pct_of_operating: number;
   maintenance_cost: number;
+  km_saved_optimization?: number;
   cost_breakdown: { fuel: number; tolls: number; driver_per_diem: number; handling: number; repairs: number; otros: number };
 }
 

@@ -228,6 +228,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <div class="kpi-value">\${{ r.maintenance_cost | number:'1.2-2' }}</div>
                 <div class="kpi-sub muted">Servicios del período</div>
               </p-card>
+              <p-card *ngIf="r.km_saved_optimization">
+                <div class="kpi-label">Km ahorrados (ruteo)</div>
+                <div class="kpi-value">{{ r.km_saved_optimization | number:'1.0-1' }}</div>
+                <div class="kpi-sub muted">vs ruta sin optimizar</div>
+              </p-card>
             </div>
 
             <div class="detail-grid">

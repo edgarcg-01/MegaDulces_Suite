@@ -340,6 +340,12 @@ export class LogisticsAnalyticsService {
       if (q.to) mq = mq.where('service_date', '<=', q.to);
       const [{ maintenance_cost }] = await mq.select(trx.raw('COALESCE(SUM(cost),0)::numeric AS maintenance_cost'));
 
+      // J12.7: km ahorrados por optimización de ruta en el período.
+      let oq = trx('logistics.route_optimizations');
+      if (q.from) oq = oq.whereRaw('created_at >= ?', [q.from]);
+      if (q.to) oq = oq.whereRaw('created_at <= (?::date + 1)', [q.to]);
+      const [{ km_saved }] = await oq.select(trx.raw('COALESCE(SUM(saved_km),0)::numeric AS km_saved'));
+
       const n = (v: any) => +Number(v).toFixed(2);
       const revenue = n(row.revenue);
       const totalCost = n(row.total_cost);
@@ -362,6 +368,7 @@ export class LogisticsAnalyticsService {
         fuel_cost: fuel,
         fuel_pct_of_operating: operating > 0 ? n((fuel / operating) * 100) : 0,
         maintenance_cost: maint,
+        km_saved_optimization: n(km_saved),
         cost_breakdown: {
           fuel,
           tolls: n(row.tolls),
