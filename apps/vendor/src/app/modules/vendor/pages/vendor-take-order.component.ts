@@ -86,6 +86,19 @@ const foldText = (s: string | null | undefined): string =>
           </div>
         </div>
 
+        <!-- Pedido sugerido pre-cargado -->
+        <div class="prefill-note loading" *ngIf="prefilling()">
+          <i class="pi pi-spin pi-spinner"></i> Armando pedido sugerido…
+        </div>
+        <div class="prefill-note" *ngIf="prefilled() && !prefilling() && cartLines().length">
+          <i class="pi pi-bolt"></i>
+          <div class="pn-body">
+            <b>Pedido sugerido cargado</b>
+            <span>Según lo que suele pedir. Ajustá cantidades y confirmá.</span>
+          </div>
+          <button (click)="clearOrder()">Vaciar</button>
+        </div>
+
         <!-- Fecha de entrega (preventa) -->
         <div class="date-row">
           <label><i class="pi pi-calendar"></i> Fecha de entrega</label>
@@ -402,6 +415,14 @@ const foldText = (s: string | null | undefined): string =>
       .voice-live .dot { width: 0.6rem; height: 0.6rem; border-radius: 999px; background: var(--bad-fg); flex-shrink: 0; animation: micpulse 1.2s ease-in-out infinite; }
       .voice-live .vt { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--text-main); line-height: 1.25; }
       .voice-live button { flex-shrink: 0; border: none; background: var(--action); color: #fff; border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.78rem; padding: 0.35rem 0.85rem; }
+
+      .prefill-note { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.875rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ember-soft); border: 1px solid var(--ember-border); }
+      .prefill-note > i { color: var(--action); font-size: 1rem; flex-shrink: 0; }
+      .prefill-note .pn-body { flex: 1; min-width: 0; }
+      .prefill-note .pn-body b { display: block; font-size: 0.86rem; color: var(--text-main); }
+      .prefill-note .pn-body span { font-size: 0.76rem; color: var(--text-muted); }
+      .prefill-note button { flex-shrink: 0; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.78rem; padding: 0.35rem 0.8rem; }
+      .prefill-note.loading { color: var(--text-muted); font-size: 0.88rem; }
 
       .list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.6rem; }
       .list-head .lh-t { font-weight: 800; font-size: 0.95rem; color: var(--text-main); display: inline-flex; align-items: center; gap: 0.35rem; }
@@ -807,6 +828,33 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     return this.impulsarLocal().filter((p) => !inHab.has(p.product_id));
   });
 
+  /** ¿el pedido se pre-cargó con la canasta predicha? (para el banner + "Vaciar"). */
+  readonly prefilled = signal(false);
+  readonly prefilling = signal(false);
+
+  /**
+   * Canasta PREDICHA para pre-cargar el pedido: los productos del núcleo de compra
+   * del cliente (comprados en ≥2 pedidos; si solo tiene 1 pedido de historia, ese
+   * pedido) con su cantidad promedio histórica. Es el "suggested order" — el
+   * vendedor revisa/ajusta/confirma en vez de armar.
+   */
+  readonly predictedLines = computed(() => {
+    const byId = this.byIdMap();
+    const freq = this.frequent();
+    if (!freq.length) return [] as { product_id: string; quantity: number }[];
+    const maxOC = freq.reduce((m, f) => Math.max(m, Number(f.order_count) || 0), 0);
+    const threshold = maxOC >= 2 ? 2 : 1;
+    const out: { product_id: string; quantity: number }[] = [];
+    for (const f of freq) {
+      if ((Number(f.order_count) || 0) < threshold) continue;
+      const p = byId.get(f.product_id);
+      if (!p || p.price == null || Number(p.price) <= 0) continue;
+      const qty = Math.max(Math.floor(Number(f.avg_qty) || 1), p.min_qty || 1);
+      out.push({ product_id: f.product_id, quantity: qty });
+    }
+    return out.slice(0, 30);
+  });
+
   /**
    * Fallback LOCAL (margen × rotación) si Thot aún no responde (API sin reiniciar
    * / feature store vacío). El motor server-side (Thot) es la fuente primaria.
@@ -994,11 +1042,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.frequent.set(frequent);
           this.loading.set(false);
           if (existingDraft) {
+            // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
             this.cartOrderId.set(existingDraft.id);
             this.api.orderById(existingDraft.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((full) => {
               this.cartLines.set(full.lines || []);
               this.loadSuggestions(); // cart-aware una vez que cargan las líneas
             });
+          } else if (this.predictedLines().length) {
+            // Pedido nuevo → pre-cargar la canasta predicha (suggested order).
+            this.prefillPredicted();
           } else {
             this.loadSuggestions();
           }
@@ -1137,6 +1189,52 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           /* best-effort: el motor/feature store puede no estar; cae al fallback local */
         },
       });
+  }
+
+  // ─── Pedido sugerido (pre-cargado) ───
+
+  /** Pre-carga el draft con la canasta predicha en 1 request. Best-effort. */
+  private prefillPredicted(): void {
+    const lines = this.predictedLines();
+    const c = this.customer();
+    if (!lines.length || !c || !this.warehouseId()) { this.loadSuggestions(); return; }
+    this.prefilling.set(true);
+    this.api
+      .ensureDraftForCustomer(c.id, this.warehouseId(), 'route')
+      .pipe(
+        switchMap((draft) => { this.cartOrderId.set(draft.id); return this.api.replaceLines(draft.id, lines); }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: () => {
+          this.prefilling.set(false);
+          this.prefilled.set(true);
+          this.reloadCart(() => this.loadSuggestions());
+        },
+        error: () => {
+          // best-effort: si falla, queda el pad vacío (habituales/sugeridos) sin romper.
+          this.prefilling.set(false);
+          this.loadSuggestions();
+        },
+      });
+  }
+
+  /** Vacía el pedido sugerido para armar desde cero. */
+  clearOrder(): void {
+    const orderId = this.cartOrderId();
+    if (!orderId) return;
+    this.confirmSvc.confirm({
+      header: 'Vaciar pedido',
+      message: '¿Vaciar el pedido sugerido y empezar de cero?',
+      icon: 'pi pi-eraser',
+      acceptLabel: 'Vaciar', rejectLabel: 'No',
+      accept: () => {
+        this.api.replaceLines(orderId, []).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: () => { this.prefilled.set(false); this.reloadCart(() => this.loadSuggestions()); },
+          error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message }),
+        });
+      },
+    });
   }
 
   // ─── Pedido por voz ───
