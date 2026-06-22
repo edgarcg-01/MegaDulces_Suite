@@ -469,6 +469,104 @@ export class LogisticsFleetService {
     });
   }
 
+  // ── J12.6 Mantenimiento preventivo + combustible (sobre odómetro manual) ──
+
+  /**
+   * Vehículos con servicio vencido: odómetro actual (máx de vehicle_usage_logs)
+   * ≥ next_service_km, o next_service_date ya pasó. Sobre el último mantenimiento
+   * registrado por unidad. No requiere telemetría (usa el odómetro tecleado).
+   */
+  async maintenanceDue() {
+    return this.tk.run(async (trx) => {
+      const odo = (
+        await trx.raw(`
+          SELECT vehicle_id,
+                 MAX(GREATEST(COALESCE(check_out_km,0), COALESCE(check_in_km,0))) AS odometer
+            FROM logistics.vehicle_usage_logs
+           GROUP BY vehicle_id`)
+      ).rows;
+      const odoByVehicle = new Map<string, number>(odo.map((r: any) => [r.vehicle_id, Number(r.odometer)]));
+
+      const lastMaint = (
+        await trx.raw(`
+          SELECT DISTINCT ON (vehicle_id)
+                 vehicle_id, next_service_km, next_service_date, service_date, description
+            FROM logistics.vehicle_maintenance
+           WHERE deleted_at IS NULL
+             AND (next_service_km IS NOT NULL OR next_service_date IS NOT NULL)
+           ORDER BY vehicle_id, service_date DESC`)
+      ).rows;
+
+      const vehicles = await trx('logistics.vehicles')
+        .whereNull('deleted_at').where({ active: true })
+        .select('id', 'plate', 'model', 'brand');
+      const vById = new Map<string, any>(vehicles.map((v: any) => [v.id, v]));
+
+      const today = new Date().toISOString().slice(0, 10);
+      const due: any[] = [];
+      for (const m of lastMaint) {
+        const v = vById.get(m.vehicle_id);
+        if (!v) continue;
+        const odometer = odoByVehicle.get(m.vehicle_id) ?? null;
+        const reasons: string[] = [];
+        if (m.next_service_km != null && odometer != null && odometer >= Number(m.next_service_km)) {
+          reasons.push(`odómetro ${odometer} ≥ ${m.next_service_km} km`);
+        }
+        if (m.next_service_date != null && String(m.next_service_date).slice(0, 10) <= today) {
+          reasons.push(`fecha ${String(m.next_service_date).slice(0, 10)}`);
+        }
+        if (reasons.length) {
+          due.push({
+            vehicle_id: m.vehicle_id, plate: v.plate, model: v.model, brand: v.brand,
+            odometer, next_service_km: m.next_service_km != null ? Number(m.next_service_km) : null,
+            next_service_date: m.next_service_date, last_description: m.description, reasons,
+          });
+        }
+      }
+      return due;
+    });
+  }
+
+  /**
+   * Rendimiento real de combustible por unidad: km recorridos (de usage logs
+   * cerrados) / litros cargados, comparado con el spec `fuel_efficiency_km_l`.
+   * Detecta fugas/fraude cuando el real cae muy por debajo del spec.
+   */
+  async fuelEfficiency() {
+    return this.tk.run(async (trx) => {
+      const agg = (
+        await trx.raw(`
+          SELECT vehicle_id,
+                 SUM(GREATEST(check_out_km - check_in_km, 0)) AS km,
+                 SUM(COALESCE(fuel_loaded_liters, 0)) AS liters,
+                 COUNT(*) AS trips
+            FROM logistics.vehicle_usage_logs
+           WHERE status='cerrado' AND check_out_km IS NOT NULL
+           GROUP BY vehicle_id`)
+      ).rows;
+      const aggByVehicle = new Map<string, any>(agg.map((r: any) => [r.vehicle_id, r]));
+
+      const vehicles = await trx('logistics.vehicles')
+        .whereNull('deleted_at').where({ active: true })
+        .select('id', 'plate', 'model', 'brand', 'fuel_efficiency_km_l');
+
+      return vehicles.map((v: any) => {
+        const a = aggByVehicle.get(v.id);
+        const km = a ? Number(a.km) : 0;
+        const liters = a ? Number(a.liters) : 0;
+        const real = liters > 0 ? Math.round((km / liters) * 100) / 100 : null;
+        const spec = v.fuel_efficiency_km_l != null ? Number(v.fuel_efficiency_km_l) : null;
+        const deviation_pct = real != null && spec ? Math.round(((real - spec) / spec) * 1000) / 10 : null;
+        return {
+          vehicle_id: v.id, plate: v.plate, model: v.model, brand: v.brand,
+          km, liters, trips: a ? Number(a.trips) : 0,
+          real_km_l: real, spec_km_l: spec, deviation_pct,
+          flag: deviation_pct != null && deviation_pct <= -15, // real ≥15% bajo spec
+        };
+      });
+    });
+  }
+
   // ── Validators ───────────────────────────────────────────────────────────
 
   private validateVehicleCreate(dto: CreateVehicleDto): void {

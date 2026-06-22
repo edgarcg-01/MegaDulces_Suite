@@ -16,6 +16,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
+  CartaPorteDocument, CartaPorteGap, ShipmentEta,
   DeliveryGuide, Driver, GuideRecipient, LogisticaService, Shipment, ShipmentExpense, Vehicle,
 } from '../logistica.service';
 
@@ -107,6 +108,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <i class="pi pi-money-bill" aria-hidden="true"></i>
                 <span>Costos</span>
               </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'cartaporte'"
+                role="tab"
+                [attr.aria-selected]="tab() === 'cartaporte'"
+                (click)="setTab('cartaporte')"
+              >
+                <i class="pi pi-file-check" aria-hidden="true"></i>
+                <span>Carta Porte</span>
+              </button>
             </nav>
           </article>
         </div>
@@ -174,8 +186,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="comm-muted is-small">
                 Asigná chofer + ayudantes + destinatarios por cada guía de reparto.
               </span>
-              <button pButton icon="pi pi-plus" label="Nueva guía" size="small"
-                      (click)="openCreateGuide()"></button>
+              <div class="shd-cta-actions">
+                <button pButton icon="pi pi-compass" label="Optimizar ruta" size="small"
+                        severity="secondary" [outlined]="true" [loading]="optimizing()"
+                        [disabled]="!guides().length" (click)="optimizeRoute()"
+                        pTooltip="Ordena las paradas por cercanía (menos km)"></button>
+                <button pButton icon="pi pi-plus" label="Nueva guía" size="small"
+                        (click)="openCreateGuide()"></button>
+              </div>
             </article>
           </div>
 
@@ -226,6 +244,41 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </tr>
                 </ng-template>
               </p-table>
+            </article>
+          </div>
+
+          <!-- ETA de ruta (J12.4) -->
+          <div class="sheet cols-12" *ngIf="guides().length">
+            <article class="cell cell-span-12">
+              <div class="shd-eta-head">
+                <div>
+                  <span class="cell-label">ETA de ruta</span>
+                  <p class="comm-muted is-small" *ngIf="eta() as e">
+                    {{ e.stops.length }} paradas pendientes · {{ e.total_km }} km · ~{{ e.total_minutes }} min
+                    <span *ngIf="e.from_source === 'first_stop'"> · (sin GPS del chofer, desde 1ª parada)</span>
+                  </p>
+                </div>
+                <button pButton icon="pi pi-clock" label="Calcular ETA" size="small" severity="secondary"
+                        [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"></button>
+              </div>
+              <div *ngIf="eta() as e">
+                <p-table *ngIf="e.stops.length" [value]="e.stops" responsiveLayout="scroll" styleClass="p-datatable-sm">
+                  <ng-template pTemplate="header">
+                    <tr><th>#</th><th>Cliente</th><th class="comm-num">Km acum.</th><th>ETA</th></tr>
+                  </ng-template>
+                  <ng-template pTemplate="body" let-s>
+                    <tr>
+                      <td><span class="shd-eta-seq">{{ s.sequence_order }}</span></td>
+                      <td class="comm-cell-strong">{{ s.customer_name }}</td>
+                      <td class="comm-num">{{ s.cumulative_km }}</td>
+                      <td class="shd-eta-time">{{ s.eta | date:'shortTime' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+                <p *ngIf="!e.stops.length" class="comm-muted is-small">
+                  Sin paradas con orden + ubicación. Corré "Optimizar ruta" y captura lat/lng de los clientes.
+                </p>
+              </div>
             </article>
           </div>
         </ng-container>
@@ -290,6 +343,65 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <div class="shd-info-actions">
             <button pButton icon="pi pi-save" label="Guardar costos"
                     [loading]="savingExp()" (click)="saveExpense()"></button>
+          </div>
+        </ng-container>
+
+        <!-- ── TAB CARTA PORTE ── -->
+        <ng-container *ngIf="tab() === 'cartaporte'">
+          <!-- Documentos ya timbrados -->
+          <div class="sheet cols-12" *ngIf="cpDocs().length">
+            <article class="cell cell-span-12 is-flush">
+              <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+                <ng-template pTemplate="header">
+                  <tr><th>Folio fiscal (UUID)</th><th>Tipo</th><th>Estado</th><th>Timbrado</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-d>
+                  <tr>
+                    <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
+                    <td>{{ d.cfdi_type }}</td>
+                    <td><span class="comm-pill" [class]="cpPillClass(d.status)">{{ d.status }}</span></td>
+                    <td class="comm-muted">{{ d.stamped_at ? (d.stamped_at | date:'short') : '—' }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </article>
+          </div>
+
+          <!-- Validación + acción -->
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12">
+              <div class="shd-cp-head">
+                <div>
+                  <span class="cell-label">Timbrado Carta Porte 3.1</span>
+                  <p class="comm-muted is-small">CFDI de Traslado, un complemento por embarque. Revisá datos faltantes antes de timbrar.</p>
+                </div>
+                <div class="shd-cp-actions">
+                  <button pButton icon="pi pi-search" label="Revisar datos" size="small" severity="secondary"
+                          [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"></button>
+                  <button pButton icon="pi pi-file-check" label="Timbrar Carta Porte" size="small"
+                          [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"></button>
+                </div>
+              </div>
+
+              <!-- Gaps -->
+              <div *ngIf="cpChecked() && cpGaps().length" class="shd-cp-gaps">
+                <div class="shd-cp-gaps-head">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  Faltan {{ cpGaps().length }} dato{{ cpGaps().length === 1 ? '' : 's' }} para timbrar
+                </div>
+                <ul>
+                  <li *ngFor="let g of cpGaps()">
+                    <code>{{ g.field }}</code> <span>{{ g.detail }}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Listo -->
+              <div *ngIf="cpChecked() && !cpGaps().length" class="shd-cp-ready">
+                <i class="pi pi-check-circle" aria-hidden="true"></i>
+                Datos completos — listo para timbrar.
+              </div>
+            </article>
           </div>
         </ng-container>
       </ng-container>
@@ -368,6 +480,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="p-datatable-sm">
             <ng-template pTemplate="header">
               <tr>
+                <th>#</th>
                 <th>Cliente</th>
                 <th>Dirección</th>
                 <th class="comm-num">Cajas</th>
@@ -378,6 +491,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </ng-template>
             <ng-template pTemplate="body" let-r>
               <tr>
+                <td><span class="shd-eta-seq">{{ r.sequence_order ?? '—' }}</span></td>
                 <td class="comm-cell-strong">{{ r.customer_name }}</td>
                 <td class="comm-muted">{{ r.address || '—' }}</td>
                 <td class="comm-num">{{ r.boxes_count }}</td>
@@ -394,7 +508,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage">
-              <tr><td colspan="6" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
+              <tr><td colspan="7" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
             </ng-template>
           </p-table>
 
@@ -542,6 +656,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       gap: 1rem;
       padding: .75rem 1rem;
     }
+    .shd-cta-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .shd-eta-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .5rem; }
+    .shd-eta-head p { margin: .25rem 0 0; }
+    .shd-eta-seq { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c-surface-2); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); font-size: var(--fs-micro); }
+    .shd-eta-time { font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
 
     /* ── EXP FORM (Costos) ── */
     .shd-exp-form { display: flex; flex-direction: column; gap: .875rem; }
@@ -635,6 +754,41 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       display: flex;
       justify-content: flex-end;
     }
+
+    /* ── CARTA PORTE ── */
+    .shd-cp-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .shd-cp-head p { margin: .25rem 0 0; }
+    .shd-cp-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .shd-cp-gaps {
+      margin-top: 1rem;
+      border: 1px solid var(--c-warn-border, #e6c15a);
+      background: var(--c-warn-bg, #fdf6e3);
+      border-radius: 10px;
+      padding: .875rem 1rem;
+    }
+    .shd-cp-gaps-head {
+      display: flex; align-items: center; gap: .5rem;
+      font-weight: var(--fw-bold); font-size: var(--fs-sm);
+      color: var(--c-text-1); margin-bottom: .5rem;
+    }
+    .shd-cp-gaps ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+    .shd-cp-gaps li { font-size: var(--fs-sm); color: var(--c-text-2); }
+    .shd-cp-gaps li code {
+      background: var(--c-surface-2); padding: .05rem .35rem; border-radius: 4px;
+      font-size: var(--fs-micro); color: var(--c-text-1); margin-right: .4rem;
+    }
+    .shd-cp-ready {
+      margin-top: 1rem;
+      display: flex; align-items: center; gap: .5rem;
+      font-size: var(--fs-sm); font-weight: var(--fw-medium);
+      color: var(--c-ok, #2e7d32);
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -656,10 +810,24 @@ export class LogisticaShipmentDetailComponent {
 
   readonly savingExp = signal(false);
   readonly savingGuide = signal(false);
+  readonly optimizing = signal(false);
+  readonly eta = signal<ShipmentEta | null>(null);
+  readonly etaLoading = signal(false);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
-  readonly tab = signal<'info' | 'guides' | 'expenses'>('info');
+  readonly tab = signal<'info' | 'guides' | 'expenses' | 'cartaporte'>('info');
 
-  setTab(t: 'info' | 'guides' | 'expenses') { this.tab.set(t); }
+  // ── Carta Porte ──
+  readonly cpDocs = signal<CartaPorteDocument[]>([]);
+  readonly cpGaps = signal<CartaPorteGap[]>([]);
+  readonly cpChecked = signal(false);
+  readonly cpValidating = signal(false);
+  readonly cpStamping = signal(false);
+  readonly cpReady = computed(() => this.cpChecked() && this.cpGaps().length === 0);
+
+  setTab(t: 'info' | 'guides' | 'expenses' | 'cartaporte') {
+    this.tab.set(t);
+    if (t === 'cartaporte') this.loadCp();
+  }
 
   metricsDialog = false;
   guideDialog = false;
@@ -853,6 +1021,37 @@ export class LogisticaShipmentDetailComponent {
     });
   }
 
+  optimizeRoute() {
+    this.optimizing.set(true);
+    this.api.optimizeShipmentRoute(this.shipmentId()).subscribe({
+      next: (r) => {
+        this.optimizing.set(false);
+        const extra = r.unlocated ? ` · ${r.unlocated} sin ubicación` : '';
+        this.toast.add({
+          severity: r.located ? 'success' : 'warn',
+          summary: r.located ? 'Ruta optimizada' : 'Sin paradas localizables',
+          detail: r.located ? `${r.located} paradas · ${r.total_km} km${extra}` : 'Captura lat/lng en los clientes destino.',
+        });
+        this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
+      },
+      error: (err) => {
+        this.optimizing.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se optimizó' });
+      },
+    });
+  }
+
+  loadEta() {
+    this.etaLoading.set(true);
+    this.api.shipmentEta(this.shipmentId()).subscribe({
+      next: (e) => { this.eta.set(e); this.etaLoading.set(false); },
+      error: (err) => {
+        this.etaLoading.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se calculó ETA' });
+      },
+    });
+  }
+
   openGuideDetail(g: DeliveryGuide) {
     this.api.getGuide(g.id).subscribe({
       next: (full) => {
@@ -881,6 +1080,57 @@ export class LogisticaShipmentDetailComponent {
       },
       error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
     });
+  }
+
+  // ── Carta Porte ─────────────────────────────────────────────────────
+  loadCp() {
+    this.api.listCartaPorteByShipment(this.shipmentId()).subscribe({
+      next: (d) => this.cpDocs.set(d || []),
+      error: () => { /* sin documentos aún — OK */ },
+    });
+  }
+  validateCp() {
+    this.cpValidating.set(true);
+    this.api.validateCartaPorte(this.shipmentId()).subscribe({
+      next: (gaps) => {
+        this.cpGaps.set(gaps || []);
+        this.cpChecked.set(true);
+        this.cpValidating.set(false);
+      },
+      error: (err) => {
+        this.cpValidating.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se validó' });
+      },
+    });
+  }
+  stampCp() {
+    this.confirm.confirm({
+      header: 'Timbrar Carta Porte',
+      message: 'Se generará un CFDI de Traslado con complemento Carta Porte ante el SAT. ¿Continuar?',
+      icon: 'pi pi-file-check',
+      accept: () => {
+        this.cpStamping.set(true);
+        this.api.stampCartaPorte(this.shipmentId()).subscribe({
+          next: () => {
+            this.cpStamping.set(false);
+            this.toast.add({ severity: 'success', summary: 'Carta Porte timbrada' });
+            this.loadCp();
+          },
+          error: (err) => {
+            this.cpStamping.set(false);
+            const gaps = err?.error?.gaps as CartaPorteGap[] | undefined;
+            if (gaps?.length) { this.cpGaps.set(gaps); this.cpChecked.set(true); }
+            this.toast.add({ severity: 'error', summary: 'No se timbró', detail: err?.error?.message || 'Error PAC' });
+          },
+        });
+      },
+    });
+  }
+  cpPillClass(s: string): string {
+    if (s === 'timbrado') return 'is-ok';
+    if (s === 'error') return 'is-bad';
+    if (s === 'cancelado') return 'is-neutral';
+    return 'is-info';
   }
 
   // ── Expenses ────────────────────────────────────────────────────────

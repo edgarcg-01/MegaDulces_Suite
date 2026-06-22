@@ -13,3 +13,5 @@ export * from './lib/logistics-analytics/logistics-analytics.module';
 export * from './lib/logistics-checklists/logistics-checklists.module';
 export * from './lib/logistics-photos/logistics-photos.module';
 export * from './lib/logistics-reports/logistics-reports.module';
+export * from './lib/logistics-cartaporte/logistics-cartaporte.module';
+export * from './lib/logistics-routing/logistics-routing.module';

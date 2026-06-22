@@ -77,6 +77,10 @@ import { LogisticsAnalyticsModule } from '@megadulces/logistics';
 import { LogisticsChecklistsModule } from '@megadulces/logistics';
 import { LogisticsPhotosModule } from '@megadulces/logistics';
 import { LogisticsReportsModule } from '@megadulces/logistics';
+// Fase J12.0 — Carta Porte 3.1 (CFDI Traslado vía PAC)
+import { LogisticsCartaporteModule } from '@megadulces/logistics';
+// Fase J12.3 — Optimización de ruta (solver heurístico)
+import { LogisticsRoutingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
@@ -127,6 +131,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsChecklistsModule,
       LogisticsPhotosModule,
       LogisticsReportsModule,
+      LogisticsCartaporteModule,
+      LogisticsRoutingModule,
       MegaDulcesSyncModule,
     ]
   : [];

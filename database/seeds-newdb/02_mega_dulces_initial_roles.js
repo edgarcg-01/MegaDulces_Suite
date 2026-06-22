@@ -78,6 +78,8 @@ exports.seed = async function (knex) {
     LOGISTICS_PAYROLL_VER: true,
     LOGISTICS_PAYROLL_GESTIONAR: true,
     LOGISTICS_CONFIG_GESTIONAR: true,
+    LOGISTICS_CARTAPORTE_VER: true,
+    LOGISTICS_CARTAPORTE_GESTIONAR: true,
     // Fase V — Vendedor con OCR de ticket
     CAPTURE_TICKET_USE: true,
     // Acceso a la app de vendedor standalone

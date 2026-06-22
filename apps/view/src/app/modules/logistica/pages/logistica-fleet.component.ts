@@ -17,7 +17,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   Driver, DriverRole, LogisticaService, Vehicle, VehicleStatus,
-  VehicleUsageLog, VehicleMaintenance,
+  VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency,
 } from '../logistica.service';
 
 const VEHICLE_STATUS_OPTIONS: { label: string; value: VehicleStatus }[] = [
@@ -181,6 +181,39 @@ function severityForDriverStatus(s: string): Severity {
           <div class="tab-actions">
             <button pButton icon="pi pi-plus" label="Nuevo mantenimiento" (click)="openMaintenance()"></button>
           </div>
+          <div class="maint-due" *ngIf="maintDue().length">
+            <div class="maint-due-head"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              {{ maintDue().length }} unidad{{ maintDue().length === 1 ? '' : 'es' }} con servicio vencido</div>
+            <ul>
+              <li *ngFor="let d of maintDue()">
+                <code>{{ d.plate }}</code> {{ d.model || '' }}
+                <span class="maint-due-reason">{{ d.reasons.join(' · ') }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <p-card *ngIf="fuelEff().length" class="fuel-card">
+            <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
+            <p-table [value]="fuelEff()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+              <ng-template pTemplate="header">
+                <tr><th>Vehículo</th><th class="num">Km</th><th class="num">Litros</th><th class="num">Real km/l</th><th class="num">Spec</th><th class="num">Desv.</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-f>
+                <tr [class.fuel-flag]="f.flag">
+                  <td><code>{{ f.plate }}</code></td>
+                  <td class="num">{{ f.km | number:'1.0-0' }}</td>
+                  <td class="num">{{ f.liters | number:'1.0-1' }}</td>
+                  <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : '—' }}</td>
+                  <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
+                  <td class="num">
+                    <span *ngIf="f.deviation_pct != null" [class.fuel-bad]="f.flag">{{ f.deviation_pct > 0 ? '+' : '' }}{{ f.deviation_pct }}%</span>
+                    <span *ngIf="f.deviation_pct == null">—</span>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </p-card>
+
           <p-card>
             <p-table [value]="maintenance()" [loading]="loadingMaint()" responsiveLayout="scroll" styleClass="p-datatable-sm">
               <ng-template pTemplate="header">
@@ -451,6 +484,15 @@ function severityForDriverStatus(s: string): Severity {
     .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
     .form em { color:#ef4444; font-style:normal; }
     .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .maint-due { border:1px solid #e6c15a; background:#fdf6e3; border-radius:10px; padding:.75rem 1rem; margin-bottom:1rem; }
+    .maint-due-head { display:flex; align-items:center; gap:.5rem; font-weight:600; margin-bottom:.4rem; }
+    .maint-due ul { margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:.25rem; }
+    .maint-due li { font-size:.9rem; }
+    .maint-due-reason { color:var(--text-color-secondary); margin-left:.4rem; }
+    .fuel-card { display:block; margin-bottom:1rem; }
+    .fuel-title { margin:0 0 .5rem; font-size:1rem; }
+    .fuel-flag { background:#fdecea; }
+    .fuel-bad { color:#c0392b; font-weight:600; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -476,6 +518,8 @@ export class LogisticaFleetComponent {
   // J.9.9 — Vehicle usage + maintenance state
   readonly usageLogs = signal<VehicleUsageLog[]>([]);
   readonly maintenance = signal<VehicleMaintenance[]>([]);
+  readonly maintDue = signal<MaintenanceDue[]>([]);
+  readonly fuelEff = signal<FuelEfficiency[]>([]);
   readonly loadingUsage = signal(false);
   readonly loadingMaint = signal(false);
   readonly savingUsage = signal(false);
@@ -625,6 +669,8 @@ export class LogisticaFleetComponent {
       next: (r) => { this.maintenance.set(r || []); this.loadingMaint.set(false); },
       error: () => { this.loadingMaint.set(false); /* silent */ },
     });
+    this.api.maintenanceDue().subscribe({ next: (r) => this.maintDue.set(r || []), error: () => {} });
+    this.api.fuelEfficiency().subscribe({ next: (r) => this.fuelEff.set(r || []), error: () => {} });
   }
   openMaintenance() {
     this.maintenanceForm.reset({

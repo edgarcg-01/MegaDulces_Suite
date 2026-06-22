@@ -48,4 +48,10 @@ export class LogisticsAnalyticsController {
   payroll(@Query('year') year?: string) {
     return this.service.payrollTotals(year ? Number(year) : undefined);
   }
+
+  @Get('roi')
+  @ApiOperation({ summary: 'J12.7: historia de costo/ROI — flete, costo/km, combustible, mantenimiento, margen' })
+  roi(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.roiSummary({ from, to });
+  }
 }

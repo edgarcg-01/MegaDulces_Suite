@@ -476,6 +476,50 @@ export interface CalculatePeriodResult {
   }>;
 }
 
+// ── J12.0 Carta Porte ──────────────────────────────────────────────────────
+export interface EmisorProfile {
+  id?: string;
+  rfc: string;
+  legal_name: string;
+  regimen_fiscal: string;
+  cp_expedicion: string;
+  sct_permit_type?: string | null;
+  sct_permit_number?: string | null;
+  fiscal_address?: Record<string, unknown> | null;
+}
+export interface CartaPorteGap {
+  field: string;
+  detail: string;
+}
+export type CartaPorteStatus = 'borrador' | 'timbrado' | 'cancelado' | 'error';
+export interface CartaPorteDocument {
+  id: string;
+  shipment_id: string;
+  cfdi_type: 'traslado' | 'ingreso';
+  status: CartaPorteStatus;
+  uuid_fiscal?: string | null;
+  serie?: string | null;
+  folio?: string | null;
+  total_distance_km?: number | null;
+  pac_provider?: string | null;
+  error_message?: string | null;
+  stamped_at?: string | null;
+  created_at: string;
+}
+
+// ── J12.1 Rastreo en vivo ───────────────────────────────────────────────────
+export interface LiveShipment {
+  shipment_id: string;
+  folio: string;
+  destination?: string | null;
+  driver_name: string;
+  vehicle_plate?: string | null;
+  lat: number;
+  lng: number;
+  accuracy_m?: number | null;
+  captured_at: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LogisticaService {
   private readonly http = inject(HttpClient);
@@ -819,4 +863,131 @@ export class LogisticaService {
   deleteAdjustment(id: string) {
     return this.http.delete<{ deleted: boolean; id: string }>(`${this.base}/payroll/adjustments/${id}`);
   }
+
+  // ── J12.0 Carta Porte ────────────────────────────────────────────────────
+  getEmisorProfile(): Observable<EmisorProfile | null> {
+    return this.http.get<EmisorProfile | null>(`${this.base}/cartaporte/emisor`);
+  }
+  upsertEmisorProfile(body: EmisorProfile): Observable<EmisorProfile> {
+    return this.http.put<EmisorProfile>(`${this.base}/cartaporte/emisor`, body);
+  }
+  validateCartaPorte(shipmentId: string): Observable<CartaPorteGap[]> {
+    return this.http.get<CartaPorteGap[]>(`${this.base}/cartaporte/shipment/${shipmentId}/validate`);
+  }
+  stampCartaPorte(shipmentId: string): Observable<CartaPorteDocument> {
+    return this.http.post<CartaPorteDocument>(`${this.base}/cartaporte/shipment/${shipmentId}/stamp`, {});
+  }
+  listCartaPorteByShipment(shipmentId: string): Observable<CartaPorteDocument[]> {
+    return this.http.get<CartaPorteDocument[]>(`${this.base}/cartaporte/shipment/${shipmentId}`);
+  }
+
+  // ── J12.1 Rastreo en vivo ──────────────────────────────────────────────────
+  liveShipments(): Observable<LiveShipment[]> {
+    return this.http.get<LiveShipment[]>(`${this.base}/shipments/live`);
+  }
+
+  // ── J12.3 Optimización de ruta ─────────────────────────────────────────────
+  optimizeShipmentRoute(shipmentId: string): Observable<{ order: string[]; total_km: number; located: number; unlocated: number }> {
+    return this.http.post<{ order: string[]; total_km: number; located: number; unlocated: number }>(
+      `${this.base}/routing/optimize-shipment/${shipmentId}`, {});
+  }
+
+  // ── J12.4 ETA ──────────────────────────────────────────────────────────────
+  shipmentEta(shipmentId: string): Observable<ShipmentEta> {
+    return this.http.get<ShipmentEta>(`${this.base}/shipments/${shipmentId}/eta`);
+  }
+
+  // ── J12.3 Planner ──────────────────────────────────────────────────────────
+  shipmentRoutePlan(shipmentId: string): Observable<RoutePlan> {
+    return this.http.get<RoutePlan>(`${this.base}/routing/shipment/${shipmentId}/plan`);
+  }
+
+  // ── J12.6 Mantenimiento + combustible ──────────────────────────────────────
+  maintenanceDue(): Observable<MaintenanceDue[]> {
+    return this.http.get<MaintenanceDue[]>(`${this.base}/fleet/maintenance/due`);
+  }
+  fuelEfficiency(): Observable<FuelEfficiency[]> {
+    return this.http.get<FuelEfficiency[]>(`${this.base}/fleet/fuel-efficiency`);
+  }
+
+  // ── J12.7 ROI ──────────────────────────────────────────────────────────────
+  analyticsRoi(from?: string, to?: string): Observable<RoiSummary> {
+    let p = new HttpParams();
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return this.http.get<RoiSummary>(`${this.base}/analytics/roi`, { params: p });
+  }
+}
+
+export interface RoiSummary {
+  period: { from: string | null; to: string | null };
+  currency: string;
+  shipments: number;
+  km: number;
+  revenue_freight: number;
+  cost_total: number;
+  cost_per_km: number;
+  margin: number;
+  margin_pct: number;
+  fuel_cost: number;
+  fuel_pct_of_operating: number;
+  maintenance_cost: number;
+  cost_breakdown: { fuel: number; tolls: number; driver_per_diem: number; handling: number; repairs: number; otros: number };
+}
+
+export interface MaintenanceDue {
+  vehicle_id: string;
+  plate: string;
+  model?: string | null;
+  brand?: string | null;
+  odometer?: number | null;
+  next_service_km?: number | null;
+  next_service_date?: string | null;
+  last_description?: string | null;
+  reasons: string[];
+}
+export interface FuelEfficiency {
+  vehicle_id: string;
+  plate: string;
+  model?: string | null;
+  km: number;
+  liters: number;
+  trips: number;
+  real_km_l: number | null;
+  spec_km_l: number | null;
+  deviation_pct: number | null;
+  flag: boolean;
+}
+
+export interface EtaStop {
+  recipient_id: string;
+  customer_name: string;
+  sequence_order: number;
+  leg_km: number;
+  cumulative_km: number;
+  eta: string;
+}
+export interface ShipmentEta {
+  from_source?: 'driver_ping' | 'first_stop';
+  speed_kmh?: number;
+  service_minutes?: number;
+  stops: EtaStop[];
+  total_km: number;
+  total_minutes: number;
+}
+
+export interface RoutePlanStop {
+  recipient_id: string;
+  customer_name: string;
+  status: string;
+  sequence_order: number | null;
+  lat: number;
+  lng: number;
+}
+export interface RoutePlan {
+  folio: string;
+  origin: { lat: number; lng: number; name?: string } | null;
+  optimized: boolean;
+  stops: RoutePlanStop[];
+  unlocated: number;
 }

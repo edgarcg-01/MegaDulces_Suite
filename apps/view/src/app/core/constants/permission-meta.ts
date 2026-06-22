@@ -91,6 +91,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.LOGISTICS_PAYROLL_VER]: { label: 'Ver Liquidaciones', description: 'Consultar liquidaciones y períodos de pago.', category: 'Logística' },
   [Permission.LOGISTICS_PAYROLL_GESTIONAR]: { label: 'Gestionar Liquidaciones', description: 'Calcular y cerrar liquidaciones por período.', category: 'Logística' },
   [Permission.LOGISTICS_CONFIG_GESTIONAR]: { label: 'Configurar Logística', description: 'Parámetros financieros (factores, costo por km).', category: 'Logística' },
+  [Permission.LOGISTICS_CARTAPORTE_VER]: { label: 'Ver Carta Porte', description: 'Consultar documentos Carta Porte timbrados.', category: 'Logística' },
+  [Permission.LOGISTICS_CARTAPORTE_GESTIONAR]: { label: 'Timbrar Carta Porte', description: 'Validar y timbrar Carta Porte (CFDI Traslado) ante el SAT.', category: 'Logística' },
 };
 
 /**

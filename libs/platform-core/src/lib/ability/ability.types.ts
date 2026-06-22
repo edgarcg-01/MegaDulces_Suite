@@ -40,6 +40,7 @@ export type AppSubject =
   | 'logistics_expenses'
   | 'logistics_payroll'
   | 'logistics_config'
+  | 'logistics_cartaporte'
   | 'capture_ticket'
   | 'route_ticket'
   | 'vendor_app';

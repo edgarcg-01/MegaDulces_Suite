@@ -8,6 +8,7 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { ORDER_FULFILLMENT_PORT, OrderFulfillmentPort } from '@megadulces/contracts';
+import { haversineKm } from '../logistics-routing/route-solver';
 
 export type ShipmentStatus =
   | 'programado'
@@ -232,6 +233,152 @@ export class LogisticsShipmentsService {
           'c.name as customer_name',
         )
         .orderBy('s.shipment_date', 'desc');
+    });
+  }
+
+  /**
+   * J12.1 — Posiciones en vivo de la flota: embarques `en_ruta` con la última
+   * posición GPS de su chofer (reusa route_location_pings que ya alimenta el
+   * RoutePingService web). Sin hardware: el puente de rastreo en vivo.
+   */
+  async livePositions() {
+    return this.tk.run(async (trx) => {
+      const ships = await trx('logistics.shipments as s')
+        .join('logistics.delivery_guides as g', function (this: any) {
+          this.on('g.shipment_id', 's.id').andOnNull('g.deleted_at');
+        })
+        .join('logistics.drivers as d', 'd.id', 'g.driver_id')
+        .leftJoin('logistics.vehicles as v', 'v.id', 's.vehicle_id')
+        .where('s.status', 'en_ruta')
+        .whereNull('s.deleted_at')
+        .whereNotNull('d.user_id')
+        .select(
+          's.id as shipment_id',
+          's.folio',
+          's.destination',
+          'd.full_name as driver_name',
+          'd.user_id',
+          'v.plate as vehicle_plate',
+        );
+
+      // Dedup por embarque (un shipment puede tener varias guías/choferes).
+      const byShipment = new Map<string, any>();
+      for (const r of ships) if (!byShipment.has(r.shipment_id)) byShipment.set(r.shipment_id, r);
+      const rows = [...byShipment.values()];
+      const userIds = [...new Set(rows.map((r) => r.user_id))];
+      if (!userIds.length) return [];
+
+      // route_location_pings es public (sin RLS) → filtrar tenant explícito.
+      const pings = await trx('public.route_location_pings')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .whereIn('user_id', userIds)
+        .whereRaw("captured_at > now() - interval '12 hours'")
+        .distinctOn('user_id')
+        .orderBy([{ column: 'user_id' }, { column: 'captured_at', order: 'desc' }])
+        .select('user_id', 'lat', 'lng', 'captured_at', 'accuracy_m');
+      const pingByUser = new Map(pings.map((p: any) => [p.user_id, p]));
+
+      return rows
+        .map((r) => {
+          const p = pingByUser.get(r.user_id);
+          if (!p) return null;
+          return {
+            shipment_id: r.shipment_id,
+            folio: r.folio,
+            destination: r.destination,
+            driver_name: r.driver_name,
+            vehicle_plate: r.vehicle_plate,
+            lat: Number(p.lat),
+            lng: Number(p.lng),
+            accuracy_m: p.accuracy_m != null ? Number(p.accuracy_m) : null,
+            captured_at: p.captured_at,
+          };
+        })
+        .filter(Boolean);
+    });
+  }
+
+  /**
+   * J12.4 — ETA heurístico por parada. Desde la posición actual del chofer
+   * (último ping) recorre los destinatarios pendientes en `sequence_order`,
+   * acumulando distancia / velocidad promedio + minutos por parada. Sin ML.
+   *
+   * Config opcional en config_finance (category 'otro'):
+   *   velocidad_promedio_kmh (default 30) · minutos_por_parada (default 12)
+   */
+  async etaForShipment(shipmentId: string) {
+    if (!/^[0-9a-f-]{36}$/i.test(shipmentId)) throw new BadRequestException('shipmentId inválido');
+    return this.tk.run(async (trx) => {
+      const shipment = await trx('logistics.shipments').where({ id: shipmentId }).whereNull('deleted_at').first();
+      if (!shipment) throw new NotFoundException(`Embarque ${shipmentId} no encontrado`);
+
+      const cfg = await trx('logistics.config_finance')
+        .whereIn('key', ['velocidad_promedio_kmh', 'minutos_por_parada'])
+        .where({ active: true })
+        .select('key', 'value');
+      const cfgMap = new Map(cfg.map((c: any) => [c.key, Number(c.value)]));
+      const speed = cfgMap.get('velocidad_promedio_kmh') || 30; // km/h
+      const serviceMin = cfgMap.get('minutos_por_parada') ?? 12;
+
+      const guideIds = (
+        await trx('logistics.delivery_guides').where({ shipment_id: shipmentId }).whereNull('deleted_at').select('id')
+      ).map((g: any) => g.id);
+      if (!guideIds.length) return { stops: [], total_km: 0, total_minutes: 0 };
+
+      const recipients = await trx('logistics.guide_recipients as r')
+        .leftJoin('commercial.customers as c', 'c.id', 'r.customer_id')
+        .whereIn('r.guide_id', guideIds)
+        .where('r.status', 'pendiente')
+        .whereNotNull('r.sequence_order')
+        .orderBy('r.sequence_order', 'asc')
+        .select('r.id', 'r.customer_name', 'r.sequence_order', 'c.latitude', 'c.longitude');
+
+      const stops = recipients.filter((r: any) => r.latitude != null && r.longitude != null);
+      if (!stops.length) return { stops: [], total_km: 0, total_minutes: 0 };
+
+      // Punto de partida: último ping del chofer; si no hay, el primer destino.
+      const driver = await trx('logistics.delivery_guides as g')
+        .join('logistics.drivers as d', 'd.id', 'g.driver_id')
+        .where('g.shipment_id', shipmentId).whereNotNull('d.user_id')
+        .select('d.user_id').first();
+      let from: { lat: number; lng: number } | null = null;
+      if (driver?.user_id) {
+        const ping = await trx('public.route_location_pings')
+          .whereRaw('tenant_id = public.current_tenant_id()')
+          .where({ user_id: driver.user_id })
+          .orderBy('captured_at', 'desc').first();
+        if (ping) from = { lat: Number(ping.lat), lng: Number(ping.lng) };
+      }
+      if (!from) from = { lat: Number(stops[0].latitude), lng: Number(stops[0].longitude) };
+
+      const now = Date.now();
+      let cumKm = 0;
+      let cumMin = 0;
+      let prev = from;
+      const out = stops.map((r: any) => {
+        const pt = { lat: Number(r.latitude), lng: Number(r.longitude) };
+        const legKm = haversineKm(prev, pt);
+        cumKm += legKm;
+        cumMin += (legKm / speed) * 60 + serviceMin;
+        prev = pt;
+        return {
+          recipient_id: r.id,
+          customer_name: r.customer_name,
+          sequence_order: r.sequence_order,
+          leg_km: Math.round(legKm * 100) / 100,
+          cumulative_km: Math.round(cumKm * 100) / 100,
+          eta: new Date(now + cumMin * 60000).toISOString(),
+        };
+      });
+
+      return {
+        from_source: driver?.user_id ? 'driver_ping' : 'first_stop',
+        speed_kmh: speed,
+        service_minutes: serviceMin,
+        stops: out,
+        total_km: Math.round(cumKm * 100) / 100,
+        total_minutes: Math.round(cumMin),
+      };
     });
   }
 

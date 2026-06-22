@@ -71,6 +71,18 @@ export class LogisticsShipmentsController {
     return this.service.myDriverShipments({ status, from, to });
   }
 
+  @Get('live')
+  @ApiOperation({ summary: 'J12.1: posiciones en vivo de embarques en_ruta (último ping del chofer)' })
+  livePositions() {
+    return this.service.livePositions();
+  }
+
+  @Get(':id/eta')
+  @ApiOperation({ summary: 'J12.4: ETA por parada (posición actual + sequence_order + velocidad)' })
+  eta(@Param('id') id: string) {
+    return this.service.etaForShipment(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener shipment por id' })
   findOne(@Param('id') id: string) {

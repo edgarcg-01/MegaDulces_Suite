@@ -15,6 +15,7 @@ import {
   FleetUtilizationRow,
   KpiSummary,
   LogisticaService,
+  RoiSummary,
   ShipmentProfitabilityRow,
 } from '../logistica.service';
 
@@ -62,6 +63,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <p-tab value="overview"><i class="pi pi-th-large"></i> Overview</p-tab>
         <p-tab value="shipments"><i class="pi pi-truck"></i> Por embarque ({{ shipmentRows().length }})</p-tab>
         <p-tab value="fleet"><i class="pi pi-car"></i> Por unidad ({{ fleetRows().length }})</p-tab>
+        <p-tab value="roi"><i class="pi pi-dollar"></i> ROI</p-tab>
       </p-tablist>
       <p-tabpanels>
 
@@ -201,6 +203,53 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </p-table>
           </p-card>
         </p-tabpanel>
+
+        <!-- ──── Tab 4: ROI / historia de ahorro ──── -->
+        <p-tabpanel value="roi">
+          <ng-container *ngIf="roi() as r">
+            <div class="kpi-grid">
+              <p-card>
+                <div class="kpi-label">Costo / km</div>
+                <div class="kpi-value">\${{ r.cost_per_km | number:'1.2-2' }}</div>
+                <div class="kpi-sub muted">{{ r.km | number:'1.0-0' }} km · {{ r.shipments }} embarques</div>
+              </p-card>
+              <p-card>
+                <div class="kpi-label">Margen</div>
+                <div class="kpi-value" [class.neg]="r.margin < 0">\${{ r.margin | number:'1.2-2' }}</div>
+                <div class="kpi-sub muted">{{ r.margin_pct | number:'1.1-1' }}% del flete</div>
+              </p-card>
+              <p-card>
+                <div class="kpi-label">Combustible</div>
+                <div class="kpi-value">\${{ r.fuel_cost | number:'1.2-2' }}</div>
+                <div class="kpi-sub muted">{{ r.fuel_pct_of_operating | number:'1.0-0' }}% del costo operativo</div>
+              </p-card>
+              <p-card>
+                <div class="kpi-label">Mantenimiento</div>
+                <div class="kpi-value">\${{ r.maintenance_cost | number:'1.2-2' }}</div>
+                <div class="kpi-sub muted">Servicios del período</div>
+              </p-card>
+            </div>
+
+            <div class="detail-grid">
+              <p-card>
+                <h3>Desglose de costo operativo</h3>
+                <div class="row"><span>Combustible</span><strong>\${{ r.cost_breakdown.fuel | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Casetas</span><strong>\${{ r.cost_breakdown.tolls | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Viáticos chofer</span><strong>\${{ r.cost_breakdown.driver_per_diem | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Maniobras</span><strong>\${{ r.cost_breakdown.handling | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Talachas</span><strong>\${{ r.cost_breakdown.repairs | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Otros</span><strong>\${{ r.cost_breakdown.otros | number:'1.2-2' }}</strong></div>
+              </p-card>
+              <p-card>
+                <h3>Historia del período</h3>
+                <div class="row"><span>Flete cobrado</span><strong>\${{ r.revenue_freight | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Costo total de viajes</span><strong>\${{ r.cost_total | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Mantenimiento</span><strong>\${{ r.maintenance_cost | number:'1.2-2' }}</strong></div>
+                <div class="row"><span>Margen</span><strong [class.neg]="r.margin < 0">\${{ r.margin | number:'1.2-2' }}</strong></div>
+              </p-card>
+            </div>
+          </ng-container>
+        </p-tabpanel>
       </p-tabpanels>
     </p-tabs>
   `,
@@ -244,6 +293,7 @@ export class LogisticaReportsComponent {
   readonly overview = signal<AnalyticsOverview | null>(null);
   readonly shipmentRows = signal<ShipmentProfitabilityRow[]>([]);
   readonly fleetRows = signal<FleetUtilizationRow[]>([]);
+  readonly roi = signal<RoiSummary | null>(null);
   readonly loading = signal(false);
 
   constructor() {
@@ -267,12 +317,14 @@ export class LogisticaReportsComponent {
       ov: this.api.analyticsOverview(f, t),
       ships: this.api.shipmentProfitability({ from: f, to: t, limit: 200 }),
       fleet: this.api.fleetUtilization(f, t),
+      roi: this.api.analyticsRoi(f, t),
     }).subscribe({
-      next: ({ kpi, ov, ships, fleet }) => {
+      next: ({ kpi, ov, ships, fleet, roi }) => {
         this.kpi.set(kpi);
         this.overview.set(ov);
         this.shipmentRows.set(ships || []);
         this.fleetRows.set(fleet || []);
+        this.roi.set(roi);
         this.loading.set(false);
       },
       error: () => {

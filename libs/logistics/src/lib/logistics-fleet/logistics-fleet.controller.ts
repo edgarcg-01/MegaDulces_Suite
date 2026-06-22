@@ -133,6 +133,18 @@ export class LogisticsFleetController {
     return this.service.createMaintenance(body);
   }
 
+  @Get('maintenance/due')
+  @ApiOperation({ summary: 'J12.6: vehículos con servicio vencido (odómetro ≥ next_service_km o fecha)' })
+  maintenanceDue() {
+    return this.service.maintenanceDue();
+  }
+
+  @Get('fuel-efficiency')
+  @ApiOperation({ summary: 'J12.6: rendimiento real km/l por unidad vs spec (detecta fugas)' })
+  fuelEfficiency() {
+    return this.service.fuelEfficiency();
+  }
+
   @Get('maintenance')
   @ApiOperation({ summary: 'J.9.9: listar mantenimientos del vehicle / tipo' })
   listMaintenance(

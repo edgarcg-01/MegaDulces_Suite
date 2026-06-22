@@ -106,4 +106,8 @@ export enum Permission {
 
   // Módulo: Logística — Configuración financiera (factores, costo km)
   LOGISTICS_CONFIG_GESTIONAR = 'LOGISTICS_CONFIG_GESTIONAR',
+
+  // Módulo: Logística — Carta Porte 3.1 (CFDI Traslado vía PAC)
+  LOGISTICS_CARTAPORTE_VER = 'LOGISTICS_CARTAPORTE_VER',
+  LOGISTICS_CARTAPORTE_GESTIONAR = 'LOGISTICS_CARTAPORTE_GESTIONAR',
 }

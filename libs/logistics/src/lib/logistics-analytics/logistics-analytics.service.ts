@@ -304,4 +304,73 @@ export class LogisticsAnalyticsService {
       }));
     });
   }
+
+  // ── J12.7 ROI / historia de ahorro ───────────────────────────────────────
+
+  /**
+   * Consolida la "historia del costo" del periodo: ingreso de flete, costo total
+   * y desglose por categoría, costo/km, share de combustible, gasto de
+   * mantenimiento y margen. Es el número presentable (lección Samsara "8X ROI").
+   */
+  async roiSummary(q: DateRangeQuery) {
+    return this.tk.run(async (trx) => {
+      let base = trx('logistics.shipments as s')
+        .leftJoin('logistics.shipment_expenses as e', 'e.shipment_id', 's.id')
+        .whereNull('s.deleted_at')
+        .whereIn('s.status', REALIZED_STATUSES);
+      if (q.from) base = base.where('s.shipment_date', '>=', q.from);
+      if (q.to) base = base.where('s.shipment_date', '<=', q.to);
+
+      const [row] = await base.select([
+        trx.raw('COUNT(DISTINCT s.id)::int AS shipments'),
+        trx.raw('COALESCE(SUM(s.freight_revenue),0)::numeric AS revenue'),
+        trx.raw('COALESCE(SUM(s.actual_km),0)::int AS km'),
+        trx.raw('COALESCE(SUM(e.total_cost),0)::numeric AS total_cost'),
+        trx.raw('COALESCE(SUM(e.operating_subtotal),0)::numeric AS operating'),
+        trx.raw('COALESCE(SUM(e.fuel),0)::numeric AS fuel'),
+        trx.raw('COALESCE(SUM(e.tolls),0)::numeric AS tolls'),
+        trx.raw('COALESCE(SUM(e.driver_per_diem),0)::numeric AS per_diem'),
+        trx.raw('COALESCE(SUM(e.handling),0)::numeric AS handling'),
+        trx.raw('COALESCE(SUM(e.repairs),0)::numeric AS repairs'),
+        trx.raw('COALESCE(SUM(e.lodging + e.parking + e.permits + e.external_helpers + e.other),0)::numeric AS otros'),
+      ]);
+
+      let mq = trx('logistics.vehicle_maintenance').whereNull('deleted_at');
+      if (q.from) mq = mq.where('service_date', '>=', q.from);
+      if (q.to) mq = mq.where('service_date', '<=', q.to);
+      const [{ maintenance_cost }] = await mq.select(trx.raw('COALESCE(SUM(cost),0)::numeric AS maintenance_cost'));
+
+      const n = (v: any) => +Number(v).toFixed(2);
+      const revenue = n(row.revenue);
+      const totalCost = n(row.total_cost);
+      const km = Number(row.km);
+      const fuel = n(row.fuel);
+      const operating = n(row.operating);
+      const maint = n(maintenance_cost);
+      const margin = n(revenue - totalCost);
+
+      return {
+        period: { from: q.from || null, to: q.to || null },
+        currency: 'MXN',
+        shipments: Number(row.shipments),
+        km,
+        revenue_freight: revenue,
+        cost_total: totalCost,
+        cost_per_km: km > 0 ? n(totalCost / km) : 0,
+        margin,
+        margin_pct: revenue > 0 ? n((margin / revenue) * 100) : 0,
+        fuel_cost: fuel,
+        fuel_pct_of_operating: operating > 0 ? n((fuel / operating) * 100) : 0,
+        maintenance_cost: maint,
+        cost_breakdown: {
+          fuel,
+          tolls: n(row.tolls),
+          driver_per_diem: n(row.per_diem),
+          handling: n(row.handling),
+          repairs: n(row.repairs),
+          otros: n(row.otros),
+        },
+      };
+    });
+  }
 }

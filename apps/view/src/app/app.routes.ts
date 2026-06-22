@@ -272,6 +272,18 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-fleet.component').then(m => m.LogisticaFleetComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
+      // J12.1 — Flota en vivo (rastreo web del chofer)
+      {
+        path: 'live',
+        loadComponent: () => import('./modules/logistica/pages/logistica-live.component').then(m => m.LogisticaLiveComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      // J12.3 — Planeador de ruta (mapa + optimización)
+      {
+        path: 'planner',
+        loadComponent: () => import('./modules/logistica/pages/logistica-planner.component').then(m => m.LogisticaPlannerComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
+      },
       {
         path: 'payroll',
         loadComponent: () => import('./modules/logistica/pages/logistica-payroll.component').then(m => m.LogisticaPayrollComponent),

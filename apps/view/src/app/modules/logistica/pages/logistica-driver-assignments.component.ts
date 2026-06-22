@@ -1,10 +1,12 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   computed,
   inject,
   signal,
 } from '@angular/core';
+import { RoutePingService } from '../../../core/services/route-ping.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -404,9 +406,10 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LogisticaDriverAssignmentsComponent {
+export class LogisticaDriverAssignmentsComponent implements OnDestroy {
   private readonly api = inject(LogisticaService);
   private readonly toast = inject(MessageService);
+  private readonly ping = inject(RoutePingService);
 
   readonly shipments = signal<Shipment[]>([]);
   readonly loading = signal(false);
@@ -427,6 +430,13 @@ export class LogisticaDriverAssignmentsComponent {
 
   constructor() {
     this.reload();
+    // J12.1 — mientras el chofer está en "Mis entregas", comparte su ubicación
+    // (GPS web + Wake Lock) hacia route_location_pings → mapa de flota en vivo.
+    this.ping.startShift();
+  }
+
+  ngOnDestroy(): void {
+    this.ping.endShift();
   }
 
   reload(): void {
