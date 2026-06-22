@@ -10,13 +10,14 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { CheckboxModule } from 'primeng/checkbox';
 import { SelectModule } from 'primeng/select';
+import { AutoCompleteModule } from 'primeng/autocomplete';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  CartaPorteDocument, CartaPorteGap, ShipmentEta,
+  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite,
   DeliveryGuide, Driver, GuideRecipient, LogisticaService, Shipment, ShipmentExpense, Vehicle,
 } from '../logistica.service';
 
@@ -28,7 +29,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   imports: [
     CommonModule, RouterLink, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
-    InputTextModule, InputNumberModule, CheckboxModule, SelectModule,
+    InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
@@ -518,6 +519,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-label">Agregar destinatario</span>
             </div>
             <label class="full">
+              <span>Buscar cliente</span>
+              <p-autoComplete [suggestions]="customerSuggestions()" (completeMethod)="searchCustomer($event)"
+                              (onSelect)="onCustomerSelect($event)" field="name" [forceSelection]="false"
+                              placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autoComplete>
+            </label>
+            <label class="full">
               <span>Nombre <em>*</em></span>
               <input pInputText formControlName="customer_name" />
             </label>
@@ -842,11 +849,13 @@ export class LogisticaShipmentDetailComponent {
   });
 
   recipientForm: FormGroup = this.fb.group({
+    customer_id: [null as string | null],
     customer_name: ['', Validators.required],
     address: [''],
     boxes_count: [0],
     value: [0],
   });
+  readonly customerSuggestions = signal<CustomerLite[]>([]);
 
   expForm: FormGroup = this.fb.group({
     fuel: [0], tolls: [0], lodging: [0], parking: [0], permits: [0], repairs: [0],
@@ -1068,7 +1077,8 @@ export class LogisticaShipmentDetailComponent {
     this.api.getGuide(g.id).subscribe({
       next: (full) => {
         this.selectedGuide.set(full);
-        this.recipientForm.reset({ customer_name: '', address: '', boxes_count: 0, value: 0 });
+        this.recipientForm.reset({ customer_id: null, customer_name: '', address: '', boxes_count: 0, value: 0 });
+        this.customerSuggestions.set([]);
         this.guideDetailDialog = true;
       },
     });
@@ -1092,6 +1102,23 @@ export class LogisticaShipmentDetailComponent {
       },
       error: (err) => this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' }),
     });
+  }
+
+  // ── Destinatario: búsqueda de cliente (autorelleno) ─────────────────
+  searchCustomer(e: { query: string }) {
+    this.api.searchCustomers(e.query).subscribe({
+      next: (cs) => this.customerSuggestions.set(cs || []),
+      error: () => this.customerSuggestions.set([]),
+    });
+  }
+  onCustomerSelect(e: any) {
+    const c: CustomerLite = e?.value ?? e;
+    if (!c) return;
+    const a = c.billing_address || c.shipping_address;
+    const address = a
+      ? [a['street'], a['exterior_number'], a['neighborhood'], a['city'], a['state'], a['zip']].filter(Boolean).join(', ')
+      : '';
+    this.recipientForm.patchValue({ customer_id: c.id, customer_name: c.name, address });
   }
 
   // ── Carta Porte ─────────────────────────────────────────────────────

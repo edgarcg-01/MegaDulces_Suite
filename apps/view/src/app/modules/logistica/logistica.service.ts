@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -507,6 +508,14 @@ export interface CartaPorteDocument {
   created_at: string;
 }
 
+export interface CustomerLite {
+  id: string;
+  code: string;
+  name: string;
+  billing_address?: Record<string, any> | null;
+  shipping_address?: Record<string, any> | null;
+}
+
 // ── J12.1 Rastreo en vivo ───────────────────────────────────────────────────
 export interface LiveShipment {
   shipment_id: string;
@@ -914,6 +923,14 @@ export class LogisticaService {
   }
   vehicleOdometer(vehicleId: string): Observable<{ vehicle_id: string; odometer: number | null }> {
     return this.http.get<{ vehicle_id: string; odometer: number | null }>(`${this.base}/fleet/vehicles/${vehicleId}/odometer`);
+  }
+
+  // ── J12 autorelleno: búsqueda de clientes para destinatarios ────────────────
+  searchCustomers(search: string): Observable<CustomerLite[]> {
+    let p = new HttpParams().set('pageSize', '10');
+    if (search) p = p.set('search', search);
+    return this.http.get<{ items: CustomerLite[] }>(`${environment.apiUrl}/commercial/customers`, { params: p })
+      .pipe(map((r) => r.items || []));
   }
 
   // ── J12.7 ROI ──────────────────────────────────────────────────────────────
