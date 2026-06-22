@@ -48,6 +48,33 @@ export class ReportsService {
   private pendingAffectedUsers = new Set<string>();
   private readonly METRICS_COOLDOWN_MS = 1500;
 
+  // Guard de columna `customer_id` en daily_captures: las capturas de vendor
+  // se anclan al cliente (no a una tienda), así que cuando store_id es NULL el
+  // nombre vive en commercial.customers.name. Si la columna no existe en este
+  // entorno (deploy window pre-migración), omitimos el JOIN en vez de romper.
+  private _hasCustomerIdColumn: boolean | null = null;
+  private _hasCustomerIdCheckedAt = 0;
+  private readonly CUSTOMER_ID_NEGATIVE_TTL_MS = 60_000;
+  private async hasCustomerIdColumn(): Promise<boolean> {
+    if (this._hasCustomerIdColumn === true) return true;
+    const stale =
+      this._hasCustomerIdColumn === false &&
+      Date.now() - this._hasCustomerIdCheckedAt < this.CUSTOMER_ID_NEGATIVE_TTL_MS;
+    if (stale) return false;
+    try {
+      const exists = await this.knex.schema
+        .withSchema('trade')
+        .hasColumn('daily_captures', 'customer_id');
+      this._hasCustomerIdColumn = exists;
+      this._hasCustomerIdCheckedAt = Date.now();
+      return exists;
+    } catch {
+      this._hasCustomerIdColumn = false;
+      this._hasCustomerIdCheckedAt = Date.now();
+      return false;
+    }
+  }
+
   private async runMetricsBroadcast() {
     const affectedUserIds = Array.from(this.pendingAffectedUsers);
     this.pendingAffectedUsers.clear();
@@ -392,9 +419,33 @@ export class ReportsService {
     const tenantId: string | undefined =
       user?.tenant_id || this.tenantContext?.get()?.tenantId;
 
+    // Las capturas de vendor no traen store_id (se anclan a customer_id y el
+    // backend deriva el store de customer.store_id; si el cliente no tiene
+    // tienda mapeada, store_id queda NULL). Caemos al nombre del cliente para
+    // que no aparezca "Tienda sin nombre" cuando sí hay un cliente vinculado.
+    const hasCustomerId = await this.hasCustomerIdColumn();
+
     const query = this.knex('daily_captures as dc')
-      .leftJoin('stores as s', 's.id', 'dc.store_id')
-      .select('dc.*', 's.nombre as cliente_nombre', 's.direccion as cliente_direccion');
+      .leftJoin('stores as s', 's.id', 'dc.store_id');
+
+    if (hasCustomerId) {
+      query
+        .leftJoin('commercial.customers as c', function () {
+          this.on('c.id', '=', 'dc.customer_id');
+          if (tenantId) this.andOn('c.tenant_id', '=', query.client.raw('?', [tenantId]));
+        })
+        .select(
+          'dc.*',
+          this.knex.raw('COALESCE(s.nombre, c.name) as cliente_nombre'),
+          's.direccion as cliente_direccion',
+        );
+    } else {
+      query.select(
+        'dc.*',
+        's.nombre as cliente_nombre',
+        's.direccion as cliente_direccion',
+      );
+    }
 
     if (tenantId) {
       query.where('dc.tenant_id', tenantId);

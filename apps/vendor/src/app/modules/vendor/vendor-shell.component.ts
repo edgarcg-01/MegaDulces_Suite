@@ -147,16 +147,15 @@ interface DiagProbe {
   styles: [
     `
       .vendor-shell {
-        /* Patrón de Trade (apps/view): altura FIJA de viewport + overflow-hidden
-           → el documento NO scrollea (mata el rubber-band de iOS que revela el
-           canvas del <html> abajo); el scroll lo absorbe el <main> interno.
-           100vh = fallback iOS viejo; 100dvh lo pisa donde existe. */
-        height: 100vh;
-        height: 100dvh;
+        /* MODELO DE SCROLL DE DOCUMENTO (igual que apps/view/Trade): el <html>
+           scrollea (overflow-y:scroll en styles.css). El shell solo fija el alto
+           MÍNIMO (para que páginas cortas llenen) y el fondo — SIN height fijo ni
+           overflow:hidden. Así iOS maneja las safe-areas como página normal y no
+           queda la franja vacía abajo del patrón 100dvh. */
+        min-height: 100dvh;
         display: flex;
         flex-direction: column;
         background: var(--layout-bg);
-        overflow: hidden;
       }
       .vendor-header {
         display: flex;
@@ -181,27 +180,26 @@ interface DiagProbe {
       .vendor-user a.header-active { color: var(--brand-700); }
       .vendor-main {
         flex: 1;
-        /* min-height:0 es CRUCIAL en un flex child para que pueda encoger y
-           scrollear internamente (si no, desborda el shell). overflow-y:auto +
-           momentum scroll iOS. */
-        min-height: 0;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
+        /* El scroll lo lleva el DOCUMENTO (no main) → sin overflow propio. main
+           solo crece con su contenido; flex:1 hace que llene el viewport en
+           páginas cortas. padding-bottom reserva el alto de la bottom-nav (fixed)
+           + la safe-area para que el último contenido no quede tapado. */
         padding: 1rem;
-        /* El nav ya NO es fixed (es hijo flex) → main no necesita reservar su
-           alto. Las páginas con cart-bar flotante ponen su propio padding. */
-        padding-bottom: 1rem;
+        padding-bottom: calc(5rem + env(safe-area-inset-bottom));
         max-width: 800px;
         width: 100%;
         margin: 0 auto;
         box-sizing: border-box;
       }
       .vendor-bottom-nav {
-        /* Último hijo flex del shell 100dvh (NO position:fixed): así la columna
-           header+main+nav llena EXACTO el viewport dinámico y no queda hueco
-           abajo en iOS (los fixed se anclan al layout viewport, que difiere del
-           dvh → era la "banda vacía"). */
-        flex-shrink: 0;
+        /* Fixed al fondo del viewport (modelo scroll-de-documento, como las tabs
+           nativas iOS). Con el <html> scrolleando normal + viewport-fit=cover,
+           bottom:0 llega al borde físico y el padding-bottom rellena la safe-area
+           del home indicator — sin la franja vacía del patrón 100dvh. */
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
         /* Fondo = el de la PÁGINA (no --card-bg): así la nav + la franja del
            home indicator se funden con el contenido y no se ve un bloque de
            otro tono ("borde") abajo. La separación la da solo el border-top. */

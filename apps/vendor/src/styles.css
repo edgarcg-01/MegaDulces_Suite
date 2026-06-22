@@ -256,18 +256,16 @@ html, body {
 }
 
 html {
-  /* Documento NO scrollea: el scroll vive en .vendor-main (shell con overflow-hidden,
-     patrón Trade). El `overflow-y: scroll` heredado de apps/view forzaba un contexto
-     de scroll del documento que en iOS pelea con el viewport fijo / safe-areas. */
-  overflow: hidden;
-  /* iOS standalone (iOS 18, verificado 2026-06-18 con overlay diagnóstico):
-     innerHeight (894) < screenHeight (956) → queda una franja de ~62px ABAJO,
-     fuera del layout viewport, que la bottom-nav (position:fixed;bottom:0) NO
-     puede cubrir; la pinta el canvas del <html>. El header (sticky, padding-top
-     = safe-area-inset-top) ya tapa la franja de ARRIBA con --card-bg, así que el
-     <html> SOLO se ve en esa franja de ABAJO → debe matchear la nav/página
-     (--layout-bg). Si es --card-bg, se ve un borde más claro abajo (#1A1A1A vs
-     #111111). Por eso va --layout-bg, NO --card-bg. */
+  /* MODELO DE SCROLL DE DOCUMENTO (igual que apps/view/Trade, que NO sufre la
+     franja vacía abajo en iOS). El patrón anterior (overflow:hidden + shell
+     100dvh) creaba un layout viewport (894) más corto que la pantalla (956) →
+     franja de ~62px fuera del viewport que la nav no cubría. Con el documento
+     scrolleando normal, iOS maneja las safe-areas como en cualquier página y la
+     bottom-nav fixed llega al borde físico. */
+  overflow-y: scroll;
+  /* Background del <html> = color de la NAV (--layout-bg): rellena la safe-area
+     del home indicator fundido con la bottom-nav (no --card-bg, que sería el
+     chrome del header pero NO matchea la nav del vendedor). */
   background-color: var(--layout-bg);
 }
 
