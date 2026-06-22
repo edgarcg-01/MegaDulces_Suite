@@ -45,6 +45,7 @@ export interface UpdateGuideDto extends Partial<Omit<CreateGuideDto, 'shipment_i
 export interface CreateRecipientDto {
   customer_name: string;
   customer_id?: string;
+  order_id?: string;
   address?: string;
   boxes_count?: number;
   weight_kg?: number;
@@ -259,22 +260,37 @@ export class LogisticsGuidesService {
         throw new ConflictException(`Guide ${guide.number} está ${guide.status}, no admite destinatarios.`);
       }
 
+      let customer: any = null;
       if (dto.customer_id) {
         if (!UUID_REGEX.test(dto.customer_id)) throw new BadRequestException('customer_id inválido');
-        const c = await trx('commercial.customers')
+        customer = await trx('commercial.customers')
           .where({ id: dto.customer_id })
           .whereNull('deleted_at')
           .first();
-        if (!c) throw new NotFoundException(`Customer ${dto.customer_id} no encontrado`);
+        if (!customer) throw new NotFoundException(`Customer ${dto.customer_id} no encontrado`);
       }
+
+      // J12.0.x: liga la orden entregada para itemizar la Carta Porte (multi-drop).
+      if (dto.order_id) {
+        if (!UUID_REGEX.test(dto.order_id)) throw new BadRequestException('order_id inválido');
+        const o = await trx('commercial.orders').where({ id: dto.order_id }).first();
+        if (!o) throw new NotFoundException(`Order ${dto.order_id} no encontrada`);
+      }
+
+      // Carta Porte: domicilio de destino. Reusa el del cliente si no se da uno.
+      const fiscalAddress = customer?.billing_address
+        ? (typeof customer.billing_address === 'string' ? JSON.parse(customer.billing_address) : customer.billing_address)
+        : null;
 
       const [row] = await trx('logistics.guide_recipients')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           guide_id: guideId,
           customer_id: dto.customer_id || null,
+          order_id: dto.order_id || null,
           customer_name: dto.customer_name.trim(),
           address: dto.address || null,
+          fiscal_address: fiscalAddress ? JSON.stringify(fiscalAddress) : null,
           boxes_count: dto.boxes_count || 0,
           weight_kg: dto.weight_kg || 0,
           value: dto.value || 0,
