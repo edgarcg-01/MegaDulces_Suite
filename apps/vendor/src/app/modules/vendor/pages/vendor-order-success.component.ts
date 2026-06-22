@@ -126,9 +126,11 @@ export class VendorOrderSuccessComponent implements OnInit {
     this.haptic.notification('success');
   }
 
-  /** Capturar exhibición: foto del punto de venta (combinar con el pedido tomado). */
+  /** Capturar exhibición: foto del punto de venta (customer-driven). */
   goCaptureExhibit(): void {
-    this.router.navigate(['/vendor/capture']);
+    this.router.navigate(['/vendor/capture'], {
+      queryParams: { customerId: this.customerId(), customerName: this.name() },
+    });
   }
 
   /** Finalizar visita: el pedido ya se tomó (had_order), cierra y vuelve a la ruta. */

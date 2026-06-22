@@ -970,10 +970,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   // ─── Acciones de la visita (···) ───
 
-  /** Capturar exhibición: foto del punto de venta. */
+  /** Capturar exhibición: foto del punto de venta (customer-driven). */
   goCaptureExhibit(): void {
     this.actionsOpen.set(false);
-    this.router.navigate(['/vendor/capture']);
+    this.router.navigate(['/vendor/capture'], {
+      queryParams: { customerId: this.customerId, customerName: this.customer()?.name },
+    });
   }
   /** Abre el sheet de resultado de visita. */
   openFinish(): void {

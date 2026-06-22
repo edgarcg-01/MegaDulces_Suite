@@ -160,7 +160,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
           <i class="pi pi-shopping-cart"></i> Tomar pedido
         </button>
 
-        <button class="action" (click)="goCapture()">
+        <button class="action" (click)="goCapture(c)">
           <i class="pi pi-camera"></i>
           <span class="lbl">Capturar exhibición</span>
         </button>
@@ -391,9 +391,12 @@ export class VendorCustomersComponent implements OnInit {
     this.router.navigate(['/vendor/take-order', c.id]);
   }
 
-  goCapture(): void {
+  goCapture(c: VendorCustomer): void {
     this.closeSheet();
-    this.router.navigate(['/vendor/capture']);
+    // Captura customer-driven: pasamos el cliente; la captura ya no detecta tienda por GPS.
+    this.router.navigate(['/vendor/capture'], {
+      queryParams: { customerId: c.id, customerName: c.name },
+    });
   }
 
   /**

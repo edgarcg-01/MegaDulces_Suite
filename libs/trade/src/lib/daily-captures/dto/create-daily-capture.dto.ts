@@ -88,9 +88,13 @@ export class CreateDailyCaptureDto {
   @IsOptional() @IsNumber()
   longitud?: number;
 
-  @ApiProperty({ description: 'ID de la tienda asociada (FK stores)', required: false })
+  @ApiProperty({ description: 'ID de la tienda asociada (FK stores). En la captura del vendedor se deriva de customer.store_id.', required: false })
   @IsOptional() @IsString()
   store_id?: string;
+
+  @ApiProperty({ description: 'ID del cliente comercial (commercial.customers). Ancla de la captura del vendedor; el store_id se deriva de su store_id.', required: false })
+  @IsOptional() @IsString()
+  customer_id?: string;
 
   @ApiProperty({ description: 'ID de la ruta activa (FK catalogs rutas) en la que se hizo la captura', required: false })
   @IsOptional() @IsString()

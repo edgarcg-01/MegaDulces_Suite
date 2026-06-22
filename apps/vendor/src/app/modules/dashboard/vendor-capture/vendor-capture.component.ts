@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -81,8 +81,8 @@ const ALLOWED_IMAGE_TYPES = [
             <p class="text-xs md:text-sm text-content-dim">
               Capturador: <span class="font-bold text-content-main">{{ user()?.username }}</span>
               <span class="mx-2 opacity-30">|</span>
-              <ng-container *ngIf="store(); else noStoreSub">Tienda: <span class="font-bold text-content-main">{{ store()?.nombre }}</span></ng-container>
-              <ng-template #noStoreSub>Inicio: <span class="font-bold text-content-main">—</span></ng-template>
+              <ng-container *ngIf="customer(); else noCustomerSub">Cliente: <span class="font-bold text-content-main">{{ customer()?.name }}</span></ng-container>
+              <ng-template #noCustomerSub>Inicio: <span class="font-bold text-content-main">—</span></ng-template>
             </p>
           </div>
         </div>
@@ -127,33 +127,16 @@ const ALLOWED_IMAGE_TYPES = [
         </div>
       </div>
 
-      <!-- Banner de Tienda Detectada -->
-      <div *ngIf="svc.hasActiveVisit() && store()"
-           class="bg-ok-soft-bg border border-ok-border p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-surface-card border border-ok-border flex items-center justify-center text-ok-fg shrink-0">
-            <i class="pi pi-check-circle text-lg sm:text-xl"></i>
-          </div>
-          <div class="min-w-0">
-            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
-            <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ store()?.nombre }}</div>
-          </div>
+      <!-- Banner del Cliente (captura customer-driven) -->
+      <div *ngIf="svc.hasActiveVisit() && customer()"
+           class="bg-ok-soft-bg border border-ok-border p-3 sm:p-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+        <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-surface-card border border-ok-border flex items-center justify-center text-ok-fg shrink-0">
+          <i class="pi pi-shop text-lg sm:text-xl"></i>
         </div>
-        <button *ngIf="nearby().length > 1" type="button" (click)="changingStore.set(!changingStore())"
-                class="btn-ghost btn-ghost-ok text-xs self-start sm:self-auto" aria-label="Cambiar tienda">Cambiar tienda</button>
-      </div>
-      <div *ngIf="svc.hasActiveVisit() && changingStore() && nearby().length > 1" class="-mt-3">
-        <select [ngModel]="store()?.id" (ngModelChange)="onSelectStore($event)"
-                class="w-full rounded-lg border border-divider bg-surface-card text-content-main text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand">
-          <option *ngFor="let s of nearby()" [value]="s.id">{{ s.nombre }} ({{ s.distance }} m)</option>
-        </select>
-      </div>
-
-      <!-- Sin tienda tras iniciar (no mientras aún detecta) -->
-      <div *ngIf="svc.hasActiveVisit() && !store() && !starting()"
-           class="bg-amber-500/5 border border-amber-500/30 p-3 sm:p-4 rounded-2xl flex items-center gap-3">
-        <i class="pi pi-exclamation-triangle text-amber-500 text-xl" aria-hidden="true"></i>
-        <div class="text-sm text-content-main">No se detectó una tienda cercana. Acercate al PdV y tocá <strong>Cancelar</strong> y reintentá.</div>
+        <div class="min-w-0">
+          <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-ok-fg truncate">Cliente</div>
+          <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ customer()?.name }}</div>
+        </div>
       </div>
 
       <!-- Auto-inicio: loading mientras captura GPS + detecta tienda (sin pantalla intermedia). -->
@@ -162,7 +145,7 @@ const ALLOWED_IMAGE_TYPES = [
           <i class="pi pi-spin pi-spinner text-2xl"></i>
         </div>
         <h3 class="text-lg font-bold text-content-main mb-2">Iniciando visita…</h3>
-        <p class="text-sm text-content-dim max-w-sm mx-auto">Capturando tu ubicación y detectando la tienda.</p>
+        <p class="text-sm text-content-dim max-w-sm mx-auto">Capturando tu ubicación.</p>
       </div>
 
       <!-- Sin visita y sin iniciar: error+reintento, elegí ruta, o preparando. -->
@@ -195,8 +178,8 @@ const ALLOWED_IMAGE_TYPES = [
         </div>
       </ng-container>
 
-      <!-- Flujo de captura (visita activa con tienda) -->
-      <ng-container *ngIf="svc.hasActiveVisit() && store()">
+      <!-- Flujo de captura (visita activa anclada al cliente) -->
+      <ng-container *ngIf="svc.hasActiveVisit() && customer()">
 
         <!-- Foto del exhibidor -->
         <div class="bg-surface-card border border-divider rounded-2xl p-5 space-y-4">
@@ -353,7 +336,12 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   private readonly toast = inject(MessageService);
   private readonly offlineSync = inject(OfflineSyncService);
   private readonly router = inject(Router);
+  private readonly activatedRoute = inject(ActivatedRoute);
   private readonly apiUrl = environment.apiUrl;
+
+  /** Cliente comercial recibido por query param (?customerId&customerName). */
+  private customerId: string | null = null;
+  private customerName = '';
 
   readonly user = this.auth.user;
 
@@ -371,7 +359,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     effect(() => {
       const route = this.svc.activeRoute();
       const active = this.svc.hasActiveVisit();
-      if (route && !active && !this.autoStartTried && !this.starting()) {
+      if (route && this.customerId && !active && !this.autoStartTried && !this.starting()) {
         this.autoStartTried = true;
         queueMicrotask(() => void this.start());
       }
@@ -395,6 +383,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   private ticketBlob: Blob | null = null;
 
   readonly store = this.svc.detectedStore;
+  readonly customer = this.svc.activeCustomer;
   readonly nearby = this.svc.nearbyStores;
   readonly route = this.svc.activeRoute;
   readonly zoneRoutes = this.svc.zoneRoutes;
@@ -408,7 +397,15 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   );
 
   ngOnInit(): void {
-    this.svc.refreshAll(); // catálogos + tiendas + asignación de ruta
+    // Captura customer-driven: el cliente llega por query param desde el menú de
+    // opciones. Sin customerId no se auto-inicia (la captura es siempre por cliente).
+    const qp = this.activatedRoute.snapshot.queryParamMap;
+    this.customerId = qp.get('customerId');
+    this.customerName = qp.get('customerName') || '';
+    if (!this.customerId) {
+      this.startError.set('Abrí la captura desde el menú de un cliente (Buscar cliente o Mi ruta).');
+    }
+    this.svc.refreshAll(); // catálogos + asignación de ruta
   }
 
   ngOnDestroy(): void {
@@ -417,6 +414,10 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
   async start(): Promise<void> {
     if (this.starting()) return;
+    if (!this.customerId) {
+      this.startError.set('Entrá a capturar desde el menú de un cliente.');
+      return;
+    }
     if (this.needsRoute()) {
       this.toast.add({ severity: 'warn', summary: 'Elegí tu ruta', detail: 'Seleccioná tu ruta de hoy antes de iniciar.' });
       return;
@@ -424,10 +425,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.starting.set(true);
     this.startError.set(null);
     try {
-      await this.svc.iniciarVisita();
-      if (!this.store()) {
-        this.toast.add({ severity: 'warn', summary: 'Sin tienda', detail: 'No se detectó una tienda cercana. Acercate al PdV e intentá de nuevo.' });
-      }
+      await this.svc.iniciarVisitaParaCliente({ id: this.customerId, name: this.customerName || 'Cliente' });
     } catch (e: any) {
       this.startError.set(e?.message || 'No se pudo capturar la ubicación. Verificá que el GPS esté activado.');
       this.toast.add({ severity: 'error', summary: 'Error de GPS', detail: e?.message || 'No se pudo capturar la ubicación.' });
@@ -616,8 +614,8 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
   async save(): Promise<void> {
     if (this.saving()) return;
-    const store = this.store();
-    if (!store) return;
+    const cust = this.customer();
+    if (!cust) return;
     const lat = this.svc.latitud();
     const lng = this.svc.longitud();
     if (!lat || !lng) {
@@ -657,7 +655,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       horaFin: new Date().toISOString(),
       latitud: lat,
       longitud: lng,
-      store_id: store.id,
+      customer_id: cust.id,
       route_id: this.route()?.id ?? null,
       skip_scoring: true,
       stats: {
@@ -678,7 +676,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     };
 
     const buildPendingSale = (): PendingVendorSale => ({
-      store_id: store.id,
+      customer_id: cust.id,
       sale_date: today,
       route_id: this.route()?.id ?? null,
       capture_ref: this.syncUuid!,
@@ -695,9 +693,10 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
 
     const saveOffline = async (motivo: 'sin-red' | 'falló-online'): Promise<void> => {
       await this.offlineSync.guardarVisitaOffline(
-        store.id,
+        null,
         userId,
         {
+          customerId: cust.id,
           horaInicio: visitPayload.horaInicio,
           horaFin: visitPayload.horaFin,
           exhibiciones: visitPayload.exhibiciones,
@@ -750,7 +749,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       if (confirmed.length > 0) {
         const sale = await firstValueFrom(
           this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
-            store_id: store.id,
+            customer_id: cust.id,
             sale_date: today,
             route_id: this.route()?.id ?? null,
             capture_ref: this.syncUuid,

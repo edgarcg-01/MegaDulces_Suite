@@ -248,7 +248,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           <span class="lbl">Marcar visita</span>
         </button>
 
-        <button class="action" (click)="goCapture()">
+        <button class="action" (click)="goCapture(c)">
           <i class="pi pi-camera"></i>
           <span class="lbl">Capturar exhibición</span>
         </button>
@@ -730,9 +730,12 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     this.closeSheet();
     this.router.navigate(['/vendor/close-route']);
   }
-  goCapture(): void {
+  goCapture(c: HomeCustomer): void {
     this.closeSheet();
-    this.router.navigate(['/vendor/capture']);
+    // Captura customer-driven: pasamos el cliente; la captura ya no detecta tienda por GPS.
+    this.router.navigate(['/vendor/capture'], {
+      queryParams: { customerId: c.id, customerName: c.name },
+    });
   }
 
   async markVisit(c: HomeCustomer): Promise<void> {

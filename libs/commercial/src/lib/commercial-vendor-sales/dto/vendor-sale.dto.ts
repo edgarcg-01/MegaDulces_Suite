@@ -13,7 +13,8 @@ export interface VendorSaleLineInput {
  * `capture_ref` agrupa las líneas de una captura (idempotencia en retry).
  */
 export interface CrearVendorSaleDto {
-  store_id: string;
+  customer_id: string; // cliente comercial (commercial.customers) — ancla principal
+  store_id?: string; // opcional: se deriva de customer.store_id (puede quedar null)
   sale_date: string; // YYYY-MM-DD
   route_id?: string; // ruta asignada del vendedor (catalogs rutas)
   capture_ref?: string; // UUID generado en el cliente; reusar en retry = idempotente

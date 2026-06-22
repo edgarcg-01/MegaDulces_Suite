@@ -29,8 +29,10 @@ export class CommercialVendorSalesService {
   ) {}
 
   async crear(dto: CrearVendorSaleDto) {
-    if (!dto.store_id || !UUID_RE.test(dto.store_id))
-      throw new BadRequestException('store_id requerido (UUID)');
+    if (!dto.customer_id || !UUID_RE.test(dto.customer_id))
+      throw new BadRequestException('customer_id requerido (UUID)');
+    if (dto.store_id && !UUID_RE.test(dto.store_id))
+      throw new BadRequestException('store_id inválido (UUID)');
     if (!dto.sale_date || !DATE_RE.test(dto.sale_date))
       throw new BadRequestException('sale_date requerido (YYYY-MM-DD)');
     if (!Array.isArray(dto.lines) || dto.lines.length === 0)
@@ -70,9 +72,14 @@ export class CommercialVendorSalesService {
         }
       }
 
-      // La tienda debe existir (cross-schema; RLS aplica via tk.run).
-      const store = await trx('trade.stores').where({ id: dto.store_id }).first();
-      if (!store) throw new BadRequestException(`Tienda ${dto.store_id} no encontrada`);
+      // El cliente debe existir; derivamos su tienda de trade (store_id puede
+      // quedar null si el cliente no tiene tienda vinculada → venta customer-only).
+      const customer = await trx('commercial.customers')
+        .where({ id: dto.customer_id })
+        .whereNull('deleted_at')
+        .first('id', 'store_id');
+      if (!customer) throw new BadRequestException(`Cliente ${dto.customer_id} no encontrado`);
+      const resolvedStoreId: string | null = customer.store_id || dto.store_id || null;
 
       // Resolver product_id canónico (catalog) por sku, para BI comercial. El
       // sku ERP del OCR no coincide con el sku del catálogo, así que se resuelve
@@ -105,7 +112,8 @@ export class CommercialVendorSalesService {
             tenant_id: trx.raw('public.current_tenant_id()'),
             capture_ref: captureRef,
             vendor_user_id: userId,
-            store_id: dto.store_id,
+            customer_id: dto.customer_id,
+            store_id: resolvedStoreId,
             route_id: dto.route_id ?? null,
             sale_date: dto.sale_date,
             sku: l.sku,

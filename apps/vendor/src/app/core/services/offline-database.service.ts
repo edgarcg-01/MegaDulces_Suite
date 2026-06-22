@@ -57,10 +57,14 @@ export interface VisitaPendiente {
   // daily_capture_id devuelto por server para linkear). Si deferredFromTicket
   // y lines está vacío, el sync construye las líneas desde el OCR diferido.
   pendingSale?: PendingVendorSale;
+  // Captura del vendedor anclada al cliente comercial (customer-driven): el sync
+  // manda customer_id y el server deriva store_id; tiendaId queda vacío.
+  customerId?: string;
 }
 
 export interface PendingVendorSale {
-  store_id: string;
+  customer_id?: string; // cliente comercial — ancla principal (customer-driven)
+  store_id?: string; // legacy/derivado server-side (puede faltar)
   sale_date: string;
   route_id: string | null;
   capture_ref: string;

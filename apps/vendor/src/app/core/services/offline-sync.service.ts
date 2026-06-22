@@ -651,7 +651,9 @@ export class OfflineSyncService {
     // Pre-fix del 26-may-2026: las visitas offline se guardaban con
     // tiendaId='default' que rechaza el FK del backend. Aqui intentamos
     // identificar la tienda real via Haversine antes de mandar al servidor.
-    const storeId = await this.resolveStoreIdForSync(visita);
+    // Customer-driven (captura del vendedor): el server deriva store_id de
+    // customer.store_id; no resolvemos tienda por Haversine.
+    const storeId = visita.customerId ? null : await this.resolveStoreIdForSync(visita);
 
     try {
       // Hidratar fotos: si la exhibición tiene `_photoBlobId` (Dexie v2),
@@ -694,6 +696,7 @@ export class OfflineSyncService {
         longitud: visita.longitud,
         precision: visita.precision,
         store_id: storeId,
+        customer_id: visita.customerId ?? null,
       };
 
       // Multipart en lugar de JSON+base64: el endpoint acepta ambos pero
@@ -953,6 +956,7 @@ export class OfflineSyncService {
     try {
       await firstValueFrom(
         this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
+          customer_id: resolvedSale.customer_id ?? visita.customerId,
           store_id: resolvedSale.store_id,
           sale_date: resolvedSale.sale_date,
           route_id: resolvedSale.route_id,
@@ -997,6 +1001,7 @@ export class OfflineSyncService {
         try {
           await firstValueFrom(
             this.http.post<any>(`${this.apiUrl}/commercial/vendor-sales`, {
+              customer_id: sale.customer_id,
               store_id: sale.store_id,
               sale_date: sale.sale_date,
               route_id: sale.route_id,
@@ -1062,6 +1067,7 @@ export class OfflineSyncService {
       // crear duplicado con UUID nuevo.
       const visitaId = await this.db.guardarVisitaPendiente({
         tiendaId: tiendaId ?? '',
+        customerId: datosVisita.customerId,
         userId,
         fecha: todayMx(),
         horaInicio: datosVisita.horaInicio,

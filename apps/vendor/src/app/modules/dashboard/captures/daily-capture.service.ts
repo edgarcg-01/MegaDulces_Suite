@@ -108,6 +108,10 @@ export class DailyCaptureService {
   private _nearbyStores = signal<{ id: string; nombre: string; distance: number }[]>([]);
   readonly nearbyStores = this._nearbyStores.asReadonly();
 
+  /** Cliente comercial de la captura del vendedor (modo customer-driven, Fase B). */
+  private _activeCustomer = signal<{ id: string; name: string } | null>(null);
+  readonly activeCustomer = this._activeCustomer.asReadonly();
+
   /** Exhibidores registrados en la visita activa */
   private _activeExhibiciones = signal<RegistroExhibicion[]>([]);
   readonly activeExhibiciones = this._activeExhibiciones.asReadonly();
@@ -297,6 +301,65 @@ export class DailyCaptureService {
     // ultima conocida o simuladas). Antes solo se llamaba en el happy path,
     // por eso la 2da visita y los flujos offline quedaban sin tienda.
     await this.detectarTiendaCercana();
+    return true;
+  }
+
+  /**
+   * Inicia la visita ANCLADA AL CLIENTE comercial (captura del vendedor). Captura
+   * GPS para lat/lng pero NO detecta la tienda por cercanía: la captura se ancla
+   * al `customer_id` y el backend deriva el store de `customer.store_id`. El
+   * componente manda `customer_id` en el save. Aditivo — no toca `iniciarVisita`.
+   */
+  async iniciarVisitaParaCliente(customer: { id: string; name: string }): Promise<boolean> {
+    this._horaInicio.set(new Date().toISOString());
+    this._activeExhibiciones.set([]);
+    this._latitud.set(null);
+    this._longitud.set(null);
+    this._detectedStore.set(null);
+    this._nearbyStores.set([]);
+    this._activeCustomer.set(customer);
+
+    const MAX_RETRIES = 3;
+    let gpsCapturado = false;
+    let permissionDenied = false;
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        await this.capturarUbicacion();
+        const lat = this._latitud();
+        const lng = this._longitud();
+        if (lat && lng && lat !== 0 && lng !== 0) {
+          gpsCapturado = true;
+          this.guardarUltimaPosicionConocida(lat, lng);
+          break;
+        }
+      } catch (err: any) {
+        if (err?.code === 1) {
+          permissionDenied = true;
+          break;
+        }
+      }
+    }
+
+    if (permissionDenied) {
+      this._horaInicio.set(null);
+      this._activeCustomer.set(null);
+      throw new Error(
+        'Permiso de ubicación bloqueado. Activá el GPS para esta app en los ajustes del navegador (candado de la URL → Permisos → Ubicación) y volvé a intentar.',
+      );
+    }
+    if (!gpsCapturado) {
+      const ultima = this.obtenerUltimaPosicionConocida();
+      if (ultima) {
+        this._latitud.set(ultima.lat);
+        this._longitud.set(ultima.lng);
+      } else {
+        this._horaInicio.set(null);
+        this._activeCustomer.set(null);
+        throw new Error(
+          'No se pudo capturar la ubicación GPS. Verificá que el GPS esté activado y tenga señal.',
+        );
+      }
+    }
     return true;
   }
 
@@ -529,6 +592,7 @@ export class DailyCaptureService {
     this._activeExhibiciones.set([]);
     this._detectedStore.set(null);
     this._nearbyStores.set([]);
+    this._activeCustomer.set(null);
     this._deferredTicket.set(null);
   }
 

@@ -148,6 +148,30 @@ export class DailyCapturesService {
     }
   }
 
+  /** Igual que `hasRouteIdColumn` pero para `customer_id` (captura del vendedor anclada al cliente comercial). */
+  private _hasCustomerIdColumn: boolean | null = null;
+  private _hasCustomerIdCheckedAt = 0;
+  private async hasCustomerIdColumn(): Promise<boolean> {
+    if (this._hasCustomerIdColumn === true) return true;
+    const stale =
+      this._hasCustomerIdColumn === false &&
+      Date.now() - this._hasCustomerIdCheckedAt < this.NEGATIVE_TTL_MS;
+    if (stale) return false;
+    try {
+      const exists = await this.knex.schema.withSchema('trade').hasColumn(
+        'daily_captures',
+        'customer_id',
+      );
+      this._hasCustomerIdColumn = exists;
+      this._hasCustomerIdCheckedAt = Date.now();
+      return exists;
+    } catch {
+      this._hasCustomerIdColumn = false;
+      this._hasCustomerIdCheckedAt = Date.now();
+      return false;
+    }
+  }
+
   /**
    * Mapa de aliases de conceptos (id viejo → id vigente) cacheado por tenant.
    * Resuelve conceptoId de clientes con catálogo desincronizado al ingestar la
@@ -557,6 +581,18 @@ export class DailyCapturesService {
         ? Number(((puntosBackendTotales / scoreMaximoVisita) * 100).toFixed(2))
         : null;
 
+    // Captura del vendedor: anclada al cliente comercial. Derivamos store_id de
+    // customer.store_id (puede quedar null → captura customer-only). `this.knex`
+    // enruta al trx activo (legacyTxStorage) dentro de dbWork; postgres bypassa
+    // RLS, por eso filtramos tenant_id explícito.
+    let resolvedStoreId: string | null = dto.store_id || null;
+    if (dto.customer_id) {
+      const cust = await this.knex('commercial.customers')
+        .where({ id: dto.customer_id, tenant_id: tenantId })
+        .first('store_id');
+      if (cust?.store_id) resolvedStoreId = cust.store_id;
+    }
+
     const insertPayload: any = {
       folio: dto.folio,
       user_id: userId,
@@ -569,7 +605,7 @@ export class DailyCapturesService {
       stats: JSON.stringify(statsWithPct),
       latitud: latitud,
       longitud: longitud,
-      store_id: dto.store_id || null,
+      store_id: resolvedStoreId,
       // Persistencia del scoring backend — antes solo iba a `stats` JSONB y
       // los reports que leían `score_*` columns siempre veían NULL.
       config_version_id: configVersionId || null,
@@ -586,6 +622,9 @@ export class DailyCapturesService {
     }
     if (await this.hasSkipScoringColumn()) {
       insertPayload.skip_scoring = skipScoring;
+    }
+    if (dto.customer_id && (await this.hasCustomerIdColumn())) {
+      insertPayload.customer_id = dto.customer_id;
     }
 
     // INSERT con manejo unificado de colisiones por race condition.
