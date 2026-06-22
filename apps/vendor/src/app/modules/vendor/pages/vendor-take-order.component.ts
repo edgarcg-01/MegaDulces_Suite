@@ -21,7 +21,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, switchMap, catchError } from 'rxjs';
-import { VendorService, VendorCustomer, VendorOrder, ThotSuggestion } from '../vendor.service';
+import { VendorService, VendorCustomer, VendorOrder, ThotSuggestion, FrequentProduct, AiSuggestion } from '../vendor.service';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 
@@ -92,43 +92,80 @@ const foldText = (s: string | null | undefined): string =>
           <input type="date" [(ngModel)]="requestedDate" [min]="minDate" class="date-input" />
         </div>
 
-        <!-- Search -->
+        <!-- Search + dictar pedido -->
         <div class="search">
           <i class="pi pi-search"></i>
           <input pInputText type="search" placeholder="Buscar producto o código"
             [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
+          <button *ngIf="voiceSupported" class="mic" [class.on]="listening()"
+            (click)="listening() ? stopVoice() : startVoice()"
+            [attr.aria-label]="listening() ? 'Detener dictado' : 'Dictar pedido por voz'">
+            <i class="pi" [ngClass]="listening() ? 'pi-stop-circle' : 'pi-microphone'"></i>
+          </button>
         </div>
 
-        <!-- Encabezado de lista: por default, lo que Thot recomienda empujar -->
-        <div class="list-head" *ngIf="!searchTerm().trim(); else searchHead">
-          <ng-container *ngIf="thotRows().length || impulsarLocal().length; else fullHead">
-            <span class="lh-t">
-              <i class="pi" [ngClass]="cartLines().length > 0 && usingThot() ? 'pi-shopping-cart' : 'pi-bolt'"></i>
-              {{ cartLines().length > 0 && usingThot() ? 'Completá la canasta' : 'Para impulsar' }}
-            </span>
-            <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }} · {{ displayed().length }} · buscá para ver los {{ pricedCount() }}</span>
-          </ng-container>
-          <ng-template #fullHead>
-            <span class="lh-t">Catálogo</span>
-            <span class="lh-s">{{ pricedCount() }} productos · buscá para filtrar</span>
-          </ng-template>
+        <!-- Banner de escucha (transcripción en vivo) -->
+        <div class="voice-live" *ngIf="listening()" (click)="stopVoice()">
+          <span class="dot"></span>
+          <span class="vt">{{ voiceTranscript() || 'Escuchando… nombrá producto y cantidad' }}</span>
+          <button (click)="stopVoice(); $event.stopPropagation()">Listo</button>
         </div>
-        <ng-template #searchHead>
+
+        <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Sugeridos -->
+        <ng-container *ngIf="searchTerm().trim(); else padView">
           <div class="list-head">
             <span class="lh-t">{{ displayed().length }}{{ searchCapped() ? '+' : '' }} resultado{{ displayed().length === 1 ? '' : 's' }}</span>
             <span class="lh-s">de {{ pricedCount() }} productos</span>
           </div>
+          <div class="catalog">
+            <div class="no-res" *ngIf="displayed().length === 0">
+              <i class="pi pi-search"></i>
+              <p>Sin resultados para "{{ searchTerm() }}".</p>
+            </div>
+            <ng-container *ngFor="let p of displayed(); trackBy: trackProduct">
+              <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+            </ng-container>
+          </div>
+        </ng-container>
+
+        <ng-template #padView>
+          <!-- Lo que suele pedir (habituales del cliente + lo ya agregado) -->
+          <ng-container *ngIf="habitualRows().length">
+            <div class="list-head">
+              <span class="lh-t"><i class="pi pi-history"></i> Lo que suele pedir</span>
+              <span class="lh-s">{{ habitualRows().length }} · escribí cantidades</span>
+            </div>
+            <div class="catalog">
+              <ng-container *ngFor="let p of habitualRows(); trackBy: trackProduct">
+                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+              </ng-container>
+            </div>
+          </ng-container>
+
+          <!-- Sugeridos (Thot / motor) -->
+          <ng-container *ngIf="suggestRows().length">
+            <div class="list-head sug">
+              <span class="lh-t"><i class="pi pi-sparkles"></i> Sugeridos</span>
+              <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }} · buscá para ver los {{ pricedCount() }}</span>
+            </div>
+            <div class="catalog">
+              <ng-container *ngFor="let p of suggestRows(); trackBy: trackProduct">
+                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+              </ng-container>
+            </div>
+          </ng-container>
+
+          <div class="no-res" *ngIf="!habitualRows().length && !suggestRows().length">
+            <i class="pi pi-search"></i>
+            <p>Buscá un producto para empezar el pedido.</p>
+          </div>
         </ng-template>
 
-        <!-- Catálogo -->
-        <div class="catalog">
-          <div class="no-res" *ngIf="displayed().length === 0">
-            <i class="pi pi-search"></i>
-            <p>Sin resultados para "{{ searchTerm() }}".</p>
-          </div>
-          <div class="prod" *ngFor="let p of displayed(); trackBy: trackProduct" [class.in]="cartQty(p.product_id) > 0">
+        <!-- Fila de producto (reusada en búsqueda / habituales / sugeridos) -->
+        <ng-template #prodRow let-p>
+          <div class="prod" [class.in]="cartQty(p.product_id) > 0">
             <div class="ph"><i class="pi pi-box"></i></div>
             <div
               class="pb"
@@ -149,16 +186,17 @@ const foldText = (s: string | null | undefined): string =>
                 <span class="why" *ngIf="hasPitch(p)"><i class="pi pi-comment"></i> por qué</span>
               </div>
             </div>
-            <div class="row-stepper" *ngIf="cartQty(p.product_id) > 0; else addBtn">
-              <button (click)="decProduct(p)" aria-label="Menos">−</button>
-              <span class="q">{{ cartQty(p.product_id) }}</span>
-              <button (click)="incProduct(p)" aria-label="Más">+</button>
+            <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
+              <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
+              <input class="qin" type="number" inputmode="numeric" min="0" step="1"
+                [ngModel]="cartQty(p.product_id) || null"
+                (change)="setQtyTyped(p, $any($event.target).value)"
+                (focus)="$any($event.target).select()"
+                placeholder="0" aria-label="Cantidad" />
+              <button (click)="incProduct(p)" [disabled]="!!adding()[p.product_id]" aria-label="Más">+</button>
             </div>
-            <ng-template #addBtn>
-              <button class="add" [disabled]="!!adding()[p.product_id]" (click)="addToCart(p)" aria-label="Agregar"><i class="pi pi-plus"></i></button>
-            </ng-template>
           </div>
-        </div>
+        </ng-template>
 
         <div class="empty-cart" *ngIf="cartLines().length === 0">
           <i class="pi pi-shopping-cart"></i>
@@ -238,6 +276,54 @@ const foldText = (s: string | null | undefined): string =>
         <button class="sh-go" (click)="addFromPitch(pp)"><i class="pi pi-plus"></i> Agregar al pedido</button>
       </section>
 
+      <!-- Sheet de confirmación del pedido por voz -->
+      <div class="sheet-backdrop" *ngIf="voiceOpen()" (click)="closeVoice()"></div>
+      <section class="cart-sheet voice-sheet" *ngIf="voiceOpen()" role="dialog" aria-modal="true" aria-labelledby="voice-sheet-title" tabindex="-1">
+        <div class="sh-head">
+          <div class="sh-title">
+            <h2 id="voice-sheet-title">Lo que entendí</h2>
+            <span *ngIf="!voiceLoading()">{{ voiceItems().length }} producto{{ voiceItems().length === 1 ? '' : 's' }}</span>
+          </div>
+          <button class="sh-x" (click)="closeVoice()" aria-label="Cerrar"><i class="pi pi-times"></i></button>
+        </div>
+
+        <div class="voice-transcript" *ngIf="voiceTranscript()"><i class="pi pi-comment"></i> "{{ voiceTranscript() }}"</div>
+        <div class="voice-state" *ngIf="voiceLoading()"><i class="pi pi-spin pi-spinner"></i> Interpretando el dictado…</div>
+        <div class="voice-state err" *ngIf="voiceError()"><i class="pi pi-exclamation-circle"></i> {{ voiceError() }}</div>
+
+        <ng-container *ngIf="!voiceLoading()">
+          <p class="voice-msg" *ngIf="voiceMsg() && !voiceItems().length">{{ voiceMsg() }}</p>
+
+          <div class="sh-lines" *ngIf="voiceItems().length">
+            <div class="cline" *ngFor="let it of voiceItems(); trackBy: trackVoice">
+              <div class="cl-info">
+                <div class="cl-n">{{ it.product_name }}</div>
+                <div class="cl-t">{{ fmtMoney(it.unit_price) }} c/u<span *ngIf="it.min_qty > 1"> · min {{ it.min_qty }}</span></div>
+              </div>
+              <div class="stepper">
+                <button (click)="voiceDec(it)" aria-label="Menos">−</button>
+                <input class="qin" type="number" inputmode="numeric" min="0" step="1"
+                  [ngModel]="it.qty" (change)="voiceSetQty(it, $any($event.target).value)" aria-label="Cantidad" />
+                <button (click)="voiceInc(it)" aria-label="Más">+</button>
+              </div>
+              <button class="rm" (click)="voiceRemove(it)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
+            </div>
+          </div>
+
+          <div class="sh-foot" *ngIf="voiceItems().length">
+            <div class="totals"><div class="row total"><span>Subtotal</span><b>{{ fmtMoney(voiceTotal()) }}</b></div></div>
+            <button class="sh-go" [disabled]="voiceLoading()" (click)="applyVoiceItems()"><i class="pi pi-check"></i> Agregar al pedido</button>
+            <button class="cancel" *ngIf="voiceSupported" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
+          </div>
+
+          <div class="voice-empty" *ngIf="!voiceItems().length && !voiceError()">
+            <i class="pi pi-microphone"></i>
+            <p>No entendí productos. Nombrá producto y cantidad, ej. «cinco cajas de paleta payaso».</p>
+            <button class="sh-go" *ngIf="voiceSupported" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
+          </div>
+        </ng-container>
+      </section>
+
       <!-- Sheet de acciones de la visita (···) -->
       <div class="sheet-backdrop" *ngIf="actionsOpen()" (click)="actionsOpen.set(false)"></div>
       <section class="act-sheet" *ngIf="actionsOpen()" role="dialog" aria-modal="true" aria-labelledby="act-sheet-title" tabindex="-1">
@@ -307,6 +393,15 @@ const foldText = (s: string | null | undefined): string =>
       .search { display: flex; align-items: center; gap: 0.6rem; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.95rem; margin-bottom: 0.875rem; }
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.7rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
+      .search .mic { width: 2.4rem; height: 2.4rem; flex-shrink: 0; border: none; border-radius: 999px; background: var(--action); color: #fff; display: grid; place-items: center; font-size: 1rem; transition: transform 0.07s var(--ease, ease); }
+      .search .mic:active { transform: scale(0.92); }
+      .search .mic.on { background: var(--bad-fg); animation: micpulse 1.2s ease-in-out infinite; }
+      @keyframes micpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad-fg) 45%, transparent); } 50% { box-shadow: 0 0 0 0.5rem transparent; } }
+
+      .voice-live { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 0.875rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ember-soft); border: 1px solid var(--ember-border); }
+      .voice-live .dot { width: 0.6rem; height: 0.6rem; border-radius: 999px; background: var(--bad-fg); flex-shrink: 0; animation: micpulse 1.2s ease-in-out infinite; }
+      .voice-live .vt { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--text-main); line-height: 1.25; }
+      .voice-live button { flex-shrink: 0; border: none; background: var(--action); color: #fff; border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.78rem; padding: 0.35rem 0.85rem; }
 
       .list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.6rem; }
       .list-head .lh-t { font-weight: 800; font-size: 0.95rem; color: var(--text-main); display: inline-flex; align-items: center; gap: 0.35rem; }
@@ -335,6 +430,13 @@ const foldText = (s: string | null | undefined): string =>
       .prod .row-stepper button { width: 2.35rem; height: 2.55rem; border: none; background: transparent; color: var(--text-main); font-size: 1.2rem; font-weight: 800; line-height: 1; }
       .prod .row-stepper button:active { background: var(--surface-ground); }
       .prod .row-stepper .q { min-width: 1.9rem; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
+      /* Order pad: input de cantidad tecleable (sin spinners), borde tenue si está en 0 */
+      .prod .row-stepper.empty { border-color: var(--border-color); }
+      .prod .row-stepper button:disabled { opacity: 0.3; }
+      .prod .row-stepper .qin { width: 2.7rem; height: 2.55rem; border: none; background: transparent; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; -moz-appearance: textfield; appearance: textfield; }
+      .prod .row-stepper .qin::-webkit-outer-spin-button, .prod .row-stepper .qin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      .prod .row-stepper .qin::placeholder { color: var(--text-faint); font-weight: 600; }
+      .list-head.sug { margin-top: 1.1rem; }
 
       .cline { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); }
       .cl-info { flex: 1; min-width: 0; }
@@ -393,6 +495,20 @@ const foldText = (s: string | null | undefined): string =>
       .cart-sheet .cancel { margin: 0.5rem auto 0; display: block; }
       @keyframes shfade { from { opacity: 0; } to { opacity: 1; } }
       @keyframes shslide { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+      /* Hoja de voz (reusa el chrome de .cart-sheet) */
+      .voice-sheet .voice-transcript { font-size: 0.88rem; color: var(--text-main); font-style: italic; background: var(--surface-ground); border-radius: var(--r-md, 12px); padding: 0.55rem 0.7rem; margin-bottom: 0.6rem; display: flex; gap: 0.45rem; align-items: flex-start; }
+      .voice-sheet .voice-transcript i { color: var(--action); font-size: 0.8rem; margin-top: 0.15rem; flex-shrink: 0; }
+      .voice-sheet .voice-state { display: flex; align-items: center; gap: 0.5rem; padding: 0.8rem 0.2rem; color: var(--text-muted); font-size: 0.9rem; }
+      .voice-sheet .voice-state.err { color: var(--bad-fg); }
+      .voice-sheet .voice-msg { font-size: 0.9rem; color: var(--text-main); line-height: 1.4; padding: 0.2rem 0.2rem 0.6rem; }
+      .voice-sheet .voice-empty { text-align: center; padding: 1.5rem 1rem; color: var(--text-muted); }
+      .voice-sheet .voice-empty i { font-size: 2rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
+      .voice-sheet .voice-empty p { font-size: 0.88rem; line-height: 1.4; margin-bottom: 0.9rem; }
+      .voice-sheet .voice-empty .sh-go { max-width: 16rem; margin: 0 auto; }
+      /* Input tecleable dentro del stepper (carrito + voz) */
+      .stepper .qin { width: 2.1rem; text-align: center; border: none; background: transparent; font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; -moz-appearance: textfield; appearance: textfield; }
+      .stepper .qin::-webkit-outer-spin-button, .stepper .qin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
       /* Fila tocable + hint "por qué" */
       .prod .pb.tappable { cursor: pointer; }
@@ -500,17 +616,19 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.doc.body.style.removeProperty('overflow');
+    this.stopVoice();
   }
 
-  /** ¿Hay algún bottom-sheet abierto? (carrito / pitch / acciones / finalizar). */
+  /** ¿Hay algún bottom-sheet abierto? (carrito / pitch / acciones / finalizar / voz). */
   readonly anySheetOpen = computed(
-    () => this.cartOpen() || !!this.pitch() || this.actionsOpen() || this.finishOpen(),
+    () => this.cartOpen() || !!this.pitch() || this.actionsOpen() || this.finishOpen() || this.voiceOpen(),
   );
   private sheetPrevFocus: HTMLElement | null = null;
 
   /** Cierra el sheet superior (no hay "back" del browser en la PWA instalada). */
   private closeTopSheet(): void {
-    if (this.pitch()) this.pitch.set(null);
+    if (this.voiceOpen()) this.closeVoice();
+    else if (this.pitch()) this.pitch.set(null);
     else if (this.finishOpen()) this.finishOpen.set(false);
     else if (this.actionsOpen()) this.actionsOpen.set(false);
     else if (this.cartOpen()) this.cartOpen.set(false);
@@ -598,6 +716,25 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** Signal (no campo plano): un `computed` que lo lea reacciona al tipear. */
   readonly searchTerm = signal('');
 
+  // ─── Pedido por voz (dictado → IA → confirmar → pad) ───
+  /** ¿el navegador soporta dictado? (Web Speech API). */
+  readonly voiceSupported = !!(
+    (typeof window !== 'undefined') &&
+    ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+  );
+  private recognition: any = null;
+  readonly listening = signal(false);
+  readonly voiceOpen = signal(false);
+  readonly voiceTranscript = signal('');
+  readonly voiceLoading = signal(false);
+  readonly voiceError = signal<string | null>(null);
+  readonly voiceMsg = signal('');
+  /** Items entendidos por la IA, editables antes de cargar al pedido. */
+  readonly voiceItems = signal<AiSuggestion[]>([]);
+  readonly voiceTotal = computed(() =>
+    this.voiceItems().reduce((s, it) => s + Number(it.unit_price) * Number(it.qty), 0),
+  );
+
   stockClass(p: PriceRow): 'ok' | 'warn' | 'bad' {
     const s = Number(p.stock_available ?? 0);
     if (s <= 0) return 'bad';
@@ -622,12 +759,52 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly reasonMap = computed(
     () => new Map(this.suggestions().map((s) => [s.product_id, s.reason_label] as const)),
   );
+  /** Índice product_id → PriceRow del catálogo cargado (1 vez por cambio de catálogo). */
+  private readonly byIdMap = computed(() => new Map(this.prices().map((p) => [p.product_id, p])));
+
   /** Sugerencias de Thot mapeadas a las filas del catálogo cargado (para reusar la card). */
   readonly thotRows = computed(() => {
-    const byId = new Map(this.prices().map((p) => [p.product_id, p]));
+    const byId = this.byIdMap();
     return this.suggestions()
       .map((s) => byId.get(s.product_id))
       .filter((p): p is PriceRow => !!p);
+  });
+
+  /** VQ: productos habituales del cliente (order pad — sección "Lo que suele pedir"). */
+  readonly frequent = signal<FrequentProduct[]>([]);
+  /** product_id → cantidad promedio histórica (sugerida al tocar "+" en un habitual). */
+  readonly avgQtyByProduct = computed(
+    () => new Map(this.frequent().map((f) => [f.product_id, Math.max(1, Number(f.avg_qty) || 1)] as const)),
+  );
+
+  /**
+   * Order pad — grupo "Lo que suele pedir": lo que YA está en el carrito (siempre
+   * visible/editable) + los habituales del cliente con precio. Cantidad arranca en
+   * 0; el vendedor teclea. Sin búsqueda manual para el grueso del pedido.
+   */
+  readonly habitualRows = computed(() => {
+    const byId = this.byIdMap();
+    const seen = new Set<string>();
+    const out: PriceRow[] = [];
+    for (const l of this.cartLines()) {
+      if (seen.has(l.product_id)) continue;
+      const p = byId.get(l.product_id);
+      if (p) { seen.add(l.product_id); out.push(p); }
+    }
+    for (const f of this.frequent()) {
+      if (seen.has(f.product_id)) continue;
+      const p = byId.get(f.product_id);
+      if (p && p.price != null && Number(p.price) > 0) { seen.add(f.product_id); out.push(p); }
+    }
+    return out;
+  });
+
+  /** Order pad — grupo "Sugeridos" (Thot, o fallback local), sin los ya en habituales. */
+  readonly suggestRows = computed(() => {
+    const inHab = new Set(this.habitualRows().map((p) => p.product_id));
+    const thot = this.thotRows().filter((p) => !inHab.has(p.product_id));
+    if (thot.length) return thot;
+    return this.impulsarLocal().filter((p) => !inHab.has(p.product_id));
   });
 
   /**
@@ -803,16 +980,18 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             warehouseId: of(warehouseId),
             existingDraft: this.api.draftForCustomer(customerId),
             pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
+            frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
           }),
         ),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
-        next: ({ customer, prices, warehouseId, existingDraft, pending }) => {
+        next: ({ customer, prices, warehouseId, existingDraft, pending, frequent }) => {
           this.customer.set(customer);
           this.prices.set(prices);
           this.warehouseId.set(warehouseId || '');
           this.pendingOrders.set(pending);
+          this.frequent.set(frequent);
           this.loading.set(false);
           if (existingDraft) {
             this.cartOrderId.set(existingDraft.id);
@@ -840,11 +1019,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.router.navigate(['/vendor/pending']);
   }
 
-  /** "+" en la fila ya en carrito → sube la línea existente (no crea otra). */
+  /** "+" en la fila → sube la línea existente, o crea con la cantidad sugerida. */
   incProduct(p: PriceRow): void {
     const line = this.cartLines().find((l) => l.product_id === p.product_id);
     if (line) this.setQty(line, Number(line.quantity) + 1);
-    else this.addToCart(p);
+    else this.createLine(p, this.suggestedQty(p));
   }
   /** "−" en la fila → baja la línea (la quita al llegar a 0). */
   decProduct(p: PriceRow): void {
@@ -852,18 +1031,43 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     if (line) this.dec(line);
   }
 
+  /** Cantidad inicial al tocar "+": promedio histórico si es habitual, si no min_qty. */
+  private suggestedQty(p: PriceRow): number {
+    return this.avgQtyByProduct().get(p.product_id) || p.min_qty || 1;
+  }
+
+  /**
+   * Order pad: cantidad tecleada directo en la fila. 0 (o vacío) quita la línea,
+   * >0 la fija o la crea. Núcleo del flujo rápido — sin tap-por-unidad.
+   */
+  setQtyTyped(p: PriceRow, raw: string | number): void {
+    const n = Math.max(0, Math.floor(Number(raw) || 0));
+    const line = this.cartLines().find((l) => l.product_id === p.product_id);
+    if (line) {
+      if (n <= 0) this.removeLine(line);
+      else this.setQty(line, n);
+    } else if (n > 0) {
+      this.createLine(p, n);
+    }
+  }
+
+  /** Agregar desde el pitch / "+" — usa la cantidad sugerida. */
   addToCart(p: PriceRow): void {
-    const c = this.customer();
-    if (!c || !this.warehouseId()) return;
-    // Si ya hay línea de este producto, incrementarla en vez de crear otra
-    // (el addLine del backend NO fusiona → duplicaría la línea).
     const existing = this.cartLines().find((l) => l.product_id === p.product_id);
     if (existing) {
       this.setQty(existing, Number(existing.quantity) + 1);
       return;
     }
-    const qty = p.min_qty || 1;
-    if (p.stock_available != null && qty > Number(p.stock_available)) {
+    this.createLine(p, this.suggestedQty(p));
+  }
+
+  /** Crea la línea (asegurando draft) con la cantidad dada, clampeada a min_qty. */
+  private createLine(p: PriceRow, qty: number): void {
+    const c = this.customer();
+    if (!c || !this.warehouseId()) return;
+    const q = Math.max(Math.floor(qty), p.min_qty || 1);
+    if (q <= 0) return;
+    if (p.stock_available != null && q > Number(p.stock_available)) {
       this.toast.add({ severity: 'warn', summary: 'Sin stock suficiente', detail: `Sólo hay ${p.stock_available}. Queda en backorder.`, life: 4000 });
     }
     this.adding.update((m) => ({ ...m, [p.product_id]: true }));
@@ -874,7 +1078,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       .pipe(
         switchMap((draft) => {
           this.cartOrderId.set(draft.id);
-          return this.api.addLine(draft.id, p.product_id, qty);
+          return this.api.addLine(draft.id, p.product_id, q);
         }),
         takeUntilDestroyed(this.destroyRef),
       )
@@ -931,6 +1135,150 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         next: (s) => this.suggestions.set(s),
         error: () => {
           /* best-effort: el motor/feature store puede no estar; cae al fallback local */
+        },
+      });
+  }
+
+  // ─── Pedido por voz ───
+
+  /** Inicia el dictado (Web Speech API, es-MX). Acumula y al terminar manda a la IA. */
+  startVoice(): void {
+    if (!this.voiceSupported || this.listening()) return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const rec = new SR();
+    this.recognition = rec;
+    rec.lang = 'es-MX';
+    rec.continuous = true;
+    rec.interimResults = true;
+    let finalText = '';
+    this.voiceError.set(null);
+    this.voiceTranscript.set('');
+    this.listening.set(true);
+    this.haptic.selection();
+    rec.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t + ' ';
+        else interim += t;
+      }
+      this.voiceTranscript.set((finalText + interim).trim());
+    };
+    rec.onerror = (e: any) => {
+      this.listening.set(false);
+      if (e.error !== 'aborted' && e.error !== 'no-speech') {
+        this.voiceError.set(
+          e.error === 'not-allowed' ? 'Permití el micrófono para dictar.' : 'No se pudo escuchar. Probá de nuevo.',
+        );
+        this.voiceOpen.set(true);
+      }
+    };
+    rec.onend = () => {
+      this.listening.set(false);
+      this.recognition = null;
+      const text = (finalText || this.voiceTranscript()).trim();
+      if (text) this.parseVoice(text);
+    };
+    try { rec.start(); } catch { this.listening.set(false); }
+  }
+
+  /** Detiene el dictado (dispara onend → parse). */
+  stopVoice(): void {
+    if (this.recognition) { try { this.recognition.stop(); } catch { /* noop */ } }
+    this.listening.set(false);
+  }
+
+  /** Cierra la hoja de voz (y corta el dictado si seguía). */
+  closeVoice(): void {
+    this.stopVoice();
+    this.voiceOpen.set(false);
+  }
+
+  /** Vuelve a dictar (desde la hoja de confirmación). */
+  retryVoice(): void {
+    this.voiceOpen.set(false);
+    this.startVoice();
+  }
+
+  /** Manda la transcripción a la IA y abre la hoja de confirmación. */
+  private parseVoice(text: string): void {
+    this.voiceTranscript.set(text);
+    this.voiceItems.set([]);
+    this.voiceMsg.set('');
+    this.voiceError.set(null);
+    this.voiceLoading.set(true);
+    this.voiceOpen.set(true);
+    this.api
+      .aiOrderSuggest(text, this.customerId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.voiceLoading.set(false);
+          this.voiceItems.set(r.suggestions || []);
+          this.voiceMsg.set(r.assistant_message || '');
+          this.haptic.notification(r.suggestions?.length ? 'success' : 'warning');
+        },
+        error: (err) => {
+          this.voiceLoading.set(false);
+          this.voiceError.set(err?.error?.message || 'No se pudo interpretar el dictado.');
+        },
+      });
+  }
+
+  voiceInc(it: AiSuggestion): void { this.voiceSetQty(it, it.qty + 1); }
+  voiceDec(it: AiSuggestion): void { this.voiceSetQty(it, it.qty - 1); }
+  voiceSetQty(it: AiSuggestion, qty: number | string): void {
+    const n = Math.floor(Number(qty) || 0);
+    this.voiceItems.update((items) =>
+      n <= 0
+        ? items.filter((x) => x.product_id !== it.product_id)
+        : items.map((x) => (x.product_id === it.product_id ? { ...x, qty: n } : x)),
+    );
+  }
+  voiceRemove(it: AiSuggestion): void {
+    this.voiceItems.update((items) => items.filter((x) => x.product_id !== it.product_id));
+  }
+  trackVoice(_: number, it: AiSuggestion): string { return it.product_id; }
+
+  /** Carga los items entendidos al pedido (merge: la voz fija la cantidad por producto). */
+  applyVoiceItems(): void {
+    const items = this.voiceItems().filter((x) => x.qty > 0);
+    const c = this.customer();
+    if (!items.length || !c || !this.warehouseId()) { this.voiceOpen.set(false); return; }
+    this.voiceLoading.set(true);
+    const ensure$ = this.cartOrderId()
+      ? of({ id: this.cartOrderId()! } as any)
+      : this.api.ensureDraftForCustomer(c.id, this.warehouseId(), 'route');
+    ensure$
+      .pipe(
+        switchMap((draft) => {
+          this.cartOrderId.set(draft.id);
+          // Merge con lo ya cargado y reemplazo en 1 request (no pisa lo previo).
+          const byProduct = new Map<string, number>();
+          for (const l of this.cartLines()) byProduct.set(l.product_id, Number(l.quantity));
+          for (const it of items) byProduct.set(it.product_id, it.qty);
+          const lines = Array.from(byProduct, ([product_id, quantity]) => ({ product_id, quantity }));
+          return this.api.replaceLines(draft.id, lines);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (res) => {
+          this.voiceLoading.set(false);
+          this.voiceOpen.set(false);
+          this.voiceItems.set([]);
+          this.haptic.notification('success');
+          const skipped = res?.skipped?.length || 0;
+          this.toast.add({
+            severity: 'success',
+            summary: 'Pedido actualizado',
+            detail: skipped ? `${skipped} sin precio se omitieron.` : 'Productos cargados por voz.',
+          });
+          this.reloadCart(() => this.loadSuggestions());
+        },
+        error: (err) => {
+          this.voiceLoading.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message });
         },
       });
   }

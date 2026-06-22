@@ -53,6 +53,21 @@ export interface UpdateLineDto {
   notes?: string;
 }
 
+export interface ReplaceLinesDto {
+  lines: AddLineDto[];
+}
+
+export interface FrequentProductRow {
+  product_id: string;
+  product_name: string | null;
+  sku: string | null;
+  brand_name: string | null;
+  order_count: number;
+  total_qty: number;
+  avg_qty: number;
+  last_ordered_at: string;
+}
+
 export interface ListOrdersQuery {
   status?: OrderStatus;
   /** Multi-status CSV, ej "pending_approval,confirmed". Se suma a `status`. */
@@ -299,6 +314,115 @@ export class CommercialOrdersService {
 
       await this.recalcOrderTotals(trx, orderId);
       return line;
+    });
+  }
+
+  /**
+   * VQ: reemplaza TODAS las líneas del draft con el set provisto, en una sola
+   * transacción (un solo lock). Pensado para el "order pad" del vendedor: la UI
+   * mantiene el estado completo del pedido (producto→cantidad) y al confirmar
+   * manda el set entero. Dedupe por product_id (suma cantidades), clampea a
+   * min_qty, y omite (sin abortar) los productos sin precio para el cliente.
+   */
+  async replaceLines(orderId: string, dto: ReplaceLinesDto) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    const merged = new Map<string, { quantity: number; discount_percent?: number; notes?: string }>();
+    for (const l of dto?.lines || []) {
+      if (!l || !UUID_REGEX.test(l.product_id)) continue;
+      const qty = Number(l.quantity);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+      const prev = merged.get(l.product_id);
+      if (prev) prev.quantity += qty;
+      else merged.set(l.product_id, { quantity: qty, discount_percent: l.discount_percent, notes: l.notes });
+    }
+
+    return this.tk.run(async (trx) => {
+      await trx.raw('SELECT id FROM commercial.orders WHERE id = ? FOR UPDATE', [orderId]);
+      const order = await this.requireDraft(trx, orderId);
+      await this.enforceOrderOwnership(trx, order);
+
+      await trx('commercial.order_lines').where({ order_id: orderId }).del();
+
+      const skipped: { product_id: string; reason: string }[] = [];
+      let lineNumber = 0;
+      for (const [productId, info] of merged) {
+        const priceInfo = await this.pricing.resolvePriceForCustomer(productId, order.customer_id);
+        if (priceInfo.price === null) {
+          skipped.push({ product_id: productId, reason: 'sin precio' });
+          continue;
+        }
+        const discount = info.discount_percent ?? 0;
+        if (discount < 0 || discount > 1) {
+          skipped.push({ product_id: productId, reason: 'descuento inválido' });
+          continue;
+        }
+        const minQty = priceInfo.min_qty || 1;
+        const qty = info.quantity < minQty ? minQty : info.quantity;
+        const unitPrice = Number(priceInfo.price);
+        const taxRate = Number(priceInfo.tax_rate);
+        const lineSubtotal = +(qty * unitPrice * (1 - discount)).toFixed(2);
+        const lineTax = +(lineSubtotal * taxRate).toFixed(2);
+        const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+        lineNumber += 1;
+        await trx('commercial.order_lines').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          order_id: orderId,
+          product_id: productId,
+          line_number: lineNumber,
+          quantity: qty,
+          requested_quantity: qty,
+          unit_price: unitPrice,
+          tax_rate: taxRate,
+          discount_percent: discount,
+          line_subtotal: lineSubtotal,
+          line_tax: lineTax,
+          line_total: lineTotal,
+          notes: info.notes || null,
+        });
+      }
+
+      await this.recalcOrderTotals(trx, orderId);
+      return { order_id: orderId, added: lineNumber, skipped };
+    });
+  }
+
+  /**
+   * VQ: productos que el cliente compra habitualmente (agregado de order_lines
+   * de pedidos confirmed/fulfilled en la ventana). Alimenta el order pad —
+   * sección "Habituales" con cantidad sugerida = promedio histórico.
+   */
+  async frequentProducts(
+    customerId: string,
+    opts: { days?: number; limit?: number } = {},
+  ): Promise<FrequentProductRow[]> {
+    if (!UUID_REGEX.test(customerId))
+      throw new BadRequestException('customer_id inválido');
+    const days = Math.min(Math.max(opts.days ?? 120, 1), 365);
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+
+    return this.tk.run(async (trx) => {
+      return trx('commercial.order_lines as ol')
+        .join('commercial.orders as o', 'o.id', 'ol.order_id')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .where('o.customer_id', customerId)
+        .whereIn('o.status', ['confirmed', 'fulfilled'])
+        .whereRaw(`o.created_at >= now() - (? || ' days')::interval`, [days])
+        .groupBy('ol.product_id', 'p.name', 'p.sku', 'b.name')
+        .select(
+          'ol.product_id',
+          trx.raw('p.name as product_name'),
+          trx.raw('p.sku as sku'),
+          trx.raw('b.name as brand_name'),
+          trx.raw('count(distinct o.id)::int as order_count'),
+          trx.raw('sum(ol.quantity)::numeric as total_qty'),
+          trx.raw('greatest(round(avg(ol.quantity)), 1)::int as avg_qty'),
+          trx.raw('max(o.created_at) as last_ordered_at'),
+        )
+        .orderByRaw('count(distinct o.id) desc, sum(ol.quantity) desc')
+        .limit(limit) as unknown as FrequentProductRow[];
     });
   }
 

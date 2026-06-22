@@ -140,6 +140,29 @@ export interface ThotSuggestion {
   reason_label: string;
 }
 
+/** VQ: producto que el cliente compra habitualmente (agregado de su historial). */
+export interface FrequentProduct {
+  product_id: string;
+  product_name: string | null;
+  sku: string | null;
+  brand_name: string | null;
+  order_count: number;
+  total_qty: number;
+  avg_qty: number;
+  last_ordered_at: string;
+}
+
+/** VQ-voz: producto sugerido por la IA a partir del dictado/texto libre. */
+export interface AiSuggestion {
+  product_id: string;
+  product_name: string;
+  brand_name: string | null;
+  qty: number;
+  unit_price: number;
+  min_qty: number;
+  reason: string;
+}
+
 /** Cliente due-for-reorder según el motor de inteligencia (Fase M). */
 export interface NbaDue {
   customer_id: string;
@@ -505,6 +528,41 @@ export class VendorService {
     return this.http.get<ThotSuggestion[]>(
       `${this.base}/intelligence/thot/suggest/${customerId}`,
       { params: p },
+    );
+  }
+
+  /**
+   * VQ: productos habituales del cliente (order pad). Best-effort: si el endpoint
+   * no está (api sin desplegar), el caller cae a [] y muestra solo sugeridos.
+   */
+  frequentProducts(customerId: string, days = 120, limit = 50): Observable<FrequentProduct[]> {
+    const p = new HttpParams().set('days', String(days)).set('limit', String(limit));
+    return this.http.get<FrequentProduct[]>(`${this.base}/orders/frequent/${customerId}`, { params: p });
+  }
+
+  /**
+   * VQ-voz: convierte texto libre / dictado ("5 cajas de paleta payaso, 3 de
+   * bubaloo") en productos + cantidades del catálogo del cliente (Claude Haiku,
+   * con fallback heurístico server-side). customerId = el cliente visitado.
+   */
+  aiOrderSuggest(
+    message: string,
+    customerId: string,
+  ): Observable<{ assistant_message: string; suggestions: AiSuggestion[] }> {
+    return this.http.post<{ assistant_message: string; suggestions: AiSuggestion[] }>(
+      `${this.base}/ai-order/suggest`,
+      { message, customer_id: customerId },
+    );
+  }
+
+  /** VQ: reemplaza TODAS las líneas del draft en 1 request (order pad bulk). */
+  replaceLines(
+    orderId: string,
+    lines: { product_id: string; quantity: number }[],
+  ): Observable<{ order_id: string; added: number; skipped: { product_id: string; reason: string }[] }> {
+    return this.http.put<{ order_id: string; added: number; skipped: { product_id: string; reason: string }[] }>(
+      `${this.base}/orders/${orderId}/lines`,
+      { lines },
     );
   }
 

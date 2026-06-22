@@ -19,14 +19,18 @@ export class PortalAiOrderController {
 
   @Post('suggest')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
-  @ApiOperation({ summary: 'Sugerir productos para el pedido vía Claude Haiku' })
+  @ApiOperation({
+    summary:
+      'Sugerir productos para el pedido vía Claude Haiku (texto libre o dictado por voz). El vendedor pasa customer_id explícito; el portal lo resuelve del JWT.',
+  })
   async suggest(
     @Req() req: any,
-    @Body() body: { message: string; history?: ChatMessage[] },
+    @Body() body: { message: string; history?: ChatMessage[]; customer_id?: string },
   ) {
     return this.service.suggest({
       message: body.message,
       history: Array.isArray(body.history) ? body.history : [],
+      customerId: body.customer_id || null,
       tenantId: req.user?.tenant_id,
     });
   }

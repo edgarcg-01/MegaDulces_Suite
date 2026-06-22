@@ -58,7 +58,10 @@
       "Bash(cp /c/Users/Sistemas/CascadeProjects/Trade_marketing/.design-audit-tmp/after/*.png __TRACKED_VAR__/screenshots/after/)",
       "Bash(node c:\\\\tmp\\\\cm0-validate.js)",
       "Bash(node c:/tmp/cm0-validate.js)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "Bash(cd \"C:/Users/Sistemas/.claude/projects/c--Users-Sistemas-CascadeProjects-Trade-marketing/ff5cd8f0-b5e1-4283-b4c5-25dcb2f0915f\" 2>/dev/null && find . -path '*wf_09cf8506*' -newer /dev/null 2>/dev/null | head -50; echo \"---- workflows dir ----\"; ls -la workflows/ 2>/dev/null; echo \"---- subagents/workflows ----\"; ls -la subagents/workflows/ 2>/dev/null)",
+      "Read(//dev/**)",
+      "PowerShell($env:PROD_DATABASE_URL='postgresql://postgres:whhQQTskVhAeQbbStUUkalNyWmikxBHJ@trolley.proxy.rlwy.net:39023/railway'; node database/scripts/diag-capture-schema.js)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Sistemas\\Downloads",

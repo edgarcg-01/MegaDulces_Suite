@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import {
   CreateDraftDto,
   AddLineDto,
   UpdateLineDto,
+  ReplaceLinesDto,
   UpdateOrderDraftDto,
   OrderStatus,
 } from './commercial-orders.service';
@@ -109,6 +111,23 @@ export class CommercialOrdersController {
     });
   }
 
+  @Get('frequent/:customer_id')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'VQ: productos habituales del cliente (agregado de pedidos confirmed/fulfilled) con cantidad promedio. Alimenta el order pad del vendedor.',
+  })
+  frequent(
+    @Param('customer_id') customerId: string,
+    @Query('days') days?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.frequentProducts(customerId, {
+      days: days ? Number(days) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
@@ -150,6 +169,16 @@ export class CommercialOrdersController {
   @ApiOperation({ summary: 'Agregar línea (solo si draft)' })
   addLine(@Param('id') orderId: string, @Body() body: AddLineDto) {
     return this.service.addLine(orderId, body);
+  }
+
+  @Put(':id/lines')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
+  @ApiOperation({
+    summary:
+      'VQ: reemplaza TODAS las líneas del draft con el set provisto en 1 transacción (order pad). Omite productos sin precio y los reporta.',
+  })
+  replaceLines(@Param('id') orderId: string, @Body() body: ReplaceLinesDto) {
+    return this.service.replaceLines(orderId, body);
   }
 
   @Patch(':id/lines/:line_id')
