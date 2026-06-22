@@ -42,7 +42,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
     </div>
 
     <!-- Alta de cliente nuevo -->
-    <form *ngIf="showForm()" class="new-form" (ngSubmit)="submit()">
+    <form *ngIf="showForm()" class="new-form" (ngSubmit)="submit(true)">
       <div *ngIf="formError()" class="form-err">
         <i class="pi pi-exclamation-circle"></i> {{ formError() }}
       </div>
@@ -85,9 +85,14 @@ import { VendorService, VendorCustomer } from '../vendor.service';
         {{ locating() ? 'Obteniendo ubicación…' : (hasGeo() ? 'Ubicación capturada ✓' : (geoFailed() ? 'Reintentar ubicación' : 'Capturar ubicación')) }}
       </button>
 
-      <button pButton type="submit" class="submit-btn"
-              [disabled]="saving() || !form.name.trim()"
-              [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></button>
+      <div class="form-actions">
+        <button pButton type="submit" class="submit-btn"
+                [disabled]="saving() || !form.name.trim()"
+                [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></button>
+        <button pButton type="button" severity="secondary" [outlined]="true"
+                [disabled]="saving() || !form.name.trim()"
+                label="Solo registrar (sin pedido)" (click)="submit(false)"></button>
+      </div>
     </form>
 
     <ng-container *ngIf="!showForm()">
@@ -207,6 +212,8 @@ import { VendorService, VendorCustomer } from '../vendor.service';
       .geo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; height: 2.7rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); color: var(--text-muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; }
       .geo-btn.ok { border-style: solid; border-color: var(--ok-fg, #2e7d32); color: var(--ok-fg, #2e7d32); }
       .geo-btn.err { border-style: solid; border-color: var(--warn-fg, #b45309); color: var(--warn-fg, #b45309); }
+      .form-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+      .form-actions ::ng-deep .p-button { width: 100%; justify-content: center; }
       .submit-btn { width: 100%; }
       .submit-btn ::ng-deep .p-button { width: 100%; justify-content: center; background: var(--action); border-color: var(--action); font-weight: 700; }
 
@@ -481,12 +488,13 @@ export class VendorCustomersComponent implements OnInit {
     );
   }
 
-  submit(): void {
+  submit(takeOrder: boolean): void {
     const name = this.form.name.trim();
     if (!name) {
       this.formError.set('El nombre del negocio es obligatorio.');
       return;
     }
+    if (this.saving()) return;
     this.saving.set(true);
     this.formError.set(null);
     const g = this.geo();
@@ -505,8 +513,14 @@ export class VendorCustomersComponent implements OnInit {
         next: (c) => {
           this.saving.set(false);
           this.showForm.set(false);
-          // Flujo natural de campo: alta → tomar pedido de inmediato.
-          this.router.navigate(['/vendor/take-order', c.id]);
+          if (takeOrder) {
+            // Alta → tomar pedido de inmediato.
+            this.router.navigate(['/vendor/take-order', c.id]);
+          } else {
+            // Solo registrar: abre el menú de opciones del cliente nuevo
+            // (tomar pedido / capturar / guardar ubicación / contacto) — sin forzar pedido.
+            this.openSheet(c);
+          }
         },
         error: (e) => {
           this.saving.set(false);
