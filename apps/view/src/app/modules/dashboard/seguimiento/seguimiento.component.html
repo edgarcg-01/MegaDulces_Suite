@@ -278,15 +278,19 @@
                   <div class="font-bold text-sm text-content-main truncate mt-0.5">{{ visit.captured_by_username }}</div>
                   <div class="text-[11px] text-content-muted uppercase tracking-wide mt-0.5 truncate">{{ visit.zona_captura }}</div>
                 </div>
-                <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 bg-surface-card border border-divider status-text"
-                     [class]="'status-' + visitScoreStatus(visit)">
-                  <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
-                  <span class="text-[10px] font-medium mt-0.5 opacity-70 uppercase tracking-wider">pts</span>
-                </div>
+                @if (isVendorVisit(visit)) {
+                  <span class="chip-brand shrink-0" pTooltip="Visita de vendedor">Vendedor</span>
+                } @else {
+                  <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 bg-surface-card border border-divider status-text"
+                       [class]="'status-' + visitScoreStatus(visit)">
+                    <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                    <span class="text-[10px] font-medium mt-0.5 opacity-70 uppercase tracking-wider">pts</span>
+                  </div>
+                }
               </div>
 
-              <!-- Chips de ownership (solo si hay datos clasificados) -->
-              @if (hasOwnershipData(visit.exhibiciones)) {
+              <!-- Chips de ownership (solo si hay datos clasificados; nunca en visitas de vendedor) -->
+              @if (!isVendorVisit(visit) && hasOwnershipData(visit.exhibiciones)) {
                 <div class="flex gap-1.5 mt-3 flex-wrap">
                   @if (countOwnBrand(visit.exhibiciones) > 0) {
                     <span class="chip-brand inline-flex items-center gap-1" pTooltip="Exhibiciones de Mega Dulces">
@@ -351,8 +355,13 @@
               <tr class="border-b border-divider/50">
                 <td class="py-2 text-content-muted sticky left-0 bg-surface-card z-10">Score final</td>
                 @for (v of selectedVisits(); track v.folio) {
-                  <td class="py-2 text-center font-bold status-text" [class]="'status-' + visitScoreStatus(v)">
-                    {{ fmtScore(v.stats?.puntuacionTotal) }}
+                  <td class="py-2 text-center font-bold status-text"
+                      [class]="isVendorVisit(v) ? '' : 'status-' + visitScoreStatus(v)">
+                    @if (isVendorVisit(v)) {
+                      <span class="text-content-faint">—</span>
+                    } @else {
+                      {{ fmtScore(v.stats?.puntuacionTotal) }}
+                    }
                   </td>
                 }
               </tr>
@@ -440,12 +449,18 @@
             </div>
           </div>
           <div class="flex items-center gap-3 shrink-0">
-            <div class="text-right" [class]="'status-' + visitScoreStatus(selectedRow)">
-              <div class="text-3xl font-extrabold text-content-main leading-none">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
-              <div class="text-xs font-bold uppercase tracking-wide mt-0.5 status-text">
-                {{ scoreStatusLabel(selectedRow) }}
+            @if (isVendorVisit(selectedRow)) {
+              <div class="text-right">
+                <span class="chip-brand" pTooltip="Visita de vendedor">Vendedor</span>
               </div>
-            </div>
+            } @else {
+              <div class="text-right" [class]="'status-' + visitScoreStatus(selectedRow)">
+                <div class="text-3xl font-extrabold text-content-main leading-none">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
+                <div class="text-xs font-bold uppercase tracking-wide mt-0.5 status-text">
+                  {{ scoreStatusLabel(selectedRow) }}
+                </div>
+              </div>
+            }
             @if (canDeleteVisit()) {
               <button
                 (click)="deleteVisit(selectedRow)"
@@ -561,12 +576,16 @@
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <h4 class="text-base font-bold text-content-main truncate">{{ getConceptoName()(ex.conceptoId) || ex.rango || 'Sin concepto' }}</h4>
-                          <span class="text-xs font-medium text-content-faint uppercase shrink-0">{{ ex.formato || 'Mueble' }}</span>
-                          @if (ex.perteneceMegaDulces === true) {
-                            <span class="chip-brand shrink-0">Mega Dulces</span>
-                          } @else if (ex.perteneceMegaDulces === false) {
-                            <span class="chip-competition shrink-0">Competencia</span>
+                          @if (isVendorVisit(selectedRow)) {
+                            <h4 class="text-base font-bold text-content-main truncate">Exhibición</h4>
+                          } @else {
+                            <h4 class="text-base font-bold text-content-main truncate">{{ getConceptoName()(ex.conceptoId) || ex.rango || 'Sin concepto' }}</h4>
+                            <span class="text-xs font-medium text-content-faint uppercase shrink-0">{{ ex.formato || 'Mueble' }}</span>
+                            @if (ex.perteneceMegaDulces === true) {
+                              <span class="chip-brand shrink-0">Mega Dulces</span>
+                            } @else if (ex.perteneceMegaDulces === false) {
+                              <span class="chip-competition shrink-0">Competencia</span>
+                            }
                           }
                         </div>
                         <div class="flex flex-wrap items-center gap-1.5 mt-2">
@@ -577,14 +596,16 @@
                           }
                         </div>
                       </div>
-                      <div class="text-right shrink-0" [class]="'status-' + nivelSeverity(ex.nivelEjecucion || ex.nivel)">
-                        <div class="text-lg font-extrabold text-content-main leading-none">{{ ex.puntuacionCalculada || ex.puntos || 0 }}</div>
-                        <div class="text-xs font-semibold uppercase mt-0.5"
-                             [class.status-text]="!!(ex.nivelEjecucion || ex.nivel)"
-                             [class.text-content-faint]="!(ex.nivelEjecucion || ex.nivel)">
-                          {{ (ex.nivelEjecucion || ex.nivel || '—') | titlecase }}
+                      @if (!isVendorVisit(selectedRow)) {
+                        <div class="text-right shrink-0" [class]="'status-' + nivelSeverity(ex.nivelEjecucion || ex.nivel)">
+                          <div class="text-lg font-extrabold text-content-main leading-none">{{ ex.puntuacionCalculada || ex.puntos || 0 }}</div>
+                          <div class="text-xs font-semibold uppercase mt-0.5"
+                               [class.status-text]="!!(ex.nivelEjecucion || ex.nivel)"
+                               [class.text-content-faint]="!(ex.nivelEjecucion || ex.nivel)">
+                            {{ (ex.nivelEjecucion || ex.nivel || '—') | titlecase }}
+                          </div>
                         </div>
-                      </div>
+                      }
                     </div>
                     @if ((ex.ventaTotal ?? 0) > 0) {
                       <div class="mt-2 text-xs text-content-muted">

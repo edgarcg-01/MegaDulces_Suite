@@ -165,6 +165,47 @@ export class LogisticsShipmentsService {
     });
   }
 
+  /**
+   * J13 — Conteo de shipments por estado en una sola query (GROUP BY status).
+   * Alimenta la tira de status-chips del listado sin N+1. Respeta los mismos
+   * filtros de rango/vehículo/ruta que `list` para que los conteos cuadren con
+   * lo que el usuario está viendo.
+   */
+  async counts(query: Omit<ListShipmentsQuery, 'status' | 'page' | 'pageSize'> = {}) {
+    return this.tk.run(async (trx) => {
+      let q = trx('logistics.shipments as s').whereNull('s.deleted_at');
+      if (query.vehicle_id) q = q.where('s.vehicle_id', query.vehicle_id);
+      if (query.order_id) q = q.where('s.order_id', query.order_id);
+      if (query.from) q = q.where('s.shipment_date', '>=', query.from);
+      if (query.to) q = q.where('s.shipment_date', '<=', query.to);
+      if (query.driver_id) {
+        q = q.whereIn('s.id', function (this: any) {
+          this.select('shipment_id')
+            .from('logistics.delivery_guides')
+            .where(function (this: any) {
+              this.where('driver_id', query.driver_id)
+                .orWhere('helper1_id', query.driver_id)
+                .orWhere('helper2_id', query.driver_id);
+            });
+        });
+      }
+
+      const rows = await q
+        .select('s.status')
+        .count<{ status: ShipmentStatus; count: string }[]>('s.id as count')
+        .groupBy('s.status');
+
+      const byStatus: Record<string, number> = {};
+      let total = 0;
+      for (const r of rows) {
+        const n = Number(r.count);
+        byStatus[r.status] = n;
+        total += n;
+      }
+      return { total, byStatus };
+    });
+  }
+
   async findById(id: string) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {

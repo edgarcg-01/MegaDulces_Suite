@@ -94,6 +94,9 @@ interface Visit {
   longitud?: number | null;
   exhibiciones?: Exhibicion[];
   stats?: VisitStats;
+  /** Las visitas de vendedor (app vendor) no se puntúan ni clasifican
+   *  como exhibición de trade: no llevan score, concepto ni propio/competencia. */
+  skip_scoring?: boolean;
 }
 
 /**
@@ -597,6 +600,12 @@ export class SeguimientoComponent implements OnInit {
 
   fmtScore(v: number | null | undefined): string {
     return v != null ? Math.round(v).toString() : '0';
+  }
+
+  /** Visita de vendedor (app vendor): no se puntúa ni clasifica como trade.
+   *  Oculta puntuación, concepto y chips propio/competencia. */
+  isVendorVisit(visit: Visit | null | undefined): boolean {
+    return !!visit?.skip_scoring;
   }
 
   getProductNames = computed(() => {

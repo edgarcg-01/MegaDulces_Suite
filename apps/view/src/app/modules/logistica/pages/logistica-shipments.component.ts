@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { forkJoin } from 'rxjs';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -18,7 +17,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  LogisticaService, PendingOrder, Shipment, ShipmentStatus, ShipmentType, Vehicle,
+  LogisticaService, PendingOrder, Shipment, ShipmentCounts, ShipmentStatus, ShipmentType, Vehicle,
 } from '../logistica.service';
 import { ShipmentFormDialogComponent } from '../components/shipment-form-dialog.component';
 
@@ -173,38 +172,20 @@ function severityForStatus(s: ShipmentStatus): Severity {
 
       <!-- ── MODE: SHIPMENTS ── -->
       <ng-container *ngIf="mode() === 'shipments'">
-        <!-- Filter toolbar -->
-        <div class="sheet cols-12">
-          <article class="cell cell-span-12 is-flush sh-filters-cell">
-            <div class="sh-toolbar">
-              <div class="sh-field">
-                <i class="pi pi-filter sh-field-icon" aria-hidden="true"></i>
-                <p-select
-                  [(ngModel)]="statusFilterValue"
-                  [options]="statusOptions"
-                  optionLabel="label"
-                  optionValue="value"
-                  (onChange)="onFilterChange()"
-                  [showClear]="false"
-                  placeholder="Todos los estados"
-                  styleClass="sh-status-select"
-                  appendTo="body"
-                ></p-select>
-              </div>
-
-              <div class="sh-toolbar-spacer"></div>
-
-              <button
-                *ngIf="statusFilterValue"
-                type="button"
-                class="sh-reset"
-                (click)="clearFilter()"
-              >
-                <i class="pi pi-refresh" aria-hidden="true"></i>
-                <span>Reset</span>
-              </button>
-            </div>
-          </article>
+        <!-- Status-chip strip (filtro 1-click + conteo por estado) -->
+        <div class="sh-chipbar" role="tablist" aria-label="Filtrar por estado">
+          <button
+            *ngFor="let c of statusChips()"
+            type="button"
+            [class]="'sh-chip ' + c.pillClass + (statusFilter() === c.value ? ' active' : '')"
+            role="tab"
+            [attr.aria-selected]="statusFilter() === c.value"
+            (click)="setStatusFilter(c.value)"
+          >
+            <span class="sh-chip-dot" aria-hidden="true"></span>
+            <span class="sh-chip-label">{{ c.label }}</span>
+            <span class="sh-chip-count">{{ c.count }}</span>
+          </button>
         </div>
 
         <!-- Tabla flush -->
@@ -407,68 +388,70 @@ function severityForStatus(s: ShipmentStatus): Severity {
       border-color: transparent;
     }
 
-    /* ── TOOLBAR (filter cell) ── */
-    .sh-filters-cell { display: flex; flex-direction: column; }
-    .sh-toolbar {
+    /* ── STATUS-CHIP STRIP (filtro 1-click + conteo por estado) ── */
+    .sh-chipbar {
       display: flex;
-      align-items: center;
-      gap: .5rem;
-      padding: .625rem .875rem;
       flex-wrap: wrap;
+      gap: .5rem;
+      padding: .125rem 0;
     }
-    .sh-toolbar-spacer { flex: 1; min-width: 0; }
-
-    .sh-field {
+    .sh-chip {
       display: inline-flex;
       align-items: center;
-      height: 32px;
-      min-width: 220px;
+      gap: .45rem;
+      height: 34px;
+      padding: 0 .75rem;
       background: var(--c-surface-1);
       border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      padding: 0 .5rem;
-      gap: .35rem;
-      transition: border-color 120ms var(--ease-standard);
-    }
-    .sh-field:focus-within {
-      border-color: var(--c-text-1);
-      box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
-    }
-    .sh-field-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
-    :host ::ng-deep .sh-status-select.p-select {
-      flex: 1;
-      border: none !important;
-      background: transparent !important;
-      box-shadow: none !important;
-    }
-    :host ::ng-deep .sh-status-select.p-select .p-select-label {
-      padding: 0 !important;
-      height: 28px !important;
-      font-size: var(--fs-sm) !important;
-      color: var(--c-text-1) !important;
-      display: flex;
-      align-items: center;
-    }
-
-    .sh-reset {
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
-      height: 32px;
-      padding: 0 .75rem;
-      background: transparent;
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
+      border-radius: var(--r-pill, 999px);
       color: var(--c-text-2);
-      font-size: var(--fs-xs);
+      font-size: var(--fs-sm);
       font-weight: var(--fw-medium);
       cursor: pointer;
-      transition: all 120ms var(--ease-standard);
+      white-space: nowrap;
+      transition: border-color 120ms var(--ease-standard),
+                  background-color 120ms var(--ease-standard),
+                  color 120ms var(--ease-standard);
     }
-    .sh-reset:hover {
-      color: var(--c-text-1);
-      border-color: var(--c-text-1);
+    .sh-chip:hover { border-color: var(--c-text-3); color: var(--c-text-1); }
+    .sh-chip:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+    /* Punto de color semántico por estado (toma el color del modificador). */
+    .sh-chip-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--c-text-3);
+      flex-shrink: 0;
+    }
+    .sh-chip.is-all .sh-chip-dot     { background: var(--c-text-3); }
+    .sh-chip.is-info .sh-chip-dot    { background: var(--c-info); }
+    .sh-chip.is-warn .sh-chip-dot    { background: var(--c-warn); }
+    .sh-chip.is-ok .sh-chip-dot      { background: var(--c-ok); }
+    .sh-chip.is-bad .sh-chip-dot     { background: var(--c-bad); }
+    .sh-chip.is-neutral .sh-chip-dot { background: var(--c-text-3); }
+
+    .sh-chip-count {
+      font-size: var(--fs-xs);
+      font-weight: var(--fw-bold);
+      font-variant-numeric: tabular-nums;
+      color: var(--c-text-3);
       background: var(--c-surface-2);
+      border-radius: 999px;
+      min-width: 20px;
+      padding: .05rem .35rem;
+      text-align: center;
+    }
+
+    /* Activo: borde + texto sunset, sin relleno cargado (densidad Operations). */
+    .sh-chip.active {
+      border-color: var(--action);
+      color: var(--action);
+      background: var(--action-ring, rgba(240, 90, 40, 0.12));
+    }
+    .sh-chip.active .sh-chip-count {
+      background: var(--action);
+      color: var(--action-ink, #fff);
     }
 
     /* ── DELIVERY PILL (consistente con comercial-orders) ── */
@@ -542,9 +525,21 @@ export class LogisticaShipmentsComponent {
   readonly saving = signal(false);
   readonly mode = signal<'shipments' | 'pending'>('shipments');
 
-  // KPI strip stats (fetch paralelo con forkJoin)
+  // KPI strip stats + conteo por estado (J13: 1 request a /shipments/counts)
   readonly loadingStats = signal(true);
   readonly stats = signal<{ total: number; enRuta: number; entregados: number; cancelados: number } | null>(null);
+  readonly counts = signal<ShipmentCounts | null>(null);
+
+  /** Tira de status-chips: cada opción de estado con su conteo y clase de pill. */
+  readonly statusChips = computed(() => {
+    const c = this.counts();
+    return STATUS_OPTIONS.map((o) => ({
+      label: o.label,
+      value: o.value,
+      count: o.value === '' ? (c?.total ?? 0) : (c?.byStatus?.[o.value] ?? 0),
+      pillClass: o.value === '' ? 'is-all' : this.statusPillClass(o.value as ShipmentStatus),
+    }));
+  });
 
   readonly vehicles = signal<Vehicle[]>([]);
   readonly vehicleOptions = computed(() =>
@@ -583,21 +578,17 @@ export class LogisticaShipmentsComponent {
     });
   }
 
-  /** Counts paralelos por estado para el KPI strip. */
+  /** J13 — conteo por estado en 1 request (alimenta KPI strip + status-chips). */
   loadStats() {
     this.loadingStats.set(true);
-    forkJoin({
-      total:       this.api.listShipments({ pageSize: 1 }),
-      enRuta:      this.api.listShipments({ status: 'en_ruta', pageSize: 1 }),
-      entregados:  this.api.listShipments({ status: 'entregado', pageSize: 1 }),
-      cancelados:  this.api.listShipments({ status: 'cancelado', pageSize: 1 }),
-    }).subscribe({
-      next: (r) => {
+    this.api.shipmentCounts().subscribe({
+      next: (c) => {
+        this.counts.set(c);
         this.stats.set({
-          total:      r.total?.total || 0,
-          enRuta:     r.enRuta?.total || 0,
-          entregados: r.entregados?.total || 0,
-          cancelados: r.cancelados?.total || 0,
+          total:      c.total || 0,
+          enRuta:     c.byStatus?.en_ruta || 0,
+          entregados: c.byStatus?.entregado || 0,
+          cancelados: c.byStatus?.cancelado || 0,
         });
         this.loadingStats.set(false);
       },
@@ -648,6 +639,14 @@ export class LogisticaShipmentsComponent {
   }
   onFilterChange() {
     this.statusFilter.set(this.statusFilterValue);
+    this.load(1);
+  }
+
+  /** J13 — click en un status-chip: fija el filtro y recarga la página 1. */
+  setStatusFilter(value: ShipmentStatus | '') {
+    if (this.statusFilter() === value) return;
+    this.statusFilter.set(value);
+    this.statusFilterValue = value;
     this.load(1);
   }
 

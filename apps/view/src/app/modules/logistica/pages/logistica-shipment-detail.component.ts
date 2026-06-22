@@ -62,11 +62,24 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <span class="comm-pill" [class]="statusPillClass(s.status)">
               {{ statusLabel(s.status) }}
             </span>
-            <a pButton icon="pi pi-check-square" label="Checklists" severity="secondary" size="small"
+
+            <!-- Transiciones de estado (solo las válidas para el estado actual) -->
+            <button pButton *ngIf="canDepart()" icon="pi pi-send" label="Marcar en ruta" size="small"
+                    (click)="transition('depart')"></button>
+            <button pButton *ngIf="canDeliver()" icon="pi pi-check" label="Marcar entregado" size="small"
+                    (click)="transition('deliver')"></button>
+            <button pButton *ngIf="canClose()" icon="pi pi-lock" label="Cerrar embarque" size="small"
+                    (click)="transition('close')"></button>
+            <button pButton *ngIf="canCancel()" icon="pi pi-times" label="Cancelar" size="small"
+                    severity="danger" [text]="true" (click)="confirmCancel()"></button>
+
+            <span class="shd-head-sep" aria-hidden="true"></span>
+
+            <a pButton icon="pi pi-check-square" label="Checklists" severity="secondary" [outlined]="true" size="small"
                [routerLink]="['/logistica/shipments', s.id, 'checklists']"></a>
-            <a pButton icon="pi pi-camera" label="Fotos" severity="secondary" size="small"
+            <a pButton icon="pi pi-camera" label="Fotos" severity="secondary" [outlined]="true" size="small"
                [routerLink]="['/logistica/shipments', s.id, 'photos']"></a>
-            <button pButton icon="pi pi-file-pdf" label="PDF" severity="secondary" size="small"
+            <button pButton icon="pi pi-file-pdf" label="PDF" severity="secondary" [outlined]="true" size="small"
                     (click)="downloadPdf(s.id)"></button>
           </div>
         </header>
@@ -132,6 +145,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <div class="rd-head">
                 <span class="cell-label">Preparación del viaje</span>
                 <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
+              </div>
+              <div class="rd-progress">
+                <div class="rd-progress-track">
+                  <div class="rd-progress-fill" [class.ok]="rd.ready" [style.width.%]="readinessPct()"></div>
+                </div>
+                <span class="rd-progress-pct">{{ readinessPct() }}%</span>
               </div>
               <ul class="rd-list">
                 <li *ngFor="let c of rd.checks" [class]="'rd-' + c.status">
@@ -614,6 +633,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       align-items: center;
       flex-wrap: wrap;
     }
+    .shd-head-sep {
+      width: 1px;
+      align-self: stretch;
+      min-height: 24px;
+      background: var(--c-divider);
+      margin: 0 .125rem;
+    }
 
     /* ── TABS CELL ── */
     .shd-tabs-cell { padding: .5rem .75rem; }
@@ -690,15 +716,22 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .shd-cta-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
     /* ── Semáforo de preparación ── */
     .rd-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.6rem; }
-    .rd-pill { font-family:var(--mono,monospace); font-size:var(--fs-micro); padding:.2rem .55rem; border-radius:6px; background:#fdf6e3; color:#8a6420; font-weight:700; }
-    .rd-pill.ok { background:#dce5dd; color:#3f5e4e; }
+    .rd-pill { font-size:var(--fs-micro); padding:.2rem .55rem; border-radius:6px; background:var(--warn-soft-bg); color:var(--warn-soft-fg); font-weight:var(--fw-bold); }
+    .rd-pill.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
+    /* Barra de % listo (semáforo de preparación) */
+    .rd-progress { display:flex; align-items:center; gap:.625rem; margin-bottom:.75rem; }
+    .rd-progress-track { flex:1; height:6px; border-radius:999px; background:var(--c-surface-2); overflow:hidden; }
+    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width .4s var(--ease-standard); }
+    .rd-progress-fill.ok { background:var(--ok-fg); }
+    .rd-progress-pct { font-variant-numeric:tabular-nums; font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); min-width:34px; text-align:right; }
+    @media (prefers-reduced-motion: reduce){ .rd-progress-fill { transition:none; } }
     .rd-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.4rem .9rem; }
     @media (max-width:720px){ .rd-list { grid-template-columns:1fr; } }
     .rd-list li { display:flex; align-items:center; gap:.5rem; font-size:var(--fs-sm); padding:.25rem 0; }
     .rd-list li i { font-size:1rem; flex:0 0 auto; }
-    .rd-ok i { color:#2e7d32; }
-    .rd-warn i { color:#d2851b; }
-    .rd-pending i { color:var(--c-text-3,#bbb); }
+    .rd-ok i { color:var(--ok-fg); }
+    .rd-warn i { color:var(--warn-fg); }
+    .rd-pending i { color:var(--c-text-3); }
     .rd-label { font-weight:var(--fw-medium); }
     .rd-detail { color:var(--c-text-3); font-size:var(--fs-micro); margin-left:auto; text-align:right; }
     .shd-eta-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .5rem; }
@@ -811,8 +844,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .shd-cp-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
     .shd-cp-gaps {
       margin-top: 1rem;
-      border: 1px solid var(--c-warn-border, #e6c15a);
-      background: var(--c-warn-bg, #fdf6e3);
+      border: 1px solid var(--warn-border);
+      background: var(--warn-soft-bg);
       border-radius: 10px;
       padding: .875rem 1rem;
     }
@@ -831,7 +864,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       margin-top: 1rem;
       display: flex; align-items: center; gap: .5rem;
       font-size: var(--fs-sm); font-weight: var(--fw-medium);
-      color: var(--c-ok, #2e7d32);
+      color: var(--c-ok);
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -942,6 +975,58 @@ export class LogisticaShipmentDetailComponent {
     this.api.shipmentReadiness(id).subscribe({
       next: (r) => this.readiness.set(r),
       error: () => { /* silencioso */ },
+    });
+  }
+
+  /** % de checks en estado 'ok' — alimenta la barra del semáforo de preparación. */
+  readonly readinessPct = computed(() => {
+    const r = this.readiness();
+    if (!r || !r.checks.length) return 0;
+    const ok = r.checks.filter((c) => c.status === 'ok').length;
+    return Math.round((ok / r.checks.length) * 100);
+  });
+
+  // ── Transiciones de estado (mismo state-machine que la lista) ───────────
+  canDepart(): boolean {
+    const s = this.shipment()?.status;
+    return s === 'programado' || s === 'checklist_salida';
+  }
+  canDeliver(): boolean { return this.shipment()?.status === 'en_ruta'; }
+  canClose(): boolean {
+    const s = this.shipment()?.status;
+    return s === 'entregado' || s === 'checklist_llegada' || s === 'costos_pendientes';
+  }
+  canCancel(): boolean {
+    const s = this.shipment()?.status;
+    return s === 'programado' || s === 'en_ruta';
+  }
+
+  transition(kind: 'depart' | 'deliver' | 'close') {
+    const id = this.shipmentId();
+    const fn = kind === 'depart' ? this.api.shipmentDepart(id)
+            : kind === 'deliver' ? this.api.shipmentDeliver(id)
+            : this.api.shipmentClose(id);
+    fn.subscribe({
+      next: (r) => {
+        this.shipment.set(r);
+        this.refreshReadiness();
+        this.toast.add({ severity: 'success', summary: `Embarque ${r.folio} actualizado` });
+      },
+      error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' }),
+    });
+  }
+
+  confirmCancel() {
+    const s = this.shipment(); if (!s) return;
+    this.confirm.confirm({
+      message: `¿Cancelar embarque ${s.folio}? Esto liberará la unidad asignada.`,
+      header: 'Confirmar', icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, cancelar', rejectLabel: 'Volver',
+      acceptButtonStyleClass: 'p-button-danger',
+      accept: () => this.api.shipmentCancel(s.id, 'Cancelado desde detalle').subscribe({
+        next: (r) => { this.shipment.set(r); this.toast.add({ severity: 'info', summary: 'Embarque cancelado' }); },
+        error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' }),
+      }),
     });
   }
 

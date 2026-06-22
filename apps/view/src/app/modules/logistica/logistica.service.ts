@@ -108,6 +108,12 @@ export interface ShipmentsPage {
   totalPages: number;
 }
 
+/** J13 — conteo por estado para la tira de status-chips. */
+export interface ShipmentCounts {
+  total: number;
+  byStatus: Partial<Record<ShipmentStatus, number>>;
+}
+
 /** J.7.1 — pedido confirmed esperando shipment. */
 export interface PendingOrder {
   id: string;
@@ -653,6 +659,18 @@ export class LogisticaService {
     let p = new HttpParams();
     Object.entries(opts).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v)); });
     return this.http.get<ShipmentsPage>(`${this.base}/shipments`, { params: p });
+  }
+  /** J13 — conteo de shipments por estado (alimenta la tira de status-chips). */
+  shipmentCounts(opts: {
+    vehicle_id?: string;
+    driver_id?: string;
+    order_id?: string;
+    from?: string;
+    to?: string;
+  } = {}): Observable<ShipmentCounts> {
+    let p = new HttpParams();
+    Object.entries(opts).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v)); });
+    return this.http.get<ShipmentCounts>(`${this.base}/shipments/counts`, { params: p });
   }
   /**
    * J.7.1 — pedidos confirmed sin shipment activo asociado (bandeja de logística).

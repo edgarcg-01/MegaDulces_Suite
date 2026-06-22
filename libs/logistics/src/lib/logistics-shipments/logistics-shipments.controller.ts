@@ -51,6 +51,18 @@ export class LogisticsShipmentsController {
     });
   }
 
+  @Get('counts')
+  @ApiOperation({ summary: 'J13: conteo de shipments por estado (alimenta la tira de status-chips)' })
+  counts(
+    @Query('vehicle_id') vehicle_id?: string,
+    @Query('driver_id') driver_id?: string,
+    @Query('order_id') order_id?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.counts({ vehicle_id, driver_id, order_id, from, to });
+  }
+
   @Get('pending-orders')
   @ApiOperation({
     summary: 'J.7.1: pedidos confirmed sin shipment activo (bandeja de entrada de logística)',

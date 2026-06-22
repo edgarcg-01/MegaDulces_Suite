@@ -14,7 +14,7 @@ import { authInterceptor } from './core/http/auth.interceptor';
 import { SelectivePreloadStrategy } from './core/strategies/selective-preload.strategy';
 
 import { providePrimeNG } from 'primeng/config';
-import Aura from '@primeng/themes/aura';
+import { OperationsPreset } from './core/theme/operations-preset';
 import { ConfirmationService } from 'primeng/api';
 
 export const appConfig: ApplicationConfig = {
@@ -27,7 +27,7 @@ export const appConfig: ApplicationConfig = {
     ),
     providePrimeNG({
       theme: {
-        preset: Aura,
+        preset: OperationsPreset,
         options: {
           darkModeSelector: '.theme-monochrome'
         }

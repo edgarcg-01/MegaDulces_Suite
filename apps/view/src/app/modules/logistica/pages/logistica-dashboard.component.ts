@@ -3,10 +3,9 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DatePickerModule } from 'primeng/datepicker';
-import { TagModule } from 'primeng/tag';
+import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
@@ -31,301 +30,234 @@ import {
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink,
-    ButtonModule, CardModule, TableModule, DatePickerModule, TagModule, ToastModule, TooltipModule,
+    ButtonModule, TableModule, DatePickerModule, SkeletonModule, ToastModule, TooltipModule,
   ],
   providers: [MessageService],
   template: `
-    <p-toast></p-toast>
+    <div class="surf-page logd">
+      <p-toast></p-toast>
 
-    <header class="surf-page-head">
-      <div class="surf-page-head-text">
-        <h1>Dashboard Operativo</h1>
-        <p class="surf-page-sub">Vista en tiempo real del período. Refrescá si querés data actualizada.</p>
-      </div>
-      <div class="filter-bar">
-        <div class="filter-daterange" role="group" aria-label="Rango de fechas">
-          <label class="filter-label" for="ld-from">Desde</label>
-          <p-datepicker inputId="ld-from" [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
-          <i class="pi pi-arrow-right filter-arrow" aria-hidden="true"></i>
-          <label class="filter-label" for="ld-to">Hasta</label>
-          <p-datepicker inputId="ld-to" [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Dashboard Operativo</h1>
+          <p class="surf-page-sub">Vista en tiempo real del período. Refrescá si querés data actualizada.</p>
         </div>
-        <button pButton icon="pi pi-refresh" label="Actualizar" severity="contrast" (click)="reload()" [loading]="loading()"></button>
-      </div>
-    </header>
-
-    <!-- KPI Grid (4 columns) -->
-    <div class="kpi-grid">
-      <div class="kpi-card" [class.skeleton]="loading()">
-        <div class="kpi-icon"><i class="pi pi-truck"></i></div>
-        <div class="kpi-label">Volumen operativo</div>
-        <div class="kpi-value" *ngIf="!loading()">{{ overview()?.shipments?.count || 0 }}</div>
-        <div class="kpi-value shimmer-bar" *ngIf="loading()"></div>
-        <div class="kpi-sub">
-          <span *ngIf="!loading()">{{ overview()?.shipments?.total_boxes || 0 }} cajas · {{ overview()?.shipments?.total_km || 0 | number:'1.0-0' }} km</span>
-          <span class="shimmer-text" *ngIf="loading()"></span>
-        </div>
-      </div>
-
-      <div class="kpi-card" [class.skeleton]="loading()">
-        <div class="kpi-icon"><i class="pi pi-arrow-up-right"></i></div>
-        <div class="kpi-label">Ingreso flete</div>
-        <div class="kpi-value" *ngIf="!loading()">\${{ overview()?.revenue?.freight || 0 | number:'1.2-2' }}</div>
-        <div class="kpi-value shimmer-bar" *ngIf="loading()"></div>
-        <div class="kpi-sub">
-          <span *ngIf="!loading()">Valor mercancía: \${{ overview()?.revenue?.cargo_value_moved || 0 | number:'1.2-2' }}</span>
-          <span class="shimmer-text" *ngIf="loading()"></span>
-        </div>
-      </div>
-
-      <div class="kpi-card" [class.skeleton]="loading()">
-        <div class="kpi-icon"><i class="pi pi-money-bill"></i></div>
-        <div class="kpi-label">Costo operativo</div>
-        <div class="kpi-value" *ngIf="!loading()">\${{ overview()?.cost?.total || 0 | number:'1.2-2' }}</div>
-        <div class="kpi-value shimmer-bar" *ngIf="loading()"></div>
-        <div class="kpi-sub">
-          <span *ngIf="!loading()">\${{ overview()?.cost?.per_km || 0 | number:'1.2-2' }}/km</span>
-          <span class="shimmer-text" *ngIf="loading()"></span>
-        </div>
-      </div>
-
-      <div class="kpi-card" [class.kpi-positive]="(overview()?.margin?.gross || 0) >= 0" [class.kpi-negative]="(overview()?.margin?.gross || 0) < 0" [class.skeleton]="loading()">
-        <div class="kpi-icon"><i class="pi pi-chart-line"></i></div>
-        <div class="kpi-label">Margen operativo</div>
-        <div class="kpi-value" *ngIf="!loading()">\${{ overview()?.margin?.gross || 0 | number:'1.2-2' }}</div>
-        <div class="kpi-value shimmer-bar" *ngIf="loading()"></div>
-        <div class="kpi-sub">
-          <span *ngIf="!loading()">{{ overview()?.margin?.gross_pct || 0 | number:'1.1-1' }}% margen bruto</span>
-          <span class="shimmer-text" *ngIf="loading()"></span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Pipeline: pedidos confirmados/por aprobar sin embarque, agrupados por ruta -->
-    <p-card styleClass="pipeline-card">
-      <div class="pipeline-head">
-        <div>
-          <h3>Pedidos por embarcar</h3>
-          <p class="muted">
-            Pedidos en <code>confirmed</code>/<code>pending_approval</code> sin shipment activo. Atacá la ruta con más cola primero.
-          </p>
-        </div>
-        <div class="pipeline-totals" *ngIf="!loading()">
-          <div class="pt-block">
-            <span class="pt-label">Pedidos</span>
-            <span class="pt-value">{{ pipelineTotals().count }}</span>
+        <div class="filter-bar">
+          <div class="filter-daterange" role="group" aria-label="Rango de fechas">
+            <label class="filter-label" for="ld-from">Desde</label>
+            <p-datepicker inputId="ld-from" [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
+            <i class="pi pi-arrow-right filter-arrow" aria-hidden="true"></i>
+            <label class="filter-label" for="ld-to">Hasta</label>
+            <p-datepicker inputId="ld-to" [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
           </div>
-          <div class="pt-block">
-            <span class="pt-label">Valor</span>
-            <span class="pt-value">\${{ pipelineTotals().value | number:'1.2-2' }}</span>
+          <button pButton icon="pi pi-refresh" label="Actualizar" (click)="reload()" [loading]="loading()"></button>
+        </div>
+      </header>
+
+      <!-- KPI Grid (metric-tiles canónicos) -->
+      <p-skeleton *ngIf="loading()" height="118px"></p-skeleton>
+      <div *ngIf="!loading()" class="surf-grid">
+        <div class="metric-tile panel-col-3 is-info">
+          <span class="metric-label">Volumen operativo</span>
+          <span class="metric-value">{{ overview()?.shipments?.count || 0 }}</span>
+          <span class="metric-sub">{{ overview()?.shipments?.total_boxes || 0 }} cajas · {{ (overview()?.shipments?.total_km || 0) | number:'1.0-0' }} km</span>
+        </div>
+        <div class="metric-tile panel-col-3">
+          <span class="metric-label">Ingreso flete</span>
+          <span class="metric-value">{{ (overview()?.revenue?.freight || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          <span class="metric-sub">Valor mercancía: {{ (overview()?.revenue?.cargo_value_moved || 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+        </div>
+        <div class="metric-tile panel-col-3">
+          <span class="metric-label">Costo operativo</span>
+          <span class="metric-value">{{ (overview()?.cost?.total || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          <span class="metric-sub">{{ (overview()?.cost?.per_km || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}/km</span>
+        </div>
+        <div class="metric-tile panel-col-3"
+             [class.is-ok]="(overview()?.margin?.gross || 0) >= 0"
+             [class.is-bad]="(overview()?.margin?.gross || 0) < 0">
+          <span class="metric-label">Margen operativo</span>
+          <span class="metric-value">{{ (overview()?.margin?.gross || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          <span class="metric-sub">{{ (overview()?.margin?.gross_pct || 0) | number:'1.1-1' }}% margen bruto</span>
+        </div>
+      </div>
+
+      <!-- Pipeline: pedidos confirmados/por aprobar sin embarque, agrupados por ruta -->
+      <section class="surf-panel">
+        <div class="surf-panel-head logd-pipe-head">
+          <h3><i class="pi pi-inbox" aria-hidden="true"></i> Pedidos por embarcar</h3>
+          <div class="pipeline-totals" *ngIf="!loading()">
+            <div class="pt-block">
+              <span class="pt-label">Pedidos</span>
+              <span class="pt-value">{{ pipelineTotals().count }}</span>
+            </div>
+            <div class="pt-block">
+              <span class="pt-label">Valor</span>
+              <span class="pt-value">{{ pipelineTotals().value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+            </div>
           </div>
         </div>
+        <div class="surf-panel-body is-flush">
+          <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Ruta</th>
+                <th class="comm-num">Pedidos</th>
+                <th class="comm-num">Confirmados</th>
+                <th class="comm-num">Por aprobar</th>
+                <th class="comm-num">Valor total</th>
+                <th>Más antiguo</th>
+                <th></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-r>
+              <tr>
+                <td>
+                  <strong *ngIf="r.route_id">{{ r.route_name }}</strong>
+                  <span class="comm-muted" *ngIf="!r.route_id">{{ r.route_name }}</span>
+                </td>
+                <td class="comm-num is-strong">{{ r.orders_count }}</td>
+                <td class="comm-num">{{ r.orders_confirmed }}</td>
+                <td class="comm-num">
+                  <span *ngIf="r.orders_pending_approval > 0" class="comm-pill is-warn no-dot">
+                    {{ r.orders_pending_approval }}
+                  </span>
+                  <span *ngIf="r.orders_pending_approval === 0" class="comm-muted">0</span>
+                </td>
+                <td class="comm-num">{{ r.total_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td>
+                  <span [pTooltip]="(r.oldest_order_at | date:'medium') || ''">
+                    {{ ageOf(r.oldest_order_at) }}
+                  </span>
+                </td>
+                <td class="comm-num">
+                  <a *ngIf="r.route_id" pButton
+                     icon="pi pi-plus" label="Embarque"
+                     size="small"
+                     [routerLink]="['/logistica/shipments']"
+                     [queryParams]="{ route_id: r.route_id }"
+                     pTooltip="Crear embarque para esta ruta"></a>
+                  <span *ngIf="!r.route_id" class="comm-muted is-small">Asigná ruta al cliente</span>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr><td colspan="7" class="comm-muted logd-empty">Nada esperando embarque. Pipeline limpio.</td></tr>
+            </ng-template>
+          </p-table>
+        </div>
+      </section>
+
+      <!-- Two-column section -->
+      <div class="surf-grid">
+        <section class="surf-panel panel-col-6">
+          <div class="surf-panel-head"><h3><i class="pi pi-chart-line" aria-hidden="true"></i> Top embarques por margen</h3></div>
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th>Folio</th>
+                  <th>Ruta</th>
+                  <th class="comm-num">Km</th>
+                  <th class="comm-num">Ingreso</th>
+                  <th class="comm-num">Costo</th>
+                  <th class="comm-num">Margen</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-r>
+                <tr>
+                  <td><code class="comm-code">{{ r.folio }}</code></td>
+                  <td>{{ r.route_name || '—' }}</td>
+                  <td class="comm-num">{{ r.km | number:'1.0-0' }}</td>
+                  <td class="comm-num">{{ r.revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="comm-num">{{ r.cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="comm-num" [class.pos]="r.margin >= 0" [class.neg]="r.margin < 0">
+                    {{ r.margin | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                    <small class="comm-muted">({{ r.margin_pct | number:'1.1-1' }}%)</small>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="6" class="comm-muted logd-empty">Sin embarques cerrados en este rango. Probá ampliar las fechas.</td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </section>
+
+        <section class="surf-panel panel-col-6">
+          <div class="surf-panel-head"><h3><i class="pi pi-truck" aria-hidden="true"></i> Utilización por unidad</h3></div>
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th>Placa</th>
+                  <th class="comm-num">Embarques</th>
+                  <th class="comm-num">Km</th>
+                  <th class="comm-num">Ingreso</th>
+                  <th class="comm-num">Margen</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-v>
+                <tr>
+                  <td><code class="comm-code">{{ v.plate }}</code></td>
+                  <td class="comm-num">{{ v.shipments_count }}</td>
+                  <td class="comm-num">{{ v.total_km | number:'1.0-0' }}</td>
+                  <td class="comm-num">{{ v.total_revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="comm-num" [class.pos]="v.margin >= 0" [class.neg]="v.margin < 0">
+                    {{ v.margin | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="5" class="comm-muted logd-empty">Aún no se asignaron unidades en este período.</td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </section>
       </div>
-      <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Ruta</th>
-            <th class="num">Pedidos</th>
-            <th class="num">Confirmados</th>
-            <th class="num">Por aprobar</th>
-            <th class="num">Valor total</th>
-            <th>Más antiguo</th>
-            <th></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-r>
-          <tr>
-            <td>
-              <strong *ngIf="r.route_id">{{ r.route_name }}</strong>
-              <span class="muted" *ngIf="!r.route_id">{{ r.route_name }}</span>
-            </td>
-            <td class="num strong">{{ r.orders_count }}</td>
-            <td class="num">{{ r.orders_confirmed }}</td>
-            <td class="num">
-              <span *ngIf="r.orders_pending_approval > 0" class="badge-warn">
-                {{ r.orders_pending_approval }}
-              </span>
-              <span *ngIf="r.orders_pending_approval === 0" class="muted">0</span>
-            </td>
-            <td class="num">\${{ r.total_value | number:'1.2-2' }}</td>
-            <td>
-              <span [pTooltip]="(r.oldest_order_at | date:'medium') || ''">
-                {{ ageOf(r.oldest_order_at) }}
-              </span>
-            </td>
-            <td class="num">
-              <a *ngIf="r.route_id" pButton
-                 icon="pi pi-plus" label="Embarque"
-                 size="small"
-                 [routerLink]="['/logistica/shipments']"
-                 [queryParams]="{ route_id: r.route_id }"
-                 pTooltip="Crear embarque para esta ruta"></a>
-              <span *ngIf="!r.route_id" class="muted is-small">Asigná ruta al cliente</span>
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="7" class="muted">Nada esperando embarque. Pipeline limpio. </td></tr>
-        </ng-template>
-      </p-table>
-    </p-card>
-
-    <!-- Two-column section -->
-    <div class="two-col">
-      <p-card>
-        <h3>Top embarques por margen</h3>
-        <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
-          <ng-template pTemplate="header">
-            <tr>
-              <th>Folio</th>
-              <th>Ruta</th>
-              <th class="num">Km</th>
-              <th class="num">Ingreso</th>
-              <th class="num">Costo</th>
-              <th class="num">Margen</th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-r>
-            <tr>
-              <td><code>{{ r.folio }}</code></td>
-              <td>{{ r.route_name || '—' }}</td>
-              <td class="num">{{ r.km | number:'1.0-0' }}</td>
-              <td class="num">\${{ r.revenue | number:'1.2-2' }}</td>
-              <td class="num">\${{ r.cost | number:'1.2-2' }}</td>
-              <td class="num" [class.pos]="r.margin >= 0" [class.neg]="r.margin < 0">
-                \${{ r.margin | number:'1.2-2' }}
-                <small class="muted">({{ r.margin_pct | number:'1.1-1' }}%)</small>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="muted">Sin embarques cerrados en este rango. Probá ampliar las fechas.</td></tr>
-          </ng-template>
-        </p-table>
-      </p-card>
-
-      <p-card>
-        <h3>Utilización por unidad</h3>
-        <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
-          <ng-template pTemplate="header">
-            <tr>
-              <th>Placa</th>
-              <th class="num">Embarques</th>
-              <th class="num">Km</th>
-              <th class="num">Ingreso</th>
-              <th class="num">Margen</th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-v>
-            <tr>
-              <td><code>{{ v.plate }}</code></td>
-              <td class="num">{{ v.shipments_count }}</td>
-              <td class="num">{{ v.total_km | number:'1.0-0' }}</td>
-              <td class="num">\${{ v.total_revenue | number:'1.2-2' }}</td>
-              <td class="num" [class.pos]="v.margin >= 0" [class.neg]="v.margin < 0">
-                \${{ v.margin | number:'1.2-2' }}
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="5" class="muted">Aún no se asignaron unidades en este período.</td></tr>
-          </ng-template>
-        </p-table>
-      </p-card>
     </div>
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
+
+    /* ── FILTER BAR (rango de fechas + refresh) ── */
     .filter-bar { display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap; }
     .filter-daterange {
       display:inline-flex;
       align-items:flex-end;
       gap:.5rem;
       padding: .5rem .75rem;
-      background: var(--surface-card, #fff);
-      border: 1px solid var(--surface-border, var(--neutral-200));
+      background: var(--c-surface-1);
+      border: 1px solid var(--c-divider);
       border-radius: 10px;
     }
     .filter-label {
       display: block;
-      font-size: .65rem;
-      font-weight: 700;
+      font-size: var(--fs-micro);
+      font-weight: var(--fw-bold);
       text-transform: uppercase;
       letter-spacing: .08em;
-      color: var(--text-color-secondary);
+      color: var(--c-text-2);
       margin-bottom: .25rem;
     }
     .filter-arrow {
-      color: var(--text-color-secondary);
+      color: var(--c-text-3);
       font-size: .7rem;
       padding-bottom: .65rem;
     }
 
-    .kpi-grid {
-      display:grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap:1rem;
-      margin-bottom:1.5rem;
-    }
-    .kpi-card {
-      background: var(--surface-card, var(--surface-50));
-      border: 1px solid var(--surface-border, var(--neutral-200));
-      border-radius: 12px;
-      padding: 1.125rem 1.25rem;
-      position: relative;
-    }
-    /* Margen mantiene semántico legítimo (positivo/negativo = dirección crítica) */
-    .kpi-positive { border-left: 3px solid var(--ok-fg); }
-    .kpi-positive .kpi-icon { color: var(--ok-fg); }
-    .kpi-negative { border-left: 3px solid var(--bad-fg); }
-    .kpi-negative .kpi-icon { color: var(--bad-fg); }
-    .kpi-icon {
-      font-size:1.25rem;
-      margin-bottom:.5rem;
-      color: var(--text-color-secondary);
-    }
-    .kpi-label { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
-    .kpi-sub { font-size:.75rem; color: var(--text-color-secondary); margin-top:.5rem; }
-    .pos { color: var(--ok-fg); font-weight: 600; }
-    .neg { color: var(--bad-fg); font-weight: 600; }
+    /* Margen: dirección crítica (verde/rojo) en celda numérica. */
+    .pos { color: var(--c-ok); font-weight: var(--fw-medium); }
+    .neg { color: var(--c-bad); font-weight: var(--fw-medium); }
 
-    /* Shimmer loading state */
-    .shimmer-bar, .shimmer-text {
-      display: inline-block;
-      background: linear-gradient(90deg, var(--surface-100) 0%, var(--surface-200) 50%, var(--surface-100) 100%);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s infinite linear;
-      border-radius: 4px;
-    }
-    .shimmer-bar { height: 1.75rem; width: 60%; }
-    .shimmer-text { height: .75rem; width: 80%; margin-top: .25rem; }
-    @keyframes shimmer {
-      0%   { background-position: 200% 0; }
-      100% { background-position: -200% 0; }
-    }
-
-    :host ::ng-deep .p-card.pipeline-card { margin-bottom: 1rem; }
-    .pipeline-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:.75rem; flex-wrap:wrap; }
-    .pipeline-head h3 { margin:0 0 .25rem; font-size:1rem; }
-    .pipeline-head .muted code { background: var(--surface-100); padding:0 .3rem; border-radius:3px; font-size:.78rem; }
-    .pipeline-totals { display:flex; gap:1.25rem; }
+    /* ── PIPELINE panel head (con totales a la derecha) ── */
+    .logd-pipe-head { flex-wrap: wrap; }
+    .pipeline-totals { display:flex; gap:1.5rem; }
     .pt-block { display:flex; flex-direction:column; align-items:flex-end; }
-    .pt-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .pt-value { font-size:1.1rem; font-weight:700; }
-    .badge-warn { background: var(--warn-soft-bg, rgba(245,158,11,.15)); color: var(--warn-fg, #b45309); font-weight:600; padding:.1rem .55rem; border-radius:999px; font-size:.82rem; }
-    .strong { font-weight:600; }
-    .is-small { font-size:.78rem; }
+    .pt-label { font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.06em; color: var(--c-text-2); font-weight: var(--fw-bold); }
+    .pt-value { font-size:var(--fs-h3); font-weight:var(--fw-bold); font-variant-numeric: tabular-nums; }
 
-    .two-col {
-      display:grid;
-      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-      gap:1rem;
-    }
-    h3 { margin: 0 0 .75rem; font-size: 1rem; }
-    .num { text-align: right; }
-    code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
+    .is-small { font-size: var(--fs-xs); }
+    .logd-empty { padding: 1.5rem !important; text-align: center !important; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

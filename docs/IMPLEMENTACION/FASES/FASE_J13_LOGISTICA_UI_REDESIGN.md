@@ -74,4 +74,30 @@
 - **No romper lógica:** el rediseño es visual; respetar signals/flows existentes (readiness, máquina de estados, autorelleno).
 
 ## Estado
-- ⬜ Diseñado (este doc). Sin código aún. Arranque sugerido: **F0.1–F0.4 (fundación)** + pantalla piloto **shipments**.
+
+### Mockups (objetivo visual) ✅ 2026-06-22
+- DS de Stitch "Commercial Operations" re-alineado a tokens reales (Stone + sunset `#F05A28`, Hanken/Geist). 4 mockups generados + galería artifact: Dashboard, Flota en vivo, Planeador, App chofer. (A lista master-detail + C detalle con tabs dieron timeout en Stitch — el lenguaje queda fijado por estos 4 + DESIGN.md.)
+
+### F0.1 — Preset PrimeNG ✅ 2026-06-22
+- `apps/view/src/app/core/theme/operations-preset.ts`: `definePreset(Aura)` mapea `primary → sunset` (rampa naranja centrada en `--action`) + `surface (light) → Stone` + focusRing/highlight sunset. Wireado en `app.config.ts`. **Mata el azul/esmeralda de Aura** en botones/selects/paginador/datepicker/checkbox de las 15 pantallas de golpe. Build view verde.
+
+### Hallazgo: organismos ya existen como CSS
+- `styles.css` ya tiene el sistema Operations maduro: `surf-page-head`, `sheet/cell` (KPI grid), `data-table`, `comm-pill`/`portal-status-pill`, empty states, ghost buttons, chips, type-scale `--fs-*`. **No se crean organismos Angular redundantes** (revisión del plan F0.4): se aplican estas clases con disciplina + se cierra deuda de hex.
+
+### Piloto shipments (lista) ✅ código 2026-06-22
+- Backend: `GET /logistics/shipments/counts` (1 query `GROUP BY status`, sin N+1, patrón `/orders/counts`). Service `counts()` + controller (route antes de `:id`). Frontend `shipmentCounts()` + interface `ShipmentCounts`.
+- UI: **tira de status-chips** con conteo por estado (filtro 1-click) reemplaza el dropdown único — matchea el mockup. KPI strip ahora se alimenta del mismo `counts` (1 request en vez de 4 forkJoin). Build api + view verdes.
+
+### Piloto shipment-detail (detalle, arquetipo C) ✅ código 2026-06-22
+- **Barra de transiciones de estado** en el head (Marcar en ruta / Marcar entregado / Cerrar / Cancelar) — antes el detalle NO tenía los botones del state-machine (gap funcional). Mismas reglas que la lista, con `refreshReadiness` post-transición.
+- **Readiness con % + barra de progreso** (`readinessPct` = checks ok / total) — matchea el ring 87% del mockup.
+- **Hex cleanup**: readiness pill/checks (`#fdf6e3`/`#8a6420`/`#2e7d32`/`#d2851b`…) + cp-gaps + cp-ready → tokens semánticos (`--warn-soft-*`, `--ok-*`). Separador `shd-head-sep` entre transiciones y acciones secundarias.
+
+### Deuda hex restante (F0.3 / F2) — 34 ocurrencias en 11 archivos
+- reports 6 · fleet 4 · planner 4 · live 3 · costs 3 · guides 3 · payroll 3 · staff 2 · dashboard 2 · shipment-form-dialog 3 · delivery-wizard 1. Se limpian en el barrido por pantalla (F2). El piloto (shipments lista+detalle) queda en 0 hex de deuda.
+
+### Pendiente piloto
+- QA visual con API arriba + smoke del endpoint `/shipments/counts`.
+
+### Próximo
+- Seguir orden de ejecución: dashboard + reports → fleet/staff → guides/costs/payroll/config → live/planner → mobile.

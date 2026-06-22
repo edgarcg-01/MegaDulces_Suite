@@ -35,6 +35,8 @@ interface RouteVisit {
   latitud: number | null;
   longitud: number | null;
   score: number;
+  /** Visita de vendedor (app vendor): no se puntúa como exhibición de trade. */
+  skip_scoring?: boolean;
 }
 interface RouteIdleSegment {
   user_id: string;
@@ -622,7 +624,13 @@ interface RouteTrack {
                       </span>
                     } @else { <span class="comm-muted">—</span> }
                   </td>
-                  <td class="ru-num">{{ v.score }}</td>
+                  <td class="ru-num">
+                    @if (v.skip_scoring) {
+                      <span class="ru-idle-tag" title="Visita de vendedor — sin puntuación">Vendedor</span>
+                    } @else {
+                      {{ v.score }}
+                    }
+                  </td>
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">

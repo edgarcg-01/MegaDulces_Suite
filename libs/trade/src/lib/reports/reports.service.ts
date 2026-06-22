@@ -75,6 +75,30 @@ export class ReportsService {
     }
   }
 
+  // Guard de columna `route_id` en daily_captures (ruta self-service / vendor).
+  // Permite asociar capturas de vendor a una ruta aunque no tengan store_id.
+  private _hasRouteIdColumn: boolean | null = null;
+  private _hasRouteIdCheckedAt = 0;
+  private async hasRouteIdColumn(): Promise<boolean> {
+    if (this._hasRouteIdColumn === true) return true;
+    const stale =
+      this._hasRouteIdColumn === false &&
+      Date.now() - this._hasRouteIdCheckedAt < this.CUSTOMER_ID_NEGATIVE_TTL_MS;
+    if (stale) return false;
+    try {
+      const exists = await this.knex.schema
+        .withSchema('trade')
+        .hasColumn('daily_captures', 'route_id');
+      this._hasRouteIdColumn = exists;
+      this._hasRouteIdCheckedAt = Date.now();
+      return exists;
+    } catch {
+      this._hasRouteIdColumn = false;
+      this._hasRouteIdCheckedAt = Date.now();
+      return false;
+    }
+  }
+
   private async runMetricsBroadcast() {
     const affectedUserIds = Array.from(this.pendingAffectedUsers);
     this.pendingAffectedUsers.clear();
@@ -1362,15 +1386,43 @@ export class ReportsService {
     const tenantId: string | undefined =
       user?.tenant_id || this.tenantContext?.get()?.tenantId;
 
+    // Las capturas de vendedor no tienen store_id (se anclan a customer_id) pero
+    // sí traen route_id (ruta self-service). Para que aparezcan en el análisis de
+    // ruta: LEFT JOIN a stores + matcheo por s.ruta_id O dc.route_id, con fallback
+    // del nombre al cliente. `skip_scoring` viaja para que la UI no las puntúe.
+    const [hasRouteId, hasCustomerId] = await Promise.all([
+      this.hasRouteIdColumn(),
+      this.hasCustomerIdColumn(),
+    ]);
+
     let q = this.knex('daily_captures as dc')
-      .join('stores as s', 's.id', 'dc.store_id')
-      .where('s.ruta_id', routeId)
-      .whereNotNull('dc.store_id')
+      .leftJoin('stores as s', 's.id', 'dc.store_id');
+
+    if (hasCustomerId) {
+      q = q.leftJoin('commercial.customers as cust', function () {
+        this.on('cust.id', '=', 'dc.customer_id');
+      });
+    }
+
+    if (hasRouteId) {
+      q = q.where((qb) => {
+        qb.where('s.ruta_id', routeId).orWhere('dc.route_id', routeId);
+      });
+    } else {
+      q = q.where('s.ruta_id', routeId).whereNotNull('dc.store_id');
+    }
+
+    q = q
       .select(
         'dc.id as capture_id',
         'dc.folio',
         'dc.store_id',
-        's.nombre as store_nombre',
+        'dc.skip_scoring',
+        this.knex.raw(
+          hasCustomerId
+            ? 'COALESCE(s.nombre, cust.name) as store_nombre'
+            : 's.nombre as store_nombre',
+        ),
         'dc.user_id',
         'dc.captured_by_username',
         'dc.hora_inicio',
@@ -1429,6 +1481,7 @@ export class ReportsService {
       latitud: r.latitud != null ? Number(r.latitud) : null,
       longitud: r.longitud != null ? Number(r.longitud) : null,
       score: Math.round(Number(r.score) || 0),
+      skip_scoring: !!r.skip_scoring,
     }));
   }
 
