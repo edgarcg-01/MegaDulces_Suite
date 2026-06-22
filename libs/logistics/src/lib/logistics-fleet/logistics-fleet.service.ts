@@ -487,6 +487,49 @@ export class LogisticsFleetService {
     });
   }
 
+  // ── J12.6 Cargas de combustible (fuel_transactions) ───────────────────────
+  async createFuelTransaction(dto: {
+    vehicle_id: string; driver_id?: string; liters: number; amount?: number;
+    odometer_km?: number; station?: string; loaded_at?: string; notes?: string;
+  }) {
+    if (!UUID_REGEX.test(dto?.vehicle_id || '')) throw new BadRequestException('vehicle_id requerido');
+    if (!(Number(dto?.liters) > 0)) throw new BadRequestException('liters debe ser > 0');
+    return this.tk.run(async (trx) => {
+      const v = await trx('logistics.vehicles').where({ id: dto.vehicle_id }).whereNull('deleted_at').first();
+      if (!v) throw new NotFoundException(`Unidad ${dto.vehicle_id} no encontrada`);
+      const [row] = await trx('logistics.fuel_transactions').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        vehicle_id: dto.vehicle_id, driver_id: dto.driver_id || null,
+        liters: dto.liters, amount: dto.amount || 0,
+        odometer_km: dto.odometer_km ?? null, station: dto.station || null,
+        loaded_at: dto.loaded_at || trx.fn.now(), notes: dto.notes || null,
+      }).returning('*');
+      return row;
+    });
+  }
+
+  async listFuelTransactions(opts: { vehicle_id?: string; limit?: number } = {}) {
+    return this.tk.run(async (trx) => {
+      let q = trx('logistics.fuel_transactions as f')
+        .leftJoin('logistics.vehicles as v', 'v.id', 'f.vehicle_id')
+        .leftJoin('logistics.drivers as d', 'd.id', 'f.driver_id')
+        .whereNull('f.deleted_at');
+      if (opts.vehicle_id) q = q.where('f.vehicle_id', opts.vehicle_id);
+      return q.select('f.*', 'v.plate as vehicle_plate', 'd.full_name as driver_name')
+        .orderBy('f.loaded_at', 'desc').limit(Math.min(opts.limit || 100, 500));
+    });
+  }
+
+  async deleteFuelTransaction(id: string) {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+    return this.tk.run(async (trx) => {
+      const f = await trx('logistics.fuel_transactions').where({ id }).whereNull('deleted_at').first();
+      if (!f) throw new NotFoundException(`Carga ${id} no encontrada`);
+      await trx('logistics.fuel_transactions').where({ id }).update({ deleted_at: trx.fn.now() });
+      return { deleted: true, id };
+    });
+  }
+
   // ── J12.6 Mantenimiento preventivo + combustible (sobre odómetro manual) ──
 
   /**

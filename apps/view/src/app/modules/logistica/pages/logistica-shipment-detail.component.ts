@@ -256,6 +256,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <span class="cell-label">ETA de ruta</span>
                   <p class="comm-muted is-small" *ngIf="eta() as e">
                     {{ e.stops.length }} paradas pendientes · {{ e.total_km }} km · ~{{ e.total_minutes }} min
+                    <span *ngIf="e.speed_kmh"> · {{ e.speed_kmh }} km/h<span *ngIf="e.speed_source === 'calibrated'"> (calibrada)</span></span>
                     <span *ngIf="e.from_source === 'first_stop'"> · (sin GPS del chofer, desde 1ª parada)</span>
                   </p>
                 </div>

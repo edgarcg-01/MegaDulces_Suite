@@ -151,6 +151,25 @@ export class LogisticsFleetController {
     return this.service.vehicleOdometer(id);
   }
 
+  // ── J12.6 Cargas de combustible ──────────────────────────────────────────
+  @Post('fuel')
+  @ApiOperation({ summary: 'J12.6: registrar carga de combustible' })
+  createFuel(@Body() body: any) {
+    return this.service.createFuelTransaction(body);
+  }
+
+  @Get('fuel')
+  @ApiOperation({ summary: 'J12.6: listar cargas de combustible' })
+  listFuel(@Query('vehicle_id') vehicle_id?: string, @Query('limit') limit?: string) {
+    return this.service.listFuelTransactions({ vehicle_id, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Delete('fuel/:id')
+  @ApiOperation({ summary: 'J12.6: borrar carga de combustible' })
+  deleteFuel(@Param('id') id: string) {
+    return this.service.deleteFuelTransaction(id);
+  }
+
   @Get('maintenance')
   @ApiOperation({ summary: 'J.9.9: listar mantenimientos del vehicle / tipo' })
   listMaintenance(

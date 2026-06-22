@@ -17,7 +17,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   Driver, DriverRole, LogisticaService, Vehicle, VehicleStatus,
-  VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency,
+  VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency, FuelTransaction,
 } from '../logistica.service';
 
 const VEHICLE_STATUS_OPTIONS: { label: string; value: VehicleStatus }[] = [
@@ -211,6 +211,35 @@ function severityForDriverStatus(s: string): Severity {
                   </td>
                 </tr>
               </ng-template>
+            </p-table>
+          </p-card>
+
+          <p-card class="fuel-card">
+            <h3 class="fuel-title">Combustible — registrar carga</h3>
+            <form [formGroup]="fuelForm" class="fuel-form">
+              <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true" placeholder="Unidad *" appendTo="body"></p-select>
+              <p-inputNumber formControlName="liters" placeholder="Litros *" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputNumber>
+              <p-inputNumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputNumber>
+              <p-inputNumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputNumber>
+              <input pInputText formControlName="station" placeholder="Estación" />
+              <button pButton icon="pi pi-plus" label="Registrar" size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"></button>
+            </form>
+            <p-table [value]="fuelTx()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="fuelTx().length > 10" [rows]="10">
+              <ng-template pTemplate="header">
+                <tr><th>Fecha</th><th>Unidad</th><th class="num">Litros</th><th class="num">Monto</th><th class="num">Odómetro</th><th>Estación</th><th></th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-f>
+                <tr>
+                  <td>{{ f.loaded_at | date:'shortDate' }}</td>
+                  <td><code>{{ f.vehicle_plate }}</code></td>
+                  <td class="num">{{ f.liters | number:'1.0-2' }}</td>
+                  <td class="num">\${{ f.amount | number:'1.2-2' }}</td>
+                  <td class="num">{{ f.odometer_km ? (f.odometer_km | number:'1.0-0') : '—' }}</td>
+                  <td class="small">{{ f.station || '—' }}</td>
+                  <td class="actions"><button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"></button></td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="muted">Sin cargas registradas.</td></tr></ng-template>
             </p-table>
           </p-card>
 
@@ -493,6 +522,7 @@ function severityForDriverStatus(s: string): Severity {
     .fuel-title { margin:0 0 .5rem; font-size:1rem; }
     .fuel-flag { background:#fdecea; }
     .fuel-bad { color:#c0392b; font-weight:600; }
+    .fuel-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -520,6 +550,15 @@ export class LogisticaFleetComponent {
   readonly maintenance = signal<VehicleMaintenance[]>([]);
   readonly maintDue = signal<MaintenanceDue[]>([]);
   readonly fuelEff = signal<FuelEfficiency[]>([]);
+  readonly fuelTx = signal<FuelTransaction[]>([]);
+  readonly savingFuel = signal(false);
+  fuelForm: FormGroup = this.fb.group({
+    vehicle_id: [null as string | null, Validators.required],
+    liters: [null as number | null, [Validators.required, Validators.min(0.01)]],
+    amount: [0],
+    odometer_km: [null as number | null],
+    station: [''],
+  });
   readonly loadingUsage = signal(false);
   readonly loadingMaint = signal(false);
   readonly savingUsage = signal(false);
@@ -683,6 +722,30 @@ export class LogisticaFleetComponent {
     });
     this.api.maintenanceDue().subscribe({ next: (r) => this.maintDue.set(r || []), error: () => {} });
     this.api.fuelEfficiency().subscribe({ next: (r) => this.fuelEff.set(r || []), error: () => {} });
+    this.api.listFuel({ limit: 50 }).subscribe({ next: (r) => this.fuelTx.set(r || []), error: () => {} });
+  }
+
+  registerFuel() {
+    if (this.fuelForm.invalid) return;
+    this.savingFuel.set(true);
+    this.api.createFuel(this.fuelForm.value).subscribe({
+      next: () => {
+        this.savingFuel.set(false);
+        this.fuelForm.reset({ vehicle_id: null, liters: null, amount: 0, odometer_km: null, station: '' });
+        this.toast.add({ severity: 'success', summary: 'Carga registrada' });
+        this.loadMaintenance();
+      },
+      error: (err) => { this.savingFuel.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se registró' }); },
+    });
+  }
+  deleteFuel(f: FuelTransaction) {
+    this.confirm.confirm({
+      header: 'Borrar carga', message: `¿Borrar la carga de ${f.liters} L?`, icon: 'pi pi-trash',
+      accept: () => this.api.deleteFuel(f.id).subscribe({
+        next: () => { this.toast.add({ severity: 'success', summary: 'Borrada' }); this.loadMaintenance(); },
+        error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se borró' }),
+      }),
+    });
   }
   openMaintenance() {
     this.maintenanceForm.reset({

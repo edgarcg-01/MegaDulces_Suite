@@ -317,8 +317,24 @@ export class LogisticsShipmentsService {
         .where({ active: true })
         .select('key', 'value');
       const cfgMap = new Map(cfg.map((c: any) => [c.key, Number(c.value)]));
-      const speed = cfgMap.get('velocidad_promedio_kmh') || 30; // km/h
       const serviceMin = cfgMap.get('minutos_por_parada') ?? 12;
+
+      // V2: velocidad calibrada del histórico (km / horas de embarques cerrados,
+      // últimos 90d). Fallback a config, luego a 30. Acotada a [5,90] km/h.
+      const [cal] = (
+        await trx.raw(`
+          SELECT COALESCE(SUM(actual_km),0)::numeric km,
+                 COALESCE(SUM(EXTRACT(EPOCH FROM (arrival_at - departure_at))/3600.0),0)::numeric hrs
+            FROM logistics.shipments
+           WHERE status IN ('entregado','cerrado') AND deleted_at IS NULL
+             AND departure_at IS NOT NULL AND arrival_at IS NOT NULL AND arrival_at > departure_at
+             AND actual_km > 0 AND shipment_date > (now() - interval '90 days')`)
+      ).rows;
+      let speedSource: 'calibrated' | 'config' | 'default' = 'default';
+      let speed = 30;
+      if (cfgMap.get('velocidad_promedio_kmh')) { speed = cfgMap.get('velocidad_promedio_kmh')!; speedSource = 'config'; }
+      const calSpeed = Number(cal?.hrs) > 0 ? Number(cal.km) / Number(cal.hrs) : 0;
+      if (calSpeed >= 5 && calSpeed <= 90) { speed = Math.round(calSpeed * 10) / 10; speedSource = 'calibrated'; }
 
       const guideIds = (
         await trx('logistics.delivery_guides').where({ shipment_id: shipmentId }).whereNull('deleted_at').select('id')
@@ -374,6 +390,7 @@ export class LogisticsShipmentsService {
       return {
         from_source: driver?.user_id ? 'driver_ping' : 'first_stop',
         speed_kmh: speed,
+        speed_source: speedSource,
         service_minutes: serviceMin,
         stops: out,
         total_km: Math.round(cumKm * 100) / 100,

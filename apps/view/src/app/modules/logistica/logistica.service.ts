@@ -932,6 +932,20 @@ export class LogisticaService {
     return this.http.get<{ vehicle_id: string; odometer: number | null }>(`${this.base}/fleet/vehicles/${vehicleId}/odometer`);
   }
 
+  // ── J12.6 Cargas de combustible ────────────────────────────────────────────
+  createFuel(body: { vehicle_id: string; driver_id?: string; liters: number; amount?: number; odometer_km?: number; station?: string; loaded_at?: string; notes?: string }): Observable<FuelTransaction> {
+    return this.http.post<FuelTransaction>(`${this.base}/fleet/fuel`, body);
+  }
+  listFuel(opts: { vehicle_id?: string; limit?: number } = {}): Observable<FuelTransaction[]> {
+    let p = new HttpParams();
+    if (opts.vehicle_id) p = p.set('vehicle_id', opts.vehicle_id);
+    if (opts.limit) p = p.set('limit', String(opts.limit));
+    return this.http.get<FuelTransaction[]>(`${this.base}/fleet/fuel`, { params: p });
+  }
+  deleteFuel(id: string): Observable<{ deleted: boolean; id: string }> {
+    return this.http.delete<{ deleted: boolean; id: string }>(`${this.base}/fleet/fuel/${id}`);
+  }
+
   // ── J12 autorelleno: búsqueda de clientes para destinatarios ────────────────
   searchCustomers(search: string): Observable<CustomerLite[]> {
     let p = new HttpParams().set('pageSize', '10');
@@ -974,6 +988,20 @@ export interface RoiSummary {
   cost_breakdown: { fuel: number; tolls: number; driver_per_diem: number; handling: number; repairs: number; otros: number };
 }
 
+export interface FuelTransaction {
+  id: string;
+  vehicle_id: string;
+  vehicle_plate?: string | null;
+  driver_id?: string | null;
+  driver_name?: string | null;
+  liters: number;
+  amount: number;
+  odometer_km?: number | null;
+  station?: string | null;
+  loaded_at: string;
+  notes?: string | null;
+}
+
 export interface MaintenanceDue {
   vehicle_id: string;
   plate: string;
@@ -1009,6 +1037,7 @@ export interface EtaStop {
 export interface ShipmentEta {
   from_source?: 'driver_ping' | 'first_stop';
   speed_kmh?: number;
+  speed_source?: 'calibrated' | 'config' | 'default';
   service_minutes?: number;
   stops: EtaStop[];
   total_km: number;
