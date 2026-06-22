@@ -9,9 +9,130 @@ export interface OptimizeDto {
   stops: GeoPoint[];
 }
 
+export interface BuildShipmentDto {
+  vehicle_id: string;
+  order_ids: string[];
+  shipment_date: string;
+  driver_id?: string;
+  origin?: string;
+  destination?: string;
+}
+
 @Injectable()
 export class LogisticsRoutingService {
   constructor(private readonly tk: TenantKnexService) {}
+
+  private async nextFolio(trx: any, prefix: 'EMB' | 'GUIA'): Promise<string> {
+    const year = new Date().getFullYear();
+    const [{ current_value }] = (
+      await trx.raw(
+        `INSERT INTO logistics.sequences (tenant_id, prefix, year, current_value)
+         VALUES (public.current_tenant_id(), ?, ?, 1)
+         ON CONFLICT (tenant_id, prefix, year) DO UPDATE
+           SET current_value = logistics.sequences.current_value + 1, updated_at = now()
+         RETURNING current_value`,
+        [prefix, year],
+      )
+    ).rows;
+    return `${prefix}-${year}-${String(current_value).padStart(5, '0')}`;
+  }
+
+  /**
+   * J12.3 — Arma el reparto del día: toma pedidos pendientes, crea un embarque
+   * (programado) + una guía + un destinatario por pedido (ligado a la orden,
+   * domicilio fiscal auto), optimiza la secuencia y reporta capacidad estimada.
+   * Todo atómico en una transacción.
+   */
+  async buildShipmentFromOrders(dto: BuildShipmentDto) {
+    if (!UUID_REGEX.test(dto?.vehicle_id || '')) throw new BadRequestException('vehicle_id requerido');
+    if (!Array.isArray(dto?.order_ids) || !dto.order_ids.length) throw new BadRequestException('order_ids requerido');
+    if (!dto?.shipment_date) throw new BadRequestException('shipment_date requerido');
+    if (dto.driver_id && !UUID_REGEX.test(dto.driver_id)) throw new BadRequestException('driver_id inválido');
+
+    return this.tk.run(async (trx) => {
+      const vehicle = await trx('logistics.vehicles')
+        .where({ id: dto.vehicle_id }).whereNull('deleted_at').first();
+      if (!vehicle) throw new NotFoundException(`Unidad ${dto.vehicle_id} no encontrada`);
+      if (dto.driver_id) {
+        const d = await trx('logistics.drivers').where({ id: dto.driver_id }).whereNull('deleted_at').first();
+        if (!d) throw new NotFoundException(`Chofer ${dto.driver_id} no encontrado`);
+      }
+
+      const orders = await trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereIn('o.id', dto.order_ids)
+        .whereNot('o.status', 'cancelado')
+        .whereNull('o.deleted_at')
+        .select('o.id', 'o.code', 'o.total', 'o.customer_id',
+          'c.name as customer_name', 'c.billing_address', 'c.latitude', 'c.longitude');
+      if (!orders.length) throw new NotFoundException('Ninguna orden válida en order_ids');
+
+      // Unidades estimadas por orden (sum order_lines.quantity) para capacidad suave.
+      const lineAgg = await trx('commercial.order_lines')
+        .whereIn('order_id', orders.map((o: any) => o.id))
+        .groupBy('order_id')
+        .select('order_id')
+        .sum('quantity as units');
+      const unitsByOrder = new Map<string, number>(lineAgg.map((r: any) => [r.order_id, Math.round(Number(r.units) || 0)]));
+      const totalUnits = orders.reduce((s: number, o: any) => s + (unitsByOrder.get(o.id) || 0), 0);
+      const overCapacity = vehicle.capacity_boxes != null && totalUnits > Number(vehicle.capacity_boxes);
+
+      const empFolio = await this.nextFolio(trx, 'EMB');
+      const [shipment] = await trx('logistics.shipments').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        folio: empFolio, shipment_date: dto.shipment_date, vehicle_id: dto.vehicle_id,
+        status: 'programado', type: 'entrega',
+        origin: dto.origin || null, destination: dto.destination || null,
+        boxes_count: totalUnits,
+      }).returning('*');
+
+      const guiaFolio = await this.nextFolio(trx, 'GUIA');
+      const [guide] = await trx('logistics.delivery_guides').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        number: guiaFolio, shipment_id: shipment.id, driver_id: dto.driver_id || null, status: 'pendiente',
+      }).returning('id');
+
+      const stops: GeoPoint[] = [];
+      for (const o of orders) {
+        const fiscal = o.billing_address
+          ? (typeof o.billing_address === 'string' ? JSON.parse(o.billing_address) : o.billing_address)
+          : null;
+        const [rec] = await trx('logistics.guide_recipients').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          guide_id: guide.id, customer_id: o.customer_id || null, order_id: o.id,
+          customer_name: o.customer_name || `Pedido ${o.code}`,
+          fiscal_address: fiscal ? JSON.stringify(fiscal) : null,
+          value: Number(o.total) || 0, boxes_count: unitsByOrder.get(o.id) || 0,
+          status: 'pendiente',
+        }).returning('id');
+        if (o.latitude != null && o.longitude != null) {
+          stops.push({ id: rec.id, lat: Number(o.latitude), lng: Number(o.longitude) });
+        }
+      }
+
+      // Optimizar secuencia (si hay paradas localizables).
+      let optimized_km = 0;
+      if (stops.length) {
+        const wh = await trx('commercial.warehouses').where({ is_default: true }).whereNull('deleted_at').first();
+        const origin = wh?.latitude != null && wh?.longitude != null
+          ? { lat: Number(wh.latitude), lng: Number(wh.longitude) }
+          : { lat: stops.reduce((s, p) => s + p.lat, 0) / stops.length, lng: stops.reduce((s, p) => s + p.lng, 0) / stops.length };
+        const result = solveOpenRoute(origin, stops);
+        optimized_km = result.total_km;
+        let seq = 1;
+        for (const id of result.order) {
+          await trx('logistics.guide_recipients').where({ id }).update({ sequence_order: seq++, updated_at: trx.fn.now() });
+        }
+      }
+
+      return {
+        shipment_id: shipment.id, folio: shipment.folio, guide_number: guiaFolio,
+        recipients: orders.length, located: stops.length, unlocated: orders.length - stops.length,
+        total_units: totalUnits, capacity_boxes: vehicle.capacity_boxes != null ? Number(vehicle.capacity_boxes) : null,
+        over_capacity: overCapacity, optimized_km,
+      };
+    });
+  }
 
   /** Stateless: ordena paradas sin tocar la DB (para el planner). */
   optimize(dto: OptimizeDto) {

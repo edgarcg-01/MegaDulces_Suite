@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { LogisticsRoutingService, OptimizeDto } from './logistics-routing.service';
+import { LogisticsRoutingService, OptimizeDto, BuildShipmentDto } from './logistics-routing.service';
 
 @ApiTags('logistics-routing')
 @ApiBearerAuth()
@@ -29,5 +29,12 @@ export class LogisticsRoutingController {
   @ApiOperation({ summary: 'Plan de ruta del embarque (origen + paradas con coords, ordenadas)' })
   shipmentPlan(@Param('id') id: string) {
     return this.service.shipmentPlan(id);
+  }
+
+  @Post('build-shipment')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Armar embarque desde pedidos pendientes (crea shipment+guía+destinatarios+optimiza)' })
+  buildShipment(@Body() body: BuildShipmentDto) {
+    return this.service.buildShipmentFromOrders(body);
   }
 }

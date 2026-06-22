@@ -113,7 +113,8 @@ ALTER existentes (idempotente):
   - Shape exacto obtenido de la guía Facturama. **Service corregido**: `NameId:'36'`, `Complemento.CartaPorte31` (no `CartaPorte`), sin `Issuer` (single-emisor = la cuenta), `Domicilio` mapeado (Calle/Colonia/Municipio/Estado/Pais/CodigoPostal), fechas ISO.
   - `database/scripts/cartaporte-test-stamp.js`: arma un CFDI Traslado + CartaPorte31 de muestra (mismo shape que el service) y timbra contra `apisandbox.facturama.mx/3/cfdis`. Modo impresión por default; `--stamp` para timbrar. `nx build api` verde.
 - **Para timbrar de verdad** (solo datos/creds, ya no código): en `.env` → `FACTURAMA_BASE_URL=https://apisandbox.facturama.mx`, `FACTURAMA_USER`, `FACTURAMA_PASSWORD`, `CP_TEST_RFC=<RFC cuenta sandbox>`. Correr `node database/scripts/cartaporte-test-stamp.js --stamp`.
-- **Pendiente J12.0:** (1) **creds Facturama** en `.env` → correr prueba `--stamp`, (2) **datos reales** del emisor + unidades (`cartaporte-seed-fiscal.js`), (3) **aplicar a prod**: 3 migraciones + backfill SAT (DATABASE_URL_NEW→prod) + re-login. ✅ frontend, ✅ permisos, ✅ modelado, ✅ scripts datos, ✅ integración PAC.
+- **2026-06-22 — DEPLOY A PROD ✅** (commits `09cea6e` + `cae4b04` a origin/main): las 4 migraciones J12 aplicadas en prod vía boot `start.sh`/`migrate:latest` (verificado: tablas cartaporte_documents+carrier_fiscal_profile, columnas SAT en products, order_id/sequence_order/fiscal_address en guide_recipients, lat/lng/fiscal_address en warehouses, permiso Carta Porte en admin+superadmin). J12.0.x también deployado.
+- **Pendiente J12.0 (insumos/decisiones, NO código):** (1) **creds Facturama** en `.env` → `--stamp`, (2) **datos reales** emisor + unidades (`cartaporte-seed-fiscal.js`), (3) **backfill SAT en prod** — NO corrido: el clasificador lo frenó correctamente porque los códigos ClaveProdServ son aproximados; **correr `cartaporte-backfill-sat-keys.js --apply` (DATABASE_URL_NEW→prod) SOLO tras validar códigos con el contador**, (4) **re-login** admin/superadmin (permiso vive en JWT), (5) geolocalizar clientes + CEDIS para ruteo/ETA. ✅ schema en prod, ✅ frontend, ✅ permisos, ✅ modelado, ✅ integración PAC.
 
 ### Mapeo del complemento (Traslado · por embarque · SAT 3.1)
 - **Comprobante:** TipoDeComprobante=`T`; Emisor/Receptor = Mega Dulces (`carrier_fiscal_profile`); UsoCFDI=`S01`; concepto único ValorUnitario 0.
@@ -215,6 +216,11 @@ Backfill por **departamento/línea** de `catalog.products` (dulces ≈ `50181900
   - `sequence_order` ahora visible como columna "#" en la tabla de destinatarios del detalle de embarque.
   - `nx build api` + `nx build view` verdes.
   - **Sigue diferido:** drag pedidos→unidades (armar embarques desde pendientes), capacidad dura y ventanas horarias en el solver.
+- **2026-06-22 — J12.3 armar reparto hecho:**
+  - Backend `LogisticsRoutingService.buildShipmentFromOrders()` + `POST /logistics/routing/build-shipment`: atómico — crea shipment (programado) + guía + un destinatario por pedido (ligado a `order_id`, domicilio fiscal auto, valor=`orders.total`, unidades est. de `order_lines`), corre el solver y persiste `sequence_order`. Folios EMB/GUIA vía `nextFolio` (current_tenant_id). **Capacidad suave**: compara unidades estimadas vs `vehicles.capacity_boxes` → flag `over_capacity` (avisa, no bloquea).
+  - Frontend: sección **"Armar reparto del día"** en `/logistica/planner` — select de unidad + multiselect de pedidos pendientes + "Crear embarque optimizado" → toast con paradas/km/aviso de capacidad, y carga el plan del embarque nuevo.
+  - `nx build api` + `nx build view` verdes.
+  - **Sigue diferido:** drag-and-drop real (UI), capacidad **dura** por peso (orders no traen kg) y **ventanas horarias** (orders no traen horario, solo `requested_delivery_date`).
 
 ---
 

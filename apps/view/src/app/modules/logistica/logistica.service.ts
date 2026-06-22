@@ -901,6 +901,9 @@ export class LogisticaService {
   shipmentRoutePlan(shipmentId: string): Observable<RoutePlan> {
     return this.http.get<RoutePlan>(`${this.base}/routing/shipment/${shipmentId}/plan`);
   }
+  buildShipmentFromOrders(body: { vehicle_id: string; order_ids: string[]; shipment_date: string; driver_id?: string; origin?: string; destination?: string }): Observable<BuildShipmentResult> {
+    return this.http.post<BuildShipmentResult>(`${this.base}/routing/build-shipment`, body);
+  }
 
   // ── J12.6 Mantenimiento + combustible ──────────────────────────────────────
   maintenanceDue(): Observable<MaintenanceDue[]> {
@@ -990,4 +993,16 @@ export interface RoutePlan {
   optimized: boolean;
   stops: RoutePlanStop[];
   unlocated: number;
+}
+export interface BuildShipmentResult {
+  shipment_id: string;
+  folio: string;
+  guide_number: string;
+  recipients: number;
+  located: number;
+  unlocated: number;
+  total_units: number;
+  capacity_boxes: number | null;
+  over_capacity: boolean;
+  optimized_km: number;
 }
