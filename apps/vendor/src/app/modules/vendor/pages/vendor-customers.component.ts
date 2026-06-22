@@ -60,18 +60,11 @@ import { AuthService } from '../../../core/services/auth.service';
                enterkeyhint="next" required />
       </label>
 
-      <div class="row">
-        <label class="fld">
-          <span>Teléfono</span>
-          <input pInputText type="tel" name="phone" [(ngModel)]="form.phone"
-                 placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
-        </label>
-        <label class="fld">
-          <span>WhatsApp</span>
-          <input pInputText type="tel" name="whatsapp" [(ngModel)]="form.whatsapp"
-                 placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
-        </label>
-      </div>
+      <label class="fld">
+        <span>Teléfono / WhatsApp</span>
+        <input pInputText type="tel" name="phone" [(ngModel)]="form.phone"
+               placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
+      </label>
 
       <label class="fld">
         <span>RFC <em>(opcional)</em></span>
@@ -325,7 +318,7 @@ export class VendorCustomersComponent implements OnInit {
   readonly locating = signal(false);
   readonly geoFailed = signal(false);
   readonly geo = signal<{ lat: number; lng: number } | null>(null);
-  form = { name: '', phone: '', whatsapp: '', rfc: '', notes: '' };
+  form = { name: '', phone: '', rfc: '', notes: '' };
 
   search = '';
   private first = true;
@@ -468,7 +461,7 @@ export class VendorCustomersComponent implements OnInit {
     this.showForm.set(next);
     if (next) {
       // Pre-llena el nombre con lo que venía buscando (atajo de campo).
-      this.form = { name: this.search.trim(), phone: '', whatsapp: '', rfc: '', notes: '' };
+      this.form = { name: this.search.trim(), phone: '', rfc: '', notes: '' };
       this.geo.set(null);
       this.geoFailed.set(false);
       this.formError.set(null);
@@ -510,10 +503,12 @@ export class VendorCustomersComponent implements OnInit {
     this.formError.set(null);
     this.notice.set(null);
     const g = this.geo();
+    const phone = this.form.phone.trim() || undefined;
     const dto = {
       name,
-      phone: this.form.phone.trim() || undefined,
-      whatsapp: this.form.whatsapp.trim() || undefined,
+      // Teléfono y WhatsApp son el mismo número: poblamos ambos campos.
+      phone,
+      whatsapp: phone,
       rfc: this.form.rfc.trim() || undefined,
       notes: this.form.notes.trim() || undefined,
       latitude: g?.lat,
