@@ -1005,6 +1005,18 @@ export class LogisticaShipmentDetailComponent {
       overnight: false, per_diem_total: 0,
     });
     this.guideDialog = true;
+    // Autollenar comisiones desde la ruta del embarque (consistencia con el alta).
+    const routeId = this.shipment()?.route_id;
+    if (routeId) {
+      this.api.listRoutes({ active: true }).subscribe((rs) => {
+        const r = (rs || []).find((x) => x.id === routeId);
+        if (r) this.guideForm.patchValue({
+          driver_commission: r.driver_commission || 0,
+          helper1_commission: r.helper_commission || 0,
+          helper2_commission: r.helper_commission || 0,
+        });
+      });
+    }
   }
   createGuide() {
     this.savingGuide.set(true);

@@ -596,6 +596,18 @@ export class LogisticaFleetComponent {
     this.loadDrivers();
     this.loadUsage();
     this.loadMaintenance();
+
+    // Autollenar km del odómetro al elegir unidad (check-in + mantenimiento).
+    this.checkInForm.get('vehicle_id')!.valueChanges.subscribe((id) => this.fillOdometer(id, this.checkInForm, 'check_in_km'));
+    this.maintenanceForm.get('vehicle_id')!.valueChanges.subscribe((id) => this.fillOdometer(id, this.maintenanceForm, 'km_at_service'));
+  }
+
+  private fillOdometer(vehicleId: string | null, form: FormGroup, control: string) {
+    if (!vehicleId) return;
+    this.api.vehicleOdometer(vehicleId).subscribe({
+      next: (r) => { if (r.odometer != null) form.get(control)!.setValue(r.odometer); },
+      error: () => { /* sin historial — el usuario teclea */ },
+    });
   }
 
   loadVehicles() {

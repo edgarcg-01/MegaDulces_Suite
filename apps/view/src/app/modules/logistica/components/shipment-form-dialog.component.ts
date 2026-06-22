@@ -49,6 +49,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 interface RouteOption {
   id: string;
   name: string;
+  origin?: string | null;
+  destination?: string | null;
   driver_commission: number;
   helper_commission: number;
   estimated_km: number | null;
@@ -461,6 +463,8 @@ export class ShipmentFormDialogComponent {
           (routes || []).map((r: any) => ({
             id: r.id,
             name: r.name,
+            origin: r.origin ?? null,
+            destination: r.destination ?? null,
             driver_commission: Number(r.driver_commission) || 0,
             helper_commission: Number(r.helper_commission) || 0,
             estimated_km: r.estimated_km != null ? Number(r.estimated_km) : null,
@@ -494,6 +498,11 @@ export class ShipmentFormDialogComponent {
       if (route.estimated_km && !this.form.get('actual_km')?.value) {
         this.form.patchValue({ actual_km: route.estimated_km * 2 }); // ida + vuelta
       }
+      // Auto-fill origen/destino desde la ruta si están vacíos
+      const patch: any = {};
+      if (route.origin && !this.form.get('origin')?.value) patch.origin = route.origin;
+      if (!this.form.get('destination')?.value) patch.destination = route.destination || route.name;
+      if (Object.keys(patch).length) this.form.patchValue(patch);
       // Auto-fill comisiones de guía si la sección está activa
       if (this.includeGuide()) {
         this.form.get('guide')?.patchValue({

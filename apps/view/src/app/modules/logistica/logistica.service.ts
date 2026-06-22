@@ -912,6 +912,9 @@ export class LogisticaService {
   fuelEfficiency(): Observable<FuelEfficiency[]> {
     return this.http.get<FuelEfficiency[]>(`${this.base}/fleet/fuel-efficiency`);
   }
+  vehicleOdometer(vehicleId: string): Observable<{ vehicle_id: string; odometer: number | null }> {
+    return this.http.get<{ vehicle_id: string; odometer: number | null }>(`${this.base}/fleet/vehicles/${vehicleId}/odometer`);
+  }
 
   // ── J12.7 ROI ──────────────────────────────────────────────────────────────
   analyticsRoi(from?: string, to?: string): Observable<RoiSummary> {

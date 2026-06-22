@@ -145,6 +145,12 @@ export class LogisticsFleetController {
     return this.service.fuelEfficiency();
   }
 
+  @Get('vehicles/:id/odometer')
+  @ApiOperation({ summary: 'Odómetro actual de la unidad (para autollenar km de check-in/servicio)' })
+  vehicleOdometer(@Param('id') id: string) {
+    return this.service.vehicleOdometer(id);
+  }
+
   @Get('maintenance')
   @ApiOperation({ summary: 'J.9.9: listar mantenimientos del vehicle / tipo' })
   listMaintenance(

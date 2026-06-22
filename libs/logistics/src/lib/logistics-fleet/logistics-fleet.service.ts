@@ -469,6 +469,24 @@ export class LogisticsFleetService {
     });
   }
 
+  /**
+   * Odómetro actual de una unidad = máx km registrado en vehicle_usage_logs.
+   * Para autollenar check_in_km / km_at_service. null si nunca tuvo check-in.
+   */
+  async vehicleOdometer(vehicleId: string) {
+    if (!UUID_REGEX.test(vehicleId)) throw new BadRequestException('vehicleId inválido');
+    return this.tk.run(async (trx) => {
+      const [row] = (
+        await trx.raw(
+          `SELECT MAX(GREATEST(COALESCE(check_out_km,0), COALESCE(check_in_km,0))) AS odometer
+             FROM logistics.vehicle_usage_logs WHERE vehicle_id = ?`,
+          [vehicleId],
+        )
+      ).rows;
+      return { vehicle_id: vehicleId, odometer: row?.odometer != null ? Number(row.odometer) : null };
+    });
+  }
+
   // ── J12.6 Mantenimiento preventivo + combustible (sobre odómetro manual) ──
 
   /**
