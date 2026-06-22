@@ -137,6 +137,27 @@ export interface TiendaPendiente {
   ultimo_intento: string;
 }
 
+/**
+ * v6: clientes creados offline (alta del vendedor sin red). El sync los POSTea a
+ * /commercial/vendor-routes/customers al volver online. NO se pueden operar
+ * (pedido/captura) hasta sincronizar — no existen aún en el catálogo backend.
+ */
+export interface PendingCustomer {
+  id: string;           // UUID v4 local
+  userId: string;
+  name: string;
+  phone?: string;
+  whatsapp?: string;
+  rfc?: string;
+  notes?: string;
+  latitude?: number;
+  longitude?: number;
+  serverId?: string;    // customer.id real tras POST exitoso
+  sincronizado: boolean;
+  intentos_fallidos: number;
+  ultimo_intento: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OfflineDatabaseService extends Dexie {
   tiendas!: Table<TiendaOffline, string>;
@@ -146,6 +167,7 @@ export class OfflineDatabaseService extends Dexie {
   photos!: Table<PhotoBlob, string>;
   tiendasPendientes!: Table<TiendaPendiente, string>;
   routePings!: Table<RoutePing, string>;
+  clientesPendientes!: Table<PendingCustomer, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
@@ -202,6 +224,18 @@ export class OfflineDatabaseService extends Dexie {
       routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
     });
 
+    // v6: tabla clientesPendientes (alta de cliente offline).
+    this.version(6).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+      routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
+      clientesPendientes: 'id, userId, sincronizado, intentos_fallidos',
+    });
+
     // Hooks para auditoría
     this.visitas.hook('creating', (primKey, obj, trans) => {
       console.log(`[OfflineDB] Creando visita: ${obj.id}`);
@@ -254,6 +288,41 @@ export class OfflineDatabaseService extends Dexie {
 
   async getTiendas(): Promise<TiendaOffline[]> {
     return await this.tiendas.toArray();
+  }
+
+  // --- Clientes pendientes (alta offline) ---
+  async guardarClientePendiente(
+    c: Omit<PendingCustomer, 'id' | 'sincronizado' | 'intentos_fallidos' | 'ultimo_intento'>,
+  ): Promise<string> {
+    const id = crypto.randomUUID();
+    await this.clientesPendientes.add({
+      ...c,
+      id,
+      sincronizado: false,
+      intentos_fallidos: 0,
+      ultimo_intento: new Date().toISOString(),
+    });
+    console.log(`[OfflineDB] Cliente guardado localmente: ${id}`);
+    return id;
+  }
+
+  async getClientesPendientes(): Promise<PendingCustomer[]> {
+    const todos = await this.clientesPendientes.toArray();
+    return todos.filter((c) => c.sincronizado === false);
+  }
+
+  async marcarClienteSincronizado(id: string, serverId?: string): Promise<void> {
+    await this.clientesPendientes.update(id, { sincronizado: true, serverId });
+  }
+
+  async incrementarIntentoCliente(id: string): Promise<void> {
+    const c = await this.clientesPendientes.get(id);
+    if (c) {
+      await this.clientesPendientes.update(id, {
+        intentos_fallidos: (c.intentos_fallidos || 0) + 1,
+        ultimo_intento: new Date().toISOString(),
+      });
+    }
   }
 
   async getTiendaById(id: string | null): Promise<TiendaOffline | undefined> {

@@ -363,6 +363,13 @@ export class OfflineSyncService {
         );
       }
 
+      // Clientes creados offline → POST antes de visitas (best-effort).
+      try {
+        await this.sincronizarClientesPendientes();
+      } catch (cliErr) {
+        console.warn('[OfflineSync] Clientes pendientes fallaron, continuando:', cliErr);
+      }
+
       // Sincronizar visitas — fuente real de verdad del trabajo del usuario.
       resultadoVisitas = await this.sincronizarVisitas();
 
@@ -1028,6 +1035,58 @@ export class OfflineSyncService {
   /**
    * Guarda una visita offline (la usa el servicio de captura)
    */
+  /**
+   * Alta de cliente OFFLINE: encola el cliente; el sync lo POSTea a
+   * /commercial/vendor-routes/customers al volver online. El cliente NO se puede
+   * operar (pedido/captura) hasta sincronizar — no existe aún en el catálogo.
+   */
+  async guardarClienteOffline(
+    userId: string,
+    dto: { name: string; phone?: string; whatsapp?: string; rfc?: string; notes?: string; latitude?: number; longitude?: number },
+  ): Promise<string> {
+    const id = await this.db.guardarClientePendiente({ userId, ...dto });
+    // Si volvió la red entre el check del componente y este punto, intentar sync ya.
+    if (navigator.onLine && !this._syncStatus.value.sincronizando) {
+      setTimeout(() => void this.sincronizarTodo().catch(() => {}), 500);
+    }
+    return id;
+  }
+
+  /**
+   * Sincroniza los clientes creados offline (POST /commercial/vendor-routes/customers).
+   * Best-effort por cliente — un fallo no bloquea el resto ni el sync de visitas.
+   */
+  private async sincronizarClientesPendientes(): Promise<void> {
+    const pendientes = await this.db.getClientesPendientes();
+    if (!pendientes.length) return;
+    console.log(`[OfflineSync] Sincronizando ${pendientes.length} cliente(s) pendiente(s)`);
+    for (const c of pendientes) {
+      if (c.intentos_fallidos >= this.MAX_RETRY_ATTEMPTS) continue;
+      try {
+        const created = await firstValueFrom(
+          this.http
+            .post<any>(`${this.apiUrl}/commercial/vendor-routes/customers`, {
+              name: c.name,
+              phone: c.phone,
+              whatsapp: c.whatsapp,
+              rfc: c.rfc,
+              notes: c.notes,
+              latitude: c.latitude,
+              longitude: c.longitude,
+            })
+            .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+        );
+        await this.db.marcarClienteSincronizado(c.id, created?.id);
+        console.log(`[OfflineSync] Cliente offline ${c.id} sincronizado → ${created?.id}`);
+      } catch (err: any) {
+        await this.db.incrementarIntentoCliente(c.id);
+        console.warn(
+          `[OfflineSync] Cliente offline ${c.id} falló (status=${err?.status}): reintenta en próximo ciclo`,
+        );
+      }
+    }
+  }
+
   async guardarVisitaOffline(
     tiendaId: string | null,
     userId: string,

@@ -17,6 +17,8 @@ import { ButtonModule } from 'primeng/button';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, debounceTime, switchMap, of, catchError, map } from 'rxjs';
 import { VendorService, VendorCustomer } from '../vendor.service';
+import { OfflineSyncService } from '../../../core/services/offline-sync.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-vendor-customers',
@@ -30,6 +32,10 @@ import { VendorService, VendorCustomer } from '../vendor.service';
     ButtonModule,
   ],
   template: `
+    <div *ngIf="notice()" class="notice">
+      <i class="pi pi-cloud-upload"></i> {{ notice() }}
+    </div>
+
     <div class="head">
       <div>
         <h1 class="page-title">Buscar cliente</h1>
@@ -189,6 +195,7 @@ import { VendorService, VendorCustomer } from '../vendor.service';
     `
       :host { display: block; }
       .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
+      .notice { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ok-soft-bg); color: var(--ok-soft-fg); font-size: 0.82rem; font-weight: 600; }
       .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
       .subtitle { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
       .new-btn {
@@ -294,6 +301,8 @@ export class VendorCustomersComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly offlineSync = inject(OfflineSyncService);
+  private readonly auth = inject(AuthService);
 
   readonly loading = signal(true); // skeleton solo en la carga inicial
   readonly searching = signal(false); // re-búsqueda: spinner sutil sin blanquear la lista
@@ -311,6 +320,8 @@ export class VendorCustomersComponent implements OnInit {
   readonly showForm = signal(false);
   readonly saving = signal(false);
   readonly formError = signal<string | null>(null);
+  /** Aviso positivo (ej. guardado offline). */
+  readonly notice = signal<string | null>(null);
   readonly locating = signal(false);
   readonly geoFailed = signal(false);
   readonly geo = signal<{ lat: number; lng: number } | null>(null);
@@ -497,17 +508,27 @@ export class VendorCustomersComponent implements OnInit {
     if (this.saving()) return;
     this.saving.set(true);
     this.formError.set(null);
+    this.notice.set(null);
     const g = this.geo();
+    const dto = {
+      name,
+      phone: this.form.phone.trim() || undefined,
+      whatsapp: this.form.whatsapp.trim() || undefined,
+      rfc: this.form.rfc.trim() || undefined,
+      notes: this.form.notes.trim() || undefined,
+      latitude: g?.lat,
+      longitude: g?.lng,
+    };
+
+    // Sin conexión: encolar. El cliente offline NO se puede operar (pedido/menú)
+    // hasta sincronizar — no existe aún en el catálogo del backend.
+    if (!navigator.onLine) {
+      void this.saveCustomerOffline(dto);
+      return;
+    }
+
     this.api
-      .createCustomer({
-        name,
-        phone: this.form.phone.trim() || undefined,
-        whatsapp: this.form.whatsapp.trim() || undefined,
-        rfc: this.form.rfc.trim() || undefined,
-        notes: this.form.notes.trim() || undefined,
-        latitude: g?.lat,
-        longitude: g?.lng,
-      })
+      .createCustomer(dto)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (c) => {
@@ -523,6 +544,11 @@ export class VendorCustomersComponent implements OnInit {
           }
         },
         error: (e) => {
+          // Red caída mid-POST (transient): encolar offline para no perder el alta.
+          if (this.isTransient(e)) {
+            void this.saveCustomerOffline(dto);
+            return;
+          }
           this.saving.set(false);
           this.formError.set(
             e?.error?.message ||
@@ -530,6 +556,32 @@ export class VendorCustomersComponent implements OnInit {
           );
         },
       });
+  }
+
+  /** Encola el alta sin red; el sync la POSTea al volver la conexión. */
+  private async saveCustomerOffline(dto: {
+    name: string;
+    phone?: string;
+    whatsapp?: string;
+    rfc?: string;
+    notes?: string;
+    latitude?: number;
+    longitude?: number;
+  }): Promise<void> {
+    try {
+      await this.offlineSync.guardarClienteOffline(this.auth.user()?.sub || '', dto);
+      this.saving.set(false);
+      this.showForm.set(false);
+      this.notice.set('Cliente guardado sin conexión. Se registrará solo al volver la red.');
+    } catch {
+      this.saving.set(false);
+      this.formError.set('No se pudo guardar el cliente sin conexión. Reintentá.');
+    }
+  }
+
+  private isTransient(e: any): boolean {
+    const s = e?.status;
+    return s === 0 || s === undefined || s === 408 || s === 502 || s === 503 || s === 504 || s === 522 || s === 524;
   }
 
   initials(name: string): string {
