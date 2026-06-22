@@ -516,6 +516,13 @@ export interface CustomerLite {
   shipping_address?: Record<string, any> | null;
 }
 
+export interface OrderLite {
+  id: string;
+  code: string;
+  total: number;
+  status: string;
+}
+
 // ── J12.1 Rastreo en vivo ───────────────────────────────────────────────────
 export interface LiveShipment {
   shipment_id: string;
@@ -930,6 +937,15 @@ export class LogisticaService {
     let p = new HttpParams().set('pageSize', '10');
     if (search) p = p.set('search', search);
     return this.http.get<{ items: CustomerLite[] }>(`${environment.apiUrl}/commercial/customers`, { params: p })
+      .pipe(map((r) => r.items || []));
+  }
+  /** Pedidos entregables del cliente (para ligar order_id en el destinatario). */
+  customerOrders(customerId: string): Observable<OrderLite[]> {
+    const p = new HttpParams()
+      .set('customer_id', customerId)
+      .set('statuses', 'confirmed,pending_approval')
+      .set('pageSize', '20');
+    return this.http.get<{ items: OrderLite[] }>(`${environment.apiUrl}/commercial/orders`, { params: p })
       .pipe(map((r) => r.items || []));
   }
 

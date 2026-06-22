@@ -17,7 +17,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite,
+  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite,
   DeliveryGuide, Driver, GuideRecipient, LogisticaService, Shipment, ShipmentExpense, Vehicle,
 } from '../logistica.service';
 
@@ -524,6 +524,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                               (onSelect)="onCustomerSelect($event)" field="name" [forceSelection]="false"
                               placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autoComplete>
             </label>
+            <label class="full" *ngIf="customerOrders().length">
+              <span>Ligar pedido (opcional)</span>
+              <p-select formControlName="order_id" [options]="customerOrders()" optionLabel="code" optionValue="id"
+                        placeholder="Sin pedido" [showClear]="true" appendTo="body"
+                        (onChange)="onOrderSelect($event.value)"></p-select>
+            </label>
             <label class="full">
               <span>Nombre <em>*</em></span>
               <input pInputText formControlName="customer_name" />
@@ -850,12 +856,14 @@ export class LogisticaShipmentDetailComponent {
 
   recipientForm: FormGroup = this.fb.group({
     customer_id: [null as string | null],
+    order_id: [null as string | null],
     customer_name: ['', Validators.required],
     address: [''],
     boxes_count: [0],
     value: [0],
   });
   readonly customerSuggestions = signal<CustomerLite[]>([]);
+  readonly customerOrders = signal<OrderLite[]>([]);
 
   expForm: FormGroup = this.fb.group({
     fuel: [0], tolls: [0], lodging: [0], parking: [0], permits: [0], repairs: [0],
@@ -1077,8 +1085,9 @@ export class LogisticaShipmentDetailComponent {
     this.api.getGuide(g.id).subscribe({
       next: (full) => {
         this.selectedGuide.set(full);
-        this.recipientForm.reset({ customer_id: null, customer_name: '', address: '', boxes_count: 0, value: 0 });
+        this.recipientForm.reset({ customer_id: null, order_id: null, customer_name: '', address: '', boxes_count: 0, value: 0 });
         this.customerSuggestions.set([]);
+        this.customerOrders.set([]);
         this.guideDetailDialog = true;
       },
     });
@@ -1118,7 +1127,17 @@ export class LogisticaShipmentDetailComponent {
     const address = a
       ? [a['street'], a['exterior_number'], a['neighborhood'], a['city'], a['state'], a['zip']].filter(Boolean).join(', ')
       : '';
-    this.recipientForm.patchValue({ customer_id: c.id, customer_name: c.name, address });
+    this.recipientForm.patchValue({ customer_id: c.id, customer_name: c.name, address, order_id: null });
+    // Trae los pedidos entregables del cliente para ligar order_id + valor.
+    this.customerOrders.set([]);
+    this.api.customerOrders(c.id).subscribe({
+      next: (os) => this.customerOrders.set(os || []),
+      error: () => this.customerOrders.set([]),
+    });
+  }
+  onOrderSelect(orderId: string | null) {
+    const o = this.customerOrders().find((x) => x.id === orderId);
+    if (o) this.recipientForm.patchValue({ value: o.total });
   }
 
   // ── Carta Porte ─────────────────────────────────────────────────────
