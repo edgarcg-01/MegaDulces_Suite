@@ -400,6 +400,78 @@ export class LogisticsShipmentsService {
   }
 
   /**
+   * J12 — Semáforo de preparación del viaje. Revisa los prerequisitos
+   * operativos del embarque (unidad, chofer, destinatarios, geolocalización,
+   * secuencia, rastreo, costos) y devuelve qué está listo y qué falta — para
+   * avisar ANTES de intentar cada etapa. La Carta Porte tiene su propio validate.
+   */
+  async readiness(shipmentId: string) {
+    if (!UUID_REGEX.test(shipmentId)) throw new BadRequestException('shipmentId inválido');
+    return this.tk.run(async (trx) => {
+      const shipment = await trx('logistics.shipments').where({ id: shipmentId }).whereNull('deleted_at').first();
+      if (!shipment) throw new NotFoundException(`Embarque ${shipmentId} no encontrado`);
+
+      const guides = await trx('logistics.delivery_guides')
+        .where({ shipment_id: shipmentId }).whereNull('deleted_at')
+        .select('id', 'driver_id');
+      const guideIds = guides.map((g: any) => g.id);
+      const recipients = guideIds.length
+        ? await trx('logistics.guide_recipients as r')
+            .leftJoin('commercial.customers as c', 'c.id', 'r.customer_id')
+            .whereIn('r.guide_id', guideIds)
+            .select('r.id', 'r.sequence_order', 'c.latitude', 'c.longitude')
+        : [];
+
+      const driverIds = [...new Set(guides.map((g: any) => g.driver_id).filter(Boolean))] as string[];
+      const driversWithUser = driverIds.length
+        ? (await trx('logistics.drivers').whereIn('id', driverIds).whereNotNull('user_id').select('id')).length
+        : 0;
+      const hasExpenses = !!(await trx('logistics.shipment_expenses').where({ shipment_id: shipmentId }).first());
+
+      const located = recipients.filter((r: any) => r.latitude != null && r.longitude != null).length;
+      const sequenced = recipients.filter((r: any) => r.sequence_order != null).length;
+      const total = recipients.length;
+
+      const st = (cond: boolean, partial?: boolean): 'ok' | 'warn' | 'pending' =>
+        cond ? 'ok' : partial ? 'warn' : 'pending';
+
+      const checks = [
+        { key: 'vehicle', label: 'Unidad asignada',
+          status: st(!!shipment.vehicle_id),
+          detail: shipment.vehicle_id ? 'Asignada' : 'Asigná una unidad al embarque' },
+        { key: 'guides', label: 'Guía creada',
+          status: st(guides.length > 0),
+          detail: guides.length ? `${guides.length} guía(s)` : 'Creá al menos una guía' },
+        { key: 'driver', label: 'Chofer en la guía',
+          status: st(driverIds.length > 0),
+          detail: driverIds.length ? `${driverIds.length} chofer(es)` : 'Asigná chofer a la guía (comisiones + Carta Porte)' },
+        { key: 'recipients', label: 'Destinatarios',
+          status: st(total > 0),
+          detail: total ? `${total} destinatario(s)` : 'Agregá destinatarios a la guía' },
+        { key: 'geolocated', label: 'Destinatarios geolocalizados',
+          status: st(total > 0 && located === total, located > 0),
+          detail: total ? `${located}/${total} con ubicación` : 'Sin destinatarios' },
+        { key: 'optimized', label: 'Ruta optimizada',
+          status: st(located > 0 && sequenced > 0, false),
+          detail: sequenced ? `${sequenced} parada(s) en secuencia` : 'Corré "Optimizar ruta"' },
+        { key: 'live_tracking', label: 'Rastreo en vivo disponible',
+          status: st(driversWithUser > 0, false),
+          detail: driversWithUser ? 'Chofer con usuario (emite GPS)' : 'El chofer no tiene usuario vinculado' },
+        { key: 'expenses', label: 'Costos capturados',
+          status: st(hasExpenses, false),
+          detail: hasExpenses ? 'Registrados' : 'Capturá los costos del viaje' },
+      ];
+
+      const blocking = checks.filter((c) => ['vehicle', 'guides', 'driver', 'recipients'].includes(c.key) && c.status === 'pending');
+      return {
+        shipment_id: shipmentId, folio: shipment.folio, shipment_status: shipment.status,
+        ready: blocking.length === 0,
+        checks,
+      };
+    });
+  }
+
+  /**
    * J.7.1 — Lista de pedidos `confirmed` que NO tienen shipment activo asociado.
    *
    * Logística usa esto como su "bandeja de entrada": pedidos esperando ser

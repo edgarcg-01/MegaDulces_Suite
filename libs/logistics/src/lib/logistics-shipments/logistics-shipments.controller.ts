@@ -83,6 +83,12 @@ export class LogisticsShipmentsController {
     return this.service.etaForShipment(id);
   }
 
+  @Get(':id/readiness')
+  @ApiOperation({ summary: 'J12: semáforo de preparación del viaje (qué está listo / qué falta)' })
+  readiness(@Param('id') id: string) {
+    return this.service.readiness(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener shipment por id' })
   findOne(@Param('id') id: string) {

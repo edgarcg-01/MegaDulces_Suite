@@ -17,7 +17,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite,
+  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite, ShipmentReadiness,
   DeliveryGuide, Driver, GuideRecipient, LogisticaService, Shipment, ShipmentExpense, Vehicle,
 } from '../logistica.service';
 
@@ -126,6 +126,23 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
         <!-- ── TAB INFO ── -->
         <ng-container *ngIf="tab() === 'info'">
+          <!-- Semáforo de preparación del viaje -->
+          <div class="sheet cols-12" *ngIf="readiness() as rd">
+            <article class="cell cell-span-12">
+              <div class="rd-head">
+                <span class="cell-label">Preparación del viaje</span>
+                <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
+              </div>
+              <ul class="rd-list">
+                <li *ngFor="let c of rd.checks" [class]="'rd-' + c.status">
+                  <i class="pi" [class.pi-check-circle]="c.status==='ok'" [class.pi-exclamation-triangle]="c.status==='warn'" [class.pi-circle]="c.status==='pending'" aria-hidden="true"></i>
+                  <span class="rd-label">{{ c.label }}</span>
+                  <span class="rd-detail">{{ c.detail }}</span>
+                </li>
+              </ul>
+            </article>
+          </div>
+
           <div class="sheet cols-12">
             <article class="cell cell-span-3">
               <span class="cell-label">Tipo</span>
@@ -671,6 +688,19 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       padding: .75rem 1rem;
     }
     .shd-cta-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    /* ── Semáforo de preparación ── */
+    .rd-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.6rem; }
+    .rd-pill { font-family:var(--mono,monospace); font-size:var(--fs-micro); padding:.2rem .55rem; border-radius:6px; background:#fdf6e3; color:#8a6420; font-weight:700; }
+    .rd-pill.ok { background:#dce5dd; color:#3f5e4e; }
+    .rd-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.4rem .9rem; }
+    @media (max-width:720px){ .rd-list { grid-template-columns:1fr; } }
+    .rd-list li { display:flex; align-items:center; gap:.5rem; font-size:var(--fs-sm); padding:.25rem 0; }
+    .rd-list li i { font-size:1rem; flex:0 0 auto; }
+    .rd-ok i { color:#2e7d32; }
+    .rd-warn i { color:#d2851b; }
+    .rd-pending i { color:var(--c-text-3,#bbb); }
+    .rd-label { font-weight:var(--fw-medium); }
+    .rd-detail { color:var(--c-text-3); font-size:var(--fs-micro); margin-left:auto; text-align:right; }
     .shd-eta-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .5rem; }
     .shd-eta-head p { margin: .25rem 0 0; }
     .shd-eta-seq { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c-surface-2); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); font-size: var(--fs-micro); }
@@ -827,6 +857,7 @@ export class LogisticaShipmentDetailComponent {
   readonly optimizing = signal(false);
   readonly eta = signal<ShipmentEta | null>(null);
   readonly etaLoading = signal(false);
+  readonly readiness = signal<ShipmentReadiness | null>(null);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
   readonly tab = signal<'info' | 'guides' | 'expenses' | 'cartaporte'>('info');
 
@@ -901,6 +932,16 @@ export class LogisticaShipmentDetailComponent {
         });
       },
       error: () => { /* 404 si no hay expense aún — OK */ },
+    });
+    this.refreshReadiness();
+  }
+
+  refreshReadiness() {
+    const id = this.shipmentId();
+    if (!id) return;
+    this.api.shipmentReadiness(id).subscribe({
+      next: (r) => this.readiness.set(r),
+      error: () => { /* silencioso */ },
     });
   }
 
@@ -1043,6 +1084,7 @@ export class LogisticaShipmentDetailComponent {
         this.savingGuide.set(false); this.guideDialog = false;
         this.toast.add({ severity:'success', summary:'Guía creada' });
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
+        this.refreshReadiness();
       },
       error: (err) => {
         this.savingGuide.set(false);
@@ -1063,6 +1105,7 @@ export class LogisticaShipmentDetailComponent {
           detail: r.located ? `${r.located} paradas · ${r.total_km} km${extra}` : 'Captura lat/lng en los clientes destino.',
         });
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
+        this.refreshReadiness();
       },
       error: (err) => {
         this.optimizing.set(false);
@@ -1200,6 +1243,7 @@ export class LogisticaShipmentDetailComponent {
         this.savingExp.set(false);
         this.expense.set(e);
         this.toast.add({ severity:'success', summary:'Costos guardados' });
+        this.refreshReadiness();
       },
       error: (err) => {
         this.savingExp.set(false);

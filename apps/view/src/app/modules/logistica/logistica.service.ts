@@ -913,6 +913,11 @@ export class LogisticaService {
     return this.http.get<ShipmentEta>(`${this.base}/shipments/${shipmentId}/eta`);
   }
 
+  // ── J12 Semáforo de preparación ─────────────────────────────────────────────
+  shipmentReadiness(shipmentId: string): Observable<ShipmentReadiness> {
+    return this.http.get<ShipmentReadiness>(`${this.base}/shipments/${shipmentId}/readiness`);
+  }
+
   // ── J12.3 Planner ──────────────────────────────────────────────────────────
   shipmentRoutePlan(shipmentId: string): Observable<RoutePlan> {
     return this.http.get<RoutePlan>(`${this.base}/routing/shipment/${shipmentId}/plan`);
@@ -1043,6 +1048,20 @@ export interface ShipmentEta {
   stops: EtaStop[];
   total_km: number;
   total_minutes: number;
+}
+
+export interface ReadinessCheck {
+  key: string;
+  label: string;
+  status: 'ok' | 'warn' | 'pending';
+  detail: string;
+}
+export interface ShipmentReadiness {
+  shipment_id: string;
+  folio: string;
+  shipment_status: string;
+  ready: boolean;
+  checks: ReadinessCheck[];
 }
 
 export interface RoutePlanStop {
