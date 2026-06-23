@@ -2,21 +2,18 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  effect,
   input,
-  signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SparklineComponent } from '../charts/sparkline.component';
 import { RingGaugeComponent } from '../charts/ring-gauge.component';
 import { MiniBarsComponent } from '../charts/mini-bars.component';
+import { CountUpDirective } from '../../directives/count-up.directive';
 
 export type MetricVariant = 'plain' | 'sparkline' | 'gauge' | 'bars' | 'progress' | 'ember';
 export type MetricFormat = 'currency' | 'number' | 'percent' | 'plain' | 'text';
 export type MetricTone = 'default' | 'ok' | 'warn' | 'bad' | 'brand' | 'ember';
 export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
-
-const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
  * MetricCard — tarjeta KPI rica con micro-gráfica + count-up animado.
@@ -27,7 +24,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
 @Component({
   selector: 'app-metric-card',
   standalone: true,
-  imports: [CommonModule, SparklineComponent, RingGaugeComponent, MiniBarsComponent],
+  imports: [CommonModule, SparklineComponent, RingGaugeComponent, MiniBarsComponent, CountUpDirective],
   template: `
     <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
       <header class="mc-head">
@@ -49,7 +46,8 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
       </ng-container>
 
       <ng-template #stdValue>
-        <div class="mc-value">{{ displayValue() }}</div>
+        <div class="mc-value" *ngIf="format() === 'text'">{{ valueText() }}</div>
+        <div class="mc-value" *ngIf="format() !== 'text'" [appCountUp]="value()" [countUpFormat]="cuFormat()"></div>
 
         <!-- SPARKLINE / EMBER -->
         <app-sparkline
@@ -71,7 +69,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
           <span class="mc-progress-meta">{{ goalText() }} · {{ goalPct() }}%</span>
         </div>
 
-        <span class="mc-sub" *ngIf="sub() && effVariant() !== 'progress'">{{ sub() }}</span>
+        <span class="mc-sub" *ngIf="sub()">{{ sub() }}</span>
       </ng-template>
     </article>
   `,
@@ -182,7 +180,6 @@ export class MetricCardComponent {
   readonly gaugeMax = input<number>(100);
   readonly tone = input<MetricTone>('default');
   readonly interactive = input<boolean>(false);
-  readonly animate = input<boolean>(true);
   /** Jerarquía visual: tarjeta "hero" (número + gráfica más grandes). El ancho lo da el caller con `panel-col-*`. */
   readonly large = input<boolean>(false);
   /** Color de la tarjeta (token de paleta, ej. `var(--chart-2)`). Tiñe stripe + gráfica + fondo suave. Vacío = sunset. */
@@ -194,6 +191,14 @@ export class MetricCardComponent {
   readonly accentSoft = computed(() => `color-mix(in srgb, ${this.accentGraph()} 32%, transparent)`);
   /** Formato del tooltip de la sparkline (deriva del formato del valor). */
   readonly sparkFormat = computed<'currency' | 'number' | 'plain'>(() => this.format() === 'currency' ? 'currency' : 'number');
+  /** Mapea el formato de la card al de CountUpDirective (count-up consolidado). */
+  readonly cuFormat = computed<'int' | 'decimal1' | 'percent1' | 'money'>(() => {
+    const f = this.format();
+    if (f === 'currency') return 'money';
+    if (f === 'percent') return 'percent1';
+    if (f === 'number' && this.decimals() === 1) return 'decimal1';
+    return 'int';
+  });
 
   /** Spotlight: posición del cursor relativa a la card → CSS vars --mx/--my (sin CD). */
   spot(ev: PointerEvent, card: HTMLElement): void {
@@ -201,9 +206,6 @@ export class MetricCardComponent {
     card.style.setProperty('--mx', `${((ev.clientX - r.left) / r.width) * 100}%`);
     card.style.setProperty('--my', `${((ev.clientY - r.top) / r.height) * 100}%`);
   }
-
-  /** Valor animado para el count-up. */
-  private readonly animated = signal(0);
 
   /** Variante efectiva: degrada a 'plain' si faltan datos. */
   readonly effVariant = computed<MetricVariant>(() => {
@@ -226,17 +228,6 @@ export class MetricCardComponent {
     return `${sign}${d}%`;
   });
 
-  readonly displayValue = computed(() => {
-    if (this.format() === 'text') return this.valueText();
-    const v = this.animated();
-    switch (this.format()) {
-      case 'currency': return MXN.format(v);
-      case 'percent': return `${Math.round(v)}%`;
-      case 'number': return new Intl.NumberFormat('es-MX', { maximumFractionDigits: this.decimals() }).format(v);
-      default: return new Intl.NumberFormat('es-MX', { maximumFractionDigits: this.decimals() }).format(Math.round(v));
-    }
-  });
-
   readonly goalPct = computed(() => {
     const g = this.goal() || 0;
     if (!g) return 0;
@@ -246,30 +237,4 @@ export class MetricCardComponent {
     const fmt = (n: number) => new Intl.NumberFormat('es-MX', { maximumFractionDigits: this.decimals() }).format(n);
     return `${fmt(this.value())} / ${fmt(this.goal())}`;
   });
-
-  constructor() {
-    effect((onCleanup) => {
-      const target = Number(this.value() ?? 0);
-      if (this.format() === 'text') return;
-      const reduce = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (reduce || !this.animate() || typeof requestAnimationFrame === 'undefined') {
-        this.animated.set(target);
-        return;
-      }
-      const from = this.animated();
-      if (from === target) return;
-      const start = performance.now();
-      const dur = 700;
-      let raf = 0;
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - start) / dur);
-        const eased = 1 - Math.pow(1 - t, 3);
-        this.animated.set(from + (target - from) * eased);
-        if (t < 1) raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-      onCleanup(() => cancelAnimationFrame(raf));
-    });
-  }
 }

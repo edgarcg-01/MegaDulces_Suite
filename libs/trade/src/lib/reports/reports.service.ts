@@ -4,6 +4,7 @@ import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { getDataScope } from '@megadulces/platform-core';
 import { EventsService } from '../websocket/events.service';
 import { ReportsCacheService } from './reports-cache.service';
+import { MapMatchingService } from './map-matching.service';
 import { toMxDateKey, todayMx } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
@@ -15,6 +16,7 @@ export class ReportsService {
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly eventsService: EventsService,
     private readonly cache: ReportsCacheService,
+    private readonly mapMatching: MapMatchingService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {
     this.eventsService.onCaptureChange = async (affectedUserIds: string[]) => {
@@ -1879,6 +1881,163 @@ export class ReportsService {
       last: t.points[t.points.length - 1] || null,
     }));
     return { tracks };
+  }
+
+  /**
+   * R.1/R.2 — Recorrido "por calles" de una ruta en un día: para cada vendedor
+   * con pings en (ruta, día) devuelve la geometría pegada a calles (map-matching
+   * cacheado) + paradas detectadas. Scope own/team + tenant explícito.
+   */
+  async getRouteSnapped(
+    routeId: string,
+    date: string | undefined,
+    user: any,
+  ): Promise<{ tracks: any[]; date: string }> {
+    const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    if (!ReportsService.UUID_RE.test(routeId || '')) return { tracks: [], date: day };
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (!tenantId) return { tracks: [], date: day };
+
+    let q = this.knex('public.route_location_pings as p')
+      .leftJoin('users as u', 'u.id', 'p.user_id')
+      .where('p.route_id', routeId)
+      .where('p.tenant_id', tenantId)
+      .whereRaw("DATE(p.captured_at AT TIME ZONE 'America/Mexico_City') = ?", [day])
+      .distinct('p.user_id', 'u.username');
+    if (scope.type === 'own') q = q.where('p.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'p.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+
+    const users = await q;
+    const tracks: any[] = [];
+    for (const u of users) {
+      try {
+        const snap = await this.mapMatching.getSnappedTrack(tenantId, u.user_id, day, routeId);
+        if (snap) tracks.push({ user_id: u.user_id, username: u.username || '—', ...snap });
+      } catch (e: any) {
+        this.logger.warn(`getRouteSnapped user=${u.user_id}: ${e?.message || e}`);
+      }
+    }
+    return { tracks, date: day };
+  }
+
+  /**
+   * R.3 — Vendedores con actividad GPS en un día (para el picker del historial).
+   * Scope own/team/all + tenant explícito.
+   */
+  async getFieldUsers(
+    date: string | undefined,
+    user: any,
+  ): Promise<{ users: any[]; date: string }> {
+    const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (!tenantId) return { users: [], date: day };
+
+    let q = this.knex('public.route_location_pings as p')
+      .leftJoin('users as u', 'u.id', 'p.user_id')
+      .where('p.tenant_id', tenantId)
+      .whereRaw("DATE(p.captured_at AT TIME ZONE 'America/Mexico_City') = ?", [day])
+      .groupBy('p.user_id', 'u.username')
+      .select('p.user_id', 'u.username')
+      .count('p.id as ping_count')
+      .orderBy('u.username', 'asc');
+    if (scope.type === 'own') q = q.where('p.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'p.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+
+    const rows = await q;
+    return {
+      users: rows.map((r: any) => ({
+        user_id: r.user_id,
+        username: r.username || '—',
+        ping_count: Number(r.ping_count) || 0,
+      })),
+      date: day,
+    };
+  }
+
+  /**
+   * R.3/R.5 — Día de UN vendedor: recorrido por calles (map-matching) + paradas
+   * + KPIs (distancia real, paradas, tiempo en parada, span activo, movimiento,
+   * velocidad media). Enforce de scope: 'own' solo a sí mismo; 'team' a su equipo.
+   */
+  async getVendorDay(
+    userId: string,
+    date: string | undefined,
+    user: any,
+  ): Promise<{ user_id: string; username: string; date: string; snapped: any; kpis: any } | null> {
+    const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    if (!ReportsService.UUID_RE.test(userId || '')) return null;
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (!tenantId) return null;
+
+    // Enforce de scope.
+    if (scope.type === 'own' && userId !== scope.userId) return null;
+    if (scope.type === 'team') {
+      const teamIds = await this.getTeamIds(scope.userId);
+      if (!teamIds.includes(userId)) return null;
+    }
+
+    const meta = await this.knex('public.route_location_pings')
+      .where({ tenant_id: tenantId, user_id: userId })
+      .whereRaw("DATE(captured_at AT TIME ZONE 'America/Mexico_City') = ?", [day])
+      .min('captured_at as first')
+      .max('captured_at as last')
+      .count('id as pings')
+      .first();
+    const username =
+      (await this.knex('users').select('username').where('id', userId).first())?.username || '—';
+
+    const snapped = await this.mapMatching.getSnappedTrack(tenantId, userId, day, null);
+
+    const first = meta?.first ? new Date(meta.first as any).getTime() : null;
+    const last = meta?.last ? new Date(meta.last as any).getTime() : null;
+    const activeMin = first && last ? Math.round((last - first) / 60000) : 0;
+    const stops = snapped?.stops || [];
+    const stopMin = stops.reduce((a: number, s: any) => a + (s.minutes || 0), 0);
+    const movingMin = Math.max(0, activeMin - stopMin);
+    const distKm = snapped?.distance_m ? Math.round(snapped.distance_m / 100) / 10 : 0;
+    const speedKmh = movingMin > 0 ? Math.round((distKm / (movingMin / 60)) * 10) / 10 : null;
+
+    return {
+      user_id: userId,
+      username,
+      date: day,
+      snapped,
+      kpis: {
+        pings: Number(meta?.pings) || 0,
+        first_at: meta?.first || null,
+        last_at: meta?.last || null,
+        active_min: activeMin,
+        stop_count: stops.length,
+        stop_min: stopMin,
+        moving_min: movingMin,
+        distance_km: distKm,
+        avg_speed_kmh: speedKmh,
+      },
+    };
   }
 
   /**

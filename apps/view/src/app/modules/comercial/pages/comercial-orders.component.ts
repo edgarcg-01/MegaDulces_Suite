@@ -135,6 +135,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
         [totalAmount]="totalAmount()"
         [total]="total()"
         [statusCounts]="statusCounts()"
+        [series]="amountSeries()"
       />
 
       <!-- SHEET 2: FILTERS — toolbar densa (extraída a app-order-filters, CV.3) -->
@@ -366,6 +367,8 @@ export class ComercialOrdersComponent {
   readonly datePreset = signal<string>(this.modeSignal() === 'pending' ? 'all' : '30d');
   readonly statusCounts = signal<Record<string, number>>({});
   readonly totalAmount = signal(0);
+  /** J16 — serie diaria de monto para el sparkline del KPI hero. */
+  readonly amountSeries = signal<number[]>([]);
 
   readonly filters = computed(() => STATUS_FILTERS_BY_MODE[this.modeSignal()]);
   readonly presets = DATE_PRESETS;
@@ -519,6 +522,14 @@ export class ComercialOrdersComponent {
         },
         error: () => this.loadingKpis.set(false),
       });
+    // J16 — serie diaria de monto para el sparkline del hero (mismo rango).
+    this.api
+      .orderKpiSeries({ from: this.toIso(this.fromDate), to: this.toIso(this.toDate) })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.amountSeries.set(r.amount || []),
+        error: () => this.amountSeries.set([]),
+      });
   }
 
   /** Cambiar entre tabs "Pendientes" e "Historial". */
@@ -568,9 +579,6 @@ export class ComercialOrdersComponent {
   }
   private fmtMd(d: Date): string {
     return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' } as any);
-  }
-  private fmtMoney(n: number): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(n);
   }
 
   /** Formato compact ($706.42K / $5.76M) para headlines tipográficos. */

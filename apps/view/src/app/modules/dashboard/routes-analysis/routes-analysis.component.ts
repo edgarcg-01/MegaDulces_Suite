@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -8,7 +8,9 @@ import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
 import { SelectModule } from 'primeng/select';
 import { environment } from '../../../../environments/environment';
-import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
+import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
+import { MapLegendComponent, LegendLayer } from '../../../shared/components/map-legend/map-legend.component';
+import { MapLiveLayerService } from '../../../core/services/map-live-layer.service';
 
 interface RouteRow {
   id: string;
@@ -86,7 +88,8 @@ interface RouteTrack {
 @Component({
   selector: 'app-routes-analysis',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent],
+  imports: [CommonModule, FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent, MapLegendComponent],
+  providers: [MapLiveLayerService],
   styles: [`
     /* ── layout ──────────────────────────────────────────────── */
     .ru-layout {
@@ -175,6 +178,10 @@ interface RouteTrack {
     }
     .ru-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .ru-map-empty { padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
+    .ru-maptools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--divider, #e7e5e4); }
+    .ru-snap-btn { font: 600 0.74rem 'Hanken Grotesk', sans-serif; padding: 0.3rem 0.65rem; border: 1px solid var(--divider, #d6d3d1); border-radius: 999px; background: var(--card-bg, #fff); color: var(--text, #1c1917); cursor: pointer; }
+    .ru-snap-btn.act { border-color: var(--action, #F05A28); color: var(--action, #F05A28); background: var(--action-tint, #fff1ec); }
+    .ru-snap-hint { font-size: 0.72rem; color: var(--text-dim, #78716c); }
 
     /* ── table helpers ───────────────────────────────────────── */
     /* Tablas densas: scroll horizontal propio en pantallas chicas para
@@ -558,12 +565,20 @@ interface RouteTrack {
                   </div>
                 </div>
                 <div class="surf-panel-body is-flush">
+                  <div class="ru-maptools">
+                    <button type="button" class="ru-snap-btn" [class.act]="snapMode()" (click)="toggleSnap()">
+                      <i class="pi pi-directions" aria-hidden="true"></i>&nbsp;Por calles
+                    </button>
+                    @if (snapLoading()) { <span class="ru-snap-hint">pegando a calles…</span> }
+                    @else if (snapMode() && snapDistanceKm() != null) { <span class="ru-snap-hint">{{ snapDistanceKm() }} km reales</span> }
+                    <app-map-legend [layers]="liveLegend()" (toggle)="toggleLive()"></app-map-legend>
+                  </div>
                   @if (loadingDetail()) {
                     <p-skeleton height="420px"></p-skeleton>
-                  } @else if (mapMarkers().length === 0 && mapTracks().length === 0) {
+                  } @else if (displayMarkers().length === 0 && displayTracks().length === 0 && !showLive()) {
                     <div class="ru-map-empty">Sin coordenadas para mapear en esta ruta.</div>
                   } @else {
-                    <app-map [markers]="mapMarkers()" [path]="mapPath()" [tracks]="mapTracks()" height="420px"></app-map>
+                    <app-map [markers]="displayMarkers()" [path]="mapPath()" [tracks]="displayTracks()" [layers]="liveLayers()" height="420px"></app-map>
                   }
                 </div>
               </div>
@@ -687,8 +702,21 @@ interface RouteTrack {
     </div>
   `,
 })
-export class RoutesAnalysisComponent implements OnInit {
+export class RoutesAnalysisComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
+  protected readonly live = inject(MapLiveLayerService);
+
+  /** Capa opcional "Personal en vivo" sobre el recorrido histórico de la ruta. */
+  readonly showLive = signal(false);
+  private liveStarted = false;
+  readonly liveLegend = computed<LegendLayer[]>(() => [
+    { id: 'live', label: 'Personal en vivo', color: 'var(--ok-fg, #16a34a)', count: this.live.counts().total, visible: this.showLive() },
+  ]);
+  readonly liveLayers = computed<MapLayer[]>(() =>
+    this.showLive()
+      ? [{ id: 'live', persistent: true, visible: true, markers: this.live.markers() }]
+      : [],
+  );
 
   startDate = isoOffset(0);
   endDate = isoOffset(0);
@@ -702,6 +730,13 @@ export class RoutesAnalysisComponent implements OnInit {
   idle = signal<RouteIdle>({ segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 });
   tracks = signal<RouteTrack[]>([]);
   vendorFilter = signal<string | null>(null);
+
+  // R.1/R.2 — recorrido "por calles" (map-matching) + paradas, del día endDate.
+  snapMode = signal(false);
+  snapLoading = signal(false);
+  snapTracks = signal<{ points: { lat: number; lng: number }[]; color?: string }[]>([]);
+  snapStops = signal<MapMarker[]>([]);
+  snapDistanceKm = signal<number | null>(null);
   /** Paleta categórica para las trazas GPS (estable por vendedor); evita morado/azul de acción. */
   static readonly TRACK_PALETTE = ['#0E9BA8', '#13A864', '#E8833A', '#C13DA8', '#5B6CC9', '#D64545'];
   readonly targetMinutes = 15;
@@ -848,8 +883,29 @@ export class RoutesAnalysisComponent implements OnInit {
       .map((v) => ({ lat: v.latitud as number, lng: v.longitud as number })),
   );
 
+  /** En modo "por calles" muestra la geometría snapped; si no, la traza cruda. */
+  displayTracks = computed(() => (this.snapMode() ? this.snapTracks() : this.mapTracks()));
+  /** En modo "por calles" agrega los marcadores de parada a los de tiendas/visitas. */
+  displayMarkers = computed<MapMarker[]>(() =>
+    this.snapMode() ? [...this.mapMarkers(), ...this.snapStops()] : this.mapMarkers(),
+  );
+
   ngOnInit(): void {
     this.loadMaster();
+  }
+
+  ngOnDestroy(): void {
+    if (this.liveStarted) { this.live.watch([]); this.live.stop(); }
+  }
+
+  /** Conmuta la capa de personal en vivo (arranca el stream la primera vez). */
+  toggleLive(): void {
+    const next = !this.showLive();
+    this.showLive.set(next);
+    if (next && !this.liveStarted) {
+      this.liveStarted = true;
+      void this.live.start();
+    }
   }
 
   reload(): void {
@@ -902,6 +958,11 @@ export class RoutesAnalysisComponent implements OnInit {
     this.visits.set([]);
     this.tracks.set([]);
     this.idle.set({ segments: [], total_idle_min: 0, total_travel_min: 0, dead_count: 0 });
+    // Reset del modo "por calles" (la geometría snapped es por ruta+día).
+    this.snapMode.set(false);
+    this.snapTracks.set([]);
+    this.snapStops.set([]);
+    this.snapDistanceKm.set(null);
     const params = this.dateParams();
     let pending = 4;
     const done = () => { if (--pending === 0) this.loadingDetail.set(false); };
@@ -917,6 +978,53 @@ export class RoutesAnalysisComponent implements OnInit {
     this.http.get<{ tracks: RouteTrack[] }>(`${environment.apiUrl}/reports/routes/${id}/track`, { params }).subscribe({
       next: (r) => { this.tracks.set(r?.tracks || []); done(); }, error: done,
     });
+  }
+
+  /** Conmuta el recorrido "por calles" (map-matching). Carga al primer encendido. */
+  toggleSnap(): void {
+    const next = !this.snapMode();
+    this.snapMode.set(next);
+    if (next && this.snapTracks().length === 0 && this.selectedId()) this.loadSnapped();
+  }
+
+  /** Trae la geometría pegada a calles + paradas del día (endDate) de la ruta. */
+  private loadSnapped(): void {
+    const id = this.selectedId();
+    if (!id) return;
+    this.snapLoading.set(true);
+    const params = new HttpParams().set('date', this.endDate);
+    this.http
+      .get<{ tracks: any[]; date: string }>(`${environment.apiUrl}/reports/routes/${id}/snapped`, { params })
+      .subscribe({
+        next: (r) => {
+          const tracks = r?.tracks || [];
+          this.snapTracks.set(
+            tracks
+              .filter((t) => t?.geometry?.coordinates?.length)
+              .map((t) => ({
+                color: this.trackColor(t.username),
+                points: (t.geometry.coordinates as [number, number][]).map((c) => ({ lat: c[1], lng: c[0] })),
+              })),
+          );
+          const stops: MapMarker[] = [];
+          let distM = 0;
+          for (const t of tracks) {
+            distM += Number(t.distance_m) || 0;
+            for (const s of t.stops || []) {
+              stops.push({
+                lat: s.lat,
+                lng: s.lng,
+                color: 'var(--warn-fg, #d97706)',
+                title: `Parada · ${s.minutes} min${s.store_name ? ' · ' + s.store_name : ''}`,
+              });
+            }
+          }
+          this.snapStops.set(stops);
+          this.snapDistanceKm.set(distM > 0 ? Math.round(distM / 100) / 10 : null);
+          this.snapLoading.set(false);
+        },
+        error: () => this.snapLoading.set(false),
+      });
   }
 
   fmtTime(iso: string | null): string {
@@ -949,9 +1057,9 @@ export class RoutesAnalysisComponent implements OnInit {
   }
 }
 
-/** Fecha YYYY-MM-DD con offset de días, en local (suficiente para el filtro). */
+/** Fecha YYYY-MM-DD con offset de días, en TZ México (no la del browser). */
 function isoOffset(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toLocaleDateString('en-CA');
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 }

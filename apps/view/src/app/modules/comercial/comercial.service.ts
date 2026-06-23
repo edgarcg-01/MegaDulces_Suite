@@ -156,6 +156,14 @@ export interface ProductPricesPage {
 export type OrderStatus = 'draft' | 'pending_approval' | 'confirmed' | 'fulfilled' | 'cancelled';
 export type DeliveryType = 'route' | 'long_trip';
 
+/** J16 — serie diaria de pedidos para sparkline de KPI. */
+export interface OrderKpiSeries {
+  range: { from: string; to: string };
+  dates: string[];
+  amount: number[];
+  count: number[];
+}
+
 export interface Order {
   id: string;
   folio: string;
@@ -643,6 +651,15 @@ export class ComercialService {
     if (opts.to) params = params.set('to', opts.to);
     if (opts.mine) params = params.set('mine', 'true');
     return this.http.get<{ counts: Record<string, number>; total: number }>(`${this.base}/orders/counts`, { params });
+  }
+  /** J16 — serie diaria de monto/conteo para el sparkline del KPI hero. */
+  orderKpiSeries(opts: { customer_id?: string; from?: string; to?: string; mine?: boolean } = {}) {
+    let params = new HttpParams();
+    if (opts.customer_id) params = params.set('customer_id', opts.customer_id);
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.mine) params = params.set('mine', 'true');
+    return this.http.get<OrderKpiSeries>(`${this.base}/orders/kpi-series`, { params });
   }
   getOrder(id: string) {
     return this.http.get<OrderDetail>(`${this.base}/orders/${id}`);

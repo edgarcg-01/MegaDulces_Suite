@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SkeletonModule } from 'primeng/skeleton';
@@ -8,7 +8,12 @@ import { ButtonModule } from 'primeng/button';
 import { DatePickerModule } from 'primeng/datepicker';
 import { DialogModule } from 'primeng/dialog';
 import { AutoCompleteModule } from 'primeng/autocomplete';
-import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
+import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
+import { MapLegendComponent, LegendLayer } from '../../../shared/components/map-legend/map-legend.component';
+import { MapLiveLayerService } from '../../../core/services/map-live-layer.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { environment } from '../../../../environments/environment';
 import {
   CommercialMapService,
@@ -46,12 +51,34 @@ type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
     DialogModule,
     AutoCompleteModule,
     MapComponent,
+    MapLegendComponent,
   ],
   templateUrl: './commercial-map.component.html',
   styleUrl: './commercial-map.component.css',
+  providers: [MapLiveLayerService],
 })
-export class CommercialMapComponent implements OnInit {
+export class CommercialMapComponent implements OnInit, OnDestroy {
   private readonly service = inject(CommercialMapService);
+  protected readonly live = inject(MapLiveLayerService);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+
+  /** Capa "Personal en vivo": superpone vendedores en tiempo real sobre las tiendas. */
+  readonly showLive = signal(false);
+  private liveStarted = false;
+  readonly canSeeLive = computed(
+    () =>
+      this.perms.can('read', 'routes_analytics' as any) ||
+      this.auth.user()?.permissions?.[Permission.RUTAS_VER] === true,
+  );
+  readonly liveLegend = computed<LegendLayer[]>(() => [
+    { id: 'live', label: 'Personal en vivo', color: 'var(--ok-fg, #16a34a)', count: this.live.counts().total, visible: this.showLive() },
+  ]);
+  readonly mapLayers = computed<MapLayer[]>(() =>
+    this.showLive()
+      ? [{ id: 'live', persistent: true, visible: true, markers: this.live.markers() }]
+      : [],
+  );
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -179,7 +206,22 @@ export class CommercialMapComponent implements OnInit {
   }
 
   onMarkerClick(m: MapMarker): void {
+    if (m.kind === 'user') return; // marcador de personal en vivo, no es tienda
     if (m.id) this.selectStore(String(m.id));
+  }
+
+  /** Conmuta la capa de personal en vivo (arranca el stream la primera vez). */
+  toggleLive(): void {
+    const next = !this.showLive();
+    this.showLive.set(next);
+    if (next && !this.liveStarted) {
+      this.liveStarted = true;
+      void this.live.start();
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.liveStarted) { this.live.watch([]); this.live.stop(); }
   }
 
   selectStore(id: string): void {
@@ -359,7 +401,7 @@ export class CommercialMapComponent implements OnInit {
   }
 
   private fmtDate(d: Date): string {
-    return d.toLocaleDateString('en-CA');
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
   }
 
   private dateOffset(days: number): string {

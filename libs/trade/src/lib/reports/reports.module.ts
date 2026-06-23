@@ -5,11 +5,12 @@ import { PdfService } from './pdf.service';
 import { WebSocketModule } from '../websocket/websocket.module';
 import { ReportsCacheService } from './reports-cache.service';
 import { BrandPresenceReportService } from './brand-presence-report.service';
+import { MapMatchingService } from './map-matching.service';
 
 @Module({
   imports: [WebSocketModule],
   controllers: [ReportsController],
-  providers: [ReportsService, PdfService, ReportsCacheService, BrandPresenceReportService],
+  providers: [ReportsService, PdfService, ReportsCacheService, BrandPresenceReportService, MapMatchingService],
   exports: [ReportsCacheService],
 })
 export class ReportsModule {}

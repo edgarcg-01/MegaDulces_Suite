@@ -111,6 +111,28 @@ export class CommercialOrdersController {
     });
   }
 
+  @Get('kpi-series')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'J16: serie diaria de monto + conteo de pedidos (para el sparkline del KPI hero). Mismos filtros que /counts; default últimos 30 días.',
+  })
+  kpiSeries(
+    @Query('customer_id') customerId?: string,
+    @Query('user_id') userId?: string,
+    @Query('mine') mine?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.dailySeries({
+      customer_id: customerId,
+      user_id: userId,
+      mine: mine === 'true',
+      from,
+      to,
+    });
+  }
+
   @Get('frequent/:customer_id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({

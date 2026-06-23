@@ -10,6 +10,57 @@
 
 ## [Unreleased]
 
+### Added — Rutas R.4: playback del recorrido (2026-06-23)
+- En **Historial de vendedor**, barra de reproducción: play/pausa + slider (scrub) + velocidad 1×/2×/4×
+  + reloj aproximado. Un cursor recorre la geometría pegada a calles (modo `persistent` del átomo
+  app-map); la ruta completa se ve tenue y el tramo ya recorrido se resalta. Sin backend nuevo.
+
+### Added — Rutas R.3/R.5: Historial de vendedor (día por calles + KPIs) (2026-06-23)
+- Nueva vista **"Historial"** (`/dashboard/vendor-history`, nav bajo grupo "Mapas", gate `RUTAS_VER`):
+  elegís **vendedor + fecha** y ves su día completo — recorrido pegado a calles, paradas y métricas.
+- **KPIs (R.5)**: distancia real (km), # de paradas, tiempo en paradas, tiempo en movimiento,
+  velocidad media (km/h), jornada (primer–último movimiento).
+- Backend: `GET /reports/field-users?date` (vendedores con actividad GPS ese día) +
+  `GET /reports/vendor-day?user_id&date` (recorrido snapped + paradas + KPIs). Enforce de scope
+  (own → solo a sí mismo; team → solo su equipo). Reusa `MapMatchingService` (caché por user+día).
+
+### Added — Rutas R.1/R.2: historial "por calles" (map-matching) + paradas (2026-06-23)
+- **Recorrido pegado a la red de calles** (antes líneas rectas entre breadcrumbs): map-matching con
+  **Mapbox** (`MAPBOX_TOKEN`), arquitectura matcher+caché — el recorrido de un día pasado se calcula
+  una vez y se guarda en `public.route_snapped_tracks` (mig 20260623120000). El día de hoy no se cachea.
+- **`MapMatchingService`** (libs/trade/reports): pings → downsample → chunks ≤100 → `/matching/v5` →
+  geometría GeoJSON + distancia real. Chunk fallido cae a línea cruda. Proveedor intercambiable.
+- **Paradas automáticas** (R.2): dwell ≥5 min dentro de 40 m → marcador con duración + **geofence ≤90 m**
+  contra `stores` para nombrar la tienda. Llegada/salida derivadas del GPS.
+- Endpoint `GET /reports/routes/:id/snapped?date=` (gate `RUTAS_VER`, scope own/team).
+- Frontend **Rutas**: toggle "Por calles" → dibuja la geometría snapped + paradas + "X km reales".
+- Requiere en deploy: aplicar la migración + setear `MAPBOX_TOKEN` en Railway (sin token degrada a línea cruda).
+
+### Added — MapKit: núcleo de mapa compartido + cruce de contexto en vivo (2026-06-23)
+- **Átomo `app-map` ampliado (aditivo)**: input `layers: MapLayer[]` (cada capa en su `L.LayerGroup`,
+  conmutable sin redibujar las demás), modo `persistent` (mueve marcadores con `setLatLng` para tracking
+  fluido), `MapMarker.kind:'user'` + `ring`, `autoFit:'always'|'once'|'off'`, métodos `recenter()/panTo()/invalidate()`.
+  Defaults = comportamiento legacy byte-por-byte (routes/commercial/logística intactos).
+- Nuevos shared: `map-legend/` (toggles de capa + conteo), `core/services/map-live-layer.service.ts`
+  (capa de posiciones en vivo reutilizable: seed `/reports/live-positions` + stream WS `route_ping`),
+  `shared/util/relative-age.ts` (frescura + edad relativa tokenizada).
+- **Capa "Personal en vivo"** opcional en **Mapa Comercial** y **Rutas** (gateada `RUTAS_VER`): superpone
+  vendedores en tiempo real sobre las tiendas / sobre el recorrido histórico — el cruce de contexto del supervisor.
+- Nav: las 3 superficies de mapa agrupadas bajo sección **"Mapas"**.
+
+### Changed — live-map migrado al átomo MapKit
+- `live-map` consume `app-map` (modo `persistent`) + `MapLiveLayerService`; se borró su Leaflet inline propio
+  y `live-tracking.service.ts`. Sin cambio funcional visible.
+
+### Fixed — off-by-one de fecha en TZ México
+- `routes-analysis` (`isoOffset`) y `commercial-map` (`fmtDate`) ahora formatean la fecha en
+  `America/Mexico_City`, no en la TZ del browser (evita cargar el día equivocado fuera de MX).
+
+### Internal — diferido (con razón)
+- `logistica-live → WS`: consume `liveShipments()` (agregado por embarque, no pings de usuario) → requiere
+  emisión WS por embarque en backend; no es swap limpio.
+- Migración de drill-down de `commercial-map` a SidePeek+Customer360 (regla #8 DESIGN.md): pendiente de QA visual.
+
 ### Added — PA.4a: conteo particionado por pasillo (foundation + avance por pasillo)
 - `openCount` ahora **stampa `items.aisle_id`** desde `commercial.stock.aisle_id` al abrir el folio (modo
   commercial) → el conteo queda particionado por pasillo. (Modo inventory/SKU: aisle_id null, fase posterior.)

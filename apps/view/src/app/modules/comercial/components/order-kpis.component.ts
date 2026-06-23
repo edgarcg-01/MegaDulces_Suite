@@ -1,123 +1,54 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SkeletonModule } from 'primeng/skeleton';
-import { CountUpDirective } from '../../../shared/directives/count-up.directive';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type OrdersMode = 'pending' | 'history';
 
 /**
  * KPI strip de pedidos (adaptativo por modo pending/history). Presentacional puro.
- * Count-up en los valores (una vez, on-view). El skeleton solo se muestra hasta el
- * primer dato: en recargas posteriores los números se actualizan en su lugar (sin
- * flicker y sin re-animar). Extraído de comercial-orders (CV.3).
+ * J16: migrado a `MetricCard` — hero con sparkline (serie diaria de monto) +
+ * cards de status como `progress` (share sobre el libro de la ventana) con color
+ * semántico por estado. Count-up consolidado en la directiva del organismo.
  */
 @Component({
   selector: 'app-order-kpis',
   standalone: true,
-  imports: [CommonModule, SkeletonModule, CountUpDirective],
+  imports: [CommonModule, SkeletonModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <p-skeleton *ngIf="showSkeleton" height="120px"></p-skeleton>
-    <div *ngIf="!showSkeleton" class="sheet cols-12">
-      <article class="cell" [class.cell-span-6]="mode === 'pending'" [class.cell-span-3]="mode === 'history'">
-        <span class="cell-icon" aria-hidden="true">
-          <i class="pi pi-wallet"></i>
-        </span>
-        <span class="cell-label">{{ mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana' }}</span>
-        <span class="cell-value is-headline" [appCountUp]="totalAmount" countUpFormat="money-short"></span>
-        <span class="cell-sub">{{ total }} pedido{{ total === 1 ? '' : 's' }} en período</span>
-      </article>
+    <p-skeleton *ngIf="showSkeleton" height="172px"></p-skeleton>
+    <div *ngIf="!showSkeleton" class="surf-grid">
+      <!-- HERO: ventas (sparkline de monto diario) -->
+      <app-metric-card class="panel-col-6" [large]="true"
+        [label]="mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana'"
+        [value]="totalAmount" format="currency" accent="var(--action)"
+        [variant]="series.length > 1 ? 'sparkline' : 'plain'" [series]="series"
+        [sub]="total + (total === 1 ? ' pedido' : ' pedidos') + ' en período'"></app-metric-card>
 
       <ng-container *ngIf="mode === 'pending'">
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-hourglass"></i>
-          </span>
-          <span class="cell-label">Por aprobar</span>
-          <span class="cell-value" [appCountUp]="statusCounts['pending_approval'] ?? 0" countUpFormat="int"></span>
-          <span class="cell-sub">requieren acción</span>
-          <div class="ok-ratio" aria-hidden="true">
-            <div class="ok-ratio-track"><div class="ok-ratio-fill is-warn" [style.width.%]="ratio('pending_approval')"></div></div>
-            <span class="ok-ratio-pct">{{ ratio('pending_approval') }}%</span>
-          </div>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-pencil"></i>
-          </span>
-          <span class="cell-label">Borradores</span>
-          <span class="cell-value" [appCountUp]="statusCounts['draft'] ?? 0" countUpFormat="int"></span>
-          <span class="cell-sub">sin enviar a aprobación</span>
-          <div class="ok-ratio" aria-hidden="true">
-            <div class="ok-ratio-track"><div class="ok-ratio-fill is-neutral" [style.width.%]="ratio('draft')"></div></div>
-            <span class="ok-ratio-pct">{{ ratio('draft') }}%</span>
-          </div>
-        </article>
+        <app-metric-card class="panel-col-3" variant="progress"
+          label="Por aprobar" [value]="statusCounts['pending_approval'] ?? 0" [goal]="windowTotal"
+          format="number" accent="var(--warn-fg)" sub="requieren acción"></app-metric-card>
+        <app-metric-card class="panel-col-3" variant="progress"
+          label="Borradores" [value]="statusCounts['draft'] ?? 0" [goal]="windowTotal"
+          format="number" accent="var(--c-text-3)" sub="sin enviar a aprobación"></app-metric-card>
       </ng-container>
 
       <ng-container *ngIf="mode === 'history'">
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-sync"></i>
-          </span>
-          <span class="cell-label">En curso</span>
-          <span class="cell-value" [appCountUp]="statusCounts['confirmed'] ?? 0" countUpFormat="int"></span>
-          <span class="cell-sub">a despachar</span>
-          <div class="ok-ratio" aria-hidden="true">
-            <div class="ok-ratio-track"><div class="ok-ratio-fill is-info" [style.width.%]="ratio('confirmed')"></div></div>
-            <span class="ok-ratio-pct">{{ ratio('confirmed') }}%</span>
-          </div>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-check-circle"></i>
-          </span>
-          <span class="cell-label">Entregados</span>
-          <span class="cell-value" [appCountUp]="statusCounts['fulfilled'] ?? 0" countUpFormat="int"></span>
-          <span class="cell-sub">cerrados</span>
-          <div class="ok-ratio" aria-hidden="true">
-            <div class="ok-ratio-track"><div class="ok-ratio-fill is-ok" [style.width.%]="ratio('fulfilled')"></div></div>
-            <span class="ok-ratio-pct">{{ ratio('fulfilled') }}%</span>
-          </div>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-times-circle"></i>
-          </span>
-          <span class="cell-label">Cancelados</span>
-          <span class="cell-value" [appCountUp]="statusCounts['cancelled'] ?? 0" countUpFormat="int"></span>
-          <span class="cell-sub">en el período</span>
-          <div class="ok-ratio" aria-hidden="true">
-            <div class="ok-ratio-track"><div class="ok-ratio-fill is-bad" [style.width.%]="ratio('cancelled')"></div></div>
-            <span class="ok-ratio-pct">{{ ratio('cancelled') }}%</span>
-          </div>
-        </article>
+        <app-metric-card class="panel-col-2" variant="progress"
+          label="En curso" [value]="statusCounts['confirmed'] ?? 0" [goal]="windowTotal"
+          format="number" accent="var(--info-fg)" sub="a despachar"></app-metric-card>
+        <app-metric-card class="panel-col-2" variant="progress"
+          label="Entregados" [value]="statusCounts['fulfilled'] ?? 0" [goal]="windowTotal"
+          format="number" accent="var(--ok-fg)" sub="cerrados"></app-metric-card>
+        <app-metric-card class="panel-col-2" variant="progress"
+          label="Cancelados" [value]="statusCounts['cancelled'] ?? 0" [goal]="windowTotal"
+          format="number" accent="var(--bad-fg)" sub="en el período"></app-metric-card>
       </ng-container>
     </div>
   `,
-  styles: [`
-    /* Barra de ratio: share del status sobre el libro de la ventana. Color = token semántico del estado. */
-    .ok-ratio { display: flex; align-items: center; gap: .5rem; margin-top: auto; padding-top: .75rem; }
-    .ok-ratio-track {
-      flex: 1; height: 6px; border-radius: 999px;
-      background: var(--c-surface-2); overflow: hidden;
-    }
-    .ok-ratio-fill {
-      height: 100%; border-radius: 999px;
-      transition: width 500ms var(--ease-out, cubic-bezier(.23,1,.32,1));
-    }
-    .ok-ratio-fill.is-warn    { background: var(--warn-fg); }
-    .ok-ratio-fill.is-neutral { background: var(--c-text-3, var(--neutral-400)); }
-    .ok-ratio-fill.is-info    { background: var(--info-fg); }
-    .ok-ratio-fill.is-ok      { background: var(--ok-fg); }
-    .ok-ratio-fill.is-bad     { background: var(--bad-fg); }
-    .ok-ratio-pct {
-      font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--c-text-2);
-      min-width: 34px; text-align: right;
-    }
-    @media (prefers-reduced-motion: reduce) { .ok-ratio-fill { transition: none; } }
-  `],
+  styles: [`:host { display:block; }`],
 })
 export class OrderKpisComponent {
   private _loading = false;
@@ -136,6 +67,8 @@ export class OrderKpisComponent {
   @Input() totalAmount = 0;
   @Input() total = 0;
   @Input() statusCounts: Record<string, number> = {};
+  /** J16 — serie diaria de monto para el sparkline del hero. */
+  @Input() series: number[] = [];
 
   /** Total del libro en la ventana (suma de todos los status, independiente del filtro). */
   get windowTotal(): number {
@@ -147,11 +80,5 @@ export class OrderKpisComponent {
       (c['fulfilled'] || 0) +
       (c['cancelled'] || 0)
     );
-  }
-
-  /** Share % de un status sobre el libro de la ventana. */
-  ratio(key: string): number {
-    const t = this.windowTotal;
-    return t > 0 ? Math.round(((this.statusCounts[key] || 0) / t) * 100) : 0;
   }
 }

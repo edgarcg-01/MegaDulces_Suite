@@ -173,6 +173,40 @@ export class ReportsController {
     return this.reportsService.getRouteTrack(routeId, filters, user);
   }
 
+  @Get('routes/:routeId/snapped')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Recorrido "por calles" (map-matching) + paradas por vendedor de una ruta en un día — historial',
+  })
+  getRouteSnapped(
+    @ReqUser() user: any,
+    @Param('routeId') routeId: string,
+    @Query('date') date?: string,
+  ) {
+    return this.reportsService.getRouteSnapped(routeId, date, user);
+  }
+
+  @Get('field-users')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Vendedores con actividad GPS en un día (picker del historial)' })
+  getFieldUsers(@ReqUser() user: any, @Query('date') date?: string) {
+    return this.reportsService.getFieldUsers(date, user);
+  }
+
+  @Get('vendor-day')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary: 'Día de un vendedor: recorrido por calles + paradas + KPIs (historial)',
+  })
+  getVendorDay(
+    @ReqUser() user: any,
+    @Query('user_id') userId: string,
+    @Query('date') date?: string,
+  ) {
+    return this.reportsService.getVendorDay(userId, date, user);
+  }
+
   @Get('idle/summary')
   @RequirePermissions(Permission.RUTAS_VER)
   @ApiOperation({

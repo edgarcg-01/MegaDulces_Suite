@@ -617,3 +617,7 @@
   color: var(--text-color-secondary);
   font-variant-numeric: tabular-nums;
 }
+.cm-maptools {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--divider, #e7e5e4);
+}

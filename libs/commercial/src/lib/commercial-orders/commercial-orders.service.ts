@@ -1253,6 +1253,71 @@ export class CommercialOrdersService {
     });
   }
 
+  /**
+   * J16 — serie diaria de monto + conteo de pedidos para el sparkline del KPI hero.
+   * Mismo scope/filtros que countsByStatus (incl. customer_b2b). Si no se da rango,
+   * usa los últimos 30 días (la sparkline necesita una ventana acotada). Alinea a
+   * todos los días del rango (0 en días sin pedidos). 1 query, sin N+1.
+   */
+  async dailySeries(query: ListOrdersQuery) {
+    return this.tk.run(async (trx) => {
+      let q2 = query;
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const myCustomerId = await this.resolveCustomerIdFromUser(trx);
+        if (!myCustomerId) {
+          throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        }
+        q2 = { ...query, customer_id: myCustomerId };
+      }
+
+      const to = q2.to || new Date().toISOString().slice(0, 10);
+      const from = q2.from || (() => { const d = new Date(to); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
+      const toTs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? `${to} 23:59:59` : to;
+
+      let q = trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereNull('o.deleted_at')
+        .where('o.created_at', '>=', from)
+        .where('o.created_at', '<=', toTs);
+
+      if (q2.customer_id) q = q.where('o.customer_id', q2.customer_id);
+      if (q2.user_id) q = q.where('o.user_id', q2.user_id);
+      if (q2.mine) {
+        const meId = this.tenantCtx.get()?.userId || null;
+        q = q.whereRaw(vendorTodayRouteExistsSql('c'), [meId]);
+      }
+
+      const rows = await q
+        .groupByRaw('o.created_at::date')
+        .select([
+          trx.raw('o.created_at::date as d'),
+          trx.raw('coalesce(sum(o.total), 0)::numeric as amount'),
+          trx.raw('count(o.id)::int as count'),
+        ]);
+
+      const key = (d: any) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+      const map = new Map<string, { amount: number; count: number }>();
+      for (const r of rows as any[]) map.set(key(r.d), { amount: Number(r.amount), count: Number(r.count) });
+
+      const dates: string[] = [];
+      const cur = new Date(from);
+      const end = new Date(to);
+      let guard = 0;
+      while (cur <= end && guard++ < 400) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setDate(cur.getDate() + 1);
+      }
+
+      return {
+        range: { from, to },
+        dates,
+        amount: dates.map((d) => map.get(d)?.amount ?? 0),
+        count: dates.map((d) => map.get(d)?.count ?? 0),
+      };
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Helpers privados
   // ─────────────────────────────────────────────────────────────────

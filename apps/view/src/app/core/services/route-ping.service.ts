@@ -39,6 +39,8 @@ export class RoutePingService {
   private wakeLock: any = null;
   /** Última posición usada para detectar movimiento (lat/lng). */
   private lastFix: { lat: number; lng: number } | null = null;
+  /** Timestamp del último fix encolado — evita duplicar fixes GPS cacheados. */
+  private lastEnqueuedTs = 0;
   private moving = false;
   private running = false;
   /** Alta frecuencia on-demand: el server la activa cuando un supervisor observa. */
@@ -102,8 +104,12 @@ export class RoutePingService {
 
   /** Sube a alta frecuencia por `ttlSec` (lo activa el server vía WS al observar). */
   setHighFrequency(ttlSec: number): void {
+    const wasActive = Date.now() < this.highFreqUntil;
     this.highFreqUntil = Date.now() + Math.max(0, ttlSec) * 1000;
-    if (this.running && this.pingTimer) {
+    // Adelanta el próximo tick SOLO en la transición a "observado" (una vez).
+    // Re-tickear en CADA drain creaba un loop: drain→setHighFrequency→tick→
+    // capturePing→drain→… a la velocidad del POST (ráfaga de pings idénticos).
+    if (!wasActive && this.running && this.pingTimer) {
       clearTimeout(this.pingTimer);
       this.pingTimer = setTimeout(() => void this.tick(), 0);
     }
@@ -156,7 +162,7 @@ export class RoutePingService {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 30000,
+          maximumAge: 8000,
         });
       });
     } catch {
@@ -165,6 +171,10 @@ export class RoutePingService {
 
     // Descarta fixes de precisión basura (ubicación por red, acc ~50km).
     if (pos.coords.accuracy != null && pos.coords.accuracy > RoutePingService.MAX_ACCURACY_M) return;
+    // Mismo fix GPS que el anterior (getCurrentPosition devolvió caché): no duplicar.
+    const ts = pos.timestamp || Date.now();
+    if (ts === this.lastEnqueuedTs) return;
+    this.lastEnqueuedTs = ts;
 
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;

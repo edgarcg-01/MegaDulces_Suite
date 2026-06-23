@@ -172,13 +172,19 @@
         <h3><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Tiendas</h3>
       </div>
       <div class="surf-panel-body is-flush">
+        @if (canSeeLive()) {
+          <div class="cm-maptools">
+            <app-map-legend [layers]="liveLegend()" (toggle)="toggleLive()"></app-map-legend>
+          </div>
+        }
         @if (loading()) {
           <p-skeleton height="560px"></p-skeleton>
-        } @else if (mapMarkers().length === 0) {
+        } @else if (mapMarkers().length === 0 && !showLive()) {
           <div class="cm-empty">Sin tiendas ubicables con los filtros actuales.</div>
         } @else {
           <app-map
             [markers]="mapMarkers()"
+            [layers]="mapLayers()"
             height="560px"
             (markerClick)="onMarkerClick($event)"
           ></app-map>
