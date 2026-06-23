@@ -22,8 +22,9 @@ import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ComercialService, Product, UpdateProductDto } from '../comercial.service';
+import { ComercialService, Product, ProductStats, UpdateProductDto } from '../comercial.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type ActiveFilter = 'all' | 'active' | 'inactive';
 
@@ -46,6 +47,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     ToastModule,
     TooltipModule,
     SkeletonModule,
+    MetricCardComponent,
   ],
   providers: [MessageService],
   template: `
@@ -136,29 +138,27 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
         </article>
       </div>
 
-      <!-- KPI strip -->
-      <p-skeleton *ngIf="loading()" height="80px"></p-skeleton>
-      <div *ngIf="!loading()" class="sheet cols-12">
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-box"></i></span>
-          <span class="cell-label">SKUs</span>
-          <span class="cell-value">{{ fmtNumber(total()) }}</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
-          <span class="cell-label">Activos</span>
-          <span class="cell-value">{{ fmtNumber(kpis().active) }}</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-dollar"></i></span>
-          <span class="cell-label">Con costo</span>
-          <span class="cell-value">{{ fmtNumber(kpis().withCost) }}</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-map-marker"></i></span>
-          <span class="cell-label">Con ubicación</span>
-          <span class="cell-value">{{ fmtNumber(kpis().withLocation) }}</span>
-        </article>
+      <!-- KPI BENTO — agregados catálogo-wide (no del paginado) -->
+      <p-skeleton *ngIf="!stats()" height="132px"></p-skeleton>
+      <div *ngIf="stats() as s" class="surf-grid pp-bento">
+        <app-metric-card class="panel-col-3"
+          label="SKUs en catálogo" [value]="s.total" format="number"
+          accent="var(--action)"
+          [variant]="brandSeries().length > 1 ? 'bars' : 'plain'"
+          [series]="brandSeries()" [seriesLabels]="brandLabels()" [highlightLast]="false"
+          [sub]="s.brands + ' marcas · ' + s.categories + ' categorías'"></app-metric-card>
+
+        <app-metric-card class="panel-col-3" variant="progress"
+          label="Activos" [value]="s.active" [goal]="s.total" format="number"
+          accent="var(--ok-fg)" sub="visibles en portal y vendedor"></app-metric-card>
+
+        <app-metric-card class="panel-col-3" variant="progress"
+          label="Con costo" [value]="s.with_cost" [goal]="s.total" format="number"
+          accent="var(--chart-2)" sub="validados desde el ERP"></app-metric-card>
+
+        <app-metric-card class="panel-col-3" variant="progress"
+          label="Con ubicación" [value]="s.with_location" [goal]="s.total" format="number"
+          accent="var(--chart-6)" sub="ubicación asignada"></app-metric-card>
       </div>
 
       <!-- Table -->
@@ -175,7 +175,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             [rowsPerPageOptions]="[25, 50, 100, 200]"
             (onLazyLoad)="onLazyLoad($event)"
             responsiveLayout="scroll"
-            styleClass="p-datatable-sm pp-table"
+            styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
             [rowHover]="true"
           >
             <ng-template pTemplate="header">
@@ -237,9 +237,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="9" class="pp-empty-cell">
-                  <div class="pp-empty">
-                    <div class="pp-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
+                <td colspan="9" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                     <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
                     <p *ngIf="searchInput">No se encontraron productos con "{{ searchInput }}".</p>
                     <p *ngIf="!searchInput">Sincronizar desde Mega_Dulces ERP:</p>
@@ -308,6 +308,8 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     .pp-head-actions { display: flex; gap: 0.5rem; align-items: center; }
     .pp-divider { opacity: 0.4; }
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
+
+    .pp-bento { margin-bottom: 1rem; }
 
     .pp-filters-cell { display: flex; flex-direction: column; }
     .pp-toolbar {
@@ -423,24 +425,6 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     .pp-status.is-on { color: var(--c-text-1); }
     .pp-status.is-on .pp-status-dot { background: var(--c-ok); }
 
-    .pp-empty-cell { padding: 0 !important; }
-    .pp-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 480px;
-      margin: 0 auto;
-    }
-    .pp-empty-icon {
-      width: 56px; height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid; place-items: center;
-      font-size: 1.5rem;
-    }
-    .pp-empty h3 { margin: 0 0 .375rem; font-size: var(--fs-h3); color: var(--c-text-1); }
-    .pp-empty p { margin: 0 0 1rem; color: var(--c-text-2); font-size: var(--fs-sm); }
     .pp-empty-cmd { display: inline-block; padding: .4rem .75rem; font-size: var(--fs-xs); }
 
     /* ── Edit dialog ── */
@@ -492,15 +476,10 @@ export class ComercialProductsComponent {
   ];
   onlyWithCost = false;
 
-  // KPI computed from current page (approx).
-  readonly kpis = computed(() => {
-    const list = this.rows();
-    return {
-      active: list.filter((p) => p.activo).length,
-      withCost: list.filter((p) => p.cost_base != null).length,
-      withLocation: list.filter((p) => p.location).length,
-    };
-  });
+  /** Agregados catálogo-wide (no del paginado). Honra el search. */
+  readonly stats = signal<ProductStats | null>(null);
+  readonly brandSeries = computed(() => this.stats()?.top_brands.map((b) => b.sku_count) ?? []);
+  readonly brandLabels = computed(() => this.stats()?.top_brands.map((b) => b.name) ?? []);
 
   // Edit dialog
   readonly editing = signal<Product | null>(null);
@@ -516,6 +495,15 @@ export class ComercialProductsComponent {
 
   constructor() {
     this.load();
+    this.loadStats();
+  }
+
+  /** Agregados catálogo-wide. Solo depende del search (no del segmento/costo ni del paginado). */
+  private loadStats(): void {
+    this.api
+      .productStats(this.searchSignal() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (s) => this.stats.set(s), error: () => this.stats.set(null) });
   }
 
   load(): void {
@@ -559,12 +547,14 @@ export class ComercialProductsComponent {
   private readonly searchDebounced = makeDebouncedSearch((v) => {
     this.searchSignal.set((v || '').trim());
     this.reload();
+    this.loadStats();
   });
 
   clearSearch(): void {
     this.searchInput = '';
     this.searchSignal.set('');
     this.reload();
+    this.loadStats();
   }
 
   setActiveFilter(key: ActiveFilter): void {
@@ -579,6 +569,7 @@ export class ComercialProductsComponent {
     this.activeFilter.set('all');
     this.onlyWithCost = false;
     this.reload();
+    this.loadStats();
   }
 
   hasActiveFilters(): boolean {
@@ -623,6 +614,7 @@ export class ComercialProductsComponent {
         this.dialogVisible = false;
         this.toast.add({ severity: 'success', summary: 'Producto actualizado' });
         this.load();
+        this.loadStats();
       },
       error: (err) => {
         this.saving.set(false);

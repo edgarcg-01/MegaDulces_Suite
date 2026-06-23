@@ -50,6 +50,15 @@ export class CommercialProductsController {
     });
   }
 
+  @Get('stats')
+  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @ApiOperation({
+    summary: 'Agregados catálogo-wide para KPIs (total/activos/con-costo/con-ubicación + top marcas). Honra search.',
+  })
+  stats(@Query('search') search?: string) {
+    return this.service.stats(search);
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.CATALOGO_GESTIONAR)
   @ApiOperation({

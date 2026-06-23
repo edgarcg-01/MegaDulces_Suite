@@ -2784,6 +2784,105 @@ code.comm-code,
 }
 
 /* ============================================================
+ * SURF-TABLE — fundación de tablas profesionales (Operations).
+ * Modificadores OPT-IN sobre p-table (PrimeNG) vía `styleClass`.
+ * Spec completa: docs/DESIGN_TABLES.md.
+ *
+ * El scroll vive en el <main> del layout (overflow-y-auto), por
+ * eso el header sticky usa top:0 (el topbar/breadcrumb están
+ * fuera del área scrolleable → no hace falta offset).
+ *
+ * Uso: styleClass="p-datatable-sm surf-table surf-table--sticky
+ *      surf-table--frozen-first surf-table--zebra"
+ * ============================================================ */
+
+/* Header sticky — pega el thead al tope del área scrolleable. */
+.surf-table--sticky thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card-bg);
+}
+
+/* Zebra sutil para no perder la fila en tablas largas (NN/g 5-10%). */
+.surf-table--zebra tbody > tr:nth-child(even) > td {
+  background: var(--table-zebra);
+}
+/* Hover gana sobre zebra: debe ir DESPUÉS en el orden del archivo. */
+.surf-table--zebra tbody > tr:hover > td,
+.surf-table--frozen-first tbody > tr:hover > td {
+  background: var(--table-hover);
+}
+
+/* Primera columna congelada en scroll horizontal (responsiveLayout="scroll").
+ * La celda lleva bg opaco; zebra/hover la sobreescriben para no desalinear. */
+.surf-table--frozen-first thead > tr > th:first-child,
+.surf-table--frozen-first tbody > tr > td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card-bg);
+  box-shadow: inset -1px 0 0 var(--table-border);
+}
+/* La esquina (sticky en ambos ejes) debe ganar al header normal. */
+.surf-table--frozen-first.surf-table--sticky thead > tr > th:first-child {
+  z-index: 3;
+}
+/* Zebra en la columna congelada: opaca (mezcla zebra+card) para tapar lo que scrollea debajo. */
+.surf-table--frozen-first.surf-table--zebra tbody > tr:nth-child(even) > td:first-child {
+  background: color-mix(in srgb, var(--table-zebra), var(--card-bg));
+}
+.surf-table--frozen-first tbody > tr:hover > td:first-child {
+  background: color-mix(in srgb, var(--table-hover), var(--card-bg));
+}
+
+/* Densidad compacta opt-in (~32px). Default = p-datatable-sm. */
+.surf-table--compact tbody > tr > td {
+  padding-top: 0.3rem !important;
+  padding-bottom: 0.3rem !important;
+}
+
+/* Alias canónico de celda numérica: .num == .comm-num (unifica
+ * logística/command-center). Solo en celdas de tabla, no global. */
+td.num, th.num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── EMPTY STATE de tabla, global (reemplaza pp-/sh-/cc- duplicados) ── */
+.comm-empty-cell { padding: 0 !important; }
+.comm-empty {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  max-width: 460px;
+  margin: 0 auto;
+}
+.comm-empty-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 1rem;
+  border-radius: 14px;
+  background: var(--c-surface-2, var(--neutral-100));
+  color: var(--c-text-2, var(--text-color-secondary));
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+}
+.comm-empty h3 {
+  margin: 0 0 0.375rem;
+  font-size: var(--fs-h3, 1.05rem);
+  font-weight: var(--fw-bold, 700);
+  color: var(--c-text-1, var(--text-main));
+}
+.comm-empty p {
+  margin: 0 0 1rem;
+  color: var(--c-text-2, var(--text-color-secondary));
+  font-size: var(--fs-sm, 0.875rem);
+  line-height: 1.45;
+}
+
+/* ============================================================
  * SHEET / CELL — dashboard BI clásico estilo Salesforce/Tableau.
  * Celdas pegadas, divididas por hairlines 1px (NO gap visual,
  * NO radius interior). Un único panel grande dividido.

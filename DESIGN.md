@@ -263,7 +263,7 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 ### Patrones canónicos Operations
 1. **Master-Detail** — Rutas, Pedidos, Clientes, Embarques, Tickets. Aside 280-320px sticky + section flex-1. Mobile: stack con back-button (patrón implementado en `/dashboard/routes` 2026-06-08 — referencia).
 2. **KPI Strip** — 4-5 metrics en row, mono-tabular, delta vs target con color semántico. SIN íconos en círculos de color (eso es AI slop).
-3. **Tabla densa** — row 40px desktop / 56px mobile, sticky header, scroll horizontal con primera columna pegada, sort visible en header, paginación abajo. PrimeNG `p-table` con `styleClass="p-datatable-sm"`.
+3. **Tabla densa** — row 40px desktop / 56px mobile, sticky header, scroll horizontal con primera columna pegada, sort visible en header, paginación abajo. PrimeNG `p-table` con `styleClass="p-datatable-sm"`. **Spec completa de tablas profesionales (anatomía, estados, a11y, sort, selección, gaps + plan de adopción): [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).**
 4. **Empty state operacional** — ícono PrimeIcon mediano + título neutral + descripción + CTA accionable. NUNCA "No items found." sin más. Voz: técnica, no editorial. Ejemplo correcto: "Ninguna ruta registra actividad entre 01/06/26 y 08/06/26. [Ampliar a 30 días]".
 5. **Mapa Leaflet** — pin numerado sequence (sunset `--action`), pin gris en pendientes (`--neutral-400`), polyline dashed sunset para recorrido. Token canónico: `var(--action)`, no `var(--brand)`.
 6. **Filtros** — rango de fechas top-right del header del apartado, filtros secundarios contextualizados en el card específico que filtran (NO banda global de filtros mid-page que parece ruido).

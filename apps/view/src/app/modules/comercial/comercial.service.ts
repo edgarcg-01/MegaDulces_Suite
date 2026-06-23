@@ -117,6 +117,17 @@ export interface ProductsPage {
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
+export interface ProductStats {
+  total: number;
+  active: number;
+  inactive: number;
+  with_cost: number;
+  with_location: number;
+  brands: number;
+  categories: number;
+  top_brands: { name: string; sku_count: number }[];
+}
+
 export interface UpdateProductDto {
   description?: string | null;
   location?: string | null;
@@ -533,6 +544,11 @@ export class ComercialService {
     if (opts.active !== undefined) params = params.set('active', String(opts.active));
     if (opts.with_cost) params = params.set('with_cost', 'true');
     return this.http.get<ProductsPage>(`${this.base}/products`, { params });
+  }
+  productStats(search?: string) {
+    let params = new HttpParams();
+    if (search?.trim()) params = params.set('search', search.trim());
+    return this.http.get<ProductStats>(`${this.base}/products/stats`, { params });
   }
   findProduct(id: string) {
     return this.http.get<Product>(`${this.base}/products/${id}`);

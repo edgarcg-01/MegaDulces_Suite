@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { ComercialService, VendorSaleCapture, VendorSaleLine } from '../comercial.service';
 import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 /**
  * Ventas de vendedor (admin) — la parte "comercial" del ticket OCR de la captura
@@ -18,13 +18,13 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
 @Component({
   selector: 'app-comercial-vendor-sales',
   standalone: true,
-  imports: [CommonModule, FormsModule, CardModule, TableModule, TagModule, ButtonModule, DialogModule],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, DialogModule, MetricCardComponent],
   template: `
     <div class="surf-page vs">
-      <header class="vs-head">
-        <div>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
           <h1>Ventas de vendedor</h1>
-          <p>Tickets de venta capturados por OCR en la visita del vendedor</p>
+          <p class="surf-page-sub">Tickets de venta capturados por OCR en la visita del vendedor</p>
         </div>
       </header>
 
@@ -35,10 +35,19 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
         <button pButton icon="pi pi-refresh" severity="secondary" [text]="true" (click)="reload()" aria-label="Recargar"></button>
       </div>
 
-      <div class="kpis">
-        <p-card styleClass="kpi"><div class="k"><span class="v">{{ captures().length }}</span><span class="l">Tickets</span></div></p-card>
-        <p-card styleClass="kpi"><div class="k"><span class="v">{{ totalLineas() }}</span><span class="l">Líneas</span></div></p-card>
-        <p-card styleClass="kpi"><div class="k"><span class="v">{{ totalUnidades() }}</span><span class="l">Unidades</span></div></p-card>
+      <div class="surf-grid vs-bento">
+        <app-metric-card class="panel-col-6" [large]="true"
+          label="Tickets" [value]="captures().length" format="number"
+          accent="var(--action)"
+          [variant]="daily().values.length > 1 ? 'sparkline' : 'plain'"
+          [series]="daily().values" [seriesLabels]="daily().labels"
+          sub="capturados por OCR en el rango"></app-metric-card>
+        <app-metric-card class="panel-col-3"
+          label="Líneas" [value]="totalLineas()" format="number"
+          accent="var(--chart-2)" sub="productos detectados"></app-metric-card>
+        <app-metric-card class="panel-col-3"
+          label="Unidades" [value]="totalUnidades()" format="number"
+          accent="var(--chart-6)" sub="piezas vendidas"></app-metric-card>
       </div>
 
       <p-table [value]="captures()" [loading]="loading()" styleClass="p-datatable-sm" [paginator]="captures().length > 25" [rows]="25">
@@ -110,17 +119,9 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
   `,
   styles: [
     `
-      .vs-head { margin-bottom: 1rem; }
-      .vs-head h1 { margin: 0; font-size: 1.5rem; color: var(--text-main); }
-      .vs-head p { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .filters input[type=date] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); }
-      .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
-      @media (max-width: 720px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
-      :host ::ng-deep .p-card.kpi .p-card-body { padding: 0.875rem; }
-      .k { text-align: center; display: flex; flex-direction: column; gap: 0.25rem; }
-      .k .v { font-size: 1.25rem; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
-      .k .l { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+      .vs-bento { margin-bottom: 1rem; }
       .num { text-align: right; font-variant-numeric: tabular-nums; }
       .strong { font-weight: 600; color: var(--text-main); }
       .actions { text-align: right; }
@@ -131,7 +132,7 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
       .detail-meta .dv { display: block; color: var(--text-main); font-weight: 500; }
       .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       @media (max-width: 640px) { .detail-grid { grid-template-columns: 1fr; } }
-      .ticket-photo img { width: 100%; border-radius: 8px; border: 1px solid var(--border-color); object-fit: contain; max-height: 420px; background: #000; }
+      .ticket-photo img { width: 100%; border-radius: 8px; border: 1px solid var(--border-color); object-fit: contain; max-height: 420px; background: var(--neutral-900); }
       .no-photo { padding: 2rem; text-align: center; color: var(--text-muted); border: 1px dashed var(--border-color); border-radius: 8px; }
       .lines h3 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--text-main); }
     `,
@@ -150,6 +151,17 @@ export class ComercialVendorSalesComponent implements OnInit {
 
   readonly totalLineas = computed(() => this.captures().reduce((a, c) => a + Number(c.lineas || 0), 0));
   readonly totalUnidades = computed(() => this.captures().reduce((a, c) => a + Number(c.unidades || 0), 0));
+
+  /** Tickets por día (dataset completo del rango) → sparkline del hero. */
+  readonly daily = computed(() => {
+    const map = new Map<string, number>();
+    for (const c of this.captures()) {
+      const d = (c.sale_date || '').slice(0, 10);
+      if (d) map.set(d, (map.get(d) ?? 0) + 1);
+    }
+    const labels = [...map.keys()].sort();
+    return { values: labels.map((k) => map.get(k) as number), labels };
+  });
 
   dateFrom = this.daysAgo(30);
   dateTo = this.today();

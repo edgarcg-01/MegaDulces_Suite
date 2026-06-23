@@ -10,6 +10,39 @@
 
 ## [Unreleased]
 
+### Added — Capacidades Mapbox: geocoding, ETA, optimización, imagen (backend) (2026-06-23)
+- **Geocoding** (`database/scripts/geocode-mapbox.js`): geocodifica `commercial.customers` (dirección → lat/lng)
+  vía Mapbox con score de relevancia — mejor que Nominatim; mejores coords → mejor geofence/cobertura/visitas.
+- **`MapboxService`** + endpoints: `GET /reports/eta` (Directions con tráfico → minutos al próximo cliente),
+  `POST /reports/optimize-stops` (Optimization, orden óptimo de visita ≤12 paradas), y `map_image_url` en
+  `vendor-day` (Static Images — imagen del recorrido para PDF/WhatsApp). Verificado contra Mapbox con datos reales.
+- Pendiente: wiring UI (ETA/optimizar en app vendedor) + `MAPBOX_TOKEN` en Railway.
+
+### Added — Resumen del equipo (Mapa de Campo → Equipo) (2026-06-23)
+- Nueva pestaña **Equipo** (vista por defecto de Mapa de Campo): tabla del personal de campo activo hoy con
+  estado en vivo, jornada, km aprox, visitas detectadas por GPS y **cuántas sin captura** (ordenada por gap).
+  Clic en una fila → salta a "Por vendedor" de ese vendedor/día. Endpoint `GET /reports/team-day` (barato,
+  sin map-matching: pings crudos + paradas + geofence + capturas por ventana de tiempo).
+
+### Added — Detección automática de visitas (GPS) (2026-06-23)
+- En **Mapa de Campo → Por vendedor**, las paradas geofenceadas a una tienda (≥5 min, ≤90 m) se listan como
+  **visitas detectadas**, cruzadas con las capturas reales por **ventana de tiempo** (confiable, no depende del
+  `store_id` ralo de capturas) → badge **capturó / sin captura**. KPI con conteo + "sin captura". Resuelve el gap
+  de cobertura real: "estuvo en la tienda pero no registró visita". Sin esquema nuevo (reusa `getVendorDay`).
+
+### Added — Mapa de Campo: superficie unificada (consolida Rutas + Historial + Comercial) (2026-06-23)
+- Nuevo `/dashboard/field-map` con selector de vista **Por ruta / Por vendedor / Exhibición** (refleja `?view=`).
+  Consolida 3 superficies de mapa en 1 entrada de nav (MF.1: cada vista monta su componente existente, sin
+  regresión). Nav de "Mapas" baja de 4 a 2 ítems (Mapa en Vivo + Mapa de Campo). Tab Exhibición gateada
+  `COMMERCIAL_MAP_VER`. Rutas viejas siguen vivas para deep-links. Pendiente MF.2+: unificar mapa + drill-down.
+
+### Changed — Tracking: tag de plataforma + APK con fixes (2026-06-23)
+- Pings ahora llevan `platform` (web/android/ios) — migración `route_location_pings.platform` + DTO + ingest +
+  ambos clientes. Zanja "¿web o nativo?" en el diagnóstico de por qué un vendedor no aparece.
+- APK nativo reconstruido con todos los fixes de tracking (anti-loop, heartbeat detenido, background). **Lo
+  desplegado estaba viejo**: requiere redeploy + reinstalar APK + en el teléfono "Permitir todo el tiempo" +
+  quitar optimización de batería para rastrear con pantalla bloqueada.
+
 ### Added — Mapa en Vivo: alertas en vivo (detenido / sin señal) (2026-06-23)
 - **`FieldAlertsScannerService`** (`@Cron */4 min`, read-only sobre `route_location_pings`): detecta
   **offline** (dejó de reportar hace 20–180 min) e **idle** (≥15 min detenido dentro de 70 m). Cooldown 1 h

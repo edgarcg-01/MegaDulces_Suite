@@ -24,9 +24,16 @@ export interface SnappedTrack {
   distance_m: number;
   point_count: number;
   confidence: number | null;
+  /** true si el matching fue de baja confianza (datos ralos/ruidosos): la
+   *  geometría es aproximada y distance_m usa la distancia cruda limpia, no la
+   *  de Mapbox. El frontend lo marca como "≈ aprox". */
+  low_confidence: boolean;
   stops: SnappedStop[];
   cached: boolean;
 }
+
+/** Confianza mínima de Mapbox para fiarnos del trazo + distancia snapped. */
+const MIN_CONFIDENCE = 0.3;
 
 /**
  * R.1/R.2 — Historial de ruta "por calles". Toma los breadcrumbs GPS crudos de
@@ -72,11 +79,13 @@ export class MapMatchingService {
           })
           .first();
     if (cached) {
+      const conf = cached.confidence != null ? Number(cached.confidence) : null;
       return {
         geometry: cached.geometry,
         distance_m: Number(cached.distance_m) || 0,
         point_count: cached.point_count || 0,
-        confidence: cached.confidence != null ? Number(cached.confidence) : null,
+        confidence: conf,
+        low_confidence: conf == null || conf < MIN_CONFIDENCE,
         stops: cached.stops || [],
         cached: true,
       };
@@ -126,12 +135,25 @@ export class MapMatchingService {
     }
     if (coords.length < 2) return null;
 
+    // Distancia cruda LIMPIA (haversine entre pings, saltando teleports >800m):
+    // fallback honesto cuando el matching no es confiable.
+    let rawCleanM = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const d = MapMatchingService.haversineM(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+      if (d <= 800) rawCleanM += d;
+    }
+
+    const confidence = confN ? confSum / confN : null;
+    const lowConfidence = confidence == null || confidence < MIN_CONFIDENCE;
+
     const stops = await this.detectStops(tenantId, pts);
     const result: SnappedTrack = {
       geometry: { type: 'LineString', coordinates: coords },
-      distance_m: Math.round(distance),
+      // Baja confianza → la distancia de Mapbox no es fiable; usar la cruda limpia.
+      distance_m: Math.round(lowConfidence ? rawCleanM : distance),
       point_count: pts.length,
-      confidence: confN ? confSum / confN : null,
+      confidence,
+      low_confidence: lowConfidence,
       stops,
       cached: false,
     };
@@ -227,8 +249,9 @@ export class MapMatchingService {
     return raw;
   }
 
-  /** Detecta paradas: corridas de pings dentro de STOP_RADIUS_M por >= STOP_MIN_MINUTES. */
-  private static computeStops(pts: { lat: number; lng: number; ts: number }[]): SnappedStop[] {
+  /** Detecta paradas: corridas de pings dentro de STOP_RADIUS_M por >= STOP_MIN_MINUTES.
+   *  Público + estático: reusado por el resumen de equipo (sin map-matching). */
+  static computeStops(pts: { lat: number; lng: number; ts: number }[]): SnappedStop[] {
     const stops: SnappedStop[] = [];
     let i = 0;
     while (i < pts.length) {

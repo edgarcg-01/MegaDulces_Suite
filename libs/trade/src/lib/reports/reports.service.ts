@@ -5,6 +5,7 @@ import { getDataScope } from '@megadulces/platform-core';
 import { EventsService } from '../websocket/events.service';
 import { ReportsCacheService } from './reports-cache.service';
 import { MapMatchingService } from './map-matching.service';
+import { MapboxService } from './mapbox.service';
 import { toMxDateKey, todayMx } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
@@ -17,6 +18,7 @@ export class ReportsService {
     private readonly eventsService: EventsService,
     private readonly cache: ReportsCacheService,
     private readonly mapMatching: MapMatchingService,
+    private readonly mapbox: MapboxService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {
     this.eventsService.onCaptureChange = async (affectedUserIds: string[]) => {
@@ -2008,7 +2010,7 @@ export class ReportsService {
     userId: string,
     date: string | undefined,
     user: any,
-  ): Promise<{ user_id: string; username: string; date: string; snapped: any; kpis: any } | null> {
+  ): Promise<{ user_id: string; username: string; date: string; snapped: any; detected_visits: any[]; map_image_url: string | null; kpis: any } | null> {
     const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
     if (!ReportsService.UUID_RE.test(userId || '')) return null;
     const scope = getDataScope(user);
@@ -2044,11 +2046,34 @@ export class ReportsService {
     const distKm = snapped?.distance_m ? Math.round(snapped.distance_m / 100) / 10 : 0;
     const speedKmh = movingMin > 0 ? Math.round((distKm / (movingMin / 60)) * 10) / 10 : null;
 
+    // Visitas detectadas por GPS = paradas geofenceadas a una tienda. Se cruzan
+    // con las capturas reales por VENTANA DE TIEMPO (confiable; daily_captures.
+    // store_id está poco poblado) → flag captured = "estuvo y registró" vs gap.
+    const detected = stops.filter((s: any) => s.store_id);
+    if (detected.length > 0) {
+      const caps = await this.knex('daily_captures')
+        .where({ tenant_id: tenantId, user_id: userId })
+        .whereRaw("DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') = ?", [day])
+        .select('hora_inicio');
+      const capTimes = caps.map((c: any) => new Date(c.hora_inicio).getTime());
+      for (const d of detected as any[]) {
+        const a = new Date(d.arrived).getTime() - 5 * 60000;
+        const b = new Date(d.left).getTime() + 5 * 60000;
+        d.captured = capTimes.some((t) => t >= a && t <= b);
+      }
+    }
+
+    const mapImageUrl = snapped?.geometry?.coordinates?.length
+      ? this.mapbox.staticImageUrl(snapped.geometry.coordinates as any)
+      : null;
+
     return {
       user_id: userId,
       username,
       date: day,
       snapped,
+      detected_visits: detected,
+      map_image_url: mapImageUrl,
       kpis: {
         pings: Number(meta?.pings) || 0,
         first_at: meta?.first || null,
@@ -2059,8 +2084,139 @@ export class ReportsService {
         moving_min: movingMin,
         distance_km: distKm,
         avg_speed_kmh: speedKmh,
+        detected_visits: detected.length,
+        uncaptured_visits: (detected as any[]).filter((d) => !d.captured).length,
       },
     };
+  }
+
+  /**
+   * Resumen del equipo HOY (un vistazo del supervisor): por vendedor con
+   * actividad GPS — última señal, jornada, km aprox (haversine), visitas
+   * detectadas + sin captura, y estado en vivo. Barato: sin map-matching
+   * (Mapbox) — usa pings crudos + computeStops + geofence + capturas por
+   * ventana de tiempo. Scope own/team/all + tenant explícito.
+   */
+  async getTeamDay(
+    date: string | undefined,
+    user: any,
+  ): Promise<{ rows: any[]; date: string }> {
+    const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (!tenantId) return { rows: [], date: day };
+
+    const fieldUsers = (await this.getFieldUsers(day, user)).users;
+    if (fieldUsers.length === 0) return { rows: [], date: day };
+    const userIds = fieldUsers.map((u) => u.user_id);
+    const stores = (await this.getStoresGeo(user)).stores;
+
+    const pings = await this.knex('public.route_location_pings')
+      .where('tenant_id', tenantId)
+      .whereIn('user_id', userIds)
+      .whereRaw("DATE(captured_at AT TIME ZONE 'America/Mexico_City') = ?", [day])
+      .orderBy('user_id', 'asc')
+      .orderBy('captured_at', 'asc')
+      .select('user_id', 'lat', 'lng', 'captured_at', 'speed_mps');
+    const pingsByUser = new Map<string, any[]>();
+    for (const p of pings) {
+      let arr = pingsByUser.get(p.user_id);
+      if (!arr) { arr = []; pingsByUser.set(p.user_id, arr); }
+      arr.push(p);
+    }
+
+    const caps = await this.knex('daily_captures')
+      .where('tenant_id', tenantId)
+      .whereIn('user_id', userIds)
+      .whereRaw("DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') = ?", [day])
+      .select('user_id', 'hora_inicio');
+    const capsByUser = new Map<string, number[]>();
+    for (const c of caps) {
+      let arr = capsByUser.get(c.user_id);
+      if (!arr) { arr = []; capsByUser.set(c.user_id, arr); }
+      arr.push(new Date(c.hora_inicio).getTime());
+    }
+
+    const now = Date.now();
+    const nearestM = (lat: number, lng: number): number => {
+      let best = Infinity;
+      for (const s of stores) {
+        const d = (ReportsService.haversineKm(lat, lng, s.lat, s.lng) ?? Infinity) * 1000;
+        if (d < best) best = d;
+      }
+      return best;
+    };
+
+    const rows = fieldUsers.map((u) => {
+      const ps = pingsByUser.get(u.user_id) || [];
+      if (ps.length === 0)
+        return { user_id: u.user_id, username: u.username, last_at: null, active_min: 0, distance_km: 0, detected_visits: 0, uncaptured_visits: 0, status: 'offline', pings: 0 };
+      const firstT = new Date(ps[0].captured_at).getTime();
+      const lastP = ps[ps.length - 1];
+      const lastT = new Date(lastP.captured_at).getTime();
+      let km = 0;
+      for (let i = 1; i < ps.length; i++)
+        km += ReportsService.haversineKm(Number(ps[i - 1].lat), Number(ps[i - 1].lng), Number(ps[i].lat), Number(ps[i].lng)) ?? 0;
+
+      const stops = MapMatchingService.computeStops(
+        ps.map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), ts: new Date(p.captured_at).getTime() })),
+      );
+      const capTimes = capsByUser.get(u.user_id) || [];
+      let detected = 0, uncaptured = 0;
+      for (const s of stops) {
+        if (nearestM(s.lat, s.lng) > 90) continue;
+        detected++;
+        const a = new Date(s.arrived).getTime() - 5 * 60000;
+        const b = new Date(s.left).getTime() + 5 * 60000;
+        if (!capTimes.some((t) => t >= a && t <= b)) uncaptured++;
+      }
+
+      const ageMin = (now - lastT) / 60000;
+      let status: string;
+      if (ageMin > 20) status = 'offline';
+      else if (lastP.speed_mps != null && Number(lastP.speed_mps) > 1.4) status = 'moving';
+      else status = nearestM(Number(lastP.lat), Number(lastP.lng)) <= 80 ? 'instore' : 'idle';
+
+      return {
+        user_id: u.user_id,
+        username: u.username,
+        last_at: lastP.captured_at,
+        active_min: Math.round((lastT - firstT) / 60000),
+        distance_km: Math.round(km * 10) / 10,
+        detected_visits: detected,
+        uncaptured_visits: uncaptured,
+        status,
+        pings: ps.length,
+      };
+    });
+
+    rows.sort((a, b) => b.uncaptured_visits - a.uncaptured_visits || b.active_min - a.active_min);
+    return { rows, date: day };
+  }
+
+  /** ETA (tráfico) entre dos coords — app del vendedor: "próximo cliente a X min". */
+  async getEta(
+    fromLat: number, fromLng: number, toLat: number, toLng: number,
+  ): Promise<{ duration_min: number; distance_km: number } | null> {
+    if (![fromLat, fromLng, toLat, toLng].every((n) => Number.isFinite(n))) return null;
+    const r = await this.mapbox.directions([[fromLng, fromLat], [toLng, toLat]]);
+    if (!r) return null;
+    return { duration_min: Math.round(r.duration_s / 60), distance_km: Math.round(r.distance_m / 100) / 10 };
+  }
+
+  /**
+   * Orden óptimo de visita (TSP con tráfico). Mapbox Optimization ≤12 puntos;
+   * el primero se asume el inicio. Devuelve el orden (índices) o null si no
+   * aplica (>12 / falla) → el caller usa su solver propio.
+   */
+  async optimizeRoute(
+    stops: { lat: number; lng: number }[],
+  ): Promise<{ order: number[]; distance_km: number; duration_min: number } | null> {
+    const valid = (stops || []).filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+    if (valid.length < 2) return null;
+    const r = await this.mapbox.optimize(valid.map((s) => [s.lng, s.lat] as [number, number]));
+    if (!r) return null;
+    return { order: r.order, distance_km: Math.round(r.distance_m / 100) / 10, duration_min: Math.round(r.duration_s / 60) };
   }
 
   /**
@@ -2187,6 +2343,7 @@ export class ReportsService {
       accuracy_m: p.accuracy_m ?? null,
       speed_mps: p.speed_mps ?? null,
       source: p.source || 'foreground',
+      platform: p.platform || null,
     }));
 
     const inserted = await this.knex('public.route_location_pings')

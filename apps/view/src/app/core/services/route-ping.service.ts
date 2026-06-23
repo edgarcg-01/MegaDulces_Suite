@@ -1,5 +1,6 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Capacitor } from '@capacitor/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
@@ -233,6 +234,7 @@ export class RoutePingService {
         accuracy_m: p.accuracyM,
         speed_mps: p.speedMps,
         source: p.source,
+        platform: Capacitor.getPlatform(),
       })),
     };
     try {

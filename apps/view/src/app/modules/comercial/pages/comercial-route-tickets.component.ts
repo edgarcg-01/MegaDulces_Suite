@@ -1,7 +1,6 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -12,6 +11,7 @@ import {
   RouteResumen,
 } from '../comercial.service';
 import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 /**
  * Cierre de ruta (admin) — control de los tickets que suben los vendedores:
@@ -21,13 +21,13 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
 @Component({
   selector: 'app-comercial-route-tickets',
   standalone: true,
-  imports: [CommonModule, FormsModule, CardModule, TableModule, TagModule, ButtonModule, SelectModule],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectModule, MetricCardComponent],
   template: `
     <div class="surf-page rt">
-      <header class="rt-head">
-        <div>
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
           <h1>Cierre de ruta</h1>
-          <p>Tickets de venta, carga y combustible que suben los vendedores</p>
+          <p class="surf-page-sub">Tickets de venta, carga y combustible que suben los vendedores</p>
         </div>
       </header>
 
@@ -48,11 +48,19 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
         <button pButton icon="pi pi-refresh" severity="secondary" [text]="true" (click)="reload()"></button>
       </div>
 
-      <div class="kpis">
-        <p-card styleClass="kpi"><div class="k"><span class="v ok">{{ money(resumen()?.ventas) }}</span><span class="l">Ventas (corte)</span></div></p-card>
-        <p-card styleClass="kpi"><div class="k"><span class="v bad">{{ money(resumen()?.gasto) }}</span><span class="l">Combustible</span></div></p-card>
-        <p-card styleClass="kpi"><div class="k"><span class="v">{{ money(resumen()?.rentabilidad) }}</span><span class="l">Rentabilidad</span></div></p-card>
-        <p-card styleClass="kpi"><div class="k"><span class="v">{{ resumen()?.tickets ?? 0 }}</span><span class="l">Tickets</span></div></p-card>
+      <div class="surf-grid rt-bento">
+        <app-metric-card class="panel-col-3"
+          label="Ventas (corte)" [value]="resumen()?.ventas ?? 0" format="currency"
+          accent="var(--ok-fg)" sub="suma de cortes de venta"></app-metric-card>
+        <app-metric-card class="panel-col-3"
+          label="Combustible" [value]="resumen()?.gasto ?? 0" format="currency"
+          accent="var(--bad-fg)" sub="gasto (carga excluida)"></app-metric-card>
+        <app-metric-card class="panel-col-3"
+          label="Rentabilidad" [value]="resumen()?.rentabilidad ?? 0" format="currency"
+          [accent]="profitAccent()" sub="ventas − combustible"></app-metric-card>
+        <app-metric-card class="panel-col-3"
+          label="Tickets" [value]="resumen()?.tickets ?? 0" format="number"
+          accent="var(--chart-2)" sub="en el rango"></app-metric-card>
       </div>
 
       <p-table [value]="tickets()" [loading]="loading()" styleClass="p-datatable-sm" [paginator]="false">
@@ -81,19 +89,9 @@ import { todayMx, toMxDateKey } from '../../../core/utils/mx-date';
   `,
   styles: [
     `
-      .rt-head { margin-bottom: 1rem; }
-      .rt-head h1 { margin: 0; font-size: 1.5rem; color: var(--text-main); }
-      .rt-head p { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.875rem; }
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .filters input[type=date] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); }
-      .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
-      @media (max-width: 720px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
-      :host ::ng-deep .p-card.kpi .p-card-body { padding: 0.875rem; }
-      .k { text-align: center; display: flex; flex-direction: column; gap: 0.25rem; }
-      .k .v { font-size: 1.25rem; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
-      .k .v.ok { color: var(--ok-soft-fg); }
-      .k .v.bad { color: var(--bad-soft-fg); }
-      .k .l { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+      .rt-bento { margin-bottom: 1rem; }
       .num { text-align: right; font-variant-numeric: tabular-nums; }
       .empty { text-align: center; color: var(--text-muted); padding: 1.5rem; }
     `,
@@ -116,6 +114,14 @@ export class ComercialRouteTicketsComponent implements OnInit {
     { label: 'Carga', value: 'carga' },
     { label: 'Combustible', value: 'combustible' },
   ];
+
+  /** Color de la card de rentabilidad: verde si gana, rojo si pierde, neutro en cero. */
+  readonly profitAccent = computed(() => {
+    const r = Number(this.resumen()?.rentabilidad ?? 0);
+    if (r > 0) return 'var(--ok-fg)';
+    if (r < 0) return 'var(--bad-fg)';
+    return 'var(--chart-8)';
+  });
 
   ngOnInit(): void {
     this.reload();

@@ -3,7 +3,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
@@ -17,6 +16,7 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { makeLazyLoad } from '../../../shared/util';
 import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -26,7 +26,6 @@ import { Permission } from '../../../core/constants/permissions';
     CommonModule,
     FormsModule,
     ButtonModule,
-    CardModule,
     TableModule,
     TagModule,
     SelectModule,
@@ -36,6 +35,7 @@ import { Permission } from '../../../core/constants/permissions';
     ToastModule,
     TooltipModule,
     PageTabsComponent,
+    MetricCardComponent,
   ],
   providers: [MessageService],
   template: `
@@ -68,32 +68,39 @@ import { Permission } from '../../../core/constants/permissions';
         </div>
       </header>
 
-      <!-- KPI STRIP — resumen del total (independiente del paginado) -->
-      <div class="sheet cols-12" *ngIf="summaryAll().length > 0">
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-box"></i></span>
-          <span class="cell-label">Líneas de stock</span>
-          <span class="cell-value is-headline">{{ kpis().lines }}</span>
-          <span class="cell-sub">producto × almacén</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-exclamation-circle"></i></span>
-          <span class="cell-label">Stock crítico</span>
-          <span class="cell-value">{{ kpis().critical }}</span>
-          <span class="cell-sub">disponible &lt; 20</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-times-circle"></i></span>
-          <span class="cell-label">Sin stock</span>
-          <span class="cell-value">{{ kpis().zero }}</span>
-          <span class="cell-sub">requieren reabasto</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-database"></i></span>
-          <span class="cell-label">Unidades on-hand</span>
-          <span class="cell-value">{{ fmtUnits(kpis().totalUnits) }}</span>
-          <span class="cell-sub">suma de todas las líneas</span>
-        </article>
+      <!-- KPI BENTO — data-viz del total (independiente del paginado) -->
+      <div class="surf-grid in-bento" *ngIf="summaryAll().length > 0">
+        <!-- HERO: valor del inventario disponible + barras por almacén -->
+        <app-metric-card class="panel-col-6" [large]="true"
+          label="Valor de inventario disponible" [value]="kpis().totalValue" format="currency"
+          accent="var(--action)"
+          [variant]="kpis().valueByWh.length > 1 ? 'bars' : 'plain'"
+          [series]="kpis().valueByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
+          [sub]="'al costo · ' + kpis().whCount + (kpis().whCount === 1 ? ' almacén' : ' almacenes')"></app-metric-card>
+
+        <app-metric-card class="panel-col-3"
+          label="Unidades on-hand" [value]="kpis().totalUnits" format="number"
+          accent="var(--chart-2)"
+          [variant]="kpis().unitsByWh.length > 1 ? 'bars' : 'plain'"
+          [series]="kpis().unitsByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
+          sub="suma de todas las líneas"></app-metric-card>
+
+        <app-metric-card class="panel-col-3"
+          label="Líneas de stock" [value]="kpis().lines" format="number"
+          accent="var(--chart-6)" sub="producto × almacén"></app-metric-card>
+
+        <!-- Triada de salud del stock: % sobre el total de líneas -->
+        <app-metric-card class="panel-col-4" variant="progress"
+          label="Stock saludable" [value]="kpis().healthy" [goal]="kpis().lines" format="number"
+          accent="var(--ok-fg)" sub="disponible ≥ 20"></app-metric-card>
+
+        <app-metric-card class="panel-col-4" variant="progress"
+          label="Stock crítico" [value]="kpis().critical" [goal]="kpis().lines" format="number"
+          accent="var(--warn-fg)" sub="disponible &lt; 20"></app-metric-card>
+
+        <app-metric-card class="panel-col-4" variant="progress"
+          label="Sin stock" [value]="kpis().zero" [goal]="kpis().lines" format="number"
+          accent="var(--bad-fg)" sub="requieren reabasto"></app-metric-card>
       </div>
 
       <!-- FILTERS toolbar -->
@@ -265,6 +272,8 @@ import { Permission } from '../../../core/constants/permissions';
   `,
   styles: [`
     :host { display:block; }
+
+    .in-bento { margin-bottom: 1rem; }
 
     .in-head-actions { display:flex; gap:.5rem; align-items:center; }
     .in-divider { opacity: 0.4; }
@@ -483,11 +492,29 @@ export class ComercialInventoryComponent {
   readonly summaryAll = signal<StockRow[]>([]);
   readonly kpis = computed(() => {
     const list = this.summaryAll();
+    const lines = list.length;
+    const critical = list.filter((r) => r.available > 0 && r.available < 20).length;
+    const zero = list.filter((r) => r.available <= 0).length;
+    const healthy = list.filter((r) => r.available >= 20).length;
+    const totalUnits = list.reduce((s, r) => s + Number(r.on_hand || 0), 0);
+    const totalValue = list.reduce((s, r) => s + Number(r.available_value || 0), 0);
+
+    // Composición por almacén (para las micro-gráficas de barras con tooltip).
+    const wmap = new Map<string, { name: string; value: number; units: number }>();
+    for (const r of list) {
+      const e = wmap.get(r.warehouse_id) ?? { name: r.warehouse_name || r.warehouse_id, value: 0, units: 0 };
+      e.value += Number(r.available_value || 0);
+      e.units += Number(r.on_hand || 0);
+      wmap.set(r.warehouse_id, e);
+    }
+    const wh = [...wmap.values()].sort((a, b) => b.value - a.value);
+
     return {
-      lines: list.length,
-      critical: list.filter((r) => r.available > 0 && r.available < 20).length,
-      zero: list.filter((r) => r.available <= 0).length,
-      totalUnits: list.reduce((s, r) => s + Number(r.on_hand || 0), 0),
+      lines, critical, zero, healthy, totalUnits, totalValue,
+      whCount: wmap.size,
+      whLabels: wh.map((w) => w.name),
+      valueByWh: wh.map((w) => Math.round(w.value)),
+      unitsByWh: wh.map((w) => Math.round(w.units)),
     };
   });
 
@@ -511,12 +538,6 @@ export class ComercialInventoryComponent {
       next: (r) => this.summaryAll.set(r.data || []),
       error: () => this.summaryAll.set([]),
     });
-  }
-
-  fmtUnits(n: number): string {
-    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-    if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return String(Math.round(n));
   }
 
   load(): void {

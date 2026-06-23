@@ -52,14 +52,14 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
         <!-- SPARKLINE / EMBER -->
         <app-sparkline
           *ngIf="(effVariant() === 'sparkline' || effVariant() === 'ember')"
-          [data]="series()" [area]="true" [format]="sparkFormat()"
+          [data]="series()" [area]="true" [format]="sparkFormat()" [labels]="seriesLabels()"
           [color]="effVariant() === 'ember' ? '#FFFFFF' : accentGraph()"
         ></app-sparkline>
 
         <!-- BARS -->
         <app-mini-bars
           *ngIf="effVariant() === 'bars'"
-          [data]="series()"
+          [data]="series()" [labels]="seriesLabels()" [highlightLast]="highlightLast()"
           [color]="accentSoft()" [highlightColor]="accentGraph()"
         ></app-mini-bars>
 
@@ -176,6 +176,10 @@ export class MetricCardComponent {
   readonly sub = input<string>('');
   readonly variant = input<MetricVariant>('plain');
   readonly series = input<number[]>([]);
+  /** Etiquetas por punto de la serie → tooltip contextual en sparkline/bars (ej. nombre de almacén). */
+  readonly seriesLabels = input<string[]>([]);
+  /** Resaltar la última barra (default true). Apagar cuando las barras son un ranking, no una serie temporal. */
+  readonly highlightLast = input<boolean>(true);
   readonly goal = input<number>(0);
   readonly gaugeMax = input<number>(100);
   readonly tone = input<MetricTone>('default');

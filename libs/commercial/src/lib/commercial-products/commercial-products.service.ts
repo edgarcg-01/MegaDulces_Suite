@@ -129,6 +129,69 @@ export class CommercialProductsService {
     });
   }
 
+  /**
+   * Agregados catálogo-wide para el KPI strip (independiente del paginado y de los
+   * segmentos activo/costo de la tabla). Honra `search` para que los KPIs describan
+   * el universo filtrado por texto. Incluye top marcas por # de SKU para data-viz.
+   */
+  async stats(search?: string) {
+    const term = (search || '').trim();
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        let q = trx('products as p').whereNull('p.deleted_at');
+        if (term) {
+          const t = `%${term}%`;
+          q = q.where((b) =>
+            b.where('p.nombre', 'ilike', t)
+              .orWhere('p.sku', 'ilike', t)
+              .orWhere('p.barcode', 'ilike', t)
+              .orWhere('p.description', 'ilike', t),
+          );
+        }
+        return q;
+      };
+
+      const agg = await base()
+        .select(
+          trx.raw('COUNT(*)::int AS total'),
+          trx.raw('COUNT(*) FILTER (WHERE p.activo)::int AS active'),
+          trx.raw('COUNT(*) FILTER (WHERE NOT p.activo)::int AS inactive'),
+          trx.raw('COUNT(*) FILTER (WHERE p.cost_base IS NOT NULL)::int AS with_cost'),
+          trx.raw("COUNT(*) FILTER (WHERE p.location IS NOT NULL AND p.location <> '')::int AS with_location"),
+          trx.raw('COUNT(DISTINCT p.brand_id)::int AS brands'),
+          trx.raw('COUNT(DISTINCT p.category_id)::int AS categories'),
+        )
+        .first<{
+          total: number; active: number; inactive: number;
+          with_cost: number; with_location: number; brands: number; categories: number;
+        }>();
+
+      const topBrands = await base()
+        .leftJoin('brands as b', function () {
+          this.on('b.id', '=', 'p.brand_id').andOn('b.tenant_id', '=', 'p.tenant_id');
+        })
+        .whereNotNull('p.brand_id')
+        .groupBy('b.nombre')
+        .select('b.nombre as name', trx.raw('COUNT(p.id)::int AS sku_count'))
+        .orderBy('sku_count', 'desc')
+        .limit(8);
+
+      return {
+        total: agg?.total ?? 0,
+        active: agg?.active ?? 0,
+        inactive: agg?.inactive ?? 0,
+        with_cost: agg?.with_cost ?? 0,
+        with_location: agg?.with_location ?? 0,
+        brands: agg?.brands ?? 0,
+        categories: agg?.categories ?? 0,
+        top_brands: (topBrands as { name: string | null; sku_count: number }[]).map((r) => ({
+          name: r.name || 'Sin marca',
+          sku_count: Number(r.sku_count),
+        })),
+      };
+    });
+  }
+
   async findById(id: string) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {

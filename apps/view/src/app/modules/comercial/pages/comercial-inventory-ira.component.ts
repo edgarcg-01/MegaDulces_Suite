@@ -9,6 +9,7 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ComercialService, InventoryIra, Warehouse } from '../comercial.service';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 /**
  * KPI de exactitud de inventario (IRA) sobre folios reconciliados (Fase I.5 / P1).
@@ -18,7 +19,7 @@ import { ComercialService, InventoryIra, Warehouse } from '../comercial.service'
 @Component({
   selector: 'app-comercial-inventory-ira',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TableModule, TagModule, SelectModule, InputNumberModule],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TableModule, TagModule, SelectModule, InputNumberModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page ira">
@@ -40,27 +41,27 @@ import { ComercialService, InventoryIra, Warehouse } from '../comercial.service'
       </div>
 
       @if (data(); as d) {
-        <div class="ira-kpis">
-          <div class="ira-kpi">
-            <span class="ira-kpi-label">IRA (piezas)</span>
-            <span class="ira-kpi-val" [class.ira-good]="(d.ira_pct ?? 0) >= 97" [class.ira-bad]="d.ira_pct !== null && d.ira_pct < 90">{{ d.ira_pct !== null ? (d.ira_pct + '%') : '—' }}</span>
-            <span class="ira-kpi-sub">{{ d.accurate_items }} / {{ d.total_items }} exactos</span>
-          </div>
-          <div class="ira-kpi">
-            <span class="ira-kpi-label">Exactitud por valor</span>
-            <span class="ira-kpi-val">{{ d.value_accuracy_pct !== null ? (d.value_accuracy_pct + '%') : '—' }}</span>
-            <span class="ira-kpi-sub">teórico {{ d.expected_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          </div>
-          <div class="ira-kpi">
-            <span class="ira-kpi-label">Variación neta</span>
-            <span class="ira-kpi-val" [class.ira-bad]="d.net_variance_value < 0" [class.ira-good]="d.net_variance_value > 0">{{ d.net_variance_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-            <span class="ira-kpi-sub">{{ d.net_variance_value < 0 ? 'merma' : (d.net_variance_value > 0 ? 'sobrante' : 'sin diferencia') }} · |Δ| {{ d.abs_variance_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          </div>
-          <div class="ira-kpi">
-            <span class="ira-kpi-label">Folios reconciliados</span>
-            <span class="ira-kpi-val">{{ d.folios }}</span>
-            <span class="ira-kpi-sub">tolerancia {{ d.tolerance_pct }}%</span>
-          </div>
+        <div class="surf-grid ira-bento">
+          <app-metric-card class="panel-col-3"
+            label="IRA (piezas)"
+            [variant]="d.ira_pct !== null ? 'gauge' : 'plain'" format="text" valueText="—"
+            [value]="d.ira_pct ?? 0" [gaugeMax]="100" [accent]="iraAccent(d.ira_pct)"
+            [sub]="d.accurate_items + ' / ' + d.total_items + ' exactos'"></app-metric-card>
+
+          <app-metric-card class="panel-col-3"
+            label="Exactitud por valor"
+            [variant]="d.value_accuracy_pct !== null ? 'gauge' : 'plain'" format="text" valueText="—"
+            [value]="d.value_accuracy_pct ?? 0" [gaugeMax]="100" accent="var(--chart-2)"
+            [sub]="'teórico ' + money0(d.expected_value)"></app-metric-card>
+
+          <app-metric-card class="panel-col-3"
+            label="Variación neta" [value]="d.net_variance_value" format="currency"
+            [accent]="varianceAccent(d.net_variance_value)"
+            [sub]="varianceLabel(d)"></app-metric-card>
+
+          <app-metric-card class="panel-col-3"
+            label="Folios reconciliados" [value]="d.folios" format="number"
+            accent="var(--chart-6)" [sub]="'tolerancia ' + d.tolerance_pct + '%'"></app-metric-card>
         </div>
 
         <section class="ira-section">
@@ -109,19 +110,14 @@ import { ComercialService, InventoryIra, Warehouse } from '../comercial.service'
   styles: [`
     .ira-filters { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1rem; }
     .ira-tol { display: flex; flex-direction: column; gap: .25rem; }
-    .ira-tol label { font-size: .8rem; color: var(--text-muted, #78716c); }
-    .ira-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; margin-bottom: 1.5rem; }
-    .ira-kpi { display: flex; flex-direction: column; gap: .2rem; padding: .9rem 1rem; border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); background: var(--card-bg, #fff); }
-    .ira-kpi-label { font-size: .8rem; color: var(--text-muted, #78716c); }
-    .ira-kpi-val { font-size: 1.5rem; font-weight: 700; }
-    .ira-kpi-sub { font-size: .78rem; color: var(--text-muted, #78716c); }
-    .ira-good { color: var(--ok, #16a34a); }
-    .ira-bad { color: var(--bad, #dc2626); }
+    .ira-tol label { font-size: .8rem; color: var(--c-text-2); }
+    .ira-bento { margin-bottom: 1.5rem; }
+    .ira-bad { color: var(--bad-fg); }
     .ira-section { margin-bottom: 1.5rem; }
     .ira-section h2 { font-size: 1rem; margin: 0 0 .5rem; }
     .in-num { text-align: right; }
     .ira-folio { font-family: var(--font-mono, monospace); }
-    .ira-empty { color: var(--text-muted, #78716c); font-size: .9rem; }
+    .ira-empty { color: var(--c-text-2); font-size: .9rem; }
   `],
 })
 export class ComercialInventoryIraComponent {
@@ -153,6 +149,26 @@ export class ComercialInventoryIraComponent {
   reasonLabel(code: string): string {
     if (code === 'sin_clasificar') return 'Sin clasificar';
     return this.reasonMap()[code] || code;
+  }
+
+  money0(n: number): string {
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 }).format(n || 0);
+  }
+
+  iraAccent(pct: number | null): string {
+    if (pct === null) return 'var(--chart-8)';
+    if (pct >= 97) return 'var(--ok-fg)';
+    if (pct >= 90) return 'var(--warn-fg)';
+    return 'var(--bad-fg)';
+  }
+  varianceAccent(v: number): string {
+    if (v < 0) return 'var(--bad-fg)';
+    if (v > 0) return 'var(--ok-fg)';
+    return 'var(--chart-8)';
+  }
+  varianceLabel(d: InventoryIra): string {
+    const dir = d.net_variance_value < 0 ? 'merma' : d.net_variance_value > 0 ? 'sobrante' : 'sin diferencia';
+    return `${dir} · |Δ| ${this.money0(d.abs_variance_value)}`;
   }
 
   iraSeverity(pct: number | null): 'success' | 'warn' | 'danger' | 'secondary' {

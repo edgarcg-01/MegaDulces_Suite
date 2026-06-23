@@ -73,6 +73,31 @@
 - **Count-up consolidado:** `MetricCard` ahora usa `CountUpDirective` (única impl; on-view, no re-anima en refresh). Removido el count-up interno duplicado + input `animate`.
 - Limpieza: borrados `fmtMoney`/`fmtMoneyShort` muertos. Builds api+view verdes.
 
+### Sección /comercial/inventory ✅ código 2026-06-23
+Migrada toda la familia de KPIs obsoletos a `MetricCard` (bento + data-viz + color por card + count-up):
+- **Existencias** — `sheet/cell` → bento: hero **Valor disponible** (col-6 large, `bars` de valor por almacén con tooltip) + Unidades on-hand (`bars` por almacén) + Líneas + triada de salud (saludable/crítico/sin-stock como `progress` sobre el total). Borrado `fmtUnits` muerto + `CardModule` no usado.
+- **Por vencer** — `ex-kpi` custom (con hex `#fff/#e7e5e4/#dc2626`) → bento: hero **Valor en riesgo** (`bars` por urgencia: Vencido/≤7/≤15/≤30/>30) + Lotes + Ya vencidos (`progress`). Hex de tabla → tokens (`--bad-soft-bg`, `--c-text-2`).
+- **Cíclico (ABC)** — `abc-kpi` custom → bento: Por contar ahora (`bars` por clase A/B/C) + Valor clasificado + Distribución ABC (breakdown segmentado bespoke con shell consistente; mantiene color semántico por clase). Hex `--stone-400` → `--chart-8`.
+- **Mejora del organismo:** `MetricCard` ahora reenvía `seriesLabels` a sparkline/mini-bars (tooltip contextual, ej. nombre de almacén) + input `highlightLast` (apagar cuando las barras son ranking, no serie temporal).
+- **Exactitud (IRA)** — 4 `ira-kpi` custom (hex `#78716c/#16a34a/#dc2626/#e7e5e4/#fff`) → bento: **IRA piezas** y **Exactitud por valor** como `gauge` de anillo (color por umbral: ≥97 ok / ≥90 warn / <90 bad) + Variación neta (currency, accent por signo) + Folios (number). Hex de tabla → tokens.
+- `sessions` (folios) y `aisles` (editor 2D) no tenían KPIs obsoletos. Builds api+view verdes, 0 hex.
+- **Deuda restante en la sección** (no KPIs, pero hex sin tokenizar): `count` (38 hex), `teams` (20 hex), `session-detail` (38 hex + 12 bloques tipo card). Candidatos a barrido de hex + repertorio (Timeline/Entity).
+
+### /comercial/products ✅ código 2026-06-23
+- **Bug de fondo corregido:** el KPI strip calculaba activos/con-costo/con-ubicación **solo sobre la página visible** (`this.rows()`, ~50 de 11k SKUs → cifras sin sentido). Ahora son **catálogo-wide**.
+- **Backend nuevo** `GET /commercial/products/stats` (`CommercialProductsService.stats`, gated `CATALOGO_GESTIONAR`, ruta **antes** de `:id`): agregación en una pasada con `COUNT(*) FILTER (...)` (total/activos/inactivos/con-costo/con-ubicación + DISTINCT marcas/categorías) + top 8 marcas por # SKU. Honra `search` (los KPIs describen el universo filtrado por texto, no los segmentos de la tabla). Validado contra DB: 11.398 SKUs · 6.621 activos · 425 marcas.
+- **Frontend** `sheet/cell` → bento `MetricCard`: **SKUs** (`bars` de SKU por top-marca con tooltip) + Activos/Con-costo/Con-ubicación como `progress` sobre el total (color por card: ok/azul/teal). `stats` signal recargado solo al cambiar `search` (no en paginado/segmentos) + tras editar. Borrado el `kpis` por-página. Skeleton 132px.
+- Builds api+view verdes, 0 hex. **HTTP pendiente de redeploy** del contenedor API (la imagen corriendo es la previa al endpoint).
+
+### /comercial/route-tickets ✅ código 2026-06-23
+- Page-head bespoke `.rt-head` → canónico `surf-page-head` + `surf-page-sub` (consistencia con la sección).
+- 4 KPIs en `p-card` plano → bento `MetricCard`: Ventas (ok) · Combustible (bad) · **Rentabilidad** (accent por signo: verde gana / rojo pierde / neutro) · Tickets (azul). Count-up + spotlight + color por card heredados. Sin serie fabricada (la lista de tickets es muestra capada a 100 → un sparkline diario sería engañoso; KPIs honestos sobre `routeResumen`).
+- Borrados estilos `.kpi/.k*`. Build view verde, 0 hex.
+
+### /comercial/vendor-sales ✅ código 2026-06-23
+- Page-head bespoke `.vs-head` → canónico. 3 KPIs `p-card` → bento `MetricCard`: **Tickets** (col-6 large, **sparkline real de tickets/día** — `captures()` es el dataset completo del rango, no muestra) + Líneas (azul) + Unidades (teal).
+- Fix DESIGN.md: letterbox de la foto del ticket `background:#000` (negro puro prohibido) → `var(--neutral-900)` (espresso). Borrados estilos `.kpi/.k*`. Build verde, 0 hex.
+
 ### Pendiente
 - Resto del repertorio (Entity, Alert, Mini-table, Timeline, Breakdown donut, RankList) como componentes en `shared/components/cards/` + base `card-surface` compartida.
 - Aplicar a: order-detail (timeline) · supervisor-ai/Thot (insight/alert) · televenta · reports/graphics (donut) · checklist/photos.

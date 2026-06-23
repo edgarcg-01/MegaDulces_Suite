@@ -570,7 +570,7 @@ interface RouteTrack {
                       <i class="pi pi-directions" aria-hidden="true"></i>&nbsp;Por calles
                     </button>
                     @if (snapLoading()) { <span class="ru-snap-hint">pegando a calles…</span> }
-                    @else if (snapMode() && snapDistanceKm() != null) { <span class="ru-snap-hint">{{ snapDistanceKm() }} km reales</span> }
+                    @else if (snapMode() && snapDistanceKm() != null) { <span class="ru-snap-hint">{{ snapLowConfidence() ? '≈ ' + snapDistanceKm() + ' km (aprox · GPS disperso)' : snapDistanceKm() + ' km reales' }}</span> }
                     <app-map-legend [layers]="liveLegend()" (toggle)="toggleLive()"></app-map-legend>
                   </div>
                   @if (loadingDetail()) {
@@ -737,6 +737,7 @@ export class RoutesAnalysisComponent implements OnInit, OnDestroy {
   snapTracks = signal<{ points: { lat: number; lng: number }[]; color?: string }[]>([]);
   snapStops = signal<MapMarker[]>([]);
   snapDistanceKm = signal<number | null>(null);
+  snapLowConfidence = signal(false);
   /** Paleta categórica para las trazas GPS (estable por vendedor); evita morado/azul de acción. */
   static readonly TRACK_PALETTE = ['#0E9BA8', '#13A864', '#E8833A', '#C13DA8', '#5B6CC9', '#D64545'];
   readonly targetMinutes = 15;
@@ -1008,6 +1009,7 @@ export class RoutesAnalysisComponent implements OnInit, OnDestroy {
           );
           const stops: MapMarker[] = [];
           let distM = 0;
+          this.snapLowConfidence.set(tracks.some((t) => t.low_confidence));
           for (const t of tracks) {
             distM += Number(t.distance_m) || 0;
             for (const s of t.stops || []) {

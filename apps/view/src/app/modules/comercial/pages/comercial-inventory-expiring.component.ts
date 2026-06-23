@@ -11,6 +11,7 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, ExpiringLot, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 /**
  * P2.2c — POR VENCER: lotes con caducidad próxima o ya vencida (FEFO), con valor
@@ -19,7 +20,7 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
 @Component({
   selector: 'app-comercial-inventory-expiring',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, MetricCardComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -42,19 +43,21 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
         </div>
       </header>
 
-      <div class="ex-kpis">
-        <div class="ex-kpi ex-kpi-bad">
-          <span class="ex-kpi-v">{{ totalValue() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          <span class="ex-kpi-l">Valor en riesgo (costo)</span>
-        </div>
-        <div class="ex-kpi">
-          <span class="ex-kpi-v">{{ lots().length }}</span>
-          <span class="ex-kpi-l">Lotes</span>
-        </div>
-        <div class="ex-kpi" [class.ex-kpi-bad]="expiredCount() > 0">
-          <span class="ex-kpi-v">{{ expiredCount() }}</span>
-          <span class="ex-kpi-l">Ya vencidos</span>
-        </div>
+      <div class="surf-grid ex-bento" *ngIf="lots().length > 0">
+        <app-metric-card class="panel-col-6" [large]="true"
+          label="Valor en riesgo (costo)" [value]="totalValue()" format="currency"
+          accent="var(--bad-fg)"
+          [variant]="risk().buckets.length > 1 ? 'bars' : 'plain'"
+          [series]="risk().buckets" [seriesLabels]="risk().labels" [highlightLast]="false"
+          [sub]="'al costo · ' + lots().length + (lots().length === 1 ? ' lote' : ' lotes')"></app-metric-card>
+
+        <app-metric-card class="panel-col-3"
+          label="Lotes en ventana" [value]="lots().length" format="number"
+          accent="var(--chart-2)" sub="con caducidad capturada"></app-metric-card>
+
+        <app-metric-card class="panel-col-3" variant="progress"
+          label="Ya vencidos" [value]="expiredCount()" [goal]="lots().length" format="number"
+          accent="var(--bad-fg)" sub="retirar de inventario"></app-metric-card>
       </div>
 
       <p-table [value]="lots()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
@@ -89,17 +92,13 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
     .ex-head-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .ex-wh { min-width: 220px; }
     :host ::ng-deep .ex-days { min-width: 150px; }
-    .ex-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; }
-    .ex-kpi { background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; padding: .85rem 1.25rem; display: flex; flex-direction: column; }
-    .ex-kpi-v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .ex-kpi-l { font-size: .75rem; color: var(--text-muted,#78716c); text-transform: uppercase; letter-spacing: .03em; }
-    .ex-kpi-bad .ex-kpi-v { color: var(--red-600,#dc2626); }
+    .ex-bento { margin-bottom: 1rem; }
     .ex-mono { font-family: var(--font-mono,monospace); }
     .ex-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ex-num { text-align: right; font-variant-numeric: tabular-nums; }
     .ex-cap { font-weight: 700; }
-    .ex-row-expired { background: var(--red-50,#fef2f2); }
-    .ex-empty { text-align: center; padding: 2rem; color: var(--text-muted,#78716c); }
+    .ex-row-expired { background: var(--bad-soft-bg); }
+    .ex-empty { text-align: center; padding: 2rem; color: var(--c-text-2); }
   `],
 })
 export class ComercialInventoryExpiringComponent {
@@ -131,6 +130,21 @@ export class ComercialInventoryExpiringComponent {
 
   totalValue = computed(() => this.lots().reduce((s, l) => s + Number(l.value_at_cost || 0), 0));
   expiredCount = computed(() => this.lots().filter((l) => Number(l.days_to_expiry) < 0).length);
+
+  /** Valor en riesgo por urgencia (costo) → barras del hero. */
+  readonly risk = computed(() => {
+    const buckets = [0, 0, 0, 0, 0]; // vencido · ≤7 · ≤15 · ≤30 · >30
+    for (const l of this.lots()) {
+      const d = Number(l.days_to_expiry);
+      const v = Number(l.value_at_cost || 0);
+      if (d < 0) buckets[0] += v;
+      else if (d <= 7) buckets[1] += v;
+      else if (d <= 15) buckets[2] += v;
+      else if (d <= 30) buckets[3] += v;
+      else buckets[4] += v;
+    }
+    return { buckets: buckets.map((n) => Math.round(n)), labels: ['Vencido', '≤7d', '≤15d', '≤30d', '>30d'] };
+  });
 
   constructor() {
     this.svc.listWarehouses()

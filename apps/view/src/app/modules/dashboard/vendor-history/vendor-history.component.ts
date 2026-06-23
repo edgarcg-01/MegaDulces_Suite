@@ -9,6 +9,10 @@ import { environment } from '../../../../environments/environment';
 import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
 
 interface FieldUser { user_id: string; username: string; ping_count: number; }
+interface DetectedVisit {
+  lat: number; lng: number; minutes: number; arrived: string; left: string;
+  store_id?: string | null; store_name?: string | null; captured?: boolean;
+}
 interface VendorDay {
   user_id: string;
   username: string;
@@ -18,11 +22,14 @@ interface VendorDay {
     distance_m: number;
     stops: { lat: number; lng: number; minutes: number; arrived: string; left: string; store_name?: string | null }[];
     confidence: number | null;
+    low_confidence?: boolean;
     point_count: number;
   } | null;
+  detected_visits: DetectedVisit[];
   kpis: {
     pings: number; first_at: string | null; last_at: string | null; active_min: number;
     stop_count: number; stop_min: number; moving_min: number; distance_km: number; avg_speed_kmh: number | null;
+    detected_visits: number; uncaptured_visits: number;
   };
 }
 
@@ -68,14 +75,39 @@ interface VendorDay {
       } @else if (!day()?.snapped) {
         <div class="vh-empty">Sin recorrido GPS para {{ selectedName() }} el {{ date() }}.</div>
       } @else {
+        @if (day()!.snapped?.low_confidence) {
+          <div class="vh-note"><i class="pi pi-info-circle" aria-hidden="true"></i>&nbsp;Recorrido aproximado: señal GPS dispersa (cadencia baja). Mejora con más pings.</div>
+        }
         <div class="vh-kpis">
-          <div class="kpi"><span class="k-val">{{ day()!.kpis.distance_km }}</span><span class="k-lbl">km reales</span></div>
+          <div class="kpi"><span class="k-val">{{ day()!.snapped?.low_confidence ? '≈ ' : '' }}{{ day()!.kpis.distance_km }}</span><span class="k-lbl">km {{ day()!.snapped?.low_confidence ? '(aprox)' : 'reales' }}</span></div>
           <div class="kpi"><span class="k-val">{{ day()!.kpis.stop_count }}</span><span class="k-lbl">paradas</span></div>
           <div class="kpi"><span class="k-val">{{ fmtMin(day()!.kpis.stop_min) }}</span><span class="k-lbl">en paradas</span></div>
           <div class="kpi"><span class="k-val">{{ fmtMin(day()!.kpis.moving_min) }}</span><span class="k-lbl">en movimiento</span></div>
           <div class="kpi"><span class="k-val">{{ day()!.kpis.avg_speed_kmh ?? '—' }}</span><span class="k-lbl">km/h prom</span></div>
+          <div class="kpi" [class.kpi-gap]="day()!.kpis.uncaptured_visits > 0">
+            <span class="k-val">{{ day()!.kpis.detected_visits }}<small>{{ day()!.kpis.uncaptured_visits > 0 ? ' · ' + day()!.kpis.uncaptured_visits + ' s/cap' : '' }}</small></span>
+            <span class="k-lbl">visitas detectadas</span>
+          </div>
           <div class="kpi"><span class="k-val">{{ fmtTime(day()!.kpis.first_at) }}–{{ fmtTime(day()!.kpis.last_at) }}</span><span class="k-lbl">jornada</span></div>
         </div>
+        @if (day()!.detected_visits.length) {
+          <div class="vh-dv">
+            <div class="vh-dv-head">
+              <i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Visitas detectadas por GPS
+              <span class="vh-dv-hint">— estuvo ≥5 min cerca de la tienda</span>
+            </div>
+            <div class="vh-dv-list">
+              @for (d of day()!.detected_visits; track d.arrived) {
+                <button class="vh-dv-row" [class.gap]="!d.captured" (click)="panToVisit(d)">
+                  <i class="pi" [class.pi-check-circle]="d.captured" [class.pi-exclamation-triangle]="!d.captured" aria-hidden="true"></i>
+                  <span class="vh-dv-store">{{ d.store_name || 'Tienda' }}</span>
+                  <span class="vh-dv-meta">{{ fmtTime(d.arrived) }} · {{ d.minutes }} min</span>
+                  <span class="vh-dv-badge">{{ d.captured ? 'capturó' : 'sin captura' }}</span>
+                </button>
+              }
+            </div>
+          </div>
+        }
         <div class="vh-pb">
           <button class="pb-btn" (click)="togglePlay()" [attr.aria-label]="playing() ? 'Pausar' : 'Reproducir'">
             <i class="pi" [class.pi-pause]="playing()" [class.pi-play]="!playing()" aria-hidden="true"></i>
@@ -108,6 +140,21 @@ interface VendorDay {
     .kpi { display:flex; flex-direction:column; gap:.1rem; padding:.7rem .85rem; border:1px solid var(--divider,#e7e5e4); border-radius:10px; background:var(--card-bg,#fff); }
     .k-val { font:700 1.15rem/1.1 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); font-variant-numeric:tabular-nums; }
     .k-lbl { font-size:.72rem; color:var(--text-dim,#78716c); }
+    .kpi-gap { border-color:#fecaca; background:#fef2f2; }
+    .vh-note { font-size:.76rem; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; }
+    .k-val small { font-size:.72rem; font-weight:600; color:#b91c1c; }
+    .vh-dv { border:1px solid var(--divider,#e7e5e4); border-radius:10px; background:var(--card-bg,#fff); overflow:hidden; }
+    .vh-dv-head { padding:.5rem .7rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); border-bottom:1px solid var(--divider,#e7e5e4); }
+    .vh-dv-hint { font-weight:400; color:var(--text-dim,#78716c); font-size:.72rem; }
+    .vh-dv-list { display:flex; flex-wrap:wrap; gap:.4rem; padding:.5rem .6rem; max-height:120px; overflow-y:auto; }
+    .vh-dv-row { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--divider,#e7e5e4); border-radius:999px; background:var(--hover,#f5f5f4); cursor:pointer; font-size:.76rem; color:var(--text,#1c1917); }
+    .vh-dv-row .pi-check-circle { color:var(--ok-fg,#16a34a); }
+    .vh-dv-row.gap { border-color:#fecaca; background:#fef2f2; }
+    .vh-dv-row.gap .pi-exclamation-triangle { color:#d97706; }
+    .vh-dv-store { font-weight:600; }
+    .vh-dv-meta { color:var(--text-dim,#78716c); }
+    .vh-dv-badge { font-size:.66rem; font-weight:700; text-transform:uppercase; color:var(--text-dim,#78716c); }
+    .vh-dv-row.gap .vh-dv-badge { color:#b91c1c; }
     .vh-map { flex:1; min-height:0; }
     .vh-map app-map { display:block; height:100%; }
     :host ::ng-deep .vh-sk { display:block; margin-bottom:.6rem; }
@@ -309,6 +356,10 @@ export class VendorHistoryComponent implements OnInit, OnDestroy {
         },
         error: () => { this.loadingDay.set(false); },
       });
+  }
+
+  panToVisit(d: DetectedVisit): void {
+    this.map?.panTo(d.lat, d.lng, 16);
   }
 
   fmtMin(min: number | null | undefined): string {

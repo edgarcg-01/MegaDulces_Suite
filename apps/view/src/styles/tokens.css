@@ -99,6 +99,8 @@
   --border-color:  var(--neutral-200);
   --table-border:  var(--neutral-50);
   --table-hover:   rgba(251, 249, 246, 0.5);
+  /* Zebra sutil (NN/g: 5-10%) para tablas largas. Sticky/frozen reusan --card-bg. */
+  --table-zebra:   color-mix(in srgb, var(--neutral-950) 3%, transparent);
 
   --text-main:     var(--neutral-950);
   --text-muted:    var(--neutral-600);
@@ -185,6 +187,7 @@ body.theme-monochrome {
   --border-color:  #2A2A2A;
   --table-border:  #222222;
   --table-hover:   rgba(251, 249, 246, 0.06);
+  --table-zebra:   rgba(255, 255, 255, 0.035);
 
   --text-main:     #FBF4E9;
   --text-muted:    #B0A595;

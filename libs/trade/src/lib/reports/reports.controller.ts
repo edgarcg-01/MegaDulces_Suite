@@ -201,6 +201,32 @@ export class ReportsController {
     return this.reportsService.getStoresGeo(user);
   }
 
+  @Get('team-day')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Resumen del equipo hoy: por vendedor (km, visitas detectadas, sin captura, estado)' })
+  getTeamDay(@ReqUser() user: any, @Query('date') date?: string) {
+    return this.reportsService.getTeamDay(date, user);
+  }
+
+  // ETA y optimización: utilidades de campo (solo auth, las usa la app del
+  // vendedor que no tiene RUTAS_VER) — no exponen datos de otros tenants.
+  @Get('eta')
+  @ApiOperation({ summary: 'ETA con tráfico entre dos coords (Mapbox Directions)' })
+  getEta(
+    @Query('from_lat') fromLat: string,
+    @Query('from_lng') fromLng: string,
+    @Query('to_lat') toLat: string,
+    @Query('to_lng') toLng: string,
+  ) {
+    return this.reportsService.getEta(+fromLat, +fromLng, +toLat, +toLng);
+  }
+
+  @Post('optimize-stops')
+  @ApiOperation({ summary: 'Orden óptimo de visita (Mapbox Optimization, ≤12 paradas)' })
+  optimizeStops(@Body() body: { stops: { lat: number; lng: number }[] }) {
+    return this.reportsService.optimizeRoute(body?.stops || []);
+  }
+
   @Get('vendor-day')
   @RequirePermissions(Permission.RUTAS_VER)
   @ApiOperation({

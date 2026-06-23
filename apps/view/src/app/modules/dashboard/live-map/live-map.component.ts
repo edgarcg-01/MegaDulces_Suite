@@ -120,7 +120,7 @@ interface VendorDayKpis {
             <p class="sp-muted">Sin recorrido GPS hoy.</p>
           }
         }
-        <a class="sp-action" [routerLink]="['/dashboard/vendor-history']" [queryParams]="{ user_id: p.user_id, date: today }">
+        <a class="sp-action" [routerLink]="['/dashboard/field-map']" [queryParams]="{ view: 'vendedor', user_id: p.user_id, date: today }">
           <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Ver recorrido del día
         </a>
       }

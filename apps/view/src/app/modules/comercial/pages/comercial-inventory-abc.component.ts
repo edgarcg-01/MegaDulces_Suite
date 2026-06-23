@@ -15,6 +15,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, AbcRow, AbcSummary, CycleDueResult, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 /**
  * Fase ABC.3b — Conteo cíclico (ABC). Surface Operations (DESIGN.md):
@@ -27,7 +28,7 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
 @Component({
   selector: 'app-comercial-inventory-abc',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SelectButtonModule, ToastModule, ConfirmDialogModule, TooltipModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SelectButtonModule, ToastModule, ConfirmDialogModule, TooltipModule, PageTabsComponent, MetricCardComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -54,24 +55,23 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
         </div>
       </header>
 
-      <!-- KPI strip: variedad por tipo de dato (DESIGN §9) -->
-      <div class="abc-kpis">
-        <div class="abc-kpi">
-          <span class="abc-kpi-l">Por contar ahora</span>
-          <span class="abc-kpi-v">{{ due()?.count ?? 0 }}</span>
-          <div class="abc-kpi-foot">
-            <span class="abc-dot abc-a"></span>A {{ due()?.by_class?.A ?? 0 }}
-            <span class="abc-dot abc-b"></span>B {{ due()?.by_class?.B ?? 0 }}
-            <span class="abc-dot abc-c"></span>C {{ due()?.by_class?.C ?? 0 }}
-          </div>
-        </div>
-        <div class="abc-kpi">
-          <span class="abc-kpi-l">Valor clasificado (costo/año)</span>
-          <span class="abc-kpi-v">{{ (summary()?.total_value ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          <div class="abc-kpi-foot">{{ summary()?.total_count ?? 0 }} SKUs · {{ computedLabel() }}</div>
-        </div>
-        <div class="abc-kpi abc-kpi-wide">
-          <span class="abc-kpi-l">Distribución ABC</span>
+      <!-- KPI BENTO: variedad por tipo de dato (DESIGN §9) -->
+      <div class="surf-grid abc-bento">
+        <app-metric-card class="panel-col-4"
+          label="Por contar ahora" [value]="due()?.count ?? 0" format="number"
+          accent="var(--action)"
+          [variant]="dueSum() > 0 ? 'bars' : 'plain'"
+          [series]="dueByClass()" [seriesLabels]="abcLabels" [highlightLast]="false"
+          [sub]="'A ' + (due()?.by_class?.A ?? 0) + ' · B ' + (due()?.by_class?.B ?? 0) + ' · C ' + (due()?.by_class?.C ?? 0)"></app-metric-card>
+
+        <app-metric-card class="panel-col-4"
+          label="Valor clasificado (costo/año)" [value]="summary()?.total_value ?? 0" format="currency"
+          accent="var(--chart-2)"
+          [sub]="(summary()?.total_count ?? 0) + ' SKUs · ' + computedLabel()"></app-metric-card>
+
+        <!-- Distribución ABC: breakdown segmentado (color semántico por clase) -->
+        <article class="panel-col-4 abc-dist-card">
+          <span class="abc-dist-label">Distribución ABC</span>
           <div class="abc-dist-bar" role="img" [attr.aria-label]="distAria()">
             @if (total() > 0) {
               <div class="abc-dist-seg abc-a" [style.flexBasis.%]="pct('A')" [title]="'A: ' + classCount('A')"></div>
@@ -79,12 +79,12 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
               <div class="abc-dist-seg abc-c" [style.flexBasis.%]="pct('C')" [title]="'C: ' + classCount('C')"></div>
             }
           </div>
-          <div class="abc-kpi-foot">
+          <div class="abc-dist-foot">
             <span class="abc-dot abc-a"></span>A {{ classCount('A') }}
             <span class="abc-dot abc-b"></span>B {{ classCount('B') }}
             <span class="abc-dot abc-c"></span>C {{ classCount('C') }}
           </div>
-        </div>
+        </article>
       </div>
 
       <!-- Toggle de vista -->
@@ -151,18 +151,21 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
   styles: [`
     .abc-head-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     :host ::ng-deep .abc-wh { min-width: 220px; }
-    .abc-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .abc-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .8rem 1.1rem; display: flex; flex-direction: column; gap: .35rem; min-width: 190px; }
-    .abc-kpi-wide { min-width: 280px; flex: 1; }
-    .abc-kpi-l { font-size: .6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
-    .abc-kpi-v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--text-main); }
-    .abc-kpi-foot { font-size: .75rem; color: var(--text-muted); display: flex; align-items: center; gap: .35rem; font-variant-numeric: tabular-nums; }
+    .abc-bento { margin-bottom: 1rem; }
+    .abc-dist-card {
+      position: relative; display: flex; flex-direction: column; gap: .5rem;
+      background: var(--card-bg); border: 1px solid var(--border-color);
+      border-radius: 12px; padding: 1rem 1.125rem; min-height: 132px; justify-content: center;
+    }
+    .abc-dist-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--ok-fg); border-top-left-radius:12px; border-bottom-left-radius:12px; }
+    .abc-dist-label { font-size: var(--fs-micro,.6875rem); font-weight: var(--fw-bold,700); text-transform:uppercase; letter-spacing:.08em; color: var(--c-text-2,var(--text-muted)); }
+    .abc-dist-foot { font-size: .75rem; color: var(--c-text-2,var(--text-muted)); display: flex; align-items: center; gap: .35rem; font-variant-numeric: tabular-nums; }
     .abc-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
     .abc-dot.abc-a, .abc-dist-seg.abc-a { background: var(--ok-fg); }
     .abc-dot.abc-b, .abc-dist-seg.abc-b { background: var(--warn-fg); }
-    .abc-dot.abc-c, .abc-dist-seg.abc-c { background: var(--stone-400, #b0a595); }
+    .abc-dot.abc-c, .abc-dist-seg.abc-c { background: var(--chart-8); }
     .abc-dot:not(:first-child) { margin-left: .5rem; }
-    .abc-dist-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--surface-ground); }
+    .abc-dist-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--c-surface-2, var(--surface-ground)); }
     .abc-dist-seg { min-width: 2px; transition: flex-basis 250ms var(--ease-standard, ease); }
     :host ::ng-deep .abc-views { margin-bottom: .75rem; }
     :host ::ng-deep .abc-views .p-button { font-size: .8125rem; padding: .35rem .9rem; }
@@ -200,6 +203,13 @@ export class ComercialInventoryAbcComponent {
   due = signal<CycleDueResult | null>(null);
 
   total = computed(() => this.summary()?.total_count ?? 0);
+
+  readonly abcLabels = ['A', 'B', 'C'];
+  readonly dueByClass = computed(() => {
+    const b = this.due()?.by_class;
+    return [Number(b?.A ?? 0), Number(b?.B ?? 0), Number(b?.C ?? 0)];
+  });
+  readonly dueSum = computed(() => this.dueByClass().reduce((s, n) => s + n, 0));
 
   constructor() {
     this.svc.listWarehouses()

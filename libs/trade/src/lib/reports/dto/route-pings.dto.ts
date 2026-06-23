@@ -55,6 +55,11 @@ export class RoutePingDto {
   @IsOptional()
   @IsIn(['foreground', 'background'])
   source?: string;
+
+  @ApiProperty({ required: false, description: 'web | android | ios (origen del dispositivo)' })
+  @IsOptional()
+  @IsString()
+  platform?: string;
 }
 
 /** Lote de pings sincronizados de una vez (bulk). */
