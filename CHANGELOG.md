@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Fixed — Inteligencia comercial resurfaceada tras la fusión Mapa de Campo (2026-06-23)
+- La fusión MF.1 enterró el Mapa Comercial como 4ª pestaña ("Exhibición") y **rompió el acceso**: la ruta
+  `field-map` solo pedía `RUTAS_VER`, así que un rol con **solo `COMMERCIAL_MAP_VER`** ya no podía llegar
+  (nav sin entrada directa + guard de ruta lo bloqueaba). No se perdió data — `commercial-map` estaba intacto.
+- **Restaurado**: ítem de nav directo **"Mapa Comercial"** (gateado `COMMERCIAL_MAP_VER`) bajo el grupo "Mapas".
+- **Guard OR** (`anyPermissionGuard`): `field-map` ahora admite `RUTAS_VER` **o** `COMMERCIAL_MAP_VER`.
+- **Default inteligente**: un rol solo-comercial aterriza directo en la pestaña Comercial (no en "Equipo" vacía);
+  las pestañas de tracking solo se muestran con `RUTAS_VER`. Pestaña "Exhibición" renombrada → **"Comercial"**.
+
 ### Added — Capacidades Mapbox: geocoding, ETA, optimización, imagen (backend) (2026-06-23)
 - **Geocoding** (`database/scripts/geocode-mapbox.js`): geocodifica `commercial.customers` (dirección → lat/lng)
   vía Mapbox con score de relevancia — mejor que Nominatim; mejores coords → mejor geofence/cobertura/visitas.

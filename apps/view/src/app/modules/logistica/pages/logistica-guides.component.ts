@@ -83,17 +83,17 @@ interface GuideRow extends DeliveryGuide {
 
     <section class="surf-panel">
       <div class="surf-panel-body is-flush">
-      <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15">
+      <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th>Número</th>
-            <th>Embarque</th>
-            <th>Chofer</th>
-            <th>Ayudantes</th>
-            <th class="num">Comisiones</th>
-            <th class="num">Viáticos</th>
-            <th>Estado</th>
-            <th></th>
+            <th scope="col">Número</th>
+            <th scope="col">Embarque</th>
+            <th scope="col">Chofer</th>
+            <th scope="col">Ayudantes</th>
+            <th scope="col" class="num">Comisiones</th>
+            <th scope="col" class="num">Viáticos</th>
+            <th scope="col">Estado</th>
+            <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-g>
@@ -117,7 +117,14 @@ interface GuideRow extends DeliveryGuide {
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="muted">Sin guías que coincidan con el filtro.</td></tr>
+          <tr>
+            <td colspan="8">
+              <div class="comm-empty">
+                <i class="pi pi-inbox comm-empty-icon"></i>
+                <span>Sin guías que coincidan con el filtro.</span>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
       </div>

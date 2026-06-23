@@ -60,12 +60,14 @@ function severityLiq(s: LiquidationStatus): Severity {
       <section class="surf-panel periods-card">
         <div class="surf-panel-head"><h3><i class="pi pi-calendar" aria-hidden="true"></i> Períodos</h3></div>
         <div class="surf-panel-body is-flush">
-        <p-table [value]="periods()" [loading]="loadingP()" responsiveLayout="scroll" styleClass="p-datatable-sm"
+        <p-table [value]="periods()" [loading]="loadingP()" responsiveLayout="scroll"
+                 styleClass="surf-table surf-table--sticky p-datatable-sm"
                  selectionMode="single" [(selection)]="selectedPeriod" (onRowSelect)="onPeriodSelect()"
                  [dataKey]="'id'">
           <ng-template pTemplate="header">
             <tr>
-              <th>Período</th><th>Rango</th><th>Pago</th><th>Estado</th><th></th>
+              <th scope="col">Período</th><th scope="col">Rango</th><th scope="col">Pago</th><th scope="col">Estado</th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-p>
@@ -82,7 +84,12 @@ function severityLiq(s: LiquidationStatus): Severity {
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="5" class="muted">Sin períodos. Crear el primero.</td></tr>
+            <tr><td colspan="5">
+              <div class="comm-empty">
+                <i class="pi pi-calendar comm-empty-icon" aria-hidden="true"></i>
+                <span>Sin períodos. Crear el primero.</span>
+              </div>
+            </td></tr>
           </ng-template>
         </p-table>
         </div>
@@ -91,13 +98,15 @@ function severityLiq(s: LiquidationStatus): Severity {
       <section class="surf-panel liq-card">
         <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> {{ liqHeader() }}</h3></div>
         <div class="surf-panel-body is-flush">
-        <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+        <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll"
+                 styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
           <ng-template pTemplate="header">
             <tr>
-              <th>Colaborador</th><th>Tipo</th>
-              <th class="num">Comisiones</th><th class="num">Viáticos</th><th class="num">Carga/desc</th>
-              <th class="num">Bonos</th><th class="num">Deducciones</th>
-              <th class="num">Neto</th><th>Estado</th><th></th>
+              <th scope="col">Colaborador</th><th scope="col">Tipo</th>
+              <th scope="col" class="num">Comisiones</th><th scope="col" class="num">Viáticos</th><th scope="col" class="num">Carga/desc</th>
+              <th scope="col" class="num">Bonos</th><th scope="col" class="num">Deducciones</th>
+              <th scope="col" class="num">Neto</th><th scope="col">Estado</th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
@@ -119,7 +128,12 @@ function severityLiq(s: LiquidationStatus): Severity {
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="10" class="muted">{{ selectedPeriod ? 'Sin liquidaciones para este período. Calcular para generar.' : 'Selecciona un período.' }}</td></tr>
+            <tr><td colspan="10">
+              <div class="comm-empty">
+                <i class="pi pi-wallet comm-empty-icon" aria-hidden="true"></i>
+                <span>{{ selectedPeriod ? 'Sin liquidaciones para este período. Calcular para generar.' : 'Selecciona un período.' }}</span>
+              </div>
+            </td></tr>
           </ng-template>
         </p-table>
         </div>
@@ -137,10 +151,12 @@ function severityLiq(s: LiquidationStatus): Severity {
         <div><span class="label">Neto</span><strong class="num grand">\${{ l.net_amount | number:'1.2-2' }}</strong></div>
       </div>
 
-      <p-table [value]="adjustments()" [loading]="loadingAdj()" styleClass="p-datatable-sm adj-table">
+      <p-table [value]="adjustments()" [loading]="loadingAdj()" responsiveLayout="scroll"
+               styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm adj-table">
         <ng-template pTemplate="header">
           <tr>
-            <th>Fecha</th><th>Tipo</th><th class="num">Monto</th><th>Notas</th><th></th>
+            <th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col" class="num">Monto</th><th scope="col">Notas</th>
+            <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-a>
@@ -156,7 +172,12 @@ function severityLiq(s: LiquidationStatus): Severity {
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="5" class="muted">Sin ajustes registrados para este colaborador en el período.</td></tr>
+          <tr><td colspan="5">
+            <div class="comm-empty">
+              <i class="pi pi-list comm-empty-icon" aria-hidden="true"></i>
+              <span>Sin ajustes registrados para este colaborador en el período.</span>
+            </div>
+          </td></tr>
         </ng-template>
       </p-table>
 

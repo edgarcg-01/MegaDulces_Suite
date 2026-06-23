@@ -93,12 +93,12 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 
       @if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->
-        <p-table [value]="due()?.items ?? []" [loading]="loading()" styleClass="p-datatable-sm surf-table"
-                 [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50">
+        <p-table [value]="due()?.items ?? []" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+                 [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template pTemplate="header">
             <tr>
-              <th>Clase</th><th>SKU</th><th>Producto</th><th>Almacén</th>
-              <th>Último conteo</th><th class="abc-num">Cadencia</th><th>Estado</th>
+              <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
+              <th scope="col">Último conteo</th><th scope="col" class="abc-num">Cadencia</th><th scope="col">Estado</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-it>
@@ -113,19 +113,23 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="7" class="abc-empty">
-              Nada pendiente de contar en esta vista. Si no clasificaste aún, usá <b>Recalcular ABC</b>; el conteo se agenda por cadencia (A 30d · B 90d · C 365d).
+            <tr><td colspan="7" class="comm-empty-cell">
+              <div class="comm-empty">
+                <span class="comm-empty-icon"><i class="pi pi-check-circle"></i></span>
+                <h3>Nada pendiente de contar</h3>
+                <p>Si no clasificaste aún, usá <b>Recalcular ABC</b>; el conteo se agenda por cadencia (A 30d · B 90d · C 365d).</p>
+              </div>
             </td></tr>
           </ng-template>
         </p-table>
       } @else {
         <!-- CLASIFICACIÓN ABC -->
-        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
-                 [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50">
+        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+                 [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
           <ng-template pTemplate="header">
             <tr>
-              <th>Clase</th><th>SKU</th><th>Producto</th><th>Almacén</th>
-              <th class="abc-num">Valor anual</th><th class="abc-num">Unidades</th><th class="abc-num">% acum.</th>
+              <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
+              <th scope="col" class="abc-num">Valor anual</th><th scope="col" class="abc-num">Unidades</th><th scope="col" class="abc-num">% acum.</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-it>
@@ -140,8 +144,12 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="7" class="abc-empty">
-              Sin clasificación ABC. Corré <b>Recalcular ABC</b> para clasificar por valor de consumo (ventas 90d × costo).
+            <tr><td colspan="7" class="comm-empty-cell">
+              <div class="comm-empty">
+                <span class="comm-empty-icon"><i class="pi pi-sort-amount-down"></i></span>
+                <h3>Sin clasificación ABC</h3>
+                <p>Corré <b>Recalcular ABC</b> para clasificar por valor de consumo (ventas 90d × costo).</p>
+              </div>
             </td></tr>
           </ng-template>
         </p-table>
@@ -172,7 +180,6 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
     .abc-mono { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
     .abc-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .abc-num { text-align: right; font-variant-numeric: tabular-nums; }
-    .abc-empty { text-align: center; padding: 2rem; color: var(--text-muted); line-height: 1.5; }
   `],
 })
 export class ComercialInventoryAbcComponent {

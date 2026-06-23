@@ -14,6 +14,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { timeout, TimeoutError } from 'rxjs';
 import {
   VendorService,
   RouteTicket,
@@ -132,8 +133,12 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           No se pudo leer el ticket. Revisá tu conexión — tu foto sigue acá.
         </p>
+        <code class="crt-err-detail" *ngIf="ocrErrorDetail()">{{ ocrErrorDetail() }}</code>
         <button type="button" class="crt-save" (click)="retryOcr()">
           <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar lectura
+        </button>
+        <button type="button" class="crt-change crt-ocr-defer" (click)="deferTicket()">
+          <i class="pi pi-cloud-upload" aria-hidden="true"></i> Guardar para subir luego
         </button>
         <button type="button" class="crt-change crt-ocr-retake" (click)="reset()">
           <i class="pi pi-camera" aria-hidden="true"></i> Tomar otra foto
@@ -383,7 +388,8 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-ocr-error { display: flex; flex-direction: column; gap: 0.875rem; margin-bottom: 1.5rem; }
       .crt-ocr-error .crt-warn { margin: 0; }
       .crt-ocr-error .crt-save { margin-top: 0; }
-      .crt-ocr-retake { align-self: center; }
+      .crt-ocr-defer, .crt-ocr-retake { align-self: center; }
+      .crt-err-detail { display: block; font-family: var(--font-mono, monospace); font-size: 0.7rem; color: var(--text-faint); background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.4rem 0.6rem; word-break: break-word; }
 
       /* ── procesando ── */
       .crt-processing {
@@ -564,6 +570,8 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   readonly listError = signal(false);
   /** Falló el OCR — conservamos la foto para reintentar sin volver a capturar. */
   readonly ocrError = signal(false);
+  /** Detalle técnico del fallo (status + mensaje) — visible para diagnosticar sin logs. */
+  readonly ocrErrorDetail = signal<string | null>(null);
   private retryFile: File | null = null;
   readonly cargaLines = signal<EditableCargaLine[]>([]); // productos detectados en carga
   // Ruta resuelta por el backend (el usuario NO la edita). Sin match → no se guarda.
@@ -622,6 +630,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   choose(t: RouteTicketType): void {
     this.selectedType.set(t);
     this.ocrError.set(false);
+    this.ocrErrorDetail.set(null);
     // dispara el file picker (#fileInput en el template)
     queueMicrotask(() => this.fileInput?.nativeElement.click());
   }
@@ -680,11 +689,22 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Escape-hatch: el OCR online falla repetido → encola la foto igual. El sync
+   *  reintentará OCR+guardado cuando el endpoint se recupere (no pierde el ticket). */
+  deferTicket(): void {
+    const type = this.selectedType();
+    if (!type || !this.retryFile) return;
+    this.ocrError.set(false);
+    this.ocrErrorDetail.set(null);
+    void this.saveTicketOffline(type, this.retryFile);
+  }
+
   /** Reintenta el OCR con la última foto capturada (sin abrir la cámara de nuevo). */
   retryOcr(): void {
     const type = this.selectedType();
     if (!type || !this.retryFile) return;
     this.ocrError.set(false);
+    this.ocrErrorDetail.set(null);
     this.processing.set(true);
     this.runOcr(type, this.retryFile);
   }
@@ -692,7 +712,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   private runOcr(type: RouteTicketType, file: File): void {
     this.api
       .procesarTicket(type, file)
-      .pipe(takeUntilDestroyed(this.destroyRef))
+      .pipe(timeout(50_000), takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
           this.lastResult = res;
@@ -723,7 +743,8 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           this.step.set('review');
         },
         error: (e) => {
-          // Si la red murió a mitad del OCR, encolamos offline (no perdemos la foto).
+          // Si la red murió a mitad del OCR (o timeout sin conexión), encolamos
+          // offline para no perder la foto.
           if (!navigator.onLine && this.retryFile) {
             void this.saveTicketOffline(type, this.retryFile);
             return;
@@ -731,7 +752,14 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           this.processing.set(false);
           // Conservamos la foto: el vendedor reintenta sin volver a capturar.
           this.ocrError.set(true);
-          this.toast.add({ severity: 'error', summary: 'No se pudo leer el ticket', detail: e?.error?.message || 'Revisá tu conexión y reintentá' });
+          // Surface técnico (status + mensaje) — sirve de "log" cuando el server
+          // no expone los suyos. Timeout cliente vs 5xx vs 0 (red) son distintos.
+          const status = e instanceof TimeoutError ? 'timeout-cliente' : (e?.status ?? '—');
+          const msg = e instanceof TimeoutError
+            ? 'el server no respondió en 50s'
+            : e?.error?.message || e?.message || 'sin detalle';
+          this.ocrErrorDetail.set(`[${status}] ${msg}`);
+          this.toast.add({ severity: 'error', summary: 'No se pudo leer el ticket', detail: `${msg}` });
         },
       });
   }
@@ -805,6 +833,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     this.lastResult = null;
     this.retryFile = null;
     this.ocrError.set(false);
+    this.ocrErrorDetail.set(null);
     this.cargaLines.set([]);
     this.routeMatched.set(false);
     this.routeValue.set(null);

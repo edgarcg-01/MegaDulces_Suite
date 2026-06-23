@@ -146,21 +146,26 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       <!-- ──────────── DESKTOP: tabla flush ──────────── -->
       <div class="sheet cols-12 da-table-desktop" *ngIf="shipments().length > 0">
         <article class="cell cell-span-12 is-flush">
-          <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm"
-                   [paginator]="true" [rows]="10">
+          <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll"
+                   styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+                   [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
             <ng-template pTemplate="header">
               <tr>
-                <th>Folio</th>
-                <th>Fecha</th>
-                <th>Cliente / Pedido</th>
-                <th>Ruta</th>
-                <th>Vehículo</th>
-                <th>Estado</th>
-                <th></th>
+                <th scope="col">Folio</th>
+                <th scope="col">Fecha</th>
+                <th scope="col">Cliente / Pedido</th>
+                <th scope="col">Ruta</th>
+                <th scope="col">Vehículo</th>
+                <th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-s>
-              <tr (click)="openWizard(s)" class="comm-row-clickable">
+              <tr (click)="openWizard(s)" class="comm-row-clickable"
+                  role="button" tabindex="0"
+                  [attr.aria-label]="'Abrir entrega ' + s.folio"
+                  (keydown.enter)="openWizard(s)"
+                  (keydown.space)="$event.preventDefault(); openWizard(s)">
                 <td><code class="comm-code">{{ s.folio }}</code></td>
                 <td>{{ s.shipment_date | date:'dd MMM' }}</td>
                 <td class="comm-cell-strong">{{ s.customer_name || s.order_code || '—' }}</td>

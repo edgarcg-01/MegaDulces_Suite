@@ -180,19 +180,20 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           >
             <ng-template pTemplate="header">
               <tr>
-                <th>Producto</th>
-                <th>SKU</th>
-                <th>Marca</th>
-                <th>Categoría</th>
-                <th>Ubic.</th>
-                <th class="comm-num">Costo</th>
-                <th class="comm-num">Unidad</th>
-                <th>Estado</th>
-                <th></th>
+                <th scope="col">Producto</th>
+                <th scope="col">SKU</th>
+                <th scope="col">Marca</th>
+                <th scope="col">Categoría</th>
+                <th scope="col">Ubic.</th>
+                <th scope="col" class="comm-num">Costo</th>
+                <th scope="col" class="comm-num">Unidad</th>
+                <th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-p>
-              <tr (click)="openEdit(p)" class="comm-row-clickable">
+              <tr (click)="openEdit(p)" (keydown.enter)="openEdit(p)" (keydown.space)="$event.preventDefault(); openEdit(p)"
+                  tabindex="0" role="button" [attr.aria-label]="'Editar ' + p.nombre" class="comm-row-clickable">
                 <td>
                   <div class="comm-cell-strong" [pTooltip]="p.description || ''" tooltipPosition="right" [tooltipDisabled]="!p.description">
                     {{ p.nombre }}

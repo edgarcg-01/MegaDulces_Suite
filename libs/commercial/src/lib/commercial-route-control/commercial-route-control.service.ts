@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  GatewayTimeoutException,
   Injectable,
   Logger,
   NotFoundException,
@@ -28,6 +29,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ACCEPTED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const MAX_BYTES = 8 * 1024 * 1024; // límite vision Anthropic
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Tope global del OCR: Cloudinary + Claude vision (+ Voyage en carga) se apilan;
+ *  sin tope el request cuelga >2min y el navegador cancela (502). 504 limpio. */
+const PROCESAR_DEADLINE_MS = 45_000;
 
 /**
  * "Cierre de ruta" — tickets diarios del vendedor (venta/carga/combustible).
@@ -59,6 +63,33 @@ export class CommercialRouteControlService {
     if (file.size > MAX_BYTES)
       throw new BadRequestException(`Imagen excede ${MAX_BYTES} bytes`);
 
+    // Tope global: corta a los 45s con 504 limpio en vez de colgar hasta que el
+    // navegador cancele (502). El pipeline sigue en background si pierde la carrera.
+    let deadline: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      deadline = setTimeout(
+        () =>
+          reject(
+            new GatewayTimeoutException(
+              'La lectura del ticket tardó demasiado. Revisá tu conexión y reintentá.',
+            ),
+          ),
+        PROCESAR_DEADLINE_MS,
+      );
+    });
+    const pipeline = this.runProcesar(file, ticketType);
+    pipeline.catch(() => undefined); // evita unhandledRejection si gana el timeout
+    try {
+      return await Promise.race([pipeline, timeout]);
+    } finally {
+      clearTimeout(deadline!);
+    }
+  }
+
+  private async runProcesar(
+    file: Express.Multer.File,
+    ticketType: RouteTicketType,
+  ): Promise<ProcesarRouteTicketResult> {
     const ctx = this.tenantCtx.get();
     const folder = `route-tickets/${ctx?.tenantId ?? 'unknown'}/${ctx?.userId ?? 'unknown'}`;
     const t0 = Date.now();

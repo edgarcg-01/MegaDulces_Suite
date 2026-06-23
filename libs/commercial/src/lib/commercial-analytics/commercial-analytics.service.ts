@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
@@ -29,10 +29,44 @@ const REVENUE_STATUSES = ['fulfilled'];
 
 @Injectable()
 export class CommercialAnalyticsService {
+  private readonly logger = new Logger(CommercialAnalyticsService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * Las queries `analytics_external.*` leen el ERP vía FDW (server
+   * `mega_dulces_srv` en la LAN 192.168.0.245). Ese host NO es alcanzable desde
+   * Railway, así que en prod el FDW da timeout (08001 / "could not connect to
+   * server"). En vez de tirar un 500, degradamos: logueamos y devolvemos el
+   * fallback (típicamente `[]`) para que la UI muestre estado vacío.
+   */
+  private isErpUnavailable(err: any): boolean {
+    const code = String(err?.code || '');
+    if (['08001', '08006', '08004', '08003', '57P01'].includes(code)) return true;
+    const msg = String(err?.message || err?.detail || '').toLowerCase();
+    return (
+      msg.includes('mega_dulces_srv') ||
+      msg.includes('could not connect to server') ||
+      msg.includes('connection timed out')
+    );
+  }
+
+  private async guardErp<T>(label: string, fallback: T, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (this.isErpUnavailable(err)) {
+        this.logger.warn(
+          `ERP (FDW mega_dulces_srv) no disponible en ${label}: ${err?.code || ''} ${err?.message || err}`,
+        );
+        return fallback;
+      }
+      throw err;
+    }
+  }
 
   /**
    * Overview rolling 30d desde MV (default) o on-the-fly si live=true o si hay
@@ -565,7 +599,8 @@ export class CommercialAnalyticsService {
    */
   async historicalSalesDaily(q: { from?: string; to?: string; zona?: string }) {
     const { from, to } = this.parseDateRange(q);
-    return this.tk.run(async (trx) => {
+    return this.guardErp('historicalSalesDaily', [], () =>
+     this.tk.run(async (trx) => {
       const rows = await trx('analytics_external.ventas_legacy')
         .modify((qb) => {
           if (from) qb.where('fecha', '>=', from);
@@ -589,14 +624,15 @@ export class CommercialAnalyticsService {
         cost: Number(r.cost),
         margin: Number(r.revenue) - Number(r.cost),
       }));
-    });
+    }));
   }
 
   /** Top productos del ERP por revenue en el período. */
   async historicalTopProducts(q: { from?: string; to?: string; zona?: string; limit?: number }) {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
-    return this.tk.run(async (trx) => {
+    return this.guardErp('historicalTopProducts', [], () =>
+     this.tk.run(async (trx) => {
       const rows = await trx('analytics_external.ventas_legacy')
         .modify((qb) => {
           if (from) qb.where('fecha', '>=', from);
@@ -622,7 +658,7 @@ export class CommercialAnalyticsService {
         units: Number(r.units),
         revenue: Number(r.revenue),
       }));
-    });
+    }));
   }
 
   /**
@@ -635,7 +671,8 @@ export class CommercialAnalyticsService {
    */
   async historicalRanking(q: { limit?: number }) {
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 100));
-    return this.tk.run(async (trx) => {
+    return this.guardErp('historicalRanking', [], () =>
+     this.tk.run(async (trx) => {
       const rows = await trx('analytics_external.ranking_legacy')
         .orderBy('posicion', 'asc')
         .limit(limit);
@@ -648,7 +685,7 @@ export class CommercialAnalyticsService {
         total_piezas_totales: Number(r.total_piezas_totales || 0),
         total_venta: Number(r.total_venta || 0),
       }));
-    });
+    }));
   }
 
   /**
@@ -663,7 +700,8 @@ export class CommercialAnalyticsService {
   async historicalMarginByCategory(q: { from?: string; to?: string; limit?: number }) {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
-    return this.tk.run(async (trx) => {
+    return this.guardErp('historicalMarginByCategory', [], () =>
+     this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
       const rows = await trx.raw(
         `
@@ -721,7 +759,7 @@ export class CommercialAnalyticsService {
         margin: Number(r.margin),
         margin_pct: r.margin_pct != null ? Number(r.margin_pct) : null,
       }));
-    });
+    }));
   }
 
   /**
@@ -736,7 +774,8 @@ export class CommercialAnalyticsService {
     // Solo escaneamos el top-N del ERP (más relevante; el ERP ya ordenó).
     const topN = Math.min(1000, Math.max(50, Number(q.topN) || 200));
 
-    return this.tk.run(async (trx) => {
+    return this.guardErp('rankingOutOfStock', [], () =>
+     this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
       const rows = await trx.raw(
         `
@@ -787,13 +826,14 @@ export class CommercialAnalyticsService {
         total_reserved: Number(r.total_reserved),
         available: Number(r.available),
       }));
-    });
+    }));
   }
 
   /** Resumen por zona/sucursal en el período. */
   async historicalSalesByZona(q: { from?: string; to?: string }) {
     const { from, to } = this.parseDateRange(q);
-    return this.tk.run(async (trx) => {
+    return this.guardErp('historicalSalesByZona', [], () =>
+     this.tk.run(async (trx) => {
       const rows = await trx('analytics_external.ventas_legacy')
         .modify((qb) => {
           if (from) qb.where('fecha', '>=', from);
@@ -817,7 +857,7 @@ export class CommercialAnalyticsService {
         units: Number(r.units),
         revenue: Number(r.revenue),
       }));
-    });
+    }));
   }
 
   // ─────────── helpers ───────────

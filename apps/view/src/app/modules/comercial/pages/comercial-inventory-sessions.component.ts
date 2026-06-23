@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
+import { RouterModule, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -48,26 +48,38 @@ import { forkJoin } from 'rxjs';
         </div>
       </header>
 
-      <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true">
+      <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true">
         <ng-template pTemplate="header">
           <tr>
-            <th>Folio</th><th>Almacén</th><th>Tipo</th><th>Estado</th><th>Inicio</th><th></th>
+            <th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Inicio</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-c>
-          <tr>
+          <tr
+            class="comm-row-clickable"
+            role="button"
+            tabindex="0"
+            [attr.aria-label]="'Abrir folio ' + c.folio"
+            [routerLink]="['/comercial/inventory/sessions', c.id]"
+            (keydown.enter)="goToFolio(c.id)"
+            (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
             <td class="in-mono">{{ c.folio }}</td>
             <td>{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
             <td>{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
             <td><p-tag [value]="statusLabel(c.status)" [severity]="statusSeverity(c.status)"></p-tag></td>
             <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
             <td>
-              <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/comercial/inventory/sessions', c.id]"></button>
+              <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/comercial/inventory/sessions', c.id]" (click)="$event.stopPropagation()"></button>
             </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="6" class="in-empty">No hay folios. Abrí uno para empezar a contar.</td></tr>
+          <tr><td colspan="6" class="comm-empty-cell">
+            <div class="comm-empty">
+              <i class="pi pi-clipboard comm-empty-icon"></i>
+              <span>No hay folios. Abrí uno para empezar a contar.</span>
+            </div>
+          </td></tr>
         </ng-template>
       </p-table>
 
@@ -125,7 +137,6 @@ import { forkJoin } from 'rxjs';
   `,
   styles: [`
     .in-mono { font-family: var(--font-mono, monospace); font-weight: 600; }
-    .in-empty { text-align: center; padding: 2rem; color: var(--text-muted, #78716c); }
     .in-head-actions { display: flex; gap: .5rem; }
     .in-form { display: flex; flex-direction: column; gap: .4rem; }
     .in-form label { font-size: .8rem; font-weight: 600; color: var(--text-muted, #78716c); margin-top: .6rem; }
@@ -148,6 +159,7 @@ export class ComercialInventorySessionsComponent {
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   counts = signal<InventoryCount[]>([]);
   warehouses = signal<{ id: string; label: string }[]>([]);
@@ -174,6 +186,10 @@ export class ComercialInventorySessionsComponent {
 
   constructor() {
     this.load();
+  }
+
+  goToFolio(id: string) {
+    this.router.navigate(['/comercial/inventory/sessions', id]);
   }
 
   load() {

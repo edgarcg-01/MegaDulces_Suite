@@ -249,12 +249,12 @@ interface RouteOption {
             <table class="pd-table">
               <thead>
                 <tr>
-                  <th>Persona</th>
-                  <th *ngFor="let m of mealColumns" class="meal-col">
+                  <th scope="col">Persona</th>
+                  <th scope="col" *ngFor="let m of mealColumns" class="meal-col">
                     {{ m.label }}<br>
                     <small>\${{ viaticoRate(m.key) | number:'1.2-2' }}</small>
                   </th>
-                  <th class="num">Subtotal</th>
+                  <th scope="col" class="num">Subtotal</th>
                 </tr>
               </thead>
               <tbody>

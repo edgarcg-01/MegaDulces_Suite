@@ -191,23 +191,31 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <!-- Tabla flush -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
-            <p-table [value]="page().items" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm"
+            <p-table [value]="page().items" [loading]="loading()" responsiveLayout="scroll"
+                     styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
                      [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
+                     [rowsPerPageOptions]="[25, 50, 100, 200]"
                      (onLazyLoad)="onPageChange($event)">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Folio</th>
-                  <th>Fecha</th>
-                  <th>Tipo</th>
-                  <th>Origen → Destino</th>
-                  <th class="comm-num">Cajas</th>
-                  <th class="comm-num">km</th>
-                  <th>Estado</th>
-                  <th></th>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Origen → Destino</th>
+                  <th scope="col" class="comm-num">Cajas</th>
+                  <th scope="col" class="comm-num">km</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-s>
-                <tr (click)="goDetail(s)" class="comm-row-clickable">
+                <tr (click)="goDetail(s)"
+                    class="comm-row-clickable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Ver embarque ' + s.folio"
+                    (keydown.enter)="goDetail(s)"
+                    (keydown.space)="$event.preventDefault(); goDetail(s)">
                   <td><code class="comm-code">{{ s.folio }}</code></td>
                   <td>{{ s.shipment_date | date:'dd MMM' }}</td>
                   <td>{{ typeLabel(s.type) }}</td>
@@ -233,9 +241,9 @@ function severityForStatus(s: ShipmentStatus): Severity {
               </ng-template>
               <ng-template pTemplate="emptymessage">
                 <tr>
-                  <td colspan="8" class="sh-empty-cell">
-                    <div class="sh-empty">
-                      <div class="sh-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
+                  <td colspan="8" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
                       <h3>Sin embarques</h3>
                       <p>{{ statusFilterValue ? 'No hay embarques en este estado.' : 'Creá tu primer embarque para empezar a operar.' }}</p>
                       <button
@@ -261,16 +269,17 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <!-- Tabla pendientes flush -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
-            <p-table [value]="pendingOrders()" [loading]="loadingPending()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="pendingOrders()" [loading]="loadingPending()" responsiveLayout="scroll"
+                     styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Folio</th>
-                  <th>Confirmado</th>
-                  <th>Cliente</th>
-                  <th>Almacén</th>
-                  <th>Entrega</th>
-                  <th class="comm-num">Total</th>
-                  <th></th>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Confirmado</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Almacén</th>
+                  <th scope="col">Entrega</th>
+                  <th scope="col" class="comm-num">Total</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-o>
@@ -300,9 +309,9 @@ function severityForStatus(s: ShipmentStatus): Severity {
               </ng-template>
               <ng-template pTemplate="emptymessage">
                 <tr>
-                  <td colspan="7" class="sh-empty-cell">
-                    <div class="sh-empty">
-                      <div class="sh-empty-icon is-ok"><i class="pi pi-check" aria-hidden="true"></i></div>
+                  <td colspan="7" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <div class="comm-empty-icon"><i class="pi pi-check" aria-hidden="true"></i></div>
                       <h3>Logística al día</h3>
                       <p>No hay pedidos confirmados esperando programación.</p>
                     </div>
@@ -474,42 +483,6 @@ function severityForStatus(s: ShipmentStatus): Severity {
       color: var(--warn-soft-fg, var(--c-warn));
     }
     .sh-delivery.is-long i { color: var(--c-warn); }
-
-    /* ── EMPTY STATE ── */
-    .sh-empty-cell { padding: 0 !important; }
-    .sh-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .sh-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: 1.5rem;
-    }
-    .sh-empty-icon.is-ok {
-      background: rgba(22, 163, 74, 0.10);
-      color: var(--c-ok);
-    }
-    .sh-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .sh-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

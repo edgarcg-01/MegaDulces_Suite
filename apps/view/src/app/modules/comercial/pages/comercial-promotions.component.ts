@@ -154,19 +154,21 @@ interface ProductOption {
             [rows]="pageSize()"
             [totalRecords]="total()"
             [first]="(page() - 1) * pageSize()"
+            [rowsPerPageOptions]="[25, 50, 100, 200]"
             (onLazyLoad)="onLazyLoad($event)"
-            styleClass="p-datatable-sm"
+            responsiveLayout="scroll"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
           >
             <ng-template pTemplate="header">
               <tr>
-                <th>Código</th>
-                <th>Nombre</th>
-                <th>Tipo</th>
-                <th>Mecánica</th>
-                <th>Vigencia</th>
-                <th class="comm-num">Prioridad</th>
-                <th>Activa</th>
-                <th></th>
+                <th scope="col">Código</th>
+                <th scope="col">Nombre</th>
+                <th scope="col">Tipo</th>
+                <th scope="col">Mecánica</th>
+                <th scope="col">Vigencia</th>
+                <th scope="col" class="comm-num">Prioridad</th>
+                <th scope="col">Activa</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-p>
@@ -208,9 +210,9 @@ interface ProductOption {
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="8" class="pm-empty-cell">
-                  <div class="pm-empty">
-                    <div class="pm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
+                <td colspan="8" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin promociones</h3>
                     <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Creá tu primera promoción para incentivar pedidos.' }}</p>
                     <button
@@ -261,16 +263,6 @@ interface ProductOption {
   `,
   styles: [`
     :host { display:block; }
-
-    .promo-banner-preview {
-      width: 100%;
-      max-height: 160px;
-      object-fit: contain;
-      border-radius: 10px;
-      border: 1px solid var(--border-color);
-      background: var(--neutral-100);
-      margin-top: .25rem;
-    }
 
     .pm-head-actions { display:flex; gap:.5rem; align-items:center; }
     .pm-divider { opacity: 0.4; }
@@ -402,162 +394,6 @@ interface ProductOption {
     }
     .pm-window-sep { color: var(--c-text-3); font-size: var(--fs-nano); }
 
-    /* ── EMPTY STATE ── */
-    .pm-empty-cell { padding: 0 !important; }
-    .pm-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .pm-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: 1.5rem;
-    }
-    .pm-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .pm-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
-
-    /* ── DIALOG: wizard step 1 (type selector cards) ── */
-    .step-intro {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-    }
-    .type-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: .625rem;
-    }
-    .type-card {
-      display: flex;
-      gap: .75rem;
-      padding: .875rem;
-      border: 1px solid var(--c-divider);
-      border-radius: 10px;
-      background: var(--c-surface-1);
-      color: var(--c-text-1);
-      cursor: pointer;
-      text-align: left;
-      transition: border-color 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
-      font-family: inherit;
-    }
-    .type-card:hover {
-      border-color: var(--c-text-1);
-      box-shadow: 0 4px 12px rgba(0,0,0,.06);
-    }
-    .type-card:active { transform: scale(.99); }
-    .type-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-      color: #fff;
-      flex-shrink: 0;
-    }
-    .type-icon i { font-size: 1.15rem; }
-    .type-body { flex: 1; min-width: 0; }
-    .type-title {
-      font-weight: var(--fw-bold);
-      font-size: var(--fs-sm);
-      margin-bottom: .2rem;
-      color: var(--c-text-1);
-    }
-    .type-desc {
-      font-size: var(--fs-xs);
-      color: var(--c-text-2);
-      margin-bottom: .3rem;
-      line-height: 1.35;
-    }
-    .type-example {
-      font-size: var(--fs-micro);
-      color: var(--c-text-3);
-      font-style: italic;
-    }
-    .type-example i { margin-right: .25rem; }
-
-    /* ── DIALOG: wizard step 2 (config form) ── */
-    .step-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1rem;
-      padding-bottom: .75rem;
-      border-bottom: 1px solid var(--c-divider);
-    }
-    .divider {
-      grid-column: span 2;
-      display: flex;
-      align-items: center;
-      gap: .75rem;
-      margin: .5rem 0 .25rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-micro);
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      font-weight: var(--fw-bold);
-    }
-    .divider::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--c-divider);
-    }
-    .tiers-section {
-      display: flex;
-      flex-direction: column;
-      gap: .5rem;
-    }
-    .tiers-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .tiers-header span {
-      font-size: var(--fs-micro);
-      color: var(--c-text-2);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      font-weight: var(--fw-bold);
-    }
-    .tiers-list {
-      display: flex;
-      flex-direction: column;
-      gap: .5rem;
-      padding: .625rem;
-      background: var(--c-surface-2);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-    }
-    .tier-row, .bundle-row {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-    }
-    .tier-row .tier-from {
-      font-size: var(--fs-xs);
-      color: var(--c-text-2);
-      min-width: 50px;
-    }
-    .tier-row .tier-arrow { color: var(--c-text-3); }
-    :host ::ng-deep .p-select.bundle-product { flex: 1; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -570,7 +406,7 @@ export class ComercialPromotionsComponent {
   readonly rows = signal<Promotion[]>([]);
   readonly total = signal(0);
   readonly page = signal(1);
-  readonly pageSize = signal(20);
+  readonly pageSize = signal(25);
   readonly loading = signal(false);
   readonly togglingId = signal<string | null>(null);
 

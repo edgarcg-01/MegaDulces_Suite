@@ -61,6 +61,44 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
   };
 };
 
+/**
+ * Variante OR: deja pasar si el usuario tiene CUALQUIERA de los permisos.
+ * Útil para superficies que sirven a dos roles (ej. Mapa de Campo: tracking
+ * con RUTAS_VER o inteligencia comercial con COMMERCIAL_MAP_VER).
+ */
+export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanActivateFn => {
+  return () => {
+    const authService = inject(AuthService);
+    const perms = inject(PermissionsService);
+    const router = inject(Router);
+
+    if (!authService.isAuthenticated) {
+      router.navigate(['/login']);
+      return false;
+    }
+
+    const legacyPerms = authService.user()?.permissions;
+    const ok = requiredPermissions.some((p) => {
+      const subject = subjectMap[p];
+      const hasAccess = subject ? perms.can('read', subject as any) : false;
+      const hasFallback = legacyPerms ? legacyPerms[p] === true : false;
+      return hasAccess || hasFallback;
+    });
+
+    if (!ok) {
+      const legacyScope = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
+      if (legacyScope || perms.can('read', 'reports_team') || perms.can('read', 'reports_global')) {
+        router.navigate(['/dashboard']);
+      } else {
+        router.navigate(['/dashboard/captures']);
+      }
+      return false;
+    }
+
+    return true;
+  };
+};
+
 export const colaboradorGuard: CanActivateFn = (route, state) => {
   const authService = inject(AuthService);
   const perms = inject(PermissionsService);

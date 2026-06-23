@@ -9,14 +9,16 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 
-type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'exhibicion';
+type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'comercial';
 
 /**
  * Mapa de campo — superficie unificada (MF.1). Reúne en una sola entrada las
- * tres vistas que antes eran rutas separadas (Rutas / Historial / Mapa
- * Comercial), todas sobre "tiendas + visitas + recorrido". Por ahora cada vista
- * monta su componente existente bajo un selector (consolidación de interfaces
- * sin regresión); fases siguientes (MF.2+) unifican el mapa y el drill-down.
+ * vistas que antes eran rutas separadas (Rutas / Historial / Mapa Comercial),
+ * todas sobre "tiendas + visitas + recorrido". Cada vista monta su componente
+ * existente bajo un selector (consolidación sin regresión). Las tres primeras
+ * pestañas son tracking (RUTAS_VER); "Comercial" es inteligencia comercial
+ * (COMMERCIAL_MAP_VER) — exhibidores, productos por tienda, propio vs
+ * competencia. Un rol solo-comercial entra y aterriza directo en Comercial.
  * La vista activa se refleja en ?view= para deep-links.
  */
 @Component({
@@ -26,18 +28,20 @@ type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'exhibicion';
   template: `
     <div class="fm-wrap">
       <nav class="fm-tabs" role="tablist">
-        <button role="tab" [class.act]="view() === 'equipo'" [attr.aria-selected]="view() === 'equipo'" (click)="setView('equipo')">
-          <i class="pi pi-users" aria-hidden="true"></i>&nbsp;Equipo
-        </button>
-        <button role="tab" [class.act]="view() === 'ruta'" [attr.aria-selected]="view() === 'ruta'" (click)="setView('ruta')">
-          <i class="pi pi-map" aria-hidden="true"></i>&nbsp;Por ruta
-        </button>
-        <button role="tab" [class.act]="view() === 'vendedor'" [attr.aria-selected]="view() === 'vendedor'" (click)="setView('vendedor')">
-          <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Por vendedor
-        </button>
+        @if (canTracking()) {
+          <button role="tab" [class.act]="view() === 'equipo'" [attr.aria-selected]="view() === 'equipo'" (click)="setView('equipo')">
+            <i class="pi pi-users" aria-hidden="true"></i>&nbsp;Equipo
+          </button>
+          <button role="tab" [class.act]="view() === 'ruta'" [attr.aria-selected]="view() === 'ruta'" (click)="setView('ruta')">
+            <i class="pi pi-map" aria-hidden="true"></i>&nbsp;Por ruta
+          </button>
+          <button role="tab" [class.act]="view() === 'vendedor'" [attr.aria-selected]="view() === 'vendedor'" (click)="setView('vendedor')">
+            <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Por vendedor
+          </button>
+        }
         @if (canExhibition()) {
-          <button role="tab" [class.act]="view() === 'exhibicion'" [attr.aria-selected]="view() === 'exhibicion'" (click)="setView('exhibicion')">
-            <i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Exhibición
+          <button role="tab" [class.act]="view() === 'comercial'" [attr.aria-selected]="view() === 'comercial'" (click)="setView('comercial')">
+            <i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Comercial
           </button>
         }
       </nav>
@@ -46,7 +50,7 @@ type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'exhibicion';
           @case ('equipo') { <app-team-day (selectVendor)="onTeamSelect($event)" /> }
           @case ('ruta') { <app-routes-analysis /> }
           @case ('vendedor') { <app-vendor-history /> }
-          @case ('exhibicion') { <app-commercial-map /> }
+          @case ('comercial') { <app-commercial-map /> }
         }
       </div>
     </div>
@@ -68,7 +72,14 @@ export class FieldMapComponent implements OnInit {
   private perms = inject(PermissionsService);
   protected view = signal<FieldView>('equipo');
 
-  /** La vista Exhibición (Mapa Comercial) requiere COMMERCIAL_MAP_VER. */
+  /** Las pestañas de tracking (equipo/ruta/vendedor) requieren RUTAS_VER. */
+  protected canTracking = computed(
+    () =>
+      this.perms.can('read', 'routes_analytics' as any) ||
+      this.auth.user()?.permissions?.[Permission.RUTAS_VER] === true,
+  );
+
+  /** La vista Comercial (Mapa Comercial) requiere COMMERCIAL_MAP_VER. */
   protected canExhibition = computed(
     () =>
       this.perms.can('read', 'commercial_map' as any) ||
@@ -76,8 +87,18 @@ export class FieldMapComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    // Default inteligente: con tracking abre en "Equipo"; un rol solo-comercial
+    // aterriza directo en "Comercial" (no en una pestaña que no puede ver).
+    this.view.set(this.canTracking() ? 'equipo' : 'comercial');
     const v = this.route.snapshot.queryParamMap.get('view') as FieldView | null;
-    if (v === 'equipo' || v === 'ruta' || v === 'vendedor' || (v === 'exhibicion' && this.canExhibition())) this.view.set(v);
+    if (v && this.isAllowed(v)) this.view.set(v);
+  }
+
+  /** ¿La vista pedida es accesible con los permisos del usuario? */
+  private isAllowed(v: FieldView): boolean {
+    if (v === 'comercial') return this.canExhibition();
+    if (v === 'equipo' || v === 'ruta' || v === 'vendedor') return this.canTracking();
+    return false;
   }
 
   protected setView(v: FieldView): void {

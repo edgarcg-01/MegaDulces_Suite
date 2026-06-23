@@ -78,11 +78,12 @@ function severityForDriverStatus(s: string): Severity {
         <p-tabpanel value="vehicles">
           <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nueva unidad" (click)="openVehicleCreate()"></button></div>
           <p-card>
-            <p-table [value]="vehicles()" [loading]="loadingV()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="vehicles()" [loading]="loadingV()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Placa</th><th>Marca/Modelo</th><th>Año</th>
-                  <th>Cap. cajas</th><th>Rendim.</th><th>Estado</th><th></th>
+                  <th scope="col">Placa</th><th scope="col">Marca/Modelo</th><th scope="col">Año</th>
+                  <th scope="col">Cap. cajas</th><th scope="col">Rendim.</th><th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-v>
@@ -100,7 +101,7 @@ function severityForDriverStatus(s: string): Severity {
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="7" class="muted">Sin unidades.</td></tr>
+                <tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div><h3>Sin unidades</h3><p>Aún no hay unidades registradas.</p></div></td></tr>
               </ng-template>
             </p-table>
           </p-card>
@@ -109,11 +110,12 @@ function severityForDriverStatus(s: string): Severity {
         <p-tabpanel value="drivers">
           <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openDriverCreate()"></button></div>
           <p-card>
-            <p-table [value]="drivers()" [loading]="loadingD()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="drivers()" [loading]="loadingD()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Nombre</th><th>Roles</th><th>Tipo</th>
-                  <th>Teléfono</th><th>Estado</th><th></th>
+                  <th scope="col">Nombre</th><th scope="col">Roles</th><th scope="col">Tipo</th>
+                  <th scope="col">Teléfono</th><th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-d>
@@ -132,7 +134,7 @@ function severityForDriverStatus(s: string): Severity {
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="6" class="muted">Sin colaboradores.</td></tr>
+                <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-id-card" aria-hidden="true"></i></div><h3>Sin colaboradores</h3><p>Aún no hay colaboradores registrados.</p></div></td></tr>
               </ng-template>
             </p-table>
           </p-card>
@@ -144,18 +146,18 @@ function severityForDriverStatus(s: string): Severity {
             <button pButton icon="pi pi-sign-out" label="Nuevo check-in" (click)="openCheckIn()"></button>
           </div>
           <p-card>
-            <p-table [value]="usageLogs()" [loading]="loadingUsage()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="usageLogs()" [loading]="loadingUsage()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Vehículo</th>
-                  <th>Chofer</th>
-                  <th>Salida</th>
-                  <th class="num">Km inicial</th>
-                  <th>Regreso</th>
-                  <th class="num">Km final</th>
-                  <th class="num">Combustible (L)</th>
-                  <th>Estado</th>
-                  <th></th>
+                  <th scope="col">Vehículo</th>
+                  <th scope="col">Chofer</th>
+                  <th scope="col">Salida</th>
+                  <th scope="col" class="num">Km inicial</th>
+                  <th scope="col">Regreso</th>
+                  <th scope="col" class="num">Km final</th>
+                  <th scope="col" class="num">Combustible (L)</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-u>
@@ -176,7 +178,7 @@ function severityForDriverStatus(s: string): Severity {
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="9" class="muted">Sin historial de uso.</td></tr>
+                <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-clock" aria-hidden="true"></i></div><h3>Sin historial de uso</h3><p>Aún no hay check-ins registrados.</p></div></td></tr>
               </ng-template>
             </p-table>
           </p-card>
@@ -200,9 +202,9 @@ function severityForDriverStatus(s: string): Severity {
 
           <p-card *ngIf="fuelEff().length" class="fuel-card">
             <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
-            <p-table [value]="fuelEff()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="fuelEff()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky">
               <ng-template pTemplate="header">
-                <tr><th>Vehículo</th><th class="num">Km</th><th class="num">Litros</th><th class="num">Real km/l</th><th class="num">Spec</th><th class="num">Desv.</th></tr>
+                <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-f>
                 <tr [class.fuel-flag]="f.flag">
@@ -230,9 +232,9 @@ function severityForDriverStatus(s: string): Severity {
               <input pInputText formControlName="station" placeholder="Estación" />
               <button pButton icon="pi pi-plus" label="Registrar" size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"></button>
             </form>
-            <p-table [value]="fuelTx()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="fuelTx().length > 10" [rows]="10">
+            <p-table [value]="fuelTx()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
               <ng-template pTemplate="header">
-                <tr><th>Fecha</th><th>Unidad</th><th class="num">Litros</th><th class="num">Monto</th><th class="num">Odómetro</th><th>Estación</th><th></th></tr>
+                <tr><th scope="col">Fecha</th><th scope="col">Unidad</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Monto</th><th scope="col" class="num">Odómetro</th><th scope="col">Estación</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-f>
                 <tr>
@@ -245,23 +247,23 @@ function severityForDriverStatus(s: string): Severity {
                   <td class="actions"><button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"></button></td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="muted">Sin cargas registradas.</td></tr></ng-template>
+              <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-bolt" aria-hidden="true"></i></div><h3>Sin cargas registradas</h3><p>Aún no hay cargas de combustible.</p></div></td></tr></ng-template>
             </p-table>
           </p-card>
 
           <p-card>
-            <p-table [value]="maintenance()" [loading]="loadingMaint()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="maintenance()" [loading]="loadingMaint()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Vehículo</th>
-                  <th>Fecha</th>
-                  <th>Tipo</th>
-                  <th>Descripción</th>
-                  <th>Proveedor</th>
-                  <th class="num">Km</th>
-                  <th class="num">Costo</th>
-                  <th>Próximo</th>
-                  <th></th>
+                  <th scope="col">Vehículo</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Descripción</th>
+                  <th scope="col">Proveedor</th>
+                  <th scope="col" class="num">Km</th>
+                  <th scope="col" class="num">Costo</th>
+                  <th scope="col">Próximo</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-m>
@@ -282,7 +284,7 @@ function severityForDriverStatus(s: string): Severity {
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="9" class="muted">Sin mantenimientos registrados.</td></tr>
+                <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-wrench" aria-hidden="true"></i></div><h3>Sin mantenimientos</h3><p>Aún no hay registros de mantenimiento.</p></div></td></tr>
               </ng-template>
             </p-table>
           </p-card>

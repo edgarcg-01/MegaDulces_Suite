@@ -169,23 +169,25 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
             [rows]="pageSize()"
             [totalRecords]="visibleTotal()"
             [first]="(page() - 1) * pageSize()"
+            [rowsPerPageOptions]="[25, 50, 100, 200]"
             (onLazyLoad)="onLazyLoad($event)"
             responsiveLayout="scroll"
-            styleClass="p-datatable-sm co-table"
+            styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
             [rowHover]="true"
           >
             <ng-template pTemplate="header">
               <tr>
-                <th>Folio</th>
-                <th>Cliente</th>
-                <th>Estado</th>
-                <th>Entrega</th>
-                <th class="comm-num">Total</th>
-                <th>Fecha</th>
+                <th scope="col">Folio</th>
+                <th scope="col">Cliente</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Entrega</th>
+                <th scope="col" class="comm-num">Total</th>
+                <th scope="col">Fecha</th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-o>
-              <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" tabindex="0" role="button"
+              <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" (keydown.space)="$event.preventDefault(); goDetail(o)"
+                  tabindex="0" role="button"
                   [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
                 <td><code class="comm-code">{{ o.folio }}</code></td>
                 <td>
@@ -224,9 +226,9 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="6" class="co-empty-cell">
-                  <div class="co-empty">
-                    <div class="co-empty-icon"><i [class]="emptyIcon()" aria-hidden="true"></i></div>
+                <td colspan="6" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i [class]="emptyIcon()" aria-hidden="true"></i></div>
                     <h3>{{ emptyTitle() }}</h3>
                     <p>{{ emptyMessage() }}</p>
                     <button
@@ -308,38 +310,6 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
     }
     .co-cell-meta i { font-size: var(--fs-nano); color: var(--c-text-3); }
     .co-date { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--c-text-1); }
-
-    /* ── EMPTY STATE inline en tabla ── */
-    .co-empty-cell { padding: 0 !important; }
-    .co-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .co-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: var(--fs-h1);
-    }
-    .co-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .co-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -360,7 +330,7 @@ export class ComercialOrdersComponent {
   readonly rows = signal<Order[]>([]);
   readonly total = signal(0);
   readonly page = signal(1);
-  readonly pageSize = signal(15);
+  readonly pageSize = signal(25);
   readonly loading = signal(false);
   readonly loadingKpis = signal(true);
   readonly statusFilter = signal<'all' | OrderStatus>(DEFAULT_STATUS_BY_MODE[this.modeSignal()]);

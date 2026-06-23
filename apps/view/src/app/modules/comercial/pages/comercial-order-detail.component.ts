@@ -104,17 +104,17 @@ import { Permission } from '../../../core/constants/permissions';
             o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
           </span>
         </div>
-        <p-table [value]="o.lines" responsiveLayout="scroll" styleClass="p-datatable-sm">
+        <p-table [value]="o.lines" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
           <ng-template pTemplate="header">
             <tr>
-              <th>Producto</th>
-              <th class="comm-num">Cantidad pedida</th>
-              <th class="comm-num">Stock disponible</th>
-              <th class="comm-num" *ngIf="o.status === 'pending_approval'">Cantidad a aprobar</th>
-              <th class="comm-num">Precio unit</th>
-              <th class="comm-num">Desc%</th>
-              <th class="comm-num">Total línea</th>
-              <th *ngIf="o.status === 'pending_approval'"></th>
+              <th scope="col">Producto</th>
+              <th scope="col" class="comm-num">Cantidad pedida</th>
+              <th scope="col" class="comm-num">Stock disponible</th>
+              <th scope="col" class="comm-num" *ngIf="o.status === 'pending_approval'">Cantidad a aprobar</th>
+              <th scope="col" class="comm-num">Precio unit</th>
+              <th scope="col" class="comm-num">Desc%</th>
+              <th scope="col" class="comm-num">Total línea</th>
+              <th scope="col" *ngIf="o.status === 'pending_approval'"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
@@ -209,19 +209,24 @@ import { Permission } from '../../../core/constants/permissions';
                     [queryParams]="{ order_id: o.id }"></button>
           </div>
         </ng-template>
-        <p-table [value]="shipments()" [loading]="loadingShipments()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+        <p-table [value]="shipments()" [loading]="loadingShipments()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
           <ng-template pTemplate="header">
             <tr>
-              <th>Folio</th>
-              <th>Fecha</th>
-              <th>Tipo</th>
-              <th>Origen → Destino</th>
-              <th>Estado</th>
-              <th></th>
+              <th scope="col">Folio</th>
+              <th scope="col">Fecha</th>
+              <th scope="col">Tipo</th>
+              <th scope="col">Origen → Destino</th>
+              <th scope="col">Estado</th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-s>
-            <tr>
+            <tr class="comm-row-clickable"
+                role="link" [tabindex]="0"
+                [attr.aria-label]="'Ver embarque ' + s.folio"
+                (click)="goShipment(s.id)"
+                (keydown.enter)="goShipment(s.id)"
+                (keydown.space)="$event.preventDefault(); goShipment(s.id)">
               <td><code class="comm-code">{{ s.folio }}</code></td>
               <td>{{ s.shipment_date | date:'shortDate' }}</td>
               <td>{{ s.type }}</td>
@@ -229,6 +234,7 @@ import { Permission } from '../../../core/constants/permissions';
               <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
               <td class="comm-actions">
                 <a pButton icon="pi pi-arrow-right" size="small" [text]="true"
+                   (click)="$event.stopPropagation()"
                    [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"></a>
               </td>
             </tr>
@@ -263,9 +269,10 @@ import { Permission } from '../../../core/constants/permissions';
     </ng-container>
 
     <ng-container *ngIf="!order() && !loading()">
-      <div class="empty">
-        <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
-        <p>Pedido no encontrado.</p>
+      <div class="comm-empty">
+        <i class="pi pi-exclamation-circle comm-empty-icon" aria-hidden="true"></i>
+        <h3>Pedido no encontrado</h3>
+        <p>No pudimos encontrar este pedido.</p>
         <button pButton label="Volver" (click)="back()"></button>
       </div>
     </ng-container>
@@ -286,8 +293,6 @@ import { Permission } from '../../../core/constants/permissions';
     .event-meta { display:flex; gap:1rem; font-size:.8rem; color:var(--text-color-secondary); }
     .event-meta i { margin-right:.25rem; }
     .event-reason { margin-top:.25rem; font-size:.85rem; font-style:italic; }
-    .empty { text-align: center; padding: 3rem 1rem; color: var(--text-color-secondary); }
-    .empty i { font-size: 3rem; display:block; margin-bottom:.5rem; }
     .hero-tags { display:flex; flex-direction:column; align-items:flex-end; gap:.375rem; }
     .logistics-header { display:flex; justify-content:space-between; align-items:center; padding: 0 1rem; }
     .logistics-header i { margin-right: .375rem; color: var(--action); }
@@ -453,6 +458,10 @@ export class ComercialOrderDetailComponent {
 
   back(): void {
     this.router.navigate(['/comercial/orders']);
+  }
+
+  goShipment(id: string): void {
+    this.router.navigate(['/logistica/shipments', id]);
   }
 
   confirmTransition(action: 'confirm' | 'approve' | 'fulfill' | 'cancel', o: OrderDetail): void {

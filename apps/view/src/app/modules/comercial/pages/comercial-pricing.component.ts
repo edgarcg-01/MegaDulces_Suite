@@ -76,19 +76,21 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
       <!-- MASTER: tabla de listas, flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
-          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm pr-master">
+          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm pr-master surf-table surf-table--sticky">
             <ng-template pTemplate="header">
               <tr>
-                <th>Código</th>
-                <th>Nombre</th>
-                <th>Moneda</th>
-                <th>Default</th>
-                <th>Estado</th>
-                <th></th>
+                <th scope="col">Código</th>
+                <th scope="col">Nombre</th>
+                <th scope="col">Moneda</th>
+                <th scope="col">Default</th>
+                <th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-pl>
-              <tr [class.pr-selected]="selected()?.id === pl.id" (click)="selectPriceList(pl)" class="comm-row-clickable">
+              <tr [class.pr-selected]="selected()?.id === pl.id" (click)="selectPriceList(pl)"
+                  (keydown.enter)="selectPriceList(pl)" (keydown.space)="$event.preventDefault(); selectPriceList(pl)"
+                  tabindex="0" role="button" [attr.aria-label]="'Ver precios de ' + pl.name" class="comm-row-clickable">
                 <td><code class="comm-code">{{ pl.code }}</code></td>
                 <td class="comm-cell-strong">{{ pl.name }}</td>
                 <td>{{ pl.currency || 'MXN' }}</td>
@@ -116,9 +118,9 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="6" class="pr-empty-cell">
-                  <div class="pr-empty">
-                    <div class="pr-empty-icon"><i class="pi pi-tag" aria-hidden="true"></i></div>
+                <td colspan="6" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i class="pi pi-tag" aria-hidden="true"></i></div>
                     <h3>Sin listas de precios</h3>
                     <p>Creá una lista y asignala a clientes para personalizar precios por cuenta.</p>
                     <button
@@ -196,19 +198,19 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
             [rowsPerPageOptions]="[25, 50, 100, 200]"
             (onLazyLoad)="onPricesLazyLoad($event)"
             responsiveLayout="scroll"
-            styleClass="p-datatable-sm"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
           >
             <ng-template pTemplate="header">
               <tr>
-                <th>Producto</th>
-                <th>SKU</th>
-                <th>Categoría</th>
-                <th>Ubic.</th>
-                <th class="comm-num">Costo</th>
-                <th class="comm-num">Precio</th>
-                <th class="comm-num">Margen</th>
-                <th class="comm-num">Min</th>
-                <th></th>
+                <th scope="col">Producto</th>
+                <th scope="col">SKU</th>
+                <th scope="col">Categoría</th>
+                <th scope="col">Ubic.</th>
+                <th scope="col" class="comm-num">Costo</th>
+                <th scope="col" class="comm-num">Precio</th>
+                <th scope="col" class="comm-num">Margen</th>
+                <th scope="col" class="comm-num">Min</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-p>
@@ -254,9 +256,9 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="9" class="pr-empty-cell">
-                  <div class="pr-empty">
-                    <div class="pr-empty-icon"><i [class]="pricesSearchSignal() ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
+                <td colspan="9" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i [class]="pricesSearchSignal() ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                     <h3>{{ pricesSearchSignal() ? 'Sin resultados' : 'Lista vacía' }}</h3>
                     <p *ngIf="pricesSearchSignal()">No se encontraron precios con "{{ pricesSearchSignal() }}".</p>
                     <p *ngIf="!pricesSearchSignal()">Esta lista todavía no tiene precios cargados. Sincronizar desde Mega_Dulces ERP via importer:</p>
@@ -484,37 +486,6 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
       text-overflow: ellipsis;
     }
 
-    /* ── EMPTY STATE inline ── */
-    .pr-empty-cell { padding: 0 !important; }
-    .pr-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 480px;
-      margin: 0 auto;
-    }
-    .pr-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: 1.5rem;
-    }
-    .pr-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .pr-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
     .pr-empty-cmd {
       display: inline-block;
       padding: .4rem .75rem;

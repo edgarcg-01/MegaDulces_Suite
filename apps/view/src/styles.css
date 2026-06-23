@@ -2850,6 +2850,18 @@ td.num, th.num {
   font-variant-numeric: tabular-nums;
 }
 
+/* Visually-hidden accesible: etiqueta para SR sin ocupar espacio visual
+ * (headers de columna de acciones, captions de tabla, etc.). */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── EMPTY STATE de tabla, global (reemplaza pp-/sh-/cc- duplicados) ── */
 .comm-empty-cell { padding: 0 !important; }
 .comm-empty {

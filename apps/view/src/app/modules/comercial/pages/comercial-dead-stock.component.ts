@@ -64,12 +64,12 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
       }
 
       <!-- Tabla -->
-      <p-table [value]="report()?.items ?? []" [loading]="loading()" styleClass="p-datatable-sm surf-table"
-               [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50">
+      <p-table [value]="report()?.items ?? []" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+               [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="rows()" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th>Almacén</th><th>SKU</th><th>Producto</th><th>Marca</th><th>Rot.</th>
-            <th class="ds-num">Existencia</th><th class="ds-num">Costo</th><th class="ds-num">Capital parado</th>
+            <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Marca</th><th scope="col">Rot.</th>
+            <th scope="col" class="ds-num">Existencia</th><th scope="col" class="ds-num">Costo</th><th scope="col" class="ds-num">Capital parado</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-it>
@@ -85,7 +85,15 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="ds-empty">Sin stock muerto detectado (requiere rotación computada).</td></tr>
+          <tr>
+            <td colspan="8" class="comm-empty-cell">
+              <div class="comm-empty">
+                <div class="comm-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
+                <h3>Sin stock muerto</h3>
+                <p>No se detectó stock muerto (requiere rotación computada).</p>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
     </div>
@@ -94,17 +102,16 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
     .ds-head-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .ds-wh { min-width: 220px; }
     .ds-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; }
-    .ds-kpi { background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; padding: .85rem 1.25rem; display: flex; flex-direction: column; }
+    .ds-kpi { background: var(--surface-card,var(--c-surface)); border: 1px solid var(--surface-200,var(--c-border)); border-radius: 12px; padding: .85rem 1.25rem; display: flex; flex-direction: column; }
     .ds-kpi-v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .ds-kpi-l { font-size: .75rem; color: var(--text-muted,#78716c); text-transform: uppercase; letter-spacing: .03em; }
-    .ds-kpi-bad .ds-kpi-v { color: var(--red-600,#dc2626); }
+    .ds-kpi-l { font-size: .75rem; color: var(--text-muted,var(--c-text-2)); text-transform: uppercase; letter-spacing: .03em; }
+    .ds-kpi-bad .ds-kpi-v { color: var(--bad-fg); }
     .ds-by-wh { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
-    .ds-wh-chip { background: var(--surface-100,#f5f5f4); border-radius: 8px; padding: .4rem .7rem; font-size: .8rem; display: flex; gap: .5rem; align-items: baseline; }
+    .ds-wh-chip { background: var(--surface-100,var(--c-surface-2)); border-radius: 8px; padding: .4rem .7rem; font-size: .8rem; display: flex; gap: .5rem; align-items: baseline; }
     .ds-mono { font-family: var(--font-mono,monospace); }
     .ds-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ds-num { text-align: right; font-variant-numeric: tabular-nums; }
-    .ds-cap { font-weight: 700; color: var(--red-600,#dc2626); }
-    .ds-empty { text-align: center; padding: 2rem; color: var(--text-muted,#78716c); }
+    .ds-cap { font-weight: 700; color: var(--bad-fg); }
   `],
 })
 export class ComercialDeadStockComponent {
@@ -120,6 +127,7 @@ export class ComercialDeadStockComponent {
 
   report = signal<DeadStockReport | null>(null);
   loading = signal(false);
+  rows = signal(25);
   warehouseId = signal<string | null>(null);
   whOptions = signal<{ label: string; value: string }[]>([]);
 

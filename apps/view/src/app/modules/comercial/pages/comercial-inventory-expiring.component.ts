@@ -60,12 +60,12 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           accent="var(--bad-fg)" sub="retirar de inventario"></app-metric-card>
       </div>
 
-      <p-table [value]="lots()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
-               [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50">
+      <p-table [value]="lots()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+               [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th>Almacén</th><th>SKU</th><th>Producto</th><th>Lote</th><th>Caduca</th>
-            <th class="ex-num">Días</th><th class="ex-num">Cantidad</th><th class="ex-num">Valor en riesgo</th>
+            <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Lote</th><th scope="col">Caduca</th>
+            <th scope="col" class="num">Días</th><th scope="col" class="num">Cantidad</th><th scope="col" class="num">Valor en riesgo</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-it>
@@ -75,15 +75,15 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <td class="ex-name">{{ it.product_name || '—' }}</td>
             <td class="ex-mono">{{ it.lot_code }}</td>
             <td class="ex-mono">{{ it.expiry_date }}</td>
-            <td class="ex-num">
+            <td class="num">
               <p-tag [value]="dayLabel(+it.days_to_expiry)" [severity]="daySeverity(+it.days_to_expiry)"></p-tag>
             </td>
-            <td class="ex-num">{{ it.quantity }}</td>
-            <td class="ex-num ex-cap">{{ it.value_at_cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            <td class="num">{{ it.quantity }}</td>
+            <td class="num ex-cap">{{ it.value_at_cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="ex-empty">Sin lotes por vencer en esta ventana. Capturá caducidad al recibir mercancía para verlos aquí.</td></tr>
+          <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-calendar-times" aria-hidden="true"></i></div><h3>Sin lotes por vencer</h3><p>No hay lotes por vencer en esta ventana. Capturá caducidad al recibir mercancía para verlos aquí.</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -95,10 +95,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
     .ex-bento { margin-bottom: 1rem; }
     .ex-mono { font-family: var(--font-mono,monospace); }
     .ex-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ex-num { text-align: right; font-variant-numeric: tabular-nums; }
     .ex-cap { font-weight: 700; }
     .ex-row-expired { background: var(--bad-soft-bg); }
-    .ex-empty { text-align: center; padding: 2rem; color: var(--c-text-2); }
   `],
 })
 export class ComercialInventoryExpiringComponent {

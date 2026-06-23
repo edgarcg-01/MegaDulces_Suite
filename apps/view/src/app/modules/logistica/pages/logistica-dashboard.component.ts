@@ -116,16 +116,16 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           </div>
         </div>
         <div class="surf-panel-body is-flush">
-          <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+          <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
             <ng-template pTemplate="header">
               <tr>
-                <th>Ruta</th>
-                <th class="comm-num">Pedidos</th>
-                <th class="comm-num">Confirmados</th>
-                <th class="comm-num">Por aprobar</th>
-                <th class="comm-num">Valor total</th>
-                <th>Más antiguo</th>
-                <th></th>
+                <th scope="col">Ruta</th>
+                <th scope="col" class="comm-num">Pedidos</th>
+                <th scope="col" class="comm-num">Confirmados</th>
+                <th scope="col" class="comm-num">Por aprobar</th>
+                <th scope="col" class="comm-num">Valor total</th>
+                <th scope="col">Más antiguo</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-r>
@@ -171,15 +171,15 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <section class="surf-panel panel-col-6">
           <div class="surf-panel-head"><h3><i class="pi pi-chart-line" aria-hidden="true"></i> Top embarques por margen</h3></div>
           <div class="surf-panel-body is-flush">
-            <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Folio</th>
-                  <th>Ruta</th>
-                  <th class="comm-num">Km</th>
-                  <th class="comm-num">Ingreso</th>
-                  <th class="comm-num">Costo</th>
-                  <th class="comm-num">Margen</th>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Ruta</th>
+                  <th scope="col" class="comm-num">Km</th>
+                  <th scope="col" class="comm-num">Ingreso</th>
+                  <th scope="col" class="comm-num">Costo</th>
+                  <th scope="col" class="comm-num">Margen</th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-r>
@@ -205,14 +205,14 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <section class="surf-panel panel-col-6">
           <div class="surf-panel-head"><h3><i class="pi pi-truck" aria-hidden="true"></i> Utilización por unidad</h3></div>
           <div class="surf-panel-body is-flush">
-            <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Placa</th>
-                  <th class="comm-num">Embarques</th>
-                  <th class="comm-num">Km</th>
-                  <th class="comm-num">Ingreso</th>
-                  <th class="comm-num">Margen</th>
+                  <th scope="col">Placa</th>
+                  <th scope="col" class="comm-num">Embarques</th>
+                  <th scope="col" class="comm-num">Km</th>
+                  <th scope="col" class="comm-num">Ingreso</th>
+                  <th scope="col" class="comm-num">Margen</th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-v>

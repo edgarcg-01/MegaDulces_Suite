@@ -81,23 +81,23 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
     <section class="surf-panel">
       <div class="surf-panel-body is-flush">
-      <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15">
+      <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th>Folio</th>
-            <th>Fecha</th>
-            <th>Destino</th>
-            <th>Placa</th>
-            <th class="num">Km</th>
-            <th class="num">Combustible</th>
-            <th class="num">Casetas</th>
-            <th class="num">Viáticos</th>
-            <th class="num">Maniobras</th>
-            <th class="num">Operativo</th>
-            <th class="num">$/km</th>
-            <th class="num">TOTAL</th>
-            <th>Estado</th>
-            <th></th>
+            <th scope="col">Folio</th>
+            <th scope="col">Fecha</th>
+            <th scope="col">Destino</th>
+            <th scope="col">Placa</th>
+            <th scope="col" class="num">Km</th>
+            <th scope="col" class="num">Combustible</th>
+            <th scope="col" class="num">Casetas</th>
+            <th scope="col" class="num">Viáticos</th>
+            <th scope="col" class="num">Maniobras</th>
+            <th scope="col" class="num">Operativo</th>
+            <th scope="col" class="num">$/km</th>
+            <th scope="col" class="num">TOTAL</th>
+            <th scope="col">Estado</th>
+            <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-e>
@@ -125,13 +125,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr>
-            <td colspan="14">
-              <div class="empty-state">
-                <i class="pi pi-receipt empty-state-icon" aria-hidden="true"></i>
-                <div class="empty-state-text">
-                  <strong>Sin costos en este rango.</strong>
-                  <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
-                </div>
+            <td colspan="14" class="comm-empty-cell">
+              <div class="comm-empty">
+                <i class="pi pi-receipt comm-empty-icon" aria-hidden="true"></i>
+                <strong>Sin costos en este rango.</strong>
+                <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
               </div>
             </td>
           </tr>
@@ -210,11 +208,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }
     .small { font-size: var(--fs-xs); }
     .filter-bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
-
-    .empty-state { display:flex; gap:.875rem; align-items:flex-start; padding:1.5rem 1rem; }
-    .empty-state-icon { font-size:1.75rem; color: var(--c-text-2); margin-top:.125rem; }
-    .empty-state-text { display:flex; flex-direction:column; gap:.25rem; line-height:1.4; }
-    .empty-state-text strong { font-size:.9rem; }
 
     .filter-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
     .filter-row input { min-width: 240px; }

@@ -50,29 +50,40 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           accent="var(--chart-6)" sub="piezas vendidas"></app-metric-card>
       </div>
 
-      <p-table [value]="captures()" [loading]="loading()" styleClass="p-datatable-sm" [paginator]="captures().length > 25" [rows]="25">
+      <p-table [value]="captures()" [loading]="loading()" responsiveLayout="scroll"
+               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+               [paginator]="captures().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template pTemplate="header">
           <tr>
-            <th>Fecha</th><th>Tienda</th><th>Vendedor</th><th>Ruta</th>
-            <th class="num">Líneas</th><th class="num">Unidades</th><th></th>
+            <th scope="col">Fecha</th><th scope="col">Tienda</th><th scope="col">Vendedor</th><th scope="col">Ruta</th>
+            <th scope="col" class="num">Líneas</th><th scope="col" class="num">Unidades</th><th scope="col"><span class="sr-only">Ver ticket</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-c>
-          <tr>
+          <tr (click)="openDetail(c)" (keydown.enter)="openDetail(c)" (keydown.space)="$event.preventDefault(); openDetail(c)"
+              tabindex="0" role="button" [attr.aria-label]="'Ver ticket de ' + (c.store_name || 'tienda')" class="comm-row-clickable">
             <td>{{ c.sale_date }}</td>
             <td class="strong">{{ c.store_name || '—' }}</td>
             <td>{{ c.vendor_name || c.vendor_username || '—' }}</td>
             <td>{{ c.route_name || '—' }}</td>
             <td class="num">{{ +c.lineas }}</td>
             <td class="num">{{ +c.unidades }}</td>
-            <td class="actions">
+            <td class="actions" (click)="$event.stopPropagation()">
               <button pButton size="small" [text]="true" icon="pi pi-receipt" label="Ver ticket"
                       (click)="openDetail(c)"></button>
             </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="7" class="empty">Sin ventas de vendedor en el rango seleccionado.</td></tr>
+          <tr>
+            <td colspan="7" class="comm-empty-cell">
+              <div class="comm-empty">
+                <div class="comm-empty-icon"><i class="pi pi-receipt" aria-hidden="true"></i></div>
+                <h3>Sin ventas de vendedor</h3>
+                <p>No hay tickets capturados por OCR en el rango seleccionado.</p>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
     </div>
@@ -97,9 +108,9 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 
           <div class="lines">
             <h3>Productos detectados</h3>
-            <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="320px">
+            <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="320px">
               <ng-template pTemplate="header">
-                <tr><th>SKU</th><th>Producto</th><th class="num">Cant.</th></tr>
+                <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Cant.</th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-l>
                 <tr>
@@ -122,7 +133,6 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .filters input[type=date] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); }
       .vs-bento { margin-bottom: 1rem; }
-      .num { text-align: right; font-variant-numeric: tabular-nums; }
       .strong { font-weight: 600; color: var(--text-main); }
       .actions { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); font-size: 0.8rem; color: var(--text-muted); }

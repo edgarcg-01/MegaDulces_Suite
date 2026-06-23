@@ -41,7 +41,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
           <p-skeleton *ngIf="loading()" height="220px"></p-skeleton>
           <p-table *ngIf="!loading()" [value]="routes()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="60vh">
             <ng-template pTemplate="header">
-              <tr><th>Ruta</th><th class="ca-num">Clientes</th><th>Asignada a</th><th></th></tr>
+              <tr><th scope="col">Ruta</th><th scope="col" class="comm-num">Clientes</th><th scope="col">Asignada a</th><th scope="col"><span class="sr-only">Asignar vendedor</span></th></tr>
             </ng-template>
             <ng-template pTemplate="body" let-r>
               <tr [class.ca-row-active]="selectedRoute() === r.sales_route">
@@ -50,7 +50,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
                     <i class="pi pi-directions" aria-hidden="true"></i> {{ r.sales_route }}
                   </button>
                 </td>
-                <td class="ca-num">{{ r.customer_count }}</td>
+                <td class="comm-num">{{ r.customer_count }}</td>
                 <td>
                   <span *ngIf="r.assigned_to.length === 0" class="comm-muted is-small">— sin asignar —</span>
                   <span *ngFor="let a of r.assigned_to" class="ca-chip">
@@ -94,10 +94,10 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
 
           <p-skeleton *ngIf="selectedRoute() && loadingCustomers()" height="220px"></p-skeleton>
 
-          <p-table *ngIf="selectedRoute() && !loadingCustomers()" [value]="customersList" styleClass="p-datatable-sm"
+          <p-table *ngIf="selectedRoute() && !loadingCustomers()" [value]="customersList" styleClass="p-datatable-sm surf-table surf-table--zebra"
                    [scrollable]="true" scrollHeight="60vh">
             <ng-template pTemplate="header">
-              <tr><th style="width:3rem">#</th><th>Cliente</th><th>Código</th><th style="width:5rem"></th></tr>
+              <tr><th scope="col" style="width:3rem">#</th><th scope="col">Cliente</th><th scope="col">Código</th><th scope="col" style="width:5rem"><span class="sr-only">Reordenar</span></th></tr>
             </ng-template>
             <ng-template pTemplate="body" let-c let-i="rowIndex">
               <tr>
@@ -130,14 +130,13 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
     .ca-panel-head i { color:var(--c-text-3); }
     .ca-spacer { flex:1; }
     .ca-route-badge { font-family:'Geist Mono','JetBrains Mono',monospace; background:var(--c-surface-2); padding:.1rem .5rem; border-radius:6px; font-size:var(--fs-xs); }
-    .ca-num { text-align:right; }
     .ca-route-link { background:transparent; border:none; cursor:pointer; color:var(--c-text-1); font-weight:var(--fw-medium); display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .35rem; border-radius:6px; }
     .ca-route-link:hover { background:var(--c-surface-2); }
     .ca-route-link i { color:var(--c-text-3); font-size:var(--fs-xs); }
     .ca-row-active { background:var(--c-surface-2); }
     .ca-chip { display:inline-flex; align-items:center; gap:.25rem; background:var(--c-surface-2); border:1px solid var(--c-divider); border-radius:6px; padding:.1rem .15rem .1rem .5rem; margin:.1rem; font-size:var(--fs-xs); }
     .ca-chip-x { background:transparent; border:none; cursor:pointer; color:var(--c-text-3); width:18px; height:18px; border-radius:4px; display:grid; place-items:center; }
-    .ca-chip-x:hover { color:var(--c-bad,#c0392b); background:var(--c-surface-1); }
+    .ca-chip-x:hover { color:var(--bad-fg); background:var(--c-surface-1); }
     .ca-assign { display:flex; gap:.35rem; align-items:center; }
     :host ::ng-deep .ca-vendor-select { min-width:140px; font-size:var(--fs-sm); }
     .ca-move { display:flex; gap:.15rem; justify-content:flex-end; }

@@ -74,15 +74,16 @@ import { ComercialService, Warehouse } from '../comercial.service';
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
-          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll"
+                   styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
             <ng-template pTemplate="header">
               <tr>
-                <th>Código</th>
-                <th>Nombre</th>
-                <th>Dirección</th>
-                <th>Default</th>
-                <th>Estado</th>
-                <th></th>
+                <th scope="col">Código</th>
+                <th scope="col">Nombre</th>
+                <th scope="col">Dirección</th>
+                <th scope="col">Default</th>
+                <th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-w>
@@ -118,9 +119,9 @@ import { ComercialService, Warehouse } from '../comercial.service';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="6" class="wh-empty-cell">
-                  <div class="wh-empty">
-                    <div class="wh-empty-icon"><i class="pi pi-warehouse" aria-hidden="true"></i></div>
+                <td colspan="6" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i class="pi pi-warehouse" aria-hidden="true"></i></div>
                     <h3>Sin almacenes</h3>
                     <p>Creá un almacén para empezar a registrar stock y procesar pedidos.</p>
                     <button
@@ -230,37 +231,6 @@ import { ComercialService, Warehouse } from '../comercial.service';
     .wh-status.is-on { color: var(--c-text-1); }
     .wh-status.is-on .wh-status-dot { background: var(--c-ok); }
 
-    /* ── EMPTY STATE ── */
-    .wh-empty-cell { padding: 0 !important; }
-    .wh-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .wh-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: 1.5rem;
-    }
-    .wh-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .wh-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

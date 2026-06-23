@@ -3,7 +3,7 @@ import { LoginComponent } from './modules/auth/login/login.component';
 import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, colaboradorGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, colaboradorGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { countFocusGuard } from './core/guards/count-focus.guard';
@@ -32,7 +32,7 @@ export const routes: Routes = [
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'live-map', loadComponent: () => import('./modules/dashboard/live-map/live-map.component').then(m => m.LiveMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
-      { path: 'field-map', loadComponent: () => import('./modules/dashboard/field-map/field-map.component').then(m => m.FieldMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'field-map', loadComponent: () => import('./modules/dashboard/field-map/field-map.component').then(m => m.FieldMapComponent), canActivate: [anyPermissionGuard(Permission.RUTAS_VER, Permission.COMMERCIAL_MAP_VER)] },
       { path: 'vendor-history', loadComponent: () => import('./modules/dashboard/vendor-history/vendor-history.component').then(m => m.VendorHistoryComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'commercial-map', loadComponent: () => import('./modules/dashboard/commercial-map/commercial-map.component').then(m => m.CommercialMapComponent), canActivate: [permissionGuard(Permission.COMMERCIAL_MAP_VER)] },
       { path: 'supervisor-ai', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai.component').then(m => m.SupervisorAiComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },

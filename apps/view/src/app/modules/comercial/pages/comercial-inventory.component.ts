@@ -148,22 +148,23 @@ import { Permission } from '../../../core/constants/permissions';
             [rows]="pageSize()"
             [totalRecords]="total()"
             [first]="(page() - 1) * pageSize()"
+            [rowsPerPageOptions]="[25, 50, 100, 200]"
             (onLazyLoad)="onLazyLoad($event)"
             responsiveLayout="scroll"
-            styleClass="p-datatable-sm"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
           >
             <ng-template pTemplate="header">
               <tr>
-                <th>Almacén</th>
-                <th>Producto</th>
-                <th>SKU</th>
-                <th>Ubic.</th>
-                <th class="comm-num">Costo</th>
-                <th class="comm-num">On hand</th>
-                <th class="comm-num">Reservado</th>
-                <th class="comm-num">Disponible</th>
-                <th class="comm-num">Valor disp.</th>
-                <th></th>
+                <th scope="col">Almacén</th>
+                <th scope="col">Producto</th>
+                <th scope="col">SKU</th>
+                <th scope="col">Ubic.</th>
+                <th scope="col" class="comm-num">Costo</th>
+                <th scope="col" class="comm-num">On hand</th>
+                <th scope="col" class="comm-num">Reservado</th>
+                <th scope="col" class="comm-num">Disponible</th>
+                <th scope="col" class="comm-num">Valor disp.</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-s>
@@ -210,9 +211,9 @@ import { Permission } from '../../../core/constants/permissions';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="10" class="in-empty-cell">
-                  <div class="in-empty">
-                    <div class="in-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
+                <td colspan="10" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
                     <h3>Sin stock registrado</h3>
                     <p>{{ warehouseFilter ? 'Este almacén no tiene productos con saldo.' : 'Aún no hay líneas de stock en el tenant.' }}</p>
                     <button
@@ -386,38 +387,6 @@ import { Permission } from '../../../core/constants/permissions';
       justify-content: center;
     }
 
-    /* ── EMPTY STATE inline en tabla ── */
-    .in-empty-cell { padding: 0 !important; }
-    .in-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .in-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: 1.5rem;
-    }
-    .in-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .in-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
-
     /* ── DIALOG ajuste de saldo ── */
     .adjust-body { display: flex; flex-direction: column; gap: 1rem; }
     .adjust-info {
@@ -483,7 +452,7 @@ export class ComercialInventoryComponent {
   readonly rows = signal<StockRow[]>([]);
   readonly total = signal(0);
   readonly page = signal(1);
-  readonly pageSize = signal(20);
+  readonly pageSize = signal(25);
   readonly loading = signal(false);
 
   readonly warehouses = signal<Warehouse[]>([]);

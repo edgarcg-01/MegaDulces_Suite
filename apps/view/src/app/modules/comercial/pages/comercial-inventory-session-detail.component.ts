@@ -199,23 +199,23 @@ interface LiveCountEntry {
       @if (sessions().length) {
         <div class="in-sessions">
           <div class="in-sessions-head"><i class="pi pi-users"></i> Jornadas de conteo del personal</div>
-          <p-table [value]="sessions()" styleClass="p-datatable-sm surf-table">
+          <p-table [value]="sessions()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
             <ng-template pTemplate="header">
               <tr>
-                <th>Contador</th><th class="in-num">Fase</th><th>Inició</th><th>Terminó</th><th>Estado</th>
-                <th class="in-num">SKUs</th><th class="in-num">Unidades</th><th class="in-num">Interrup.</th>
+                <th scope="col">Contador</th><th scope="col" class="in-num num">Fase</th><th scope="col">Inició</th><th scope="col">Terminó</th><th scope="col">Estado</th>
+                <th scope="col" class="in-num num">SKUs</th><th scope="col" class="in-num num">Unidades</th><th scope="col" class="in-num num">Interrup.</th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-s>
               <tr>
                 <td>{{ s.username || '—' }}</td>
-                <td class="in-num">{{ s.pass }}</td>
+                <td class="in-num num">{{ s.pass }}</td>
                 <td>{{ s.started_at | date:'dd/MM HH:mm' }}</td>
                 <td>{{ s.finished_at ? (s.finished_at | date:'dd/MM HH:mm') : '·' }}</td>
                 <td><p-tag [value]="s.status === 'finished' ? 'Terminó' : 'Contando'" [severity]="s.status === 'finished' ? 'success' : 'info'"></p-tag></td>
-                <td class="in-num">{{ s.items_counted }}</td>
-                <td class="in-num">{{ s.units_counted }}</td>
-                <td class="in-num" [class.in-var-neg]="s.interruptions > 0">{{ s.interruptions }}{{ s.interrupt_seconds ? ' (' + fmtDuration(s.interrupt_seconds) + ')' : '' }}</td>
+                <td class="in-num num">{{ s.items_counted }}</td>
+                <td class="in-num num">{{ s.units_counted }}</td>
+                <td class="in-num num" [class.in-var-neg]="s.interruptions > 0">{{ s.interruptions }}{{ s.interrupt_seconds ? ' (' + fmtDuration(s.interrupt_seconds) + ')' : '' }}</td>
               </tr>
             </ng-template>
           </p-table>
@@ -228,12 +228,12 @@ interface LiveCountEntry {
       </div>
 
       <!-- Tabla de items -->
-      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="flex">
+      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
         <ng-template pTemplate="header">
           <tr>
-            <th>SKU</th><th>Producto</th><th>Ubic.</th>
-            <th class="in-num">Teórico</th><th class="in-num">C1</th><th class="in-num">C2</th><th class="in-num">C3</th>
-            <th class="in-num">Final</th><th class="in-num">Var.</th><th>Estado</th><th></th>
+            <th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Ubic.</th>
+            <th scope="col" class="in-num num">Teórico</th><th scope="col" class="in-num num">C1</th><th scope="col" class="in-num num">C2</th><th scope="col" class="in-num num">C3</th>
+            <th scope="col" class="in-num num">Final</th><th scope="col" class="in-num num">Var.</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-it>
@@ -241,12 +241,12 @@ interface LiveCountEntry {
             <td class="in-mono">{{ it.sku || '—' }}</td>
             <td class="in-name">{{ it.product_name || '—' }}</td>
             <td class="in-mono">{{ it.location || '—' }}</td>
-            <td class="in-num">{{ it.expected_qty }}</td>
-            <td class="in-num">{{ it.count_1 ?? '·' }}</td>
-            <td class="in-num">{{ it.count_2 ?? '·' }}</td>
-            <td class="in-num">{{ it.count_3 ?? '·' }}</td>
-            <td class="in-num"><b>{{ it.final_qty ?? '·' }}</b></td>
-            <td class="in-num" [class.in-var-neg]="+(it.variance ?? 0) < 0" [class.in-var-pos]="+(it.variance ?? 0) > 0">
+            <td class="in-num num">{{ it.expected_qty }}</td>
+            <td class="in-num num">{{ it.count_1 ?? '·' }}</td>
+            <td class="in-num num">{{ it.count_2 ?? '·' }}</td>
+            <td class="in-num num">{{ it.count_3 ?? '·' }}</td>
+            <td class="in-num num"><b>{{ it.final_qty ?? '·' }}</b></td>
+            <td class="in-num num" [class.in-var-neg]="+(it.variance ?? 0) < 0" [class.in-var-pos]="+(it.variance ?? 0) > 0">
               {{ it.variance != null ? (+it.variance > 0 ? '+' : '') + it.variance : '·' }}
             </td>
             <td><p-tag [value]="itemStatusLabel(it.status)" [severity]="itemStatusSeverity(it.status)"></p-tag></td>

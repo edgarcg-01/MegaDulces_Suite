@@ -236,6 +236,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
     { label: 'Mapa en Vivo',      icon: 'pi pi-compass',       route: '/dashboard/live-map',             permission: Permission.RUTAS_VER             },
     { label: 'Mapa de Campo',     icon: 'pi pi-map',           route: '/dashboard/field-map',            permission: Permission.RUTAS_VER             },
+    { label: 'Mapa Comercial',    icon: 'pi pi-map-marker',    route: '/dashboard/commercial-map',       permission: Permission.COMMERCIAL_MAP_VER    },
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
@@ -407,7 +408,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     const groups: { title: string; items: NavItem[] }[] = [];
     // Agrupar las 3 superficies de mapa bajo una sección "Mapas" (hermanas).
-    const MAP_ROUTES = new Set(['/dashboard/live-map', '/dashboard/field-map']);
+    const MAP_ROUTES = new Set(['/dashboard/live-map', '/dashboard/field-map', '/dashboard/commercial-map']);
     const all = this.navItems();
     const mapItems = all.filter((i) => MAP_ROUTES.has(i.route));
     const mainItems = all.filter((i) => !MAP_ROUTES.has(i.route));

@@ -191,23 +191,25 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
         [rows]="pageSize()"
         [totalRecords]="total()"
         [first]="(page() - 1) * pageSize()"
+        [rowsPerPageOptions]="[25, 50, 100, 200]"
         (onLazyLoad)="onLazyLoad($event)"
         responsiveLayout="scroll"
-        styleClass="p-datatable-sm"
+        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
       >
         <ng-template pTemplate="header">
           <tr>
-            <th>Código</th>
-            <th>Cliente</th>
-            <th>Tienda enlazada</th>
-            <th>Ruta</th>
-            <th class="comm-num">Crédito</th>
-            <th>Estado</th>
-            <th></th>
+            <th scope="col">Código</th>
+            <th scope="col">Cliente</th>
+            <th scope="col">Tienda enlazada</th>
+            <th scope="col">Ruta</th>
+            <th scope="col" class="comm-num">Crédito</th>
+            <th scope="col">Estado</th>
+            <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-c>
-          <tr (click)="openCustomer(c)" (keydown.enter)="openCustomer(c)" tabindex="0" role="button"
+          <tr (click)="openCustomer(c)" (keydown.enter)="openCustomer(c)" (keydown.space)="$event.preventDefault(); openCustomer(c)"
+              tabindex="0" role="button"
               [attr.aria-label]="'Ver 360° de ' + c.name" class="comm-row-clickable">
             <td><code class="comm-code">{{ c.code }}</code></td>
             <td>
@@ -257,9 +259,9 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr>
-            <td colspan="7" class="cu-empty-cell">
-              <div class="cu-empty">
-                <div class="cu-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
+            <td colspan="7" class="comm-empty-cell">
+              <div class="comm-empty">
+                <div class="comm-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
                 <h3>Sin clientes</h3>
                 <p>{{ searchTerm() ? 'No encontramos clientes con esa búsqueda.' : 'Aún no hay clientes registrados.' }}</p>
                 <button
@@ -500,38 +502,6 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
     .cu-status.is-on { color: var(--c-text-1); }
     .cu-status.is-on .cu-status-dot { background: var(--c-ok); }
 
-    /* ── EMPTY STATE inline en tabla ── */
-    .cu-empty-cell { padding: 0 !important; }
-    .cu-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .cu-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: var(--fs-h1);
-    }
-    .cu-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .cu-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
-    }
-
     /* ── DIALOG B2B access ── */
     .access-result { display: flex; flex-direction: column; gap: 1rem; }
     .warn-banner {
@@ -589,7 +559,7 @@ export class ComercialCustomersComponent {
   readonly rows = signal<Customer[]>([]);
   readonly total = signal(0);
   readonly page = signal(1);
-  readonly pageSize = signal(10);
+  readonly pageSize = signal(25);
   readonly loading = signal(false);
   readonly searchTerm = signal('');
   onlyActiveValue = true;

@@ -208,13 +208,13 @@
         <span class="comm-muted is-small">{{ topCustomers().length }}</span>
       </div>
       <div class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" aria-label="Top clientes por ventas en 30 días">
           <thead>
             <tr>
-              <th style="width:36px">#</th>
-              <th>Cliente</th>
-              <th class="num">Pedidos</th>
-              <th class="num">Ventas</th>
+              <th scope="col" style="width:36px">#</th>
+              <th scope="col">Cliente</th>
+              <th scope="col" class="num">Pedidos</th>
+              <th scope="col" class="num">Ventas</th>
             </tr>
           </thead>
           <tbody>
@@ -226,6 +226,7 @@
               [attr.aria-label]="'Ver 360° de ' + r.name"
               (click)="openCustomer(r)"
               (keydown.enter)="openCustomer(r)"
+              (keydown.space)="$event.preventDefault(); openCustomer(r)"
             >
               <td><span class="cc-rank-badge">{{ r.rank || i + 1 }}</span></td>
               <td>
@@ -254,13 +255,13 @@
         <span class="comm-muted is-small">{{ topProducts().length }}</span>
       </div>
       <div class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" aria-label="Top productos por ventas en 30 días">
           <thead>
             <tr>
-              <th style="width:36px">#</th>
-              <th>Producto</th>
-              <th class="num">Unidades</th>
-              <th class="num">Ventas</th>
+              <th scope="col" style="width:36px">#</th>
+              <th scope="col">Producto</th>
+              <th scope="col" class="num">Unidades</th>
+              <th scope="col" class="num">Ventas</th>
             </tr>
           </thead>
           <tbody>
@@ -272,6 +273,7 @@
               [attr.aria-label]="'Ver stock de ' + r.product_name"
               (click)="openProduct(r)"
               (keydown.enter)="openProduct(r)"
+              (keydown.space)="$event.preventDefault(); openProduct(r)"
             >
               <td><span class="cc-rank-badge">{{ r.rank_by_revenue || i + 1 }}</span></td>
               <td>
@@ -305,13 +307,13 @@
         </span>
       </div>
       <div *ngIf="lowStock()" class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" aria-label="Productos con stock bajo">
           <thead>
             <tr>
-              <th>Producto</th>
-              <th class="num">Disp.</th>
-              <th class="num">Reserv.</th>
-              <th>Almacén</th>
+              <th scope="col">Producto</th>
+              <th scope="col" class="num">Disp.</th>
+              <th scope="col" class="num">Reserv.</th>
+              <th scope="col">Almacén</th>
             </tr>
           </thead>
           <tbody>
@@ -323,6 +325,7 @@
               [attr.aria-label]="'Ver stock de ' + i.product_name"
               (click)="openProduct(i)"
               (keydown.enter)="openProduct(i)"
+              (keydown.space)="$event.preventDefault(); openProduct(i)"
             >
               <td>
                 <div class="strong">{{ i.product_name }}</div>
@@ -359,13 +362,13 @@
         </span>
       </div>
       <div *ngIf="inactiveCustomers()" class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" aria-label="Clientes inactivos más de 30 días">
           <thead>
             <tr>
-              <th>Cliente</th>
-              <th class="num">Días sin compra</th>
-              <th>Teléfono</th>
-              <th class="num">Crédito</th>
+              <th scope="col">Cliente</th>
+              <th scope="col" class="num">Días sin compra</th>
+              <th scope="col">Teléfono</th>
+              <th scope="col" class="num">Crédito</th>
             </tr>
           </thead>
           <tbody>
@@ -377,6 +380,7 @@
               [attr.aria-label]="'Ver 360° de ' + c.name"
               (click)="openCustomer(c)"
               (keydown.enter)="openCustomer(c)"
+              (keydown.space)="$event.preventDefault(); openCustomer(c)"
             >
               <td>
                 <div class="strong">{{ c.name }}</div>
@@ -412,14 +416,14 @@
         <span class="comm-pill is-bad no-dot">{{ rankingOOS().length }}</span>
       </div>
       <div class="data-table-wrap">
-        <table class="data-table">
+        <table class="data-table" aria-label="Best-sellers del ERP sin stock disponible">
           <thead>
             <tr>
-              <th style="width:50px">Pos ERP</th>
-              <th>Producto</th>
-              <th class="num">Vendido (ERP)</th>
-              <th class="num">Disponible</th>
-              <th class="num">Reservado</th>
+              <th scope="col" style="width:50px">Pos ERP</th>
+              <th scope="col">Producto</th>
+              <th scope="col" class="num">Vendido (ERP)</th>
+              <th scope="col" class="num">Disponible</th>
+              <th scope="col" class="num">Reservado</th>
             </tr>
           </thead>
           <tbody>

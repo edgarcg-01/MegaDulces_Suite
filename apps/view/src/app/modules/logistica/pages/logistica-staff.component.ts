@@ -76,17 +76,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
     <section class="surf-panel">
       <div class="surf-panel-body is-flush">
-      <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+      <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
         <ng-template pTemplate="header">
           <tr>
-            <th></th>
-            <th>Nombre</th>
-            <th>Roles</th>
-            <th>Tipo</th>
-            <th>Estado</th>
-            <th>Teléfono</th>
-            <th>NSS</th>
-            <th></th>
+            <th scope="col"><span class="sr-only">Avatar</span></th>
+            <th scope="col">Nombre</th>
+            <th scope="col">Roles</th>
+            <th scope="col">Tipo</th>
+            <th scope="col">Estado</th>
+            <th scope="col">Teléfono</th>
+            <th scope="col">NSS</th>
+            <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-d>
@@ -112,7 +112,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="muted">Sin colaboradores. Creá el primero con el botón de arriba.</td></tr>
+          <tr><td colspan="8" class="comm-empty-cell">
+            <div class="comm-empty">
+              <i class="pi pi-users comm-empty-icon"></i>
+              <p>Sin colaboradores. Creá el primero con el botón de arriba.</p>
+            </div>
+          </td></tr>
         </ng-template>
       </p-table>
       </div>
@@ -197,7 +202,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }
 
     .filter-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
     .filter-row input { min-width: 200px; }

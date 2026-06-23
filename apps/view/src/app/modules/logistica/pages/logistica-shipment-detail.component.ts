@@ -236,15 +236,15 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
           <div class="sheet cols-12">
             <article class="cell cell-span-12 is-flush">
-              <p-table [value]="guides()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+              <p-table [value]="guides()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
                 <ng-template pTemplate="header">
                   <tr>
-                    <th>Número</th>
-                    <th>Chofer</th>
-                    <th class="comm-num">Comisiones</th>
-                    <th class="comm-num">Viáticos</th>
-                    <th>Estado</th>
-                    <th></th>
+                    <th scope="col">Número</th>
+                    <th scope="col">Chofer</th>
+                    <th scope="col" class="comm-num num">Comisiones</th>
+                    <th scope="col" class="comm-num num">Viáticos</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
                 <ng-template pTemplate="body" let-g>
@@ -268,9 +268,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </ng-template>
                 <ng-template pTemplate="emptymessage">
                   <tr>
-                    <td colspan="6" class="shd-empty-cell">
-                      <div class="shd-empty">
-                        <div class="shd-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div>
+                    <td colspan="6" class="comm-empty-cell">
+                      <div class="comm-empty">
+                        <div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div>
                         <h3>Sin guías</h3>
                         <p>Agregá una guía para asignar chofer + destinatarios.</p>
                         <button *ngIf="canAddGuide()" type="button" pButton
@@ -300,9 +300,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                         [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"></button>
               </div>
               <div *ngIf="eta() as e">
-                <p-table *ngIf="e.stops.length" [value]="e.stops" responsiveLayout="scroll" styleClass="p-datatable-sm">
+                <p-table *ngIf="e.stops.length" [value]="e.stops" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
                   <ng-template pTemplate="header">
-                    <tr><th>#</th><th>Cliente</th><th class="comm-num">Km acum.</th><th>ETA</th></tr>
+                    <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
                   </ng-template>
                   <ng-template pTemplate="body" let-s>
                     <tr>
@@ -389,9 +389,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <!-- Documentos ya timbrados -->
           <div class="sheet cols-12" *ngIf="cpDocs().length">
             <article class="cell cell-span-12 is-flush">
-              <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+              <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
                 <ng-template pTemplate="header">
-                  <tr><th>Folio fiscal (UUID)</th><th>Tipo</th><th>Estado</th><th>Timbrado</th></tr>
+                  <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
                 </ng-template>
                 <ng-template pTemplate="body" let-d>
                   <tr>
@@ -515,16 +515,16 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <span class="cell-label">Destinatarios</span>
             <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
           </div>
-          <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="p-datatable-sm">
+          <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
             <ng-template pTemplate="header">
               <tr>
-                <th>#</th>
-                <th>Cliente</th>
-                <th>Dirección</th>
-                <th class="comm-num">Cajas</th>
-                <th class="comm-num">Valor</th>
-                <th>Estado</th>
-                <th></th>
+                <th scope="col">#</th>
+                <th scope="col">Cliente</th>
+                <th scope="col">Dirección</th>
+                <th scope="col" class="comm-num num">Cajas</th>
+                <th scope="col" class="comm-num num">Valor</th>
+                <th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-r>
@@ -780,38 +780,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       font-weight: var(--fw-bold);
       text-transform: uppercase;
       letter-spacing: .06em;
-    }
-
-    /* ── EMPTY STATE ── */
-    .shd-empty-cell { padding: 0 !important; }
-    .shd-empty {
-      text-align: center;
-      padding: 3rem 1.5rem;
-      max-width: 420px;
-      margin: 0 auto;
-    }
-    .shd-empty-icon {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      border-radius: 14px;
-      background: var(--c-surface-2);
-      color: var(--c-text-2);
-      display: grid;
-      place-items: center;
-      font-size: 1.5rem;
-    }
-    .shd-empty h3 {
-      margin: 0 0 .375rem;
-      font-size: var(--fs-h3);
-      font-weight: var(--fw-bold);
-      color: var(--c-text-1);
-    }
-    .shd-empty p {
-      margin: 0 0 1rem;
-      color: var(--c-text-2);
-      font-size: var(--fs-sm);
-      line-height: 1.4;
     }
 
     /* ── DIALOG: recipients ── */

@@ -70,15 +70,15 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
           </div>
           <section class="surf-panel">
             <div class="surf-panel-body is-flush">
-            <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15" sortMode="single">
+            <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
               <ng-template pTemplate="header">
                 <tr>
-                  <th pSortableColumn="name">Destino <p-sortIcon field="name"></p-sortIcon></th>
-                  <th pSortableColumn="estimated_km" class="num">Km <p-sortIcon field="estimated_km"></p-sortIcon></th>
-                  <th pSortableColumn="driver_commission" class="num">Chofer <p-sortIcon field="driver_commission"></p-sortIcon></th>
-                  <th pSortableColumn="helper_commission" class="num">Ayudante <p-sortIcon field="helper_commission"></p-sortIcon></th>
-                  <th>Estado</th>
-                  <th></th>
+                  <th scope="col" pSortableColumn="name">Destino <p-sortIcon field="name"></p-sortIcon></th>
+                  <th scope="col" pSortableColumn="estimated_km" class="num">Km <p-sortIcon field="estimated_km"></p-sortIcon></th>
+                  <th scope="col" pSortableColumn="driver_commission" class="num">Chofer <p-sortIcon field="driver_commission"></p-sortIcon></th>
+                  <th scope="col" pSortableColumn="helper_commission" class="num">Ayudante <p-sortIcon field="helper_commission"></p-sortIcon></th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-r>
@@ -95,7 +95,14 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="6" class="muted">Sin rutas. Corré <code>logistics_baseline.js</code> para cargar 96 destinos reales.</td></tr>
+                <tr>
+                  <td colspan="6" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <i class="pi pi-map comm-empty-icon"></i>
+                      <span>Sin rutas. Corré <code>logistics_baseline.js</code> para cargar 96 destinos reales.</span>
+                    </div>
+                  </td>
+                </tr>
               </ng-template>
             </p-table>
             </div>
@@ -110,15 +117,15 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
           </div>
           <section class="surf-panel">
             <div class="surf-panel-body is-flush">
-            <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
+            <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
               <ng-template pTemplate="header">
                 <tr>
-                  <th>Clave</th>
-                  <th>Descripción</th>
-                  <th class="num">Valor</th>
-                  <th>Unidad</th>
-                  <th>Estado</th>
-                  <th></th>
+                  <th scope="col">Clave</th>
+                  <th scope="col">Descripción</th>
+                  <th scope="col" class="num">Valor</th>
+                  <th scope="col">Unidad</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-c>
@@ -135,7 +142,14 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                 </tr>
               </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="6" class="muted">Sin items en esta categoría. Creá uno con el botón de arriba.</td></tr>
+                <tr>
+                  <td colspan="6" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <i class="pi pi-sliders-h comm-empty-icon"></i>
+                      <span>Sin items en esta categoría. Creá uno con el botón de arriba.</span>
+                    </div>
+                  </td>
+                </tr>
               </ng-template>
             </p-table>
             </div>

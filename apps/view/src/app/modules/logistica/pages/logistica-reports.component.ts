@@ -128,18 +128,18 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
-                <p-table [value]="shipmentRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15" sortMode="single">
+                <p-table [value]="shipmentRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
                   <ng-template pTemplate="header">
                     <tr>
-                      <th pSortableColumn="folio">Folio <p-sortIcon field="folio"></p-sortIcon></th>
-                      <th pSortableColumn="shipment_date">Fecha <p-sortIcon field="shipment_date"></p-sortIcon></th>
-                      <th>Ruta</th>
-                      <th pSortableColumn="km" class="comm-num">Km <p-sortIcon field="km"></p-sortIcon></th>
-                      <th pSortableColumn="revenue" class="comm-num">Ingreso <p-sortIcon field="revenue"></p-sortIcon></th>
-                      <th pSortableColumn="cost" class="comm-num">Costo <p-sortIcon field="cost"></p-sortIcon></th>
-                      <th pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
-                      <th pSortableColumn="margin_pct" class="comm-num">% Margen <p-sortIcon field="margin_pct"></p-sortIcon></th>
-                      <th class="comm-num">Ing/km</th>
+                      <th scope="col" pSortableColumn="folio">Folio <p-sortIcon field="folio"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="shipment_date">Fecha <p-sortIcon field="shipment_date"></p-sortIcon></th>
+                      <th scope="col">Ruta</th>
+                      <th scope="col" pSortableColumn="km" class="comm-num">Km <p-sortIcon field="km"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="revenue" class="comm-num">Ingreso <p-sortIcon field="revenue"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="cost" class="comm-num">Costo <p-sortIcon field="cost"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="margin_pct" class="comm-num">% Margen <p-sortIcon field="margin_pct"></p-sortIcon></th>
+                      <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
                   <ng-template pTemplate="body" let-r>
@@ -156,7 +156,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     </tr>
                   </ng-template>
                   <ng-template pTemplate="emptymessage">
-                    <tr><td colspan="9" class="comm-muted logr-empty">Sin embarques en el período.</td></tr>
+                    <tr>
+                      <td colspan="9" class="comm-empty-cell">
+                        <div class="comm-empty">
+                          <i class="pi pi-truck comm-empty-icon" aria-hidden="true"></i>
+                          <span>Sin embarques en el período.</span>
+                        </div>
+                      </td>
+                    </tr>
                   </ng-template>
                 </p-table>
               </div>
@@ -172,17 +179,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
-                <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" sortMode="single">
+                <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" sortMode="single">
                   <ng-template pTemplate="header">
                     <tr>
-                      <th pSortableColumn="plate">Placa <p-sortIcon field="plate"></p-sortIcon></th>
-                      <th>Modelo</th>
-                      <th pSortableColumn="shipments_count" class="comm-num"># Embarques <p-sortIcon field="shipments_count"></p-sortIcon></th>
-                      <th pSortableColumn="total_km" class="comm-num">Km <p-sortIcon field="total_km"></p-sortIcon></th>
-                      <th pSortableColumn="total_revenue" class="comm-num">Ingreso <p-sortIcon field="total_revenue"></p-sortIcon></th>
-                      <th pSortableColumn="total_cost" class="comm-num">Costo <p-sortIcon field="total_cost"></p-sortIcon></th>
-                      <th pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
-                      <th class="comm-num">Ing/km</th>
+                      <th scope="col" pSortableColumn="plate">Placa <p-sortIcon field="plate"></p-sortIcon></th>
+                      <th scope="col">Modelo</th>
+                      <th scope="col" pSortableColumn="shipments_count" class="comm-num"># Embarques <p-sortIcon field="shipments_count"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="total_km" class="comm-num">Km <p-sortIcon field="total_km"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="total_revenue" class="comm-num">Ingreso <p-sortIcon field="total_revenue"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="total_cost" class="comm-num">Costo <p-sortIcon field="total_cost"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
+                      <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
                   <ng-template pTemplate="body" let-v>
@@ -198,7 +205,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     </tr>
                   </ng-template>
                   <ng-template pTemplate="emptymessage">
-                    <tr><td colspan="8" class="comm-muted logr-empty">Sin unidades activas en el período.</td></tr>
+                    <tr>
+                      <td colspan="8" class="comm-empty-cell">
+                        <div class="comm-empty">
+                          <i class="pi pi-car comm-empty-icon" aria-hidden="true"></i>
+                          <span>Sin unidades activas en el período.</span>
+                        </div>
+                      </td>
+                    </tr>
                   </ng-template>
                 </p-table>
               </div>
@@ -278,7 +292,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .rep-row strong { font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
 
     .tab-toolbar { display:flex; justify-content:space-between; align-items:center; margin: 0 0 1rem; gap: 1rem; flex-wrap: wrap; }
-    .logr-empty { padding: 1.5rem !important; text-align: center !important; }
 
     /* Dirección crítica del margen en celdas numéricas */
     .pos { color: var(--c-ok); font-weight: var(--fw-medium); }

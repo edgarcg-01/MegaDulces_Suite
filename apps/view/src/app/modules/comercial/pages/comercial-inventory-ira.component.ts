@@ -67,16 +67,16 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <section class="ira-section">
           <h2>Shrinkage por causa</h2>
           @if (d.by_reason.length) {
-            <p-table [value]="d.by_reason" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '32rem' }">
+            <p-table [value]="d.by_reason" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm" [tableStyle]="{ 'min-width': '32rem' }">
               <ng-template pTemplate="header">
-                <tr><th>Motivo</th><th class="in-num">Items</th><th class="in-num">Unidades</th><th class="in-num">Valor</th></tr>
+                <tr><th scope="col">Motivo</th><th scope="col" class="num">Items</th><th scope="col" class="num">Unidades</th><th scope="col" class="num">Valor</th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-r>
                 <tr>
                   <td>{{ reasonLabel(r.reason_code) }}</td>
-                  <td class="in-num">{{ r.items }}</td>
-                  <td class="in-num">{{ r.units | number:'1.0-3' }}</td>
-                  <td class="in-num">{{ r.value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num">{{ r.items }}</td>
+                  <td class="num">{{ r.units | number:'1.0-3' }}</td>
+                  <td class="num">{{ r.value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 </tr>
               </ng-template>
             </p-table>
@@ -86,17 +86,17 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <section class="ira-section">
           <h2>Folios recientes</h2>
           @if (d.recent_folios.length) {
-            <p-table [value]="d.recent_folios" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '40rem' }">
+            <p-table [value]="d.recent_folios" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [tableStyle]="{ 'min-width': '40rem' }">
               <ng-template pTemplate="header">
-                <tr><th>Folio</th><th>Almacén</th><th>Reconciliado</th><th class="in-num">IRA</th><th class="in-num">Variación neta</th></tr>
+                <tr><th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Reconciliado</th><th scope="col" class="num">IRA</th><th scope="col" class="num">Variación neta</th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-r>
                 <tr>
                   <td><a [routerLink]="['/comercial/inventory/sessions', r.count_id]" class="ira-folio">{{ r.folio }}</a></td>
                   <td>{{ r.warehouse_code || '—' }}</td>
                   <td>{{ r.reconciled_at | date:'dd/MM/yy HH:mm' }}</td>
-                  <td class="in-num"><p-tag [value]="r.ira_pct !== null ? (r.ira_pct + '%') : '—'" [severity]="iraSeverity(r.ira_pct)"></p-tag></td>
-                  <td class="in-num" [class.ira-bad]="r.net_variance_value < 0">{{ r.net_variance_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num"><p-tag [value]="r.ira_pct !== null ? (r.ira_pct + '%') : '—'" [severity]="iraSeverity(r.ira_pct)"></p-tag></td>
+                  <td class="num" [class.ira-bad]="r.net_variance_value < 0">{{ r.net_variance_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 </tr>
               </ng-template>
             </p-table>
@@ -115,7 +115,6 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
     .ira-bad { color: var(--bad-fg); }
     .ira-section { margin-bottom: 1.5rem; }
     .ira-section h2 { font-size: 1rem; margin: 0 0 .5rem; }
-    .in-num { text-align: right; }
     .ira-folio { font-family: var(--font-mono, monospace); }
     .ira-empty { color: var(--c-text-2); font-size: .9rem; }
   `],

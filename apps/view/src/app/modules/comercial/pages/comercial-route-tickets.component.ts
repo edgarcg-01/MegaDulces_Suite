@@ -63,11 +63,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           accent="var(--chart-2)" sub="en el rango"></app-metric-card>
       </div>
 
-      <p-table [value]="tickets()" [loading]="loading()" styleClass="p-datatable-sm" [paginator]="false">
+      <p-table [value]="tickets()" [loading]="loading()" responsiveLayout="scroll"
+               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+               [paginator]="tickets().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template pTemplate="header">
           <tr>
-            <th>Tipo</th><th>Ruta</th><th>Fecha</th><th>Vendedor</th>
-            <th class="num">Total</th><th>Corte / Folio</th><th class="num">Litros</th>
+            <th scope="col">Tipo</th><th scope="col">Ruta</th><th scope="col">Fecha</th><th scope="col">Vendedor</th>
+            <th scope="col" class="num">Total</th><th scope="col">Corte / Folio</th><th scope="col" class="num">Litros</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-t>
@@ -82,7 +84,15 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="7" class="empty">Sin tickets en el rango seleccionado.</td></tr>
+          <tr>
+            <td colspan="7" class="comm-empty-cell">
+              <div class="comm-empty">
+                <div class="comm-empty-icon"><i class="pi pi-receipt" aria-hidden="true"></i></div>
+                <h3>Sin tickets</h3>
+                <p>No hay tickets de ruta en el rango seleccionado. Los suben los vendedores al cerrar su día.</p>
+              </div>
+            </td>
+          </tr>
         </ng-template>
       </p-table>
     </div>
@@ -92,8 +102,6 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .filters input[type=date] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); }
       .rt-bento { margin-bottom: 1rem; }
-      .num { text-align: right; font-variant-numeric: tabular-nums; }
-      .empty { text-align: center; color: var(--text-muted); padding: 1.5rem; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
