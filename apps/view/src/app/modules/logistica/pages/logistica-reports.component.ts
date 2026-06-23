@@ -11,11 +11,13 @@ import { forkJoin } from 'rxjs';
 import {
   AnalyticsOverview,
   FleetUtilizationRow,
+  KpiCards,
   KpiSummary,
   LogisticaService,
   RoiSummary,
   ShipmentProfitabilityRow,
 } from '../logistica.service';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -38,6 +40,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     CommonModule, FormsModule,
     ButtonModule, TableModule, TabsModule,
     DatePickerModule, ToastModule,
+    MetricCardComponent,
   ],
   providers: [MessageService],
   template: `
@@ -70,31 +73,26 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-tabpanel value="overview">
             <ng-container *ngIf="kpi() as k">
               <div class="surf-grid logr-kpis">
-                <div class="metric-tile panel-col-3">
-                  <span class="metric-label">Embarques totales</span>
-                  <span class="metric-value">{{ k.shipments.total }}</span>
-                  <span class="metric-sub logr-badges">
-                    <span class="comm-pill is-active no-dot">✓ {{ k.shipments.cerrados }}</span>
-                    <span class="comm-pill is-bad no-dot">✕ {{ k.shipments.cancelados }}</span>
-                    <span class="comm-pill is-warn no-dot">⏳ {{ k.shipments.activos }}</span>
-                  </span>
-                </div>
-                <div class="metric-tile panel-col-3">
-                  <span class="metric-label">Revenue flete</span>
-                  <span class="metric-value">{{ k.financial.revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">Fletes cobrados</span>
-                </div>
-                <div class="metric-tile panel-col-3"
-                     [class.is-ok]="k.financial.margen >= 0" [class.is-bad]="k.financial.margen < 0">
-                  <span class="metric-label">Margen del período</span>
-                  <span class="metric-value">{{ k.financial.margen | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">Revenue − Costos − Comisiones</span>
-                </div>
-                <div class="metric-tile panel-col-3">
-                  <span class="metric-label">Costo / km</span>
-                  <span class="metric-value">{{ k.financial.costo_promedio_km | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">{{ k.operations.km_total }} km totales</span>
-                </div>
+                <app-metric-card class="panel-col-6" [large]="true"
+                  label="Margen del período" variant="sparkline" accent="var(--action)"
+                  [value]="k.financial.margen" format="currency"
+                  [delta]="kpis()?.margin?.delta_pct ?? null"
+                  [series]="kpis()?.margin?.series || []"
+                  sub="Revenue − Costos − Comisiones"></app-metric-card>
+                <app-metric-card class="panel-col-3"
+                  label="Revenue flete" variant="sparkline" accent="var(--chart-2)"
+                  [value]="k.financial.revenue" format="currency"
+                  [delta]="kpis()?.revenue?.delta_pct ?? null"
+                  [series]="kpis()?.revenue?.series || []" sub="Fletes cobrados"></app-metric-card>
+                <app-metric-card class="panel-col-3"
+                  label="Costo / km" accent="var(--warn-fg)"
+                  [value]="k.financial.costo_promedio_km" format="currency"
+                  [sub]="k.operations.km_total + ' km totales'"></app-metric-card>
+                <app-metric-card class="panel-col-12"
+                  label="Embarques totales" variant="bars" accent="var(--chart-6)"
+                  [value]="k.shipments.total" format="number"
+                  [series]="kpis()?.shipments?.series || []"
+                  [sub]="'✓ ' + k.shipments.cerrados + ' cerrados · ✕ ' + k.shipments.cancelados + ' cancelados · ⏳ ' + k.shipments.activos + ' activos'"></app-metric-card>
               </div>
 
               <div class="surf-grid logr-detail">
@@ -211,31 +209,25 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-tabpanel value="roi">
             <ng-container *ngIf="roi() as r">
               <div class="surf-grid logr-kpis">
-                <div class="metric-tile panel-col-3">
-                  <span class="metric-label">Costo / km</span>
-                  <span class="metric-value">{{ r.cost_per_km | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">{{ r.km | number:'1.0-0' }} km · {{ r.shipments }} embarques</span>
-                </div>
-                <div class="metric-tile panel-col-3" [class.is-ok]="r.margin >= 0" [class.is-bad]="r.margin < 0">
-                  <span class="metric-label">Margen</span>
-                  <span class="metric-value">{{ r.margin | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">{{ r.margin_pct | number:'1.1-1' }}% del flete</span>
-                </div>
-                <div class="metric-tile panel-col-3">
-                  <span class="metric-label">Combustible</span>
-                  <span class="metric-value">{{ r.fuel_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">{{ r.fuel_pct_of_operating | number:'1.0-0' }}% del costo operativo</span>
-                </div>
-                <div class="metric-tile panel-col-3">
-                  <span class="metric-label">Mantenimiento</span>
-                  <span class="metric-value">{{ r.maintenance_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span class="metric-sub">Servicios del período</span>
-                </div>
-                <div class="metric-tile panel-col-3 is-brand" *ngIf="r.km_saved_optimization">
-                  <span class="metric-label">Km ahorrados (ruteo)</span>
-                  <span class="metric-value">{{ r.km_saved_optimization | number:'1.0-1' }}</span>
-                  <span class="metric-sub">vs ruta sin optimizar</span>
-                </div>
+                <app-metric-card class="panel-col-6" [large]="true"
+                  label="Margen" accent="var(--action)"
+                  [value]="r.margin" format="currency"
+                  [sub]="(r.margin_pct | number:'1.1-1') + '% del flete'"></app-metric-card>
+                <app-metric-card class="panel-col-3"
+                  label="Costo / km" accent="var(--warn-fg)"
+                  [value]="r.cost_per_km" format="currency"
+                  [sub]="(r.km | number:'1.0-0') + ' km · ' + r.shipments + ' embarques'"></app-metric-card>
+                <app-metric-card class="panel-col-3"
+                  label="Combustible" accent="var(--chart-2)"
+                  [value]="r.fuel_cost" format="currency"
+                  [sub]="(r.fuel_pct_of_operating | number:'1.0-0') + '% del costo operativo'"></app-metric-card>
+                <app-metric-card [class]="r.km_saved_optimization ? 'panel-col-6' : 'panel-col-12'"
+                  label="Mantenimiento" accent="var(--c-text-3)"
+                  [value]="r.maintenance_cost" format="currency" sub="Servicios del período"></app-metric-card>
+                <app-metric-card *ngIf="r.km_saved_optimization" class="panel-col-6"
+                  label="Km ahorrados (ruteo)" variant="ember"
+                  [value]="r.km_saved_optimization" format="number" [decimals]="1"
+                  sub="vs ruta sin optimizar"></app-metric-card>
               </div>
 
               <div class="surf-grid logr-detail">
@@ -306,6 +298,7 @@ export class LogisticaReportsComponent {
   readonly shipmentRows = signal<ShipmentProfitabilityRow[]>([]);
   readonly fleetRows = signal<FleetUtilizationRow[]>([]);
   readonly roi = signal<RoiSummary | null>(null);
+  readonly kpis = signal<KpiCards | null>(null);
   readonly loading = signal(false);
 
   constructor() {
@@ -327,13 +320,15 @@ export class LogisticaReportsComponent {
     forkJoin({
       kpi: this.api.kpiSummary(f, t),
       ov: this.api.analyticsOverview(f, t),
+      kpis: this.api.analyticsKpiCards(f, t),
       ships: this.api.shipmentProfitability({ from: f, to: t, limit: 200 }),
       fleet: this.api.fleetUtilization(f, t),
       roi: this.api.analyticsRoi(f, t),
     }).subscribe({
-      next: ({ kpi, ov, ships, fleet, roi }) => {
+      next: ({ kpi, ov, kpis, ships, fleet, roi }) => {
         this.kpi.set(kpi);
         this.overview.set(ov);
+        this.kpis.set(kpis);
         this.shipmentRows.set(ships || []);
         this.fleetRows.set(fleet || []);
         this.roi.set(roi);

@@ -20,6 +20,9 @@ import {
   RouteTicketType,
   ProcesarRouteTicketResult,
 } from '../vendor.service';
+import { OfflineSyncService } from '../../../core/services/offline-sync.service';
+import { OfflineDatabaseService } from '../../../core/services/offline-database.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 type Step = 'pick' | 'review' | 'success';
 
@@ -87,6 +90,15 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
             Combustible <em>opcional</em>
           </span>
         </div>
+      </div>
+
+      <!-- Tickets capturados sin conexión, en espera de sincronizar -->
+      <div *ngIf="step() === 'pick' && !ocrError() && offlinePending() > 0" class="crt-offline-pending">
+        <i class="pi pi-cloud-upload" aria-hidden="true"></i>
+        <span>
+          {{ offlinePending() }} {{ offlinePending() === 1 ? 'ticket guardado' : 'tickets guardados' }} sin conexión ·
+          se subirán automáticamente al recuperar señal
+        </span>
       </div>
 
       <!-- Paso 1: elegir tipo -->
@@ -359,6 +371,14 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         .crt-change:hover { background: var(--surface-ground); color: var(--text-muted); border-color: var(--border-color); }
       }
 
+      /* ── tickets pendientes sin conexión ── */
+      .crt-offline-pending {
+        display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.25rem;
+        padding: 0.7rem 0.9rem; border-radius: 1rem; font-size: 0.8125rem; font-weight: 600;
+        background: var(--info-soft-bg); color: var(--info-soft-fg); border: 1px solid var(--info-border, var(--info-soft-bg));
+      }
+      .crt-offline-pending i { font-size: 1.05rem; flex-shrink: 0; }
+
       /* ── OCR fallido (reintento sin re-capturar) ── */
       .crt-ocr-error { display: flex; flex-direction: column; gap: 0.875rem; margin-bottom: 1.5rem; }
       .crt-ocr-error .crt-warn { margin: 0; }
@@ -518,8 +538,14 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   private readonly api = inject(VendorService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly offlineSync = inject(OfflineSyncService);
+  private readonly offlineDb = inject(OfflineDatabaseService);
+  private readonly auth = inject(AuthService);
 
   @ViewChild('fileInput') private fileInput?: ElementRef<HTMLInputElement>;
+
+  /** Tickets capturados sin conexión, pendientes de OCR+guardado en el sync. */
+  readonly offlinePending = signal(0);
 
   /** Formatter reutilizado — no instanciar Intl por cada cifra (estándar PWA perf). */
   private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
@@ -571,6 +597,14 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.loadList();
+    this.refreshOfflinePending();
+  }
+
+  private refreshOfflinePending(): void {
+    this.offlineDb
+      .contarRouteTicketsPendientes()
+      .then((n) => this.offlinePending.set(n))
+      .catch(() => undefined);
   }
 
   ngOnDestroy(): void {
@@ -605,10 +639,44 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
       const compressed = await this.compress(file);
       this.retryFile = compressed; // permite reintentar el OCR sin re-fotografiar
       this.setPreview(URL.createObjectURL(compressed));
+      // Sin red: no intentamos OCR (corre en el server) — encolamos la foto y el
+      // sync hará OCR + guardado al reconectar.
+      if (!navigator.onLine) {
+        await this.saveTicketOffline(type, compressed);
+        return;
+      }
       this.runOcr(type, compressed);
     } catch {
       this.processing.set(false);
       this.toast.add({ severity: 'error', summary: 'Imagen inválida' });
+    }
+  }
+
+  /** Encola el ticket capturado sin red (OCR + guardado diferidos al sync). */
+  private async saveTicketOffline(type: RouteTicketType, blob: Blob): Promise<void> {
+    try {
+      await this.offlineSync.guardarRouteTicketOffline(
+        type,
+        blob,
+        this.auth.user()?.sub || '',
+        this.today(),
+      );
+      this.refreshOfflinePending();
+      this.toast.add({
+        severity: 'info',
+        summary: 'Guardado sin conexión',
+        detail: 'El ticket se leerá y subirá automáticamente al recuperar señal.',
+        life: 5000,
+      });
+      this.reset();
+    } catch (e: any) {
+      this.toast.add({
+        severity: 'error',
+        summary: 'No se pudo guardar',
+        detail: e?.message || 'Almacenamiento local no disponible.',
+      });
+    } finally {
+      this.processing.set(false);
     }
   }
 
@@ -655,6 +723,11 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           this.step.set('review');
         },
         error: (e) => {
+          // Si la red murió a mitad del OCR, encolamos offline (no perdemos la foto).
+          if (!navigator.onLine && this.retryFile) {
+            void this.saveTicketOffline(type, this.retryFile);
+            return;
+          }
           this.processing.set(false);
           // Conservamos la foto: el vendedor reintenta sin volver a capturar.
           this.ocrError.set(true);

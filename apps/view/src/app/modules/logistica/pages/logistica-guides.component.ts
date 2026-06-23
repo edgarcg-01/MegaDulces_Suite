@@ -15,6 +15,7 @@ import {
   GuideStatus,
   LogisticaService,
 } from '../logistica.service';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -38,6 +39,7 @@ interface GuideRow extends DeliveryGuide {
   imports: [
     CommonModule, FormsModule, RouterLink,
     ButtonModule, TableModule, SelectModule, TagModule, InputTextModule, ToastModule,
+    MetricCardComponent,
   ],
   providers: [MessageService],
   template: `
@@ -51,13 +53,21 @@ interface GuideRow extends DeliveryGuide {
       </div>
     </header>
 
-    <!-- KPIs por estado -->
+    <!-- KPIs por estado (J14/J15: jerarquía + color + gauge + count-up) -->
     <div class="surf-grid">
-      <div class="metric-tile panel-col-2 is-info"><span class="metric-label">Total guías</span><span class="metric-value">{{ guides().length }}</span></div>
-      <div class="metric-tile panel-col-2 is-warn"><span class="metric-label">Pendientes</span><span class="metric-value">{{ countByStatus('pendiente') }}</span></div>
-      <div class="metric-tile panel-col-2 is-brand"><span class="metric-label">En ruta</span><span class="metric-value">{{ countByStatus('en_ruta') }}</span></div>
-      <div class="metric-tile panel-col-2 is-ok"><span class="metric-label">Entregadas</span><span class="metric-value">{{ countByStatus('entregada') }}</span></div>
-      <div class="metric-tile panel-col-4"><span class="metric-label">Comisiones acumuladas</span><span class="metric-value">{{ totalCommissions() | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+      <app-metric-card class="panel-col-6" [large]="true"
+        label="Total guías" [value]="guides().length" format="number"
+        accent="var(--chart-2)" sub="guías de entrega registradas"></app-metric-card>
+      <app-metric-card class="panel-col-3"
+        label="Pendientes" [value]="countByStatus('pendiente')" format="number" accent="var(--warn-fg)"></app-metric-card>
+      <app-metric-card class="panel-col-3"
+        label="En ruta" [value]="countByStatus('en_ruta')" format="number" accent="var(--action)"></app-metric-card>
+      <app-metric-card class="panel-col-6"
+        label="Entregadas" variant="gauge"
+        [value]="countByStatus('entregada')" [gaugeMax]="guides().length || 1"
+        accent="var(--ok-fg)" [sub]="countByStatus('entregada') + ' de ' + guides().length"></app-metric-card>
+      <app-metric-card class="panel-col-6"
+        label="Comisiones acumuladas" [value]="totalCommissions()" format="currency" accent="var(--chart-6)"></app-metric-card>
     </div>
 
     <!-- Filtros + tabla -->

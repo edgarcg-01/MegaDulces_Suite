@@ -235,6 +235,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
     { label: 'Rutas',             icon: 'pi pi-map',           route: '/dashboard/routes',               permission: Permission.RUTAS_VER             },
+    { label: 'Mapa en Vivo',      icon: 'pi pi-compass',       route: '/dashboard/live-map',             permission: Permission.RUTAS_VER             },
     { label: 'Mapa Comercial',    icon: 'pi pi-map-marker',    route: '/dashboard/commercial-map',       permission: Permission.COMMERCIAL_MAP_VER    },
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },

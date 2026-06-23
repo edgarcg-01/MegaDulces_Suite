@@ -1,22 +1,31 @@
-// Detectar ambiente automáticamente
-// - Local (localhost): conexión directa al backend
-// - Producción (Railway u otro): usa ruta relativa /api (Nginx hace proxy)
+import { Capacitor } from '@capacitor/core';
 
-const isLocalDev = window.location.hostname === 'localhost';
-const isProduction = window.location.hostname.includes('railway.app') || window.location.hostname.includes('up.railway.app');
+// Resolución de API por plataforma:
+// - Nativo (Capacitor/Android): el WebView sirve desde http://localhost, así que
+//   NO hay nginx ni ruta relativa; debe apuntar a la URL absoluta del backend.
+// - Web local (localhost): conexión directa al backend de dev.
+// - Web prod (Railway/nginx): ruta relativa /api (mismo origen, sin CORS).
+
+const NATIVE_API_URL = 'https://trademarketing-production-5084.up.railway.app/api';
+
+const isNative = Capacitor.isNativePlatform();
+const isLocalDev = !isNative && window.location.hostname === 'localhost';
+const isProduction =
+  isNative ||
+  window.location.hostname.includes('railway.app') ||
+  window.location.hostname.includes('up.railway.app');
 
 export const environment = {
   production: isProduction,
-  apiUrl: isLocalDev ? 'http://localhost:3334/api' : '/api', // Conexión directa en local
-  envName: isLocalDev ? 'local' : (isProduction ? 'production' : 'preview')
+  apiUrl: isNative ? NATIVE_API_URL : isLocalDev ? 'http://localhost:3334/api' : '/api',
+  envName: isNative ? 'native' : isLocalDev ? 'local' : isProduction ? 'production' : 'preview',
 };
 
-// Debug logging
 console.log('[Environment] Debug info:', {
-  hostname: window.location.hostname,
-  port: window.location.port,
+  platform: Capacitor.getPlatform(),
+  isNative,
   isLocalDev,
   isProduction,
   apiUrl: environment.apiUrl,
-  envName: environment.envName
+  envName: environment.envName,
 });

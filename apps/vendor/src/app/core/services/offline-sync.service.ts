@@ -382,6 +382,13 @@ export class OfflineSyncService {
         console.warn('[OfflineSync] Ventas huérfanas error (no bloquea sync):', vErr);
       }
 
+      // Cierre de ruta: tickets capturados offline → OCR diferido + guardado.
+      try {
+        await this.sincronizarRouteTickets();
+      } catch (rtErr) {
+        console.warn('[OfflineSync] Tickets de ruta error (no bloquea sync):', rtErr);
+      }
+
       console.log('[OfflineSync] Sincronización completada:', resultadoVisitas);
       return resultadoVisitas;
     } catch (error) {
@@ -1053,6 +1060,30 @@ export class OfflineSyncService {
   }
 
   /**
+   * Encola un ticket de ruta (cierre de ruta) capturado sin red. Guarda la foto
+   * comprimida; el OCR + guardado se difieren al sync. Si hay red, dispara un
+   * intento inmediato.
+   */
+  async guardarRouteTicketOffline(
+    ticketType: 'venta' | 'carga' | 'combustible',
+    blob: Blob,
+    userId: string,
+    ticketDate: string,
+  ): Promise<string> {
+    const id = await this.db.guardarRouteTicketPendiente({
+      userId,
+      ticketType,
+      ticketDate,
+      blob,
+      mime: blob.type || 'image/jpeg',
+    });
+    if (navigator.onLine && !this._syncStatus.value.sincronizando) {
+      setTimeout(() => void this.sincronizarTodo().catch(() => {}), 500);
+    }
+    return id;
+  }
+
+  /**
    * Sincroniza los clientes creados offline (POST /commercial/vendor-routes/customers).
    * Best-effort por cliente — un fallo no bloquea el resto ni el sync de visitas.
    */
@@ -1082,6 +1113,74 @@ export class OfflineSyncService {
         await this.db.incrementarIntentoCliente(c.id);
         console.warn(
           `[OfflineSync] Cliente offline ${c.id} falló (status=${err?.status}): reintenta en próximo ciclo`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Cierre de ruta offline: por cada ticket pendiente corre OCR
+   * (POST /route-tickets/procesar) y, si la ruta matcheó, lo guarda
+   * (POST /route-tickets). Best-effort por ticket. Si el OCR no resuelve la
+   * ruta (foto mala), incrementa intentos → eventual "muerto" para acción manual.
+   */
+  private async sincronizarRouteTickets(): Promise<void> {
+    const pendientes = await this.db.getRouteTicketsPendientes();
+    const activos = pendientes.filter(
+      (t) => (t.intentos_fallidos || 0) < this.MAX_RETRY_ATTEMPTS,
+    );
+    if (!activos.length) return;
+    console.log(`[OfflineSync] Sincronizando ${activos.length} ticket(s) de ruta pendiente(s)`);
+    for (const t of activos) {
+      try {
+        // 1) OCR del ticket (el server sube a Cloudinary + lee con Claude vision).
+        const fd = new FormData();
+        fd.append('file', t.blob, 'ticket.jpg');
+        fd.append('ticket_type', t.ticketType);
+        const res: any = await firstValueFrom(
+          this.http
+            .post<any>(`${this.apiUrl}/route-tickets/procesar`, fd)
+            .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+        );
+        const fields = res?.fields || {};
+        const ticketDate = fields.ticket_date || t.ticketDate;
+        if (!res?.route_matched || !ticketDate) {
+          // OCR no reconoció la ruta — no se puede guardar. Reintenta hasta el cap.
+          await this.db.incrementarIntentoRouteTicket(t.id, 'ruta no reconocida por OCR');
+          continue;
+        }
+        // 2) Guardar el ticket con los campos leídos.
+        const lines =
+          t.ticketType === 'carga'
+            ? (res.lines ?? [])
+                .filter((l: any) => l.product_id && Number(l.quantity) > 0)
+                .map((l: any) => ({ product_id: l.product_id, quantity: Number(l.quantity) }))
+            : undefined;
+        await firstValueFrom(
+          this.http
+            .post<any>(`${this.apiUrl}/route-tickets`, {
+              ticket_type: t.ticketType,
+              route_code: (fields.route_code ?? '').toString().trim(),
+              ticket_date: ticketDate,
+              total: fields.total ?? null,
+              corte_number: t.ticketType === 'venta' ? fields.corte_number ?? null : null,
+              reference: t.ticketType === 'combustible' ? fields.reference ?? null : null,
+              liters: t.ticketType === 'combustible' ? fields.liters ?? null : null,
+              folio: t.ticketType === 'carga' ? fields.folio ?? null : null,
+              cloudinary_public_id: res.cloudinary_public_id ?? null,
+              photo_url: res.photo_url ?? null,
+              photo_preview_url: res.photo_preview_url ?? null,
+              ocr_json: fields,
+              lines,
+            })
+            .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+        );
+        await this.db.marcarRouteTicketSincronizado(t.id);
+        console.log(`[OfflineSync] Ticket de ruta ${t.id} (${t.ticketType}) sincronizado`);
+      } catch (err: any) {
+        await this.db.incrementarIntentoRouteTicket(t.id, err?.message || 'error sync ticket');
+        console.warn(
+          `[OfflineSync] Ticket de ruta ${t.id} falló (status=${err?.status}): reintenta en próximo ciclo`,
         );
       }
     }

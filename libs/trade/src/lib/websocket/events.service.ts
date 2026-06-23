@@ -40,6 +40,21 @@ interface BatchedEvent {
   payload: CaptureEventPayload | CaptureDeletedPayload;
 }
 
+/** Última posición de un usuario de campo, reemitida en vivo a supervisores. */
+export interface LivePingPayload {
+  type: 'route_ping';
+  tenantId: string;
+  userId: string;
+  username?: string;
+  routeId?: string | null;
+  lat: number;
+  lng: number;
+  capturedAt: string;
+  speedMps?: number | null;
+  accuracyM?: number | null;
+  source?: string;
+}
+
 /** Builders centralizados para los nombres de rooms (single source of truth). */
 export const reportsRooms = {
   own: (tenantId: string, userId: string) => `reports:t:${tenantId}:own:${userId}`,
@@ -150,6 +165,49 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.sessions.delete(client.id);
   }
 
+  // ── Live tracking: registro de "observados" on-demand ──────────────────
+  // Cuando un supervisor abre el mapa y observa a un usuario, marcamos a ese
+  // user como watched por un TTL. El device lo descubre en la RESPUESTA de su
+  // POST /reports/route-pings (piggyback, sin socket en el device) y sube su
+  // cadencia. Sin nadie observando, los devices bajan solos a modo económico.
+  private static readonly WATCH_TTL_MS = 120_000;
+  private readonly watched = new Map<string, number>(); // `${tenant}:${userId}` → expiresAt
+
+  /** Segundos restantes de observación para un usuario (0 = nadie observa). */
+  watchRemainingSec(tenantId: string, userId: string): number {
+    const exp = this.watched.get(`${tenantId}:${userId}`);
+    if (!exp) return 0;
+    const ms = exp - Date.now();
+    if (ms <= 0) { this.watched.delete(`${tenantId}:${userId}`); return 0; }
+    return Math.ceil(ms / 1000);
+  }
+
+  @SubscribeMessage('tracking:watch')
+  handleTrackingWatch(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): { ok: boolean } {
+    const user = (client as any).user;
+    if (!user?.tenant_id) return { ok: false };
+    // Solo supervisores/admin (scope team|all) pueden observar a otros.
+    const scope = getDataScope(user);
+    if (scope.type === 'own') return { ok: false };
+    const ids = (body as any)?.userIds;
+    if (!Array.isArray(ids)) return { ok: false };
+    const exp = Date.now() + ReportsGateway.WATCH_TTL_MS;
+    for (const id of ids) {
+      if (typeof id === 'string' && id.length > 0 && id.length <= 64) {
+        this.watched.set(`${user.tenant_id}:${id}`, exp);
+      }
+    }
+    // Limpieza oportunista de expirados para que el Map no crezca sin fin.
+    if (this.watched.size > 500) {
+      const now = Date.now();
+      for (const [k, e] of this.watched) if (e <= now) this.watched.delete(k);
+    }
+    return { ok: true };
+  }
+
   @SubscribeMessage('join')
   handleJoin(@ConnectedSocket() client: Socket, @MessageBody() room: unknown) {
     // Validación de tipo: el body llega via socket.io, podría ser cualquier cosa.
@@ -257,6 +315,11 @@ export class EventsService {
     username: string;
   }> {
     return this.gateway.getConnectedUserScopes();
+  }
+
+  /** Segundos restantes de observación on-demand para un usuario (0 = nadie). */
+  watchRemainingSec(tenantId: string, userId: string): number {
+    return this.gateway.watchRemainingSec(tenantId, userId);
   }
 
   private hasConnectedClients(): boolean {
@@ -416,5 +479,50 @@ export class EventsService {
       : reportsRooms.own(tenantId, userId);
     this.gateway.server.to(room).emit('metrics:updated', payload);
     this.logger.debug(`Emitted metrics:updated to ${room}`);
+  }
+
+  // ── Live tracking ──────────────────────────────────────────────────────
+  // Reemite la última posición de un usuario de campo a los supervisores del
+  // tenant (room global) + al propio usuario. Coalescing por usuario: a lo más
+  // 1 emisión cada PING_EMIT_THROTTLE_MS, conservando SIEMPRE la última posición
+  // (trailing) para no perder el fix más reciente. Protege el WS sin atrasar el
+  // mapa más que el throttle.
+  private readonly PING_EMIT_THROTTLE_MS = 4000;
+  private readonly pingThrottle = new Map<
+    string,
+    { lastEmit: number; timer: NodeJS.Timeout | null; pending: LivePingPayload | null }
+  >();
+
+  emitRoutePing(payload: LivePingPayload): void {
+    if (!payload?.tenantId || !payload?.userId) return;
+    if (!this.gateway.server) return;
+    if (!this.hasConnectedClients()) return;
+
+    const key = `${payload.tenantId}:${payload.userId}`;
+    const now = Date.now();
+    const state = this.pingThrottle.get(key) ?? { lastEmit: 0, timer: null, pending: null };
+
+    const flush = (p: LivePingPayload) => {
+      const s = this.pingThrottle.get(key);
+      if (s) { s.lastEmit = Date.now(); s.pending = null; s.timer = null; }
+      this.gateway.server.to(reportsRooms.global(p.tenantId)).emit('route_ping', p);
+      this.gateway.server.to(reportsRooms.own(p.tenantId, p.userId)).emit('route_ping', p);
+    };
+
+    const elapsed = now - state.lastEmit;
+    if (elapsed >= this.PING_EMIT_THROTTLE_MS && !state.timer) {
+      this.pingThrottle.set(key, { ...state, pending: null });
+      flush(payload);
+      return;
+    }
+    // Dentro de la ventana: guardar como pendiente y programar trailing flush.
+    state.pending = payload;
+    if (!state.timer) {
+      state.timer = setTimeout(
+        () => { const s = this.pingThrottle.get(key); if (s?.pending) flush(s.pending); },
+        Math.max(0, this.PING_EMIT_THROTTLE_MS - elapsed),
+      );
+    }
+    this.pingThrottle.set(key, state);
   }
 }

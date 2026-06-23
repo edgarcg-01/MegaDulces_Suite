@@ -20,6 +20,7 @@ import {
   LogisticaService,
   Shipment,
 } from '../logistica.service';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -37,6 +38,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, DatePickerModule, SelectModule,
     TagModule, TooltipModule, ToastModule,
+    MetricCardComponent,
   ],
   providers: [MessageService],
   template: `
@@ -55,13 +57,19 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       </div>
     </header>
 
-    <!-- KPIs -->
+    <!-- KPIs (J14/J15: jerarquía + color + count-up) -->
     <div class="surf-grid">
-      <div class="metric-tile panel-col-2"><span class="metric-label">Embarques con costos</span><span class="metric-value">{{ summary()?.count || 0 }}</span></div>
-      <div class="metric-tile panel-col-3 is-brand"><span class="metric-label">Total costos</span><span class="metric-value">{{ (summary()?.total_cost || totalAcumulado()) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
-      <div class="metric-tile panel-col-2 is-info"><span class="metric-label">Combustible</span><span class="metric-value">{{ (summary()?.fuel || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
-      <div class="metric-tile panel-col-2 is-warn"><span class="metric-label">Casetas</span><span class="metric-value">{{ (summary()?.tolls || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
-      <div class="metric-tile panel-col-3"><span class="metric-label">Viáticos chofer</span><span class="metric-value">{{ (summary()?.driver_per_diem || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+      <app-metric-card class="panel-col-6" [large]="true"
+        label="Total costos" [value]="summary()?.total_cost || totalAcumulado()" format="currency"
+        accent="var(--chart-3)" sub="costo operativo del período"></app-metric-card>
+      <app-metric-card class="panel-col-3"
+        label="Combustible" [value]="summary()?.fuel || 0" format="currency" accent="var(--chart-2)"></app-metric-card>
+      <app-metric-card class="panel-col-3"
+        label="Casetas" [value]="summary()?.tolls || 0" format="currency" accent="var(--warn-fg)"></app-metric-card>
+      <app-metric-card class="panel-col-6"
+        label="Viáticos chofer" [value]="summary()?.driver_per_diem || 0" format="currency" accent="var(--chart-6)"></app-metric-card>
+      <app-metric-card class="panel-col-6"
+        label="Embarques con costos" [value]="summary()?.count || 0" format="number" accent="var(--c-text-3)"></app-metric-card>
     </div>
 
     <!-- Tabla -->

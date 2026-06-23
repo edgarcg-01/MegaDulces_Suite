@@ -29,7 +29,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
   standalone: true,
   imports: [CommonModule, SparklineComponent, RingGaugeComponent, MiniBarsComponent],
   template: `
-    <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="effVariant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
+    <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
       <header class="mc-head">
         <span class="mc-label">{{ label() }}</span>
         <span class="mc-delta" *ngIf="delta() !== null && delta() !== undefined" [class]="'is-' + dir()">

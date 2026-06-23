@@ -158,6 +158,26 @@ export interface PendingCustomer {
   ultimo_intento: string;
 }
 
+/**
+ * v7: tickets de ruta capturados sin red (cierre de ruta: corte/carga/combustible).
+ * Guardamos la FOTO (blob) + tipo; el OCR corre en el server, así que se DIFIERE
+ * al sync: al reconectar → POST /route-tickets/procesar (OCR) → si la ruta matchea,
+ * POST /route-tickets (guarda). Si el OCR no matchea la ruta, reintenta hasta el cap
+ * (queda como "muerto" para acción manual, igual que las visitas).
+ */
+export interface RouteTicketPendiente {
+  id: string;               // UUID v4 local
+  userId: string;
+  ticketType: 'venta' | 'carga' | 'combustible';
+  ticketDate: string;       // fecha local fallback (YYYY-MM-DD) si el OCR no la detecta
+  blob: Blob;               // foto comprimida del ticket
+  mime: string;
+  sincronizado: boolean;
+  intentos_fallidos: number;
+  ultimo_intento: string;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OfflineDatabaseService extends Dexie {
   tiendas!: Table<TiendaOffline, string>;
@@ -168,6 +188,7 @@ export class OfflineDatabaseService extends Dexie {
   tiendasPendientes!: Table<TiendaPendiente, string>;
   routePings!: Table<RoutePing, string>;
   clientesPendientes!: Table<PendingCustomer, string>;
+  routeTicketsPendientes!: Table<RouteTicketPendiente, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
@@ -234,6 +255,19 @@ export class OfflineDatabaseService extends Dexie {
       tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
       routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
       clientesPendientes: 'id, userId, sincronizado, intentos_fallidos',
+    });
+
+    // v7: tabla routeTicketsPendientes (cierre de ruta offline — OCR diferido).
+    this.version(7).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+      routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
+      clientesPendientes: 'id, userId, sincronizado, intentos_fallidos',
+      routeTicketsPendientes: 'id, userId, sincronizado, ticketType, intentos_fallidos',
     });
 
     // Hooks para auditoría
@@ -328,6 +362,56 @@ export class OfflineDatabaseService extends Dexie {
   async getTiendaById(id: string | null): Promise<TiendaOffline | undefined> {
     if (!id) return undefined;
     return await this.tiendas.get(id);
+  }
+
+  // --- Route tickets pendientes (cierre de ruta offline) ---
+  async guardarRouteTicketPendiente(
+    t: Omit<RouteTicketPendiente, 'id' | 'sincronizado' | 'intentos_fallidos' | 'ultimo_intento' | 'createdAt'>,
+  ): Promise<string> {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await this.routeTicketsPendientes.add({
+      ...t,
+      id,
+      sincronizado: false,
+      intentos_fallidos: 0,
+      ultimo_intento: now,
+      createdAt: now,
+    });
+    console.log(`[OfflineDB] Ticket de ruta guardado localmente: ${id} (${t.ticketType})`);
+    return id;
+  }
+
+  async getRouteTicketsPendientes(): Promise<RouteTicketPendiente[]> {
+    const todos = await this.routeTicketsPendientes.toArray();
+    return todos.filter((t) => t.sincronizado === false);
+  }
+
+  async contarRouteTicketsPendientes(): Promise<number> {
+    return (await this.getRouteTicketsPendientes()).length;
+  }
+
+  async marcarRouteTicketSincronizado(id: string): Promise<void> {
+    await this.routeTicketsPendientes.update(id, {
+      sincronizado: true,
+      ultimo_intento: new Date().toISOString(),
+    });
+  }
+
+  async incrementarIntentoRouteTicket(id: string, error: string): Promise<void> {
+    const t = await this.routeTicketsPendientes.get(id);
+    if (!t) return;
+    await this.routeTicketsPendientes.update(id, {
+      intentos_fallidos: (t.intentos_fallidos || 0) + 1,
+      ultimo_intento: new Date().toISOString(),
+    });
+    await this.addSyncLog({
+      tipo: 'visita',
+      entidad_id: id,
+      estado: 'error',
+      mensaje: `route-ticket: ${error}`,
+      fecha: new Date().toISOString(),
+    });
   }
 
   // --- Visitas Pendientes ---

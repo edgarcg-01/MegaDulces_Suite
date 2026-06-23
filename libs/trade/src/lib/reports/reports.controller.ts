@@ -183,6 +183,18 @@ export class ReportsController {
     return this.reportsService.getIdleSummary(filters, user);
   }
 
+  @Get('live-positions')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({
+    summary:
+      'Última posición por usuario de campo del tenant en una ventana reciente (seed del mapa en vivo)',
+  })
+  getLivePositions(@ReqUser() user: any, @Query('since_min') sinceMin?: string) {
+    return this.reportsService.getLivePositions(user, {
+      sinceMin: sinceMin ? Number(sinceMin) : undefined,
+    });
+  }
+
   @Post('route-pings')
   // Solo requiere autenticación: cubre a CUALQUIER rol de campo (colaborador con
   // VISITAS_REGISTRAR y vendedor con CAPTURE_TICKET_USE) sin churn de permisos.

@@ -17,6 +17,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { Driver, DriverRole, BloodType, LogisticaService } from '../logistica.service';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -36,6 +37,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, SelectModule, MultiSelectModule, CheckboxModule, DatePickerModule,
     TagModule, AvatarModule, ToastModule, ConfirmDialogModule,
+    MetricCardComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -51,24 +53,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       <button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openCreate()"></button>
     </header>
 
-    <!-- KPI cards -->
+    <!-- KPI cards (J14/J15: jerarquía + color + count-up + spotlight) -->
     <div class="surf-grid">
-      <div class="metric-tile panel-col-3">
-        <span class="metric-label">Total colaboradores</span>
-        <span class="metric-value">{{ drivers().length }}</span>
-      </div>
-      <div class="metric-tile panel-col-3 is-ok">
-        <span class="metric-label">Activos</span>
-        <span class="metric-value">{{ activos() }}</span>
-      </div>
-      <div class="metric-tile panel-col-3 is-warn">
-        <span class="metric-label">Suspendidos</span>
-        <span class="metric-value">{{ suspendidos() }}</span>
-      </div>
-      <div class="metric-tile panel-col-3">
-        <span class="metric-label">Inactivos</span>
-        <span class="metric-value">{{ inactivos() }}</span>
-      </div>
+      <app-metric-card class="panel-col-6" [large]="true"
+        label="Total colaboradores" [value]="drivers().length" format="number"
+        accent="var(--chart-2)" sub="choferes, ayudantes y cargadores"></app-metric-card>
+      <app-metric-card class="panel-col-2"
+        label="Activos" [value]="activos()" format="number" accent="var(--ok-fg)"></app-metric-card>
+      <app-metric-card class="panel-col-2"
+        label="Suspendidos" [value]="suspendidos()" format="number" accent="var(--warn-fg)"></app-metric-card>
+      <app-metric-card class="panel-col-2"
+        label="Inactivos" [value]="inactivos()" format="number" accent="var(--c-text-3)"></app-metric-card>
     </div>
 
     <!-- Filters + tabla -->

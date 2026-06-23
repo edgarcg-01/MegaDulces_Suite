@@ -86,6 +86,14 @@ Las micro-gráficas necesitan **series cortas**. Plan:
 ### F2 — dashboard piloto ✅ código 2026-06-22
 - Las 4 metric-tiles → `<app-metric-card>`: Volumen=**bars** (últimos 14 días), Ingreso=**sparkline** (tone brand), Costo=**sparkline**, Margen=**sparkline** (tone ok/bad por signo). `forkJoin` ahora trae `kpi-cards`. Skeleton 132px. Builds api+view verdes.
 
-### Pendiente
-- F2 resto: reports (gauge on-time + ember km-ahorrados + progress), guides/costs/staff.
-- F3: QA visual (count-up + draw-in + dark mode) con API arriba + smoke `/kpi-cards`.
+### F2 resto — staff / costs / guides / reports ✅ código 2026-06-22
+- **staff**: Total (hero col-6 large) + Activos/Suspendidos/Inactivos (col-2, colores ok/warn/grey).
+- **costs**: Total costos (hero púrpura) + Combustible/Casetas/Viáticos/Embarques (colores chart).
+- **guides**: Total (hero) + Pendientes/En ruta + **Entregadas = gauge** (entregadas/total) + Comisiones.
+- **reports**: overview con series reales (Margen sparkline hero + Revenue sparkline + Costo/km + Embarques bars); ROI con Margen hero + **Km ahorrados = ember**.
+- Cada card: jerarquía bento + accent propio (paleta chart) + count-up + spotlight + sparkline/bars interactivas (J15). Ember ahora muestra gradiente sin serie. Build verde.
+
+### Jerarquía + color + interacción (J14+J15) aplicados a TODA la logística con KPIs.
+
+### Pendiente (no-código)
+- QA visual (count-up + draw-in + hover tooltips + dark mode) con API arriba + smoke `/kpi-cards`.

@@ -36,6 +36,21 @@ export interface DebouncedCaptureEvent {
   types: Set<string>;
 }
 
+/** Posición en vivo de un usuario de campo (broadcast del backend). */
+export interface LivePing {
+  type: 'route_ping';
+  tenantId: string;
+  userId: string;
+  username?: string;
+  routeId?: string | null;
+  lat: number;
+  lng: number;
+  capturedAt: string;
+  speedMps?: number | null;
+  accuracyM?: number | null;
+  source?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WebSocketService {
   private socket: Socket | null = null;
@@ -46,6 +61,7 @@ export class WebSocketService {
   private captureSynced$ = new Subject<CaptureEvent>();
   private captureDeleted$ = new Subject<CaptureEvent>();
   private metricsUpdated$ = new Subject<MetricsUpdateEvent>();
+  private routePing$ = new Subject<LivePing>();
 
   private rawCaptureEvent$ = new Subject<CaptureEvent>();
 
@@ -222,7 +238,22 @@ export class WebSocketService {
       this.metricsUpdated$.next(data);
     });
 
+    this.socket.on('route_ping', (data: LivePing) => {
+      this.lastEventTime.set(new Date());
+      this.routePing$.next(data);
+    });
+
     this.setupAutoReconnect();
+  }
+
+  /**
+   * Pide al backend subir a alta frecuencia el tracking de estos usuarios
+   * (on-demand mientras el mapa en vivo los observa). Lista vacía = dejar de
+   * observar. El device baja solo a modo económico por TTL si nadie observa.
+   */
+  watchUsers(userIds: string[]): void {
+    if (!this.socket?.connected) return;
+    this.socket.emit('tracking:watch', { userIds });
   }
 
   disconnect(): void {
@@ -248,6 +279,10 @@ export class WebSocketService {
 
   get metricsUpdated(): Observable<MetricsUpdateEvent> {
     return this.metricsUpdated$.asObservable();
+  }
+
+  get routePing(): Observable<LivePing> {
+    return this.routePing$.asObservable();
   }
 
   get anyCaptureEvent(): Observable<CaptureEvent> {

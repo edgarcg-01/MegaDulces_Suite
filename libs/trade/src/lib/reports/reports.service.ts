@@ -1982,16 +1982,17 @@ export class ReportsService {
   async ingestRoutePings(
     batch: { pings: any[] },
     user: any,
-  ): Promise<{ inserted: number }> {
+  ): Promise<{ inserted: number; high_freq_sec: number }> {
     const tenantId: string | undefined =
       user?.tenant_id || this.tenantContext?.get()?.tenantId;
     const userId: string | undefined = user?.sub || user?.id || user?.userId;
-    if (!tenantId || !userId) return { inserted: 0 };
+    if (!tenantId || !userId) return { inserted: 0, high_freq_sec: 0 };
 
     const pings = (batch?.pings || []).filter(
       (p) => p?.client_uuid && p?.captured_at && p?.lat != null && p?.lng != null,
     );
-    if (pings.length === 0) return { inserted: 0 };
+    if (pings.length === 0)
+      return { inserted: 0, high_freq_sec: this.eventsService.watchRemainingSec(tenantId, userId) };
 
     const rows = pings.map((p) => ({
       tenant_id: tenantId,
@@ -2011,7 +2012,91 @@ export class ReportsService {
       .onConflict(['tenant_id', 'client_uuid'])
       .ignore()
       .returning('id');
-    return { inserted: Array.isArray(inserted) ? inserted.length : 0 };
+    const insertedCount = Array.isArray(inserted) ? inserted.length : 0;
+
+    // Live tracking: reemitir la última posición del usuario a los supervisores.
+    // Solo si algo nuevo entró (no re-broadcastear reintentos de la cola offline).
+    if (insertedCount > 0) {
+      const latest = rows.reduce((a, b) =>
+        new Date(b.captured_at).getTime() >= new Date(a.captured_at).getTime() ? b : a,
+      );
+      this.eventsService.emitRoutePing({
+        type: 'route_ping',
+        tenantId,
+        userId,
+        username: user?.username,
+        routeId: latest.route_id,
+        lat: Number(latest.lat),
+        lng: Number(latest.lng),
+        capturedAt: new Date(latest.captured_at).toISOString(),
+        speedMps: latest.speed_mps,
+        accuracyM: latest.accuracy_m,
+        source: latest.source,
+      });
+    }
+    return {
+      inserted: insertedCount,
+      high_freq_sec: this.eventsService.watchRemainingSec(tenantId, userId),
+    };
+  }
+
+  /**
+   * Posiciones en vivo: última posición por usuario de campo del tenant dentro
+   * de una ventana reciente (default 30 min). Seed del mapa en vivo antes de que
+   * empiecen a llegar los `route_ping` por WebSocket. Scope own/team/all +
+   * tenant explícito (tabla sin RLS). DISTINCT ON toma el fix más nuevo por user.
+   */
+  async getLivePositions(
+    user: any,
+    opts?: { sinceMin?: number },
+  ): Promise<{ positions: any[]; server_now: string }> {
+    const scope = getDataScope(user);
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const sinceMin = Math.min(Math.max(Number(opts?.sinceMin) || 30, 1), 240);
+
+    let q = this.knex('public.route_location_pings as p')
+      .leftJoin('users as u', 'u.id', 'p.user_id')
+      .select(
+        this.knex.raw('DISTINCT ON (p.user_id) p.user_id'),
+        'u.username',
+        'p.lat',
+        'p.lng',
+        'p.captured_at',
+        'p.speed_mps',
+        'p.accuracy_m',
+        'p.route_id',
+        'p.source',
+      )
+      .whereRaw("p.captured_at >= now() - (? || ' minutes')::interval", [sinceMin])
+      .orderBy('p.user_id', 'asc')
+      .orderBy('p.captured_at', 'desc');
+    if (tenantId) q = q.where('p.tenant_id', tenantId);
+    if (scope.type === 'own') q = q.where('p.user_id', scope.userId);
+    else if (
+      scope.type === 'team' &&
+      scope.userId &&
+      scope.userId !== 'null' &&
+      scope.userId !== 'undefined'
+    )
+      q = q.whereIn(
+        'p.user_id',
+        this.knex('users').select('id').where('supervisor_id', scope.userId),
+      );
+
+    const rows = await q;
+    const positions = rows.map((r: any) => ({
+      user_id: r.user_id,
+      username: r.username || '—',
+      lat: Number(r.lat),
+      lng: Number(r.lng),
+      captured_at: r.captured_at,
+      speed_mps: r.speed_mps != null ? Number(r.speed_mps) : null,
+      accuracy_m: r.accuracy_m != null ? Number(r.accuracy_m) : null,
+      route_id: r.route_id || null,
+      source: r.source || null,
+    }));
+    return { positions, server_now: new Date().toISOString() };
   }
 
   async getStoresData(
