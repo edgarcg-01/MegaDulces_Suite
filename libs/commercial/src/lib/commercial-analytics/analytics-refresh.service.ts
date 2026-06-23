@@ -95,18 +95,28 @@ export class AnalyticsRefreshService {
 
         const start = Date.now();
         try {
-          // CONCURRENTLY exige que la MV ya esté poblada al menos una vez. Si
-          // se creó WITH NO DATA (o es una DB nueva sin seed inicial),
-          // relispopulated=false y CONCURRENTLY falla. En ese caso hacemos un
-          // REFRESH normal primero para poblarla; las siguientes corridas ya
-          // usan CONCURRENTLY sin bloquear lecturas.
-          const [{ relispopulated }] = (
+          // relkind: solo 'm' (materialized view) es refrescable. En prod el
+          // hotfix convirtió catalog.products_top_sellers en TABLA + public.* en
+          // VIEW normal (sincronizadas manualmente desde el ERP). Refrescar una
+          // vista/tabla tira "is not a table or materialized view". Si no es MV,
+          // saltamos sin error: su data llega por sync externo, no por REFRESH.
+          // relispopulated: CONCURRENTLY exige que la MV ya esté poblada al menos
+          // una vez (WITH NO DATA → false). Si no, REFRESH normal primero.
+          const found = (
             await this.adminKnex.raw(
-              `SELECT relispopulated FROM pg_class WHERE oid = ?::regclass`,
+              `SELECT relkind, relispopulated FROM pg_class WHERE oid = ?::regclass`,
               [mv],
             )
           ).rows;
-          const concurrently = relispopulated ? 'CONCURRENTLY ' : '';
+          if (!found.length || found[0].relkind !== 'm') {
+            const kind = found.length ? found[0].relkind : 'missing';
+            this.logger.debug(
+              `Skip ${mv}: no es materialized view (relkind=${kind}) — data por sync externo, no por REFRESH.`,
+            );
+            results.push({ mv, ok: true, skipped: true });
+            continue;
+          }
+          const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
           await this.adminKnex.raw(
             `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`,
           );

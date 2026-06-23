@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -35,12 +34,13 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
   standalone: true,
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule,
-    ButtonModule, CardModule, TableModule, DialogModule,
+    ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, SelectModule, TabsModule,
     TagModule, ToastModule, TooltipModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
+    <div class="surf-page logcfg">
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
@@ -68,7 +68,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                    inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
             <button pButton icon="pi pi-plus" label="Nueva ruta" (click)="openRouteDialog()"></button>
           </div>
-          <p-card>
+          <section class="surf-panel">
+            <div class="surf-panel-body is-flush">
             <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15" sortMode="single">
               <ng-template pTemplate="header">
                 <tr>
@@ -97,7 +98,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                 <tr><td colspan="6" class="muted">Sin rutas. Corré <code>logistics_baseline.js</code> para cargar 96 destinos reales.</td></tr>
               </ng-template>
             </p-table>
-          </p-card>
+            </div>
+          </section>
         </p-tabpanel>
 
         <!-- ──── Tab 2-5: config_finance por categoría ──── -->
@@ -106,7 +108,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
             <span class="muted small">{{ countCat(cat) }} items en categoría "{{ catLabel(cat) }}"</span>
             <button pButton icon="pi pi-plus" label="Nuevo item" (click)="openConfigDialog(undefined, cat)"></button>
           </div>
-          <p-card>
+          <section class="surf-panel">
+            <div class="surf-panel-body is-flush">
             <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
               <ng-template pTemplate="header">
                 <tr>
@@ -135,10 +138,12 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                 <tr><td colspan="6" class="muted">Sin items en esta categoría. Creá uno con el botón de arriba.</td></tr>
               </ng-template>
             </p-table>
-          </p-card>
+            </div>
+          </section>
         </p-tabpanel>
       </p-tabpanels>
     </p-tabs>
+    </div>
 
     <!-- Dialog Route -->
     <p-dialog [(visible)]="routeDialog" [modal]="true" [style]="{ width: '520px' }" [closable]="!savingRoute()"
@@ -209,17 +214,17 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; }
-    .small { font-size:.75rem; }
-    code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
+    .small { font-size: var(--fs-xs); }
+    code { background: var(--c-surface-2); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; font-family: var(--font-mono); }
 
-    .tab-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:1rem 0; flex-wrap:wrap; }
+    .tab-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:0 0 1rem; flex-wrap:wrap; }
     .tab-toolbar input { min-width: 260px; }
-    .num { text-align:right; font-variant-numeric: tabular-nums; }
+    .num { text-align:right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
 
     .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem; }
-    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-color-secondary); }
+    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--c-text-2); }
     .form-grid .full { grid-column: 1 / -1; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

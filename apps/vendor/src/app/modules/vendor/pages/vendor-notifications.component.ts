@@ -11,6 +11,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { CardModule } from 'primeng/card';
 import { SkeletonModule } from 'primeng/skeleton';
+import { ButtonModule } from 'primeng/button';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError } from 'rxjs';
 import {
@@ -31,14 +32,38 @@ import { Order } from '../../portal/portal.service';
 @Component({
   selector: 'app-vendor-notifications',
   standalone: true,
-  imports: [CommonModule, CardModule, SkeletonModule],
+  imports: [CommonModule, CardModule, SkeletonModule, ButtonModule],
   template: `
-    <h1 class="page-title">Notificaciones</h1>
-    <p class="subtitle" *ngIf="!loading()">{{ totalCount() }} {{ totalCount() === 1 ? 'aviso' : 'avisos' }}</p>
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Notificaciones</h1>
+        <p class="subtitle" *ngIf="!loading() && !loadError()">{{ totalCount() }} {{ totalCount() === 1 ? 'aviso' : 'avisos' }}</p>
+      </div>
+      <button
+        type="button"
+        class="refresh"
+        *ngIf="!loading()"
+        [class.spinning]="refreshing()"
+        [disabled]="refreshing()"
+        (click)="refresh()"
+        aria-label="Actualizar notificaciones"
+      >
+        <i class="pi pi-refresh"></i>
+      </button>
+    </div>
 
     <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
 
-    <p-card *ngIf="!loading() && totalCount() === 0">
+    <!-- Sin red: todas las fuentes fallaron (distinto de "vas al día") -->
+    <p-card *ngIf="!loading() && loadError()">
+      <div class="empty">
+        <i class="pi pi-cloud"></i>
+        <p>No se pudieron cargar tus avisos.</p>
+        <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
+      </div>
+    </p-card>
+
+    <p-card *ngIf="!loading() && !loadError() && totalCount() === 0">
       <div class="empty">
         <i class="pi pi-check-circle"></i>
         <p>Sin pendientes. Vas al día.</p>
@@ -116,8 +141,15 @@ import { Order } from '../../portal/portal.service';
   `,
   styles: [
     `
+      .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
       .page-title { margin: 0 0 0.2rem; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-main); }
       .subtitle { margin: 0 0 1rem; color: var(--text-muted); font-size: 0.875rem; }
+      .refresh { flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); display: grid; place-items: center; cursor: pointer; transition: transform 0.08s var(--ease, ease); }
+      .refresh:active { transform: scale(0.92); } .refresh:disabled { opacity: 0.6; }
+      .refresh i { font-size: 0.9rem; }
+      .refresh.spinning i { animation: notif-spin 0.8s linear infinite; }
+      @keyframes notif-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .refresh.spinning i { animation: none; } }
       .empty { text-align: center; padding: 2rem 1rem; color: var(--text-muted); }
       .empty i { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; color: var(--ok-fg); }
       .group { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 1.1rem 0 0.5rem; }
@@ -295,6 +327,6 @@ export class VendorNotificationsComponent implements OnInit {
     }
   }
   fmtMoney(n: unknown): string {
-    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+    return this.money.format(Number(n) || 0);
   }
 }

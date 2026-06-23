@@ -667,6 +667,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       white-space: nowrap;
     }
     .shd-mode-tab:hover { color: var(--c-text-1); }
+    .shd-mode-tab:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .shd-mode-tab.active {
       background: var(--c-surface-1);
       color: var(--c-text-1);

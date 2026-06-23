@@ -92,15 +92,15 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
     .pl-build-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
     .pl-select { min-width:280px; }
     .pl-summary { display:flex; align-items:center; gap:.75rem; padding:.5rem .25rem .75rem; flex-wrap:wrap; }
-    .pl-pill { font-family:var(--mono,monospace); font-size:var(--fs-micro); padding:.15rem .5rem; border-radius:6px; background:var(--c-surface-2); color:var(--c-text-2); font-weight:600; }
-    .pl-pill.ok { background:#dce5dd; color:#3f5e4e; }
+    .pl-pill { font-family:var(--font-mono); font-size:var(--fs-micro); padding:.15rem .5rem; border-radius:6px; background:var(--c-surface-2); color:var(--c-text-2); font-weight:600; }
+    .pl-pill.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .pl-stops { list-style:none; margin:0; padding:0; }
     .pl-stops li { display:flex; align-items:center; gap:.75rem; padding:.5rem .75rem; border-top:1px solid var(--c-divider); }
     .pl-stops li:first-child { border-top:none; }
-    .pl-seq { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:7px; background:var(--action,#d2521b); color:#fff; font-weight:700; font-size:var(--fs-micro); font-variant-numeric:tabular-nums; flex:0 0 auto; }
+    .pl-seq { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:7px; background:var(--action); color:var(--action-ink); font-weight:700; font-size:var(--fs-micro); font-variant-numeric:tabular-nums; flex:0 0 auto; }
     .pl-name { flex:1 1 auto; }
     .pl-status { font-size:var(--fs-micro); color:var(--c-text-3); text-transform:uppercase; letter-spacing:.05em; }
-    .pl-status.done { color:#3f5e4e; }
+    .pl-status.done { color:var(--ok-fg); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -126,7 +126,8 @@ export class LogisticaPlannerComponent {
     const m: MapMarker[] = p.stops.map((s) => ({
       lat: s.lat, lng: s.lng, id: s.recipient_id, seq: s.sequence_order ?? undefined,
       title: `${s.sequence_order ?? '—'}. ${s.customer_name}`,
-      color: s.status === 'entregado' ? '#3f5e4e' : undefined,
+      // Leaflet necesita un color literal (no admite CSS var): verde --ok-fg.
+      color: s.status === 'entregado' ? '#16A34A' : undefined,
     }));
     if (p.origin) m.unshift({ lat: p.origin.lat, lng: p.origin.lng, kind: 'truck', title: p.origin.name || 'Origen' });
     return m;

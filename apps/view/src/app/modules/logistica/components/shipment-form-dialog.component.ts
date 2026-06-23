@@ -187,7 +187,9 @@ interface RouteOption {
 
         <!-- ─── Sección expandible: asignar guía + comisiones ─── -->
         <p-divider></p-divider>
-        <div class="expandable-header" (click)="toggleGuideSection()">
+        <div class="expandable-header" role="button" tabindex="0"
+             [attr.aria-expanded]="includeGuide()"
+             (click)="toggleGuideSection()" (keydown.enter)="toggleGuideSection()" (keydown.space)="$event.preventDefault(); toggleGuideSection()">
           <i class="pi" [class.pi-chevron-down]="includeGuide()" [class.pi-chevron-right]="!includeGuide()"></i>
           <h4 class="section-title inline">Asignar guía + comisiones (opcional)</h4>
           <p-checkbox [binary]="true" [ngModel]="includeGuide()" (onChange)="setIncludeGuide($event.checked)" [ngModelOptions]="{ standalone: true }"></p-checkbox>
@@ -309,45 +311,46 @@ interface RouteOption {
   styles: [`
     :host { display:contents; }
     .form { display:flex; flex-direction:column; gap:.75rem; }
-    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-color-secondary); }
+    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--c-text-2); }
     .row { display:grid; gap:1rem; }
     .row.two { grid-template-columns: 1fr 1fr; }
     .row.three { grid-template-columns: 1fr 1fr 1fr; }
-    .section-title { margin: 0; font-size: .9rem; font-weight: 600; color: var(--text-color); }
+    .section-title { margin: 0; font-size: .9rem; font-weight: 600; color: var(--c-text-1); }
     .section-title.inline { display: inline; flex: 1; }
 
-    .info-banner { display:flex; align-items:flex-start; gap:.5rem; background: var(--surface-100); color: var(--text-color); padding:.65rem .85rem; border-radius:6px; font-size:.85rem; }
-    .info-banner i { margin-top: .15rem; color: var(--primary-color); }
-    code { background: var(--surface-200); padding:.05rem .35rem; border-radius:3px; font-family: monospace; }
+    .info-banner { display:flex; align-items:flex-start; gap:.5rem; background: var(--c-surface-2); color: var(--c-text-1); padding:.65rem .85rem; border-radius:6px; font-size:.85rem; }
+    .info-banner i { margin-top: .15rem; color: var(--action); }
+    code { background: var(--c-surface-2); padding:.05rem .35rem; border-radius:3px; font-family: var(--font-mono); }
 
-    .link-banner { display:flex; align-items:flex-start; gap:.5rem; background: rgba(34,197,94,.1); color: #166534; padding:.6rem .8rem; border-radius:6px; font-size:.85rem; }
+    .link-banner { display:flex; align-items:flex-start; gap:.5rem; background: var(--ok-soft-bg); color: var(--ok-soft-fg); padding:.6rem .8rem; border-radius:6px; font-size:.85rem; }
 
     .expandable-header { display:flex; align-items:center; gap:.75rem; cursor: pointer; padding:.5rem; border-radius:6px; margin: 0 -.5rem; }
-    .expandable-header:hover { background: var(--surface-50); }
-    .expandable-header i.pi { color: var(--text-color-secondary); }
+    .expandable-header:hover { background: var(--c-surface-2); }
+    .expandable-header:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .expandable-header i.pi { color: var(--c-text-2); }
 
-    .guide-section { display:flex; flex-direction:column; gap:.75rem; padding:.75rem; background: var(--surface-50); border-radius: 8px; }
-    .muted { color: var(--text-color-secondary); }
+    .guide-section { display:flex; flex-direction:column; gap:.75rem; padding:.75rem; background: var(--c-surface-2); border-radius: 8px; }
+    .muted { color: var(--c-text-2); }
     .small { font-size: .75rem; }
     .checkbox-label { flex-direction: row; align-items: center; gap: .5rem; padding-top: 1.25rem; }
 
-    .margin-summary { background: var(--surface-50); padding: 1rem; border-radius: 8px; display:flex; flex-direction:column; gap:.35rem; }
+    .margin-summary { background: var(--c-surface-2); padding: 1rem; border-radius: 8px; display:flex; flex-direction:column; gap:.35rem; }
     .ms-item { display:flex; justify-content:space-between; font-size: .85rem; }
-    .ms-divider { height: 1px; background: var(--surface-200); margin: .25rem 0; }
+    .ms-divider { height: 1px; background: var(--c-divider); margin: .25rem 0; }
     .ms-total { font-size: 1rem; font-weight: 700; }
-    .ms-total .ms-value { color: #16a34a; }
-    .ms-total.neg .ms-value { color: #dc2626; }
+    .ms-total .ms-value { color: var(--ok-fg); }
+    .ms-total.neg .ms-value { color: var(--bad-fg); }
 
     @media (max-width: 600px) {
       .row.two, .row.three { grid-template-columns: 1fr; }
     }
 
-    .per-diem-toggle { background: var(--surface-100); padding: .65rem .85rem; border-radius: 6px; margin-top: .5rem; }
-    .per-diem-checklist { background: var(--surface-50); padding: .85rem; border-radius: 6px; margin-top: .5rem; }
+    .per-diem-toggle { background: var(--c-surface-2); padding: .65rem .85rem; border-radius: 6px; margin-top: .5rem; }
+    .per-diem-checklist { background: var(--c-surface-2); padding: .85rem; border-radius: 6px; margin-top: .5rem; }
     .pd-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-    .pd-table th { text-align: center; padding: .5rem; font-weight: 600; color: var(--text-color-secondary); font-size: .8rem; }
-    .pd-table th small { font-weight: 400; font-size: .7rem; color: var(--text-color-secondary); }
-    .pd-table td { padding: .5rem; text-align: center; border-top: 1px solid var(--surface-border); }
+    .pd-table th { text-align: center; padding: .5rem; font-weight: 600; color: var(--c-text-2); font-size: .8rem; }
+    .pd-table th small { font-weight: 400; font-size: .7rem; color: var(--c-text-2); }
+    .pd-table td { padding: .5rem; text-align: center; border-top: 1px solid var(--c-divider); }
     .pd-table td:first-child { text-align: left; font-weight: 500; }
     .pd-table .meal-col { width: 5rem; }
     .pd-table .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }

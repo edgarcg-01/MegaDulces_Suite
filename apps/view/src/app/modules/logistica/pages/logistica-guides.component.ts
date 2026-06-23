@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
@@ -38,10 +37,11 @@ interface GuideRow extends DeliveryGuide {
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink,
-    ButtonModule, CardModule, TableModule, SelectModule, TagModule, InputTextModule, ToastModule,
+    ButtonModule, TableModule, SelectModule, TagModule, InputTextModule, ToastModule,
   ],
   providers: [MessageService],
   template: `
+    <div class="surf-page logg">
     <p-toast></p-toast>
 
     <header class="surf-page-head">
@@ -52,41 +52,27 @@ interface GuideRow extends DeliveryGuide {
     </header>
 
     <!-- KPIs por estado -->
-    <div class="kpi-grid">
-      <div class="kpi-card kpi-info">
-        <div class="kpi-label">Total guías</div>
-        <div class="kpi-value">{{ guides().length }}</div>
-      </div>
-      <div class="kpi-card kpi-warn">
-        <div class="kpi-label">Pendientes</div>
-        <div class="kpi-value">{{ countByStatus('pendiente') }}</div>
-      </div>
-      <div class="kpi-card kpi-orange">
-        <div class="kpi-label">En ruta</div>
-        <div class="kpi-value">{{ countByStatus('en_ruta') }}</div>
-      </div>
-      <div class="kpi-card kpi-green">
-        <div class="kpi-label">Entregadas</div>
-        <div class="kpi-value">{{ countByStatus('entregada') }}</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Comisiones acumuladas</div>
-        <div class="kpi-value">\${{ totalCommissions() | number:'1.2-2' }}</div>
-      </div>
+    <div class="surf-grid">
+      <div class="metric-tile panel-col-2 is-info"><span class="metric-label">Total guías</span><span class="metric-value">{{ guides().length }}</span></div>
+      <div class="metric-tile panel-col-2 is-warn"><span class="metric-label">Pendientes</span><span class="metric-value">{{ countByStatus('pendiente') }}</span></div>
+      <div class="metric-tile panel-col-2 is-brand"><span class="metric-label">En ruta</span><span class="metric-value">{{ countByStatus('en_ruta') }}</span></div>
+      <div class="metric-tile panel-col-2 is-ok"><span class="metric-label">Entregadas</span><span class="metric-value">{{ countByStatus('entregada') }}</span></div>
+      <div class="metric-tile panel-col-4"><span class="metric-label">Comisiones acumuladas</span><span class="metric-value">{{ totalCommissions() | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
     </div>
 
     <!-- Filtros + tabla -->
-    <p-card>
-      <div class="filter-row">
-        <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por número de guía"
-               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-        <p-select [(ngModel)]="statusFilter" [options]="statusOptions" optionLabel="label" optionValue="value"
-                  (onChange)="applyFilters()" placeholder="Estado" [showClear]="true" styleClass="filter-select"></p-select>
-        <p-select [(ngModel)]="driverFilter" [options]="driverOptions()" optionLabel="full_name" optionValue="id"
-                  (onChange)="applyFilters()" placeholder="Chofer" [showClear]="true" styleClass="filter-select"></p-select>
-        <span class="muted small">{{ filtered().length }} / {{ guides().length }}</span>
-      </div>
+    <div class="filter-row">
+      <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por número de guía"
+             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
+      <p-select [(ngModel)]="statusFilter" [options]="statusOptions" optionLabel="label" optionValue="value"
+                (onChange)="applyFilters()" placeholder="Estado" [showClear]="true" styleClass="filter-select"></p-select>
+      <p-select [(ngModel)]="driverFilter" [options]="driverOptions()" optionLabel="full_name" optionValue="id"
+                (onChange)="applyFilters()" placeholder="Chofer" [showClear]="true" styleClass="filter-select"></p-select>
+      <span class="muted small">{{ filtered().length }} / {{ guides().length }}</span>
+    </div>
 
+    <section class="surf-panel">
+      <div class="surf-panel-body is-flush">
       <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15">
         <ng-template pTemplate="header">
           <tr>
@@ -102,7 +88,7 @@ interface GuideRow extends DeliveryGuide {
         </ng-template>
         <ng-template pTemplate="body" let-g>
           <tr>
-            <td><code>{{ g.number }}</code></td>
+            <td><code class="comm-code">{{ g.number }}</code></td>
             <td>
               <a [routerLink]="['/logistica/shipments', g.shipment_id]" class="link"><i class="pi pi-external-link"></i></a>
             </td>
@@ -112,8 +98,8 @@ interface GuideRow extends DeliveryGuide {
               <span *ngIf="g.helper2_name"> · {{ g.helper2_name }}</span>
               <span *ngIf="!g.helper1_name && !g.helper2_name" class="muted">—</span>
             </td>
-            <td class="num">\${{ g.total_commissions | number:'1.2-2' }}</td>
-            <td class="num">\${{ g.per_diem_total | number:'1.2-2' }}</td>
+            <td class="num">{{ g.total_commissions | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num">{{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
             <td><p-tag [severity]="severityStatus(g.status)" [value]="g.status"></p-tag></td>
             <td class="actions">
               <a pButton icon="pi pi-eye" size="small" severity="secondary" [text]="true" [routerLink]="['/logistica/shipments', g.shipment_id]"></a>
@@ -124,31 +110,23 @@ interface GuideRow extends DeliveryGuide {
           <tr><td colspan="8" class="muted">Sin guías que coincidan con el filtro.</td></tr>
         </ng-template>
       </p-table>
-    </p-card>
+      </div>
+    </section>
+    </div>
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; }
-    .small { font-size:.75rem; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
+    .small { font-size: var(--fs-xs); }
 
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin:1rem 0; }
-    .kpi-card { background: var(--surface-card, var(--surface-50)); border: 1px solid var(--surface-border, var(--neutral-200)); border-radius: 12px; padding: 1.125rem 1.25rem; }
-    .kpi-info  { border-left: 3px solid #0ea5e9; }
-    .kpi-warn  { border-left: 3px solid #eab308; }
-    .kpi-orange { border-left: 3px solid #f5a623; }
-    .kpi-green { border-left: 3px solid var(--ok-fg); }
-    .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
-
-    .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
+    .filter-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
     .filter-row input { min-width: 220px; }
     :host ::ng-deep .filter-select { min-width: 180px; }
 
-    .num { text-align:right; }
-    .helpers { font-size:.85rem; }
+    .num { text-align:right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+    .helpers { font-size: var(--fs-sm); }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    .link { color: var(--primary-color); }
-    code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
+    .link { color: var(--action); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

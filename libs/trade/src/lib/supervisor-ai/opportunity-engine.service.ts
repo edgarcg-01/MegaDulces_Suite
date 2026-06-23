@@ -279,9 +279,9 @@ export class OpportunityEngineService {
     const prodName = new Map<string, string>();
     if (suggestedProductIds.size) {
       const rows = await this.safeQuery(() =>
-        this.knex('catalog.products').whereIn('id', [...suggestedProductIds]).select('id', 'name'),
+        this.knex('catalog.products').whereIn('id', [...suggestedProductIds]).select('id', 'nombre'),
       );
-      (rows || []).forEach((p: any) => prodName.set(p.id, p.name));
+      (rows || []).forEach((p: any) => prodName.set(p.id, p.nombre));
     }
     for (const d of recoverDraft) {
       const pname = d.productId ? prodName.get(d.productId) : null;

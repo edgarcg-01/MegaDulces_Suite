@@ -165,7 +165,8 @@ export class EmbeddingSyncService implements OnModuleInit {
     if (toDelete.length > 0 && wipeRatio > 0.3) {
       this.logger.error(
         `syncBatch: el delete eliminaría ${toDelete.length}/${existingRows.length} (${Math.round(wipeRatio * 100)}%) del store. ` +
-          `Fuente probablemente incompleta — SALTANDO borrado. Revisar PRODUCT_SOURCE_URL.`,
+          `SALTANDO borrado. Fuente = public.products WHERE activo=true (${activeIds.size} filas). ` +
+          `Revisar si el catálogo perdió 'activo' masivamente o si el store quedó sobre-sembrado.`,
       );
     } else if (toDelete.length > 0) {
       for (let i = 0; i < toDelete.length; i += 500) {
@@ -296,7 +297,8 @@ export class EmbeddingSyncService implements OnModuleInit {
     const wipeRatio = existingRows.length > 0 ? toDelete.length / existingRows.length : 0;
     if (toDelete.length > 0 && wipeRatio > 0.3) {
       this.logger.error(
-        `syncActiveBatch: el delete eliminaría ${toDelete.length}/${existingRows.length} (${Math.round(wipeRatio * 100)}%) — SALTANDO (fuente probablemente incompleta).`,
+        `syncActiveBatch: el delete eliminaría ${toDelete.length}/${existingRows.length} (${Math.round(wipeRatio * 100)}%) — SALTANDO. ` +
+          `Fuente = inventory.products_active (${activeSkus.size} skus). Revisar el corpus ERP activo.`,
       );
     } else if (toDelete.length > 0) {
       for (let i = 0; i < toDelete.length; i += 500) {

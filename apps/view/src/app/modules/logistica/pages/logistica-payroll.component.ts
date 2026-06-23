@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -39,12 +38,13 @@ function severityLiq(s: LiquidationStatus): Severity {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule,
-    ButtonModule, CardModule, TableModule, DialogModule,
+    ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, DatePickerModule, SelectModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
+    <div class="surf-page logp">
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
@@ -57,7 +57,9 @@ function severityLiq(s: LiquidationStatus): Severity {
     </header>
 
     <div class="grid">
-      <p-card class="periods-card" header="Períodos">
+      <section class="surf-panel periods-card">
+        <div class="surf-panel-head"><h3><i class="pi pi-calendar" aria-hidden="true"></i> Períodos</h3></div>
+        <div class="surf-panel-body is-flush">
         <p-table [value]="periods()" [loading]="loadingP()" responsiveLayout="scroll" styleClass="p-datatable-sm"
                  selectionMode="single" [(selection)]="selectedPeriod" (onRowSelect)="onPeriodSelect()"
                  [dataKey]="'id'">
@@ -83,9 +85,12 @@ function severityLiq(s: LiquidationStatus): Severity {
             <tr><td colspan="5" class="muted">Sin períodos. Crear el primero.</td></tr>
           </ng-template>
         </p-table>
-      </p-card>
+        </div>
+      </section>
 
-      <p-card class="liq-card" [header]="liqHeader()">
+      <section class="surf-panel liq-card">
+        <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> {{ liqHeader() }}</h3></div>
+        <div class="surf-panel-body is-flush">
         <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll" styleClass="p-datatable-sm">
           <ng-template pTemplate="header">
             <tr>
@@ -117,7 +122,9 @@ function severityLiq(s: LiquidationStatus): Severity {
             <tr><td colspan="10" class="muted">{{ selectedPeriod ? 'Sin liquidaciones para este período. Calcular para generar.' : 'Selecciona un período.' }}</td></tr>
           </ng-template>
         </p-table>
-      </p-card>
+        </div>
+      </section>
+    </div>
     </div>
 
     <!-- Adjustments dialog -->
@@ -223,29 +230,29 @@ function severityLiq(s: LiquidationStatus): Severity {
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }
     .grid { display:grid; grid-template-columns: 1fr 2fr; gap:1rem; align-items: flex-start; }
     @media (max-width: 1024px) { .grid { grid-template-columns: 1fr; } }
-    .strong { font-weight:600; }
-    .num { font-variant-numeric: tabular-nums; text-align:right; }
-    .grand { color: var(--primary-color); font-weight: 700; }
+    .strong { font-weight: var(--fw-medium); }
+    .num { font-variant-numeric: tabular-nums; text-align:right; font-family: var(--font-mono); }
+    .grand { color: var(--c-text-1); font-weight: var(--fw-bold); }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
     .form { display:flex; flex-direction:column; gap:.85rem; }
-    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .form em { color:#ef4444; font-style:normal; }
+    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color: var(--c-text-2); }
+    .form em { color: var(--bad-fg); font-style:normal; }
     .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .info-grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:.75rem; padding:.75rem; background: var(--surface-100); border-radius:6px; }
+    .info-grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:.75rem; padding:.75rem; background: var(--c-surface-2); border-radius:6px; }
     .info-grid > div { display:flex; flex-direction:column; }
-    .info-grid .label { font-size:.7rem; color: var(--text-color-secondary); }
-    .adj-summary { display:grid; grid-template-columns: repeat(4, 1fr); gap:.75rem; padding:.75rem 1rem; background: var(--surface-100); border-radius:6px; margin-bottom:1rem; }
+    .info-grid .label { font-size:.7rem; color: var(--c-text-2); }
+    .adj-summary { display:grid; grid-template-columns: repeat(4, 1fr); gap:.75rem; padding:.75rem 1rem; background: var(--c-surface-2); border-radius:6px; margin-bottom:1rem; }
     .adj-summary > div { display:flex; flex-direction:column; }
-    .adj-summary .label { font-size:.7rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing:.05em; }
-    .adj-summary .pos { color: #16a34a; }
-    .adj-summary .neg { color: #dc2626; }
+    .adj-summary .label { font-size:.7rem; color: var(--c-text-2); text-transform: uppercase; letter-spacing:.05em; }
+    .adj-summary .pos { color: var(--c-ok); }
+    .adj-summary .neg { color: var(--c-bad); }
     .adj-table { margin-bottom:1rem; }
-    .adj-form { padding-top:1rem; border-top: 1px solid var(--surface-border); }
+    .adj-form { padding-top:1rem; border-top: 1px solid var(--c-divider); }
     .adj-form-actions { display:flex; justify-content:flex-end; }
-    .adj-locked { padding:.75rem; background: var(--surface-100); border-radius:6px; text-align:center; }
+    .adj-locked { padding:.75rem; background: var(--c-surface-2); border-radius:6px; text-align:center; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

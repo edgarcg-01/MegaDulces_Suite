@@ -359,6 +359,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
       white-space: nowrap;
     }
     .sh-mode-tab:hover { color: var(--c-text-1); }
+    .sh-mode-tab:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .sh-mode-tab.active {
       background: var(--c-surface-1);
       color: var(--c-text-1);

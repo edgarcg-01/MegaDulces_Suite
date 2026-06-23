@@ -13,6 +13,12 @@ export class LogisticsAnalyticsController {
     return this.service.overview({ from, to });
   }
 
+  @Get('kpi-cards')
+  @ApiOperation({ summary: 'J14: KPIs del dashboard con value + delta% (vs período previo) + serie diaria para micro-gráficas' })
+  kpiCards(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.kpiCards({ from, to });
+  }
+
   @Get('shipment-profitability')
   @ApiOperation({ summary: 'Lista embarques realizados con rentabilidad individual (top N por margen)' })
   profitability(

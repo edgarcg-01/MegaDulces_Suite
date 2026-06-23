@@ -12,7 +12,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, timeout, TimeoutError } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
@@ -505,7 +505,12 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     try {
       const fd = new FormData();
       fd.append('file', file, file.name || 'ticket.jpg');
-      const res = await firstValueFrom(this.http.post<any>(`${this.apiUrl}/ai/ticket/extract`, fd));
+      // Timeout cliente apenas por encima del deadline server (45s): si el server
+      // responde 504 limpio, ese gana; si igual cuelga, cortamos a los 50s en vez
+      // de esperar a que el navegador cancele (~2min → 502).
+      const res = await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/ai/ticket/extract`, fd).pipe(timeout(50_000)),
+      );
       // Primera foto = ticket de referencia para la venta/visita.
       if (!this.ticketUrl) {
         this.ticketUrl = res?.ticket_url ?? null;
@@ -532,9 +537,10 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         detail: ocr.length ? `${this.confirmedCount()} confirmados` : 'Tomá la foto con mejor luz.',
       });
     } catch (e: any) {
-      // Si la falla es transient (red caída mid-flight, 500/504 del server),
-      // no bloqueamos: la foto ya está en ticketBlob y el sync diferirá el OCR.
-      if (isTransientStatus(e?.status)) {
+      // Si la falla es transient (red caída mid-flight, 500/504 del server, o
+      // timeout cliente), no bloqueamos: la foto ya está en ticketBlob y el sync
+      // diferirá el OCR.
+      if (e instanceof TimeoutError || isTransientStatus(e?.status)) {
         this.ticketOcrDeferred.set(true);
         this.toast.add({
           severity: 'warn',

@@ -13,10 +13,12 @@ import { forkJoin } from 'rxjs';
 import {
   AnalyticsOverview,
   FleetUtilizationRow,
+  KpiCards,
   LogisticaService,
   PendingByRouteRow,
   ShipmentProfitabilityRow,
 } from '../logistica.service';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 /**
  * J.9.1 — Dashboard logística operacional.
@@ -31,6 +33,7 @@ import {
   imports: [
     CommonModule, FormsModule, RouterLink,
     ButtonModule, TableModule, DatePickerModule, SkeletonModule, ToastModule, TooltipModule,
+    MetricCardComponent,
   ],
   providers: [MessageService],
   template: `
@@ -50,35 +53,51 @@ import {
             <label class="filter-label" for="ld-to">Hasta</label>
             <p-datepicker inputId="ld-to" [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
           </div>
-          <button pButton icon="pi pi-refresh" label="Actualizar" (click)="reload()" [loading]="loading()"></button>
+          <button pButton icon="pi pi-refresh" label="Actualizar" styleClass="btn-spin-hover" (click)="reload()" [loading]="loading()"></button>
         </div>
       </header>
 
-      <!-- KPI Grid (metric-tiles canónicos) -->
-      <p-skeleton *ngIf="loading()" height="118px"></p-skeleton>
+      <!-- KPI Grid (J14: tarjetas ricas con micro-gráficas, jerarquía bento) -->
+      <p-skeleton *ngIf="loading()" height="172px"></p-skeleton>
       <div *ngIf="!loading()" class="surf-grid">
-        <div class="metric-tile panel-col-3 is-info">
-          <span class="metric-label">Volumen operativo</span>
-          <span class="metric-value">{{ overview()?.shipments?.count || 0 }}</span>
-          <span class="metric-sub">{{ overview()?.shipments?.total_boxes || 0 }} cajas · {{ (overview()?.shipments?.total_km || 0) | number:'1.0-0' }} km</span>
-        </div>
-        <div class="metric-tile panel-col-3">
-          <span class="metric-label">Ingreso flete</span>
-          <span class="metric-value">{{ (overview()?.revenue?.freight || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          <span class="metric-sub">Valor mercancía: {{ (overview()?.revenue?.cargo_value_moved || 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-        </div>
-        <div class="metric-tile panel-col-3">
-          <span class="metric-label">Costo operativo</span>
-          <span class="metric-value">{{ (overview()?.cost?.total || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          <span class="metric-sub">{{ (overview()?.cost?.per_km || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}/km</span>
-        </div>
-        <div class="metric-tile panel-col-3"
-             [class.is-ok]="(overview()?.margin?.gross || 0) >= 0"
-             [class.is-bad]="(overview()?.margin?.gross || 0) < 0">
-          <span class="metric-label">Margen operativo</span>
-          <span class="metric-value">{{ (overview()?.margin?.gross || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          <span class="metric-sub">{{ (overview()?.margin?.gross_pct || 0) | number:'1.1-1' }}% margen bruto</span>
-        </div>
+        <!-- HERO: Margen (bottom line) — col-6 + large -->
+        <app-metric-card class="panel-col-6"
+          label="Margen operativo" variant="sparkline" [large]="true"
+          accent="var(--action)"
+          [value]="kpis()?.margin?.value || (overview()?.margin?.gross || 0)"
+          format="currency"
+          [delta]="kpis()?.margin?.delta_pct ?? null"
+          [series]="kpis()?.margin?.series || []"
+          [sub]="(kpis()?.margin?.pct ?? overview()?.margin?.gross_pct ?? 0 | number:'1.1-1') + '% margen bruto'">
+        </app-metric-card>
+
+        <!-- Secundarias chicas -->
+        <app-metric-card class="panel-col-3"
+          label="Ingreso flete" variant="sparkline" accent="var(--chart-2)"
+          [value]="kpis()?.revenue?.value || (overview()?.revenue?.freight || 0)"
+          format="currency"
+          [delta]="kpis()?.revenue?.delta_pct ?? null"
+          [series]="kpis()?.revenue?.series || []"
+          sub="Flete cobrado">
+        </app-metric-card>
+
+        <app-metric-card class="panel-col-3"
+          label="Volumen operativo" variant="bars" accent="var(--chart-6)"
+          [value]="kpis()?.shipments?.value || (overview()?.shipments?.count || 0)"
+          format="number"
+          [delta]="kpis()?.shipments?.delta_pct ?? null"
+          [series]="(kpis()?.shipments?.series || []).slice(-10)"
+          [sub]="(overview()?.shipments?.total_boxes || 0) + ' cajas'">
+        </app-metric-card>
+
+        <!-- Banner ancho: Costo (tendencia larga) — col-12 -->
+        <app-metric-card class="panel-col-12"
+          label="Costo operativo" variant="sparkline" accent="var(--chart-3)"
+          [value]="kpis()?.cost?.value || (overview()?.cost?.total || 0)"
+          format="currency"
+          [series]="kpis()?.cost?.series || []"
+          [sub]="(overview()?.cost?.per_km || 0 | currency:'MXN':'symbol-narrow':'1.2-2') + '/km · tendencia del período'">
+        </app-metric-card>
       </div>
 
       <!-- Pipeline: pedidos confirmados/por aprobar sin embarque, agrupados por ruta -->
@@ -258,6 +277,11 @@ import {
 
     .is-small { font-size: var(--fs-xs); }
     .logd-empty { padding: 1.5rem !important; text-align: center !important; }
+
+    /* Micro-hover: el icono de Actualizar gira (Design Spell: Stripe/Supabase). */
+    :host ::ng-deep .btn-spin-hover .p-button-icon { transition: transform .35s var(--ease-out, cubic-bezier(.23,1,.32,1)); }
+    :host ::ng-deep .btn-spin-hover:not(:disabled):hover .p-button-icon { transform: rotate(180deg); }
+    @media (prefers-reduced-motion: reduce) { :host ::ng-deep .btn-spin-hover .p-button-icon { transition:none; } }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -269,6 +293,7 @@ export class LogisticaDashboardComponent {
   to: Date | null = new Date();
 
   readonly overview = signal<AnalyticsOverview | null>(null);
+  readonly kpis = signal<KpiCards | null>(null);
   readonly topShipments = signal<ShipmentProfitabilityRow[]>([]);
   readonly fleetRows = signal<FleetUtilizationRow[]>([]);
   readonly pendingRows = signal<PendingByRouteRow[]>([]);
@@ -309,14 +334,16 @@ export class LogisticaDashboardComponent {
     const t = this.fmtDate(this.to);
     forkJoin({
       ov: this.api.analyticsOverview(f, t),
+      kpis: this.api.analyticsKpiCards(f, t),
       top: this.api.shipmentProfitability({ from: f, to: t, limit: 10 }),
       fleet: this.api.fleetUtilization(f, t),
       // El pipeline (pedidos sin embarque) NO depende del rango — es el snapshot
       // actual de la cola operacional, así el operador siempre lo ve completo.
       pending: this.api.pendingByRoute(),
     }).subscribe({
-      next: ({ ov, top, fleet, pending }) => {
+      next: ({ ov, kpis, top, fleet, pending }) => {
         this.overview.set(ov);
+        this.kpis.set(kpis);
         this.topShipments.set(top || []);
         this.fleetRows.set(fleet || []);
         this.pendingRows.set(pending || []);

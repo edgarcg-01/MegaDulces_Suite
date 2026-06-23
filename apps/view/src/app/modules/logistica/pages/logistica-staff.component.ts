@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -34,12 +33,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   standalone: true,
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule,
-    ButtonModule, CardModule, TableModule, DialogModule,
+    ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, SelectModule, MultiSelectModule, CheckboxModule, DatePickerModule,
     TagModule, AvatarModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
+    <div class="surf-page logs">
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
@@ -52,34 +52,35 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     </header>
 
     <!-- KPI cards -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">Total colaboradores</div>
-        <div class="kpi-value">{{ drivers().length }}</div>
+    <div class="surf-grid">
+      <div class="metric-tile panel-col-3">
+        <span class="metric-label">Total colaboradores</span>
+        <span class="metric-value">{{ drivers().length }}</span>
       </div>
-      <div class="kpi-card kpi-green">
-        <div class="kpi-label">Activos</div>
-        <div class="kpi-value">{{ activos() }}</div>
+      <div class="metric-tile panel-col-3 is-ok">
+        <span class="metric-label">Activos</span>
+        <span class="metric-value">{{ activos() }}</span>
       </div>
-      <div class="kpi-card kpi-orange">
-        <div class="kpi-label">Suspendidos</div>
-        <div class="kpi-value">{{ suspendidos() }}</div>
+      <div class="metric-tile panel-col-3 is-warn">
+        <span class="metric-label">Suspendidos</span>
+        <span class="metric-value">{{ suspendidos() }}</span>
       </div>
-      <div class="kpi-card kpi-secondary">
-        <div class="kpi-label">Inactivos</div>
-        <div class="kpi-value">{{ inactivos() }}</div>
+      <div class="metric-tile panel-col-3">
+        <span class="metric-label">Inactivos</span>
+        <span class="metric-value">{{ inactivos() }}</span>
       </div>
     </div>
 
-    <!-- Filters -->
-    <p-card>
-      <div class="filter-row">
-        <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por nombre"
-               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-        <p-select [(ngModel)]="roleFilter" [options]="roleOptions" optionLabel="label" optionValue="value"
-                  (onChange)="reload()" placeholder="Rol" [showClear]="true" styleClass="filter-select"></p-select>
-      </div>
+    <!-- Filters + tabla -->
+    <div class="filter-row">
+      <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por nombre"
+             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
+      <p-select [(ngModel)]="roleFilter" [options]="roleOptions" optionLabel="label" optionValue="value"
+                (onChange)="reload()" placeholder="Rol" [showClear]="true" styleClass="filter-select"></p-select>
+    </div>
 
+    <section class="surf-panel">
+      <div class="surf-panel-body is-flush">
       <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm">
         <ng-template pTemplate="header">
           <tr>
@@ -119,7 +120,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <tr><td colspan="8" class="muted">Sin colaboradores. Creá el primero con el botón de arriba.</td></tr>
         </ng-template>
       </p-table>
-    </p-card>
+      </div>
+    </section>
+    </div>
 
     <!-- Create/Edit Dialog -->
     <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '520px' }"
@@ -199,17 +202,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }
 
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1rem; }
-    .kpi-card { background: var(--surface-card, var(--surface-50)); border: 1px solid var(--surface-border, var(--neutral-200)); border-radius: 12px; padding: 1.125rem 1.25rem; }
-    .kpi-green     { border-left: 3px solid var(--ok-fg); }
-    .kpi-orange    { border-left: 3px solid var(--warn-fg); }
-    .kpi-secondary { border-left: 3px solid var(--surface-400); }
-    .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
-
-    .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
+    .filter-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
     .filter-row input { min-width: 200px; }
     :host ::ng-deep .filter-select { min-width: 180px; }
 
@@ -217,9 +212,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
 
     .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem; }
-    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-color-secondary); }
+    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--c-text-2); }
     .form-grid .full { grid-column: 1 / -1; }
-    .form-section { grid-column: 1 / -1; font-size:.7rem; text-transform: uppercase; letter-spacing:.1em; color: var(--text-color-secondary); border-bottom: 1px solid var(--surface-border); padding-bottom: .25rem; margin-top: .5rem; }
+    .form-section { grid-column: 1 / -1; font-size:.7rem; text-transform: uppercase; letter-spacing:.1em; color: var(--c-text-2); border-bottom: 1px solid var(--c-divider); padding-bottom: .25rem; margin-top: .5rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -383,9 +378,9 @@ export class LogisticaStaffComponent {
   }
 
   avatarColor(name: string): string {
-    const colors = ['#9333ea', '#16a34a', '#f5a623', '#0ea5e9', '#dc2626', '#7c3aed'];
+    // Paleta canónica --avatar-1..8 (AA con texto blanco, adapta a dark mode).
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = (hash << 5) - hash + name.charCodeAt(i);
-    return colors[Math.abs(hash) % colors.length];
+    return `var(--avatar-${(Math.abs(hash) % 8) + 1})`;
   }
 }

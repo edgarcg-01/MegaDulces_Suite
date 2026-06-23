@@ -410,12 +410,12 @@ export class CommercialOrdersService {
         .where('o.customer_id', customerId)
         .whereIn('o.status', ['confirmed', 'fulfilled'])
         .whereRaw(`o.created_at >= now() - (? || ' days')::interval`, [days])
-        .groupBy('ol.product_id', 'p.name', 'p.sku', 'b.name')
+        .groupBy('ol.product_id', 'p.nombre', 'p.sku', 'b.nombre')
         .select(
           'ol.product_id',
-          trx.raw('p.name as product_name'),
+          trx.raw('p.nombre as product_name'),
           trx.raw('p.sku as sku'),
-          trx.raw('b.name as brand_name'),
+          trx.raw('b.nombre as brand_name'),
           trx.raw('count(distinct o.id)::int as order_count'),
           trx.raw('sum(ol.quantity)::numeric as total_qty'),
           trx.raw('greatest(round(avg(ol.quantity)), 1)::int as avg_qty'),

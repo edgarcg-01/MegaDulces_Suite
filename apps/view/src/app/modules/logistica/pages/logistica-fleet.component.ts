@@ -56,10 +56,16 @@ function severityForDriverStatus(s: string): Severity {
   ],
   providers: [MessageService, ConfirmationService],
   template: `
+    <div class="surf-page logf">
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
 
-    <h2 class="page-title">Flotilla y personal</h2>
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
+        <h1>Flotilla y personal</h1>
+        <p class="surf-page-sub">Unidades, colaboradores, uso (check-in/out) y mantenimiento.</p>
+      </div>
+    </header>
 
     <p-tabs value="vehicles">
       <p-tablist>
@@ -283,6 +289,7 @@ function severityForDriverStatus(s: string): Severity {
         </p-tabpanel>
       </p-tabpanels>
     </p-tabs>
+    </div>
 
     <!-- ──── J.9.9 Check-in dialog ──── -->
     <p-dialog [(visible)]="checkInDialog" [modal]="true" [style]="{ width: '480px' }" header="Nuevo check-in de vehículo">
@@ -501,27 +508,27 @@ function severityForDriverStatus(s: string): Severity {
   `,
   styles: [`
     :host { display:block; }
-    .page-title { margin: 0 0 1rem; font-size:1.25rem; }
     .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; }
-    .strong { font-weight: 600; }
-    .num { font-variant-numeric: tabular-nums; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
+    .strong { font-weight: var(--fw-medium); }
+    .small { font-size: var(--fs-xs); }
+    .num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--font-mono); }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
     .role-tag { margin-right: .25rem; }
-    code { background: var(--surface-100); padding:.15rem .4rem; border-radius:4px; font-size:.85rem; }
+    code { background: var(--c-surface-2); padding:.15rem .4rem; border-radius:4px; font-size:.85rem; font-family: var(--font-mono); }
     .form { display:flex; flex-direction:column; gap: .85rem; }
-    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color:var(--text-color-secondary); }
-    .form em { color:#ef4444; font-style:normal; }
+    .form label { display:flex; flex-direction:column; gap:.25rem; font-size:.85rem; color: var(--c-text-2); }
+    .form em { color: var(--bad-fg); font-style:normal; }
     .row { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .maint-due { border:1px solid #e6c15a; background:#fdf6e3; border-radius:10px; padding:.75rem 1rem; margin-bottom:1rem; }
-    .maint-due-head { display:flex; align-items:center; gap:.5rem; font-weight:600; margin-bottom:.4rem; }
+    .maint-due { border:1px solid var(--warn-border); background: var(--warn-soft-bg); border-radius:10px; padding:.75rem 1rem; margin-bottom:1rem; color: var(--warn-soft-fg); }
+    .maint-due-head { display:flex; align-items:center; gap:.5rem; font-weight: var(--fw-bold); margin-bottom:.4rem; }
     .maint-due ul { margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:.25rem; }
     .maint-due li { font-size:.9rem; }
-    .maint-due-reason { color:var(--text-color-secondary); margin-left:.4rem; }
+    .maint-due-reason { color: var(--c-text-2); margin-left:.4rem; }
     .fuel-card { display:block; margin-bottom:1rem; }
     .fuel-title { margin:0 0 .5rem; font-size:1rem; }
-    .fuel-flag { background:#fdecea; }
-    .fuel-bad { color:#c0392b; font-weight:600; }
+    .fuel-flag { background: var(--bad-soft-bg); }
+    .fuel-bad { color: var(--bad-fg); font-weight: var(--fw-medium); }
     .fuel-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

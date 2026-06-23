@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  GatewayTimeoutException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -18,6 +19,12 @@ export interface TicketExtractResult {
 
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB — Anthropic vision límite
+/**
+ * Deadline global del endpoint. Cloudinary + vision (30s) + Voyage (10s×3≈36s)
+ * se apilan; sin tope el request puede colgar >2min y el navegador móvil lo
+ * cancela → 502. Con esto respondemos 504 limpio (el cliente reintenta).
+ */
+const PIPELINE_DEADLINE_MS = 45_000;
 
 /**
  * Fase V — Pipeline OCR de ticket → productos del catálogo.
@@ -61,6 +68,36 @@ export class TicketExtractorService {
       );
     }
 
+    // Tope global: corta el pipeline a los 45s con un 504 limpio en vez de
+    // dejar al vendedor esperando >2min hasta que el navegador cancele (502).
+    let deadline: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      deadline = setTimeout(
+        () =>
+          reject(
+            new GatewayTimeoutException(
+              'La lectura del ticket tardó demasiado. Revisá tu conexión y reintentá.',
+            ),
+          ),
+        PIPELINE_DEADLINE_MS,
+      );
+    });
+    const pipeline = this.runPipeline(file, tenantId, userId);
+    // Si el deadline gana la carrera, el pipeline sigue corriendo en background;
+    // este handler evita un unhandledRejection cuando termine por su cuenta.
+    pipeline.catch(() => undefined);
+    try {
+      return await Promise.race([pipeline, timeout]);
+    } finally {
+      clearTimeout(deadline!);
+    }
+  }
+
+  private async runPipeline(
+    file: Express.Multer.File,
+    tenantId: string,
+    userId: string,
+  ): Promise<TicketExtractResult> {
     const t0 = Date.now();
 
     // 1) Upload Cloudinary primero — así si la AI falla la foto queda subida y

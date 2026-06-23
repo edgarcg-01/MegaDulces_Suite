@@ -310,6 +310,21 @@ export interface UploadPhotoBody {
 }
 
 // J.9 — Analytics overview (dashboard ops)
+/** J14 — KPIs del dashboard con micro-gráficas. */
+export interface KpiCard {
+  value: number;
+  delta_pct: number;
+  series: number[];
+}
+export interface KpiCards {
+  range: { from: string; to: string };
+  currency: string;
+  shipments: KpiCard;
+  revenue: KpiCard;
+  cost: KpiCard;
+  margin: KpiCard & { pct: number };
+}
+
 export interface AnalyticsOverview {
   period: { from: string | null; to: string | null };
   currency: string;
@@ -784,6 +799,13 @@ export class LogisticaService {
     if (from) p = p.set('from', from);
     if (to) p = p.set('to', to);
     return this.http.get<AnalyticsOverview>(`${this.base}/analytics/overview`, { params: p });
+  }
+  /** J14 — KPIs del dashboard con value + delta% + serie diaria para micro-gráficas. */
+  analyticsKpiCards(from?: string, to?: string): Observable<KpiCards> {
+    let p = new HttpParams();
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return this.http.get<KpiCards>(`${this.base}/analytics/kpi-cards`, { params: p });
   }
   shipmentProfitability(opts: {
     from?: string; to?: string; vehicle_id?: string; route_id?: string; limit?: number;

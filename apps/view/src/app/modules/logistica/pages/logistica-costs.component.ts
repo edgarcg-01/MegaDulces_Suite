@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -35,12 +34,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   standalone: true,
   imports: [
     CommonModule, FormsModule, ReactiveFormsModule, RouterLink,
-    ButtonModule, CardModule, TableModule, DialogModule,
+    ButtonModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, DatePickerModule, SelectModule,
     TagModule, TooltipModule, ToastModule,
   ],
   providers: [MessageService],
   template: `
+    <div class="surf-page logc">
     <p-toast></p-toast>
 
     <header class="surf-page-head">
@@ -56,37 +56,23 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     </header>
 
     <!-- KPIs -->
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">Embarques con costos</div>
-        <div class="kpi-value">{{ summary()?.count || 0 }}</div>
-      </div>
-      <div class="kpi-card kpi-orange">
-        <div class="kpi-label">Total costos</div>
-        <div class="kpi-value">\${{ summary()?.total_cost || totalAcumulado() | number:'1.2-2' }}</div>
-      </div>
-      <div class="kpi-card kpi-info">
-        <div class="kpi-label">Combustible</div>
-        <div class="kpi-value">\${{ summary()?.fuel || 0 | number:'1.2-2' }}</div>
-      </div>
-      <div class="kpi-card kpi-warn">
-        <div class="kpi-label">Casetas</div>
-        <div class="kpi-value">\${{ summary()?.tolls || 0 | number:'1.2-2' }}</div>
-      </div>
-      <div class="kpi-card kpi-secondary">
-        <div class="kpi-label">Viáticos chofer</div>
-        <div class="kpi-value">\${{ summary()?.driver_per_diem || 0 | number:'1.2-2' }}</div>
-      </div>
+    <div class="surf-grid">
+      <div class="metric-tile panel-col-2"><span class="metric-label">Embarques con costos</span><span class="metric-value">{{ summary()?.count || 0 }}</span></div>
+      <div class="metric-tile panel-col-3 is-brand"><span class="metric-label">Total costos</span><span class="metric-value">{{ (summary()?.total_cost || totalAcumulado()) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+      <div class="metric-tile panel-col-2 is-info"><span class="metric-label">Combustible</span><span class="metric-value">{{ (summary()?.fuel || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+      <div class="metric-tile panel-col-2 is-warn"><span class="metric-label">Casetas</span><span class="metric-value">{{ (summary()?.tolls || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+      <div class="metric-tile panel-col-3"><span class="metric-label">Viáticos chofer</span><span class="metric-value">{{ (summary()?.driver_per_diem || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
     </div>
 
     <!-- Tabla -->
-    <p-card>
-      <div class="filter-row">
-        <input pInputText type="search" [(ngModel)]="search" placeholder="Buscar por folio o destino"
-               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-        <span class="muted small">{{ filtered().length }} / {{ expenses().length }}</span>
-      </div>
+    <div class="filter-row">
+      <input pInputText type="search" [(ngModel)]="search" placeholder="Buscar por folio o destino"
+             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
+      <span class="muted small">{{ filtered().length }} / {{ expenses().length }}</span>
+    </div>
 
+    <section class="surf-panel">
+      <div class="surf-panel-body is-flush">
       <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm" [paginator]="true" [rows]="15">
         <ng-template pTemplate="header">
           <tr>
@@ -108,18 +94,18 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         </ng-template>
         <ng-template pTemplate="body" let-e>
           <tr>
-            <td><code>{{ e.shipment_folio }}</code></td>
+            <td><code class="comm-code">{{ e.shipment_folio }}</code></td>
             <td>{{ e.shipment_date | date:'shortDate' }}</td>
             <td>{{ e.destination || '—' }}</td>
             <td>{{ e.vehicle_plate || '—' }}</td>
             <td class="num">{{ e.actual_km || 0 | number:'1.0-0' }}</td>
-            <td class="num">\${{ e.fuel | number:'1.2-2' }}</td>
-            <td class="num">\${{ e.tolls | number:'1.2-2' }}</td>
-            <td class="num">\${{ e.driver_per_diem | number:'1.2-2' }}</td>
-            <td class="num">\${{ e.handling | number:'1.2-2' }}</td>
-            <td class="num">\${{ e.operating_subtotal | number:'1.2-2' }}</td>
-            <td class="num">\${{ e.fixed_cost_per_km | number:'1.2-2' }}</td>
-            <td class="num strong">\${{ e.total_cost | number:'1.2-2' }}</td>
+            <td class="num">{{ e.fuel | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num">{{ e.tolls | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num">{{ e.driver_per_diem | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num">{{ e.handling | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num">{{ e.fixed_cost_per_km | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+            <td class="num strong">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
             <td><p-tag [severity]="severityStatus(e.shipment_status)" [value]="e.shipment_status"></p-tag></td>
             <td class="actions">
               <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
@@ -143,7 +129,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </tr>
         </ng-template>
       </p-table>
-    </p-card>
+      </div>
+    </section>
+    </div>
 
     <!-- Edit Dialog -->
     <p-dialog [(visible)]="editDialog" [modal]="true" [style]="{ width: '720px' }"
@@ -211,36 +199,26 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `,
   styles: [`
     :host { display:block; }
-    .muted { color: var(--text-color-secondary); font-size:.85rem; margin:0; }
-    .small { font-size:.75rem; }
+    .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }
+    .small { font-size: var(--fs-xs); }
     .filter-bar { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
 
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1rem; }
-    .kpi-card { background: var(--surface-card, var(--surface-50)); border: 1px solid var(--surface-border, var(--neutral-200)); border-radius: 12px; padding: 1.125rem 1.25rem; }
-    .kpi-orange    { border-left: 3px solid #f5a623; }
-    .kpi-info      { border-left: 3px solid #0ea5e9; }
-    .kpi-warn      { border-left: 3px solid #eab308; }
-    .kpi-secondary { border-left: 3px solid var(--surface-400); }
-    .kpi-label { font-size:.75rem; text-transform: uppercase; letter-spacing:.05em; color: var(--text-color-secondary); }
-    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
-
     .empty-state { display:flex; gap:.875rem; align-items:flex-start; padding:1.5rem 1rem; }
-    .empty-state-icon { font-size:1.75rem; color: var(--text-color-secondary); margin-top:.125rem; }
+    .empty-state-icon { font-size:1.75rem; color: var(--c-text-2); margin-top:.125rem; }
     .empty-state-text { display:flex; flex-direction:column; gap:.25rem; line-height:1.4; }
     .empty-state-text strong { font-size:.9rem; }
 
-    .filter-row { display:flex; gap:.75rem; align-items:center; margin-bottom:1rem; flex-wrap:wrap; }
+    .filter-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; }
     .filter-row input { min-width: 240px; }
 
-    .num { text-align:right; }
-    .num.strong { font-weight: 600; color: var(--primary-color); }
+    .num { text-align:right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+    .num.strong { font-weight: var(--fw-bold); color: var(--c-text-1); }
     th.num { white-space: nowrap; }
     .actions { display:flex; gap:.25rem; justify-content:flex-end; }
-    code { background: var(--surface-100); padding:.1rem .35rem; border-radius:3px; font-size:.85rem; }
 
-    .edit-header { margin: .5rem 0 1rem; padding:.5rem .75rem; background: var(--surface-50); border-radius:6px; }
+    .edit-header { margin: .5rem 0 1rem; padding:.5rem .75rem; background: var(--c-surface-2); border-radius:6px; }
     .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:.75rem 1rem; }
-    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--text-color-secondary); }
+    .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--c-text-2); }
     .form-grid .full { grid-column: 1 / -1; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

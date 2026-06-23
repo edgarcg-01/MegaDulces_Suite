@@ -1,12 +1,12 @@
 {
-  "name": "vendor-MD",
-  "short_name": "vendor-MD",
-  "description": "Plataforma B2B de Mega Dulces — trade marketing, pedidos comerciales, logística y operación de campo.",
-  "start_url": "/",
+  "name": "Vendedor Mega Dulces",
+  "short_name": "Vendedor",
+  "description": "App de vendedor de Mega Dulces — ruta del día, toma de pedidos, cierre de ruta y captura en campo.",
+  "start_url": "/vendor/route-home",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#FFFFFF",
-  "orientation": "any",
+  "orientation": "portrait",
   "scope": "/",
   "lang": "es",
   "dir": "ltr",
@@ -75,38 +75,29 @@
   ],
   "shortcuts": [
     {
-      "name": "Captura diaria",
-      "short_name": "Capturar",
-      "description": "Iniciar una nueva captura en punto de venta",
-      "url": "/dashboard/captures",
-      "icons": [
-        { "src": "/assets/icons/icon-96x96.png", "sizes": "96x96" }
-      ]
+      "name": "Mi ruta",
+      "short_name": "Mi ruta",
+      "description": "Clientes del día en orden de visita",
+      "url": "/vendor/route-home",
+      "icons": [{ "src": "/assets/icons/icon-96x96.png", "sizes": "96x96" }]
     },
     {
-      "name": "Tiendas",
-      "short_name": "Tiendas",
-      "description": "Directorio de puntos de venta",
-      "url": "/dashboard/stores",
-      "icons": [
-        { "src": "/assets/icons/icon-96x96.png", "sizes": "96x96" }
-      ]
+      "name": "Cierre de ruta",
+      "short_name": "Cierre",
+      "description": "Subir tickets del día (corte, carga, combustible)",
+      "url": "/vendor/close-route",
+      "icons": [{ "src": "/assets/icons/icon-96x96.png", "sizes": "96x96" }]
     },
     {
-      "name": "Centro de control",
-      "short_name": "Comercial",
-      "description": "Centro de control comercial",
-      "url": "/comercial/command-center",
-      "icons": [
-        { "src": "/assets/icons/icon-96x96.png", "sizes": "96x96" }
-      ]
+      "name": "Buscar cliente",
+      "short_name": "Buscar",
+      "description": "Buscar cualquier cliente del catálogo",
+      "url": "/vendor/search",
+      "icons": [{ "src": "/assets/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ],
   "related_applications": [],
   "prefer_related_applications": false,
-  "edge_side_panel": {
-    "preferred_width": 400
-  },
   "launch_handler": {
     "client_mode": "focus-existing"
   }

@@ -123,23 +123,31 @@ Cada pantalla se evalúa contra estas 8 dimensiones. Score por dimensión: ✅ b
 
 # OPERATIONS — Logística `/logistica/*`
 
-> Gerente logística. UI portada del repo `_imported/logistica/` (Fase J.9). Más rica visualmente — verificar que respete tokens y no traiga hex propios.
+> Gerente logística. UI portada del repo `_imported/logistica/` (Fase J.9). **Rediseño J13 (2026-06-22):** preset PrimeNG sunset + migración a organismos canónicos + hex-clean. Auditoría **estática de código** abajo (🔍 = auditado por código; falta verificación visual en browser para ✅).
 
-| Pantalla | Archivo | Estado | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | Hallazgos clave |
+| Pantalla | Archivo | Estado | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | Hallazgos clave (post-J13) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Dashboard ops | `logistica/pages/logistica-dashboard.component.ts` | ⬜ | | | | | | | | | Shimmer load · codemod hex aplicado (verificar) |
-| Embarques | `logistica/pages/logistica-shipments.component.ts` | ⬜ | | | | | | | | | Master-detail |
-| Detalle embarque | `logistica/pages/logistica-shipment-detail.component.ts` | ⬜ | | | | | | | | | |
-| Guías | `logistica/pages/logistica-guides.component.ts` | ⬜ | | | | | | | | | 5 KPIs + filtros |
-| Costos | `logistica/pages/logistica-costs.component.ts` | ⬜ | | | | | | | | | KPIs + edit dialog 10 cat |
-| Personal / Staff | `logistica/pages/logistica-staff.component.ts` | ⬜ | | | | | | | | | Avatares + MultiSelect roles |
-| Flotilla | `logistica/pages/logistica-fleet.component.ts` | ⬜ | | | | | | | | | |
-| Checklist | `logistica/pages/logistica-checklist.component.ts` | ⬜ | | | | | | | | | |
-| Fotos | `logistica/pages/logistica-photos.component.ts` | ⬜ | | | | | | | | | Grid imágenes · lazy load |
-| Reportes | `logistica/pages/logistica-reports.component.ts` | ⬜ | | | | | | | | | |
-| Nómina | `logistica/pages/logistica-payroll.component.ts` | ⬜ | | | | | | | | | payroll_adjustments |
-| Asignación drivers | `logistica/pages/logistica-driver-assignments.component.ts` | ⬜ | | | | | | | | | |
-| Config | `logistica/pages/logistica-config.component.ts` | ⬜ | | | | | | | | | Tabs |
+| Dashboard ops | `logistica/pages/logistica-dashboard.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | metric-tile+surf-panel, p-skeleton, 0 hex |
+| Embarques | `logistica/pages/logistica-shipments.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | status-chips+counts (sin N+1), focus-visible, master-detail |
+| Detalle embarque | `logistica/pages/logistica-shipment-detail.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | barra transiciones + readiness %, tabs con focus-visible |
+| Guías | `logistica/pages/logistica-guides.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | metric-tile + surf-panel, link→--action |
+| Costos | `logistica/pages/logistica-costs.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | currency pipe, surf-panel, KPIs is-brand |
+| Personal / Staff | `logistica/pages/logistica-staff.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | 🟡 | metric-tile, avatares `--avatar-*`; chip touch <44px mobile |
+| Flotilla | `logistica/pages/logistica-fleet.component.ts` | 🔍 | 🟡 | ✅ | ✅ | 🟡 | ✅ | ✅ | 🟡 | ✅ | surf-page-head, tokenizado; p-card conservado (no surf-panel) |
+| Checklist | `logistica/pages/logistica-checklist.component.ts` | ⬜ | | | | | | | | | No tocado en J13 (revisar aparte) |
+| Fotos | `logistica/pages/logistica-photos.component.ts` | ⬜ | | | | | | | | | No tocado en J13 (grid imágenes) |
+| Reportes | `logistica/pages/logistica-reports.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | 4 tabs metric-tile+surf-panel, PDF header sunset |
+| Nómina | `logistica/pages/logistica-payroll.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | master-detail 2× surf-panel, pos/neg ok/bad |
+| Asignación drivers | `logistica/pages/logistica-driver-assignments.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | ya canónico (mobile), sin cambios J13 |
+| Config | `logistica/pages/logistica-config.component.ts` | 🔍 | ✅ | ✅ | ✅ | 🟡 | ✅ | ✅ | ✅ | ✅ | 5 tabs surf-panel, tokens legacy→`--c-*` |
+
+**Hallazgos transversales J13 (F1/F3 estático):**
+- **D3 color ✅** — módulo hex-clean: 4 literales restantes legítimos (`#fff` texto, fallback, `#16A34A` marcador Leaflet).
+- **D4 spacing 🟡** (toda la fila) — valores off-grid heredados (`.35rem`/`.4rem`/`.625rem`) en primitivas compartidas; deuda pervasiva de la app, no se ataca por-pantalla.
+- **D7 fleet 🟡** — único que conserva `p-card` en vez de `surf-panel` (es form/dialog-heavy; aceptable, el preset lo pinta Stone+sunset).
+- **D8 a11y** — arreglado: `:focus-visible` en tabs segmentadas (`.sh-mode-tab`/`.shd-mode-tab`/`.sh-chip`) + header expandible del form-dialog operable por teclado (role/tabindex/keydown). Pendiente menor: touch-target de chips 34px (norma densa Operations; subir a 44 en mobile si se decide).
+- **Componentes externos** (shipment-form-dialog, delivery-wizard) tokenizados.
+- **Falta para ✅:** verificación visual en browser (las 13 pantallas + dark mode) — no automatizable desde CLI.
 
 ---
 
@@ -187,7 +195,7 @@ Cada pantalla se evalúa contra estas 8 dimensiones. Score por dimensión: ✅ b
 
 > Hallazgos sistémicos que no son de una sola pantalla. Ordenados por impacto.
 
-0. 🟡 **Consistencia de márgenes de página (cross-page):** el estándar es `.surf-page` (gap 16px, padding `0 1.5rem 2rem`). 21/23 páginas lo usan. Outliers: ~~`comercial-order-detail`~~ (✅ migrado 2026-06-09) y **`logistica-fleet`** (pendiente — header propio, sin `.surf-page`). `command-center` pisa gap a 24/32px (excepción hero documentada).
+0. 🟡 **Consistencia de márgenes de página (cross-page):** el estándar es `.surf-page` (gap 16px, padding `0 1.5rem 2rem`). Outliers cerrados: ~~`comercial-order-detail`~~ (✅ 2026-06-09) y ~~`logistica-fleet`~~ (✅ J13 2026-06-22 — ahora con `.surf-page`+`surf-page-head`). Todo `/logistica` (13 págs) usa `.surf-page`. `command-center` pisa gap a 24/32px (excepción hero documentada).
 1. 🔴 **Migración tokens Operations** — aplicar Stone + `--action` + ember + espresso a `:root` (hoy Inter/Zinc/azul). Es swap de tokens, costo bajo, impacto cross-app. Plan en DESIGN.md "Plan de migración Operations". **Pendiente de aprobación del diff.**
 2. 🔴 **Capa atómica Storefront** — extraer 6 componentes compartidos (`PortalButton`, `ProductCard`, `Pill`, `Stepper`, `EmptyState`, `SearchBar`). Resuelve ~4 variantes de card y ~5 de botón primario.
 3. 🟡 **Codemod hex residual** — 146+ literales de color restantes (memoria `project_frontend_state_post_design_review`). `ai-product-picker` es la referencia visual correcta.

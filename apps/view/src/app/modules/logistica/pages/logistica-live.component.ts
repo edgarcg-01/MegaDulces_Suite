@@ -62,13 +62,13 @@ import { LiveShipment, LogisticaService } from '../logistica.service';
   styles: [`
     :host { display:block; }
     .live-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }
-    .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--c-text-3,#bbb); margin-left:.35rem; vertical-align:middle; }
-    .live-dot.on { background:#2e7d32; box-shadow:0 0 0 3px rgba(46,125,50,.18); }
+    .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--c-text-3); margin-left:.35rem; vertical-align:middle; }
+    .live-dot.on { background:var(--ok-fg); box-shadow:0 0 0 3px var(--ok-soft-bg); }
     .live-muted { color:var(--c-text-3); }
     .live-list { display:flex; flex-direction:column; }
     .live-row { display:flex; align-items:center; gap:.75rem; padding:.625rem .75rem; border-top:1px solid var(--c-divider); }
     .live-row:first-child { border-top:none; }
-    .live-truck { width:34px; height:34px; border-radius:9px; display:grid; place-items:center; background:var(--c-surface-2); color:var(--action,#d2521b); flex:0 0 auto; }
+    .live-truck { width:34px; height:34px; border-radius:9px; display:grid; place-items:center; background:var(--c-surface-2); color:var(--action); flex:0 0 auto; }
     .live-row-main { display:flex; flex-direction:column; gap:.15rem; flex:1 1 auto; min-width:0; }
     .live-row-sub { font-size:var(--fs-sm); color:var(--c-text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .live-ago { font-size:var(--fs-micro); color:var(--c-text-3); font-variant-numeric:tabular-nums; white-space:nowrap; }

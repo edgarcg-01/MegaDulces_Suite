@@ -90,6 +90,97 @@ export class LogisticsAnalyticsService {
     });
   }
 
+  // ── KPI cards (J14: valor + delta vs período previo + serie diaria) ────────
+
+  /**
+   * Alimenta las tarjetas KPI con micro-gráficas del dashboard. 1 request, sin N+1.
+   * Devuelve por KPI: `value` (rango actual), `delta_pct` (vs período previo de igual
+   * largo) y `series` (serie diaria alineada al rango, 0 en días sin data).
+   * Solo cuenta shipments realizados (entregado/cerrado), igual que `overview`.
+   */
+  async kpiCards(q: DateRangeQuery) {
+    const to = q.to || new Date().toISOString().slice(0, 10);
+    const from = q.from || (() => { const d = new Date(to); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
+
+    // Período previo de igual largo (para el delta)
+    const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1);
+    const prevTo = (() => { const d = new Date(from); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+    const prevFrom = (() => { const d = new Date(prevTo); d.setDate(d.getDate() - (days - 1)); return d.toISOString().slice(0, 10); })();
+
+    const [cur, prev, daily] = await Promise.all([
+      this.overview({ from, to }),
+      this.overview({ from: prevFrom, to: prevTo }),
+      this.dailySeries(from, to),
+    ]);
+
+    const pct = (c: number, p: number) => (p > 0 ? +(((c - p) / p) * 100).toFixed(1) : 0);
+    const dayList = this.isoDays(from, to);
+    const seriesOf = (key: 'count' | 'revenue' | 'cost' | 'margin') =>
+      dayList.map((d) => daily.get(d)?.[key] ?? 0);
+
+    return {
+      range: { from, to },
+      currency: 'MXN',
+      shipments: { value: cur.shipments.count, delta_pct: pct(cur.shipments.count, prev.shipments.count), series: seriesOf('count') },
+      revenue:   { value: cur.revenue.freight, delta_pct: pct(cur.revenue.freight, prev.revenue.freight), series: seriesOf('revenue') },
+      cost:      { value: cur.cost.total, delta_pct: pct(cur.cost.total, prev.cost.total), series: seriesOf('cost') },
+      margin:    { value: cur.margin.gross, delta_pct: pct(cur.margin.gross, prev.margin.gross), pct: cur.margin.gross_pct, series: seriesOf('margin') },
+    };
+  }
+
+  /** Serie diaria realizada (count/revenue/cost/margin por día) en un Map por fecha ISO. */
+  private async dailySeries(from: string, to: string) {
+    return this.tk.run(async (trx) => {
+      const ships = await trx('logistics.shipments as s')
+        .whereNull('s.deleted_at')
+        .whereIn('s.status', REALIZED_STATUSES)
+        .where('s.shipment_date', '>=', from)
+        .where('s.shipment_date', '<=', to)
+        .groupByRaw('s.shipment_date::date')
+        .select([
+          trx.raw('s.shipment_date::date AS d'),
+          trx.raw('COUNT(*)::int AS count'),
+          trx.raw('COALESCE(SUM(s.freight_revenue),0)::numeric AS revenue'),
+        ]);
+
+      const costs = await trx('logistics.shipment_expenses as e')
+        .join('logistics.shipments as s', 's.id', 'e.shipment_id')
+        .whereNull('s.deleted_at')
+        .whereIn('s.status', REALIZED_STATUSES)
+        .where('s.shipment_date', '>=', from)
+        .where('s.shipment_date', '<=', to)
+        .groupByRaw('s.shipment_date::date')
+        .select([
+          trx.raw('s.shipment_date::date AS d'),
+          trx.raw('COALESCE(SUM(e.total_cost),0)::numeric AS cost'),
+        ]);
+
+      const map = new Map<string, { count: number; revenue: number; cost: number; margin: number }>();
+      const key = (d: any) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+      for (const r of ships) map.set(key(r.d), { count: Number(r.count), revenue: Number(r.revenue), cost: 0, margin: Number(r.revenue) });
+      for (const r of costs) {
+        const k = key(r.d);
+        const e = map.get(k) || { count: 0, revenue: 0, cost: 0, margin: 0 };
+        e.cost = Number(r.cost);
+        e.margin = e.revenue - e.cost;
+        map.set(k, e);
+      }
+      return map;
+    });
+  }
+
+  private isoDays(from: string, to: string): string[] {
+    const out: string[] = [];
+    const cur = new Date(from);
+    const end = new Date(to);
+    let guard = 0;
+    while (cur <= end && guard++ < 400) {
+      out.push(cur.toISOString().slice(0, 10));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  }
+
   // ── Shipment profitability list ──────────────────────────────────────────
 
   /**

@@ -93,11 +93,40 @@
 - **Readiness con % + barra de progreso** (`readinessPct` = checks ok / total) — matchea el ring 87% del mockup.
 - **Hex cleanup**: readiness pill/checks (`#fdf6e3`/`#8a6420`/`#2e7d32`/`#d2851b`…) + cp-gaps + cp-ready → tokens semánticos (`--warn-soft-*`, `--ok-*`). Separador `shd-head-sep` entre transiciones y acciones secundarias.
 
-### Deuda hex restante (F0.3 / F2) — 34 ocurrencias en 11 archivos
-- reports 6 · fleet 4 · planner 4 · live 3 · costs 3 · guides 3 · payroll 3 · staff 2 · dashboard 2 · shipment-form-dialog 3 · delivery-wizard 1. Se limpian en el barrido por pantalla (F2). El piloto (shipments lista+detalle) queda en 0 hex de deuda.
+### dashboard + reports (arquetipo B) ✅ código 2026-06-22
+- **dashboard**: migrado del patrón viejo (`.kpi-card`/`p-card`/shimmer local/tokens `--surface-*`) a los organismos canónicos — `surf-page` + `surf-grid`/`metric-tile` (KPIs con stripe semántico is-ok/is-bad en margen) + `surf-panel` (pipeline + 2 tablas) + `comm-num`/`comm-code`/`comm-pill`. Shimmer duplicado → `p-skeleton`. 2 hex → 0.
+- **reports**: 4 tabs (Overview/Embarque/Unidad/ROI) migrados — KPIs `p-card` → `metric-tile`, detail `p-card` → `surf-panel` con `rep-row`, tablas en `surf-panel` flush, badges → `comm-pill`. Header de los PDF (jsPDF) `[245,166,35]` ámbar → `[240,90,40]` sunset (consistencia de marca en export). 6 hex → 0.
+- Imports limpiados (CardModule/TagModule fuera). Build view verde.
 
-### Pendiente piloto
-- QA visual con API arriba + smoke del endpoint `/shipments/counts`.
+### fleet + staff ✅ código 2026-06-22
+- **fleet**: `surf-page` + `surf-page-head` (mata el `<h2 class="page-title">` suelto) + tokenización completa de estilos (maint-due → warn tokens, fuel-flag → bad-soft, form em → bad-fg, code/num → mono+tokens). p-card/p-tag conservados (el preset ya los pinta Stone+sunset). 4 hex → 0.
+- **staff**: KPIs `.kpi-card` → `metric-tile` (is-ok/is-warn), filtros+tabla `p-card` → `surf-panel` flush, wrap `surf-page`, avatares migrados a paleta canónica `var(--avatar-1..8)` (adapta a dark + AA). 2 hex → 1 (solo `#fff` del texto de avatar, blanco legítimo).
+- Imports CardModule fuera en ambos. Build view verde.
 
-### Próximo
-- Seguir orden de ejecución: dashboard + reports → fleet/staff → guides/costs/payroll/config → live/planner → mobile.
+### guides + costs + payroll + config ✅ código 2026-06-22
+- **guides**: KPIs `.kpi-card` (hex `#0ea5e9/#eab308/#f5a623`) → `metric-tile` (is-info/is-warn/is-brand/is-ok); filtros+tabla `p-card` → `surf-panel` flush; wrap `surf-page`; `comm-code`, currency pipe, `.link` → `--action`. 3 hex → 0.
+- **costs**: KPIs → `metric-tile` (is-brand total); `p-card` → `surf-panel` flush; columnas a currency pipe + `comm-code`; total strong → `--c-text-1`. 3 hex → 0.
+- **payroll**: master-detail (períodos→liquidaciones) 2 `p-card` → `surf-panel` con head; tokenización (form em → bad-fg, pos/neg → ok/bad, info/adj-summary → c-surface-2); wrap `surf-page`. 3 hex → 0.
+- **config**: 5 tabs, `p-card` → `surf-panel` flush; tokens legacy (`--surface-100`/`--text-color-secondary`) → `--c-*`; code mono. 0 hex (ya estaba) + ahora consistente.
+- CardModule fuera en las 4. Build view verde.
+
+### live + planner (arquetipo E, mapa) ✅ código 2026-06-22
+- Ya usaban el sistema canónico (surf-page, sheet/cell, app-map, `--c-*`, `--action`). Limpieza de hex: live (dot verde `#2e7d32`/rgba → `--ok-fg`/`--ok-soft-bg`, fallbacks de var quitados) 3→0; planner (pill-ok `#dce5dd/#3f5e4e` → ok tokens, pl-seq `#d2521b/#fff` → `--action`/`--action-ink`, `--mono` roto → `--font-mono`) 4→0 en CSS. El color del marcador "entregado" del mapa queda `#16A34A` (literal de dato para Leaflet, no admite CSS var — documentado).
+
+### delivery-wizard + shipment-form-dialog ✅ código 2026-06-22
+- **delivery-wizard**: tokenización completa (step-num done `#16a34a` → `--ok-fg`, `--surface-*`/`--primary-color`/`--red-500` → `--c-*`/`--action`/`--bad-fg`). 1 hex → solo `#fff` (texto blanco sobre badge verde).
+- **shipment-form-dialog**: link-banner (`#166534`) + margin-summary (`#16a34a`/`#dc2626`) → ok/bad tokens; `--surface-*`/`--text-color*`/`--primary-color` → `--c-*`/`--action`; code mono. 3 hex → 0.
+- **driver-assignments** ("Mis entregas", mobile): ya canónico (surf-page + sheet/cell, 0 hex) — sin cambios.
+
+### 🟢 Barrido del módulo COMPLETO
+- **Las ~15 pantallas de /logistica** sobre el sistema Operations canónico (surf-page/head, surf-grid/metric-tile, surf-panel, comm-*, tokens `--c-*`/`--action`) + preset PrimeNG sunset.
+- **Hex restante en todo el módulo: 4, todos legítimos** — `#fff` (texto blanco ×2), `var(--action-ink,#fff)` (fallback), `#16A34A` (color de dato Leaflet). Cero deuda de tema.
+- Builds api + view verdes en cada paso.
+
+### F1 + F3 auditoría estática ✅ 2026-06-22
+- Registro 8-dimensiones por pantalla en [`DESIGN_QA_MODULOS.md`](../DESIGN_QA_MODULOS.md) (sección Logística): 11 pantallas 🔍 (auditadas por código), checklist/photos ⬜ (fuera de J13).
+- Fixes de a11y aplicados: `:focus-visible` en tabs segmentadas (`.sh-mode-tab`/`.shd-mode-tab`, ya estaba en `.sh-chip`) + header expandible del form-dialog operable por teclado (role/tabindex/keydown.enter/space + focus-visible). Build verde.
+- D4 (spacing off-grid) queda 🟡 transversal = deuda heredada de primitivas compartidas, no se ataca por-pantalla. D7 fleet 🟡 = conserva p-card (aceptable).
+
+### Pendiente (no-código)
+- **Verificación visual en browser** (las 13 pantallas + dark mode) para pasar 🔍→✅ — no automatizable desde CLI. Smoke del endpoint `/shipments/counts` con API arriba.
