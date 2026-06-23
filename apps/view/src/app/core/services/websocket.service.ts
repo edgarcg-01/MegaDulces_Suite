@@ -36,6 +36,18 @@ export interface DebouncedCaptureEvent {
   types: Set<string>;
 }
 
+/** Alerta de campo en vivo (detenido demasiado / sin señal). */
+export interface FieldAlert {
+  type: 'idle' | 'offline';
+  tenantId: string;
+  userId: string;
+  username: string;
+  minutes: number;
+  lat?: number;
+  lng?: number;
+  at: string;
+}
+
 /** Posición en vivo de un usuario de campo (broadcast del backend). */
 export interface LivePing {
   type: 'route_ping';
@@ -62,6 +74,7 @@ export class WebSocketService {
   private captureDeleted$ = new Subject<CaptureEvent>();
   private metricsUpdated$ = new Subject<MetricsUpdateEvent>();
   private routePing$ = new Subject<LivePing>();
+  private fieldAlert$ = new Subject<FieldAlert>();
 
   private rawCaptureEvent$ = new Subject<CaptureEvent>();
 
@@ -243,6 +256,11 @@ export class WebSocketService {
       this.routePing$.next(data);
     });
 
+    this.socket.on('field_alert', (data: FieldAlert) => {
+      this.lastEventTime.set(new Date());
+      this.fieldAlert$.next(data);
+    });
+
     this.setupAutoReconnect();
   }
 
@@ -283,6 +301,10 @@ export class WebSocketService {
 
   get routePing(): Observable<LivePing> {
     return this.routePing$.asObservable();
+  }
+
+  get fieldAlert(): Observable<FieldAlert> {
+    return this.fieldAlert$.asObservable();
   }
 
   get anyCaptureEvent(): Observable<CaptureEvent> {

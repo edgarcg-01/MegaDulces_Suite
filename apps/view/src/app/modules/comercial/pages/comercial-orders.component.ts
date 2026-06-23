@@ -580,13 +580,4 @@ export class ComercialOrdersComponent {
   private fmtMd(d: Date): string {
     return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' } as any);
   }
-
-  /** Formato compact ($706.42K / $5.76M) para headlines tipográficos. */
-  fmtMoneyShort(n: number | undefined | null): string {
-    if (n === null || n === undefined) return '—';
-    const v = Number(n);
-    if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
-    if (Math.abs(v) >= 1e3) return '$' + (v / 1e3).toFixed(2) + 'K';
-    return '$' + v.toFixed(0);
-  }
 }

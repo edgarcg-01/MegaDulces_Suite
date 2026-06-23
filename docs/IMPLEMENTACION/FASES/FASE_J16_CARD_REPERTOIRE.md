@@ -66,4 +66,14 @@
 0 hex (tokens) · base compartida (stripe+spotlight) · count-up donde hay cifra · interacción (hover/tooltip/acciones) · responsive + a11y + reduced-motion · build verde · QA visual.
 
 ## Estado
-- ⬜ Diseñado (este doc + galería interactiva). `MetricCard` (A) ya en uso en logística. Arranque sugerido: extraer la **card-surface compartida** + construir **Entity / Alert / Mini-table / Timeline** (los de mayor reuso) y aplicar al **Command Center** como piloto.
+
+### Piloto /comercial/orders ✅ código 2026-06-22
+- KPI strip migrado de `sheet/cell` + barra ratio custom → **`MetricCard`**: hero "Ventas" (col-6 large + **sparkline** de monto diario) + status como **`variant="progress"`** (share sobre el libro) con **color por estado** (warn/gris/azul/verde/rojo). Jerarquía bento + spotlight + count-up heredados.
+- Backend nuevo `GET /commercial/orders/kpi-series` (`dailySeries`, mismo scope que `/counts`, default 30d, sin N+1) → alimenta el sparkline.
+- **Count-up consolidado:** `MetricCard` ahora usa `CountUpDirective` (única impl; on-view, no re-anima en refresh). Removido el count-up interno duplicado + input `animate`.
+- Limpieza: borrados `fmtMoney`/`fmtMoneyShort` muertos. Builds api+view verdes.
+
+### Pendiente
+- Resto del repertorio (Entity, Alert, Mini-table, Timeline, Breakdown donut, RankList) como componentes en `shared/components/cards/` + base `card-surface` compartida.
+- Aplicar a: order-detail (timeline) · supervisor-ai/Thot (insight/alert) · televenta · reports/graphics (donut) · checklist/photos.
+- QA visual con API arriba.

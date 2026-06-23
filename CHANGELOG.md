@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Added — Mapa en Vivo: alertas en vivo (detenido / sin señal) (2026-06-23)
+- **`FieldAlertsScannerService`** (`@Cron */4 min`, read-only sobre `route_location_pings`): detecta
+  **offline** (dejó de reportar hace 20–180 min) e **idle** (≥15 min detenido dentro de 70 m). Cooldown 1 h
+  por (tenant, usuario, tipo). Emite `field_alert` por el WS `/reports` (room global + equipo del supervisor).
+- Cockpit: **feed de alertas** arriba de la lista (clic → enfoca a la persona) + ⚠ en las filas marcadas;
+  upsert por usuario+tipo, expiran a los 20 min.
+
+### Added — Mapa en Vivo: cockpit de supervisión (2026-06-23)
+- **Clic en una persona → SidePeek** con estado, última señal, velocidad, KPIs GPS de hoy
+  (km/paradas/movimiento) y botón "Ver recorrido del día" (deep-link a Historial con prefill por queryParams).
+- **Trail del seleccionado**: al elegir a alguien dibuja su recorrido del día (por calles) + paradas
+  sobre el mapa, junto al cursor en vivo.
+- **Capa de Tiendas** (toggle): contexto del personal vs tiendas. Endpoint liviano `GET /reports/stores-geo`.
+- **Estado por persona** (en traslado / en {tienda} por geofence / detenido) + **búsqueda** en la lista
+  + leyenda con toggles de capa (Personal / Tiendas).
+
 ### Added — Rutas R.4: playback del recorrido (2026-06-23)
 - En **Historial de vendedor**, barra de reproducción: play/pausa + slider (scrub) + velocidad 1×/2×/4×
   + reloj aproximado. Un cursor recorre la geometría pegada a calles (modo `persistent` del átomo

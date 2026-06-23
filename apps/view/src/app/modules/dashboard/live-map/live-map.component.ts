@@ -8,21 +8,34 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
-import { WebSocketService } from '../../../core/services/websocket.service';
+import { MapLegendComponent, LegendLayer } from '../../../shared/components/map-legend/map-legend.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { FieldAlert, WebSocketService } from '../../../core/services/websocket.service';
+import { environment } from '../../../../environments/environment';
 import { LivePosition, MapLiveLayerService } from '../../../core/services/map-live-layer.service';
 
+interface StoreGeo { id: string; nombre: string; lat: number; lng: number; }
+interface VendorDayKpis {
+  distance_km: number; stop_count: number; stop_min: number; moving_min: number;
+  avg_speed_kmh: number | null; first_at: string | null; last_at: string | null;
+}
+
 /**
- * Mapa en vivo del personal de campo. Tras la migración a MapKit, delega el
- * Leaflet al átomo `app-map` (capa `persistent` que mueve los marcadores en
- * sitio) y el estado a `MapLiveLayerService`. Mantiene el panel lateral, los
- * tabs móviles, la observación on-demand (watch + heartbeat) y el toggle de
- * capa vía la leyenda compartida.
+ * Mapa en Vivo — cockpit de supervisión. Sobre el tracking en vivo agrega:
+ *  - clic en una persona → SidePeek con detalle + KPIs GPS de hoy + acciones,
+ *  - trail del día del seleccionado (recorrido por calles + paradas) sobre el mapa,
+ *  - capa de Tiendas (contexto), y estado por persona (en tienda/traslado/detenido)
+ *    + búsqueda en la lista. Todo reusa el átomo app-map, MapLiveLayerService,
+ *    SidePeek y el endpoint vendor-day.
  */
 @Component({
   selector: 'app-live-map',
   standalone: true,
-  imports: [CommonModule, MapComponent],
+  imports: [CommonModule, FormsModule, RouterModule, MapComponent, MapLegendComponent, SidePeekComponent],
   providers: [MapLiveLayerService],
   template: `
     <div class="lm-wrap">
@@ -42,38 +55,76 @@ import { LivePosition, MapLiveLayerService } from '../../../core/services/map-li
 
       <nav class="lm-tabs">
         <button [class.act]="mobileTab() === 'map'" (click)="setTab('map')">Mapa</button>
-        <button [class.act]="mobileTab() === 'list'" (click)="setTab('list')">
-          Lista ({{ svc.counts().total }})
-        </button>
+        <button [class.act]="mobileTab() === 'list'" (click)="setTab('list')">Lista ({{ svc.counts().total }})</button>
       </nav>
 
       <div class="lm-body" [class.tab-map]="mobileTab() === 'map'" [class.tab-list]="mobileTab() === 'list'">
         <aside class="lm-list">
-          @if (svc.positions().length === 0) {
-            <p class="empty">Sin personal reportando posición en los últimos 30 min.</p>
+          @if (activeAlerts().length) {
+            <div class="lm-alerts">
+              @for (a of activeAlerts(); track a.userId + a.type) {
+                <button class="al" [class.off]="a.type === 'offline'" (click)="focusAlert(a)">
+                  <i class="pi" [class.pi-clock]="a.type === 'idle'" [class.pi-wifi]="a.type === 'offline'" aria-hidden="true"></i>
+                  <span class="al-txt"><b>{{ a.username }}</b> {{ a.type === 'idle' ? 'detenido' : 'sin señal' }} {{ a.minutes }} min</span>
+                  <i class="pi pi-times al-x" (click)="dismissAlert(a, $event)" aria-hidden="true"></i>
+                </button>
+              }
+            </div>
           }
-          @for (p of sorted(); track p.user_id) {
+          <input class="lm-search" type="search" placeholder="Buscar persona…" [ngModel]="search()" (ngModelChange)="search.set($event)" />
+          @if (filtered().length === 0) {
+            <p class="empty">{{ svc.positions().length === 0 ? 'Sin personal reportando posición.' : 'Sin coincidencias.' }}</p>
+          }
+          @for (p of filtered(); track p.user_id) {
             <button class="row" [class.sel]="selected() === p.user_id" (click)="focus(p)">
               <span class="dot" [style.background]="color(p)"></span>
               <span class="who">
-                <span class="name">{{ p.username }}</span>
-                <span class="meta">{{ svc.ageLabel(p) }}{{ p.speed_mps != null ? ' · ' + kmh(p.speed_mps) + ' km/h' : '' }}</span>
+                <span class="name">
+                  @if (alertedUsers().has(p.user_id)) { <i class="pi pi-exclamation-triangle al-flag" aria-hidden="true"></i> }
+                  {{ p.username }}
+                </span>
+                <span class="meta">{{ statusOf(p).label }} · {{ svc.ageLabel(p) }}</span>
               </span>
               @if (selected() === p.user_id) { <span class="watching">observando</span> }
             </button>
           }
         </aside>
         <div class="lm-map-col">
-          <app-map
-            #map
-            [layers]="mapLayers()"
-            autoFit="once"
-            height="100%"
-            (markerClick)="onMarkerClick($event)"
-          ></app-map>
+          <div class="lm-legend">
+            <app-map-legend [layers]="legend()" (toggle)="onToggle($event)"></app-map-legend>
+          </div>
+          <app-map #map [layers]="mapLayers()" autoFit="once" height="100%" (markerClick)="onMarkerClick($event)"></app-map>
         </div>
       </div>
     </div>
+
+    <app-side-peek [open]="!!selected()" [title]="selectedName()" [subtitle]="selectedSubtitle()" (openChange)="onPeekChange($event)">
+      @if (selectedPos(); as p) {
+        <div class="sp-status" [class]="'st-' + statusOf(p).cls">{{ statusOf(p).label }}</div>
+        <dl class="sp-grid">
+          <div><dt>Última señal</dt><dd>{{ svc.ageLabel(p) }}</dd></div>
+          <div><dt>Velocidad</dt><dd>{{ p.speed_mps != null ? kmh(p.speed_mps) + ' km/h' : '—' }}</dd></div>
+        </dl>
+        <h4 class="sp-h">Hoy (GPS)</h4>
+        @if (trailLoading()) {
+          <p class="sp-muted">Calculando recorrido…</p>
+        } @else {
+          @if (selectedKpis(); as k) {
+            <dl class="sp-grid">
+              <div><dt>Distancia</dt><dd>{{ k.distance_km }} km</dd></div>
+              <div><dt>Paradas</dt><dd>{{ k.stop_count }}</dd></div>
+              <div><dt>En movimiento</dt><dd>{{ fmtMin(k.moving_min) }}</dd></div>
+              <div><dt>En paradas</dt><dd>{{ fmtMin(k.stop_min) }}</dd></div>
+            </dl>
+          } @else {
+            <p class="sp-muted">Sin recorrido GPS hoy.</p>
+          }
+        }
+        <a class="sp-action" [routerLink]="['/dashboard/vendor-history']" [queryParams]="{ user_id: p.user_id, date: today }">
+          <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Ver recorrido del día
+        </a>
+      }
+    </app-side-peek>
   `,
   styles: [`
     :host { display:block; }
@@ -95,8 +146,17 @@ import { LivePosition, MapLiveLayerService } from '../../../core/services/map-li
     .lm-tabs button.act { color:var(--action,#F05A28); border-bottom-color:var(--action,#F05A28); }
     .lm-body { flex:1; display:flex; min-height:0; }
     .lm-list { width:280px; flex:0 0 280px; overflow-y:auto; border-right:1px solid var(--divider,#e7e5e4); padding:.4rem; -webkit-overflow-scrolling:touch; }
-    .lm-map-col { flex:1; min-width:0; }
-    .lm-map-col app-map { display:block; height:100%; }
+    .lm-search { width:100%; box-sizing:border-box; margin-bottom:.4rem; padding:.45rem .6rem; border:1px solid var(--divider,#d6d3d1); border-radius:8px; background:var(--card-bg,#fff); color:var(--text,#1c1917); font-size:.82rem; }
+    .lm-alerts { display:flex; flex-direction:column; gap:.3rem; margin-bottom:.5rem; }
+    .al { display:flex; align-items:center; gap:.45rem; width:100%; text-align:left; padding:.45rem .55rem; border:1px solid #fde68a; border-radius:8px; background:#fffbeb; color:#92400e; font-size:.76rem; cursor:pointer; }
+    .al.off { border-color:#fecaca; background:#fef2f2; color:#991b1b; }
+    .al-txt { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .al-x { opacity:.6; }
+    .al-x:hover { opacity:1; }
+    .al-flag { color:#d97706; font-size:.7rem; margin-right:.15rem; }
+    .lm-map-col { flex:1; min-width:0; display:flex; flex-direction:column; }
+    .lm-legend { padding:.45rem .6rem; border-bottom:1px solid var(--divider,#e7e5e4); }
+    .lm-map-col app-map { display:block; flex:1; min-height:0; }
     .empty { font-size:.8rem; color:var(--text-dim,#78716c); padding:1rem; }
     .row { display:flex; align-items:center; gap:.55rem; width:100%; text-align:left; padding:.6rem .55rem; border:0; border-radius:8px; background:transparent; cursor:pointer; min-height:44px; }
     .row:hover { background:var(--hover,#f5f5f4); }
@@ -104,8 +164,19 @@ import { LivePosition, MapLiveLayerService } from '../../../core/services/map-li
     .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 0 3px rgba(0,0,0,.04); }
     .who { display:flex; flex-direction:column; min-width:0; flex:1; }
     .name { font-size:.84rem; font-weight:600; color:var(--text,#1c1917); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .meta { font-size:.72rem; color:var(--text-dim,#78716c); }
+    .meta { font-size:.72rem; color:var(--text-dim,#78716c); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .watching { font-size:.65rem; font-weight:700; color:var(--action,#F05A28); text-transform:uppercase; }
+    /* SidePeek */
+    .sp-status { display:inline-block; font:700 .8rem 'Hanken Grotesk',sans-serif; padding:.3rem .7rem; border-radius:999px; margin-bottom:.9rem; }
+    .sp-status.st-moving { background:#dbeafe; color:#1d4ed8; }
+    .sp-status.st-instore { background:#dcfce7; color:#15803d; }
+    .sp-status.st-idle { background:#f3f4f6; color:#6b7280; }
+    .sp-grid { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin:0 0 .9rem; }
+    .sp-grid dt { font-size:.7rem; color:var(--text-dim,#78716c); }
+    .sp-grid dd { margin:.1rem 0 0; font:700 1rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); font-variant-numeric:tabular-nums; }
+    .sp-h { margin:.6rem 0 .5rem; font:700 .8rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); }
+    .sp-muted { font-size:.8rem; color:var(--text-dim,#78716c); }
+    .sp-action { display:inline-flex; align-items:center; margin-top:.4rem; padding:.5rem .8rem; border-radius:8px; background:var(--action,#F05A28); color:#fff; font:600 .82rem 'Hanken Grotesk',sans-serif; text-decoration:none; }
     @media (max-width: 767px) {
       .lm-head { padding:.6rem .8rem; }
       .lm-sub { display:none; }
@@ -121,34 +192,99 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   @ViewChild('map') map!: MapComponent;
   protected svc = inject(MapLiveLayerService);
   protected ws = inject(WebSocketService);
+  private http = inject(HttpClient);
+  readonly today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
   private watchTimer: any = null;
   private onResize = () => this.map?.invalidate();
+  private alertSub: { unsubscribe(): void } | null = null;
   protected selected = signal<string | null>(null);
   protected mobileTab = signal<'map' | 'list'>('map');
+  protected search = signal('');
 
-  /** Una sola capa persistente con el personal en vivo. */
-  protected mapLayers = computed<MapLayer[]>(() => [
-    { id: 'live', label: 'Personal', persistent: true, visible: true, markers: this.svc.markers() },
+  // Alertas en vivo (detenido demasiado / sin señal), upsert por usuario+tipo.
+  private static readonly ALERT_TTL_MS = 20 * 60_000;
+  private rawAlerts = signal<FieldAlert[]>([]);
+  protected activeAlerts = computed(() => {
+    const cutoff = this.svc.now() - LiveMapComponent.ALERT_TTL_MS;
+    return this.rawAlerts()
+      .filter((a) => new Date(a.at).getTime() >= cutoff)
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  });
+  protected alertedUsers = computed(() => new Set(this.activeAlerts().map((a) => a.userId)));
+
+  // Capas de contexto.
+  private stores = signal<StoreGeo[]>([]);
+  protected showStores = signal(false);
+  protected showPersonal = signal(true);
+  // Trail del seleccionado (recorrido de hoy).
+  private trail = signal<{ points: { lat: number; lng: number }[]; color?: string }[]>([]);
+  private trailStops = signal<MapMarker[]>([]);
+  protected trailLoading = signal(false);
+  protected selectedKpis = signal<VendorDayKpis | null>(null);
+
+  protected selectedPos = computed(() => this.svc.positions().find((p) => p.user_id === this.selected()) || null);
+  protected selectedName = computed(() => this.selectedPos()?.username || '');
+  protected selectedSubtitle = computed(() => {
+    const p = this.selectedPos();
+    return p ? `${this.statusOf(p).label} · ${this.svc.ageLabel(p)}` : null;
+  });
+
+  protected filtered = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const order = { online: 0, idle: 1, stale: 2 };
+    return [...this.svc.positions()]
+      .filter((p) => !q || p.username.toLowerCase().includes(q))
+      .sort((a, b) => order[this.svc.freshness(a)] - order[this.svc.freshness(b)] || a.username.localeCompare(b.username));
+  });
+
+  protected legend = computed<LegendLayer[]>(() => [
+    { id: 'personal', label: 'Personal', color: 'var(--ok-fg, #16a34a)', count: this.svc.counts().total, visible: this.showPersonal() },
+    { id: 'stores', label: 'Tiendas', color: 'var(--neutral-400, #9ca3af)', count: this.stores().length, visible: this.showStores() },
   ]);
+
+  private storeMarkers = computed<MapMarker[]>(() =>
+    this.stores().map((s) => ({ id: 's:' + s.id, lat: s.lat, lng: s.lng, kind: 'pin', color: 'var(--neutral-400, #9ca3af)', title: s.nombre })),
+  );
+
+  protected mapLayers = computed<MapLayer[]>(() => {
+    const layers: MapLayer[] = [];
+    if (this.showStores()) layers.push({ id: 'stores', visible: true, markers: this.storeMarkers() });
+    if (this.selected() && (this.trail().length || this.trailStops().length))
+      layers.push({ id: 'trail', visible: true, tracks: this.trail(), markers: this.trailStops() });
+    if (this.showPersonal()) layers.push({ id: 'live', persistent: true, visible: true, markers: this.svc.markers() });
+    return layers;
+  });
 
   ngAfterViewInit(): void {
     window.addEventListener('resize', this.onResize);
     void this.svc.start();
+    this.loadStores();
+    // Alertas en vivo: upsert por (usuario, tipo); el TTL las purga vía activeAlerts().
+    this.alertSub = this.ws.fieldAlert.subscribe((a) => {
+      const key = (x: FieldAlert) => `${x.userId}:${x.type}`;
+      const next = this.rawAlerts().filter((x) => key(x) !== key(a));
+      next.push(a);
+      this.rawAlerts.set(next.slice(-20));
+    });
+  }
+
+  /** Foco desde una alerta: si la persona está en el mapa la selecciona; si no, paneo. */
+  protected focusAlert(a: FieldAlert): void {
+    const p = this.svc.positions().find((x) => x.user_id === a.userId);
+    if (p) this.focus(p);
+    else if (a.lat != null && a.lng != null) { this.setTab('map'); this.map?.panTo(a.lat, a.lng); }
+  }
+
+  protected dismissAlert(a: FieldAlert, ev: Event): void {
+    ev.stopPropagation();
+    const key = `${a.userId}:${a.type}`;
+    this.rawAlerts.set(this.rawAlerts().filter((x) => `${x.userId}:${x.type}` !== key));
   }
 
   protected setTab(tab: 'map' | 'list'): void {
     this.mobileTab.set(tab);
     if (tab === 'map') setTimeout(() => this.map?.invalidate(), 0);
-  }
-
-  protected sorted(): LivePosition[] {
-    const order = { online: 0, idle: 1, stale: 2 };
-    return [...this.svc.positions()].sort(
-      (a, b) =>
-        order[this.svc.freshness(a)] - order[this.svc.freshness(b)] ||
-        a.username.localeCompare(b.username),
-    );
   }
 
   protected color(p: LivePosition): string {
@@ -160,9 +296,37 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     return Math.round(mps * 3.6);
   }
 
+  protected fmtMin(min: number | null | undefined): string {
+    const m = Math.round(min || 0);
+    return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
+  /** Estado en vivo: en traslado (con velocidad) / en tienda (geofence) / detenido. */
+  protected statusOf(p: LivePosition): { label: string; cls: 'moving' | 'instore' | 'idle' } {
+    if (p.speed_mps != null && p.speed_mps > 1.4) return { label: 'En traslado', cls: 'moving' };
+    const near = this.nearestStore(p.lat, p.lng);
+    if (near && near.d <= 80) return { label: 'En ' + near.name, cls: 'instore' };
+    return { label: 'Detenido', cls: 'idle' };
+  }
+
+  private nearestStore(lat: number, lng: number): { name: string; d: number } | null {
+    let best: { name: string; d: number } | null = null;
+    for (const s of this.stores()) {
+      const d = LiveMapComponent.haversineM(lat, lng, s.lat, s.lng);
+      if (!best || d < best.d) best = { name: s.nombre, d };
+    }
+    return best;
+  }
+
   protected onMarkerClick(m: MapMarker): void {
+    if (m.kind !== 'user') return; // tiendas/paradas no abren detalle
     const p = this.svc.positions().find((x) => x.user_id === m.id);
     if (p) this.focus(p);
+  }
+
+  protected onToggle(id: string): void {
+    if (id === 'stores') this.showStores.update((v) => !v);
+    else if (id === 'personal') this.showPersonal.update((v) => !v);
   }
 
   protected focus(p: LivePosition): void {
@@ -172,8 +336,20 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
     if (id) {
       this.watchTimer = setInterval(() => this.svc.watch([id]), 60_000);
+      this.loadTrail(id);
       if (this.mobileTab() !== 'map') { this.setTab('map'); setTimeout(() => this.map?.panTo(p.lat, p.lng), 0); }
       else this.map?.panTo(p.lat, p.lng);
+    } else {
+      this.clearTrail();
+    }
+  }
+
+  protected onPeekChange(open: boolean): void {
+    if (!open && this.selected()) {
+      this.selected.set(null);
+      this.svc.watch([]);
+      if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
+      this.clearTrail();
     }
   }
 
@@ -181,9 +357,54 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     this.map?.recenter();
   }
 
+  private loadStores(): void {
+    this.http.get<{ stores: StoreGeo[] }>(`${environment.apiUrl}/reports/stores-geo`).subscribe({
+      next: (r) => this.stores.set(r?.stores || []),
+      error: () => this.stores.set([]),
+    });
+  }
+
+  private loadTrail(userId: string): void {
+    this.trailLoading.set(true);
+    this.clearTrail();
+    const params = new HttpParams().set('user_id', userId).set('date', this.today);
+    this.http.get<any>(`${environment.apiUrl}/reports/vendor-day`, { params }).subscribe({
+      next: (r) => {
+        const coords = r?.snapped?.geometry?.coordinates as [number, number][] | undefined;
+        if (coords?.length)
+          this.trail.set([{ points: coords.map((c) => ({ lat: c[1], lng: c[0] })), color: 'var(--action, #F05A28)' }]);
+        this.trailStops.set(
+          (r?.snapped?.stops || []).map((s: any, i: number) => ({
+            lat: s.lat, lng: s.lng, seq: i + 1, color: 'var(--warn-fg, #d97706)',
+            title: `Parada ${i + 1} · ${s.minutes} min${s.store_name ? ' · ' + s.store_name : ''}`,
+          })),
+        );
+        this.selectedKpis.set(r?.kpis || null);
+        this.trailLoading.set(false);
+      },
+      error: () => { this.trailLoading.set(false); },
+    });
+  }
+
+  private clearTrail(): void {
+    this.trail.set([]);
+    this.trailStops.set([]);
+    this.selectedKpis.set(null);
+  }
+
+  private static haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
   ngOnDestroy(): void {
     window.removeEventListener('resize', this.onResize);
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
+    this.alertSub?.unsubscribe();
     this.svc.watch([]);
     this.svc.stop();
   }

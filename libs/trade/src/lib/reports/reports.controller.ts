@@ -194,6 +194,13 @@ export class ReportsController {
     return this.reportsService.getFieldUsers(date, user);
   }
 
+  @Get('stores-geo')
+  @RequirePermissions(Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Tiendas geolocalizadas (capa de contexto del Mapa en Vivo)' })
+  getStoresGeo(@ReqUser() user: any) {
+    return this.reportsService.getStoresGeo(user);
+  }
+
   @Get('vendor-day')
   @RequirePermissions(Permission.RUTAS_VER)
   @ApiOperation({

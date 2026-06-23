@@ -1,6 +1,7 @@
 import { Component, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { SelectModule } from 'primeng/select';
 import { SkeletonModule } from 'primeng/skeleton';
@@ -203,8 +204,16 @@ export class VendorHistoryComponent implements OnInit, OnDestroy {
     return '~' + new Date(t).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
   });
 
+  private route = inject(ActivatedRoute);
+
   ngOnInit(): void {
+    // Prefill por query-params (deep-link desde el SidePeek de Mapa en Vivo).
+    const qp = this.route.snapshot.queryParamMap;
+    const qpDate = qp.get('date');
+    const qpUser = qp.get('user_id');
+    if (qpDate) this.date.set(qpDate);
     this.loadUsers();
+    if (qpUser) { this.selectedUser.set(qpUser); this.loadDay(); }
   }
 
   ngOnDestroy(): void {

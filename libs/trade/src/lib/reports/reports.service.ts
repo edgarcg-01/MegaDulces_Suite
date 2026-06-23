@@ -1932,6 +1932,29 @@ export class ReportsService {
   }
 
   /**
+   * Tiendas geolocalizadas del tenant (capa de contexto del Mapa en Vivo).
+   * Solo coords del master `stores`. Gate RUTAS_VER. Liviano (sin agregación).
+   */
+  async getStoresGeo(user: any): Promise<{ stores: any[] }> {
+    const tenantId: string | undefined =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    if (!tenantId) return { stores: [] };
+    const rows = await this.knex('stores')
+      .where('tenant_id', tenantId)
+      .whereNull('deleted_at')
+      .whereNotNull('latitud')
+      .select('id', 'nombre', 'latitud', 'longitud');
+    return {
+      stores: rows.map((s: any) => ({
+        id: s.id,
+        nombre: s.nombre,
+        lat: Number(s.latitud),
+        lng: Number(s.longitud),
+      })),
+    };
+  }
+
+  /**
    * R.3 — Vendedores con actividad GPS en un día (para el picker del historial).
    * Scope own/team/all + tenant explícito.
    */

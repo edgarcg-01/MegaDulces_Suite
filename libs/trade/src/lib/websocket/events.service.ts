@@ -40,6 +40,19 @@ interface BatchedEvent {
   payload: CaptureEventPayload | CaptureDeletedPayload;
 }
 
+/** Alerta de campo (detenido demasiado / sin señal) para el cockpit en vivo. */
+export interface FieldAlertPayload {
+  type: 'idle' | 'offline';
+  tenantId: string;
+  userId: string;
+  supervisorId?: string;
+  username: string;
+  minutes: number;
+  lat?: number;
+  lng?: number;
+  at: string;
+}
+
 /** Última posición de un usuario de campo, reemitida en vivo a supervisores. */
 export interface LivePingPayload {
   type: 'route_ping';
@@ -492,6 +505,14 @@ export class EventsService {
     string,
     { lastEmit: number; timer: NodeJS.Timeout | null; pending: LivePingPayload | null }
   >();
+
+  /** Alerta de campo a supervisores: room global (scope all) + equipo del supervisor. */
+  emitFieldAlert(payload: FieldAlertPayload): void {
+    if (!payload?.tenantId || !this.gateway.server) return;
+    this.gateway.server.to(reportsRooms.global(payload.tenantId)).emit('field_alert', payload);
+    if (payload.supervisorId)
+      this.gateway.server.to(reportsRooms.team(payload.tenantId, payload.supervisorId)).emit('field_alert', payload);
+  }
 
   emitRoutePing(payload: LivePingPayload): void {
     if (!payload?.tenantId || !payload?.userId) return;
