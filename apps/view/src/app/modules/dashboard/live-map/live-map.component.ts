@@ -33,20 +33,27 @@ const COLORS: Record<string, string> = {
   template: `
     <div class="lm-wrap">
       <header class="lm-head">
-        <div>
+        <div class="lm-headline">
           <h1 class="lm-title">Mapa en vivo</h1>
           <p class="lm-sub">Personal de campo en tiempo real</p>
         </div>
         <div class="lm-stats">
-          <span class="chip on">{{ svc.counts().online }} en línea</span>
-          <span class="chip idle">{{ svc.counts().idle }} inactivos</span>
-          <span class="chip stale">{{ svc.counts().stale }} sin señal</span>
-          <span class="ws" [class.ok]="ws.connected()">{{ ws.connected() ? 'WS conectado' : 'WS desconectado' }}</span>
+          <span class="chip on">{{ svc.counts().online }} <span class="chip-lbl">en línea</span></span>
+          <span class="chip idle">{{ svc.counts().idle }} <span class="chip-lbl">inactivos</span></span>
+          <span class="chip stale">{{ svc.counts().stale }} <span class="chip-lbl">sin señal</span></span>
+          <span class="ws" [class.ok]="ws.connected()" [title]="ws.connected() ? 'WS conectado' : 'WS desconectado'"></span>
           <button class="recenter" (click)="recenter()">Centrar</button>
         </div>
       </header>
 
-      <div class="lm-body">
+      <nav class="lm-tabs">
+        <button [class.act]="mobileTab() === 'map'" (click)="setTab('map')">Mapa</button>
+        <button [class.act]="mobileTab() === 'list'" (click)="setTab('list')">
+          Lista ({{ svc.counts().total }})
+        </button>
+      </nav>
+
+      <div class="lm-body" [class.tab-map]="mobileTab() === 'map'" [class.tab-list]="mobileTab() === 'list'">
         <aside class="lm-list">
           @if (svc.positions().length === 0) {
             <p class="empty">Sin personal reportando posición en los últimos 30 min.</p>
@@ -71,22 +78,30 @@ const COLORS: Record<string, string> = {
     </div>
   `,
   styles: [`
-    .lm-wrap { display:flex; flex-direction:column; height:calc(100vh - var(--app-header-h, 56px)); }
-    .lm-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.75rem 1rem; border-bottom:1px solid var(--divider,#e7e5e4); flex-wrap:wrap; }
+    :host { display:block; }
+    .lm-wrap { display:flex; flex-direction:column; height:calc(100vh - var(--app-header-h, 56px)); min-height:420px; }
+    .lm-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem 1rem; padding:.75rem 1rem; border-bottom:1px solid var(--divider,#e7e5e4); flex-wrap:wrap; }
+    .lm-headline { min-width:0; }
     .lm-title { font:700 1.05rem/1.2 'Hanken Grotesk',sans-serif; margin:0; color:var(--text,#1c1917); }
     .lm-sub { margin:.1rem 0 0; font-size:.78rem; color:var(--text-dim,#78716c); }
     .lm-stats { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
-    .chip { font-size:.72rem; font-weight:600; padding:.2rem .5rem; border-radius:999px; }
+    .chip { font-size:.72rem; font-weight:600; padding:.2rem .5rem; border-radius:999px; white-space:nowrap; }
     .chip.on { background:#dcfce7; color:#15803d; }
     .chip.idle { background:#fef3c7; color:#b45309; }
     .chip.stale { background:#f3f4f6; color:#6b7280; }
-    .ws { font-size:.7rem; color:#b91c1c; }
-    .ws.ok { color:#15803d; }
-    .recenter { font-size:.72rem; padding:.25rem .6rem; border:1px solid var(--divider,#d6d3d1); border-radius:6px; background:var(--card-bg,#fff); cursor:pointer; }
+    .ws { width:9px; height:9px; border-radius:50%; background:#b91c1c; flex:0 0 auto; }
+    .ws.ok { background:#15803d; }
+    .recenter { font-size:.72rem; padding:.25rem .6rem; border:1px solid var(--divider,#d6d3d1); border-radius:6px; background:var(--card-bg,#fff); color:var(--text,#1c1917); cursor:pointer; }
+
+    /* Toggle Mapa/Lista — solo visible en móvil. */
+    .lm-tabs { display:none; }
+    .lm-tabs button { flex:1; padding:.6rem; border:0; background:var(--card-bg,#fff); font:600 .85rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); border-bottom:2px solid transparent; cursor:pointer; }
+    .lm-tabs button.act { color:var(--action,#F05A28); border-bottom-color:var(--action,#F05A28); }
+
     .lm-body { flex:1; display:flex; min-height:0; }
-    .lm-list { width:280px; overflow-y:auto; border-right:1px solid var(--divider,#e7e5e4); padding:.4rem; }
+    .lm-list { width:280px; flex:0 0 280px; overflow-y:auto; border-right:1px solid var(--divider,#e7e5e4); padding:.4rem; -webkit-overflow-scrolling:touch; }
     .empty { font-size:.8rem; color:var(--text-dim,#78716c); padding:1rem; }
-    .row { display:flex; align-items:center; gap:.55rem; width:100%; text-align:left; padding:.5rem .55rem; border:0; border-radius:8px; background:transparent; cursor:pointer; }
+    .row { display:flex; align-items:center; gap:.55rem; width:100%; text-align:left; padding:.6rem .55rem; border:0; border-radius:8px; background:transparent; cursor:pointer; min-height:44px; }
     .row:hover { background:var(--hover,#f5f5f4); }
     .row.sel { background:var(--action-tint,#fff1ec); }
     .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 0 3px rgba(0,0,0,.04); }
@@ -95,6 +110,17 @@ const COLORS: Record<string, string> = {
     .meta { font-size:.72rem; color:var(--text-dim,#78716c); }
     .watching { font-size:.65rem; font-weight:700; color:var(--action,#F05A28); text-transform:uppercase; }
     .lm-map { flex:1; min-width:0; }
+
+    @media (max-width: 767px) {
+      .lm-head { padding:.6rem .8rem; }
+      .lm-sub { display:none; }
+      .chip-lbl { display:none; }            /* solo el número en pantallas chicas */
+      .lm-tabs { display:flex; border-bottom:1px solid var(--divider,#e7e5e4); }
+      /* Cada panel a pantalla completa según el tab activo. */
+      .lm-body.tab-map .lm-list { display:none; }
+      .lm-body.tab-list .lm-map { display:none; }
+      .lm-list { width:100%; flex:1 1 auto; border-right:0; }
+    }
   `],
 })
 export class LiveMapComponent implements AfterViewInit, OnDestroy {
@@ -106,7 +132,10 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   private markers = new Map<string, L.Marker>();
   private fittedOnce = false;
   private watchTimer: any = null;
+  private onResize = () => this.map?.invalidateSize();
   protected selected = signal<string | null>(null);
+  /** Vista activa en móvil (en escritorio se muestran ambos paneles). */
+  protected mobileTab = signal<'map' | 'list'>('map');
 
   constructor() {
     effect(() => {
@@ -127,7 +156,14 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
       attribution: '© OpenStreetMap',
     }).addTo(this.map);
     setTimeout(() => this.map?.invalidateSize(), 0);
+    window.addEventListener('resize', this.onResize);
     void this.svc.start();
+  }
+
+  /** Cambia de panel en móvil; al volver al mapa, Leaflet recalcula su tamaño. */
+  protected setTab(tab: 'map' | 'list'): void {
+    this.mobileTab.set(tab);
+    if (tab === 'map') setTimeout(() => this.map?.invalidateSize(), 0);
   }
 
   protected sorted(): LivePosition[] {
@@ -163,7 +199,11 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
     if (id) {
       this.watchTimer = setInterval(() => this.ws.watchUsers([id]), 60_000);
-      if (this.map) this.map.setView([p.lat, p.lng], Math.max(this.map.getZoom(), 15));
+      const center = () =>
+        this.map?.setView([p.lat, p.lng], Math.max(this.map.getZoom(), 15));
+      // En móvil saltar al mapa; centrar tras el invalidateSize (panel venía oculto).
+      if (this.mobileTab() !== 'map') { this.setTab('map'); setTimeout(center, 0); }
+      else center();
     }
   }
 
@@ -213,6 +253,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener('resize', this.onResize);
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
     this.ws.watchUsers([]);
     this.svc.stop();

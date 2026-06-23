@@ -26,9 +26,10 @@ export class RoutePingService {
   // Cadencia adaptativa: rápido en movimiento, lento detenido. El recurso caro
   // es el GPS+batería, así que solo se acelera cuando hay algo que reportar.
   private static readonly MOVING_MS = 25 * 1000; // se mueve → cada 25s
-  private static readonly STATIONARY_MS = 3 * 60 * 1000; // detenido → cada 3 min
+  private static readonly STATIONARY_MS = 60 * 1000; // detenido → cada 60s (heartbeat "en vivo")
   private static readonly HIGH_FREQ_MS = 12 * 1000; // observado por un supervisor → 12s
   private static readonly MOVE_THRESHOLD_M = 30; // delta para considerar "en movimiento"
+  private static readonly MAX_ACCURACY_M = 2000; // descarta fixes basura (ubicación por red)
   private static readonly DRAIN_MS = 60 * 1000; // reintento de cola offline
   private static readonly BATCH = 200;
 
@@ -85,14 +86,14 @@ export class RoutePingService {
     this.running = true;
     // Drain siempre (foreground + background comparten la cola).
     this.syncTimer = setInterval(() => void this.drain(), RoutePingService.DRAIN_MS);
-    // En nativo: watcher de background (foreground service) — sobrevive pantalla
-    // apagada. En web: loop foreground con wake lock + cadencia adaptativa.
-    void this.startBackgroundWatcher().then((ok) => {
-      if (!ok) {
-        void this.acquireWakeLock();
-        void this.tick();
-      }
-    });
+    // Heartbeat foreground (app visible): garantiza reporte aunque esté DETENIDO.
+    // El watcher de background es por distancia, así que un vendedor quieto no
+    // emitía nada → en el mapa salía "sin señal". El tick cubre ese caso.
+    void this.acquireWakeLock();
+    void this.tick();
+    // Nativo: además, watcher de background para continuidad con pantalla apagada
+    // / movimiento. En web es no-op (cae por isNativePlatform()).
+    void this.startBackgroundWatcher();
   }
 
   private stop(): void {
@@ -249,6 +250,9 @@ export class RoutePingService {
     const userId = this.auth.user()?.sub || (this.auth.user() as any)?.id;
     if (!userId) return;
     if (!Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return;
+    // Descarta fixes de precisión basura (ubicación por red, acc ~50km) que
+    // teletransportarían el marcador a otra ciudad.
+    if (fix.accuracyM != null && fix.accuracyM > RoutePingService.MAX_ACCURACY_M) return;
 
     if (this.lastFix) {
       const moved = RoutePingService.haversineM(this.lastFix.lat, this.lastFix.lng, fix.lat, fix.lng);

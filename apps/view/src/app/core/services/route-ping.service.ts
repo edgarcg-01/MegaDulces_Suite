@@ -26,9 +26,10 @@ export class RoutePingService {
   // Cadencia adaptativa: rápido en movimiento, lento detenido. El recurso caro
   // es el GPS+batería, así que solo se acelera cuando hay algo que reportar.
   private static readonly MOVING_MS = 25 * 1000; // se mueve → cada 25s
-  private static readonly STATIONARY_MS = 3 * 60 * 1000; // detenido → cada 3 min
+  private static readonly STATIONARY_MS = 60 * 1000; // detenido → cada 60s (heartbeat "en vivo")
   private static readonly HIGH_FREQ_MS = 12 * 1000; // observado por un supervisor → 12s
   private static readonly MOVE_THRESHOLD_M = 30; // delta para considerar "en movimiento"
+  private static readonly MAX_ACCURACY_M = 2000; // descarta fixes basura (ubicación por red)
   private static readonly DRAIN_MS = 60 * 1000; // reintento de cola offline
   private static readonly BATCH = 200;
 
@@ -161,6 +162,9 @@ export class RoutePingService {
     } catch {
       return; // sin fix esta vez; el siguiente intervalo reintenta
     }
+
+    // Descarta fixes de precisión basura (ubicación por red, acc ~50km).
+    if (pos.coords.accuracy != null && pos.coords.accuracy > RoutePingService.MAX_ACCURACY_M) return;
 
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;
