@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Capacitor } from '@capacitor/core';
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
@@ -82,6 +83,21 @@ interface DiagProbe {
         </div>
       </header>
 
+      <!-- Aviso de salud del tracking: el GPS puede cortarse con la pantalla bloqueada -->
+      <button
+        class="bg-banner"
+        *ngIf="routePing.trackingHealth() === 'permission' || routePing.trackingHealth() === 'inactive'"
+        (click)="openBgHelp()"
+      >
+        <i class="pi pi-exclamation-triangle"></i>
+        <span *ngIf="routePing.trackingHealth() === 'permission'">
+          Tu ubicación deja de registrarse al bloquear. Falta permiso <b>"Permitir todo el tiempo"</b>. <u>Arreglar</u>
+        </span>
+        <span *ngIf="routePing.trackingHealth() === 'inactive'">
+          El rastreo en segundo plano no está activo. <u>Arreglar</u>
+        </span>
+      </button>
+
       <!-- Panel de configuración (modo oscuro + cerrar sesión) -->
       <div class="settings-backdrop" *ngIf="settingsOpen()" (click)="settingsOpen.set(false)"></div>
       <div class="settings-panel" *ngIf="settingsOpen()">
@@ -89,6 +105,10 @@ interface DiagProbe {
           <i class="pi" [ngClass]="theme.isMonochrome() ? 'pi-moon' : 'pi-sun'"></i>
           <span class="lbl">Modo oscuro</span>
           <span class="switch" [class.on]="theme.isMonochrome()"><span class="knob"></span></span>
+        </button>
+        <button class="set-row" (click)="openBgHelp()">
+          <i class="pi pi-map-marker"></i>
+          <span class="lbl">Ubicación y batería</span>
         </button>
         <button class="set-row" (click)="openDiag()">
           <i class="pi pi-info-circle"></i>
@@ -140,6 +160,28 @@ interface DiagProbe {
             <div>borde inf: {{ d.elementAt.viewportBottom }}</div>
           </div>
           <pre class="diag-json">{{ diag() | json }}</pre>
+        </div>
+      </div>
+
+      <!-- Guía de ubicación en segundo plano (onboarding + banner + ajustes) -->
+      <div class="diag-overlay" *ngIf="bgHelpOpen()" (click)="bgHelpOpen.set(false)">
+        <div class="diag-panel bg-help" (click)="$event.stopPropagation()">
+          <div class="diag-head">
+            <b>Ubicación en segundo plano</b>
+            <span class="diag-actions"><button type="button" (click)="bgHelpOpen.set(false)">Cerrar</button></span>
+          </div>
+          <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisá estos 3 puntos en tu teléfono:</p>
+          <ol class="bg-steps">
+            <li><b>Permiso de ubicación:</b> elegí <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
+            <li><b>Batería:</b> poné la app en <b>"Sin restricciones"</b> / desactivá el ahorro de batería para Vendedor.</li>
+            <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activá <b>"Autostart"</b> para esta app.</li>
+          </ol>
+          <button class="bg-cta" (click)="openLocationSettings()">
+            <i class="pi pi-cog"></i>&nbsp;Abrir ajustes de la app
+          </button>
+          <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después volvé a la app.</p>
+          <p class="bg-diag" *ngIf="routePing.bgError() as err">Diagnóstico: <code>{{ err }}</code></p>
+          <p class="bg-diag" *ngIf="!routePing.bgError() && routePing.bgActive()">Estado: rastreo en segundo plano <b>activo</b>.</p>
         </div>
       </div>
     </div>
@@ -272,6 +314,28 @@ interface DiagProbe {
       .diag-key b.bad { color: var(--bad-fg, #dc2626); }
       .diag-json { font-family: var(--font-mono, monospace); font-size: 0.7rem; line-height: 1.35; color: var(--text-muted); background: var(--surface-ground); border-radius: var(--r-sm, 8px); padding: 0.6rem; white-space: pre-wrap; word-break: break-all; max-height: 50vh; overflow-y: auto; margin: 0; }
       @media (prefers-reduced-motion: reduce) { .settings-panel, .settings-panel .switch, .settings-panel .switch .knob { animation: none; transition: none; } }
+
+      /* Banner de salud del tracking */
+      .bg-banner {
+        display: flex; align-items: center; gap: 0.55rem; width: 100%; border: 0; text-align: left; cursor: pointer;
+        padding: 0.55rem max(0.9rem, env(safe-area-inset-left)) 0.55rem max(0.9rem, env(safe-area-inset-right));
+        background: var(--warn-bg, #fffbeb); color: var(--warn-fg, #92400e);
+        border-bottom: 1px solid var(--warn-border, #fde68a); font-family: var(--font-body); font-size: 0.78rem; line-height: 1.3;
+      }
+      .bg-banner > .pi { font-size: 1rem; flex-shrink: 0; }
+      .bg-banner u { text-underline-offset: 2px; font-weight: 700; }
+
+      /* Guía de ubicación en segundo plano */
+      .bg-help .bg-intro { font-size: 0.85rem; color: var(--text-main); margin: 0 0 0.7rem; line-height: 1.4; }
+      .bg-steps { margin: 0 0 0.9rem; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+      .bg-steps li { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
+      .bg-steps li b { color: var(--text-main); }
+      .bg-cta {
+        display: inline-flex; align-items: center; justify-content: center; width: 100%; border: 0; cursor: pointer;
+        background: var(--action); color: #fff; border-radius: var(--r-md, 10px); padding: 0.7rem 1rem;
+        font-family: var(--font-body); font-size: 0.9rem; font-weight: 700;
+      }
+      .bg-note { font-size: 0.74rem; color: var(--text-muted); margin: 0.6rem 0 0; line-height: 1.4; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -280,16 +344,42 @@ export class VendorShellComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   readonly theme = inject(ThemeService);
-  private readonly routePing = inject(RoutePingService);
+  protected readonly routePing = inject(RoutePingService);
+
+  private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
 
   readonly settingsOpen = signal(false);
   readonly diagOpen = signal(false);
   readonly diag = signal<DiagProbe | null>(null);
   readonly copied = signal(false);
+  readonly bgHelpOpen = signal(false);
 
   constructor() {
     // Tracking de jornada: arranca al entrar al modo vendedor.
     this.routePing.startShift();
+    // Onboarding one-time de ubicación en segundo plano (solo nativo): explica
+    // los 3 ajustes que hacen que el GPS siga con la pantalla bloqueada.
+    if (Capacitor.isNativePlatform() && !this.bgOnboarded()) {
+      setTimeout(() => { this.bgHelpOpen.set(true); this.markBgOnboarded(); }, 1200);
+    }
+  }
+
+  /** Abre la guía de ubicación en segundo plano (desde el banner o ajustes). */
+  openBgHelp(): void {
+    this.settingsOpen.set(false);
+    this.bgHelpOpen.set(true);
+  }
+
+  /** Manda a los ajustes de la app (permisos / batería). */
+  openLocationSettings(): void {
+    void this.routePing.openSettings();
+  }
+
+  private bgOnboarded(): boolean {
+    try { return localStorage.getItem(VendorShellComponent.BG_ONBOARD_KEY) === '1'; } catch { return false; }
+  }
+  private markBgOnboarded(): void {
+    try { localStorage.setItem(VendorShellComponent.BG_ONBOARD_KEY, '1'); } catch { /* noop */ }
   }
 
   logout(): void {

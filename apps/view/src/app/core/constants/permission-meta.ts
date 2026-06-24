@@ -47,6 +47,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.VER_SEGUIMIENTO]: { label: 'Ver Seguimiento', description: 'Acceso al módulo de seguimiento de visitas y rutas en campo.', category: 'Seguimiento' },
   [Permission.RUTAS_VER]: { label: 'Ver Rutas', description: 'Apartado de análisis de rutas: tiendas por ruta, tiempos de visita y trazabilidad del recorrido.', category: 'Seguimiento' },
   [Permission.COMMERCIAL_MAP_VER]: { label: 'Ver Mapa Comercial', description: 'Mapa de tiendas con exhibidores Mega Dulces vs competencia + historial de exhibiciones por tienda.', category: 'Seguimiento' },
+  [Permission.COMMERCIAL_MAP_PROSPECTS_VER]: { label: 'Ver Tiendas de Oportunidad', description: 'Capa de prospección: PdV reales (INEGI DENUE) que aún no son clientes, en el mapa comercial.', category: 'Seguimiento' },
+  [Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR]: { label: 'Gestionar Prospección', description: 'Cosechar de DENUE, deduplicar, descartar y convertir tiendas de oportunidad + configurar SCIAN/área.', category: 'Seguimiento' },
 
   // Comercial — clientes, almacenes, pricing, inventario
   [Permission.COMMERCIAL_CUSTOMERS_VER]: { label: 'Ver Clientes', description: 'Consultar la cartera de clientes B2B.', category: 'Comercial' },

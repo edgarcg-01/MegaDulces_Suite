@@ -35,6 +35,10 @@ export enum Permission {
   // Módulo: Mapa Comercial (exhibidores Mega Dulces vs competencia en mapa + historial por tienda)
   COMMERCIAL_MAP_VER = 'COMMERCIAL_MAP_VER',
 
+  // Módulo: Prospección DENUE (tiendas de oportunidad descubiertas en INEGI DENUE)
+  COMMERCIAL_MAP_PROSPECTS_VER = 'COMMERCIAL_MAP_PROSPECTS_VER',
+  COMMERCIAL_MAP_PROSPECTS_GESTIONAR = 'COMMERCIAL_MAP_PROSPECTS_GESTIONAR',
+
   // Módulo: Supervisor AI de ejecución (Horus) — parte diario, auditoría visual, fraude (co-piloto)
   SUPERVISOR_AI_VER = 'SUPERVISOR_AI_VER',
   SUPERVISOR_AI_APROBAR = 'SUPERVISOR_AI_APROBAR',

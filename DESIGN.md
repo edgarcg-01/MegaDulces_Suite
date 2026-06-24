@@ -8,6 +8,26 @@
 
 > **Estado de implementación (2026-06-16):** la migración Operations (Hanken/Stone/sunset/ember en `:root`) **ya está aplicada** en `tokens.css` — la nota histórica "pendiente de aprobación" más abajo quedó vieja. El dark de Operations es **zinc neutro `#111111`** (decisión "esto es serio"), NO el espresso `#16130F` que describen las tablas históricas; el espresso quedó scopeado solo a `/portal`.
 
+> **Norte de estilo — directiva "quiet luxury" (2026-06-23):** el surface Operations toma como referencia absoluta a **Linear · Stripe · Vercel (Geist)**: minimalismo técnico, herramienta profesional, máxima densidad sin sacrificar claridad. Reglas que **mandan** (refuerzan/afinan lo de abajo):
+> 1. **Estructura casi monocromática.** El color de marca (sunset `--action`) se reserva para **CTAs, enlaces activos y el estado seleccionado** — nada de decorar con color. Semánticos (ok/warn/bad) **desaturados y controlados**, solo en badges de estado.
+>    - **Excepción confirmada (decisión Edgar 2026-06-23):** los **accents de color por card** en `MetricCard` y las gráficas (sparkline/bars/gauge/donut) **se conservan** — ahí el color **codifica dato**, no decora (igual que los charts de Linear/Stripe). No atenuar a monocromo. La regla "casi monocromático" aplica a la **estructura/chrome** (tablas, paneles, navegación, formularios), no a la capa de data-viz.
+> 2. **Separadores apenas perceptibles:** borde 1px (`--border-color`/`--c-divider`); profundidad con sombras mínimas (`shadow-sm`) o ring 1px, **nunca** sombras difusas/pesadas. Radios discretos (`md`/`lg`); pill solo para badges.
+> 3. **Densidad Stripe:** `--fs-sm` base, `--fs-xs` para metadatos; jerarquía por **contraste de texto** (`c-text-1` principal / `c-text-2`/`c-text-3` secundario).
+> 4. **Tablas:** padding compacto, números/estados a la derecha, texto a la izquierda, **filas separadas por divisor inferior 1px fino**. ⛔ **NADA de zebra striping** (se ve anticuado) — `surf-table--zebra` quedó **neutralizado (no-op)**. Detalle en [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).
+
+## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
+
+Implementado 2026-06-24 en [`tokens.css`](apps/view/src/styles/tokens.css). Regla: **un componente nuevo referencia un rol/token, nunca inventa un hex.**
+
+- **Tier 1 — Primitivas** (valor crudo, sin significado): rampa `--stone-50..950`, `--brand-*`, paleta cruda. No usar directo en componentes.
+- **Tier 2 — Semánticos/rol** (qué significa): `--action`/`--action-hover/press`, `--ok/warn/bad/info-*`, superficies (`--card-bg`, `--border-color`, `--text-1/2/3`), y la **capa de interacción por alpha-overlay**: `--overlay-hover` / `--overlay-active` / `--overlay-selected`, derivados de **`--ink-rgb`** (la tinta del overlay; **se voltea por modo** — light=stone-950, dark=stone-50 — así una sola definición sirve en ambos temas).
+- **Tier 3 — Componente** (valor exacto por elemento; cambiar el look de un componente = tocar SU token, sin efectos colaterales): `--table-row-hover-bg`, `--table-row-selected-bg`, `--surface-hover-bg/active/selected`, `--btn-primary-bg/-hover/-press/-ink`. (`--table-hover` quedó repuntado a `--overlay-hover`.)
+- **Estados de superficie** = **alpha overlays** sobre `--ink-rgb`, no hex por interacción → consistencia garantizada en cualquier fondo y en dark sin segunda definición.
+- **Spacing — escala 4px** (`--sp-1`=4 … `--sp-12`=48, en rem para respetar zoom). Es el **único origen** de paddings/gaps/margins de layout; nada de rem sueltos fuera de grid. Excepciones legítimas: 1px (bordes/hairlines) y micro-nudges <4px en chips/badges. La tipografía tiene su propia escala (`--fs-*`).
+- **Densidad por método de entrada** (Polaris/Carbon): la densidad la decide el **puntero**, no el surface. `@media (pointer: coarse)` sube `--row-h-sm/md` y `--tap-min` a **≥44px** (Ley de Fitts en touch / `apps/vendor` Capacitor); `pointer: fine` mantiene ultra-compacto. Hit areas táctiles aplicadas en `styles.css` sin tocar componentes.
+- **Data-viz**: secuencia categórica `--chart-1..8` (light+dark), ordenada por separación perceptual, **sin morado** (`--chart-3` es verde). El color codifica dato → exenta de la regla monocromática.
+- **Diferido**: SSOT JSON + Style Dictionary (export web/Tailwind/Android nativo) — se monta cuando la divergencia multiplataforma realmente lo exija; por ahora puente manual de los ~4 colores que la status-bar/splash de Capacitor necesita.
+
 ## Surfaces — dos modes del mismo sistema
 
 | Surface | Alcance | Mode | Decoración | Display font |

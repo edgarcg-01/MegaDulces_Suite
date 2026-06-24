@@ -8,8 +8,11 @@ import {
   output,
   effect,
   signal,
+  inject,
 } from '@angular/core';
 import * as L from 'leaflet';
+import { environment } from '../../../../environments/environment';
+import { ThemeService } from '../../../core/services/theme.service';
 
 export interface MapMarker {
   lat: number;
@@ -51,14 +54,39 @@ export interface MapLayer {
  *    en cada cambio (comportamiento histórico, intacto para routes/commercial).
  *  - Capas: input `layers` → cada capa en su LayerGroup, conmutable, con modo
  *    persistente opcional para tracking en vivo (marcadores que se mueven).
- * Usa `divIcon` (marcadores por CSS). Tiles de OpenStreetMap.
+ * Usa `divIcon` (marcadores por CSS). Tiles de Mapbox (style según el tema
+ * claro/oscuro) con switcher Mapa/Satélite; cae a OpenStreetMap si no hay token.
  */
 @Component({
   selector: 'app-map',
   standalone: true,
   // `isolate` (isolation: isolate) confina los z-index internos de Leaflet
   // (controles llegan a ~1000) a este contenedor para que NO pisen el sidebar.
-  template: `<div #host [style.height]="height()" class="w-full rounded-lg overflow-hidden border border-divider isolate"></div>`,
+  template: `
+    <div class="map-shell rounded-lg overflow-hidden border border-divider" [style.height]="height()">
+      <div #host class="map-host isolate"></div>
+      @if (mapboxEnabled && showBasemapToggle()) {
+        <div class="basemap-switch" role="group" aria-label="Tipo de mapa">
+          <button type="button" [class.act]="basemapMode() === 'map'" [attr.aria-pressed]="basemapMode() === 'map'" (click)="setBasemap('map')">
+            <i class="pi pi-map" aria-hidden="true"></i><span>Mapa</span>
+          </button>
+          <button type="button" [class.act]="basemapMode() === 'satellite'" [attr.aria-pressed]="basemapMode() === 'satellite'" (click)="setBasemap('satellite')">
+            <i class="pi pi-globe" aria-hidden="true"></i><span>Satélite</span>
+          </button>
+        </div>
+      }
+    </div>
+  `,
+  styles: [`
+    :host { display:block; }
+    .map-shell { position:relative; }
+    .map-host { width:100%; height:100%; }
+    .basemap-switch { position:absolute; top:.5rem; right:.5rem; z-index:500; display:flex; background:var(--card-bg,#fff); border:1px solid var(--divider,#e7e5e4); border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.18); }
+    .basemap-switch button { display:flex; align-items:center; gap:.3rem; border:0; background:transparent; padding:.34rem .56rem; font:600 .72rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); cursor:pointer; }
+    .basemap-switch button + button { border-left:1px solid var(--divider,#e7e5e4); }
+    .basemap-switch button:hover { color:var(--text,#1c1917); }
+    .basemap-switch button.act { background:var(--action,#F05A28); color:#fff; }
+  `],
 })
 export class MapComponent implements AfterViewInit, OnDestroy {
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
@@ -73,6 +101,14 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly height = input<string>('420px');
   /** 'always' = re-encuadra en cada cambio (legacy); 'once' = solo al primer dato; 'off' = nunca. */
   readonly autoFit = input<'always' | 'once' | 'off'>('always');
+  /**
+   * Centro inicial mientras no hay datos que encuadrar — `fitBounds` lo pisa en
+   * cuanto llegan markers/tracks. Default: La Piedad, Mich. Un consumidor puede
+   * pasar otra cosa (ej. la última posición del usuario seleccionado).
+   */
+  readonly fallbackCenter = input<[number, number]>([20.2984, -101.9884]);
+  /** Zoom del centro inicial (fallback). */
+  readonly fallbackZoom = input<number>(12);
   /** emite al hacer click en un marcador (para master-detail en el padre). */
   readonly markerClick = output<MapMarker>();
 
@@ -82,6 +118,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private fitted = false;
   private ready = signal(false);
 
+  /** Tema (claro/oscuro) → elige el style del basemap para respetar DESIGN.md. */
+  private theme = inject(ThemeService);
+  /** Hay token Mapbox → tiles Mapbox + switcher; sin token cae a OSM. */
+  protected readonly mapboxEnabled = !!environment.mapbox?.token;
+  /** Muestra el switcher Mapa/Satélite (solo con Mapbox). Ocultable por consumidor. */
+  readonly showBasemapToggle = input<boolean>(true);
+  /** Capa base actual: mapa temático vs satélite. */
+  readonly basemapMode = signal<'map' | 'satellite'>('map');
+  private baseTile?: L.TileLayer;
+  private appliedStyle = '';
+
   constructor() {
     effect(() => {
       this.markers();
@@ -90,18 +137,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.layers();
       if (this.ready()) this.render();
     });
+    // Basemap reactivo: cambia con el tema (claro/oscuro) y el modo (mapa/satélite).
+    effect(() => {
+      this.theme.isMonochrome();
+      this.basemapMode();
+      if (this.ready()) this.setBaseLayer();
+    });
   }
 
   ngAfterViewInit(): void {
     this.map = L.map(this.host.nativeElement, {
-      center: [19.7033, -101.1949], // Morelia (fallback hasta fitBounds)
-      zoom: 12,
+      center: this.fallbackCenter(), // default La Piedad, Mich. (fitBounds lo pisa con datos)
+      zoom: this.fallbackZoom(),
       scrollWheelZoom: true,
     });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap',
-    }).addTo(this.map);
+    this.setBaseLayer();
     this.layer = L.layerGroup().addTo(this.map);
     this.ready.set(true);
     setTimeout(() => this.map?.invalidateSize(), 0);
@@ -123,6 +173,46 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   panTo(lat: number, lng: number, minZoom = 15): void {
     if (!this.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
     this.map.setView([lat, lng], Math.max(this.map.getZoom(), minZoom));
+  }
+
+  // ── basemap ────────────────────────────────────────────────────────────────
+  /** Conmuta entre mapa temático y satélite. */
+  setBasemap(mode: 'map' | 'satellite'): void {
+    if (mode === this.basemapMode()) return;
+    this.basemapMode.set(mode);
+  }
+
+  /** Style activo según token / modo / tema. '__osm__' = fallback sin token. */
+  private currentStyle(): string {
+    const mb = environment.mapbox;
+    if (!mb?.token) return '__osm__';
+    if (this.basemapMode() === 'satellite') return mb.styleSatellite || 'mapbox/satellite-streets-v12';
+    return this.theme.isMonochrome() ? (mb.styleDark || 'mapbox/dark-v11') : (mb.styleLight || 'mapbox/light-v11');
+  }
+
+  private buildBaseLayer(style: string): L.TileLayer {
+    if (style === '__osm__') {
+      return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap',
+      });
+    }
+    const token = environment.mapbox!.token;
+    return L.tileLayer(
+      `https://api.mapbox.com/styles/v1/${style}/tiles/512/{z}/{x}/{y}@2x?access_token=${token}`,
+      { tileSize: 512, zoomOffset: -1, minZoom: 0, maxZoom: 22, attribution: '© Mapbox © OpenStreetMap' },
+    );
+  }
+
+  /** (Re)aplica la capa base. Idempotente: no rehace si el style no cambió. */
+  private setBaseLayer(): void {
+    if (!this.map) return;
+    const style = this.currentStyle();
+    if (this.baseTile && style === this.appliedStyle) return;
+    this.appliedStyle = style;
+    if (this.baseTile) this.map.removeLayer(this.baseTile);
+    this.baseTile = this.buildBaseLayer(style).addTo(this.map);
+    this.baseTile.bringToBack();
   }
 
   // ── icono ────────────────────────────────────────────────────────────────

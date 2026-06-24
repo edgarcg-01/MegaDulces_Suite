@@ -1,4 +1,4 @@
-import { Injectable, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Capacitor } from '@capacitor/core';
 import { firstValueFrom } from 'rxjs';
@@ -50,6 +50,33 @@ export class RoutePingService {
   private bgWatcherId: string | null = null;
   /** Jornada del vendedor abierta (independiente del flujo de captura). */
   private readonly _shiftActive = signal(false);
+
+  /** Plataforma nativa (Capacitor) — el tracking en background solo existe ahí. */
+  private readonly native = Capacitor.isNativePlatform();
+  /** Watcher nativo registrado OK. */
+  readonly bgActive = signal(false);
+  /** El watcher devolvió permiso insuficiente (NOT_AUTHORIZED). */
+  readonly bgPermissionDenied = signal(false);
+  /** Último error del watcher nativo (visible en el diálogo de ayuda + logcat). */
+  readonly bgError = signal<string | null>(null);
+  /** Timestamp del último fix de background recibido (diagnóstico). */
+  private lastBgFixTs = 0;
+
+  /**
+   * Salud del tracking en segundo plano (para avisar al vendedor):
+   *  - 'web'        → PWA, no hay background (solo foreground por diseño).
+   *  - 'permission' → falta permiso "todo el tiempo" → abrir ajustes.
+   *  - 'inactive'   → nativo pero el watcher no quedó activo.
+   *  - 'ok'         → registrando (o sin jornada, no aplica).
+   */
+  readonly trackingHealth = computed<'ok' | 'web' | 'permission' | 'inactive'>(() => {
+    const expected = this._shiftActive() || !!this.captureSvc.activeRoute()?.id;
+    if (!expected) return 'ok';
+    if (!this.native) return 'web';
+    if (this.bgPermissionDenied()) return 'permission';
+    if (!this.bgActive()) return 'inactive';
+    return 'ok';
+  });
 
   constructor() {
     // Trackea mientras haya ruta de captura activa O jornada de vendedor abierta.
@@ -108,8 +135,20 @@ export class RoutePingService {
     this.moving = false;
     this.releaseWakeLock();
     void this.stopBackgroundWatcher();
+    this.bgActive.set(false);
     // Intento final de drenar lo que quede encolado.
     void this.drain();
+  }
+
+  /** Abre los ajustes de la app (permisos / batería) para arreglar el tracking. */
+  async openSettings(): Promise<void> {
+    try {
+      const { registerPlugin } = await import('@capacitor/core');
+      const BG = registerPlugin<any>('BackgroundGeolocation');
+      await BG.openSettings();
+    } catch {
+      /* plugin no disponible (web) — no-op */
+    }
   }
 
   /** Sube a alta frecuencia por `ttlSec` (lo activa el server vía WS al observar). */
@@ -167,38 +206,64 @@ export class RoutePingService {
    */
   private async startBackgroundWatcher(): Promise<boolean> {
     if (this.bgWatcherId) return true;
-    try {
-      const { Capacitor } = await import('@capacitor/core');
-      if (!Capacitor.isNativePlatform()) return false;
-      const { registerPlugin } = await import('@capacitor/core');
-      const BG = registerPlugin<any>('BackgroundGeolocation');
-      this.bgWatcherId = await BG.addWatcher(
-        {
-          backgroundTitle: 'Mega Dulces — ruta activa',
-          backgroundMessage: 'Registrando tu recorrido',
-          requestPermissions: true,
-          stale: false,
-          distanceFilter: RoutePingService.MOVE_THRESHOLD_M,
-        },
-        (location: any, error: any) => {
-          if (error) return; // permiso denegado / sin fix: no rompe
-          if (!location) return;
-          void this.enqueueFix({
-            lat: location.latitude,
-            lng: location.longitude,
-            accuracyM: location.accuracy ?? undefined,
-            speedMps: location.speed ?? undefined,
-            ts: location.time || Date.now(),
-            source: 'background',
-          });
-        },
-      );
-      return true;
-    } catch {
-      // Plugin no disponible (web) o falló el registro: caer al loop foreground.
-      this.bgWatcherId = null;
-      return false;
+    if (!this.native) return false;
+    const { registerPlugin } = await import('@capacitor/core');
+    const BG = registerPlugin<any>('BackgroundGeolocation');
+    const onFix = (location: any, error: any) => {
+      if (error) {
+        // Permiso insuficiente ("mientras se usa" / denegado) → bandera para que
+        // el vendedor lo arregle. Otros errores (sin fix) solo se loguean.
+        if (error.code === 'NOT_AUTHORIZED' || /not.?authorized|denied|permission/i.test(error.message || '')) {
+          this.bgPermissionDenied.set(true);
+        }
+        console.warn(`[tracking] watcher error: ${error.code || ''} ${error.message || ''}`);
+        return;
+      }
+      if (!location) return;
+      this.bgPermissionDenied.set(false);
+      this.bgError.set(null);
+      this.lastBgFixTs = location.time || Date.now();
+      void this.enqueueFix({
+        lat: location.latitude,
+        lng: location.longitude,
+        accuracyM: location.accuracy ?? undefined,
+        speedMps: location.speed ?? undefined,
+        ts: location.time || Date.now(),
+        source: 'background',
+      });
+    };
+    // El BackgroundGeolocationService del plugin se bindea async al cargar; si el
+    // watcher arranca antes de que termine, rechaza "Service not running" →
+    // reintentar. Cualquier otro error se SUPERFICIE (signal + logcat) en vez de
+    // tragarse, porque el "no notificación / no GPS bloqueado" suele venir de un
+    // fallo nativo de startForeground que el plugin solo loguea.
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        this.bgWatcherId = await BG.addWatcher(
+          {
+            backgroundTitle: 'Mega Dulces — ruta activa',
+            backgroundMessage: 'Registrando tu recorrido',
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: RoutePingService.MOVE_THRESHOLD_M,
+          },
+          onFix,
+        );
+        this.bgActive.set(true);
+        this.bgError.set(null);
+        console.log(`[tracking] watcher nativo activo (intento ${attempt})`);
+        return true;
+      } catch (e: any) {
+        const msg = e?.message || String(e);
+        this.bgError.set(msg);
+        console.error(`[tracking] addWatcher falló (intento ${attempt}): ${msg}`);
+        if (!/service not running/i.test(msg) || attempt === 4) break;
+        await new Promise((r) => setTimeout(r, 1200));
+      }
     }
+    this.bgWatcherId = null;
+    this.bgActive.set(false);
+    return false;
   }
 
   private async stopBackgroundWatcher(): Promise<void> {

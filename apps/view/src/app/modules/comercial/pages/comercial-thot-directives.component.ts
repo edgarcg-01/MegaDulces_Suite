@@ -78,7 +78,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <h2>Directrices activas</h2>
         <div class="empty" *ngIf="!loading() && directives().length === 0">Sin directrices. Creá una arriba para empezar a empujar.</div>
         <table *ngIf="directives().length">
-          <thead><tr><th>Target</th><th>Razón</th><th>Boost</th><th>Patrocinador</th><th>Vigencia</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Target</th><th scope="col">Razón</th><th scope="col" class="num">Boost</th><th scope="col">Patrocinador</th><th scope="col">Vigencia</th><th scope="col"><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>
             <tr *ngFor="let d of directives()" [class.off]="!d.active">
               <td><span class="kind">{{ kindLabel(d.target_kind) }}</span> {{ d.target_name || '—' }}</td>
@@ -97,35 +97,40 @@ interface BrandOpt { id: string; nombre: string; products: number; }
     </div>
   `,
   styles: [`
-    .wrap { max-width: 980px; margin: 0 auto; padding: 1.25rem; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: var(--sp-5); }
     .head h1 { font-size: 1.4rem; font-weight: 800; margin: 0; }
     .head .thot { color: var(--action); font-weight: 700; }
-    .head p { color: var(--text-muted); font-size: 0.85rem; margin: 0.25rem 0 1rem; }
-    .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px); padding: 1rem 1.1rem; margin-bottom: 1rem; }
-    .card h2 { font-size: 1rem; font-weight: 700; margin: 0 0 0.75rem; }
-    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem 1rem; }
-    label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); position: relative; }
-    input, select { height: 2.5rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: 0 0.6rem; font-family: var(--font-body); font-size: 0.9rem; background: var(--surface-ground); color: var(--text-main); }
+    .head p { color: var(--text-muted); font-size: 0.85rem; margin: var(--sp-1) 0 var(--sp-4); }
+    .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-4); margin-bottom: var(--sp-4); }
+    .card h2 { font-size: 1rem; font-weight: 700; margin: 0 0 var(--sp-3); }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3) var(--sp-4); }
+    label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: 0.78rem; font-weight: 600; color: var(--text-muted); position: relative; }
+    input, select { height: var(--row-h-md); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: 0 var(--sp-2); font-family: var(--font-body); font-size: 0.9rem; background: var(--surface-ground); color: var(--text-main); }
+    input:focus-visible, select:focus-visible { outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
     label small { font-weight: 400; color: var(--text-faint); }
-    .dates { display: flex; align-items: center; gap: 0.4rem; }
-    .opts { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md,10px); max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-    .opt { display: flex; justify-content: space-between; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border-color); padding: 0.5rem 0.6rem; font-size: 0.85rem; color: var(--text-main); cursor: pointer; }
+    .dates { display: flex; align-items: center; gap: var(--sp-2); }
+    .opts { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); max-height: 220px; overflow-y: auto; box-shadow: var(--shadow-hover); }
+    .opt { display: flex; justify-content: space-between; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border-color); padding: var(--sp-2); font-size: 0.85rem; color: var(--text-main); cursor: pointer; }
+    .opt:hover { background: var(--surface-hover-bg); }
     .opt small { color: var(--text-faint); }
-    .picked { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill,999px); padding: 0.3rem 0.7rem; font-weight: 700; color: var(--brand-900); font-size: 0.85rem; }
+    .picked { display: inline-flex; align-items: center; gap: var(--sp-2); background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); font-weight: 700; color: var(--brand-900); font-size: 0.85rem; }
     .picked button { background: none; border: none; color: var(--text-muted); cursor: pointer; height: auto; padding: 0; }
-    .primary { margin-top: 0.9rem; height: 2.7rem; padding: 0 1.2rem; border: none; border-radius: var(--r-md,10px); background: var(--action); color: #fff; font-weight: 700; cursor: pointer; }
+    .primary { margin-top: var(--sp-4); height: 2.7rem; padding: 0 var(--sp-5); border: none; border-radius: var(--r-md); background: var(--action); color: var(--action-ink); font-weight: 700; cursor: pointer; }
+    .primary:hover:not(:disabled) { background: var(--action-hover); }
     .primary:disabled { opacity: 0.5; }
-    .err { margin-left: 0.75rem; color: var(--bad-fg); font-size: 0.8rem; }
+    .err { margin-left: var(--sp-3); color: var(--bad-fg); font-size: 0.8rem; }
     table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    th { text-align: left; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border-color); }
-    td { padding: 0.55rem 0.5rem; border-bottom: 1px solid var(--border-color); color: var(--text-main); }
+    th { text-align: left; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
+    td { padding: var(--sp-2); border-bottom: 1px solid var(--border-color); color: var(--text-main); }
     td.num, td.dt { font-family: var(--font-mono); }
+    td.dt { text-align: left; }
     tr.off { opacity: 0.5; }
-    .kind { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill,999px); padding: 0.05rem 0.4rem; color: var(--text-muted); }
-    .actions { display: flex; gap: 0.4rem; }
-    .actions button { background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-sm,8px); padding: 0.3rem 0.6rem; font-size: 0.76rem; font-weight: 600; cursor: pointer; color: var(--text-main); }
+    .kind { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill); padding: 0.05rem var(--sp-1); color: var(--text-muted); }
+    .actions { display: flex; gap: var(--sp-2); }
+    .actions button { background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: 0.76rem; font-weight: 600; cursor: pointer; color: var(--text-main); }
+    .actions button:hover { background: var(--surface-hover-bg); }
     .actions .del { color: var(--bad-fg); }
-    .empty { color: var(--text-muted); padding: 1rem 0; }
+    .empty { color: var(--text-muted); padding: var(--sp-4) 0; }
     @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

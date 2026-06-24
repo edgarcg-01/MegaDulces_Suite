@@ -172,14 +172,28 @@
         <h3><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Tiendas</h3>
       </div>
       <div class="surf-panel-body is-flush">
-        @if (canSeeLive()) {
+        @if (canSeeLive() || canSeeProspects()) {
           <div class="cm-maptools">
-            <app-map-legend [layers]="liveLegend()" (toggle)="toggleLive()"></app-map-legend>
+            <app-map-legend [layers]="mapToolsLegend()" (toggle)="onLayerToggle($event)"></app-map-legend>
+            @if (canManageProspects()) {
+              <button
+                pButton
+                type="button"
+                label="Buscar oportunidades aquí"
+                icon="pi pi-compass"
+                severity="secondary"
+                [text]="true"
+                size="small"
+                [loading]="ingesting()"
+                (click)="ingestHere()"
+                title="Cosecha PdV de INEGI DENUE alrededor de las tiendas visibles"
+              ></button>
+            }
           </div>
         }
         @if (loading()) {
           <p-skeleton height="560px"></p-skeleton>
-        } @else if (mapMarkers().length === 0 && !showLive()) {
+        } @else if (mapMarkers().length === 0 && !showLive() && !showProspects()) {
           <div class="cm-empty">Sin tiendas ubicables con los filtros actuales.</div>
         } @else {
           <app-map
@@ -471,4 +485,49 @@
       (click)="closeImagePreview()"
     />
   </div>
+</p-dialog>
+
+<!-- Tienda de oportunidad (prospecto DENUE) -->
+<p-dialog
+  [visible]="showProspectDialog()"
+  (visibleChange)="showProspectDialog.set($event)"
+  [modal]="true"
+  [appendTo]="'body'"
+  header="Tienda de oportunidad"
+  [style]="{ width: '92vw', maxWidth: '460px' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+>
+  @if (selectedProspect(); as p) {
+    <div class="cm-pr">
+      <div class="cm-pr-name">{{ p.nombre }}</div>
+      @if (p.razon_social && p.razon_social !== p.nombre) {
+        <div class="cm-pr-razon">{{ p.razon_social }}</div>
+      }
+      <div class="cm-pr-meta">
+        @if (p.tipo) { <span class="cm-vchip">{{ p.tipo }}</span> }
+        @if (p.estrato) { <span class="cm-pr-estrato">{{ p.estrato }}</span> }
+        @if (p.whitespace_score != null) {
+          <span class="cm-pr-score" title="Prioridad de oportunidad">Oportunidad {{ p.whitespace_score }}</span>
+        }
+      </div>
+      @if (p.direccion) { <div class="cm-pr-addr"><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;{{ p.direccion }}</div> }
+      @if (p.municipio || p.entidad) { <div class="cm-pr-addr">{{ p.municipio }}{{ p.municipio && p.entidad ? ', ' : '' }}{{ p.entidad }}</div> }
+      @if (p.nearest_customer_m != null) {
+        <div class="cm-muted">Cliente propio más cercano: {{ p.nearest_customer_m }} m</div>
+      }
+      <div class="cm-pr-contact">
+        @if (p.telefono) { <a [href]="'tel:' + p.telefono"><i class="pi pi-phone" aria-hidden="true"></i> {{ p.telefono }}</a> }
+        @if (p.email) { <a [href]="'mailto:' + p.email"><i class="pi pi-envelope" aria-hidden="true"></i> {{ p.email }}</a> }
+      </div>
+      @if (canManageProspects()) {
+        <div class="cm-pr-actions">
+          <button pButton type="button" label="Descartar" icon="pi pi-times" severity="secondary" [text]="true" size="small" (click)="dismissProspect(p)"></button>
+        </div>
+      }
+      <div class="cm-pr-attr">Fuente: INEGI · DENUE</div>
+    </div>
+  }
 </p-dialog>

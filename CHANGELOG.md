@@ -10,6 +10,41 @@
 
 ## [Unreleased]
 
+### Added — Tiendas de oportunidad: prospección con INEGI DENUE (Fase DENUE) (2026-06-24)
+- Nueva capa **"Tiendas de oportunidad"** en `dashboard/commercial-map`: descubre PdV reales (dulcerías,
+  abarrotes, minisúper) que **aún no son clientes** vía **INEGI DENUE** (dato abierto → almacenable con atribución).
+- Backend en `libs/trade/commercial-map`: `DenueClientService` (Buscar/BuscarAreaAct/Cuantificar/Ficha),
+  `ProspectsService` (ingesta + **dedup** JS por haversine + Dice-bigrams contra `stores` + `commercial.customers`
+  + whitespace score), `ProspectsController` (9 endpoints), cron nocturno de re-dedup. Tablas
+  `commercial.prospect_sources` + `prospect_stores` (RLS forzado). Permisos `COMMERCIAL_MAP_PROSPECTS_VER/_GESTIONAR`.
+- Frontend: capa aditiva reusando `MapLayer`/`MapLegend` (patrón "Personal en vivo") + dialog de prospecto +
+  botón "Buscar oportunidades aquí" (cosecha alrededor del centroide de tiendas visibles). ADR-025.
+- **Pendiente operacional**: aplicar 2 migraciones newdb + re-login + `DENUE_TOKEN` (registro gratuito INEGI).
+
+### Added — Salud del tracking en segundo plano + guía de ubicación (app Vendedor) (2026-06-24)
+- Cuando el GPS deja de registrarse con la pantalla bloqueada, el problema #1 es operativo (permiso de
+  ubicación que no es "todo el tiempo" + optimización de batería que mata el foreground service).
+- `RoutePingService` ahora expone `trackingHealth()` ('ok'|'web'|'permission'|'inactive'): captura el error
+  `NOT_AUTHORIZED` del watcher nativo y si el watcher quedó activo. `openSettings()` lleva a los ajustes de la app.
+- **Banner** en el shell del vendedor cuando el tracking está degradado + **guía de 3 pasos** (permiso "Permitir
+  todo el tiempo" / batería "Sin restricciones" / Autostart en Xiaomi-Huawei-Oppo-Vivo) + **onboarding one-time**.
+- Diagnóstico pendiente (test de la notificación con pantalla bloqueada) para decidir si hace falta el plugin
+  nativo de pago (`@transistorsoft/...`, HTTP nativo + heartbeat) — el actual es solo-por-movimiento y sube vía WebView.
+
+### Changed — Basemap Mapbox (tiles) en vez de OSM, theme-aware + switcher Satélite (2026-06-23)
+- El átomo de mapa compartido (`app-map`) ahora pinta con **tiles de Mapbox** (reusa el token del backend,
+  expuesto como `pk.` en `environment.ts`) en vez del tile server público de OSM (que no es apto para producción:
+  política de uso, sin SLA). **Una línea, un archivo** → las 4 superficies (live/rutas/comercial/field) lo heredan.
+- **Theme-aware con estilos propios "Mercado"** (Mapbox Studio): claro = "Streets", oscuro = "Dark 2D" según
+  el tema de la app (respeta DESIGN.md). Verificado end-to-end (tiles 200 image/png). Slots configurables.
+- **Switcher Mapa/Satélite** (`satellite-streets-v12`, útil para ver la fachada del PdV) + tiles **@2x retina**.
+- Centro inicial (cuando no hay datos que encuadrar) cambiado de Morelia → **La Piedad, Mich.** (`[20.2984, -101.9884]`),
+  ahora input `fallbackCenter`/`fallbackZoom` overridable por pantalla. Con datos, `fitBounds` lo pisa; en Mapa en Vivo,
+  seleccionar a una persona ya centra en su última posición (`panTo`).
+- Fallback a OSM si falta el token (no rompe dev). El basemap NO depende de la env de Railway (token en el bundle);
+  las capacidades de backend (ETA/optimize/matching) sí siguen necesitando `MAPBOX_TOKEN` en Railway.
+- Pendiente: restringir el token `pk.` por URL en el panel de Mapbox (Account → Tokens) para proteger la cuota.
+
 ### Fixed — Inteligencia comercial resurfaceada tras la fusión Mapa de Campo (2026-06-23)
 - La fusión MF.1 enterró el Mapa Comercial como 4ª pestaña ("Exhibición") y **rompió el acceso**: la ruta
   `field-map` solo pedía `RUTAS_VER`, así que un rol con **solo `COMMERCIAL_MAP_VER`** ya no podía llegar

@@ -750,6 +750,29 @@ Capas:
 
 ---
 
+## ADR-025 — INEGI DENUE como fuente primaria de prospección de PdV
+
+**Fecha:** 2026-06-24 · **Estado:** Aceptado
+
+**Contexto:** El mapa comercial solo muestra PdV ya registrados. Para descubrir "tiendas de oportunidad" (PdV reales que aún no son clientes) hace falta una fuente externa de POIs. Opciones para México: Mapbox Search, Google Places, OSM/Overpass, **INEGI DENUE**.
+
+**Decisión:** **DENUE como fuente primaria.** Razones: (1) mejor cobertura de tienditas mexicanas (directorio oficial con lat/lng + clase SCIAN), (2) gratis, (3) **dato abierto → almacenamiento permitido con atribución**, a diferencia de Mapbox/Google cuyos ToS prohíben persistir resultados. El dedup contra `stores` + `commercial.customers` se hace en **JS** (haversine + Dice bigrams) para no depender de extensiones Postgres (pg_trgm/earthdistance/PostGIS no garantizadas en prod).
+
+**Alternativas:**
+- Mapbox Search / Google Places — rechazadas como fuente persistente por ToS (no almacenamiento permanente).
+- OSM/Overpass — viable como fuente **secundaria** para huecos de DENUE (diferido).
+
+**Consecuencias:**
+- ✅ Aditivo: capa conmutable en el mapa, cero impacto en el flujo existente.
+- ✅ Cosecha infrecuente (DENUE se actualiza ~2×/año) + on-demand; dedup nocturno barato.
+- ⚠️ El valor real está en el **dedup** (sin él, el mapa se llena de "oportunidades" que ya son clientes).
+- ⚠️ Requiere `DENUE_TOKEN` (gratuito). Sin token, la capa funciona pero no cosecha.
+- ⚠️ Clustering de marcadores pendiente (crítico al cosechar municipios completos).
+
+**Plan:** [`FASES/FASE_DENUE_PROSPECCION.md`](FASES/FASE_DENUE_PROSPECCION.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

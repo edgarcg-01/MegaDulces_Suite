@@ -42,6 +42,8 @@ exports.seed = async function (knex) {
     VER_SEGUIMIENTO: true,
     RUTAS_VER: true,
     COMMERCIAL_MAP_VER: true,
+    COMMERCIAL_MAP_PROSPECTS_VER: true,
+    COMMERCIAL_MAP_PROSPECTS_GESTIONAR: true,
     // Fase B — Comercial
     COMMERCIAL_CUSTOMERS_VER: true,
     COMMERCIAL_CUSTOMERS_GESTIONAR: true,
@@ -121,6 +123,7 @@ exports.seed = async function (knex) {
         VER_SEGUIMIENTO: true,
         RUTAS_VER: true,
         COMMERCIAL_MAP_VER: true,
+        COMMERCIAL_MAP_PROSPECTS_VER: true,
         // Comercial: lectura completa + cancelar/fulfill pedidos del equipo
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_WAREHOUSES_VER: true,
@@ -159,6 +162,7 @@ exports.seed = async function (knex) {
         VER_SEGUIMIENTO: true,
         RUTAS_VER: true,
         COMMERCIAL_MAP_VER: true,
+        COMMERCIAL_MAP_PROSPECTS_VER: true,
         // Comercial: solo lectura (rol enfocado en marketing/análisis)
         // Promociones SÍ gestiona — marketing es quien las define.
         COMMERCIAL_CUSTOMERS_VER: true,

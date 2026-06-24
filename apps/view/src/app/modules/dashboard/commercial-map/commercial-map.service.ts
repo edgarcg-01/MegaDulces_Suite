@@ -126,6 +126,48 @@ export interface StoreTopProducts {
   items: StoreTopProduct[];
 }
 
+export type ProspectStatus = 'candidate' | 'covered' | 'dismissed' | 'converted';
+
+export interface Prospect {
+  id: string;
+  nombre: string;
+  razon_social: string | null;
+  scian: string | null;
+  estrato: string | null;
+  tipo: string | null;
+  lat: number | null;
+  lng: number | null;
+  direccion: string;
+  municipio: string | null;
+  entidad: string | null;
+  telefono: string | null;
+  email: string | null;
+  web: string | null;
+  status: ProspectStatus;
+  nearest_customer_m: number | null;
+  whitespace_score: number | null;
+}
+
+export interface ProspectListResponse {
+  total: number;
+  enabled: boolean;
+  prospects: Prospect[];
+}
+
+export interface ProspectFilters {
+  status?: ProspectStatus;
+  scian?: string;
+  min_score?: number;
+  limit?: number;
+}
+
+export interface IngestResult {
+  enabled: boolean;
+  fetched: number;
+  matched_scian?: number;
+  upserted: number;
+}
+
 /** Respuesta del matcher IA (Fase K) — solo los campos que usamos acá. */
 export interface AiMatchResponse {
   items: Array<{
@@ -199,5 +241,29 @@ export class CommercialMapService {
   /** Productos más frecuentes de la tienda (desde productosMarcados de sus capturas). */
   getStoreTopProducts(storeId: string): Observable<StoreTopProducts> {
     return this.http.get<StoreTopProducts>(`${this.base}/stores/${storeId}/top-products`);
+  }
+
+  // ── Prospección DENUE (tiendas de oportunidad) ───────────────────────────
+
+  listProspects(filters: ProspectFilters = {}): Observable<ProspectListResponse> {
+    let params = new HttpParams();
+    if (filters.status) params = params.set('status', filters.status);
+    if (filters.scian) params = params.set('scian', filters.scian);
+    if (filters.min_score != null) params = params.set('min_score', String(filters.min_score));
+    if (filters.limit != null) params = params.set('limit', String(filters.limit));
+    return this.http.get<ProspectListResponse>(`${this.base}/prospects`, { params });
+  }
+
+  /** Cosecha POIs DENUE a ≤radius de un punto (prospección en vivo) + dedup. */
+  ingestNearby(lat: number, lng: number, radius?: number): Observable<IngestResult> {
+    return this.http.post<IngestResult>(`${this.base}/prospects/ingest-nearby`, { lat, lng, radius });
+  }
+
+  dismissProspect(id: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/prospects/${id}/dismiss`, {});
+  }
+
+  convertProspect(id: string, customer_id?: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/prospects/${id}/convert`, { customer_id });
   }
 }

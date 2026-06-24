@@ -63,10 +63,13 @@
   --info-soft-fg: #1E40AF;
   --info-border:  #BFDBFE;
 
-  /* Charts — 8 series. Anchor brand-orange; brand-400 yellow no se usa (ilegible chico). */
+  /* Charts — secuencia categórica de 8 series (data-viz; el color codifica dato, no
+     decora — excepción confirmada a la regla monocromática, ver DESIGN.md). Orden por
+     máxima separación perceptual: usar 1→8 en ese orden para N series. Sin morado
+     (regla "mata morado" de DESIGN.md → chart-3 es verde). Cada uno tiene su par en dark. */
   --chart-1: #F68F1E; /* brand orange */
   --chart-2: #185FA5; /* corporate blue */
-  --chart-3: #9333EA; /* purple */
+  --chart-3: #2F855A; /* green (reemplaza el morado #9333EA) */
   --chart-4: #0EA5E9; /* cyan */
   --chart-5: #EC4899; /* pink */
   --chart-6: #14B8A6; /* teal */
@@ -98,9 +101,12 @@
 
   --border-color:  var(--neutral-200);
   --table-border:  var(--neutral-50);
-  --table-hover:   rgba(251, 249, 246, 0.5);
-  /* Zebra sutil (NN/g: 5-10%) para tablas largas. Sticky/frozen reusan --card-bg. */
-  --table-zebra:   color-mix(in srgb, var(--neutral-950) 3%, transparent);
+  /* Tinta base de los overlays interactivos (se voltea en dark). LIGHT = stone-950. */
+  --ink-rgb: 16, 13, 9;
+  /* Hover de tabla = overlay de rol (deriva de --ink-rgb, sirve en ambos modos). */
+  --table-hover:   var(--overlay-hover);
+  /* --table-zebra: deprecado (directiva no-zebra 2026-06-23) — sin consumidores. */
+  --table-zebra:   transparent;
 
   --text-main:     var(--neutral-950);
   --text-muted:    var(--neutral-600);
@@ -186,8 +192,9 @@ body.theme-monochrome {
 
   --border-color:  #2A2A2A;
   --table-border:  #222222;
-  --table-hover:   rgba(251, 249, 246, 0.06);
-  --table-zebra:   rgba(255, 255, 255, 0.035);
+  /* DARK: la tinta del overlay se vuelve clara → hover/active/selected recalculan solos. */
+  --ink-rgb: 251, 249, 246;
+  /* --table-hover y --table-zebra heredan del :root (derivan de --ink-rgb). */
 
   --text-main:     #FBF4E9;
   --text-muted:    #B0A595;
@@ -228,7 +235,7 @@ body.theme-monochrome {
 
   --chart-1: #FBA94E;
   --chart-2: #60A5FA;
-  --chart-3: #C084FC;
+  --chart-3: #5FBF8F; /* green dark (reemplaza el morado #C084FC) */
   --chart-4: #38BDF8;
   --chart-5: #F472B6;
   --chart-6: #2DD4BF;
@@ -289,6 +296,20 @@ body.theme-monochrome {
   --r-2xl:  24px;
   --r-pill: 999px;
 
+  /* Spacing — escala 4px (rem para respetar el zoom). Único origen de paddings/gaps/
+     margins de layout (Linear/Stripe/Geist usan grid de 4px). No usar rem sueltos
+     fuera de grid. Excepciones legítimas fuera de la escala: 1px (bordes/hairlines)
+     y micro-nudges <4px en chips/badges. La tipografía tiene su propia escala (--fs-*). */
+  --sp-1:  0.25rem; /*  4 */
+  --sp-2:  0.5rem;  /*  8 */
+  --sp-3:  0.75rem; /* 12 */
+  --sp-4:  1rem;    /* 16 */
+  --sp-5:  1.25rem; /* 20 */
+  --sp-6:  1.5rem;  /* 24 */
+  --sp-8:  2rem;    /* 32 */
+  --sp-10: 2.5rem;  /* 40 */
+  --sp-12: 3rem;    /* 48 */
+
   --ember-from:   #F8B400;
   --ember-to:     #F05A28;
   --ember-grad:   linear-gradient(135deg, #F8B400 0%, #F05A28 100%);
@@ -315,6 +336,41 @@ body.theme-monochrome {
   --row-h-lg: 48px;   /* cómodo: listas con info secundaria */
   --row-h-xl: 64px;   /* comfortable: Storefront lista / vendor */
   --row-h:    var(--row-h-md); /* default global */
+
+  /* ── INTERACCIÓN (Tier-2 de rol) — overlays por alpha sobre --ink-rgb.
+     Una sola definición sirve light+dark: la tinta se voltea en cada modo
+     (light=stone-950, dark=stone-50). Nunca inventar un hex de hover por componente:
+     referenciar estos roles o los tokens de componente de abajo. ── */
+  --overlay-hover:    rgba(var(--ink-rgb), 0.045);
+  --overlay-active:   rgba(var(--ink-rgb), 0.09);
+  --overlay-selected: rgba(var(--ink-rgb), 0.07);
+
+  /* ── COMPONENTE (Tier-3) — el valor exacto por elemento. Cambiar el look de un
+     componente = tocar SU token, sin efectos colaterales en el resto del sistema. ── */
+  --surface-hover-bg:        var(--overlay-hover);
+  --surface-active-bg:       var(--overlay-active);
+  --surface-selected-bg:     var(--overlay-selected);
+  --table-row-hover-bg:      var(--overlay-hover);
+  --table-row-selected-bg:   var(--overlay-selected);
+  --btn-primary-bg:          var(--action);
+  --btn-primary-bg-hover:    var(--action-hover);
+  --btn-primary-bg-press:    var(--action-press);
+  --btn-primary-ink:         var(--action-ink);
+
+  /* Tap target mínimo — fine pointer no fuerza mínimo (densidad ultra-compacta);
+     coarse lo sube a 44px (ver @media abajo). Ley de Fitts en touch (apps/vendor). */
+  --tap-min: 0px;
+}
+
+/* ── DENSIDAD POR MÉTODO DE ENTRADA (Polaris/Carbon) — la densidad la decide el
+   PUNTERO del dispositivo, no el surface. Touch (Capacitor/apps/vendor) sube las
+   filas y los hit areas a ≥44px para evitar fat-finger; mouse mantiene compacto. ── */
+@media (pointer: coarse) {
+  :root {
+    --row-h-sm: 44px;
+    --row-h-md: 48px;
+    --tap-min:  44px;
+  }
 }
 
 /* ── Portal B2B — overrides SCOPEADOS al subtree (.portal-shell / .pl-wrap).

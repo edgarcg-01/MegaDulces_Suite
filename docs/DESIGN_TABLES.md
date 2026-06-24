@@ -17,7 +17,7 @@
 | **Alineación** | Texto a la **izquierda** (incl. su header). Números **variables** (precio, %, cantidad) a la **derecha** con su header. IDs/códigos discretos (folios, puerto, SKU) van a la izquierda. | Carbon, UX Movement |
 | **Números** | Fuente **monoespaciada + `tabular-nums`** para que las columnas se alineen dígito a dígito y se puedan comparar de un vistazo. Misma cantidad de decimales por columna. | Carbon, NN/g |
 | **Header** | Títulos de **1–2 palabras**, sticky al hacer scroll vertical. Header `600`/uppercase sutil, ~11–12px, muteado. | Carbon, NN/g |
-| **Scanning** | Header congelado + **primera columna congelada** + bordes finos + **zebra sutil (5–10%)** + hover-highlight = el ojo no pierde la fila. | NN/g |
+| **Scanning** | Header congelado + **primera columna congelada** + **divisor inferior 1px fino** + hover-highlight = el ojo no pierde la fila. **SIN zebra** (directiva quiet-luxury 2026-06-23: el zebra striping se ve anticuado en una herramienta densa — Linear/Stripe/Vercel no lo usan). | Linear · Stripe · Vercel |
 | **Densidad** | Filas compactas por defecto con **toggle de densidad** (cómoda ↔ compacta). Solo subir altura si hay 2 líneas reales por celda. | Carbon |
 | **Selección masiva** | Checkbox por fila; al seleccionar ≥1, **sube una barra de acciones contextual** (no ocupa espacio si no hay selección). | Pencil&Paper, Stripe |
 | **Edición** | **Inline edit** para cambios de 1 campo (typo, cantidad, status) — mantiene contexto. Modal solo para edición rica. | Linear, Pencil&Paper |
@@ -39,7 +39,7 @@ Detalle de fuentes al final.
 ├─ HEADER (sticky) ─────────────────────────────────────────┤
 │ ☐ │ Producto ▲ │ SKU │ Marca │      Costo │  Disp. │  ···  │   ← th scope=col, sort+aria-sort
 ├─ BODY ────────────────────────────────────────────────────┤
-│ ☐ │ Paleta…    │ A12 │ Vero  │     $12.50 │    240 │  ⋯    │   ← zebra sutil + hover + row-click
+│ ☐ │ Paleta…    │ A12 │ Vero  │     $12.50 │    240 │  ⋯    │   ← divisor fino + hover + row-click (sin zebra)
 │ ☐ │ Bombón…    │ B07 │ Ricolino│   $ 8.00 │     12 │  ⋯    │
 │   │ (skeleton shimmer mientras carga · empty-state si 0)   │
 ├─ FOOTER ──────────────────────────────────────────────────┤
@@ -51,7 +51,7 @@ Detalle de fuentes al final.
 1. **Toolbar** — búsqueda (debounce 250ms), filtros (chips que muestran el filtro activo), densidad, export. Va en una `.sheet.cols-12 > .cell.is-flush` para coherencia con el resto.
 2. **Bulk-bar** — solo aparece con ≥1 fila seleccionada. Cuenta + acciones + cerrar.
 3. **Header** — sticky, `<th scope="col">`, sort con `aria-sort`, números alineados a la derecha.
-4. **Body** — filas con zebra sutil, hover, click→side-peek/detalle, inline-edit donde aplique.
+4. **Body** — filas con divisor fino + hover, click→side-peek/detalle, inline-edit donde aplique (sin zebra).
 5. **Footer** — rango + total + paginación + tamaño de página.
 
 ---
@@ -74,9 +74,9 @@ Estas son **vinculantes** (extienden las de `DESIGN.md §Operations`). En QA, ma
 - Subir a 2 líneas por celda **solo** cuando hay metadato real (nombre + barcode, nombre + código). Patrón: `comm-cell-strong` + `comm-muted is-small`.
 - (Backlog) **Toggle de densidad** cómoda/compacta a nivel de toolbar.
 
-### 2.3 Scanning: bordes, zebra, sticky, frozen
-- **Bordes finos** entre filas (`--table-border`), no boxes pesados.
-- **Zebra sutil** (5–10% tint) en tablas de **>10 filas o >6 columnas** → ayuda a seguir la fila. Bajo techo: que no compita con el hover ni con el row-tint semántico.
+### 2.3 Scanning: bordes, sticky, frozen (SIN zebra)
+- **Divisor inferior fino** (1px `--table-border`) en cada fila, no boxes pesados. Es lo que separa filas — basta para no perder el renglón (Linear/Stripe).
+- **NADA de zebra striping** (directiva 2026-06-23). El modificador `surf-table--zebra` quedó **neutralizado (no-op)**; no re-introducir filas con bg intercalado.
 - **Header sticky** obligatorio en tablas con scroll vertical.
 - **Primera columna congelada** en grids anchas (scroll horizontal) — la columna identificadora (nombre/folio) siempre visible.
 - **Hover** con tint (`--table-hover`) + **row-click** → side-peek/detalle (`comm-row-clickable` con `:focus-visible`).
@@ -166,7 +166,7 @@ De la auditoría (145 `p-table` en comercial/logística/dashboard + 4 raw tables
 | 4 | **Empty-state reimplementado** por módulo (`pp-/sh-/cc-`) | 🟡 Media | §3 |
 | 5 | **`comm-num` vs `.num`** (dos clases para lo mismo) | 🟡 Media | §2.1 |
 | 6 | **Sin selección + bulk-bar** | 🟡 Media | §4.3 |
-| 7 | **Sin zebra** en tablas largas | 🟡 Media | §2.3 |
+| 7 | ~~Sin zebra~~ **resuelto al revés**: directiva quiet-luxury elimina el zebra; basta divisor fino + hover | ✅ | §2.3 |
 | 8 | **Edición siempre por modal** (sin inline edit) | 🟢 Baja | §4.4 |
 | 9 | **`logistica-costs` page-size fijo 15** | 🟢 Baja | §2.5 |
 | 10 | **Raw tables sin `scope`/`caption`** (command-center) | 🟡 Media | §5 |
@@ -191,6 +191,8 @@ La táctica: **subir el piso en CSS compartido una vez** (sticky + frozen + zebr
 **Helpers que ya existen y se reusan:** `makeLazyLoad`, `makeDebouncedSearch` (`shared/util`), `PageTabsComponent`, `SidePeekComponent`. **Falta** un `<app-empty-state>` y (a evaluar) un wrapper `<app-table>` con schema de columnas — pero el wrapper es opcional: las utilidades CSS sobre `p-table`/`surf-table` cubren el 90% sin abstracción nueva.
 
 ### Estado de implementación
+
+> **⚠️ Nota 2026-06-23 (directiva quiet-luxury Linear/Stripe/Vercel):** se **eliminó el zebra striping** de todo el sistema. `surf-table--zebra` quedó **neutralizado (no-op)** en `styles.css` + se borró el zebra global de dark-mode. Las entradas de abajo que dicen "zebra" son históricas: la clase sigue en el markup pero **no pinta nada** — la separación de filas la dan el divisor fino 1px + hover. No hace falta editar los ~40 archivos. La directiva completa quedó en [`DESIGN.md`](../DESIGN.md).
 
 **T.1 — Fundamento CSS ✅ EN CÓDIGO 2026-06-23** (build verde). En `apps/view/src/styles.css` + tokens:
 - `surf-table` (antes era un no-op: se usaba en componentes pero no estaba definido) ahora aporta **modificadores opt-in** que se aplican vía `styleClass` de PrimeNG:
@@ -240,7 +242,7 @@ La táctica: **subir el piso en CSS compartido una vez** (sticky + frozen + zebr
 - [ ] Header **sticky** + `<th scope="col">`.
 - [ ] **1ª columna congelada** si la tabla scrollea horizontal.
 - [ ] Números en **`comm-num`** (mono + tabular + decimales constantes); texto a la izquierda.
-- [ ] **Zebra** si >10 filas / >6 columnas.
+- [ ] **Divisor inferior fino + hover** (NO zebra — directiva quiet-luxury).
 - [ ] **Sort** con flecha + `aria-sort` en columnas ordenables.
 - [ ] **Search** debounced + filtros como **signals** + chip de filtro activo.
 - [ ] Estados: **shimmer** al cargar · **empty distinto** (sin-datos vs sin-resultados) · error con reintento.

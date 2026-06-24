@@ -846,10 +846,7 @@ input:focus, textarea:focus, select:focus {
   background: var(--hover-bg) !important;
 }
 
-.theme-monochrome .p-datatable .p-datatable-tbody > tr:nth-child(even) {
-  background: var(--surface-ground) !important;
-}
-
+/* Sin zebra (directiva quiet luxury 2026-06-23): la separación la da el borde fino. */
 .theme-monochrome .p-datatable .p-datatable-tbody > tr > td {
   border-color: var(--border-color) !important;
 }
@@ -2804,13 +2801,11 @@ code.comm-code,
   background: var(--card-bg);
 }
 
-/* Zebra sutil para no perder la fila en tablas largas (NN/g 5-10%). */
-.surf-table--zebra tbody > tr:nth-child(even) > td {
-  background: var(--table-zebra);
-}
-/* Hover gana sobre zebra: debe ir DESPUÉS en el orden del archivo. */
-.surf-table--zebra tbody > tr:hover > td,
-.surf-table--frozen-first tbody > tr:hover > td {
+/* Filas estilo Linear/Stripe: divisor fino (1px, de PrimeNG) + hover sutil, SIN zebra.
+ * Directiva 2026-06-23 (quiet luxury): el zebra striping se ve anticuado en una
+ * herramienta densa. `surf-table--zebra` queda NEUTRALIZADO (no-op) — la separación
+ * de filas la dan el borde inferior fino y el hover. No re-introducir zebra. */
+.surf-table tbody > tr:hover > td {
   background: var(--table-hover);
 }
 
@@ -2828,10 +2823,7 @@ code.comm-code,
 .surf-table--frozen-first.surf-table--sticky thead > tr > th:first-child {
   z-index: 3;
 }
-/* Zebra en la columna congelada: opaca (mezcla zebra+card) para tapar lo que scrollea debajo. */
-.surf-table--frozen-first.surf-table--zebra tbody > tr:nth-child(even) > td:first-child {
-  background: color-mix(in srgb, var(--table-zebra), var(--card-bg));
-}
+/* Columna congelada en hover: opaca (mezcla hover+card) para tapar lo que scrollea debajo. */
 .surf-table--frozen-first tbody > tr:hover > td:first-child {
   background: color-mix(in srgb, var(--table-hover), var(--card-bg));
 }
@@ -2840,6 +2832,24 @@ code.comm-code,
 .surf-table--compact tbody > tr > td {
   padding-top: 0.3rem !important;
   padding-bottom: 0.3rem !important;
+}
+
+/* ── TOUCH (coarse pointer): hit areas ≥44px sin tocar componentes (Ley de Fitts,
+ * apps/vendor Capacitor). Solo afecta dispositivos táctiles; el desktop con mouse
+ * conserva la densidad ultra-compacta. La densidad de fila se sube vía padding y
+ * los botones de acción de fila ganan área mínima de toque. ── */
+@media (pointer: coarse) {
+  .p-datatable.p-datatable-sm .p-datatable-tbody > tr > td,
+  .surf-table tbody > tr > td {
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+  }
+  .comm-actions button,
+  .comm-actions .p-button,
+  [class*="icon-btn"] {
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
+  }
 }
 
 /* Alias canónico de celda numérica: .num == .comm-num (unifica
