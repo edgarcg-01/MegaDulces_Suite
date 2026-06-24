@@ -627,6 +627,85 @@
   border-bottom: 1px solid var(--border-color);
 }
 
+.cm-maptools-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+/* ── Penetración de mercado ────────────────────────────────────── */
+.cm-pen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.cm-pen-total {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.cm-pen-big {
+  font-size: 1.9rem;
+  font-weight: 800;
+  color: var(--action);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cm-pen-total-l {
+  font-size: 0.8rem;
+  color: var(--text-color-secondary);
+}
+.cm-pen-sec {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-color-secondary);
+  margin-top: 0.3rem;
+}
+.cm-pen-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.cm-pen-table th {
+  text-align: left;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-color-secondary);
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.cm-pen-table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-color);
+}
+.cm-pen-table td small {
+  color: var(--text-color-secondary);
+}
+.cm-pen-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cm-pen-enrich {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+.cm-pen-enrich-msg {
+  font-size: 0.74rem;
+  color: var(--ok-fg, #16a34a);
+}
+
 /* ── Prospecto DENUE (tienda de oportunidad) ───────────────────── */
 .cm-pr {
   display: flex;

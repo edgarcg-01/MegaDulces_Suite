@@ -26,6 +26,16 @@ Config sembrada para el tenant Mega Dulces: **entidad 16 (Michoacán)** + **geoc
 | DENUE.3 | Whitespace score (distancia al cliente más cercano + peso SCIAN) | ✅ EN CÓDIGO |
 | DENUE.4 | Capa "Tiendas de oportunidad" en el mapa (toggle MapLegend + dialog + cosecha) | ✅ EN CÓDIGO |
 | DENUE.5 | Ciclo de conversión + métricas de prospección | ⬜ TODO |
+| DENUE.6 | Inteligencia DENUE (opción A): penetración por SCIAN/municipio + densidad + enriquecimiento de clientes + score por estrato | ✅ EN CÓDIGO (builds verdes) |
+
+## Inteligencia DENUE (opción A — exprimir el token sin integrar nada nuevo)
+- **Penetración de mercado** `GET /prospects/penetration`: clientes (covered+converted) ÷ universo cosechado, por **giro SCIAN** y por **municipio** (= densidad por territorio). Suma el universo REAL de la entidad por SCIAN vía `Cuantificar`. Cero llamadas extra salvo los 3 Cuantificar.
+- **Enriquecimiento de clientes** `POST /prospects/enrich-customers`: reusa el `matched_customer_id` del dedup → copia teléfono/email de DENUE a `commercial.customers` SOLO si están vacíos (nunca sobrescribe). Cero llamadas extra a DENUE.
+- **Score por tamaño**: `whitespace_score` = distancia (0..50) + SCIAN (0..30) + `estrato`/tamaño del negocio (0..20).
+- Frontend: dialog "Penetración" (tablas por SCIAN y municipio + total) + botón "Enriquecer clientes" en el mapa.
+
+## Aplicado a PROD (2026-06-24)
+Verificado contra la DB de prod: las 2 migraciones corrieron en el deploy, tablas creadas, config Mega Dulces sembrada (entidad 16 / La Piedad / 100 km), permisos en superadmin·admin·supervisor. `Cuantificar` confirma **1,933 dulcerías en Michoacán**. Pendiente: `DENUE_TOKEN` en Railway + re-login → cosechar.
 
 ## Arquitectura
 - **Backend** en `libs/trade/src/lib/commercial-map/`: `denue-client.service.ts`, `prospects.service.ts`, `prospects.controller.ts`, `prospects-refresh.service.ts`. Conexión `KNEX_CONNECTION` (superuser) + `tenant_id` explícito, igual que `CommercialMapService` (el dedup cruza `stores` por search_path legacy + `commercial.customers`).

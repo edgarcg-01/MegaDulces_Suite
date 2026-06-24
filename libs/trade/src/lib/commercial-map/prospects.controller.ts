@@ -75,6 +75,20 @@ export class ProspectsController {
     return this.service.quantify(user);
   }
 
+  @Get('penetration')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_PROSPECTS_VER)
+  @ApiOperation({ summary: 'Penetración de mercado (clientes ÷ universo DENUE) por SCIAN y municipio' })
+  penetration(@ReqUser() user: any) {
+    return this.service.penetration(user);
+  }
+
+  @Post('enrich-customers')
+  @RequirePermissions(Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR)
+  @ApiOperation({ summary: 'Enriquece clientes (teléfono/email vacíos) desde su match DENUE' })
+  enrichCustomers(@ReqUser() user: any) {
+    return this.service.enrichCustomers(user);
+  }
+
   @Post('ingest-nearby')
   @RequirePermissions(Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR)
   @ApiOperation({ summary: 'Cosecha POIs DENUE a ≤radius de un punto + dedup' })

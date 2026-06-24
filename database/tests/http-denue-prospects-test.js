@@ -123,6 +123,19 @@ async function req(method, path, token, body) {
   check('dedup devuelve scanned/covered/candidate', dd.body && typeof dd.body.scanned === 'number', dd.body);
   console.log(`     scanned=${dd.body?.scanned} covered=${dd.body?.covered} candidate=${dd.body?.candidate}`);
 
+  console.log('\n── 7b. GET /prospects/penetration (clientes ÷ universo DENUE) ──');
+  const pen = await req('GET', '/commercial-map/prospects/penetration', token);
+  check('penetration 200', pen.status === 200, pen.status);
+  check('trae total + by_scian + by_municipio', pen.body && pen.body.total && Array.isArray(pen.body.by_scian) && Array.isArray(pen.body.by_municipio), Object.keys(pen.body || {}));
+  check('total.pct es número 0..100', typeof pen.body?.total?.pct === 'number' && pen.body.total.pct >= 0 && pen.body.total.pct <= 100, pen.body?.total);
+  console.log(`     penetración global=${pen.body?.total?.pct}% (${pen.body?.total?.mine}/${pen.body?.total?.universe}) · municipios=${pen.body?.by_municipio?.length}`);
+
+  console.log('\n── 7c. POST /prospects/enrich-customers (teléfono/email desde DENUE) ──');
+  const enr = await req('POST', '/commercial-map/prospects/enrich-customers', token, {});
+  check('enrich 200', enr.status === 200 || enr.status === 201, enr.status);
+  check('enrich devuelve candidates/filled_phone/filled_email', enr.body && typeof enr.body.candidates === 'number' && typeof enr.body.filled_phone === 'number', enr.body);
+  console.log(`     candidatos=${enr.body?.candidates} teléfonos=${enr.body?.filled_phone} emails=${enr.body?.filled_email}`);
+
   console.log('\n── 8. POST /prospects/:id/dismiss ──');
   if (prospects.length > 0) {
     const victim = prospects[0];

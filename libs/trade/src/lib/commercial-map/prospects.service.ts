@@ -262,7 +262,7 @@ export class ProspectsService {
       .whereIn('status', ['candidate', 'covered'])
       .whereNotNull('lat')
       .whereNotNull('lng')
-      .select('id', 'nombre', 'lat', 'lng', 'scian');
+      .select('id', 'nombre', 'lat', 'lng', 'scian', 'estrato');
 
     // Registros propios con coords (PdV auditados + clientes comerciales).
     const stores = await this.knex('stores')
@@ -318,6 +318,7 @@ export class ProspectsService {
         patch.whitespace_score = ProspectsService.whitespace(
           isFinite(nearestM) ? nearestM : null,
           p.scian,
+          p.estrato,
         );
       }
       await this.knex('commercial.prospect_stores').where({ id: p.id }).update(patch);
@@ -325,13 +326,28 @@ export class ProspectsService {
     return { scanned: prospects.length, covered, candidate, purged };
   }
 
-  /** Score 0..100: más lejos del cliente más cercano = más whitespace; dulcería pondera. */
-  private static whitespace(nearestM: number | null, scian: string | null): number {
+  /**
+   * Score 0..100 = distancia al cliente más cercano (0..50) + clase SCIAN
+   * (0..30: dulce>abarrote>otros) + tamaño del negocio por estrato (0..20).
+   * Más lejos + dulcería + más grande = más oportunidad.
+   */
+  private static whitespace(nearestM: number | null, scian: string | null, estrato?: string | null): number {
     const dist = nearestM == null ? 1500 : Math.min(nearestM, 3000);
-    const distPart = (dist / 3000) * 70; // 0..70
+    const distPart = (dist / 3000) * 50;
     const s = scian || '';
-    const scianPart = s.startsWith('461160') ? 30 : s.startsWith('461110') ? 20 : 10; // dulce > abarrote > otros
-    return Math.round(Math.min(100, distPart + scianPart) * 100) / 100;
+    const scianPart = s.startsWith('461160') ? 30 : s.startsWith('461110') ? 20 : 10;
+    const sizePart = ProspectsService.estratoWeight(estrato) * 20;
+    return Math.round(Math.min(100, distPart + scianPart + sizePart) * 100) / 100;
+  }
+
+  /** Peso 0..1 por tamaño del negocio (rango de personal ocupado de DENUE). */
+  private static estratoWeight(estrato?: string | null): number {
+    const s = (estrato || '').toLowerCase();
+    if (/251|101\s*a\s*250/.test(s)) return 1;
+    if (/51\s*a\s*100|31\s*a\s*50/.test(s)) return 0.8;
+    if (/11\s*a\s*30/.test(s)) return 0.6;
+    if (/6\s*a\s*10/.test(s)) return 0.45;
+    return 0.3; // 0 a 5 personas / desconocido
   }
 
   // ── Lectura para el mapa ────────────────────────────────────────────────────
@@ -412,6 +428,97 @@ export class ProspectsService {
       .update(patch);
     if (!n) throw new NotFoundException('Prospecto no encontrado.');
     return { ok: true };
+  }
+
+  // ── Inteligencia DENUE (penetración + densidad + enriquecimiento) ────────────
+
+  /**
+   * Penetración de mercado: cruza el universo DENUE (lo cosechado, ya geocercado)
+   * contra lo que YA es tuyo (covered+converted del dedup). Devuelve % por clase
+   * SCIAN y por municipio (= densidad de PdV por territorio). Cero llamadas extra
+   * salvo `Cuantificar` para el universo REAL de la entidad (contexto de cobertura).
+   */
+  async penetration(user: any) {
+    const tenantId = this.tenantId(user);
+    const cfg = await this.getConfig(user);
+    const rows = await this.knex('commercial.prospect_stores')
+      .where({ tenant_id: tenantId })
+      .whereIn('status', ['candidate', 'covered', 'converted'])
+      .select('scian', 'municipio', 'status');
+
+    const mineStatus = (s: string) => s === 'covered' || s === 'converted';
+    const agg = (keyFn: (r: any) => string) => {
+      const m = new Map<string, { universe: number; mine: number; candidates: number }>();
+      for (const r of rows) {
+        const k = keyFn(r) || '—';
+        let a = m.get(k);
+        if (!a) { a = { universe: 0, mine: 0, candidates: 0 }; m.set(k, a); }
+        a.universe++;
+        if (mineStatus(r.status)) a.mine++;
+        else a.candidates++;
+      }
+      return [...m.entries()]
+        .map(([key, a]) => ({ key, ...a, pct: a.universe ? Math.round((a.mine / a.universe) * 1000) / 10 : 0 }))
+        .sort((x, y) => y.universe - x.universe);
+    };
+
+    // Universo REAL de la entidad por SCIAN (Cuantificar; barato, no rate-limit).
+    const area = this.areaCode(cfg);
+    const denueTotals: Record<string, number> = {};
+    if (this.denue.enabled) {
+      for (const scian of this.scianCodes(cfg)) {
+        const t = await this.denue.cuantificar(scian, area);
+        if (t != null) denueTotals[scian] = t;
+      }
+    }
+
+    const total = { universe: rows.length, mine: rows.filter((r) => mineStatus(r.status)).length };
+    return {
+      total: {
+        ...total,
+        candidates: total.universe - total.mine,
+        pct: total.universe ? Math.round((total.mine / total.universe) * 1000) / 10 : 0,
+      },
+      by_scian: agg((r) => r.scian).map((x) => ({ scian: x.key, ...x, denue_entidad_total: denueTotals[x.key] ?? null })),
+      by_municipio: agg((r) => r.municipio),
+      denue_entidad_total: denueTotals,
+    };
+  }
+
+  /**
+   * Enriquece clientes existentes con datos de DENUE: para cada prospecto
+   * `covered` que el dedup ligó a un customer (matched_customer_id), copia el
+   * teléfono/email de DENUE al cliente SOLO si el campo está vacío (nunca
+   * sobrescribe). Reusa el match del dedup → cero llamadas extra a DENUE.
+   */
+  async enrichCustomers(user: any) {
+    const tenantId = this.tenantId(user);
+    const matched = await this.knex('commercial.prospect_stores')
+      .where({ tenant_id: tenantId, status: 'covered' })
+      .whereNotNull('matched_customer_id')
+      .select('matched_customer_id', 'telefono', 'email');
+
+    let filledPhone = 0;
+    let filledEmail = 0;
+    for (const m of matched) {
+      const set: any = {};
+      if (m.telefono) set.phone = m.telefono;
+      if (m.email) set.email = m.email;
+      if (!set.phone && !set.email) continue;
+      const cust = await this.knex('commercial.customers')
+        .where({ tenant_id: tenantId, id: m.matched_customer_id })
+        .first('id', 'phone', 'email');
+      if (!cust) continue;
+      const patch: any = {};
+      if (set.phone && !cust.phone) patch.phone = set.phone;
+      if (set.email && !cust.email) patch.email = set.email;
+      if (Object.keys(patch).length === 0) continue;
+      patch.updated_at = this.knex.fn.now();
+      await this.knex('commercial.customers').where({ tenant_id: tenantId, id: cust.id }).update(patch);
+      if (patch.phone) filledPhone++;
+      if (patch.email) filledEmail++;
+    }
+    return { candidates: matched.length, filled_phone: filledPhone, filled_email: filledEmail };
   }
 
   // ── Helpers de dedup ────────────────────────────────────────────────────────

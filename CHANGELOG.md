@@ -18,8 +18,16 @@
   + whitespace score), `ProspectsController` (9 endpoints), cron nocturno de re-dedup. Tablas
   `commercial.prospect_sources` + `prospect_stores` (RLS forzado). Permisos `COMMERCIAL_MAP_PROSPECTS_VER/_GESTIONAR`.
 - Frontend: capa aditiva reusando `MapLayer`/`MapLegend` (patrón "Personal en vivo") + dialog de prospecto +
-  botón "Buscar oportunidades aquí" (cosecha alrededor del centroide de tiendas visibles). ADR-025.
-- **Pendiente operacional**: aplicar 2 migraciones newdb + re-login + `DENUE_TOKEN` (registro gratuito INEGI).
+  botón "Cosechar oportunidades (DENUE)" (cosecha por área Michoacán, geocercada). ADR-025.
+- Scoping Mega Dulces: **Michoacán (entidad 16) + geocerca 100 km de La Piedad** (centro/radio en config,
+  triple filtro: ingesta `passesGeo` + purga en `dedup` + filtro SQL en `list`). Cosecha robusta vía
+  `BuscarAreaAct` (el endpoint `Buscar` lo rate-limitea INEGI por IP).
+- **Inteligencia DENUE (opción A)**: `GET /prospects/penetration` (clientes ÷ universo por SCIAN y municipio
+  + densidad por territorio + total real vía `Cuantificar`), `POST /prospects/enrich-customers` (completa
+  teléfono/email vacíos de clientes desde su match DENUE), y `whitespace_score` ahora pondera el tamaño del
+  negocio (`estrato`). Dialog "Penetración" + botón "Enriquecer clientes" en el mapa.
+- **Aplicado a PROD**: migraciones corrieron en el deploy (tablas + config Michoacán/La Piedad sembrada +
+  permisos en roles). Pendiente: `DENUE_TOKEN` en Railway + re-login para cosechar.
 
 ### Added — Salud del tracking en segundo plano + guía de ubicación (app Vendedor) (2026-06-24)
 - Cuando el GPS deja de registrarse con la pantalla bloqueada, el problema #1 es operativo (permiso de

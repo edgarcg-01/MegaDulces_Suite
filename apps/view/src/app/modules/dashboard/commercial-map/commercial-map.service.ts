@@ -168,6 +168,28 @@ export interface IngestResult {
   upserted: number;
 }
 
+export interface PenetrationRow {
+  key: string;
+  scian?: string;
+  universe: number;
+  mine: number;
+  candidates: number;
+  pct: number;
+  denue_entidad_total?: number | null;
+}
+
+export interface PenetrationResponse {
+  total: { universe: number; mine: number; candidates: number; pct: number };
+  by_scian: PenetrationRow[];
+  by_municipio: PenetrationRow[];
+}
+
+export interface EnrichResult {
+  candidates: number;
+  filled_phone: number;
+  filled_email: number;
+}
+
 /** Respuesta del matcher IA (Fase K) — solo los campos que usamos acá. */
 export interface AiMatchResponse {
   items: Array<{
@@ -270,5 +292,15 @@ export class CommercialMapService {
 
   convertProspect(id: string, customer_id?: string): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`${this.base}/prospects/${id}/convert`, { customer_id });
+  }
+
+  /** Penetración de mercado (clientes ÷ universo DENUE) por SCIAN y municipio. */
+  getPenetration(): Observable<PenetrationResponse> {
+    return this.http.get<PenetrationResponse>(`${this.base}/prospects/penetration`);
+  }
+
+  /** Enriquece clientes (teléfono/email vacíos) desde su match DENUE. */
+  enrichCustomers(): Observable<EnrichResult> {
+    return this.http.post<EnrichResult>(`${this.base}/prospects/enrich-customers`, {});
   }
 }

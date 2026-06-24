@@ -175,20 +175,35 @@
         @if (canSeeLive() || canSeeProspects()) {
           <div class="cm-maptools">
             <app-map-legend [layers]="mapToolsLegend()" (toggle)="onLayerToggle($event)"></app-map-legend>
-            @if (canManageProspects()) {
-              <button
-                pButton
-                type="button"
-                label="Cosechar oportunidades (DENUE)"
-                icon="pi pi-compass"
-                severity="secondary"
-                [text]="true"
-                size="small"
-                [loading]="ingesting()"
-                (click)="ingestHere()"
-                title="Cosecha PdV de INEGI DENUE en el área configurada (puede tardar)"
-              ></button>
-            }
+            <span class="cm-maptools-actions">
+              @if (canSeeProspects()) {
+                <button
+                  pButton
+                  type="button"
+                  label="Penetración"
+                  icon="pi pi-chart-pie"
+                  severity="secondary"
+                  [text]="true"
+                  size="small"
+                  (click)="openPenetration()"
+                  title="Penetración de mercado: clientes vs universo INEGI DENUE"
+                ></button>
+              }
+              @if (canManageProspects()) {
+                <button
+                  pButton
+                  type="button"
+                  label="Cosechar oportunidades (DENUE)"
+                  icon="pi pi-compass"
+                  severity="secondary"
+                  [text]="true"
+                  size="small"
+                  [loading]="ingesting()"
+                  (click)="ingestHere()"
+                  title="Cosecha PdV de INEGI DENUE en el área configurada (puede tardar)"
+                ></button>
+              }
+            </span>
           </div>
         }
         @if (loading()) {
@@ -529,5 +544,88 @@
       }
       <div class="cm-pr-attr">Fuente: INEGI · DENUE</div>
     </div>
+  }
+</p-dialog>
+
+<!-- Penetración de mercado (clientes ÷ universo DENUE) -->
+<p-dialog
+  [visible]="showPenetrationDialog()"
+  (visibleChange)="showPenetrationDialog.set($event)"
+  [modal]="true"
+  [appendTo]="'body'"
+  header="Penetración de mercado · INEGI DENUE"
+  [style]="{ width: '94vw', maxWidth: '720px', maxHeight: '90vh' }"
+  [breakpoints]="{ '640px': '100vw' }"
+  [draggable]="false"
+  [resizable]="false"
+  [dismissableMask]="true"
+>
+  @if (loadingPenetration()) {
+    <p-skeleton height="220px"></p-skeleton>
+  } @else if (penetration()) {
+    @if (penetration(); as pen) {
+    <div class="cm-pen">
+      <div class="cm-pen-total">
+        <div class="cm-pen-big">{{ pen.total.pct }}%</div>
+        <div class="cm-pen-total-l">
+          penetración global · <b>{{ pen.total.mine }}</b> tuyas de <b>{{ pen.total.universe }}</b> PdV ·
+          <b style="color: var(--action)">{{ pen.total.candidates }}</b> de oportunidad
+        </div>
+      </div>
+
+      <div class="cm-pen-sec">Por giro (SCIAN)</div>
+      <table class="cm-pen-table">
+        <thead><tr><th>SCIAN</th><th>Universo</th><th>Tuyas</th><th>Oportunidad</th><th>Penetración</th></tr></thead>
+        <tbody>
+          @for (r of pen.by_scian; track r.scian) {
+            <tr>
+              <td>{{ r.scian }}@if (r.denue_entidad_total != null) { <small> · {{ r.denue_entidad_total }} en el estado</small> }</td>
+              <td class="num">{{ r.universe }}</td>
+              <td class="num">{{ r.mine }}</td>
+              <td class="num" style="color: var(--action)">{{ r.candidates }}</td>
+              <td class="num"><b>{{ r.pct }}%</b></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+
+      <div class="cm-pen-sec">Por municipio (densidad)</div>
+      <table class="cm-pen-table">
+        <thead><tr><th>Municipio</th><th>Universo</th><th>Tuyas</th><th>Oportunidad</th><th>Pen.</th></tr></thead>
+        <tbody>
+          @for (r of pen.by_municipio; track r.key) {
+            <tr>
+              <td>{{ r.key }}</td>
+              <td class="num">{{ r.universe }}</td>
+              <td class="num">{{ r.mine }}</td>
+              <td class="num" style="color: var(--action)">{{ r.candidates }}</td>
+              <td class="num"><b>{{ r.pct }}%</b></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+
+      @if (canManageProspects()) {
+        <div class="cm-pen-enrich">
+          <button
+            pButton
+            type="button"
+            label="Enriquecer clientes con DENUE"
+            icon="pi pi-sparkles"
+            severity="secondary"
+            [text]="true"
+            size="small"
+            [loading]="enriching()"
+            (click)="enrichCustomers()"
+            title="Completa teléfono/email vacíos de tus clientes desde su registro DENUE"
+          ></button>
+          @if (enrichMsg()) { <span class="cm-pen-enrich-msg">{{ enrichMsg() }}</span> }
+        </div>
+      }
+      <div class="cm-pr-attr">Universo = lo cosechado dentro de la geocerca · Fuente: INEGI · DENUE</div>
+    </div>
+    }
+  } @else {
+    <div class="cm-empty">Sin datos. Cosechá oportunidades primero para calcular la penetración.</div>
   }
 </p-dialog>

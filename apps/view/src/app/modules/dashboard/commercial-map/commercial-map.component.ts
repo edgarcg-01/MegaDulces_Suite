@@ -20,6 +20,7 @@ import {
   HistoryVisit,
   MapStore,
   Presence,
+  PenetrationResponse,
   Prospect,
   ProductOption,
   ProductPresence,
@@ -316,6 +317,50 @@ export class CommercialMapComponent implements OnInit, OnDestroy {
       error: (err) => {
         this.ingesting.set(false);
         this.error.set(err?.error?.message || 'No se pudo cosechar de DENUE.');
+      },
+    });
+  }
+
+  // ── Inteligencia DENUE: penetración + enriquecimiento ──────────────────────
+  readonly penetration = signal<PenetrationResponse | null>(null);
+  readonly loadingPenetration = signal(false);
+  readonly showPenetrationDialog = signal(false);
+  readonly enriching = signal(false);
+  readonly enrichMsg = signal<string | null>(null);
+
+  openPenetration(): void {
+    this.showPenetrationDialog.set(true);
+    this.enrichMsg.set(null);
+    if (this.penetration()) return;
+    this.loadingPenetration.set(true);
+    this.service.getPenetration().subscribe({
+      next: (res) => {
+        this.penetration.set(res);
+        this.loadingPenetration.set(false);
+      },
+      error: () => this.loadingPenetration.set(false),
+    });
+  }
+
+  refreshPenetration(): void {
+    this.penetration.set(null);
+    this.openPenetration();
+  }
+
+  enrichCustomers(): void {
+    if (!this.canManageProspects() || this.enriching()) return;
+    this.enriching.set(true);
+    this.enrichMsg.set(null);
+    this.service.enrichCustomers().subscribe({
+      next: (r) => {
+        this.enriching.set(false);
+        this.enrichMsg.set(
+          `Clientes enriquecidos: ${r.filled_phone} teléfono(s), ${r.filled_email} email(s) (de ${r.candidates} con match DENUE).`,
+        );
+      },
+      error: (err) => {
+        this.enriching.set(false);
+        this.enrichMsg.set(err?.error?.message || 'No se pudo enriquecer clientes.');
       },
     });
   }
