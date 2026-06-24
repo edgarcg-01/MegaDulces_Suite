@@ -147,11 +147,14 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
 
       <!-- Paso 2: revisar + guardar -->
       <div *ngIf="step() === 'review'" class="crt-review">
-        <div class="crt-review-head">
-          <span class="crt-type-chip" [attr.data-type]="selectedType()">
-            <i class="pi {{ meta[selectedType()!].icon }}" aria-hidden="true"></i>{{ meta[selectedType()!].label }}
-          </span>
-          <button type="button" class="crt-change" (click)="reset()">
+        <!-- Identificador GRANDE del tipo: a color, imposible de confundir -->
+        <div class="crt-type-hero" [attr.data-type]="selectedType()" role="status">
+          <span class="cth-icon"><i class="pi {{ meta[selectedType()!].icon }}" aria-hidden="true"></i></span>
+          <div class="cth-text">
+            <span class="cth-eyebrow">Estás subiendo</span>
+            <span class="cth-label">{{ meta[selectedType()!].label }}</span>
+          </div>
+          <button type="button" class="crt-change" (click)="reset()" aria-label="Cambiar tipo de ticket">
             <i class="pi pi-times" aria-hidden="true"></i> Cambiar
           </button>
         </div>
@@ -174,8 +177,10 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
           </div>
 
           <div class="crt-field">
-            <span class="crt-field-label">Fecha</span>
-            <div class="crt-ro" [class.empty]="!form.ticket_date">{{ fmtDate(form.ticket_date) }}</div>
+            <span class="crt-field-label">Fecha y hora</span>
+            <div class="crt-ro" [class.empty]="!form.ticket_date">
+              {{ fmtDate(form.ticket_date) }}<ng-container *ngIf="form.ticket_time"> · {{ form.ticket_time }}</ng-container>
+            </div>
           </div>
 
           <div class="crt-field">
@@ -224,7 +229,11 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
           Los datos se leen del ticket y no son editables. Si algo está mal, vuelve a tomar la foto.
         </p>
 
-        <p class="crt-warn" *ngIf="!canSave()">
+        <p class="crt-warn" *ngIf="folioInUse()">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          El folio <b>{{ form.folio }}</b> ya fue registrado antes — no se puede reusar. Verificá que sea el ticket correcto.
+        </p>
+        <p class="crt-warn" *ngIf="!folioInUse() && !canSave()">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           No se pudo leer la ruta o la fecha del ticket. Vuelve a tomar la foto.
         </p>
@@ -405,6 +414,28 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-type-chip[data-type='venta'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
       .crt-type-chip[data-type='carga'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
       .crt-type-chip[data-type='combustible'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+
+      /* Hero de tipo (review): grande, a color, imposible de confundir */
+      .crt-type-hero {
+        display: flex; align-items: center; gap: 0.875rem; margin-bottom: 1.25rem;
+        padding: 0.875rem 1rem; border-radius: 1.125rem;
+        border: 1.5px solid transparent;
+      }
+      .crt-type-hero .cth-icon {
+        display: grid; place-items: center; width: 3.25rem; height: 3.25rem;
+        border-radius: 1rem; font-size: 1.6rem; flex-shrink: 0;
+      }
+      .crt-type-hero .cth-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; }
+      .crt-type-hero .cth-eyebrow { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; }
+      .crt-type-hero .cth-label { font-size: 1.5rem; font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
+      .crt-type-hero .crt-change { flex-shrink: 0; align-self: flex-start; }
+      .crt-type-hero[data-type='venta'] { background: var(--ok-soft-bg); border-color: var(--ok-fg); color: var(--ok-soft-fg); }
+      .crt-type-hero[data-type='venta'] .cth-icon { background: var(--ok-fg); color: #fff; }
+      .crt-type-hero[data-type='carga'] { background: var(--info-soft-bg); border-color: var(--info-fg); color: var(--info-soft-fg); }
+      .crt-type-hero[data-type='carga'] .cth-icon { background: var(--info-fg); color: #fff; }
+      .crt-type-hero[data-type='combustible'] { background: var(--warn-soft-bg); border-color: var(--warn-fg); color: var(--warn-soft-fg); }
+      .crt-type-hero[data-type='combustible'] .cth-icon { background: var(--warn-fg); color: #fff; }
+
       .crt-change { display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card-bg); border: 1px solid var(--border-color); cursor: pointer; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); padding: 0.4rem 0.75rem; border-radius: 999px; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s; }
       .crt-change:hover { background: var(--hover-bg); color: var(--text-main); border-color: var(--text-faint); }
       .crt-change:active { transform: scale(0.95); }
@@ -572,6 +603,8 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   readonly ocrError = signal(false);
   /** Detalle técnico del fallo (status + mensaje) — visible para diagnosticar sin logs. */
   readonly ocrErrorDetail = signal<string | null>(null);
+  /** Carga: el folio detectado ya existe (no reusable) → bloquea el guardado. */
+  readonly folioInUse = signal(false);
   private retryFile: File | null = null;
   readonly cargaLines = signal<EditableCargaLine[]>([]); // productos detectados en carga
   // Ruta resuelta por el backend (el usuario NO la edita). Sin match → no se guarda.
@@ -596,6 +629,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   form: {
     route_code: string;
     ticket_date: string;
+    ticket_time: string | null;
     total: number | null;
     corte_number: string | null;
     reference: string | null;
@@ -631,6 +665,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     this.selectedType.set(t);
     this.ocrError.set(false);
     this.ocrErrorDetail.set(null);
+    this.folioInUse.set(false);
     // dispara el file picker (#fileInput en el template)
     queueMicrotask(() => this.fileInput?.nativeElement.click());
   }
@@ -719,6 +754,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           this.form = {
             route_code: res.fields.route_code ?? '',
             ticket_date: res.fields.ticket_date ?? this.today(),
+            ticket_time: res.fields.ticket_time ?? null,
             total: res.fields.total,
             corte_number: res.fields.corte_number,
             reference: res.fields.reference,
@@ -728,6 +764,8 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           // Ruta resuelta por el backend contra el catálogo de su zona.
           this.routeMatched.set(!!res.route_matched);
           this.routeValue.set(res.route_value ?? null);
+          // Folio ya usado (carga, no reusable) → bloquea el guardado.
+          this.folioInUse.set(!!res.folio_in_use);
           // carga: precargar productos detectados (solo los matcheados).
           this.cargaLines.set(
             (res.lines ?? [])
@@ -765,8 +803,9 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   }
 
   canSave(): boolean {
-    // La ruta debe haber matcheado una ruta real de su zona (no editable).
-    return this.routeMatched() && !!this.form.ticket_date;
+    // La ruta debe matchear una ruta real de su zona (no editable) y, en carga,
+    // el folio no puede estar ya usado (no reusable).
+    return this.routeMatched() && !!this.form.ticket_date && !this.folioInUse();
   }
 
   save(): void {
@@ -784,6 +823,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
         ticket_type: type,
         route_code: this.form.route_code.trim(),
         ticket_date: this.form.ticket_date,
+        ticket_time: this.form.ticket_time,
         total: this.form.total,
         corte_number: type === 'venta' ? this.form.corte_number : null,
         reference: type === 'combustible' ? this.form.reference : null,
@@ -834,6 +874,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     this.retryFile = null;
     this.ocrError.set(false);
     this.ocrErrorDetail.set(null);
+    this.folioInUse.set(false);
     this.cargaLines.set([]);
     this.routeMatched.set(false);
     this.routeValue.set(null);
@@ -919,6 +960,6 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     return `${d.getFullYear()}-${mm}-${dd}`;
   }
   private emptyForm() {
-    return { route_code: '', ticket_date: this.today(), total: null, corte_number: null, reference: null, liters: null, folio: null };
+    return { route_code: '', ticket_date: this.today(), ticket_time: null, total: null, corte_number: null, reference: null, liters: null, folio: null };
   }
 }

@@ -195,6 +195,7 @@ export type RouteTicketType = 'venta' | 'carga' | 'combustible';
 export interface RouteTicketFields {
   route_code: string | null;
   ticket_date: string | null;
+  ticket_time: string | null; // hora impresa HH:MM
   total: number | null;
   corte_number: string | null;
   reference: string | null;
@@ -220,6 +221,8 @@ export interface ProcesarRouteTicketResult {
   /** Resolución de la ruta detectada contra el catálogo de la zona del vendedor. */
   route_matched: boolean;
   route_value: string | null; // nombre canónico, ej. "RUTA 321"
+  /** Solo carga: el folio ya existe en el historial (no reusable) → bloquea guardado. */
+  folio_in_use?: boolean;
   lines?: RouteTicketLinePreview[]; // solo carga
 }
 
@@ -696,6 +699,7 @@ export class VendorService {
     ticket_type: RouteTicketType;
     route_code: string;
     ticket_date: string;
+    ticket_time?: string | null;
     total?: number | null;
     corte_number?: string | null;
     reference?: string | null;

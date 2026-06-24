@@ -21,6 +21,7 @@ export interface ProcesarRouteTicketResult {
   fields: {
     route_code: string | null;
     ticket_date: string | null;
+    ticket_time: string | null; // hora impresa HH:MM
     total: number | null;
     corte_number: string | null;
     reference: string | null;
@@ -36,6 +37,11 @@ export interface ProcesarRouteTicketResult {
   route_value: string | null; // nombre canónico, ej. "RUTA 321"
   /** Solo en carga: productos detectados para descargar al camión. */
   lines?: RouteTicketLinePreview[];
+  /**
+   * Solo carga: el folio detectado YA existe en el historial del tenant (no
+   * reusable). El front avisa y bloquea el guardado para no perder el viaje.
+   */
+  folio_in_use?: boolean;
 }
 
 /** Payload de guardado (tras revisión del vendedor). */
@@ -43,6 +49,7 @@ export interface GuardarRouteTicketDto {
   ticket_type: RouteTicketType;
   route_code: string;
   ticket_date: string; // ISO YYYY-MM-DD
+  ticket_time?: string | null; // hora impresa HH:MM
   total?: number | null;
   corte_number?: string | null;
   reference?: string | null;
@@ -60,6 +67,7 @@ export interface GuardarRouteTicketDto {
 export interface UpdateRouteTicketDto {
   route_code?: string;
   ticket_date?: string;
+  ticket_time?: string | null;
   total?: number | null;
   corte_number?: string | null;
   reference?: string | null;

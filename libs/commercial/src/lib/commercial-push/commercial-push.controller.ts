@@ -1,10 +1,18 @@
-import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Public, TenantContextService } from '@megadulces/platform-core';
+import {
+  Public,
+  TenantContextService,
+  RolesGuard,
+  RequireAuthGuard,
+  RequirePermissions,
+  Permission,
+} from '@megadulces/platform-core';
 import {
   CommercialPushService,
   PushSubscriptionDto,
 } from './commercial-push.service';
+import { RouteTicketReminderService } from './route-ticket-reminder.service';
 
 @ApiTags('push')
 @Controller('push')
@@ -12,6 +20,7 @@ export class CommercialPushController {
   constructor(
     private readonly push: CommercialPushService,
     private readonly tenantCtx: TenantContextService,
+    private readonly reminders: RouteTicketReminderService,
   ) {}
 
   /** Clave pública VAPID para que el cliente se suscriba. Público. */
@@ -58,5 +67,15 @@ export class CommercialPushController {
       url: '/portal/home',
       tag: 'test',
     });
+  }
+
+  /** Dispara manualmente el recordatorio de cierre de ruta (pruebas/operación). */
+  @ApiBearerAuth()
+  @UseGuards(RequireAuthGuard, RolesGuard)
+  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @Post('ticket-reminders/run')
+  @ApiOperation({ summary: 'Corre el recordatorio de cierre de ruta ahora (push a vendedores pendientes)' })
+  runTicketReminders() {
+    return this.reminders.run();
   }
 }

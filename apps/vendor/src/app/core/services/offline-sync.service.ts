@@ -1162,6 +1162,7 @@ export class OfflineSyncService {
               ticket_type: t.ticketType,
               route_code: (fields.route_code ?? '').toString().trim(),
               ticket_date: ticketDate,
+              ticket_time: fields.ticket_time ?? null,
               total: fields.total ?? null,
               corte_number: t.ticketType === 'venta' ? fields.corte_number ?? null : null,
               reference: t.ticketType === 'combustible' ? fields.reference ?? null : null,

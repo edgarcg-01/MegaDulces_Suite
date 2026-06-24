@@ -125,14 +125,20 @@ export class CommercialRouteControlService {
     // las rutas reales de SU zona. Si no matchea, el front bloquea el guardado.
     const resolved = await this.resolveZoneRoute(fields.route_code);
 
+    // Folio normalizado + aviso temprano si ya existe (carga): el front bloquea
+    // el guardado para no perder el viaje con un folio no reusable.
+    const folio = ticketType === 'carga' ? this.normFolio(fields.folio) : fields.folio;
+    const folioInUse = ticketType === 'carga' ? await this.folioInUse(folio) : false;
+
     return {
       ticket_type: ticketType,
       cloudinary_public_id: uploaded.public_id,
       photo_url: uploaded.secure_url,
       photo_preview_url: uploaded.secure_url,
-      fields: { ...fields, route_code: resolved.code ?? fields.route_code },
+      fields: { ...fields, route_code: resolved.code ?? fields.route_code, folio },
       route_matched: resolved.matched,
       route_value: resolved.value,
+      folio_in_use: folioInUse,
       lines,
     };
   }
@@ -143,6 +149,31 @@ export class CommercialRouteControlService {
    * parent_id = zona del vendedor, o sin zona). Match por NÚMERO ("RUTA 21" ⇆ 21).
    * Devuelve el código canónico (número) + el nombre ("RUTA 21") o matched=false.
    */
+  /** Canónico del folio: UPPER, sin espacios. null si vacío. El folio no se reusa
+   *  nunca, así que normalizamos para que variantes del OCR colisionen. */
+  private normFolio(raw: string | null | undefined): string | null {
+    const v = String(raw ?? '').toUpperCase().replace(/\s+/g, '').trim();
+    return v || null;
+  }
+
+  /** Hora del ticket a HH:MM (24h) válida para columna TIME. null si no parsea. */
+  private normTime(raw: string | null | undefined): string | null {
+    const m = String(raw ?? '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (!m) return null;
+    const h = parseInt(m[1], 10);
+    if (h > 23) return null;
+    return `${String(h).padStart(2, '0')}:${m[2]}`;
+  }
+
+  /** ¿El folio (normalizado) ya existe en el historial del tenant? (incl. borrados). */
+  private async folioInUse(folio: string | null): Promise<boolean> {
+    if (!folio) return false;
+    return this.tk.run(async (trx) => {
+      const row = await trx('commercial.route_tickets').where({ folio }).first('id');
+      return !!row;
+    });
+  }
+
   private async resolveZoneRoute(
     raw: string | null | undefined,
   ): Promise<{ matched: boolean; code: string | null; value: string | null }> {
@@ -189,7 +220,8 @@ export class CommercialRouteControlService {
     const corte = dto.ticket_type === 'venta' ? dto.corte_number?.trim() || null : null;
     const reference = dto.ticket_type === 'combustible' ? dto.reference?.trim() || null : null;
     const liters = dto.ticket_type === 'combustible' ? dto.liters ?? null : null;
-    const folio = dto.ticket_type === 'carga' ? dto.folio?.trim() || null : null;
+    // Folio normalizado (UPPER, sin espacios): el folio NO se reusa nunca.
+    const folio = dto.ticket_type === 'carga' ? this.normFolio(dto.folio) : null;
 
     return this.tk.run(async (trx) => {
       const userId = this.requireUserId();
@@ -210,11 +242,12 @@ export class CommercialRouteControlService {
         if (dup) throw new ConflictException(`Ya existe un ticket con referencia ${reference}`);
       }
       if (folio) {
+        // Folio "quemado para siempre": chequea TODO el historial (incl. borrados),
+        // no solo los vivos. El índice parcial sin filtro deleted_at es el backstop.
         const dup = await trx('commercial.route_tickets')
           .where({ folio })
-          .whereNull('deleted_at')
           .first();
-        if (dup) throw new ConflictException(`Ya existe una carga con folio ${folio}`);
+        if (dup) throw new ConflictException(`El folio ${folio} ya fue registrado y no se puede reusar.`);
       }
 
       let row;
@@ -226,6 +259,7 @@ export class CommercialRouteControlService {
             ticket_type: dto.ticket_type,
             route_code: canonicalRouteCode,
             ticket_date: dto.ticket_date,
+            ticket_time: this.normTime(dto.ticket_time),
             total: dto.total ?? null,
             corte_number: corte,
             reference,
@@ -242,7 +276,7 @@ export class CommercialRouteControlService {
           .returning('*');
       } catch (e: any) {
         if (e?.code === '23505')
-          throw new ConflictException('Ticket duplicado (corte o referencia ya registrados)');
+          throw new ConflictException('Ticket duplicado: el corte, referencia o folio ya fue registrado.');
         throw e;
       }
 
@@ -402,6 +436,7 @@ export class CommercialRouteControlService {
       for (const k of ['route_code', 'ticket_date', 'total', 'corte_number', 'reference', 'liters'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
+      if (dto.ticket_time !== undefined) patch['ticket_time'] = this.normTime(dto.ticket_time);
       const [row] = await trx('commercial.route_tickets')
         .where({ id, vendor_user_id: userId })
         .whereNull('deleted_at')

@@ -4,6 +4,7 @@ import { SwUpdate, UnrecoverableStateEvent, VersionReadyEvent } from '@angular/s
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
 import { ToastModule } from 'primeng/toast';
+import { PushService } from './core/services/push.service';
 
 @Component({
   standalone: true,
@@ -19,12 +20,15 @@ export class AppComponent implements OnInit {
   private readonly swUpdate = inject(SwUpdate);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly push = inject(PushService);
 
   /** Hay una versión nueva lista; se aplica en la próxima navegación. */
   private updatePending = false;
 
   ngOnInit(): void {
     this.setupAutoUpdate();
+    // Al tocar un push (ej. recordatorio de cierre) → navega a su data.url.
+    this.push.initClicks();
   }
 
   /**

@@ -1074,9 +1074,11 @@ export interface RouteTicketAdmin {
   ticket_type: 'venta' | 'carga' | 'combustible';
   route_code: string;
   ticket_date: string;
+  ticket_time: string | null; // hora impresa HH:MM[:SS]
   total: number | null;
   corte_number: string | null;
   reference: string | null;
+  folio: string | null;
   liters: number | null;
   vendor_user_id: string;
   vendor_name?: string | null;

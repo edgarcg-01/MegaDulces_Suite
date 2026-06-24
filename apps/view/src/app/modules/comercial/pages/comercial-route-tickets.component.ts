@@ -70,22 +70,29 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <tr>
             <th scope="col">Tipo</th><th scope="col">Ruta</th><th scope="col">Fecha</th><th scope="col">Vendedor</th>
             <th scope="col" class="num">Total</th><th scope="col">Corte / Folio</th><th scope="col" class="num">Litros</th>
+            <th scope="col">Ticket</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-t>
           <tr>
             <td><p-tag [value]="label(t.ticket_type)" [severity]="sev(t.ticket_type)"></p-tag></td>
             <td>RD{{ t.route_code }}</td>
-            <td>{{ t.ticket_date }}</td>
+            <td>{{ t.ticket_date }}<span class="rt-time" *ngIf="t.ticket_time"> · {{ hhmm(t.ticket_time) }}</span></td>
             <td>{{ t.vendor_name || t.vendor_username || '—' }}</td>
             <td class="num">{{ t.total != null ? money(t.total) : '—' }}</td>
-            <td>{{ t.corte_number || t.reference || '—' }}</td>
+            <td>{{ t.corte_number || t.folio || t.reference || '—' }}</td>
             <td class="num">{{ t.liters != null ? t.liters : '—' }}</td>
+            <td>
+              <a *ngIf="t.photo_url; else noPhoto" class="ticket-link" [href]="t.photo_url" target="_blank" rel="noopener" aria-label="Ver foto del ticket">
+                <i class="pi pi-image" aria-hidden="true"></i> Ver
+              </a>
+              <ng-template #noPhoto><span class="ticket-none">—</span></ng-template>
+            </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
           <tr>
-            <td colspan="7" class="comm-empty-cell">
+            <td colspan="8" class="comm-empty-cell">
               <div class="comm-empty">
                 <div class="comm-empty-icon"><i class="pi pi-receipt" aria-hidden="true"></i></div>
                 <h3>Sin tickets</h3>
@@ -102,6 +109,11 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .filters input[type=date] { padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); color: var(--text-main); }
       .rt-bento { margin-bottom: 1rem; }
+      .ticket-link { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; font-size: 0.8125rem; color: var(--action); text-decoration: none; }
+      .ticket-link:hover { text-decoration: underline; }
+      .ticket-link i { font-size: 0.85rem; }
+      .ticket-none { color: var(--text-faint); }
+      .rt-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -153,6 +165,10 @@ export class ComercialRouteTicketsComponent implements OnInit {
   }
   money(n: any): string {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+  }
+  /** TIME de pg ("15:33:00") → "15:33". */
+  hhmm(t: string | null): string {
+    return t ? t.slice(0, 5) : '';
   }
   private today(): string { return todayMx(); }
   private daysAgo(d: number): string {

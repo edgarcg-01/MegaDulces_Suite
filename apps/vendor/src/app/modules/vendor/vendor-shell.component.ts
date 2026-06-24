@@ -8,6 +8,7 @@ import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { RoutePingService } from '../../core/services/route-ping.service';
+import { PushService } from '../../core/services/push.service';
 
 interface DiagProbe {
   build: { commit: string; ts: string };
@@ -113,6 +114,11 @@ interface DiagProbe {
         <button class="set-row" (click)="openDiag()">
           <i class="pi pi-info-circle"></i>
           <span class="lbl">Diagnóstico PWA</span>
+        </button>
+        <button class="set-row" *ngIf="push.supported" (click)="enablePush()" [disabled]="pushBusy()">
+          <i class="pi pi-bell"></i>
+          <span class="lbl">{{ push.permission() === 'granted' ? 'Avisos activados' : 'Activar avisos de cierre' }}</span>
+          <i class="pi" [ngClass]="pushBusy() ? 'pi-spin pi-spinner' : (push.permission() === 'granted' ? 'pi-check' : 'pi-chevron-right')"></i>
         </button>
         <button class="set-row danger" (click)="logout()">
           <i class="pi pi-sign-out"></i>
@@ -345,10 +351,13 @@ export class VendorShellComponent {
   private readonly router = inject(Router);
   readonly theme = inject(ThemeService);
   protected readonly routePing = inject(RoutePingService);
+  readonly push = inject(PushService);
+  private readonly toast = inject(MessageService);
 
   private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
 
   readonly settingsOpen = signal(false);
+  readonly pushBusy = signal(false);
   readonly diagOpen = signal(false);
   readonly diag = signal<DiagProbe | null>(null);
   readonly copied = signal(false);
@@ -362,6 +371,23 @@ export class VendorShellComponent {
     if (Capacitor.isNativePlatform() && !this.bgOnboarded()) {
       setTimeout(() => { this.bgHelpOpen.set(true); this.markBgOnboarded(); }, 1200);
     }
+  }
+
+  /** Pide permiso + suscribe a push (recordatorio de cierre de ruta). */
+  async enablePush(): Promise<void> {
+    if (this.pushBusy()) return;
+    if (this.push.permission() === 'granted') {
+      this.toast.add({ severity: 'info', summary: 'Avisos ya activados' });
+      return;
+    }
+    this.pushBusy.set(true);
+    const ok = await this.push.enable();
+    this.pushBusy.set(false);
+    this.toast.add(
+      ok
+        ? { severity: 'success', summary: 'Avisos activados', detail: 'Te recordaremos subir tu cierre.' }
+        : { severity: 'warn', summary: 'No se activaron', detail: 'Permití las notificaciones en tu navegador.' },
+    );
   }
 
   /** Abre la guía de ubicación en segundo plano (desde el banner o ajustes). */

@@ -7,6 +7,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 export interface RouteTicketFields {
   route_code: string | null;
   ticket_date: string | null; // ISO YYYY-MM-DD
+  ticket_time: string | null; // hora impresa HH:MM (24h), wall-clock. null si no se ve.
   total: number | null;
   corte_number: string | null; // solo venta
   reference: string | null; // solo combustible
@@ -98,7 +99,7 @@ export class LlmExtractorService implements OnModuleInit {
     ticketType: 'venta' | 'carga' | 'combustible',
   ): Promise<RouteTicketFields> {
     const empty: RouteTicketFields = {
-      route_code: null, ticket_date: null, total: null,
+      route_code: null, ticket_date: null, ticket_time: null, total: null,
       corte_number: null, reference: null, liters: null, folio: null,
     };
     if (!this.apiKey) {
@@ -445,13 +446,14 @@ export class LlmExtractorService implements OnModuleInit {
                 properties: {
                   route_code: { type: ['string', 'null'], description: 'Número de ruta tras "RD" (ej. "12"). null si no se ve.' },
                   ticket_date: { type: ['string', 'null'], description: 'Fecha del ticket en ISO YYYY-MM-DD. null si no se ve.' },
+                  ticket_time: { type: ['string', 'null'], description: 'Hora impresa en el ticket en formato 24h HH:MM (ej. "Hora: 03:33 p.m." → "15:33"). null si no se ve.' },
                   total: { type: ['number', 'null'], description: 'Monto total en pesos (sin símbolo ni comas). null si no se ve.' },
                   corte_number: { type: ['string', 'null'], description: 'Número de corte (solo venta). null en otros tipos.' },
                   reference: { type: ['string', 'null'], description: 'Folio/referencia (solo combustible). null en otros tipos.' },
                   liters: { type: ['number', 'null'], description: 'Litros (solo combustible). null en otros tipos.' },
                   folio: { type: ['string', 'null'], description: 'Folio identificador tras "FOLIO:" (solo carga), ej. "T153142782". Copiar tal cual. null en otros tipos.' },
                 },
-                required: ['route_code', 'ticket_date', 'total', 'corte_number', 'reference', 'liters', 'folio'],
+                required: ['route_code', 'ticket_date', 'ticket_time', 'total', 'corte_number', 'reference', 'liters', 'folio'],
               },
             },
           ],
@@ -493,9 +495,18 @@ export class LlmExtractorService implements OnModuleInit {
       typeof v === 'number' && Number.isFinite(v) ? v : null;
     const str = (v: unknown): string | null =>
       typeof v === 'string' && v.trim() ? v.trim() : null;
+    // Hora a HH:MM (24h). Acepta "15:33", "15:33:03", "3:33"; descarta basura.
+    const time = (v: unknown): string | null => {
+      const s = str(v);
+      const m = s?.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+      if (!m) return null;
+      const h = Math.min(Math.max(parseInt(m[1], 10), 0), 23);
+      return `${String(h).padStart(2, '0')}:${m[2]}`;
+    };
     return {
       route_code: str(inp.route_code),
       ticket_date: str(inp.ticket_date),
+      ticket_time: time(inp.ticket_time),
       total: num(inp.total),
       corte_number: ticketType === 'venta' ? str(inp.corte_number) : null,
       reference: ticketType === 'combustible' ? str(inp.reference) : null,
