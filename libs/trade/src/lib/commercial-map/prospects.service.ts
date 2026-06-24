@@ -231,9 +231,31 @@ export class ProspectsService {
    * importar nombre). Calcula whitespace_score por distancia al cliente más
    * cercano + peso de SCIAN. NO toca los dismissed/converted (decisión humana).
    */
-  async dedup(user: any): Promise<{ scanned: number; covered: number; candidate: number }> {
+  async dedup(user: any): Promise<{ scanned: number; covered: number; candidate: number; purged: number }> {
     const tenantId = this.tenantId(user);
-    if (!tenantId) return { scanned: 0, covered: 0, candidate: 0 };
+    if (!tenantId) return { scanned: 0, covered: 0, candidate: 0, purged: 0 };
+    const cfg = await this.getConfig(user);
+
+    // Purga prospectos fuera de la geocerca (data vieja / config que se achicó).
+    // DENUE es re-cosechable, así que borrar es seguro. Solo candidate/covered.
+    let purged = 0;
+    const clat = cfg?.center_lat != null ? Number(cfg.center_lat) : null;
+    const clng = cfg?.center_lng != null ? Number(cfg.center_lng) : null;
+    const rkm = cfg?.max_radius_km != null ? Number(cfg.max_radius_km) : null;
+    if (clat != null && clng != null && rkm) {
+      const all = await this.knex('commercial.prospect_stores')
+        .where({ tenant_id: tenantId })
+        .whereIn('status', ['candidate', 'covered'])
+        .whereNotNull('lat')
+        .whereNotNull('lng')
+        .select('id', 'lat', 'lng');
+      const outIds = all
+        .filter((p: any) => ProspectsService.haversine(clat, clng, +p.lat, +p.lng) > rkm * 1000)
+        .map((p: any) => p.id);
+      if (outIds.length) {
+        purged = await this.knex('commercial.prospect_stores').whereIn('id', outIds).del();
+      }
+    }
 
     const prospects = await this.knex('commercial.prospect_stores')
       .where({ tenant_id: tenantId })
@@ -300,7 +322,7 @@ export class ProspectsService {
       }
       await this.knex('commercial.prospect_stores').where({ id: p.id }).update(patch);
     }
-    return { scanned: prospects.length, covered, candidate };
+    return { scanned: prospects.length, covered, candidate, purged };
   }
 
   /** Score 0..100: más lejos del cliente más cercano = más whitespace; dulcería pondera. */
@@ -316,6 +338,7 @@ export class ProspectsService {
 
   async list(user: any, filters: { status?: Status; scian?: string; min_score?: number; limit?: number }) {
     const tenantId = this.tenantId(user);
+    const cfg = await this.getConfig(user);
     let q = this.knex('commercial.prospect_stores')
       .where({ tenant_id: tenantId })
       .whereNotNull('lat')
@@ -323,6 +346,19 @@ export class ProspectsService {
     q = q.where('status', filters.status || 'candidate');
     if (filters.scian) q = q.where('scian', 'like', `${filters.scian}%`);
     if (filters.min_score != null) q = q.where('whitespace_score', '>=', filters.min_score);
+    // Geocerca en SQL: el mapa NUNCA muestra fuera del radio, aunque haya data vieja.
+    const clat = cfg?.center_lat != null ? Number(cfg.center_lat) : null;
+    const clng = cfg?.center_lng != null ? Number(cfg.center_lng) : null;
+    const rkm = cfg?.max_radius_km != null ? Number(cfg.max_radius_km) : null;
+    if (clat != null && clng != null && rkm) {
+      q = q.whereRaw(
+        `6371000 * 2 * asin(sqrt(
+           power(sin(radians(lat - ?) / 2), 2) +
+           cos(radians(?)) * cos(radians(lat)) * power(sin(radians(lng - ?) / 2), 2)
+         )) <= ?`,
+        [clat, clat, clng, rkm * 1000],
+      );
+    }
     const rows = await q
       .orderBy('whitespace_score', 'desc')
       .limit(Math.min(filters.limit || 2000, 5000))

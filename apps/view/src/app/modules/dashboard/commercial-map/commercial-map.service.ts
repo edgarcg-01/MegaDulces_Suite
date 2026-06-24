@@ -259,6 +259,11 @@ export class CommercialMapService {
     return this.http.post<IngestResult>(`${this.base}/prospects/ingest-nearby`, { lat, lng, radius });
   }
 
+  /** Cosecha sistemática DENUE por entidad+SCIAN (robusta, geocercada por config) + dedup. */
+  ingestArea(entidad?: string, municipio?: string): Observable<IngestResult> {
+    return this.http.post<IngestResult>(`${this.base}/prospects/ingest-area`, { entidad, municipio });
+  }
+
   dismissProspect(id: string): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`${this.base}/prospects/${id}/dismiss`, {});
   }

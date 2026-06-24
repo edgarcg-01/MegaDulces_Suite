@@ -294,16 +294,17 @@ export class CommercialMapComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Cosecha oportunidades DENUE alrededor del centroide de las tiendas visibles. */
+  /**
+   * Cosecha oportunidades de DENUE por área (entidad + SCIAN de la config, ya
+   * geocercada al radio del tenant). Usa BuscarAreaAct (paginado, robusto) — no
+   * el endpoint Buscar, que INEGI rate-limitea agresivo. Puede tardar (varias
+   * páginas), por eso el loading.
+   */
   ingestHere(): void {
     if (!this.canManageProspects() || this.ingesting()) return;
-    const located = this.filteredStores().filter((s) => s.located);
-    if (located.length === 0) return;
-    const lat = located.reduce((a, s) => a + (s.lat as number), 0) / located.length;
-    const lng = located.reduce((a, s) => a + (s.lng as number), 0) / located.length;
     this.ingesting.set(true);
     if (!this.showProspects()) this.showProspects.set(true);
-    this.service.ingestNearby(lat, lng).subscribe({
+    this.service.ingestArea().subscribe({
       next: (res) => {
         this.ingesting.set(false);
         if (!res.enabled) {
