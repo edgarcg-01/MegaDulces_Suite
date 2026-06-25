@@ -1211,7 +1211,7 @@ export class PortalHomeComponent {
     if (!f) return [];
     return f.brands
       .filter((b) => b.brand_id && b.brand_name && !/clasificar|abarrotes|bolsas/i.test(b.brand_name))
-      .slice(0, 12);
+      .slice(0, 40);
   });
 
   /** "Productos del mes" = top-sellers del price_list del cliente (data real ERP). */
@@ -1357,7 +1357,7 @@ export class PortalHomeComponent {
       },
     });
 
-    this.portal.catalogFacets(undefined, 24).subscribe({
+    this.portal.catalogFacets(undefined, 80).subscribe({
       next: (f) => this.brandFacets.set(f),
       error: () => this.brandFacets.set(null),
     });

@@ -21,8 +21,19 @@ RUN npm ci
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 ENV CI=true NX_DAEMON=false NPM_CONFIG_LOGLEVEL=warn NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
+# Railway expone el commit en build. Si falta, queda "unknown" (cosmético).
+ARG RAILWAY_GIT_COMMIT_SHA=
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Sello de versión ANTES del build: el service worker (ngsw) hashea los bytes
+# FINALES de index.html y assets/version.json. Mutarlos DESPUÉS del build (como
+# hacía start.sh) deja el hash de ngsw.json desfasado → el SW entra en un loop
+# de re-fetch (index.html?ngsw-cache-bust / ngsw.json?ngsw-cache-bust). Sellando
+# acá, los bytes servidos == los hasheados → sin loop.
+RUN COMMIT=$(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
+    TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    sed -i "s|BUILD_COMMIT_PLACEHOLDER|$COMMIT|g; s|BUILD_TS_PLACEHOLDER|$TS|g" \
+      apps/vendor/src/index.html apps/vendor/public/assets/version.json
 # --import load-compiler.mjs: Angular v18 + esbuild en Node 20 necesita
 # @angular/compiler cargado antes de la CLI de Nx (mismo patrón que el Dockerfile raíz).
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
