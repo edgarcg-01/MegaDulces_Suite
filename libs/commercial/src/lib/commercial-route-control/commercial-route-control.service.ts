@@ -123,7 +123,12 @@ export class CommercialRouteControlService {
 
     // La ruta NO la edita el usuario: resolvemos lo que detectó el OCR contra
     // las rutas reales de SU zona. Si no matchea, el front bloquea el guardado.
-    const resolved = await this.resolveZoneRoute(fields.route_code);
+    // Combustible: el recibo es de la gasolinera (sin ruta) → la inferimos del
+    // vendedor (su corte/carga del día o su única ruta de zona).
+    const resolved =
+      ticketType === 'combustible'
+        ? await this.resolveVendorRoute()
+        : await this.resolveZoneRoute(fields.route_code);
 
     // Folio normalizado + aviso temprano si ya existe (carga): el front bloquea
     // el guardado para no perder el viaje con un folio no reusable.
@@ -199,20 +204,72 @@ export class CommercialRouteControlService {
     });
   }
 
+  /**
+   * Ruta del vendedor para tickets que NO la traen impresa (combustible: el recibo
+   * es de la gasolinera). Se infiere, en orden:
+   *   1. La ruta de un ticket de venta/carga del MISMO día del propio vendedor.
+   *   2. Si su zona tiene UNA sola ruta, esa.
+   * Si no se puede determinar (zona multi-ruta y sin ticket del día), matched=false.
+   */
+  private async resolveVendorRoute(): Promise<{ matched: boolean; code: string | null; value: string | null }> {
+    return this.tk.run(async (trx) => {
+      const userId = this.requireUserId();
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+
+      // 1) Ruta del corte/carga de HOY del mismo vendedor (la más reciente).
+      const sameDay = await trx('commercial.route_tickets')
+        .where({ vendor_user_id: userId })
+        .where('ticket_date', today)
+        .whereIn('ticket_type', ['venta', 'carga'])
+        .whereNull('deleted_at')
+        .orderBy('created_at', 'desc')
+        .first('route_code');
+      if (sameDay?.route_code) {
+        const code = String(sameDay.route_code);
+        return { matched: true, code, value: `RUTA ${code}` };
+      }
+
+      // 2) Única ruta de su zona.
+      const user = await trx('users').where({ id: userId }).first('zona_id');
+      const zonaId = user?.zona_id ?? null;
+      const routes = await trx('catalogs')
+        .where({ catalog_id: 'rutas' })
+        .whereNull('deleted_at')
+        .modify((q: any) => {
+          if (zonaId) q.where((b: any) => b.where('parent_id', zonaId).orWhereNull('parent_id'));
+          else q.whereNull('parent_id');
+        })
+        .select('value');
+      if (routes.length === 1) {
+        const value = String(routes[0].value);
+        const code = value.match(/\d+/)?.[0] ?? value;
+        return { matched: true, code, value };
+      }
+      return { matched: false, code: null, value: null };
+    });
+  }
+
   // ── 2) Guardar (tras revisión) ──────────────────────────────────────────
   async guardar(dto: GuardarRouteTicketDto) {
     this.assertType(dto.ticket_type);
-    if (!dto.route_code?.trim()) throw new BadRequestException('route_code requerido');
+    // Combustible no trae ruta en el recibo (es de la gasolinera) → no se exige.
+    if (dto.ticket_type !== 'combustible' && !dto.route_code?.trim())
+      throw new BadRequestException('route_code requerido');
     if (!dto.ticket_date || !DATE_RE.test(dto.ticket_date))
       throw new BadRequestException('ticket_date requerido (YYYY-MM-DD)');
 
-    // Garantía dura (independiente del front): la ruta del ticket debe coincidir
-    // con una ruta real de la zona del vendedor. "unknown" y rutas inexistentes
-    // se rechazan; el código se normaliza al número canónico ("RD 21" → "21").
-    const route = await this.resolveZoneRoute(dto.route_code);
+    // Garantía dura (independiente del front): venta/carga deben coincidir con una
+    // ruta real de la zona del vendedor (la traen impresas). Combustible: la ruta se
+    // infiere del propio vendedor (su corte/carga del día o su única ruta de zona).
+    const route =
+      dto.ticket_type === 'combustible'
+        ? await this.resolveVendorRoute()
+        : await this.resolveZoneRoute(dto.route_code);
     if (!route.matched || !route.code) {
       throw new BadRequestException(
-        `Ruta no reconocida: "${dto.route_code}". Debe coincidir con una ruta registrada de tu zona (ej. RUTA 21). Vuelve a tomar la foto.`,
+        dto.ticket_type === 'combustible'
+          ? 'No pudimos determinar tu ruta para el combustible. Subí primero tu corte de venta o carga de hoy.'
+          : `Ruta no reconocida: "${dto.route_code}". Debe coincidir con una ruta registrada de tu zona (ej. RUTA 21). Vuelve a tomar la foto.`,
       );
     }
     const canonicalRouteCode = route.code;

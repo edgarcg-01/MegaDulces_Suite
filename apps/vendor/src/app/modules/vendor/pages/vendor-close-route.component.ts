@@ -169,9 +169,12 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
             <div class="crt-route" [class.ok]="routeMatched()" [class.bad]="!routeMatched()">
               <i class="pi" [ngClass]="routeMatched() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
               <span class="crt-route-name">{{ routeMatched() ? routeValue() : 'Ruta no reconocida' }}</span>
-              <span class="crt-route-tag">{{ routeMatched() ? 'detectada' : 'reintenta' }}</span>
+              <span class="crt-route-tag">{{ routeMatched() ? (selectedType() === 'combustible' ? 'tu jornada' : 'detectada') : 'reintenta' }}</span>
             </div>
-            <p class="crt-route-hint" *ngIf="!routeMatched()">
+            <p class="crt-route-hint" *ngIf="!routeMatched() && selectedType() === 'combustible'">
+              El recibo de combustible no trae ruta. Subí primero tu corte de venta o carga de hoy para asignarla.
+            </p>
+            <p class="crt-route-hint" *ngIf="!routeMatched() && selectedType() !== 'combustible'">
               La ruta del ticket no coincide con ninguna ruta de tu zona. Vuelve a tomar la foto con la ruta visible.
             </p>
           </div>
