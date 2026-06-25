@@ -135,8 +135,6 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   loop: BrandFacet[] = [];
   half = 0;
   readonly failed = new Set<string>();
-  /** ids cuyo .svg ya falló → reintentamos con .png antes de caer a monograma. */
-  private readonly triedPng = new Set<string>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
@@ -236,7 +234,7 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   // círculo con el mismo color → sin huecos para logos cuadrados (ej. Ricolino).
   // `bg` = relleno del chip (logo cuadrado con fondo de color). `pad` = padding
   // del logo en px para normalizar tamaños (algunos PNG vienen sin margen).
-  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string; pad?: number }> = [
+  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string; pad?: number; ext?: 'svg' | 'png' }> = [
     { re: /hershey/, slug: 'hersheys', label: "Hershey's", color: '#6F4E37' },
     { re: /\bmars\b|effem/, slug: 'mars', label: 'Mars', color: '#CC2229' },
     { re: /mondelez|ricolino/, slug: 'ricolino', label: 'Ricolino', color: '#304C9C', bg: '#304C9C' },
@@ -245,12 +243,12 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     { re: /perfetti|van melle/, slug: 'perfetti-van-melle', label: 'Perfetti', color: '#CC262D' },
     { re: /barcel|bimbo/, slug: 'bimbo', label: 'Barcel', color: '#C32B30' },
     { re: /canel/, slug: 'canels', label: "Canel's", color: '#202A83' },
-    { re: /\bla rosa\b|de la rosa/, slug: 'de-la-rosa', label: 'De la Rosa', color: '#D81F26' },
+    { re: /\bla rosa\b|de la rosa/, slug: 'de-la-rosa', label: 'De la Rosa', color: '#D81F26', ext: 'png' },
     { re: /jovy/, slug: 'jovy', label: 'Jovy', color: '#1E2B8F' },
     { re: /payaso|globo/, slug: 'globo-payaso', label: 'Paleta Payaso', color: '#E2231A' },
-    { re: /delicias/, slug: 'delicias', label: 'Delicias', color: '#FFE600', bg: '#FFE600' },
-    { re: /gonac/, slug: 'gonac', label: 'Gonac', color: '#111111' },
-    { re: /nutresa/, slug: 'nutresa', label: 'Nutresa', color: '#2E6B3E', pad: 28 },
+    { re: /delicias/, slug: 'delicias', label: 'Delicias', color: '#FFE600', bg: '#FFE600', ext: 'png' },
+    { re: /gonac/, slug: 'gonac', label: 'Gonac', color: '#111111', ext: 'png' },
+    { re: /nutresa/, slug: 'nutresa', label: 'Nutresa', color: '#2E6B3E', pad: 28, ext: 'png' },
   ];
   private norm(name: string | null | undefined): string {
     return (name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
@@ -263,9 +261,9 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   private slugFor(name: string | null | undefined): string {
     return this.match(name)?.slug || this.norm(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
-  /** Intenta .svg; tras fallar una vez, .png (ver onErr). */
+  /** Usa la extensión declarada por marca (png/svg). Sin sondeo → sin 404. */
   srcFor(b: BrandFacet): string {
-    const ext = this.triedPng.has(b.brand_id || '') ? 'png' : 'svg';
+    const ext = this.match(b.brand_name)?.ext || 'svg';
     return `/assets/brands/${this.slugFor(b.brand_name)}.${ext}`;
   }
   label(name: string | null | undefined): string {
@@ -298,13 +296,8 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     const src = this.label(name) || '?';
     return src.split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
   }
-  onErr(b: BrandFacet, ev: Event): void {
-    const id = b.brand_id || '';
-    const img = ev.target as HTMLImageElement | null;
-    const src = img?.currentSrc || img?.src || '';
-    // Decidir por la URL que REALMENTE falló — robusto al duplicado del marquee
-    // (dos <img> por marca dispararían el contador de más).
-    if (src.endsWith('.svg')) this.triedPng.add(id); // no hay svg → reintentar png
-    else this.failed.add(id); // png también falló → monograma de color
+  onErr(b: BrandFacet, _ev: Event): void {
+    // El archivo de la extensión declarada no existe → monograma de color.
+    this.failed.add(b.brand_id || '');
   }
 }

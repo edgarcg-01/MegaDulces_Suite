@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, inject, signal } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -54,9 +54,10 @@ import { AuthService } from '../../../core/services/auth.service';
             alt="Mega Dulces"
             class="pl-form-logo"
           />
+          <h1 class="pl-display">Tu dulcería,<br />surtida en <span class="pl-em">minutos.</span></h1>
           <span class="pl-form-eyebrow">Portal B2B</span>
           <h2 class="pl-form-title">Bienvenido de vuelta</h2>
-          <p class="pl-form-sub">Ingresa con tu cuenta de cliente para hacer tu pedido.</p>
+          <p class="pl-form-sub">Tu lista de precios, pedidos con IA y entrega coordinada.</p>
         </header>
 
         <form [formGroup]="form" (ngSubmit)="submit()" class="pl-form" novalidate>
@@ -73,7 +74,13 @@ import { AuthService } from '../../../core/services/auth.service';
               spellcheck="false"
               inputmode="text"
               enterkeyhint="next"
+              [class.pl-input-invalid]="isInvalid('tenant_slug')"
+              [attr.aria-invalid]="isInvalid('tenant_slug') ? 'true' : null"
+              [attr.aria-describedby]="fieldError('tenant_slug') ? 'tenant-err' : null"
             />
+            <small *ngIf="fieldError('tenant_slug')" id="tenant-err" class="pl-field-err" role="alert">
+              <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('tenant_slug') }}
+            </small>
           </div>
           <button
             *ngIf="!showTenant()"
@@ -98,7 +105,13 @@ import { AuthService } from '../../../core/services/auth.service';
               spellcheck="false"
               inputmode="text"
               enterkeyhint="next"
+              [class.pl-input-invalid]="isInvalid('username')"
+              [attr.aria-invalid]="isInvalid('username') ? 'true' : null"
+              [attr.aria-describedby]="fieldError('username') ? 'user-err' : null"
             />
+            <small *ngIf="fieldError('username')" id="user-err" class="pl-field-err" role="alert">
+              <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('username') }}
+            </small>
           </div>
 
           <div class="pl-field">
@@ -116,15 +129,25 @@ import { AuthService } from '../../../core/services/auth.service';
               placeholder="Mínimo 4 caracteres"
               autocomplete="current-password"
               enterkeyhint="go"
+              [class.pl-input-invalid]="isInvalid('password')"
+              [attr.aria-invalid]="isInvalid('password') ? 'true' : null"
+              [attr.aria-describedby]="fieldError('password') ? 'pass-err' : null"
             />
+            <small *ngIf="fieldError('password')" id="pass-err" class="pl-field-err" role="alert">
+              <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('password') }}
+            </small>
           </div>
 
-          <p-message
-            *ngIf="error()"
-            severity="error"
-            [text]="error()!"
-            styleClass="pl-error"
-          ></p-message>
+          <!-- Error a nivel formulario (HTTP / resumen). aria-live para que el
+               lector lo anuncie sin mover el foco. -->
+          <div class="pl-error-wrap" aria-live="assertive" role="alert">
+            <p-message
+              *ngIf="error()"
+              severity="error"
+              [text]="error()!"
+              styleClass="pl-error"
+            ></p-message>
+          </div>
 
           <button
             type="submit"
@@ -268,16 +291,29 @@ import { AuthService } from '../../../core/services/auth.service';
         font-size: var(--fs-h3);
       }
 
-      /* ── FORM SIDE ──────────────────────────────────────────────── */
+      /* ── FORM SIDE (móvil = editorial claro: cream + amber, top-aligned) ── */
       .pl-form-side {
         display: flex;
         flex-direction: column;
-        justify-content: center;
-        padding: clamp(1.5rem, 5vw, 3rem)
-          max(1.25rem, env(safe-area-inset-right))
-          calc(clamp(1.5rem, 5vw, 3rem) + env(safe-area-inset-bottom))
-          max(1.25rem, env(safe-area-inset-left));
-        background: var(--card-bg);
+        justify-content: flex-start;
+        padding: calc(clamp(2.25rem, 9vw, 3.5rem) + env(safe-area-inset-top))
+          max(1.5rem, env(safe-area-inset-right))
+          calc(2rem + env(safe-area-inset-bottom))
+          max(1.5rem, env(safe-area-inset-left));
+        background:
+          radial-gradient(72% 40% at 100% 0%, rgba(248, 180, 0, 0.10) 0%, transparent 60%),
+          var(--surface-ground);
+      }
+      @media (min-width: 960px) {
+        /* Desktop: el hero lleva la marca; el form vuelve a card centrada. */
+        .pl-form-side {
+          justify-content: center;
+          background: var(--card-bg);
+          padding: clamp(1.5rem, 5vw, 3rem)
+            max(1.25rem, env(safe-area-inset-right))
+            calc(clamp(1.5rem, 5vw, 3rem) + env(safe-area-inset-bottom))
+            max(1.25rem, env(safe-area-inset-left));
+        }
       }
 
       .pl-form-head {
@@ -299,8 +335,36 @@ import { AuthService } from '../../../core/services/auth.service';
         /* En desktop, el hero ya muestra el logo grande — el del form es redundante */
         .pl-form-logo { display: none; }
       }
+      /* Titular editorial — solo móvil (en desktop manda el hero). */
+      .pl-display {
+        font-family: var(--font-display);
+        font-optical-sizing: auto;
+        font-size: clamp(2.1rem, 9vw, 2.6rem);
+        font-weight: 800;
+        line-height: 1.02;
+        letter-spacing: -0.03em;
+        margin: 0.25rem 0 0.5rem;
+        color: var(--neutral-950);
+      }
+      .pl-em {
+        position: relative;
+        color: var(--action);
+        white-space: nowrap;
+      }
+      .pl-em::after {
+        content: '';
+        position: absolute;
+        left: -2px;
+        right: -2px;
+        bottom: 0.08em;
+        height: 0.42em;
+        background: rgba(253, 231, 7, 0.5);
+        border-radius: 3px;
+        z-index: -1;
+      }
+
       .pl-form-eyebrow {
-        display: inline-block;
+        display: none;
         font-size: var(--fs-micro);
         font-weight: 700;
         letter-spacing: 0.08em;
@@ -313,6 +377,7 @@ import { AuthService } from '../../../core/services/auth.service';
         margin-bottom: 0.875rem;
       }
       .pl-form-title {
+        display: none;
         font-family: var(--font-display);
         font-optical-sizing: auto;
         font-size: var(--fs-h1);
@@ -321,6 +386,11 @@ import { AuthService } from '../../../core/services/auth.service';
         margin: 0 0 0.375rem 0;
         letter-spacing: -0.01em;
         color: var(--text-main);
+      }
+      @media (min-width: 960px) {
+        .pl-display { display: none; }
+        .pl-form-eyebrow { display: inline-block; }
+        .pl-form-title { display: block; }
       }
       .pl-form-sub {
         margin: 0;
@@ -349,8 +419,9 @@ import { AuthService } from '../../../core/services/auth.service';
       }
       .pl-field :deep(input.p-inputtext) {
         width: 100%;
-        padding: 0.75rem 0.875rem;
-        font-size: var(--fs-body);
+        padding: 0.8rem 0.95rem;
+        /* 16px exactos: <16px hace que iOS Safari haga zoom al enfocar. */
+        font-size: 16px;
         border-radius: var(--r-md);
         border: 1.5px solid var(--border-color);
         background: var(--card-bg);
@@ -393,6 +464,29 @@ import { AuthService } from '../../../core/services/auth.service';
       }
 
       .pl-error { width: 100%; }
+      .pl-error-wrap:empty { display: none; }
+
+      /* Error inline por campo */
+      .pl-field-err {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: var(--bad-fg);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .pl-field-err i { font-size: var(--fs-xs); }
+
+      /* Borde rojo en el input inválido (refuerza el mensaje inline) */
+      .pl-field :deep(input.p-inputtext.pl-input-invalid),
+      .pl-field :deep(input.p-inputtext.pl-input-invalid:hover) {
+        border-color: var(--bad-fg);
+      }
+      .pl-field :deep(input.p-inputtext.pl-input-invalid:focus) {
+        border-color: var(--bad-fg);
+        box-shadow: 0 0 0 3px var(--bad-soft-bg);
+      }
 
       /* El submit usa el átomo .portal-btn-primary (sunset). Acá solo el margen. */
       .pl-submit { margin-top: 0.5rem; }
@@ -438,17 +532,20 @@ import { AuthService } from '../../../core/services/auth.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PortalLoginComponent {
+export class PortalLoginComponent implements AfterViewInit {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
-  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly zone = inject(NgZone);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly showPass = signal(false);
   /** Campo "Empresa" colapsado por default (beta single-tenant, prefilled mega_dulces). */
   readonly showTenant = signal(false);
+  /** Tras el primer intento, mostramos los errores por campo aunque no estén "touched". */
+  readonly submitted = signal(false);
 
   form = this.fb.group({
     tenant_slug: ['mega_dulces', Validators.required],
@@ -456,8 +553,96 @@ export class PortalLoginComponent {
     password: ['', [Validators.required, Validators.minLength(4)]],
   });
 
+  /** Mensaje por campo según el primer error de validación. */
+  private readonly fieldMessages: Record<string, Record<string, string>> = {
+    tenant_slug: { required: 'Ingresa el identificador de tu empresa.' },
+    username: { required: 'Ingresa tu usuario.' },
+    password: {
+      required: 'Ingresa tu contraseña.',
+      minlength: 'La contraseña debe tener al menos 4 caracteres.',
+    },
+  };
+
+  ngAfterViewInit(): void {
+    const host = this.host.nativeElement;
+    // Auto-focus SOLO en desktop (puntero fino): en móvil dejamos ver el momento
+    // de marca antes de abrir el teclado. queueMicrotask evita ExpressionChanged.
+    if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches) {
+      queueMicrotask(() => (host.querySelector('#user') as HTMLInputElement | null)?.focus());
+    }
+    // Entrada escalonada GSAP (lazy, fuera de zona). Apagada en reduced-motion.
+    if (typeof window !== 'undefined' && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.animateIn(host);
+    }
+  }
+
+  private async animateIn(host: HTMLElement): Promise<void> {
+    try {
+      const mod: any = await import('gsap');
+      const gsap = mod.gsap || mod.default;
+      this.zone.runOutsideAngular(() => {
+        const targets = host.querySelectorAll('.pl-form-head > *, .pl-form > *');
+        if (!targets.length) return;
+        gsap.from(targets, {
+          y: 16,
+          opacity: 0,
+          duration: 0.5,
+          stagger: 0.05,
+          ease: 'power3.out',
+          clearProps: 'transform,opacity',
+        });
+      });
+    } catch {
+      /* sin GSAP el login se muestra estático (sin regresión) */
+    }
+  }
+
   togglePass(): void {
     this.showPass.update((v) => !v);
+  }
+
+  /** ¿El campo debe mostrarse como inválido? (touched o ya hubo submit). */
+  isInvalid(name: 'tenant_slug' | 'username' | 'password'): boolean {
+    const c = this.form.controls[name];
+    return !!c && c.invalid && (c.touched || this.submitted());
+  }
+
+  /** Mensaje de error del campo, o null si es válido / aún no procede mostrarlo. */
+  fieldError(name: 'tenant_slug' | 'username' | 'password'): string | null {
+    const c = this.form.controls[name];
+    if (!c || c.valid || (!c.touched && !this.submitted())) return null;
+    const key = Object.keys(c.errors ?? {})[0];
+    return key ? this.fieldMessages[name]?.[key] ?? 'Revisa este campo.' : null;
+  }
+
+  /** Traduce el error HTTP a un mensaje claro y accionable para el cliente. */
+  private messageForError(err: { status?: number }): string {
+    const status = err?.status ?? 0;
+    if (status === 0) return 'Sin conexión. Revisa tu internet e intenta de nuevo.';
+    if (status === 401)
+      // El backend devuelve un genérico a propósito (anti-enumeración): no revela
+      // si falló el usuario o la contraseña. Damos pistas accionables sin filtrar.
+      return 'Usuario o contraseña incorrectos. Revisa mayúsculas y que sea la empresa correcta.';
+    if (status === 403) return 'Tu cuenta no tiene acceso al portal. Contacta a soporte.';
+    if (status === 429) return 'Demasiados intentos. Espera un momento y vuelve a intentar.';
+    if (status >= 500) return 'Tuvimos un problema en el servidor. Intenta de nuevo en un momento.';
+    return 'No pudimos iniciar sesión. Intenta de nuevo.';
+  }
+
+  /** Lleva el foco al primer campo inválido (orden visual). */
+  private focusFirstInvalid(): void {
+    const order: Array<['tenant_slug' | 'username' | 'password', string]> = [
+      ['tenant_slug', 'tenant'],
+      ['username', 'user'],
+      ['password', 'pass'],
+    ];
+    for (const [ctrl, id] of order) {
+      if (ctrl === 'tenant_slug' && !this.showTenant()) continue;
+      if (this.form.controls[ctrl].invalid) {
+        (this.host.nativeElement.querySelector('#' + id) as HTMLInputElement | null)?.focus();
+        return;
+      }
+    }
   }
 
   /**
@@ -480,10 +665,20 @@ export class PortalLoginComponent {
   }
 
   submit(): void {
+    this.submitted.set(true);
     this.syncAutofill();
     if (this.form.invalid) {
       this.form.markAllAsTouched();
-      this.error.set('Ingresa tu usuario y contraseña.');
+      // Mensaje resumen arriba; el detalle por campo lo dan los <small> inline.
+      const missing = (['tenant_slug', 'username', 'password'] as const).filter(
+        (n) => (n !== 'tenant_slug' || this.showTenant()) && this.form.controls[n].invalid,
+      );
+      this.error.set(
+        missing.length === 1
+          ? this.fieldError(missing[0])
+          : 'Faltan datos. Revisa los campos marcados.',
+      );
+      this.focusFirstInvalid();
       return;
     }
     this.loading.set(true);
@@ -507,11 +702,7 @@ export class PortalLoginComponent {
         },
         error: (err) => {
           this.loading.set(false);
-          this.error.set(
-            err.status === 401
-              ? 'Credenciales inválidas. Verifica empresa, usuario y contraseña.'
-              : 'Error de conexión.',
-          );
+          this.error.set(this.messageForError(err));
         },
       });
   }

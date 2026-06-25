@@ -1,0 +1,13 @@
+{
+  "/api": {
+    "target": "http://localhost:3334",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/reports/socket.io": {
+    "target": "http://localhost:3334",
+    "secure": false,
+    "ws": true,
+    "changeOrigin": true
+  }
+}

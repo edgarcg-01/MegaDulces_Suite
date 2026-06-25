@@ -1,5 +1,5 @@
-// Ambiente PRODUCCIÓN (y preview de Railway). Inyectado en build-time vía
-// `fileReplacements` en angular.json cuando se compila con --configuration=production.
+// Ambiente PRODUCCIÓN (y preview de Railway). Reemplaza a environment.ts vía
+// `fileReplacements` en apps/portal/project.json (configuración `production`).
 // apiUrl relativo: nginx del contenedor proxya /api → $API_UPSTREAM (mismo origen,
 // sin CORS). Válido tanto en *.up.railway.app como en dominios custom.
 export const environment = {
