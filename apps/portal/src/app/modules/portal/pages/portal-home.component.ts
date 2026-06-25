@@ -12,6 +12,11 @@ import { HapticService } from '../../../core/services/haptic.service';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 import { ProductsOfMonthCarouselComponent } from '../ui/products-of-month-carousel.component';
 import { BrandsCarouselComponent } from '../ui/brands-carousel.component';
+import { FeaturedPromoComponent } from '../ui/featured-promo.component';
+import { PromosCarouselComponent } from '../ui/promos-carousel.component';
+import { TopProductsComponent } from '../ui/top-products.component';
+import { ProductSheetComponent } from '../ui/product-sheet.component';
+import { MX_TRENDS } from '../data/mx-market-trends';
 
 const PROMOTION_TYPE_LABELS: Record<string, string> = {
   percent_off_product: '% sobre producto',
@@ -35,6 +40,10 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     SkeletonModule,
     ProductsOfMonthCarouselComponent,
     BrandsCarouselComponent,
+    FeaturedPromoComponent,
+    PromosCarouselComponent,
+    TopProductsComponent,
+    ProductSheetComponent,
   ],
   template: `
     <!-- [1] LIVE STATUS RIBBON — greeting + ongoing en una línea -->
@@ -54,7 +63,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
 
     <!-- [REORDEN-PRIMERO] "Comprar de nuevo" sube al primer pliegue, sobre el
          hero (Baymard: el cliente B2B es transaccional, no exploratorio). -->
-    <section *ngIf="frequentProducts().length > 0" class="ph-section ph-section-reorder">
+    <section *ngIf="frequentProducts().length > 0" class="ph-section ph-section-reorder ph-reveal">
       <header class="ph-section-head">
         <h2>Comprar de nuevo</h2>
         <a routerLink="/portal/catalog" class="ph-section-link">Ver catálogo →</a>
@@ -98,15 +107,22 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     <!-- [1.5] BANNER DE MARKETING (arte propio de una promo activa) -->
     <a
       *ngIf="bannerPromo() as bp"
-      class="ph-banner"
+      class="ph-banner ph-reveal"
       routerLink="/portal/promotions"
       [attr.aria-label]="'Ver promoción: ' + bp.name"
     >
       <img [src]="bp.banner_url" [alt]="bp.name" class="ph-banner-img" />
     </a>
 
-    <!-- [2] HERO EDITORIAL — display + ilustración SVG propia -->
+    <!-- [PROMO DESTACADA] "Escaparate vivo" — productos Nutresa que rotan -->
+    <portal-featured-promo
+      [images]="['/assets/brands/nucita.webp', '/assets/brands/creminobi4.png']"
+    ></portal-featured-promo>
+
+    <!-- [2] HERO EDITORIAL — desactivado: lo reemplaza la promo destacada de arriba.
+         Se conserva como fallback genérico (catálogo) por si se reactiva. -->
     <section
+      *ngIf="false"
       class="ph-hero"
       [class.ph-hero-promo]="!loadingPromos() && featuredPromo()"
       role="region"
@@ -208,7 +224,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     </nav>
 
     <!-- [4] TRUST STRIP — datos operativos B2B -->
-    <section class="ph-trust" aria-label="Información de servicio">
+    <section class="ph-trust ph-reveal" aria-label="Información de servicio">
       <div class="ph-trust-item">
         <span class="ph-trust-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
@@ -264,57 +280,20 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </div>
     </section>
 
-    <!-- [4.5] ATAJOS OPERATIVOS — fast-path arriba (el que vuelve reordena ya) -->
-    <section class="ph-section">
-      <header class="ph-section-head">
-        <h2>Atajos rápidos</h2>
-      </header>
-      <div class="ph-shortcuts">
-        <button type="button" class="ph-shortcut" (click)="goCatalog()">
-          <span class="ph-shortcut-icon">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-              <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-              <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-              <rect x="14" y="14" width="7" height="7" rx="1.5"/>
-            </svg>
-          </span>
-          <span class="ph-shortcut-label">Catálogo</span>
-        </button>
-        <button *ngIf="lastFulfilled()" type="button" class="ph-shortcut" (click)="goLastOrder()" [disabled]="reordering()">
-          <span class="ph-shortcut-icon">
-            <svg *ngIf="!reordering()" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
-              <path d="M3 3v5h5"/>
-            </svg>
-            <i *ngIf="reordering()" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-          </span>
-          <span class="ph-shortcut-label">{{ reordering() ? 'Agregando…' : 'Repetir último' }}</span>
-        </button>
-        <button type="button" class="ph-shortcut" routerLink="/portal/orders">
-          <span class="ph-shortcut-icon">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <path d="M14 2v6h6M8 13h8M8 17h5"/>
-            </svg>
-          </span>
-          <span class="ph-shortcut-label">Mis pedidos</span>
-        </button>
-        <button type="button" class="ph-shortcut ph-shortcut-ai" (click)="goAi()">
-          <span class="ph-shortcut-icon">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2 L14 8 L20 10 L14 12 L12 18 L10 12 L4 10 L10 8 Z"/>
-              <path d="M19 3 L20 5 M21 4 L20 5" stroke-width="1.5"/>
-              <path d="M5 17 L6 19 M7 18 L6 19" stroke-width="1.5"/>
-            </svg>
-          </span>
-          <span class="ph-shortcut-label">Recomendado IA</span>
-        </button>
-      </div>
-    </section>
+    <!-- [4.5] PRODUCTOS TOP — tendencia del mercado MX cruzada con el catálogo -->
+    <portal-top-products
+      *ngIf="trendProducts().length > 0"
+      [products]="trendProducts()"
+      [notes]="trendNotes()"
+      [addingId]="addingId()"
+      [addedIds]="addedIds()"
+      (open)="openMonthly($event)"
+      (add)="addMonthly($event)"
+    ></portal-top-products>
 
     <!-- [PRODUCTOS DEL MES] carrusel top-sellers con capa de motion GSAP -->
     <portal-products-of-month
+      *ngIf="monthlyProducts().length > 0"
       [products]="monthlyProducts()"
       [addingId]="addingId()"
       [addedIds]="addedIds()"
@@ -322,45 +301,18 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       (add)="addMonthly($event)"
     ></portal-products-of-month>
 
-    <!-- [5] PROMOS DEL MES — 1 feature + 2 secondary -->
-    <section *ngIf="!loadingPromos() && promotions().length > 0" class="ph-section">
-      <header class="ph-section-head">
-        <h2>Promos del mes</h2>
-        <a routerLink="/portal/promotions" class="ph-section-link">Ver todas →</a>
-      </header>
-      <div class="ph-promos-grid" *ngIf="promotions().length > 0">
-        <article
-          *ngIf="featuredPromo() as fp"
-          class="ph-promo ph-promo-feature"
-          routerLink="/portal/promotions"
-        >
-          <span class="ph-promo-badge">{{ tileBadge(fp) }}</span>
-          <h3>{{ fp.name }}</h3>
-          <p *ngIf="fp.description">{{ fp.description }}</p>
-          <span class="ph-promo-cta">
-            Aprovechar
-            <i class="pi pi-arrow-right" aria-hidden="true"></i>
-          </span>
-        </article>
-        <article
-          *ngFor="let p of secondaryPromos().slice(0, 2)"
-          class="ph-promo ph-promo-side"
-          routerLink="/portal/promotions"
-        >
-          <span class="ph-promo-badge ph-promo-badge-side">{{ tileBadge(p) }}</span>
-          <h3>{{ p.name }}</h3>
-          <p *ngIf="p.description">{{ p.description }}</p>
-          <footer *ngIf="p.ends_at">Hasta {{ p.ends_at | date:'dd MMM' }}</footer>
-        </article>
-      </div>
-    </section>
+    <!-- [5] PROMOS DEL MES — rail swipeable con capa de motion GSAP -->
+    <portal-promos-carousel
+      *ngIf="!loadingPromos() && promotions().length > 0"
+      [promos]="promotions()"
+    ></portal-promos-carousel>
 
     <div *ngIf="loadingPromos()" class="ph-skel-grid">
       <p-skeleton width="100%" height="200px" borderRadius="20px"></p-skeleton>
     </div>
 
     <!-- [7] HISTORIAL — últimos 3 pedidos compactos -->
-    <section class="ph-section" *ngIf="!loadingOrders()">
+    <section class="ph-section ph-history ph-reveal" *ngIf="!loadingOrders()">
       <header class="ph-section-head">
         <h2>Tu historial</h2>
         <a routerLink="/portal/orders" class="ph-section-link">Ver todos →</a>
@@ -407,8 +359,17 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       <p-skeleton *ngFor="let i of [1,2,3]" width="100%" height="64px" borderRadius="14px"></p-skeleton>
     </div>
 
+    <!-- TOP-SHEET de detalle de producto (baja desde arriba al tocar un card) -->
+    <portal-product-sheet
+      [product]="sheetProduct()"
+      [note]="sheetNoteText()"
+      [adding]="addingId() === sheetProduct()?.product_id"
+      (close)="closeSheet()"
+      (add)="addFromSheet($event)"
+    ></portal-product-sheet>
+
     <!-- [8] FOOTER OPERATIVO -->
-    <footer class="ph-foot">
+    <footer class="ph-foot ph-reveal">
       <div class="ph-foot-item">
         <strong>Soporte</strong>
         <span>Lun-Vie · 8am-7pm</span>
@@ -430,10 +391,46 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         max-width: 1120px;
         margin: 0 auto;
         font-family: var(--font-body);
+      }
+
+      /* ── Jerarquía de vista del home (Opción A: buscar/descubrir primero).
+         El orden visual se asigna aquí; ajustar = cambiar el número. ── */
+      .ph-ribbon                 { order: 0; }
+      .ph-search                 { order: 1; }
+      .ph-chips                  { order: 2; }
+      portal-brands-carousel     { order: 3; }
+      .ph-section-reorder        { order: 4; }
+      portal-products-of-month   { order: 5; }
+      .ph-banner                 { order: 6; }
+      portal-featured-promo, .ph-hero { order: 7; }
+      portal-promos-carousel, .ph-skel-grid { order: 8; }
+      portal-top-products        { order: 9; }
+      .ph-trust                  { order: 10; }
+      .ph-history, .ph-skel-list { order: 11; }
+      .ph-foot                   { order: 12; }
+
+      /* ── REVEAL POR LOTES (scroll-driven nativo) ────────────────────
+         Cada sección entra al cruzar el viewport. CSS scroll-driven corre
+         en el compositor (cero JS, ideal mobile). Gateado por @supports +
+         prefers-reduced-motion: sin soporte / con motion reducido el
+         contenido se muestra normal (nunca queda en opacity:0). ── */
+      @supports (animation-timeline: view()) {
+        @media (prefers-reduced-motion: no-preference) {
+          .ph-reveal {
+            animation: phReveal linear both;
+            animation-timeline: view();
+            animation-range: entry 2% cover 18%;
+          }
+        }
+      }
+      @keyframes phReveal {
+        from { opacity: 0; transform: translateY(26px); }
+        to   { opacity: 1; transform: none; }
       }
 
       /* ── [1] LIVE STATUS RIBBON ─────────────────────────────────── */
@@ -497,15 +494,32 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         margin-bottom: 2rem;
         border-radius: var(--r-xl);
         overflow: hidden;
-        border: 1px solid var(--neutral-200);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-float);
         cursor: pointer;
-        transition: transform 220ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
+        transition: transform 220ms var(--ease-spring), box-shadow 220ms var(--ease-standard);
       }
       .ph-banner:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.22);
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-hover);
       }
       .ph-banner-img { display: block; width: 100%; height: auto; }
+      /* Parallax scroll-driven nativo dentro del marco recortado: la imagen
+         deriva al scrollear (escala 1.12 para no descubrir bordes). */
+      @supports (animation-timeline: view()) {
+        @media (prefers-reduced-motion: no-preference) {
+          .ph-banner-img {
+            transform: scale(1.12);
+            animation: phBannerParallax linear both;
+            animation-timeline: view();
+            animation-range: cover;
+          }
+        }
+      }
+      @keyframes phBannerParallax {
+        from { transform: translateY(-5%) scale(1.12); }
+        to   { transform: translateY(5%) scale(1.12); }
+      }
 
       /* ── [2] HERO EDITORIAL ─────────────────────────────────────── */
       .ph-hero {
@@ -614,17 +628,20 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         padding: 0.875rem 1.125rem;
         margin-bottom: 0.75rem;
         background: var(--card-bg);
-        border: 1.5px solid var(--neutral-200);
+        border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
+        box-shadow: var(--shadow-float);
         cursor: pointer;
         font-family: var(--font-body);
         text-align: left;
-        transition: border-color 180ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
+        transition: transform 200ms var(--ease-spring), border-color 180ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
       }
       .ph-search:hover {
         border-color: var(--brand-700);
-        box-shadow: 0 12px 26px -14px rgba(240, 90, 40, 0.25);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-hover);
       }
+      .ph-search:active { transform: translateY(0); }
       .ph-search-icon {
         font-size: var(--fs-h3);
         color: var(--brand-700);
@@ -650,10 +667,17 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-chips {
         display: flex;
         gap: 0.5rem;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
         margin-bottom: 2.25rem;
+        padding-bottom: 2px;
       }
+      .ph-chips::-webkit-scrollbar { display: none; }
       .ph-chip {
+        flex: 0 0 auto;
+        white-space: nowrap;
         padding: 0.4rem 0.875rem;
         background: transparent;
         border: 1px solid var(--neutral-200);
@@ -680,8 +704,9 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         padding: 1.25rem 1.5rem;
         margin-bottom: 2.5rem;
         background: var(--card-bg);
-        border: 1px solid var(--neutral-200);
+        border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
+        box-shadow: var(--shadow-float);
       }
       .ph-trust-item {
         display: inline-flex;
@@ -752,178 +777,6 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       }
       .ph-section-link:hover { text-decoration: underline; }
 
-      .ph-promos-grid {
-        display: grid;
-        grid-template-columns: 1.5fr 1fr;
-        gap: 1rem;
-      }
-      @media (max-width: 720px) {
-        .ph-promos-grid { grid-template-columns: 1fr; }
-      }
-      .ph-promo {
-        position: relative;
-        overflow: hidden;
-        padding: 1.75rem 1.75rem 1.5rem;
-        border-radius: var(--r-xl);
-        cursor: pointer;
-        transition: transform 200ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
-        display: flex;
-        flex-direction: column;
-        gap: 0.625rem;
-        text-decoration: none;
-        color: inherit;
-      }
-      .ph-promo:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 18px 32px -14px rgba(0, 0, 0, 0.16);
-      }
-      .ph-promo-feature {
-        background: linear-gradient(135deg, var(--brand-700) 0%, var(--brand-600) 100%);
-        color: #fff;
-        min-height: 220px;
-      }
-      .ph-promo-feature::after {
-        content: '';
-        position: absolute;
-        width: 220px;
-        height: 220px;
-        right: -60px;
-        bottom: -70px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(253, 231, 7, 0.32), transparent 70%);
-        pointer-events: none;
-      }
-      .ph-promo-feature h3 {
-        font-family: var(--font-display);
-        font-size: var(--text-display-md);
-        font-weight: 700;
-        letter-spacing: -0.015em;
-        margin: 0;
-        line-height: 1.15;
-        color: #fff;
-      }
-      .ph-promo-feature p {
-        font-size: var(--fs-body);
-        margin: 0;
-        opacity: 0.9;
-        line-height: 1.45;
-        max-width: 38ch;
-      }
-
-      .ph-promo-side {
-        background: var(--card-bg);
-        border: 1px solid var(--neutral-200);
-        min-height: 104px;
-      }
-      .ph-promo-side h3 {
-        font-family: var(--font-display);
-        font-size: var(--fs-h2);
-        font-weight: 700;
-        letter-spacing: -0.01em;
-        margin: 0;
-        line-height: 1.2;
-        color: var(--neutral-950);
-      }
-      .ph-promo-side p {
-        font-size: var(--fs-sm);
-        color: var(--text-muted);
-        margin: 0;
-        line-height: 1.4;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-      .ph-promo-side footer {
-        font-size: var(--fs-xs);
-        color: var(--text-muted);
-        font-weight: 600;
-        margin-top: auto;
-      }
-
-      .ph-promo-badge {
-        align-self: flex-start;
-        font-size: var(--fs-nano);
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        padding: 0.3rem 0.75rem;
-        border-radius: var(--r-pill);
-        background: rgba(255,255,255,0.18);
-        color: #fff;
-        backdrop-filter: blur(4px);
-      }
-      .ph-promo-badge-side {
-        background: var(--brand-100);
-        color: var(--brand-900);
-      }
-      .ph-promo-cta {
-        margin-top: auto;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        font-size: var(--fs-body);
-        font-weight: 800;
-        color: var(--brand-400);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      .ph-promo-cta i { font-size: var(--fs-xs); transition: transform 180ms var(--ease-standard); }
-      .ph-promo:hover .ph-promo-cta i { transform: translateX(3px); }
-
-      /* ── [6] ATAJOS OPERATIVOS ──────────────────────────────────── */
-      .ph-shortcuts {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 0.875rem;
-      }
-      @media (max-width: 720px) {
-        .ph-shortcuts { grid-template-columns: repeat(2, 1fr); }
-      }
-      .ph-shortcut {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.875rem;
-        padding: 1.5rem 0.75rem;
-        background: var(--card-bg);
-        border: 1px solid var(--neutral-200);
-        border-radius: var(--r-lg);
-        cursor: pointer;
-        font-family: var(--font-body);
-        color: var(--neutral-950);
-        transition: transform 180ms var(--ease-standard), border-color 180ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
-      }
-      .ph-shortcut:hover {
-        transform: translateY(-2px);
-        border-color: var(--brand-700);
-        box-shadow: 0 14px 26px -14px rgba(240, 90, 40, 0.2);
-      }
-      .ph-shortcut-icon {
-        width: 52px;
-        height: 52px;
-        border-radius: var(--r-lg);
-        background: var(--brand-50);
-        color: var(--brand-700);
-        display: grid;
-        place-items: center;
-        transition: transform 180ms var(--ease-standard);
-      }
-      .ph-shortcut:hover .ph-shortcut-icon { transform: scale(1.05); }
-      .ph-shortcut-label {
-        font-size: var(--fs-body);
-        font-weight: 700;
-        letter-spacing: -0.005em;
-      }
-      .ph-shortcut-ai {
-        background: linear-gradient(135deg, var(--neutral-950) 0%, var(--neutral-900) 100%);
-        color: #fff;
-        border-color: var(--neutral-900);
-      }
-      .ph-shortcut-ai .ph-shortcut-icon {
-        background: rgba(253, 231, 7, 0.16);
-        color: var(--brand-400);
-      }
 
       /* ── [7] HISTORIAL — lista compacta tipo "feed" ─────────────── */
       .ph-history-list {
@@ -941,15 +794,16 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         gap: 1rem;
         padding: 0.875rem 1.125rem;
         background: var(--card-bg);
-        border: 1px solid var(--neutral-200);
+        border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
+        box-shadow: var(--shadow-float);
         cursor: pointer;
-        transition: border-color 180ms var(--ease-standard), transform 180ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
+        transition: border-color 180ms var(--ease-standard), transform 180ms var(--ease-spring), box-shadow 200ms var(--ease-standard);
       }
       .ph-history-row:hover {
         border-color: var(--brand-700);
-        transform: translateX(2px);
-        box-shadow: 0 8px 18px -10px rgba(240, 90, 40, 0.18);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-hover);
       }
       .ph-history-row:focus-visible {
         outline: 2px solid var(--brand-700);
@@ -1070,8 +924,9 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         display: flex;
         flex-direction: column;
         background: var(--card-bg);
-        border: 1px solid var(--neutral-200);
+        border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
+        box-shadow: var(--shadow-float);
         overflow: hidden;
       }
       .ph-reorder-media {
@@ -1216,11 +1071,52 @@ export class PortalHomeComponent {
 
   /** "Productos del mes" = top-sellers del price_list del cliente (data real ERP). */
   readonly monthlyProducts = signal<PriceRow[]>([]);
+  /**
+   * "Productos top" = benchmark del mercado mexicano CRUZADO contra nuestro
+   * catálogo. Cada tendencia MX (chamoy, tamarindo, enchilado…) se busca por
+   * nombre y se muestra la mejor coincidencia de NUESTRO catálogo. No per-user.
+   */
+  readonly trendProducts = signal<PriceRow[]>([]);
+  /** product_id → etiqueta de la tendencia MX que matchea (badge "por qué"). */
+  readonly trendNotes = signal<Record<string, string>>({});
+  /** Producto abierto en el top-sheet de detalle (null = cerrado). */
+  readonly sheetProduct = signal<PriceRow | null>(null);
+  /** Etiqueta de tendencia MX del producto abierto (para el badge del sheet). */
+  readonly sheetNoteText = computed<string>(() => {
+    const p = this.sheetProduct();
+    return p ? this.trendNotes()[p.product_id] || '' : '';
+  });
+
+  /** Tocar un card de producto → abre el top-sheet (baja desde arriba). */
   openMonthly(p: PriceRow): void {
     this.haptic.selection();
-    this.router.navigate(['/portal/catalog'], {
-      queryParams: p.brand_id ? { brand: p.brand_id } : {},
-    });
+    this.sheetProduct.set(p);
+  }
+  closeSheet(): void {
+    this.sheetProduct.set(null);
+  }
+
+  /** Add desde el top-sheet con la cantidad elegida (ensureDraft + addLine). */
+  addFromSheet(ev: { product: PriceRow; qty: number }): void {
+    const p = ev.product;
+    if (this.addingId() || !this.custId || !this.whId || p.price == null) return;
+    this.haptic.selection();
+    this.addingId.set(p.product_id);
+    this.portal
+      .ensureDraft(this.custId, this.whId)
+      .pipe(switchMap((draft) => this.portal.addLine(draft.id, p.product_id, Math.max(1, ev.qty))))
+      .subscribe({
+        next: () => {
+          this.addingId.set(null);
+          this.haptic.notification('success');
+          this.addedIds.update((s) => new Set(s).add(p.product_id));
+          this.closeSheet();
+        },
+        error: () => {
+          this.addingId.set(null);
+          this.haptic.notification('error');
+        },
+      });
   }
   addMonthly(p: PriceRow): void {
     if (this.addingId() || !this.custId || !this.whId || p.price == null) return;
@@ -1241,6 +1137,46 @@ export class PortalHomeComponent {
           this.haptic.notification('error');
         },
       });
+  }
+
+  /**
+   * Cruza el benchmark del mercado MX contra nuestro catálogo. UNA sola llamada
+   * (cacheada) al catálogo + matching en cliente → cero riesgo de rate-limit.
+   * Por cada tendencia vigente (filtra estacionales fuera de mes) toma la mejor
+   * coincidencia con precio (imagen primero); una por tendencia → variedad.
+   */
+  private loadMxTrends(): void {
+    const month = new Date().getMonth() + 1;
+    const eligible = MX_TRENDS.filter((t) => !t.season || t.season.includes(month));
+    this.portal.listCatalogProducts(this.whId || undefined).subscribe({
+      next: (all) => {
+        const norm = (s: string) =>
+          (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        const seen = new Set<string>();
+        const notes: Record<string, string> = {};
+        const picked: PriceRow[] = [];
+        for (const t of eligible) {
+          if (picked.length >= 6) break;
+          const q = norm(t.query);
+          const best = all
+            .filter(
+              (p) =>
+                p.price != null &&
+                !seen.has(p.product_id) &&
+                norm(`${p.product_name} ${p.brand_name || ''}`).includes(q),
+            )
+            .sort((a, b) => (a.image_url ? 0 : 1) - (b.image_url ? 0 : 1))[0];
+          if (best) {
+            seen.add(best.product_id);
+            notes[best.product_id] = t.label;
+            picked.push(best);
+          }
+        }
+        this.trendNotes.set(notes);
+        this.trendProducts.set(picked);
+      },
+      error: () => this.trendProducts.set([]),
+    });
   }
 
   /** Chips trending bajo el search — mock por ahora. */
@@ -1372,6 +1308,7 @@ export class PortalHomeComponent {
         if (customer?.id) this.custId = customer.id;
         const wh = (warehouses || []).find((w: any) => w.is_default) || (warehouses || [])[0];
         if (wh?.id) this.whId = wh.id;
+        this.loadMxTrends();
         const plId = customer?.default_price_list_id;
         if (!plId) {
           this.monthlyProducts.set([]);

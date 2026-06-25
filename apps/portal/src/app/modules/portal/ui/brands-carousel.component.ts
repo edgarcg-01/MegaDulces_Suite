@@ -51,11 +51,12 @@ export interface BrandFacet {
           >
             <img
               *ngIf="!failed.has(b.brand_id || '')"
-              [src]="logo(b.brand_name)"
+              [src]="srcFor(b)"
               [alt]="label(b.brand_name)"
+              [style.padding.px]="logoPad(b.brand_name)"
               loading="lazy"
               decoding="async"
-              (error)="onErr(b.brand_id || '')"
+              (error)="onErr(b, $event)"
             />
             <span *ngIf="failed.has(b.brand_id || '')" class="bc-mono">{{ mono(b.brand_name) }}</span>
           </a>
@@ -65,7 +66,7 @@ export interface BrandFacet {
   `,
   styles: [
     `
-      :host { display: block; margin-bottom: 2.25rem; }
+      :host { display: block; margin-bottom: 1.5rem; }
       .bc-head {
         display: flex;
         align-items: center;
@@ -134,6 +135,8 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   loop: BrandFacet[] = [];
   half = 0;
   readonly failed = new Set<string>();
+  /** ids cuyo .svg ya falló → reintentamos con .png antes de caer a monograma. */
+  private readonly triedPng = new Set<string>();
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
@@ -231,7 +234,9 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   // `bg` = color de fondo del PROPIO logo (cuando el SVG trae un fondo sólido
   // de borde a borde). Sin `bg` el chip va blanco. Rellena las esquinas del
   // círculo con el mismo color → sin huecos para logos cuadrados (ej. Ricolino).
-  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string }> = [
+  // `bg` = relleno del chip (logo cuadrado con fondo de color). `pad` = padding
+  // del logo en px para normalizar tamaños (algunos PNG vienen sin margen).
+  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string; pad?: number }> = [
     { re: /hershey/, slug: 'hersheys', label: "Hershey's", color: '#6F4E37' },
     { re: /\bmars\b|effem/, slug: 'mars', label: 'Mars', color: '#CC2229' },
     { re: /mondelez|ricolino/, slug: 'ricolino', label: 'Ricolino', color: '#304C9C', bg: '#304C9C' },
@@ -240,12 +245,12 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     { re: /perfetti|van melle/, slug: 'perfetti-van-melle', label: 'Perfetti', color: '#CC262D' },
     { re: /barcel|bimbo/, slug: 'bimbo', label: 'Barcel', color: '#C32B30' },
     { re: /canel/, slug: 'canels', label: "Canel's", color: '#202A83' },
-    { re: /de la rosa|dulces de la rosa/, slug: 'de-la-rosa', label: 'De la Rosa', color: '#D81F26' },
+    { re: /\bla rosa\b|de la rosa/, slug: 'de-la-rosa', label: 'De la Rosa', color: '#D81F26' },
     { re: /jovy/, slug: 'jovy', label: 'Jovy', color: '#1E2B8F' },
     { re: /payaso|globo/, slug: 'globo-payaso', label: 'Paleta Payaso', color: '#E2231A' },
-    { re: /delicias/, slug: 'delicias', label: 'Delicias', color: '#FFE600' },
+    { re: /delicias/, slug: 'delicias', label: 'Delicias', color: '#FFE600', bg: '#FFE600' },
     { re: /gonac/, slug: 'gonac', label: 'Gonac', color: '#111111' },
-    { re: /nutresa/, slug: 'nutresa', label: 'Nutresa', color: '#2E6B3E' },
+    { re: /nutresa/, slug: 'nutresa', label: 'Nutresa', color: '#2E6B3E', pad: 28 },
   ];
   private norm(name: string | null | undefined): string {
     return (name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
@@ -255,8 +260,13 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     const n = this.norm(name);
     return this.KNOWN.find((k) => k.re.test(n)) || null;
   }
-  logo(name: string | null | undefined): string {
-    return `/assets/brands/${this.match(name)?.slug || 'x'}.svg`;
+  private slugFor(name: string | null | undefined): string {
+    return this.match(name)?.slug || this.norm(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+  /** Intenta .svg; tras fallar una vez, .png (ver onErr). */
+  srcFor(b: BrandFacet): string {
+    const ext = this.triedPng.has(b.brand_id || '') ? 'png' : 'svg';
+    return `/assets/brands/${this.slugFor(b.brand_name)}.${ext}`;
   }
   label(name: string | null | undefined): string {
     return this.match(name)?.label || (name || '').trim();
@@ -268,6 +278,10 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   /** Fondo del chip cuando hay logo = fondo propio del SVG (blanco por defecto). */
   logoBg(name: string | null | undefined): string {
     return this.match(name)?.bg || '#ffffff';
+  }
+  /** Padding del logo (px) para normalizar tamaños entre marcas. */
+  logoPad(name: string | null | undefined): number {
+    return this.match(name)?.pad ?? 20;
   }
   /** Tinta legible (negro/blanco) sobre el color de marca, según luminancia. */
   brandInk(name: string | null | undefined): string {
@@ -284,7 +298,13 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     const src = this.label(name) || '?';
     return src.split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
   }
-  onErr(id: string): void {
-    this.failed.add(id);
+  onErr(b: BrandFacet, ev: Event): void {
+    const id = b.brand_id || '';
+    const img = ev.target as HTMLImageElement | null;
+    const src = img?.currentSrc || img?.src || '';
+    // Decidir por la URL que REALMENTE falló — robusto al duplicado del marquee
+    // (dos <img> por marca dispararían el contador de más).
+    if (src.endsWith('.svg')) this.triedPng.add(id); // no hay svg → reintentar png
+    else this.failed.add(id); // png también falló → monograma de color
   }
 }

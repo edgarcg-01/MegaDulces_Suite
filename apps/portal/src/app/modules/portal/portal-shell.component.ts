@@ -1,7 +1,11 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  NgZone,
+  OnDestroy,
   computed,
   inject,
   signal,
@@ -194,6 +198,23 @@ interface NavItem {
             <i class="pi pi-search" aria-hidden="true"></i>
           </a>
         </div>
+
+        <!-- STICKY CART BAR (móvil) — flota sobre el dock cuando hay items.
+             Patrón de conversión Rappi/Uber Eats: total + count siempre a mano. -->
+        <button
+          type="button"
+          class="portal-cartbar"
+          [class.show]="cart.cartLineCount() > 0"
+          (click)="goCart()"
+          [attr.aria-hidden]="cart.cartLineCount() === 0"
+          [attr.tabindex]="cart.cartLineCount() === 0 ? -1 : 0"
+          [attr.aria-label]="'Ver carrito, ' + cart.cartLineCount() + ' productos'"
+        >
+          <span class="cb-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
+          <span class="cb-label">Ver carrito</span>
+          <span class="cb-total">{{ cart.cartTotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          <i class="pi pi-arrow-right cb-arrow" aria-hidden="true"></i>
+        </button>
 
       </div>
 
@@ -512,7 +533,11 @@ interface NavItem {
         z-index: 20;
         backdrop-filter: blur(10px) saturate(180%);
         -webkit-backdrop-filter: blur(10px) saturate(180%);
+        will-change: transform;
+        transition: transform 320ms var(--ease-standard);
       }
+      /* Header se retrae al hacer scroll hacia abajo (gesto inmersivo, GSAP Observer). */
+      .portal-header-mobile.nav-hidden { transform: translateY(-100%); }
       .portal-brand-mobile {
         display: flex;
         align-items: center;
@@ -649,6 +674,69 @@ interface NavItem {
         display: none;
       }
 
+      /* ── STICKY CART BAR (móvil) ──────────────────────────────────── */
+      .portal-cartbar {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: calc(5.25rem + env(safe-area-inset-bottom));
+        width: 94%;
+        max-width: 520px;
+        z-index: 39;
+        align-items: center;
+        gap: 0.625rem;
+        padding: 0.75rem 0.875rem 0.75rem 0.75rem;
+        border: none;
+        border-radius: 9999px;
+        background: var(--neutral-950);
+        color: #fff;
+        cursor: pointer;
+        font-family: var(--font-body);
+        box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        transform: translateX(-50%) translateY(180%);
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 420ms var(--ease-spring), opacity 240ms var(--ease-standard);
+      }
+      .portal-cartbar.show {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .cb-count {
+        flex-shrink: 0;
+        min-width: 28px;
+        height: 28px;
+        padding: 0 6px;
+        border-radius: 9999px;
+        background: var(--brand-400);
+        color: var(--neutral-950);
+        font-size: var(--fs-sm);
+        font-weight: 800;
+        line-height: 28px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .cb-label {
+        flex: 1;
+        text-align: left;
+        font-size: var(--fs-body);
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .cb-total {
+        font-size: var(--fs-body);
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+      }
+      .cb-arrow {
+        flex-shrink: 0;
+        font-size: var(--fs-sm);
+        opacity: 0.7;
+      }
+      .portal-cartbar:active { transform: translateX(-50%) translateY(0) scale(0.98); }
+
       .portal-cart-badge-mobile {
         position: absolute;
         top: -6px;
@@ -672,6 +760,7 @@ interface NavItem {
         .portal-sidebar { display: none; }
         .portal-header-mobile { display: flex; }
         .portal-tabdock { display: flex; }
+        .portal-cartbar { display: flex; }
         .portal-main {
           /* 5rem tabbar + 1rem margen + safe-area garantizan que el contenido
              no quede oculto detrás del tabbar flotante (Stitch style). */
@@ -685,6 +774,8 @@ interface NavItem {
         .ps-panel,
         .ps-backdrop,
         .portal-tab,
+        .portal-header-mobile,
+        .portal-cartbar,
         .ps-switch-thumb { transition: none !important; animation: none !important; }
       }
 
@@ -1004,15 +1095,20 @@ interface NavItem {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PortalShellComponent {
+export class PortalShellComponent implements AfterViewInit, OnDestroy {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly theme = inject(ThemeService);
   private readonly toast = inject(MessageService);
   private readonly alerts = inject(AlertsSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly el = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
   readonly cart = inject(PortalService);
   readonly notif = inject(NotificationPrefsService);
+
+  /** GSAP Observer que retrae el header al hacer scroll abajo (lazy, cacheado). */
+  private chromeObserver?: { kill: () => void };
 
   readonly username = signal<string>(this.auth.user()?.username || '');
   readonly initial = computed(() =>
@@ -1096,5 +1192,63 @@ export class PortalShellComponent {
   logout(): void {
     this.auth.logout();
     this.router.navigateByUrl('/portal/login');
+  }
+
+  goCart(): void {
+    if (this.cart.cartLineCount() === 0) return;
+    this.router.navigateByUrl('/portal/cart');
+  }
+
+  ngAfterViewInit(): void {
+    this.setupScrollChrome();
+  }
+
+  ngOnDestroy(): void {
+    this.chromeObserver?.kill?.();
+  }
+
+  /**
+   * Gesto inmersivo móvil: el header se retrae al hacer scroll hacia abajo y
+   * reaparece al subir (firma Rappi). GSAP Observer unifica wheel/touch/scroll
+   * — sin matemática de scroll ni listeners propios. Lazy + fuera de zona +
+   * apagado bajo prefers-reduced-motion. El window es el scroller del portal.
+   */
+  private async setupScrollChrome(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const header = this.el.nativeElement.querySelector(
+      '.portal-header-mobile',
+    ) as HTMLElement | null;
+    if (!header) return;
+    try {
+      const mod: any = await import('gsap');
+      const gsap = mod.gsap || mod.default;
+      const Observer = (await import('gsap/Observer')).Observer;
+      gsap.registerPlugin(Observer);
+      this.zone.runOutsideAngular(() => {
+        let hidden = false;
+        const show = () => {
+          if (hidden) {
+            hidden = false;
+            header.classList.remove('nav-hidden');
+          }
+        };
+        const hide = () => {
+          if (!hidden && window.scrollY > 90) {
+            hidden = true;
+            header.classList.add('nav-hidden');
+          }
+        };
+        this.chromeObserver = Observer.create({
+          target: window,
+          type: 'wheel,touch,scroll',
+          tolerance: 12,
+          onUp: show,
+          onDown: hide,
+        });
+      });
+    } catch {
+      /* gsap opcional — sin él el header queda fijo (sin regresión). */
+    }
   }
 }

@@ -104,6 +104,7 @@
   --text-disabled: rgba(9, 9, 11, 0.5);
 
   --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-float:  0 2px 4px rgba(16, 13, 9, 0.04), 0 10px 24px -12px rgba(16, 13, 9, 0.16);
   --shadow-hover:  0 10px 30px -10px rgba(0, 0, 0, 0.1);
   --skeleton-bg:   #E2E8F0;
 
@@ -186,6 +187,7 @@ body.theme-monochrome {
   --text-disabled: rgba(255, 255, 255, 0.5);
 
   --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-float:  0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
   --shadow-hover:  0 0 20px rgba(255, 255, 255, 0.1);
   --skeleton-bg:   #333333;
 
