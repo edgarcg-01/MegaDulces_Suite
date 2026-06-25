@@ -10,12 +10,14 @@ import { PortalService, Order, PromotionRow, CatalogHistoryRow, CatalogFacets, C
 import { AuthService } from '../../../core/services/auth.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { cldImage } from '../../../core/util/cloudinary';
 import { ProductsOfMonthCarouselComponent } from '../ui/products-of-month-carousel.component';
 import { BrandsCarouselComponent } from '../ui/brands-carousel.component';
 import { FeaturedPromoComponent } from '../ui/featured-promo.component';
 import { PromosCarouselComponent } from '../ui/promos-carousel.component';
 import { TopProductsComponent } from '../ui/top-products.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
+import { HomeFeedComponent } from '../ui/home-feed.component';
 import { MX_TRENDS } from '../data/mx-market-trends';
 import { CartFxService } from '../cart-fx.service';
 
@@ -45,6 +47,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     PromosCarouselComponent,
     TopProductsComponent,
     ProductSheetComponent,
+    HomeFeedComponent,
   ],
   template: `
     <!-- [1] LIVE STATUS RIBBON — greeting + ongoing en una línea -->
@@ -79,7 +82,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
             [class.is-ph]="!hasImg(p)"
             [style.background]="hasImg(p) ? null : phStyle(p)"
           >
-            <img *ngIf="hasImg(p)" [src]="p.image_url" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+            <img *ngIf="hasImg(p)" [src]="thumb(p.image_url)" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
             <span *ngIf="!hasImg(p)" class="ph-restock-initials">{{ initials(p) }}</span>
           </div>
           <div class="ph-restock-body">
@@ -119,7 +122,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
             [class.is-ph]="!hasImg(p)"
             [style.background]="hasImg(p) ? null : phStyle(p)"
           >
-            <img *ngIf="hasImg(p)" [src]="p.image_url" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+            <img *ngIf="hasImg(p)" [src]="thumb(p.image_url)" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
             <span *ngIf="!hasImg(p)" class="ph-reorder-initials">{{ initials(p) }}</span>
             <span *ngIf="p.times_ordered > 1" class="ph-reorder-freq">{{ p.times_ordered }}×</span>
           </div>
@@ -155,7 +158,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       routerLink="/portal/promotions"
       [attr.aria-label]="'Ver promoción: ' + bp.name"
     >
-      <img [src]="bp.banner_url" [alt]="bp.name" class="ph-banner-img" />
+      <img [src]="thumb(bp.banner_url, 1120)" [alt]="bp.name" class="ph-banner-img" loading="lazy" decoding="async" />
     </a>
 
     <!-- [PROMO DESTACADA] "Escaparate vivo" — productos Nutresa que rotan -->
@@ -393,9 +396,11 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           *ngFor="let o of orders().slice(0, 3)"
           class="ph-history-row"
           (click)="onOrderAction(o)"
-          role="listitem"
+          role="button"
           tabindex="0"
+          [attr.aria-label]="'Ver pedido ' + o.code"
           (keydown.enter)="onOrderAction(o)"
+          (keydown.space)="onOrderAction(o); $event.preventDefault()"
         >
           <span class="ph-history-status" [class]="'is-' + o.status">
             <i [class]="statusIcon(o.status)" aria-hidden="true"></i>
@@ -419,6 +424,17 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     <div *ngIf="loadingOrders()" class="ph-skel-list">
       <p-skeleton *ngFor="let i of [1,2,3]" width="100%" height="64px" borderRadius="14px"></p-skeleton>
     </div>
+
+    <!-- [FEED] descubrimiento casi infinito: rails por marca/categoría + grilla -->
+    <portal-home-feed
+      [brands]="topBrands()"
+      [warehouseId]="warehouse()"
+      [bannerUrl]="bannerPromo()?.banner_url || null"
+      [addingId]="addingId()"
+      [addedIds]="addedIds()"
+      (open)="openMonthly($event)"
+      (add)="addMonthly($event)"
+    ></portal-home-feed>
 
     <!-- TOP-SHEET de detalle de producto (baja desde arriba al tocar un card) -->
     <portal-product-sheet
@@ -475,7 +491,8 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       portal-top-products.ph-toptrends { order: 11; }
       .ph-trust                  { order: 12; }
       .ph-history, .ph-skel-list { order: 13; }
-      .ph-foot                   { order: 14; }
+      portal-home-feed           { order: 14; }
+      .ph-foot                   { order: 15; }
 
       /* ── REVEAL POR LOTES (scroll-driven nativo) ────────────────────
          Cada sección entra al cruzar el viewport. CSS scroll-driven corre
@@ -1212,6 +1229,8 @@ export class PortalHomeComponent {
   readonly addedIds = signal<Set<string>>(new Set<string>());
   private custId: string | null = null;
   private whId: string | null = null;
+  /** Almacén resuelto, expuesto como signal para el feed de descubrimiento. */
+  readonly warehouse = signal<string | null>(null);
   private readonly imgFailed = new Set<string>();
 
   /** Carrusel "Marcas top": facets del catálogo (el componente maneja logo + fallback + marquee). */
@@ -1264,6 +1283,11 @@ export class PortalHomeComponent {
       )
       .slice(0, 6);
   });
+
+  /** Thumbnail Cloudinary (baja bytes: full-res → ancho del box). No-op si no es Cloudinary. */
+  thumb(url?: string | null, w = 220): string {
+    return cldImage(url || '', w);
+  }
 
   /** Días desde el último pedido de un producto (para el copy "hace N días"). */
   daysSince(iso?: string | null): number {
@@ -1510,7 +1534,7 @@ export class PortalHomeComponent {
       next: ({ customer, warehouses }: any) => {
         if (customer?.id) this.custId = customer.id;
         const wh = (warehouses || []).find((w: any) => w.is_default) || (warehouses || [])[0];
-        if (wh?.id) this.whId = wh.id;
+        if (wh?.id) { this.whId = wh.id; this.warehouse.set(wh.id); }
         this.loadMxTrends();
         this.portal.myCatalogSuggested(this.whId || undefined).subscribe({
           next: (rows) => this.suggestedProducts.set((rows || []).filter((r) => r.price != null).slice(0, 10)),

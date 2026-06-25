@@ -599,25 +599,67 @@ export class PortalLoginComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Entrada coreografiada (lazy, fuera de zona): tras el aterrizaje del producto
+   * del stage, el logo entra, el titular se arma carácter por carácter
+   * (SplitText), el subrayado se dibuja (DrawSVG) y los campos suben escalonados.
+   * Estado inicial oculto vía gsap.set SOLO tras importar GSAP ok → si falla, todo
+   * queda visible (sin regresión). Apagado bajo prefers-reduced-motion.
+   */
   private async animateIn(host: HTMLElement): Promise<void> {
+    let gsap: any;
+    let SplitText: any = null;
+    let DrawSVG: any = null;
     try {
       const mod: any = await import('gsap');
-      const gsap = mod.gsap || mod.default;
-      this.zone.runOutsideAngular(() => {
-        const targets = host.querySelectorAll('.pl-form-head > *, .pl-form > *');
-        if (!targets.length) return;
-        gsap.from(targets, {
-          y: 16,
-          opacity: 0,
-          duration: 0.5,
-          stagger: 0.05,
-          ease: 'power3.out',
-          clearProps: 'transform,opacity',
-        });
-      });
+      gsap = mod.gsap || mod.default;
+      try {
+        SplitText = (await import('gsap/SplitText')).SplitText;
+        DrawSVG = (await import('gsap/DrawSVGPlugin')).DrawSVGPlugin;
+        gsap.registerPlugin(SplitText, DrawSVG);
+      } catch {
+        /* plugins opcionales */
+      }
     } catch {
-      /* sin GSAP el login se muestra estático (sin regresión) */
+      return; // sin GSAP → estático (sin regresión)
     }
+
+    this.zone.runOutsideAngular(() => {
+      const display = host.querySelector('.pl-display') as HTMLElement | null;
+      const onMobile = !!display && display.offsetParent !== null;
+      const logo = host.querySelector('.pl-form-logo');
+      const sub = host.querySelector('.pl-form-sub');
+      const formKids = Array.from(host.querySelectorAll('.pl-form > *'));
+      const headDesktop = Array.from(host.querySelectorAll('.pl-form-eyebrow, .pl-form-title'));
+      const underPath = host.querySelector('.pl-underline path');
+
+      let chars: any = null;
+      if (SplitText && onMobile && display) {
+        try {
+          this.split = new SplitText(display, { type: 'chars' });
+          chars = (this.split as any).chars;
+        } catch {
+          /* sin split → animamos el titular entero */
+        }
+      }
+
+      // Ocultar para evitar flash (solo con GSAP cargado).
+      gsap.set([logo, sub, ...formKids].filter(Boolean), { opacity: 0, y: 16 });
+      if (chars) gsap.set(chars, { opacity: 0, y: 26, rotateX: -50, transformOrigin: '0 100%' });
+      else gsap.set([...(display ? [display] : []), ...headDesktop].filter(Boolean), { opacity: 0, y: 16 });
+      if (underPath && DrawSVG) gsap.set(underPath, { drawSVG: '0%' });
+
+      const tl = gsap.timeline({ delay: 0.3 });
+      tl.to(logo, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' });
+      if (chars) {
+        tl.to(chars, { opacity: 1, y: 0, rotateX: 0, stagger: 0.02, duration: 0.5, ease: 'back.out(1.5)' }, '-=0.15');
+        if (underPath && DrawSVG) tl.to(underPath, { drawSVG: '100%', duration: 0.6, ease: 'power2.out' }, '-=0.15');
+      } else {
+        tl.to([...(display ? [display] : []), ...headDesktop].filter(Boolean), { opacity: 1, y: 0, duration: 0.45, stagger: 0.06, ease: 'power3.out' }, '-=0.1');
+      }
+      tl.to(sub, { opacity: 1, y: 0, duration: 0.4 }, '-=0.25');
+      tl.to(formKids, { opacity: 1, y: 0, duration: 0.45, stagger: 0.05, ease: 'power3.out', clearProps: 'transform,opacity' }, '-=0.2');
+    });
   }
 
   togglePass(): void {

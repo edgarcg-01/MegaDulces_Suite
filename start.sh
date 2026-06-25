@@ -6,9 +6,10 @@
 #   1. Aplica migraciones pendientes (knex migrate:latest). Idempotente y
 #      protegido por knex_migrations_lock (safe en restarts concurrentes).
 #   2. Lanza la API NestJS en background sobre $API_PORT (interno, fijo).
-#   3. Espera a que /api/health responda 200 antes de levantar nginx.
-#   4. Renderiza nginx.conf inyectando $PORT (dinámico de Railway).
-#   5. Arranca nginx en foreground (PID 1 lo gestiona tini, ver Dockerfile).
+#   3. Espera un margen de boot y confirma que el proceso sigue vivo.
+#   4. Renderiza nginx.conf inyectando $PORT y arranca nginx en background.
+#   5. Supervisa ambos: si cualquiera muere, sale 1 → Railway reinicia.
+#      (Sin healthcheck HTTP: Railway monitorea el contenedor + esta supervisión.)
 #
 # Si la API muere o las migraciones fallan, `set -e` aborta el boot y la
 # plataforma reintenta. Mejor fallar fuerte que correr con esquema sucio.
@@ -64,5 +65,22 @@ envsubst '$PORT' < /etc/nginx/sites-available/default > /tmp/nginx.conf
 mv /tmp/nginx.conf /etc/nginx/sites-available/default
 
 echo "[start] Starting Nginx on port ${PORT}..."
-# nginx en foreground — tini lo recibe como hijo directo y propaga SIGTERM.
-nginx -g 'daemon off;'
+nginx -g 'daemon off;' &
+NGINX_PID=$!
+
+# Propagar SIGTERM/SIGINT a ambos hijos para un shutdown limpio en redeploys de
+# Railway (el `trap` corre cuando tini reenvía la señal a este script).
+trap 'echo "[start] señal recibida — terminando API+nginx"; kill -TERM "$API_PID" "$NGINX_PID" 2>/dev/null; exit 0' TERM INT
+
+# Supervisión post-boot: si CUALQUIERA de los dos muere, tumbamos el contenedor
+# para que Railway lo reinicie. Antes el API corría sin supervisión → si crasheaba
+# después del boot, nginx seguía "sano" sirviendo 502 indefinidamente y el
+# contenedor nunca reiniciaba. `kill -0` solo testea que el PID siga vivo.
+# (Poll POSIX porque /bin/sh es dash en Debian slim → no hay `wait -n`.)
+while kill -0 "$API_PID" 2>/dev/null && kill -0 "$NGINX_PID" 2>/dev/null; do
+  sleep 5
+done
+
+echo "[start] Un proceso gestionado murió (API_PID=${API_PID} NGINX_PID=${NGINX_PID}) — deteniendo contenedor para que Railway reinicie."
+kill -TERM "$API_PID" "$NGINX_PID" 2>/dev/null || true
+exit 1

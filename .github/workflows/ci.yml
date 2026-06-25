@@ -1,0 +1,51 @@
+name: CI
+
+# Gate de build/typecheck. Compila las 4 apps deployables (api, view, portal,
+# vendor) con la MISMA config que los Dockerfiles de prod (--configuration=
+# production + --import load-compiler.mjs). Atrapa errores de TS / budgets de
+# Angular ANTES de que Railway deploye un build roto — clave en este flujo
+# single-dev con auto-push a main.
+#
+# NO publica imágenes: Railway construye desde el repo en cada push. Este job
+# es puramente un gate de calidad.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & typecheck (api · view · portal · vendor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          # El monorepo tiene puppeteer (deps del api). Sin esto npm ci baja
+          # Chrome (~120MB) y puede colgarse. Mismo flag que los Dockerfiles.
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      - name: Build all deployables
+        run: npx nx run-many -t build -p api view portal vendor --configuration=production --parallel=2
+        env:
+          NX_DAEMON: 'false'
+          # Mismo arranque que los Dockerfiles: heap 4096 + @angular/compiler
+          # precargado (Angular v18 + esbuild en Node 20 lo necesita).
+          NODE_OPTIONS: "--max-old-space-size=4096 --import file://${{ github.workspace }}/load-compiler.mjs"

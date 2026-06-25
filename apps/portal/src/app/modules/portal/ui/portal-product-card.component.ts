@@ -1,15 +1,18 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   EventEmitter,
   Input,
   Output,
+  inject,
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import { TooltipModule } from 'primeng/tooltip';
 import type { PriceRow } from '../portal.service';
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CartFxService } from '../cart-fx.service';
 
 /**
  * Átomo: card de producto del catálogo (grid + lista). Presentacional —
@@ -99,7 +102,7 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
           type="button"
           class="cat-add"
           [disabled]="adding || isAdmin || product.price == null"
-          (click)="$event.stopPropagation(); add.emit()"
+          (click)="$event.stopPropagation(); onAdd()"
           [attr.aria-label]="'Agregar ' + product.product_name + ' al carrito'"
           [pTooltip]="isAdmin ? 'Solo lectura (admin)' : (product.price == null ? 'Producto sin precio configurado' : 'Agregar al carrito')"
         >
@@ -491,6 +494,16 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PortalProductCardComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly cartFx = inject(CartFxService);
+
+  /** Vuela la imagen al carrito + emite add (encapsulado → catálogo y feed). */
+  onAdd(): void {
+    const media = this.host.nativeElement.querySelector('.cat-card-img') as HTMLElement | null;
+    this.cartFx.fly(media, this.showImg ? this.imgSrc : null);
+    this.add.emit();
+  }
+
   @Input({ required: true }) product!: PriceRow;
   @Input() list = false;
   @Input() inCart = false;

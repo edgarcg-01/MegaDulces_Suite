@@ -98,6 +98,12 @@ async function bootstrap() {
     bodyParser: false,
   });
 
+  // Detrás de nginx (mismo container) y del edge de Railway: confiar en el
+  // primer proxy para que `req.ip` use X-Forwarded-For en vez de 127.0.0.1.
+  // Sin esto el ThrottlerGuard keyea TODO al loopback (rate-limit = bucket
+  // compartido global, inútil) y las IPs de auditoría son las del proxy.
+  app.set('trust proxy', 1);
+
   // Crear carpeta uploads si no existe
   const uploadsPath = join(__dirname, '..', 'uploads');
   app.useStaticAssets(uploadsPath, {
