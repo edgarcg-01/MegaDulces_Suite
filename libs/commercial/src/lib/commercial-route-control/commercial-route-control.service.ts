@@ -206,17 +206,37 @@ export class CommercialRouteControlService {
 
   /**
    * Ruta del vendedor para tickets que NO la traen impresa (combustible: el recibo
-   * es de la gasolinera). Se infiere, en orden:
-   *   1. La ruta de un ticket de venta/carga del MISMO día del propio vendedor.
-   *   2. Si su zona tiene UNA sola ruta, esa.
-   * Si no se puede determinar (zona multi-ruta y sin ticket del día), matched=false.
+   * es de la gasolinera). Se infiere, en orden de más a menos autoritativo:
+   *   1. Su ASIGNACIÓN del día (daily_assignments) — la misma que "Mi ruta".
+   *   2. La ruta de un ticket de venta/carga del MISMO día del propio vendedor.
+   *   3. Si su zona tiene UNA sola ruta, esa.
+   *   4. Su ÚLTIMO ticket de ruta (cualquier día) — última ruta conocida.
+   * Solo matched=false si el vendedor no tiene ninguna pista de ruta (raro).
    */
   private async resolveVendorRoute(): Promise<{ matched: boolean; code: string | null; value: string | null }> {
+    const ok = (value: string) => {
+      const v = String(value);
+      return { matched: true, code: v.match(/\d+/)?.[0] ?? v, value: v };
+    };
     return this.tk.run(async (trx) => {
       const userId = this.requireUserId();
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
-      // 1) Ruta del corte/carga de HOY del mismo vendedor (la más reciente).
+      // 1) Asignación del día (daily_assignments → catalogs rutas). Fuente
+      //    autoritativa: es la ruta que el propio vendedor ve en "Mi ruta".
+      const assigned = await trx('public.daily_assignments as da')
+        .join('public.catalogs as cat', function () {
+          this.on('cat.id', '=', 'da.route_id')
+            .andOnVal('cat.catalog_id', '=', 'rutas')
+            .andOnNull('cat.deleted_at');
+        })
+        .where('da.user_id', userId)
+        .whereRaw(`da.day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int`)
+        .distinct('cat.value as value')
+        .orderBy('value');
+      if (assigned.length === 1) return ok(assigned[0].value);
+
+      // 2) Ruta del corte/carga de HOY del mismo vendedor (la más reciente).
       const sameDay = await trx('commercial.route_tickets')
         .where({ vendor_user_id: userId })
         .where('ticket_date', today)
@@ -224,12 +244,9 @@ export class CommercialRouteControlService {
         .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .first('route_code');
-      if (sameDay?.route_code) {
-        const code = String(sameDay.route_code);
-        return { matched: true, code, value: `RUTA ${code}` };
-      }
+      if (sameDay?.route_code) return ok(`RUTA ${sameDay.route_code}`);
 
-      // 2) Única ruta de su zona.
+      // 3) Única ruta de su zona.
       const user = await trx('users').where({ id: userId }).first('zona_id');
       const zonaId = user?.zona_id ?? null;
       const routes = await trx('catalogs')
@@ -240,11 +257,18 @@ export class CommercialRouteControlService {
           else q.whereNull('parent_id');
         })
         .select('value');
-      if (routes.length === 1) {
-        const value = String(routes[0].value);
-        const code = value.match(/\d+/)?.[0] ?? value;
-        return { matched: true, code, value };
-      }
+      if (routes.length === 1) return ok(routes[0].value);
+
+      // 4) Último ticket de ruta del vendedor (cualquier día) — última ruta conocida.
+      const last = await trx('commercial.route_tickets')
+        .where({ vendor_user_id: userId })
+        .whereNotNull('route_code')
+        .whereNull('deleted_at')
+        .orderBy('ticket_date', 'desc')
+        .orderBy('created_at', 'desc')
+        .first('route_code');
+      if (last?.route_code) return ok(`RUTA ${last.route_code}`);
+
       return { matched: false, code: null, value: null };
     });
   }

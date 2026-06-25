@@ -42,6 +42,7 @@ export interface BrandFacet {
             [class.is-fallback]="failed.has(b.brand_id || '')"
             [style.--bc]="brandColor(b.brand_name)"
             [style.--bc-ink]="brandInk(b.brand_name)"
+            [style.background]="failed.has(b.brand_id || '') ? null : logoBg(b.brand_name)"
             [routerLink]="['/portal/catalog']"
             [queryParams]="{ brand: b.brand_id }"
             [attr.aria-hidden]="i >= half ? 'true' : null"
@@ -227,10 +228,13 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
    * ("Effem Mexico", "Mondelez Mexico", "Hershey Mexico"…), no la marca de
    * consumo. Detectamos la marca por keyword → slug del logo + etiqueta limpia.
    */
-  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string }> = [
+  // `bg` = color de fondo del PROPIO logo (cuando el SVG trae un fondo sólido
+  // de borde a borde). Sin `bg` el chip va blanco. Rellena las esquinas del
+  // círculo con el mismo color → sin huecos para logos cuadrados (ej. Ricolino).
+  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string }> = [
     { re: /hershey/, slug: 'hersheys', label: "Hershey's", color: '#6F4E37' },
     { re: /\bmars\b|effem/, slug: 'mars', label: 'Mars', color: '#CC2229' },
-    { re: /mondelez|ricolino/, slug: 'ricolino', label: 'Ricolino', color: '#304C9C' },
+    { re: /mondelez|ricolino/, slug: 'ricolino', label: 'Ricolino', color: '#304C9C', bg: '#304C9C' },
     { re: /ferrero/, slug: 'ferrero', label: 'Ferrero', color: '#5C2E2E' },
     { re: /arcor/, slug: 'arcor', label: 'Arcor', color: '#2D4F9E' },
     { re: /perfetti|van melle/, slug: 'perfetti-van-melle', label: 'Perfetti', color: '#CC262D' },
@@ -260,6 +264,10 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   /** Color de marca para acento/relleno; CSS var. */
   brandColor(name: string | null | undefined): string {
     return this.match(name)?.color || 'var(--neutral-400)';
+  }
+  /** Fondo del chip cuando hay logo = fondo propio del SVG (blanco por defecto). */
+  logoBg(name: string | null | undefined): string {
+    return this.match(name)?.bg || '#ffffff';
   }
   /** Tinta legible (negro/blanco) sobre el color de marca, según luminancia. */
   brandInk(name: string | null | undefined): string {
