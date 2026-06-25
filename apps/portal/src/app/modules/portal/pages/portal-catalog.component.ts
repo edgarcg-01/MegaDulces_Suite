@@ -414,6 +414,14 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     const brandParam = this.route.snapshot.queryParamMap.get('brand');
     if (brandParam) this.selectedBrandId.set(brandParam);
 
+    // Deep-link de búsqueda (chips de categoría del home → ?q=<término>).
+    // Se setea antes de loadAll para que la primera página venga ya filtrada.
+    const qParam = this.route.snapshot.queryParamMap.get('q');
+    if (qParam) {
+      this.search = qParam;
+      this.searchSignal.set(qParam);
+    }
+
     this.loadAll();
     this.wireSmartSearch();
     this.loadHistory();

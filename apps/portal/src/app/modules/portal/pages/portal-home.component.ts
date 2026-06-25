@@ -263,7 +263,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         *ngFor="let chip of trendingChips"
         type="button"
         class="ph-chip"
-        (click)="goCatalog(chip.slug)"
+        (click)="goCategory(chip.term)"
       >{{ chip.label }}</button>
     </nav>
 
@@ -1370,13 +1370,25 @@ export class PortalHomeComponent {
     });
   }
 
-  /** Chips trending bajo el search — mock por ahora. */
+  /**
+   * Chips de categoría bajo el search. No hay taxonomía real de categorías en el
+   * catálogo (solo marcas), así que cada chip es una BÚSQUEDA por nombre (`q`)
+   * que el catálogo aplica al abrir. Términos elegidos para matchear nombres
+   * de producto reales de una dulcería mexicana.
+   */
   readonly trendingChips = [
-    { slug: 'caramelos',    label: 'Caramelos' },
-    { slug: 'chocolates',   label: 'Chocolates' },
-    { slug: 'mazapanes',    label: 'Mazapanes' },
-    { slug: 'importados',   label: 'Importados' },
-    { slug: 'sin-azucar',   label: 'Sin azúcar' },
+    { term: 'gomita',     label: 'Gomitas' },
+    { term: 'paleta',     label: 'Paletas' },
+    { term: 'chocolate',  label: 'Chocolates' },
+    { term: 'tamarindo',  label: 'Tamarindo' },
+    { term: 'enchilado',  label: 'Enchilados' },
+    { term: 'caramelo',   label: 'Caramelos' },
+    { term: 'mazapan',    label: 'Mazapán' },
+    { term: 'chicle',     label: 'Chicles' },
+    { term: 'bombon',     label: 'Bombones' },
+    { term: 'malvavisco', label: 'Malvaviscos' },
+    { term: 'pulpa',      label: 'Pulpa' },
+    { term: 'mango',      label: 'Mango' },
   ];
 
   readonly greetingPrefix = computed(() => {
@@ -1549,6 +1561,12 @@ export class PortalHomeComponent {
   goSearch(): void {
     this.haptic.selection();
     this.router.navigate(['/portal/catalog'], { queryParams: { focus: 'search' } });
+  }
+
+  /** Chip de categoría → catálogo pre-filtrado por búsqueda (q). */
+  goCategory(term: string): void {
+    this.haptic.selection();
+    this.router.navigate(['/portal/catalog'], { queryParams: { q: term } });
   }
 
   goPromos(): void {

@@ -28,6 +28,36 @@
       }
     }
   ],
+  "dataGroups": [
+    {
+      "name": "portal-catalog",
+      "urls": [
+        "/api/commercial/catalog/**",
+        "/api/commercial/price-lists/**",
+        "/api/commercial/warehouses",
+        "/api/commercial/promotions",
+        "/api/commercial/recommendations/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 200,
+        "maxAge": "1h"
+      }
+    },
+    {
+      "name": "portal-dynamic",
+      "urls": [
+        "/api/commercial/orders/**",
+        "/api/commercial/customers/me"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 100,
+        "maxAge": "1d",
+        "timeout": "3s"
+      }
+    }
+  ],
   "navigationUrls": [
     "/**",
     "!/**/*.*",

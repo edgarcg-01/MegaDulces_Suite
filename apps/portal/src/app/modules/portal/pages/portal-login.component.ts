@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -129,7 +129,7 @@ import { AuthService } from '../../../core/services/auth.service';
           <button
             type="submit"
             class="portal-btn-primary portal-btn-block portal-btn-primary-lg pl-submit"
-            [disabled]="loading() || form.invalid"
+            [disabled]="loading()"
           >
             <i [class]="loading() ? 'pi pi-spin pi-spinner' : 'pi pi-arrow-right'" aria-hidden="true"></i>
             {{ loading() ? 'Ingresando…' : 'Ingresar al portal' }}
@@ -442,6 +442,7 @@ export class PortalLoginComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -459,8 +460,32 @@ export class PortalLoginComponent {
     this.showPass.update((v) => !v);
   }
 
+  /**
+   * Sincroniza el form con los valores REALES de los inputs. Los gestores de
+   * contraseñas / autofill de móvil suelen rellenar el DOM sin disparar el
+   * evento que actualiza el form reactivo → sin esto, el form queda "invalid"
+   * y el login parece no responder.
+   */
+  private syncAutofill(): void {
+    const host = this.host.nativeElement;
+    const grab = (id: string, ctrl: 'username' | 'password' | 'tenant_slug') => {
+      const el = host.querySelector('#' + id) as HTMLInputElement | null;
+      if (el && el.value && this.form.controls[ctrl].value !== el.value) {
+        this.form.controls[ctrl].setValue(el.value);
+      }
+    };
+    grab('user', 'username');
+    grab('pass', 'password');
+    grab('tenant', 'tenant_slug');
+  }
+
   submit(): void {
-    if (this.form.invalid) return;
+    this.syncAutofill();
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      this.error.set('Ingresa tu usuario y contraseña.');
+      return;
+    }
     this.loading.set(true);
     this.error.set(null);
     const v = this.form.value;

@@ -15,6 +15,7 @@ case "$API_UPSTREAM" in
 esac
 
 echo "[portal] nginx en :${PORT} — API_UPSTREAM=${API_UPSTREAM}"
+echo "[portal] build $(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7)"
 
 # Solo sustituimos $PORT y $API_UPSTREAM; las demás ($host, $remote_addr, ...)
 # son variables de runtime de nginx y deben quedar intactas.

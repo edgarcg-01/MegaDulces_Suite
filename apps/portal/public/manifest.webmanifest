@@ -1,14 +1,14 @@
 {
-  "name": "Portal-MD",
-  "short_name": "Portal-MD",
+  "name": "Mega Dulces",
+  "short_name": "Mega Dulces",
   "description": "Catálogo, pedidos y promociones B2B de Mega Dulces.",
   "lang": "es",
   "start_url": "/portal/home",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#16130F",
-  "theme_color": "#FDE707",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
   "categories": ["business", "shopping", "food"],
   "shortcuts": [
     {
