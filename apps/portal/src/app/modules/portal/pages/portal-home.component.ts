@@ -47,6 +47,46 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </a>
     </div>
 
+    <!-- [REORDEN-PRIMERO] "Comprar de nuevo" sube al primer pliegue, sobre el
+         hero (Baymard: el cliente B2B es transaccional, no exploratorio). -->
+    <section *ngIf="frequentProducts().length > 0" class="ph-section ph-section-reorder">
+      <header class="ph-section-head">
+        <h2>Comprar de nuevo</h2>
+        <a routerLink="/portal/catalog" class="ph-section-link">Ver catálogo →</a>
+      </header>
+      <div class="ph-reorder-strip" role="list">
+        <article *ngFor="let p of frequentProducts(); trackBy: trackByProduct" class="ph-reorder-card" role="listitem">
+          <div
+            class="ph-reorder-media"
+            [class.is-ph]="!hasImg(p)"
+            [style.background]="hasImg(p) ? null : phStyle(p)"
+          >
+            <img *ngIf="hasImg(p)" [src]="p.image_url" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+            <span *ngIf="!hasImg(p)" class="ph-reorder-initials">{{ initials(p) }}</span>
+            <span *ngIf="p.times_ordered > 1" class="ph-reorder-freq">{{ p.times_ordered }}×</span>
+          </div>
+          <div class="ph-reorder-body">
+            <span class="ph-reorder-brand">{{ p.brand_name || 'Sin marca' }}</span>
+            <span class="ph-reorder-name" [title]="p.product_name">{{ p.product_name }}</span>
+            <span class="ph-reorder-price">{{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          </div>
+          <button
+            type="button"
+            class="ph-reorder-add"
+            [class.is-added]="addedIds().has(p.product_id)"
+            [disabled]="addingId() === p.product_id"
+            (click)="addFrequent(p)"
+            [attr.aria-label]="'Agregar ' + p.product_name"
+          >
+            <i *ngIf="addingId() === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            <i *ngIf="addingId() !== p.product_id && addedIds().has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
+            <i *ngIf="addingId() !== p.product_id && !addedIds().has(p.product_id)" class="pi pi-plus" aria-hidden="true"></i>
+            {{ addedIds().has(p.product_id) ? 'Agregado' : 'Agregar' }}
+          </button>
+        </article>
+      </div>
+    </section>
+
     <!-- [1.5] BANNER DE MARKETING (arte propio de una promo activa) -->
     <a
       *ngIf="bannerPromo() as bp"
@@ -213,45 +253,6 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           <strong>WhatsApp</strong>
           <span>Soporte directo</span>
         </div>
-      </div>
-    </section>
-
-    <!-- [4.4] COMPRAR DE NUEVO — productos frecuentes con add 1-tap (patrón B2B #1) -->
-    <section *ngIf="frequentProducts().length > 0" class="ph-section">
-      <header class="ph-section-head">
-        <h2>Comprar de nuevo</h2>
-        <a routerLink="/portal/catalog" class="ph-section-link">Ver catálogo →</a>
-      </header>
-      <div class="ph-reorder-strip" role="list">
-        <article *ngFor="let p of frequentProducts(); trackBy: trackByProduct" class="ph-reorder-card" role="listitem">
-          <div
-            class="ph-reorder-media"
-            [class.is-ph]="!hasImg(p)"
-            [style.background]="hasImg(p) ? null : phStyle(p)"
-          >
-            <img *ngIf="hasImg(p)" [src]="p.image_url" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
-            <span *ngIf="!hasImg(p)" class="ph-reorder-initials">{{ initials(p) }}</span>
-            <span *ngIf="p.times_ordered > 1" class="ph-reorder-freq">{{ p.times_ordered }}×</span>
-          </div>
-          <div class="ph-reorder-body">
-            <span class="ph-reorder-brand">{{ p.brand_name || 'Sin marca' }}</span>
-            <span class="ph-reorder-name" [title]="p.product_name">{{ p.product_name }}</span>
-            <span class="ph-reorder-price">{{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          </div>
-          <button
-            type="button"
-            class="ph-reorder-add"
-            [class.is-added]="addedIds().has(p.product_id)"
-            [disabled]="addingId() === p.product_id"
-            (click)="addFrequent(p)"
-            [attr.aria-label]="'Agregar ' + p.product_name"
-          >
-            <i *ngIf="addingId() === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <i *ngIf="addingId() !== p.product_id && addedIds().has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
-            <i *ngIf="addingId() !== p.product_id && !addedIds().has(p.product_id)" class="pi pi-plus" aria-hidden="true"></i>
-            {{ addedIds().has(p.product_id) ? 'Agregado' : 'Agregar' }}
-          </button>
-        </article>
       </div>
     </section>
 

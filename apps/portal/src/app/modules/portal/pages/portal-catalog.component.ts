@@ -43,6 +43,7 @@ import {
 } from '../portal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { cldImage } from '../../../core/util/cloudinary';
+import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 import { PortalProductCardComponent } from '../ui/portal-product-card.component';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
@@ -283,6 +284,28 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     const p = this.sheetProduct();
     if (!p) return 0;
     return this.sheetQty() * (Number(p.price) || 0);
+  });
+
+  /**
+   * Cross-sell "Va bien con esto" (P1 #6): hasta 3 SKUs distintos al actual,
+   * con precio. Reusa top-sellers (señal de demanda) y cae al catálogo
+   * cargado — sin endpoint de relacionados nuevo.
+   */
+  readonly sheetCrossSell = computed<PriceRow[]>(() => {
+    const cur = this.sheetProductId();
+    if (!cur) return [];
+    const seen = new Set<string>([cur]);
+    const out: PriceRow[] = [];
+    for (const pool of [this.topSellers(), this.prices()]) {
+      for (const p of pool) {
+        if (out.length >= 3) break;
+        if (!p || p.price == null || seen.has(p.product_id)) continue;
+        seen.add(p.product_id);
+        out.push(p);
+      }
+      if (out.length >= 3) break;
+    }
+    return out;
   });
 
 
@@ -652,6 +675,23 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
         next: (f) => this.facets.set(f),
         error: () => this.facets.set(null),
       });
+  }
+
+  /**
+   * SKU empujado como unidad nativa "Destacado" al tope de resultados (P0 #4).
+   * Solo en catálogo completo (sin quick-chip, sin búsqueda) para no competir
+   * con la intención explícita del usuario. Reusa promoProducts() ya cargado.
+   */
+  readonly featuredPromoProduct = computed<CatalogWithPromoRow | null>(() => {
+    if (this.quickFilter() || (this.aiSearch() && this.searchSignal().trim()) || this.searchSignal().trim()) {
+      return null;
+    }
+    return this.promoProducts()[0] || null;
+  });
+
+  /** Cast estrecho: CatalogWithPromoRow → PriceRow para reusar openSheet/addToCart. */
+  asPrice(p: CatalogWithPromoRow): PriceRow {
+    return p as unknown as PriceRow;
   }
 
   selectBrand(brandId: string): void {
@@ -1100,8 +1140,8 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     return 'var(--text-muted)';
   }
 
-  cardGradient(_p: PriceRow): string {
-    return 'var(--brand-50)';
+  cardGradient(p: PriceRow): string {
+    return brandPlaceholderGradient(p?.product_id || p?.product_name);
   }
 
   private imgFailedSet = new Set<string>();

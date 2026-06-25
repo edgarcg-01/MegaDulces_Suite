@@ -753,7 +753,9 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           this.lastResult = res;
           this.form = {
             route_code: res.fields.route_code ?? '',
-            ticket_date: res.fields.ticket_date ?? this.today(),
+            // El OCR ya normaliza a ISO; si no leyó fecha (o llegó basura) caemos a
+            // HOY para no bloquear el cierre con un valor inválido como "<UNKNOWN>".
+            ticket_date: this.isoOrToday(res.fields.ticket_date),
             ticket_time: res.fields.ticket_time ?? null,
             total: res.fields.total,
             corte_number: res.fields.corte_number,
@@ -958,6 +960,11 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+  /** Devuelve la fecha si es ISO YYYY-MM-DD válida; si no (null/"<UNKNOWN>"/basura),
+   *  cae a hoy para no bloquear el guardado con una fecha inválida. */
+  private isoOrToday(d: string | null | undefined): string {
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : this.today();
   }
   private emptyForm() {
     return { route_code: '', ticket_date: this.today(), ticket_time: null, total: null, corte_number: null, reference: null, liters: null, folio: null };

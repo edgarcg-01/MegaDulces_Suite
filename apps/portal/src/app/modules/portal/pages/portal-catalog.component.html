@@ -371,6 +371,35 @@
           </span>
         </header>
 
+        <!-- Unidad nativa "Destacado" (P0 #4): 1 SKU empujado en contexto, con
+             estética de card normal + etiqueta — no banner (banner blindness). -->
+        <article
+          *ngIf="featuredPromoProduct() as fp"
+          class="cat-promo-native"
+          (click)="openSheet(asPrice(fp))"
+          tabindex="0"
+          role="button"
+          [attr.aria-label]="'Destacado: ' + fp.product_name"
+          (keydown.enter)="openSheet(asPrice(fp))"
+        >
+          <span class="cat-promo-badge"><i class="pi pi-bolt" aria-hidden="true"></i> Destacado</span>
+          <div class="cat-promo-img" [style.background]="fp.image_url ? null : cardGradient(asPrice(fp))">
+            <img *ngIf="fp.image_url" [src]="img(asPrice(fp), 200)" [alt]="fp.product_name" loading="lazy" decoding="async" />
+            <span *ngIf="!fp.image_url" class="cat-promo-mono">{{ productInitials(asPrice(fp)) }}</span>
+          </div>
+          <div class="cat-promo-body">
+            <span class="cat-promo-brand">{{ fp.brand_name || 'Sin marca' }}</span>
+            <span class="cat-promo-name" [title]="fp.product_name">{{ fp.product_name }}</span>
+            <span class="cat-promo-tag">{{ promoLabel(fp.promo_type) }} · {{ fp.promo_name }}</span>
+          </div>
+          <button
+            type="button"
+            class="cat-promo-add"
+            (click)="$event.stopPropagation(); addToCart(asPrice(fp))"
+            [attr.aria-label]="'Agregar ' + fp.product_name"
+          ><i class="pi pi-plus" aria-hidden="true"></i></button>
+        </article>
+
         <div *ngIf="visibleProducts().length === 0" class="cat-empty-grid">
           <i class="pi pi-inbox"></i>
           <p>No hay productos que coincidan.</p>
@@ -518,6 +547,31 @@
           <div class="cat-sheet-subtotal">
             <span>Subtotal</span>
             <b>{{ sheetSubtotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          </div>
+
+          <!-- Cross-sell "Va bien con esto" (P1 #6) -->
+          <div class="cat-sheet-cross" *ngIf="sheetCrossSell().length > 0">
+            <span class="cat-sheet-cross-lbl"><i class="pi pi-sparkles" aria-hidden="true"></i> Va bien con esto</span>
+            <div class="cat-sheet-cross-row">
+              <button
+                type="button"
+                class="cat-sheet-cross-item"
+                *ngFor="let x of sheetCrossSell(); trackBy: trackByProduct"
+                (click)="openSheet(x)"
+                [attr.aria-label]="'Ver ' + x.product_name"
+              >
+                <span
+                  class="cat-sheet-cross-th"
+                  [class.has-photo]="hasImg(x)"
+                  [style.background]="hasImg(x) ? null : cardGradient(x)"
+                >
+                  <img *ngIf="hasImg(x)" [src]="img(x, 200)" [alt]="x.product_name" loading="lazy" decoding="async" />
+                  <span *ngIf="!hasImg(x)">{{ productInitials(x) }}</span>
+                </span>
+                <span class="cat-sheet-cross-nm">{{ x.product_name }}</span>
+                <span class="cat-sheet-cross-pr">{{ +(x.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              </button>
+            </div>
           </div>
 
           <div class="cat-sheet-actions">

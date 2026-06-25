@@ -3,7 +3,8 @@
 :root {
   /* Typography families */
   --font-body:    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  /* Display = Poppins (sans geométrica, look "delivery app" tipo Rappi). */
+  --font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono:    'JetBrains Mono', 'Courier New', monospace;
 
   /* Display scale (portal hero + section heads, clamp responsive) */

@@ -645,10 +645,98 @@
       .cat-bestseller-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px -8px rgba(0,0,0,.12); border-color: var(--neutral-300); }
       .cat-bestseller-card:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
       .cat-bestseller-rank { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: var(--fs-nano); font-weight: 700; padding: .15rem .4rem; background: var(--neutral-950); color: var(--brand-400); border-radius: var(--r-pill); }
-      .cat-bestseller-img { position: relative; aspect-ratio: 1/1; background: var(--brand-50); display: grid; place-items: center; overflow: hidden; }
+      .cat-bestseller-img { position: relative; aspect-ratio: 1/1; background: var(--neutral-100); display: grid; place-items: center; overflow: hidden; }
       .cat-bestseller-img.has-photo { background: var(--card-bg); }
       .cat-bestseller-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 6px; }
-      .cat-bestseller-img-initials { font-weight: 800; font-size: var(--fs-h2); color: var(--brand-700); opacity: .5; }
+      .cat-bestseller-img-initials { font-weight: 800; font-size: var(--fs-h2); color: var(--text-faint); opacity: .7; }
+
+      /* ── Unidad nativa "Destacado" al tope de resultados (P0 #4) ── */
+      .cat-promo-native {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        margin: 0.4rem 0 0.85rem;
+        padding: 0.65rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg);
+        box-shadow: 0 0 0 1.5px var(--action-ring);
+        cursor: pointer;
+        transition: transform 160ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
+      }
+      .cat-promo-native:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0 0 1.5px var(--action), 0 12px 24px -14px rgba(0, 0, 0, 0.2);
+      }
+      .cat-promo-native:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+      .cat-promo-badge {
+        position: absolute;
+        top: -9px;
+        left: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: var(--fs-nano);
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--neutral-950);
+        background: var(--brand-400);
+        padding: 0.16rem 0.5rem;
+        border-radius: var(--r-pill);
+      }
+      .cat-promo-badge i { font-size: var(--fs-nano); }
+      .cat-promo-img {
+        width: 56px;
+        height: 56px;
+        flex: 0 0 auto;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        color: #fff;
+        font-family: var(--font-display, inherit);
+        font-weight: 700;
+      }
+      .cat-promo-img img { width: 100%; height: 100%; object-fit: contain; }
+      .cat-promo-mono { text-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+      .cat-promo-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+      .cat-promo-brand {
+        font-size: var(--fs-nano);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+      }
+      .cat-promo-name {
+        font-size: var(--fs-body);
+        font-weight: 700;
+        color: var(--text-main);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .cat-promo-tag { font-size: var(--fs-micro); font-weight: 600; color: var(--brand-700); }
+      .cat-promo-add {
+        width: 40px;
+        height: 40px;
+        flex: 0 0 auto;
+        border-radius: var(--r-pill);
+        border: none;
+        cursor: pointer;
+        background: var(--neutral-950);
+        color: var(--brand-400);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.3),
+                    inset 0 -2px 0 rgba(0, 0, 0, 0.4),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        transition: transform 140ms var(--ease-spring);
+      }
+      .cat-promo-add:hover { transform: translateY(-2px) scale(1.05); }
+      .cat-promo-add:active { transform: translateY(1px) scale(0.94); }
       .cat-bestseller-body { padding: .5rem .625rem .625rem; display: flex; flex-direction: column; gap: .2rem; }
       .cat-bestseller-brand { font-size: var(--fs-nano); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .cat-bestseller-name { font-size: var(--fs-xs); font-weight: 600; color: var(--text-color); line-height: 1.25; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1421,6 +1509,8 @@
         flex-direction: column;
         gap: 0.875rem;
         overflow-y: auto;
+        flex: 1;
+        min-height: 0;
       }
 
       .cat-sheet-brand {
@@ -1535,10 +1625,81 @@
         letter-spacing: -0.015em;
       }
 
+      /* CTA sticky al fondo del sheet (P0 #2): nunca se pierde al hacer scroll. */
+      /* Cross-sell "Va bien con esto" (P1 #6) */
+      .cat-sheet-cross {
+        border-top: 1px solid var(--border-color);
+        padding-top: 0.875rem;
+      }
+      .cat-sheet-cross-lbl {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        margin-bottom: 0.6rem;
+      }
+      .cat-sheet-cross-lbl i { font-size: var(--fs-micro); color: var(--brand-700); }
+      .cat-sheet-cross-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+      }
+      .cat-sheet-cross-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.5rem;
+        background: var(--surface-ground);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-md);
+        cursor: pointer;
+        font-family: var(--font-body);
+        transition: transform 140ms var(--ease-standard), border-color 140ms var(--ease-standard);
+      }
+      .cat-sheet-cross-item:hover { transform: translateY(-2px); border-color: var(--neutral-300); }
+      .cat-sheet-cross-th {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        color: #fff;
+        font-family: var(--font-display, inherit);
+        font-weight: 700;
+        font-size: var(--fs-sm);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      }
+      .cat-sheet-cross-th.has-photo { background: var(--card-bg); }
+      .cat-sheet-cross-th img { width: 100%; height: 100%; object-fit: contain; }
+      .cat-sheet-cross-nm {
+        font-size: var(--fs-nano);
+        font-weight: 600;
+        color: var(--text-main);
+        line-height: 1.2;
+        text-align: center;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 1.9em;
+      }
+      .cat-sheet-cross-pr { font-size: var(--fs-xs); font-weight: 800; color: var(--text-main); }
+
       .cat-sheet-actions {
+        position: sticky;
+        bottom: 0;
         display: flex;
         gap: 0.5rem;
-        margin-top: 0.25rem;
+        margin: 0.875rem -1.25rem -1.25rem;
+        padding: 0.875rem 1.25rem;
+        background: var(--card-bg);
+        border-top: 1px solid var(--border-color);
       }
       .cat-sheet-btn {
         flex: 1;
@@ -1561,11 +1722,18 @@
       .cat-sheet-btn-secondary:hover { background: var(--neutral-200); }
       .cat-sheet-btn-primary {
         flex: 2;
-        background: var(--neutral-950);
-        color: #fff;
+        background: var(--action);
+        color: var(--action-ink, #fff);
+        box-shadow: 0 8px 18px -8px var(--action-ring),
+                    inset 0 -2px 0 rgba(0, 0, 0, 0.16),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.18);
       }
       .cat-sheet-btn-primary:hover:not(:disabled) {
-        filter: brightness(1.18);
-        box-shadow: inset 0 -2px 0 var(--brand-500);
+        background: var(--action-hover);
+        transform: translateY(-1px);
+      }
+      .cat-sheet-btn-primary:active:not(:disabled) {
+        background: var(--action-press);
+        transform: translateY(1px);
       }
       .cat-sheet-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }

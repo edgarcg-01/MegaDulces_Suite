@@ -1873,32 +1873,49 @@ input:focus, textarea:focus, select:focus {
    Todos: min 44px (ley de Fitts) + estados hover/active/disabled/focus.
    No re-estilar botones a mano por componente: usar estas clases.
    ════════════════════════════════════════════════════════════════ */
+/* Firma "Confite": pill + gloss + lip + press. MONOCROMÁTICA: una sola acción
+   en color (primary sunset); el resto en carbón/stone con tactilidad. El gloss
+   (sheen) y el lip (borde inferior) son blanco/negro neutros — no agregan color. */
 .portal-btn-primary,
 .portal-btn-ghost,
 .portal-btn-ember,
 .portal-btn-hero {
+  position: relative;
+  overflow: hidden;
   border: none;
-  border-radius: var(--r-md);
-  padding: 0.625rem 1.125rem;
+  border-radius: var(--r-pill);
+  padding: 0.7rem 1.3rem;
   font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.875rem;
+  letter-spacing: -0.005em;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
-  min-height: 44px;
-  transition: background-color 150ms var(--ease-standard),
-              border-color 150ms var(--ease-standard),
-              transform 120ms var(--ease-standard),
-              box-shadow 180ms var(--ease-standard),
-              filter 150ms var(--ease-standard);
+  gap: 0.5rem;
+  min-height: 46px;
+  transition: transform 140ms var(--ease-spring),
+              box-shadow 200ms var(--ease-spring),
+              background-color 180ms var(--ease-standard),
+              border-color 180ms var(--ease-standard),
+              filter 180ms var(--ease-standard);
+}
+/* gloss "envoltura": sheen neutro en el tercio superior (solo rellenos sólidos) */
+.portal-btn-primary::before,
+.portal-btn-ember::before,
+.portal-btn-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 46%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent);
+  pointer-events: none;
 }
 .portal-btn-primary:active:not(:disabled),
 .portal-btn-ghost:active:not(:disabled),
 .portal-btn-ember:active:not(:disabled),
-.portal-btn-hero:active:not(:disabled) { transform: translateY(0); }
+.portal-btn-hero:active:not(:disabled) { transform: translateY(1px); }
 .portal-btn-primary:focus-visible,
 .portal-btn-ghost:focus-visible,
 .portal-btn-ember:focus-visible,
@@ -1915,62 +1932,87 @@ input:focus, textarea:focus, select:focus {
   transform: none;
 }
 
-/* PRIMARY — sunset (acción principal) */
+/* PRIMARY — la ÚNICA acción en color (sunset). Halo de color + lip + gloss. */
 .portal-btn-primary {
   background: var(--action, #F05A28);
   color: var(--action-ink, #fff);
-  box-shadow: 0 6px 16px -8px var(--action-ring, rgba(240, 90, 40, 0.3));
+  box-shadow: 0 10px 22px -8px var(--action-ring, rgba(240, 90, 40, 0.34)),
+              inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+              inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 .portal-btn-primary:hover:not(:disabled) {
   background: var(--action-hover, #D2451C);
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px -10px var(--action-ring, rgba(240, 90, 40, 0.3));
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px -10px var(--action-ring, rgba(240, 90, 40, 0.34)),
+              inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+              inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.portal-btn-primary:active:not(:disabled) {
+  background: var(--action-press, #B83C15);
+  box-shadow: 0 4px 12px -6px var(--action-ring, rgba(240, 90, 40, 0.34)),
+              inset 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
-/* GHOST — secundaria neutra */
+/* GHOST — secundaria neutra. Mono: hover en GRIS (no color) + lip sutil. */
 .portal-btn-ghost {
   background: transparent;
   color: var(--text-main);
   border: 1.5px solid var(--border-color);
+  box-shadow: inset 0 -2px 0 rgba(16, 13, 9, 0.05);
 }
 .portal-btn-ghost:hover:not(:disabled) {
   background: var(--hover-bg, var(--neutral-100));
-  border-color: var(--action, var(--neutral-300));
+  border-color: var(--neutral-400);
+  transform: translateY(-2px);
 }
 
-/* EMBER — superficie IA */
+/* EMBER — superficie IA, ahora MONOCROMÁTICA: carbón + susurro ámbar (glow). */
 .portal-btn-ember {
-  background: var(--ember-grad, linear-gradient(135deg, #F8B400, #F05A28));
-  color: #fff;
-  box-shadow: 0 8px 20px -10px var(--action-ring, rgba(240, 90, 40, 0.3));
+  background: var(--neutral-950);
+  color: var(--brand-400);
+  box-shadow: 0 10px 24px -10px rgba(248, 180, 0, 0.4),
+              inset 0 -3px 0 rgba(0, 0, 0, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .portal-btn-ember:hover:not(:disabled) {
-  filter: brightness(1.05);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px -12px rgba(248, 180, 0, 0.5),
+              inset 0 -3px 0 rgba(0, 0, 0, 0.5);
 }
 
-/* HERO — CTA de marca en storefront (negro + amarillo sello) */
+/* HERO — CTA de marca storefront: carbón + amarillo sello (mono + acento). */
 .portal-btn-hero {
   background: var(--neutral-950);
   color: var(--brand-400);
+  box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.5),
+              inset 0 -3px 0 rgba(0, 0, 0, 0.5),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .portal-btn-hero:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 26px -10px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.5),
+              inset 0 -3px 0 rgba(0, 0, 0, 0.5);
 }
 
 /* Variante grande: confirmaciones críticas (carrito, etc.) */
 .portal-btn-primary-lg {
   width: 100%;
-  border-radius: var(--r-md);
-  padding: 0.875rem 1.25rem;
+  padding: 0.95rem 1.4rem;
   font-size: 0.9375rem;
-  min-height: 48px;
+  min-height: 52px;
 }
 /* Variante block: ancho completo */
 .portal-btn-block { width: 100%; }
-/* Variante pill: radio completo (storefront / IA) */
+/* -pill ya es el default; se conserva por compatibilidad de los call-sites. */
 .portal-btn-pill { border-radius: var(--r-pill); }
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-btn-primary, .portal-btn-ghost, .portal-btn-ember, .portal-btn-hero { transition: none; }
+  .portal-btn-primary:hover:not(:disabled),
+  .portal-btn-ghost:hover:not(:disabled),
+  .portal-btn-ember:hover:not(:disabled),
+  .portal-btn-hero:hover:not(:disabled) { transform: none; }
+}
 
 /* ─── SECTION HEAD (entre subsecciones de una página) ──────── */
 .portal-section-head {

@@ -205,6 +205,19 @@ function hashColor(key: string): string {
               </div>
             </div>
 
+            <!-- Upsell de mínimo: convierte la restricción en oportunidad (P1 #6). -->
+            <div class="ca-min-upsell" *ngIf="minRemaining() > 0">
+              <span class="ca-min-icon"><i class="pi pi-arrow-up" aria-hidden="true"></i></span>
+              <div class="ca-min-text">
+                Te faltan <b>{{ minRemaining() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                para el mínimo de {{ MIN_ORDER | currency:'MXN':'symbol-narrow':'1.0-0' }}.
+                <span class="ca-min-prog"><i [style.width.%]="minPct()"></i></span>
+              </div>
+              <button type="button" class="ca-min-btn" (click)="goCatalog()">
+                <i class="pi pi-plus" aria-hidden="true"></i> Sugerir
+              </button>
+            </div>
+
             <div class="ca-summary-total">
               <span>Total</span>
               <b>{{ c.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
@@ -503,6 +516,70 @@ function hashColor(key: string): string {
         color: var(--ok-soft-fg);
         margin-left: 0.375rem;
       }
+      /* ── Upsell de mínimo de pedido (P1 #6) ─────────────────────── */
+      .ca-min-upsell {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        background: var(--surface-ground);
+        border: 1px solid var(--border-color);
+        border-left: 3px solid var(--action);
+        border-radius: var(--r-md);
+        padding: 0.65rem 0.7rem;
+        margin-bottom: 0.75rem;
+      }
+      .ca-min-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        display: grid;
+        place-items: center;
+        color: var(--action);
+        flex-shrink: 0;
+      }
+      .ca-min-text {
+        flex: 1;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        line-height: 1.35;
+        min-width: 0;
+      }
+      .ca-min-text b { color: var(--action); font-weight: 800; }
+      .ca-min-prog {
+        display: block;
+        height: 5px;
+        background: var(--neutral-200);
+        border-radius: var(--r-pill);
+        margin-top: 0.35rem;
+        overflow: hidden;
+      }
+      .ca-min-prog i {
+        display: block;
+        height: 100%;
+        background: var(--action);
+        border-radius: var(--r-pill);
+        transition: width 300ms var(--ease-standard);
+      }
+      .ca-min-btn {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        color: var(--action);
+        background: transparent;
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-pill);
+        padding: 0.35rem 0.65rem;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard);
+      }
+      .ca-min-btn:hover { background: var(--hover-bg); border-color: var(--action); }
+
       .ca-summary-total {
         display: flex;
         justify-content: space-between;
@@ -596,6 +673,17 @@ export class PortalCartComponent implements OnInit {
   readonly basketDiscount = computed(() => {
     const c = this.cart();
     return Number(c?.basket_discount_amount) || 0;
+  });
+
+  /** Mínimo de pedido (beta: constante, alineado al trust-strip del home/catálogo). */
+  readonly MIN_ORDER = 2500;
+  readonly minRemaining = computed(() => {
+    const sub = Number(this.cart()?.subtotal) || 0;
+    return Math.max(0, this.MIN_ORDER - sub);
+  });
+  readonly minPct = computed(() => {
+    const sub = Number(this.cart()?.subtotal) || 0;
+    return Math.min(100, Math.round((sub / this.MIN_ORDER) * 100));
   });
 
   ngOnInit(): void {

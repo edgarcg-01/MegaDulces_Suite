@@ -45,12 +45,15 @@ export class CommercialAnalyticsService {
    */
   private isErpUnavailable(err: any): boolean {
     const code = String(err?.code || '');
-    if (['08001', '08006', '08004', '08003', '57P01'].includes(code)) return true;
+    // 08*=conexión, 57P01=admin shutdown, 57014=statement_timeout (FDW colgado),
+    // 55000=MV ERP sin popular todavía. Todos → data del ERP no disponible → fallback.
+    if (['08001', '08006', '08004', '08003', '57P01', '57014', '55000'].includes(code)) return true;
     const msg = String(err?.message || err?.detail || '').toLowerCase();
     return (
       msg.includes('mega_dulces_srv') ||
       msg.includes('could not connect to server') ||
-      msg.includes('connection timed out')
+      msg.includes('connection timed out') ||
+      msg.includes('has not been populated')
     );
   }
 
@@ -777,42 +780,47 @@ export class CommercialAnalyticsService {
     return this.guardErp('rankingOutOfStock', [], () =>
      this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
+      // Leemos de la MV LOCAL `products_top_sellers` (sincronizada desde el ERP
+      // por cron @15min) en vez de live-joinear el foreign table FDW
+      // `analytics_external.ranking_legacy` — el FDW Railway→.245 colgaba el
+      // request hasta el gateway timeout (504). Además acotamos el agregado de
+      // stock SOLO al topN (antes escaneaba todo el catálogo). Safety net:
+      // statement_timeout corta cualquier patología en 15s → guardErp cae a [].
+      await trx.raw(`SET LOCAL statement_timeout = '15s'`);
       const rows = await trx.raw(
         `
         WITH top_erp AS (
-          SELECT articulo, nombre, posicion, total_venta, total_piezas_totales
-            FROM analytics_external.ranking_legacy
-           ORDER BY posicion ASC
+          SELECT id AS product_id, sku AS articulo, nombre,
+                 sales_rank AS posicion, revenue AS total_venta, units_total AS total_piezas_totales
+            FROM public.products_top_sellers
+           WHERE tenant_id = ?
+           ORDER BY sales_rank ASC
            LIMIT ?
         ),
         stock_agg AS (
-          SELECT p.sku,
-                 p.id AS product_id,
+          SELECT s.product_id,
                  SUM(s.quantity)::numeric AS total_qty,
                  SUM(s.reserved_quantity)::numeric AS total_reserved
-            FROM public.products p
-            LEFT JOIN commercial.stock s ON s.product_id = p.id
-           WHERE p.tenant_id = ?
-             AND p.deleted_at IS NULL
-             AND p.sku IS NOT NULL
-           GROUP BY p.sku, p.id
+            FROM commercial.stock s
+           WHERE s.product_id IN (SELECT product_id FROM top_erp)
+           GROUP BY s.product_id
         )
         SELECT t.posicion,
                t.articulo,
                t.nombre AS erp_name,
                t.total_venta,
                t.total_piezas_totales,
-               sa.product_id,
+               t.product_id,
                COALESCE(sa.total_qty, 0)::numeric AS total_qty,
                COALESCE(sa.total_reserved, 0)::numeric AS total_reserved,
                GREATEST(COALESCE(sa.total_qty, 0) - COALESCE(sa.total_reserved, 0), 0)::numeric AS available
           FROM top_erp t
-          LEFT JOIN stock_agg sa ON sa.sku = t.articulo
+          LEFT JOIN stock_agg sa ON sa.product_id = t.product_id
          WHERE COALESCE(sa.total_qty, 0) - COALESCE(sa.total_reserved, 0) <= 0
          ORDER BY t.posicion ASC
          LIMIT ?
         `,
-        [topN, tenantId, limit],
+        [tenantId, topN, limit],
       );
 
       return rows.rows.map((r: any) => ({

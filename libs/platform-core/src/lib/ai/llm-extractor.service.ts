@@ -406,16 +406,19 @@ export class LlmExtractorService implements OnModuleInit {
   ): Promise<RouteTicketFields> {
     const perType: Record<typeof ticketType, string> = {
       venta:
-        'Ticket de CORTE DE VENTA de una ruta (RD). Extrae: route_code (número tras "RD"), ' +
-        'ticket_date, total (monto vendido, el importe mayor), corte_number (el número que aparece tras "Numero"). ' +
+        'Ticket de CORTE DE VENTA de una ruta. Extrae: route_code (el número de ruta, tras "RD" o "Ruta", ej. "Ruta 28" → "28"). ' +
+        'ticket_date. ticket_time (hora impresa). ' +
+        'total = la VENTA NETA: el monto de la línea "Vtas tot - Dev (MN)" (ventas totales menos devoluciones). ' +
+        'Si no está esa línea, usa "Total en caja" / "Total Disponible". Solo el número, sin símbolo ni comas. ' +
+        'corte_number = el número de corte, que aparece tras "Folio de corte", "Numero de corte" o "Corte" (ej. "Folio de corte: 955" → "955"). ' +
         'reference y liters van null.',
       carga:
-        'Ticket de CARGA de mercancía a un camión de ruta (RD). Extrae: route_code (número tras "RD"), ' +
-        'ticket_date, total (valor total cargado), folio (el identificador que aparece tras "FOLIO:", ' +
+        'Ticket de CARGA de mercancía a un camión de ruta. Extrae: route_code (número tras "RD" o "Ruta"), ' +
+        'ticket_date, ticket_time (hora impresa), total (valor total cargado), folio (el identificador que aparece tras "FOLIO:", ' +
         'ej. "T153142782" — cópialo TAL CUAL, incluye letras y números). corte_number, reference y liters van null.',
       combustible:
-        'Ticket de COMBUSTIBLE/gasolina de una ruta (RD). Extrae: route_code (número tras "RD"), ' +
-        'ticket_date, total (importe), liters (litros cargados), reference (folio/referencia del ticket). ' +
+        'Ticket de COMBUSTIBLE/gasolina de una ruta. Extrae: route_code (número tras "RD" o "Ruta"), ' +
+        'ticket_date, ticket_time (hora impresa), total (importe), liters (litros cargados), reference (folio/referencia del ticket). ' +
         'corte_number va null.',
     };
 
@@ -445,7 +448,7 @@ export class LlmExtractorService implements OnModuleInit {
                 type: 'object',
                 properties: {
                   route_code: { type: ['string', 'null'], description: 'Número de ruta tras "RD" (ej. "12"). null si no se ve.' },
-                  ticket_date: { type: ['string', 'null'], description: 'Fecha del ticket en ISO YYYY-MM-DD. null si no se ve.' },
+                  ticket_date: { type: ['string', 'null'], description: 'Fecha del ticket en ISO YYYY-MM-DD. Acepta CUALQUIER formato visible y conviértelo ("23/jun/2026", "23/06/2026", "23 de junio de 2026" → "2026-06-23"). Si NO hay fecha visible, devuelve null — NUNCA inventes ni pongas "<UNKNOWN>".' },
                   ticket_time: { type: ['string', 'null'], description: 'Hora impresa en el ticket en formato 24h HH:MM (ej. "Hora: 03:33 p.m." → "15:33"). null si no se ve.' },
                   total: { type: ['number', 'null'], description: 'Monto total en pesos (sin símbolo ni comas). null si no se ve.' },
                   corte_number: { type: ['string', 'null'], description: 'Número de corte (solo venta). null en otros tipos.' },
@@ -493,8 +496,13 @@ export class LlmExtractorService implements OnModuleInit {
     const inp = toolUse.input || {};
     const num = (v: unknown): number | null =>
       typeof v === 'number' && Number.isFinite(v) ? v : null;
-    const str = (v: unknown): string | null =>
-      typeof v === 'string' && v.trim() ? v.trim() : null;
+    // Placeholders que el LLM a veces devuelve cuando NO encuentra el dato → null.
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin fecha']);
+    const str = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
+    };
     // Hora a HH:MM (24h). Acepta "15:33", "15:33:03", "3:33"; descarta basura.
     const time = (v: unknown): string | null => {
       const s = str(v);
@@ -505,7 +513,7 @@ export class LlmExtractorService implements OnModuleInit {
     };
     return {
       route_code: str(inp.route_code),
-      ticket_date: str(inp.ticket_date),
+      ticket_date: this.parseTicketDate(inp.ticket_date),
       ticket_time: time(inp.ticket_time),
       total: num(inp.total),
       corte_number: ticketType === 'venta' ? str(inp.corte_number) : null,
@@ -513,5 +521,49 @@ export class LlmExtractorService implements OnModuleInit {
       liters: ticketType === 'combustible' ? num(inp.liters) : null,
       folio: ticketType === 'carga' ? str((inp as any).folio) : null,
     };
+  }
+
+  /**
+   * Normaliza una fecha de ticket en CUALQUIER formato a ISO YYYY-MM-DD.
+   * Acepta: ISO ("2026-06-23"), numérico DD/MM/YYYY o DD-MM-YY ("23/06/2026",
+   * "23-6-26"), y con mes en español abreviado o completo ("23/jun/2026",
+   * "23 de junio de 2026", "23 jun 26"). Devuelve null si no hay fecha legible
+   * (incluye placeholders tipo "<UNKNOWN>") — NUNCA propaga basura como fecha.
+   */
+  private parseTicketDate(v: unknown): string | null {
+    if (typeof v !== 'string') return null;
+    const raw = v.trim();
+    if (!raw || ['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin fecha'].includes(raw.toLowerCase()))
+      return null;
+
+    const iso = (y: number, mo: number, d: number): string | null => {
+      if (y < 100) y += 2000;
+      if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    };
+
+    // 1) ISO directo (puede venir con hora pegada).
+    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return iso(+m[1], +m[2], +m[3]);
+
+    // 2) Numérico DD/MM/YYYY (o - . como separador).
+    m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if (m) return iso(+m[3], +m[2], +m[1]);
+
+    // 3) Con mes en español (abreviado o completo): "23/jun/2026", "23 de junio de 2026".
+    const MONTHS: Record<string, number> = {
+      ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7,
+      ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12,
+    };
+    m = raw
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '') // sin acentos
+      .match(/(\d{1,2})\D+([a-z]{3,})\D+(\d{2,4})/);
+    if (m) {
+      const mo = MONTHS[m[2].slice(0, 3)];
+      if (mo) return iso(+m[3], mo, +m[1]);
+    }
+    return null;
   }
 }

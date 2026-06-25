@@ -32,7 +32,7 @@ Implementado 2026-06-24 en [`tokens.css`](apps/view/src/styles/tokens.css). Regl
 
 | Surface | Alcance | Mode | Decoración | Display font |
 |---|---|---|---|---|
-| **Storefront** | `/portal/*` (Portal Web B2B) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Fraunces + Hanken Grotesk + Geist Mono |
+| **Storefront** | `/portal/*` (Portal Web B2B) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
 | **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta` | **solo tool** | nula | Hanken Grotesk + Geist Mono (sin Fraunces) |
 
 Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, dark espresso, escala de radios, tokens semánticos. Lo que **Operations** descarta: Fraunces, ilustraciones, momentos editoriales, densidad comfortable.
@@ -52,7 +52,7 @@ Una herramienta de pedido mayorista que se siente como una **marca CPG mexicana 
 
 ### Regla de dos modos (define todo)
 - **Tool mode** (catálogo, carrito, pedidos): denso, escaneable, compacto. Body bold, cifras tabulares, naranja-acción.
-- **Storefront mode** (home, promos, login): editorial, con aire, Fraunces display, ilustración.
+- **Storefront mode** (home, promos, login): editorial, con aire, Poppins display (sans geométrica), ilustración.
 
 ---
 
@@ -74,12 +74,12 @@ Una herramienta de pedido mayorista que se siente como una **marca CPG mexicana 
 
 ## Typography
 
-Cargadas desde Google Fonts en [`apps/view/src/index.html`](apps/view/src/index.html).
+Cargadas desde Google Fonts en [`apps/portal/src/index.html`](apps/portal/src/index.html).
 
-- **Display/Hero:** **Fraunces** (serif óptico cálido) — opsz auto. Solo en **storefront mode**: hero h1, section heads editoriales, empty states, títulos de promo. **Nunca** en tablas/UI densa.
+- **Display/Hero:** **Poppins** (sans geométrica redondeada — look "delivery app" tipo Rappi). Pesos 500/600/700/800. Solo en **storefront mode**: hero h1, section heads, empty states, títulos de promo, monogramas. **Nunca** en tablas/UI densa. *(Cambiado de Fraunces serif → Poppins el 2026-06-24, decisión de marca: identidad táctil tipo Rappi sobre editorial.)*
 - **Body/UI:** **Hanken Grotesk** (reemplaza a Inter) — grotesca redonda, cálida, amigable, muy legible. Pesos 400/500/600/700/800.
 - **Data/Tablas/Code:** **Geist Mono** (reemplaza a JetBrains Mono) — SKUs, códigos de pedido, precios en columna, atajo `⌘K`. **Obligatorio `font-variant-numeric: tabular-nums`** en todo lo que sea dinero o cantidad.
-- **Por qué este cambio:** Inter es el default de "me rendí con la tipografía" (toda app converge ahí). Hanken Grotesk da calidez sin perder neutralidad de herramienta; pares con Fraunces sin pelear.
+- **Por qué:** Inter es el default de convergencia. Poppins (display) + Hanken Grotesk (body) dan el carácter geométrico-cálido de las apps de delivery, sin serif. Poppins NO se usa en Operations (sigue tool-only).
 - **Escala display** (clamp responsive, ya en tokens):
   - `--text-display-xl: clamp(2.5rem, 7vw, 3.5rem)` — hero h1
   - `--text-display-lg: clamp(1.875rem, 4.5vw, 2.5rem)` — section feature
@@ -88,10 +88,10 @@ Cargadas desde Google Fonts en [`apps/view/src/index.html`](apps/view/src/index.
 
 ```html
 <!-- index.html -->
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800;9..144,900&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 ```
 ```css
---font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+--font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 --font-body:    'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 --font-mono:    'Geist Mono', ui-monospace, 'Courier New', monospace;
 ```
@@ -193,6 +193,54 @@ Negro puro bajo una marca cálida se ve duro/barato; el espresso conserva la cal
 - **Duración:** micro 50-120ms · short 150-250ms · medium 250-400ms.
 - **Mobile:** usar `HapticService` en acciones (add to cart, confirmar).
 - **Siempre** respetar `@media (prefers-reduced-motion: reduce)` (ya hecho en el portal).
+
+---
+
+## Sistema de botones «Confite» (Storefront) — BINDING
+
+> Implementado 2026-06-24 en `apps/portal/src/styles.css` (átomos `.portal-btn-*`).
+> **Identidad táctil repetible** — análoga a la "esencia" de Rappi pero monocromática
+> con acento de marca. NO re-estilar botones por componente: usar estos átomos.
+
+**El ADN (5 rasgos):** geometría redonda (pill) · profundidad suave (sombra de color difusa) ·
+tactilidad (lip inferior + press físico) · brillo "render" sutil (gloss neutro) · tipografía confiada (700).
+
+**La receta (los 5 ingredientes de la firma):**
+
+1. **Píldora** — `border-radius: var(--r-pill)` por default (la `-pill` legacy es no-op ahora).
+2. **Gloss** — `::before` con `linear-gradient(180deg, rgba(255,255,255,.16), transparent)` en el tercio superior. Solo en rellenos sólidos (primary/ember/hero), NO en ghost.
+3. **Lip** — `inset 0 -3px 0 rgba(0,0,0,.16)` (borde inferior que da cuerpo físico).
+4. **Halo** — drop-shadow de color (`--action-ring`) SOLO en primary; el resto usa sombra neutra.
+5. **Press** — `:hover` sube `translateY(-2px)`; `:active` baja `translateY(1px)` y colapsa la sombra. Easing `--ease-spring`.
+
+**Regla de color (monocromática — BINDING):**
+
+- **`.portal-btn-primary` = la ÚNICA acción en color** (sunset `--action`). Es el CTA de conversión.
+- `.portal-btn-ghost` = neutro; **hover en gris** (`--neutral-400`), nunca en color.
+- `.portal-btn-ember` (IA) = **carbón** (`--neutral-950`) + susurro ámbar (glow en la sombra). Ya NO es gradiente.
+- `.portal-btn-hero` = carbón + texto amarillo sello (`--brand-400`).
+- El `+` del catálogo (`.cat-add`) y la promo nativa (`.cat-promo-add`): negro + sello, con lip/press.
+- El gloss y el lip son **blanco/negro** → dan profundidad sin agregar color.
+
+**Cómo extender:** cualquier botón nuevo usa `.portal-btn-primary|ghost|ember|hero` (+ `-lg`/`-block`). Un control custom (stepper, FAB, circle) copia los 3 insets (`halo, lip, gloss`) + el patrón hover/active. Mantener el gloss **sutil** (≤.18 alpha) — quiet-luxury, no caricatura.
+
+---
+
+## Patrones del portal aplicados (2026-06-24) — referencia para seguir construyendo
+
+Derivados de la investigación (`docs/IMPLEMENTACION/INVESTIGACION_UX_PORTAL_VENTA.md`: Baymard, NN/g, Polaris, Material 3, Instacart). Estado: **en código, builds verdes**.
+
+| Patrón | Dónde | Regla para replicar |
+|---|---|---|
+| **Thumbnails monocromáticos** | `core/util/brand-placeholder.ts` (fuente única) | Placeholder sin foto = gradiente **Stone oscuro** determinista por `product_id`. Monograma blanco. Cero color en thumbnails — el color es para CTA/promo/estado. |
+| **Reorden-primero** | `portal-home` | "Comprar de nuevo" va en el **primer pliegue**, sobre el hero. El cliente B2B es transaccional, no exploratorio. |
+| **Promo nativa** | `portal-catalog` (`.cat-promo-native`) | Promos = unidad **en contexto** al tope de resultados (estética de card + etiqueta amarilla "Destacado"), NUNCA banner hero (banner blindness). 1 por pliegue. |
+| **CTA sticky en sheet** | `portal-catalog` (`.cat-sheet-actions`) | En bottom-sheets, el botón de acción va `position: sticky; bottom: 0` para que nunca se pierda al scrollear. |
+| **Cross-sell** | `portal-catalog` (`sheetCrossSell`) | "Va bien con esto" = 3 SKUs. Hoy heurístico (top-sellers); migrar a afinidad real (Thot) cambiando la fuente del `computed`. |
+| **Upsell de mínimo** | `portal-cart` (`.ca-min-upsell`) | Convertir la restricción ($2,500) en oportunidad: "te faltan $X" + barra de progreso + sugerir. No bloquea. |
+| **Tab bar Material 3 + búsqueda circular** | `portal-shell` (`.portal-tabdock`) | Móvil = **4 destinos persistentes** + botón de búsqueda circular aparte (firma Rappi). El carrito es acción con badge, no tab co-igual. Desktop conserva la nav completa. |
+
+**Color discipline (toda superficie nueva):** lienzo neutro Stone; el color de marca solo en — (1) CTA de conversión, (2) tab/chip activo, (3) badge de descuento/promo, (4) estado "en vivo", (5) focus ring. El color **nunca** es el único portador de significado (Polaris/WCAG): siempre + icono o texto.
 
 ---
 
@@ -429,6 +477,9 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-06-24 | **Display Storefront: Fraunces serif → Poppins** (sans geométrica). *Supersede la decisión 2026-06-04 de conservar Fraunces.* | El usuario quiere la identidad tipográfica tipo Rappi (delivery app), no editorial-serif. Poppins es el análogo libre más cercano a "Rappi Sans". Body sigue Hanken Grotesk. Operations no cambia. |
+| 2026-06-24 | Firma de botones «Confite» (pill + gloss + lip + press) + portal monocromático con acento de marca | Darle al portal una identidad táctil propia (la "esencia" tipo Rappi) sin perder el quiet-luxury. Una sola acción en color; thumbnails/chrome neutros. Implementado en `.portal-btn-*` + util de placeholders. |
+| 2026-06-24 | Patrones P0/P1 aplicados al portal (reorden-primero, promo nativa, CTA sticky, cross-sell, upsell de mínimo, tab bar 4+búsqueda) | Traducción de la investigación UX (Baymard/NN-g/Polaris/M3/Instacart) a código. Ver `docs/IMPLEMENTACION/INVESTIGACION_UX_PORTAL_VENTA.md`. |
 | 2026-06-18 | Estándares PWA BINDING (SW obligatorio, manifest por-app, theme-color derivado, offline-UX contract) | Auditoría del vendor reveló app "instalable" sin service worker + manifest copiado de `apps/view` con shortcuts a rutas inexistentes. El vendedor en campo necesita offline real, no una web envuelta. |
 | 2026-06-08 | Extender "Mercado" como sistema único con 2 surfaces (Storefront + Operations) | Coherencia cross-app: cliente B2B y operador interno ven la MISMA empresa visual. Costo: tokens-only. Win: identidad de marca y reuso del trabajo del portal. |
 | 2026-06-08 | Operations = tool-mode-only (sin Fraunces ni decoración) | El usuario interno no tiene "storefront moments". Type bold + density + mono cifras = tesis "esto es serio". |

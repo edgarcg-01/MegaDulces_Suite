@@ -161,29 +161,39 @@ interface NavItem {
           <router-outlet></router-outlet>
         </main>
 
-        <!-- MOBILE BOTTOM TAB BAR (floating pill, Stitch-style) -->
-        <nav class="portal-tabbar" aria-label="Navegación móvil">
+        <!-- MOBILE BOTTOM TAB DOCK (píldora 4 destinos + búsqueda circular, Rappi-style) -->
+        <div class="portal-tabdock">
+          <nav class="portal-tabbar" aria-label="Navegación móvil">
+            <a
+              *ngFor="let item of tabItems"
+              [routerLink]="item.path"
+              routerLinkActive="active"
+              class="portal-tab"
+              [attr.aria-label]="item.isCart && cart.cartLineCount() > 0
+                ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
+                : item.label"
+            >
+              <span class="portal-tab-icon-wrap">
+                <i [class]="item.icon" aria-hidden="true"></i>
+                <span
+                  *ngIf="item.isCart && cart.cartLineCount() > 0"
+                  class="portal-cart-badge-mobile"
+                  aria-hidden="true"
+                  [@badgePop]="cart.cartLineCount()"
+                >{{ cart.cartLineCount() }}</span>
+              </span>
+              <span class="portal-tab-label">{{ item.label }}</span>
+            </a>
+          </nav>
           <a
-            *ngFor="let item of navItems"
-            [routerLink]="item.path"
-            routerLinkActive="active"
-            class="portal-tab"
-            [attr.aria-label]="item.isCart && cart.cartLineCount() > 0
-              ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
-              : item.label"
+            routerLink="/portal/catalog"
+            [queryParams]="{ focus: 'search' }"
+            class="portal-tabsearch"
+            aria-label="Buscar en el catálogo"
           >
-            <span class="portal-tab-icon-wrap">
-              <i [class]="item.icon" aria-hidden="true"></i>
-              <span
-                *ngIf="item.isCart && cart.cartLineCount() > 0"
-                class="portal-cart-badge-mobile"
-                aria-hidden="true"
-                [@badgePop]="cart.cartLineCount()"
-              >{{ cart.cartLineCount() }}</span>
-            </span>
-            <span class="portal-tab-label">{{ item.label }}</span>
+            <i class="pi pi-search" aria-hidden="true"></i>
           </a>
-        </nav>
+        </div>
 
       </div>
 
@@ -546,16 +556,22 @@ interface NavItem {
         box-sizing: border-box;
       }
 
-      /* ── MOBILE BOTTOM TAB BAR (floating pill — Stitch style) ─── */
-      .portal-tabbar {
+      /* ── MOBILE BOTTOM TAB DOCK (píldora + búsqueda circular — Rappi style) ─── */
+      .portal-tabdock {
         display: none;
         position: fixed;
         bottom: calc(1rem + env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
-        width: 92%;
-        max-width: 480px;
+        width: 94%;
+        max-width: 520px;
         z-index: 40;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .portal-tabbar {
+        flex: 1;
+        display: flex;
         background: color-mix(in srgb, var(--card-bg) 86%, transparent);
         border: 1px solid var(--border-color);
         border-radius: 9999px;
@@ -564,6 +580,24 @@ interface NavItem {
         backdrop-filter: blur(20px) saturate(180%);
         -webkit-backdrop-filter: blur(20px) saturate(180%);
       }
+      .portal-tabsearch {
+        flex: 0 0 auto;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--text-main);
+        background: color-mix(in srgb, var(--card-bg) 86%, transparent);
+        border: 1px solid var(--border-color);
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        text-decoration: none;
+        transition: transform 160ms var(--ease-standard);
+      }
+      .portal-tabsearch i { font-size: var(--fs-h2); }
+      .portal-tabsearch:active { transform: scale(0.92); }
       .portal-tab {
         flex: 1;
         position: relative;
@@ -637,7 +671,7 @@ interface NavItem {
       @media (max-width: 900px) {
         .portal-sidebar { display: none; }
         .portal-header-mobile { display: flex; }
-        .portal-tabbar { display: flex; }
+        .portal-tabdock { display: flex; }
         .portal-main {
           /* 5rem tabbar + 1rem margen + safe-area garantizan que el contenido
              no quede oculto detrás del tabbar flotante (Stitch style). */
@@ -1006,12 +1040,22 @@ export class PortalShellComponent {
     this.notif.toggle(key);
   }
 
+  /** Sidebar desktop: nav completa (incluye Promos). */
   readonly navItems: NavItem[] = [
     { path: 'home', label: 'Inicio', icon: 'pi pi-home' },
     { path: 'catalog', label: 'Catálogo', icon: 'pi pi-th-large' },
     { path: 'promotions', label: 'Promos', icon: 'pi pi-megaphone' },
     { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
     { path: 'orders', label: 'Pedidos', icon: 'pi pi-receipt' },
+  ];
+
+  /** Tab bar móvil: 4 destinos persistentes (Material 3) + búsqueda circular
+   *  aparte (firma Rappi). Promos sale del bar — sigue en home/catálogo. */
+  readonly tabItems: NavItem[] = [
+    { path: 'home', label: 'Inicio', icon: 'pi pi-home' },
+    { path: 'catalog', label: 'Catálogo', icon: 'pi pi-th-large' },
+    { path: 'orders', label: 'Pedidos', icon: 'pi pi-receipt' },
+    { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
   ];
 
   constructor() {

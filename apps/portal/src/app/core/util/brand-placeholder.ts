@@ -1,21 +1,23 @@
 /**
- * Placeholder de marca para productos sin foto. Devuelve un gradiente cálido
- * tipo "candy" DETERMINISTA por clave (mismo producto → mismo color siempre),
- * para que la pared del catálogo sea estable entre cargas. Paleta alineada a
- * los tokens de avatar/chart para cohesión visual en todo el portal.
+ * Placeholder de marca para productos sin foto. Devuelve un gradiente
+ * MONOCROMÁTICO (escala Stone, carbón cálido) DETERMINISTA por clave (mismo
+ * producto → mismo tono siempre), para que la pared del catálogo sea estable
+ * entre cargas. Dirección quiet-luxury (DESIGN.md): el color de marca queda
+ * para CTA/promos/estado, no para los thumbnails. El monograma blanco de los
+ * consumidores sigue legible porque todos los tonos son oscuros.
  *
  * Fuente única: la usan portal-product-card (catálogo) y portal-home
  * ("Comprar de nuevo"), así el lenguaje visual del placeholder es idéntico.
  */
 const PH_GRADIENTS = [
-  'linear-gradient(135deg, #F8B400 0%, #F05A28 100%)', // ember
-  'linear-gradient(135deg, #FDE044 0%, #F8B400 100%)', // amarillo marca
-  'linear-gradient(135deg, #F68F1E 0%, #C53E15 100%)', // sunset
-  'linear-gradient(135deg, #F472B6 0%, #BE185D 100%)', // berry (chicle)
-  'linear-gradient(135deg, #A78BFA 0%, #7E22CE 100%)', // uva
-  'linear-gradient(135deg, #2DD4BF 0%, #0F766E 100%)', // menta
-  'linear-gradient(135deg, #FB7185 0%, #B91C1C 100%)', // cereza
-  'linear-gradient(135deg, #38BDF8 0%, #185FA5 100%)', // blue raspberry
+  'linear-gradient(140deg, #2B2620 0%, #100D09 100%)',
+  'linear-gradient(140deg, #463F36 0%, #1A1611 100%)',
+  'linear-gradient(140deg, #5E564B 0%, #2B2620 100%)',
+  'linear-gradient(140deg, #3A332B 0%, #16130F 100%)',
+  'linear-gradient(140deg, #514A40 0%, #211D18 100%)',
+  'linear-gradient(140deg, #1A1611 0%, #2B2620 100%)',
+  'linear-gradient(140deg, #6B6356 0%, #322C25 100%)',
+  'linear-gradient(140deg, #38322A 0%, #100D09 100%)',
 ];
 
 export function brandPlaceholderGradient(key: string | null | undefined): string {

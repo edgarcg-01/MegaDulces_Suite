@@ -354,14 +354,24 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
         cursor: pointer;
         display: grid;
         place-items: center;
-        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.28), 0 0 0 0 rgba(253, 231, 7, 0);
-        transition: transform 140ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
+        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.32),
+                    inset 0 -2px 0 rgba(0, 0, 0, 0.4),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                    0 0 0 0 rgba(253, 231, 7, 0);
+        transition: transform 140ms var(--ease-spring), box-shadow 200ms var(--ease-spring);
       }
       .cat-add:hover:not(:disabled) {
-        transform: scale(1.08);
-        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.28), 0 0 0 4px rgba(253, 231, 7, 0.22);
+        transform: translateY(-2px) scale(1.06);
+        box-shadow: 0 10px 20px -6px rgba(0, 0, 0, 0.32),
+                    inset 0 -2px 0 rgba(0, 0, 0, 0.4),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                    0 0 0 4px rgba(253, 231, 7, 0.22);
       }
-      .cat-add:active:not(:disabled) { transform: scale(0.94); }
+      .cat-add:active:not(:disabled) {
+        transform: translateY(1px) scale(0.94);
+        box-shadow: 0 3px 8px -4px rgba(0, 0, 0, 0.32),
+                    inset 0 2px 6px rgba(0, 0, 0, 0.4);
+      }
       .cat-add:disabled { opacity: 0.35; cursor: not-allowed; }
 
       .cat-stepper {
