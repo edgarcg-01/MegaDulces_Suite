@@ -15,7 +15,7 @@ import {
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -115,6 +115,7 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   readonly cart = inject(PortalService);
 
@@ -408,6 +409,11 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   });
 
   ngOnInit(): void {
+    // Deep-link de marca (carrusel "Marcas top" del home → ?brand=<id>).
+    // Se setea antes de loadAll para que el primer fetch ya venga filtrado.
+    const brandParam = this.route.snapshot.queryParamMap.get('brand');
+    if (brandParam) this.selectedBrandId.set(brandParam);
+
     this.loadAll();
     this.wireSmartSearch();
     this.loadHistory();

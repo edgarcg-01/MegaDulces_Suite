@@ -5,10 +5,13 @@ import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
 import { switchMap } from 'rxjs/operators';
-import { PortalService, Order, PromotionRow, CatalogHistoryRow } from '../portal.service';
+import { forkJoin } from 'rxjs';
+import { PortalService, Order, PromotionRow, CatalogHistoryRow, CatalogFacets, PriceRow } from '../portal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { ProductsOfMonthCarouselComponent } from '../ui/products-of-month-carousel.component';
+import { BrandsCarouselComponent } from '../ui/brands-carousel.component';
 
 const PROMOTION_TYPE_LABELS: Record<string, string> = {
   percent_off_product: '% sobre producto',
@@ -30,6 +33,8 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     ButtonModule,
     TagModule,
     SkeletonModule,
+    ProductsOfMonthCarouselComponent,
+    BrandsCarouselComponent,
   ],
   template: `
     <!-- [1] LIVE STATUS RIBBON — greeting + ongoing en una línea -->
@@ -86,6 +91,9 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         </article>
       </div>
     </section>
+
+    <!-- [MARCAS TOP] marquee auto-scroll (GSAP) — incita a explorar por marca -->
+    <portal-brands-carousel [brands]="topBrands()"></portal-brands-carousel>
 
     <!-- [1.5] BANNER DE MARKETING (arte propio de una promo activa) -->
     <a
@@ -304,6 +312,15 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         </button>
       </div>
     </section>
+
+    <!-- [PRODUCTOS DEL MES] carrusel top-sellers con capa de motion GSAP -->
+    <portal-products-of-month
+      [products]="monthlyProducts()"
+      [addingId]="addingId()"
+      [addedIds]="addedIds()"
+      (open)="openMonthly($event)"
+      (add)="addMonthly($event)"
+    ></portal-products-of-month>
 
     <!-- [5] PROMOS DEL MES — 1 feature + 2 secondary -->
     <section *ngIf="!loadingPromos() && promotions().length > 0" class="ph-section">
@@ -1187,6 +1204,45 @@ export class PortalHomeComponent {
   private whId: string | null = null;
   private readonly imgFailed = new Set<string>();
 
+  /** Carrusel "Marcas top": facets del catálogo (el componente maneja logo + fallback + marquee). */
+  readonly brandFacets = signal<CatalogFacets | null>(null);
+  readonly topBrands = computed(() => {
+    const f = this.brandFacets();
+    if (!f) return [];
+    return f.brands
+      .filter((b) => b.brand_id && b.brand_name && !/clasificar|abarrotes|bolsas/i.test(b.brand_name))
+      .slice(0, 12);
+  });
+
+  /** "Productos del mes" = top-sellers del price_list del cliente (data real ERP). */
+  readonly monthlyProducts = signal<PriceRow[]>([]);
+  openMonthly(p: PriceRow): void {
+    this.haptic.selection();
+    this.router.navigate(['/portal/catalog'], {
+      queryParams: p.brand_id ? { brand: p.brand_id } : {},
+    });
+  }
+  addMonthly(p: PriceRow): void {
+    if (this.addingId() || !this.custId || !this.whId || p.price == null) return;
+    this.haptic.selection();
+    this.addingId.set(p.product_id);
+    const qty = Math.max(1, Number(p.min_qty) || 1);
+    this.portal
+      .ensureDraft(this.custId, this.whId)
+      .pipe(switchMap((draft) => this.portal.addLine(draft.id, p.product_id, qty)))
+      .subscribe({
+        next: () => {
+          this.addingId.set(null);
+          this.haptic.notification('success');
+          this.addedIds.update((s) => new Set(s).add(p.product_id));
+        },
+        error: () => {
+          this.addingId.set(null);
+          this.haptic.notification('error');
+        },
+      });
+  }
+
   /** Chips trending bajo el search — mock por ahora. */
   readonly trendingChips = [
     { slug: 'caramelos',    label: 'Caramelos' },
@@ -1299,6 +1355,34 @@ export class PortalHomeComponent {
         this.orders.set([]);
         this.loadingOrders.set(false);
       },
+    });
+
+    this.portal.catalogFacets(undefined, 24).subscribe({
+      next: (f) => this.brandFacets.set(f),
+      error: () => this.brandFacets.set(null),
+    });
+
+    // Resuelve cliente + almacén default (custId/whId fiables para el add 1-tap)
+    // y carga "Productos del mes" = top-sellers del price_list del cliente.
+    forkJoin({
+      customer: this.portal.myCustomerInfo(),
+      warehouses: this.portal.listWarehouses(),
+    }).subscribe({
+      next: ({ customer, warehouses }: any) => {
+        if (customer?.id) this.custId = customer.id;
+        const wh = (warehouses || []).find((w: any) => w.is_default) || (warehouses || [])[0];
+        if (wh?.id) this.whId = wh.id;
+        const plId = customer?.default_price_list_id;
+        if (!plId) {
+          this.monthlyProducts.set([]);
+          return;
+        }
+        this.portal.listTopSellers(plId, this.whId || undefined, 12).subscribe({
+          next: (rows) => this.monthlyProducts.set((rows || []).filter((r) => r.price != null).slice(0, 12)),
+          error: () => this.monthlyProducts.set([]),
+        });
+      },
+      error: () => this.monthlyProducts.set([]),
     });
 
     this.portal.listActivePromotions(6).subscribe({

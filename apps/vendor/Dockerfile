@@ -35,7 +35,11 @@ RUN apt-get update && \
     ln -sf /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
     sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
     sed -i '/^user /d' /etc/nginx/nginx.conf && \
-    chown -R node:node /var/log/nginx /var/lib/nginx /usr/share/nginx/html /etc/nginx/sites-available
+    chown -R node:node /var/log/nginx /var/lib/nginx /usr/share/nginx/html /etc/nginx/sites-available && \
+    # Railway solo captura stdout/stderr; el nginx de Debian escribe a archivos.
+    # Symlinkeamos (como nginx:alpine) para que access/error logs salgan en Railway.
+    ln -sf /dev/stdout /var/log/nginx/access.log && \
+    ln -sf /dev/stderr /var/log/nginx/error.log
 
 # API_UPSTREAM SIN default: si falta, start.sh aborta con mensaje claro (no 502 silencioso).
 ENV PORT=10000 \
