@@ -1,0 +1,8 @@
+- dialog "Activar notificaciones" [ref=e2]:
+  - generic [ref=e3]: 
+  - generic [ref=e4]:
+    - strong [ref=e5]: Notificaciones de tus pedidos
+    - generic [ref=e6]: Te avisamos cuando tu pedido se confirme y vaya en camino.
+  - button "Activar" [ref=e7] [cursor=pointer]
+  - button "Ahora no" [ref=e8] [cursor=pointer]:
+    - generic [ref=e9]: 

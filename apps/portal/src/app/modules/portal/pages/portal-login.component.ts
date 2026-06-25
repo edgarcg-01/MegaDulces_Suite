@@ -1,10 +1,11 @@
-import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, inject, signal } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, OnDestroy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageModule } from 'primeng/message';
 import { AuthService } from '../../../core/services/auth.service';
+import { AuthStageComponent } from '../ui/auth-stage.component';
 
 @Component({
   selector: 'app-portal-login',
@@ -14,6 +15,7 @@ import { AuthService } from '../../../core/services/auth.service';
     ReactiveFormsModule,
     InputTextModule,
     MessageModule,
+    AuthStageComponent,
   ],
   template: `
     <div class="pl-wrap">
@@ -48,6 +50,9 @@ import { AuthService } from '../../../core/services/auth.service';
 
       <!-- Form side -->
       <section class="pl-form-side">
+        <!-- Escaparate de bienvenida (móvil): producto que cae con GSAP -->
+        <portal-auth-stage class="pl-stage" image="/assets/brands/nucita.webp"></portal-auth-stage>
+
         <header class="pl-form-head">
           <img
             src="/assets/logos/mega-dulces-logo-240.webp"
@@ -55,6 +60,9 @@ import { AuthService } from '../../../core/services/auth.service';
             class="pl-form-logo"
           />
           <h1 class="pl-display">Tu dulcería,<br />surtida en <span class="pl-em">minutos.</span></h1>
+          <svg class="pl-underline" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M5 9 C 55 2, 145 2, 195 7" fill="none" stroke="var(--action)" stroke-width="3.5" stroke-linecap="round" />
+          </svg>
           <span class="pl-form-eyebrow">Portal B2B</span>
           <h2 class="pl-form-title">Bienvenido de vuelta</h2>
           <p class="pl-form-sub">Tu lista de precios, pedidos con IA y entrega coordinada.</p>
@@ -347,20 +355,30 @@ import { AuthService } from '../../../core/services/auth.service';
         color: var(--neutral-950);
       }
       .pl-em {
-        position: relative;
         color: var(--action);
         white-space: nowrap;
       }
-      .pl-em::after {
-        content: '';
-        position: absolute;
-        left: -2px;
-        right: -2px;
-        bottom: 0.08em;
-        height: 0.42em;
-        background: rgba(253, 231, 7, 0.5);
-        border-radius: 3px;
-        z-index: -1;
+      /* Subrayado dibujado (DrawSVG) bajo el titular — acento animado. */
+      .pl-underline {
+        display: block;
+        width: clamp(150px, 52%, 230px);
+        height: 13px;
+        margin: -2px 0 0;
+        overflow: visible;
+      }
+      @media (min-width: 960px) {
+        .pl-underline { display: none; }
+      }
+
+      /* Escaparate de bienvenida — solo móvil (en desktop manda el hero). */
+      .pl-stage {
+        display: block;
+        height: 38dvh;
+        min-height: 220px;
+        margin: -0.5rem 0 0.25rem;
+      }
+      @media (min-width: 960px) {
+        .pl-stage { display: none; }
       }
 
       .pl-form-eyebrow {
@@ -532,12 +550,17 @@ import { AuthService } from '../../../core/services/auth.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PortalLoginComponent implements AfterViewInit {
+export class PortalLoginComponent implements AfterViewInit, OnDestroy {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly zone = inject(NgZone);
+  private split?: { revert: () => void };
+
+  ngOnDestroy(): void {
+    this.split?.revert?.();
+  }
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
