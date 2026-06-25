@@ -6,7 +6,7 @@ import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
 import { switchMap } from 'rxjs/operators';
 import { forkJoin } from 'rxjs';
-import { PortalService, Order, PromotionRow, CatalogHistoryRow, CatalogFacets, PriceRow } from '../portal.service';
+import { PortalService, Order, PromotionRow, CatalogHistoryRow, CatalogFacets, CatalogSuggestedRow, PriceRow } from '../portal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
@@ -17,6 +17,7 @@ import { PromosCarouselComponent } from '../ui/promos-carousel.component';
 import { TopProductsComponent } from '../ui/top-products.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
 import { MX_TRENDS } from '../data/mx-market-trends';
+import { CartFxService } from '../cart-fx.service';
 
 const PROMOTION_TYPE_LABELS: Record<string, string> = {
   percent_off_product: '% sobre producto',
@@ -61,6 +62,49 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </a>
     </div>
 
+    <!-- [REABASTECIMIENTO PREDICTIVO] recurrentes que llevan tiempo sin pedirse -->
+    <section *ngIf="restockProducts().length > 0" class="ph-section ph-restock ph-reveal">
+      <header class="ph-section-head">
+        <h2>Hora de reabastecer</h2>
+      </header>
+      <div class="ph-restock-strip" role="list">
+        <article
+          *ngFor="let p of restockProducts(); trackBy: trackByProduct"
+          class="ph-restock-card"
+          role="listitem"
+          (click)="openMonthly(p)"
+        >
+          <div
+            class="ph-restock-media"
+            [class.is-ph]="!hasImg(p)"
+            [style.background]="hasImg(p) ? null : phStyle(p)"
+          >
+            <img *ngIf="hasImg(p)" [src]="p.image_url" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+            <span *ngIf="!hasImg(p)" class="ph-restock-initials">{{ initials(p) }}</span>
+          </div>
+          <div class="ph-restock-body">
+            <span class="ph-restock-name" [title]="p.product_name">{{ p.product_name }}</span>
+            <span class="ph-restock-ago">
+              <i class="pi pi-history" aria-hidden="true"></i>
+              hace {{ daysSince(p.last_ordered_at) }} días
+            </span>
+          </div>
+          <button
+            type="button"
+            class="ph-restock-add"
+            [class.is-added]="addedIds().has(p.product_id)"
+            [disabled]="addingId() === p.product_id"
+            (click)="$event.stopPropagation(); reorderAdd(p, $event)"
+            [attr.aria-label]="'Reordenar ' + p.product_name"
+          >
+            <i *ngIf="addingId() === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            <i *ngIf="addingId() !== p.product_id && addedIds().has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
+            <i *ngIf="addingId() !== p.product_id && !addedIds().has(p.product_id)" class="pi pi-refresh" aria-hidden="true"></i>
+          </button>
+        </article>
+      </div>
+    </section>
+
     <!-- [REORDEN-PRIMERO] "Comprar de nuevo" sube al primer pliegue, sobre el
          hero (Baymard: el cliente B2B es transaccional, no exploratorio). -->
     <section *ngIf="frequentProducts().length > 0" class="ph-section ph-section-reorder ph-reveal">
@@ -89,7 +133,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
             class="ph-reorder-add"
             [class.is-added]="addedIds().has(p.product_id)"
             [disabled]="addingId() === p.product_id"
-            (click)="addFrequent(p)"
+            (click)="reorderAdd(p, $event)"
             [attr.aria-label]="'Agregar ' + p.product_name"
           >
             <i *ngIf="addingId() === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
@@ -280,9 +324,26 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </div>
     </section>
 
+    <!-- [SUGERIDOS IA] canasta D.4 con razón por producto -->
+    <portal-top-products
+      *ngIf="suggestedProducts().length > 0"
+      class="ph-suggested"
+      [products]="suggestedProducts()"
+      [notes]="suggestedNotes()"
+      eyebrow="Para ti"
+      heading="Sugeridos para ti"
+      meta="Según tu historial"
+      [showRank]="false"
+      [addingId]="addingId()"
+      [addedIds]="addedIds()"
+      (open)="openMonthly($event)"
+      (add)="addMonthly($event)"
+    ></portal-top-products>
+
     <!-- [4.5] PRODUCTOS TOP — tendencia del mercado MX cruzada con el catálogo -->
     <portal-top-products
       *ngIf="trendProducts().length > 0"
+      class="ph-toptrends"
       [products]="trendProducts()"
       [notes]="trendNotes()"
       [addingId]="addingId()"
@@ -404,15 +465,17 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-search                 { order: 1; }
       .ph-chips                  { order: 2; }
       portal-brands-carousel     { order: 3; }
-      .ph-section-reorder        { order: 4; }
-      portal-products-of-month   { order: 5; }
-      .ph-banner                 { order: 6; }
-      portal-featured-promo, .ph-hero { order: 7; }
-      portal-promos-carousel, .ph-skel-grid { order: 8; }
-      portal-top-products        { order: 9; }
-      .ph-trust                  { order: 10; }
-      .ph-history, .ph-skel-list { order: 11; }
-      .ph-foot                   { order: 12; }
+      .ph-restock                { order: 4; }
+      .ph-section-reorder        { order: 5; }
+      portal-top-products.ph-suggested { order: 6; }
+      portal-products-of-month   { order: 7; }
+      .ph-banner                 { order: 8; }
+      portal-featured-promo, .ph-hero { order: 9; }
+      portal-promos-carousel, .ph-skel-grid { order: 10; }
+      portal-top-products.ph-toptrends { order: 11; }
+      .ph-trust                  { order: 12; }
+      .ph-history, .ph-skel-list { order: 13; }
+      .ph-foot                   { order: 14; }
 
       /* ── REVEAL POR LOTES (scroll-driven nativo) ────────────────────
          Cada sección entra al cruzar el viewport. CSS scroll-driven corre
@@ -1027,6 +1090,89 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         .ph-reorder-card { width: 140px; }
       }
 
+      /* ── REABASTECIMIENTO PREDICTIVO ────────────────────────────── */
+      .ph-restock-strip {
+        display: flex;
+        gap: 0.75rem;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 0.4rem;
+      }
+      .ph-restock-strip::-webkit-scrollbar { display: none; }
+      .ph-restock-card {
+        flex: 0 0 auto;
+        width: 244px;
+        scroll-snap-align: start;
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.55rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg);
+        box-shadow: var(--shadow-float);
+        cursor: pointer;
+        transition: transform 180ms var(--ease-spring), box-shadow 200ms var(--ease-standard);
+      }
+      .ph-restock-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+      .ph-restock-media {
+        position: relative;
+        flex: 0 0 auto;
+        width: 52px;
+        height: 52px;
+        border-radius: var(--r-md);
+        background: var(--card-bg);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .ph-restock-media img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
+      .ph-restock-initials {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: var(--fs-body);
+        color: #fff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+      }
+      .ph-restock-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+      .ph-restock-name {
+        font-size: var(--fs-sm);
+        font-weight: 600;
+        color: var(--neutral-950);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ph-restock-ago {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        color: var(--brand-700);
+      }
+      .ph-restock-ago i { font-size: var(--fs-micro); }
+      .ph-restock-add {
+        flex-shrink: 0;
+        width: 40px;
+        height: 40px;
+        border: none;
+        border-radius: 50%;
+        background: var(--brand-700);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        font-size: var(--fs-body);
+        transition: background-color 150ms ease, transform 120ms var(--ease-spring);
+      }
+      .ph-restock-add:active:not(:disabled) { transform: scale(0.9); }
+      .ph-restock-add:disabled { opacity: 0.6; cursor: default; }
+      .ph-restock-add.is-added { background: var(--ok-fg); }
+
       /* ── SKELETONS ──────────────────────────────────────────────── */
       .ph-skel-grid, .ph-skel-list {
         margin-bottom: 2.5rem;
@@ -1043,6 +1189,15 @@ export class PortalHomeComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly haptic = inject(HapticService);
+  private readonly cartFx = inject(CartFxService);
+
+  /** Vuela la imagen al carrito desde el strip y reordena (restock / comprar de nuevo). */
+  reorderAdd(p: CatalogHistoryRow, ev: Event): void {
+    const art = (ev.currentTarget as HTMLElement).closest('article');
+    const media = art?.querySelector('.ph-restock-media, .ph-reorder-media') as HTMLElement | null;
+    this.cartFx.fly(media, p.image_url || null);
+    this.addFrequent(p);
+  }
 
   readonly username = signal<string>(this.formatDisplayName(this.auth.user()?.username || ''));
   readonly orders = signal<Order[]>([]);
@@ -1079,6 +1234,42 @@ export class PortalHomeComponent {
   readonly trendProducts = signal<PriceRow[]>([]);
   /** product_id → etiqueta de la tendencia MX que matchea (badge "por qué"). */
   readonly trendNotes = signal<Record<string, string>>({});
+
+  /** "Sugeridos para ti" = canasta IA (D.4) con su razón por producto. */
+  readonly suggestedProducts = signal<CatalogSuggestedRow[]>([]);
+  readonly suggestedNotes = computed<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const p of this.suggestedProducts()) {
+      if (p.rec_reason) m[p.product_id] = p.rec_reason;
+    }
+    return m;
+  });
+
+  /**
+   * Reabastecimiento predictivo: productos recurrentes (≥2 pedidos) que llevan
+   * ≥18 días sin pedirse → "toca reordenar". Reusa el historial ya cargado.
+   */
+  readonly RESTOCK_DAYS = 18;
+  readonly restockProducts = computed<CatalogHistoryRow[]>(() => {
+    const now = Date.now();
+    return this.frequentProducts()
+      .filter((p) => {
+        if ((p.times_ordered || 0) < 2 || !p.last_ordered_at) return false;
+        const days = (now - new Date(p.last_ordered_at).getTime()) / 86_400_000;
+        return days >= this.RESTOCK_DAYS;
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.last_ordered_at || 0).getTime() - new Date(b.last_ordered_at || 0).getTime(),
+      )
+      .slice(0, 6);
+  });
+
+  /** Días desde el último pedido de un producto (para el copy "hace N días"). */
+  daysSince(iso?: string | null): number {
+    if (!iso) return 0;
+    return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  }
   /** Producto abierto en el top-sheet de detalle (null = cerrado). */
   readonly sheetProduct = signal<PriceRow | null>(null);
   /** Etiqueta de tendencia MX del producto abierto (para el badge del sheet). */
@@ -1309,6 +1500,10 @@ export class PortalHomeComponent {
         const wh = (warehouses || []).find((w: any) => w.is_default) || (warehouses || [])[0];
         if (wh?.id) this.whId = wh.id;
         this.loadMxTrends();
+        this.portal.myCatalogSuggested(this.whId || undefined).subscribe({
+          next: (rows) => this.suggestedProducts.set((rows || []).filter((r) => r.price != null).slice(0, 10)),
+          error: () => this.suggestedProducts.set([]),
+        });
         const plId = customer?.default_price_list_id;
         if (!plId) {
           this.monthlyProducts.set([]);

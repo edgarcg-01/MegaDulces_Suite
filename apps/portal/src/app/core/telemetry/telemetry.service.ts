@@ -137,17 +137,22 @@ export class TelemetryService {
     });
 
     try {
+      // sendBeacon SIEMPRE manda con credentials mode 'include' (por spec). En
+      // prod es mismo-origen (nginx proxya /api) → sin CORS, ideal por su
+      // confiabilidad en unload. En dev es cross-origin (4200→3334) y el backend
+      // responde ACAO '*', que el navegador rechaza si las credenciales son
+      // 'include' → preflight bloqueado. Telemetría NO necesita credenciales
+      // (tenant_id/user_id van en el payload), así que en dev usamos fetch con
+      // credentials:'omit' para que el wildcard sea aceptado.
       const blob = new Blob([payload], { type: 'application/json' });
-      const ok = navigator.sendBeacon?.(ENDPOINT, blob);
-      // Fallback si sendBeacon no existe o el navegador lo rechaza (payload grande).
-      if (!ok) {
-        fetch(ENDPOINT, {
-          method: 'POST',
-          body: payload,
-          headers: { 'Content-Type': 'application/json' },
-          keepalive: true,
-        }).catch(() => void 0);
-      }
+      if (environment.production && navigator.sendBeacon?.(ENDPOINT, blob)) return;
+      fetch(ENDPOINT, {
+        method: 'POST',
+        body: payload,
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        credentials: 'omit',
+      }).catch(() => void 0);
     } catch {
       // Telemetría nunca debe romper la app. Tragamos el error a propósito.
     }

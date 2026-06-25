@@ -16,6 +16,7 @@ import { CommonModule, CurrencyPipe } from '@angular/common';
 import type { PriceRow } from '../portal.service';
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CartFxService } from '../cart-fx.service';
 
 /**
  * Carrusel "Productos del mes" (top-sellers). Presentacional: recibe los
@@ -89,7 +90,7 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
             class="pom-add"
             [class.is-added]="addedIds.has(p.product_id)"
             [disabled]="addingId === p.product_id || p.price == null"
-            (click)="$event.stopPropagation(); add.emit(p)"
+            (click)="$event.stopPropagation(); onAdd(p, $event)"
             [attr.aria-label]="'Agregar ' + p.product_name"
           >
             <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
@@ -303,6 +304,15 @@ export class ProductsOfMonthCarouselComponent implements AfterViewInit, OnChange
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly cartFx = inject(CartFxService);
+
+  /** Vuela la imagen al carrito + emite el add. */
+  onAdd(p: PriceRow, ev: Event): void {
+    const card = (ev.currentTarget as HTMLElement).closest('.pom-card');
+    const media = (card?.querySelector('.pom-media') as HTMLElement) || (ev.currentTarget as HTMLElement);
+    this.cartFx.fly(media, this.hasImg(p) ? this.img(p) : null);
+    this.add.emit(p);
+  }
 
   private viewReady = false;
   private armed = false;

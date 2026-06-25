@@ -21,8 +21,18 @@ RUN npm ci
 FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 ENV CI=true NX_DAEMON=false NPM_CONFIG_LOGLEVEL=warn NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
+# Railway expone el commit en build. Si falta, queda "unknown" (cosmético).
+ARG RAILWAY_GIT_COMMIT_SHA=
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Sello de versión ANTES del build: el service worker (ngsw) hashea los bytes
+# FINALES de index.html y assets/version.json. Mutarlos DESPUÉS del build deja el
+# hash de ngsw.json desfasado → el SW entra en loop de re-fetch. Sellando acá,
+# los bytes servidos == los hasheados → sin loop. (Lección de la app vendor.)
+RUN COMMIT=$(printf '%s' "${RAILWAY_GIT_COMMIT_SHA:-unknown}" | cut -c1-7); \
+    TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    sed -i "s|BUILD_COMMIT_PLACEHOLDER|$COMMIT|g; s|BUILD_TS_PLACEHOLDER|$TS|g" \
+      apps/portal/src/index.html apps/portal/public/assets/version.json
 # --import load-compiler.mjs: Angular v18 + esbuild en Node 20 necesita
 # @angular/compiler cargado antes de la CLI de Nx (mismo patrón que el Dockerfile raíz).
 RUN NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
@@ -35,7 +45,11 @@ RUN apt-get update && \
     ln -sf /usr/share/zoneinfo/America/Mexico_City /etc/localtime && \
     sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf && \
     sed -i '/^user /d' /etc/nginx/nginx.conf && \
-    chown -R node:node /var/log/nginx /var/lib/nginx /usr/share/nginx/html /etc/nginx/sites-available
+    chown -R node:node /var/log/nginx /var/lib/nginx /usr/share/nginx/html /etc/nginx/sites-available && \
+    # Railway solo captura stdout/stderr; el nginx de Debian escribe a archivos.
+    # Symlinkeamos (como nginx:alpine) para que access/error logs salgan en Railway.
+    ln -sf /dev/stdout /var/log/nginx/access.log && \
+    ln -sf /dev/stderr /var/log/nginx/error.log
 
 # API_UPSTREAM SIN default: si falta, start.sh aborta con mensaje claro (no 502 silencioso).
 ENV PORT=10000 \

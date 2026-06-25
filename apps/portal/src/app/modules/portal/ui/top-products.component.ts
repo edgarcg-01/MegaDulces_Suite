@@ -16,6 +16,7 @@ import { CommonModule, CurrencyPipe } from '@angular/common';
 import type { PriceRow } from '../portal.service';
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CartFxService } from '../cart-fx.service';
 
 /**
  * "Productos top" — rail horizontal de la tendencia del mercado mexicano cruzada
@@ -33,11 +34,11 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
     <section class="tp" *ngIf="products?.length">
       <header class="tp-head">
         <div class="tp-title">
-          <span class="tp-eyebrow">Tendencia en México</span>
-          <h2>Productos top</h2>
+          <span class="tp-eyebrow">{{ eyebrow }}</span>
+          <h2>{{ heading }}</h2>
         </div>
         <div class="tp-head-right">
-          <span class="tp-meta">Lo que mueve el mercado</span>
+          <span class="tp-meta">{{ meta }}</span>
           <div class="tp-nav">
             <button type="button" class="tp-arrow" (click)="onArrow(-1)" aria-label="Anterior">
               <i class="pi pi-chevron-left" aria-hidden="true"></i>
@@ -75,7 +76,7 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
               (error)="onImgError(p)"
             />
             <span *ngIf="!hasImg(p)" class="tp-mono">{{ initials(p) }}</span>
-            <span class="tp-rank" [class.is-gold]="i === 0">#{{ i + 1 }}</span>
+            <span *ngIf="showRank" class="tp-rank" [class.is-gold]="i === 0">#{{ i + 1 }}</span>
           </div>
 
           <div class="tp-body">
@@ -95,7 +96,7 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
                 class="tp-add"
                 [class.is-added]="addedIds.has(p.product_id)"
                 [disabled]="addingId === p.product_id || p.price == null"
-                (click)="$event.stopPropagation(); add.emit(p)"
+                (click)="$event.stopPropagation(); onAdd(p, $event)"
                 [attr.aria-label]="'Agregar ' + p.product_name"
               >
                 <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
@@ -351,8 +352,13 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 })
 export class TopProductsComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) products: PriceRow[] = [];
-  /** product_id → etiqueta de tendencia MX (badge "por qué"). Pisa la señal de venta. */
+  /** product_id → etiqueta del badge "por qué" (tendencia MX, razón IA…). Pisa la señal de venta. */
   @Input() notes: Record<string, string> = {};
+  @Input() eyebrow = 'Tendencia en México';
+  @Input() heading = 'Productos top';
+  @Input() meta = 'Lo que mueve el mercado';
+  /** Muestra el ribbon de ranking #N (apagar para recomendaciones). */
+  @Input() showRank = true;
   @Input() addingId: string | null = null;
   @Input() addedIds = new Set<string>();
 
@@ -362,6 +368,15 @@ export class TopProductsComponent implements AfterViewInit, OnChanges, OnDestroy
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly cartFx = inject(CartFxService);
+
+  /** Vuela la imagen al carrito + emite el add. */
+  onAdd(p: PriceRow, ev: Event): void {
+    const card = (ev.currentTarget as HTMLElement).closest('.tp-card');
+    const media = (card?.querySelector('.tp-media') as HTMLElement) || (ev.currentTarget as HTMLElement);
+    this.cartFx.fly(media, this.hasImg(p) ? this.img(p) : null);
+    this.add.emit(p);
+  }
 
   private viewReady = false;
   private armed = false;

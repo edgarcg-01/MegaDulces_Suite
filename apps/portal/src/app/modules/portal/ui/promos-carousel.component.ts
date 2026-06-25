@@ -10,7 +10,7 @@ import {
   OnDestroy,
   inject,
 } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import type { PromotionRow } from '../portal.service';
 
@@ -25,7 +25,7 @@ import type { PromotionRow } from '../portal.service';
 @Component({
   selector: 'portal-promos-carousel',
   standalone: true,
-  imports: [CommonModule, DatePipe, RouterModule],
+  imports: [CommonModule, RouterModule],
   template: `
     <section class="pc" *ngIf="promos?.length">
       <header class="pc-head">
@@ -61,9 +61,9 @@ import type { PromotionRow } from '../portal.service';
           <h3>{{ p.name }}</h3>
           <p *ngIf="p.description">{{ p.description }}</p>
           <footer class="pc-foot">
-            <span *ngIf="p.ends_at" class="pc-exp">
-              <i class="pi pi-clock" aria-hidden="true"></i>
-              Hasta {{ p.ends_at | date:'dd MMM' }}
+            <span *ngIf="endsInfo(p.ends_at) as e" class="pc-exp" [class.is-urgent]="e.urgent">
+              <i class="pi" [ngClass]="e.urgent ? 'pi-bolt' : 'pi-clock'" aria-hidden="true"></i>
+              {{ e.text }}
             </span>
             <span class="pc-cta">
               Aprovechar
@@ -233,6 +233,8 @@ import type { PromotionRow } from '../portal.service';
         white-space: nowrap;
       }
       .pc-exp i { font-size: var(--fs-micro); }
+      .pc-exp.is-urgent { color: var(--action); font-weight: 800; }
+      .pc-card-lead .pc-exp.is-urgent { color: var(--brand-400); }
       .pc-cta {
         display: inline-flex;
         align-items: center;
@@ -430,6 +432,28 @@ export class PromosCarouselComponent implements AfterViewInit, OnChanges, OnDest
     } else {
       rail.scrollTo({ left: target, behavior: 'smooth' });
     }
+  }
+
+  /**
+   * Vigencia con urgencia: si la promo termina pronto muestra cuenta regresiva
+   * ("Termina en 2d 4h" / "Quedan 5 h" / "Últimas horas"); si falta mucho o no
+   * hay fecha clara, cae a "Hasta DD mmm". null si ya expiró.
+   */
+  endsInfo(ends?: string | null): { text: string; urgent: boolean } | null {
+    if (!ends) return null;
+    const end = new Date(ends).getTime();
+    if (isNaN(end)) return null;
+    const ms = end - Date.now();
+    if (ms <= 0) return null;
+    const days = Math.floor(ms / 86_400_000);
+    const hours = Math.floor((ms % 86_400_000) / 3_600_000);
+    if (days >= 7) {
+      const d = new Date(ends).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+      return { text: `Hasta ${d}`, urgent: false };
+    }
+    if (days >= 1) return { text: `Termina en ${days}d ${hours}h`, urgent: days <= 2 };
+    if (hours >= 1) return { text: `Quedan ${hours} h`, urgent: true };
+    return { text: 'Últimas horas', urgent: true };
   }
 
   trackByPromo = (_i: number, p: PromotionRow) => p.id;

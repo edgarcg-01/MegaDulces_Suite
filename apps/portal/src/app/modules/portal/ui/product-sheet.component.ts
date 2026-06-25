@@ -1,15 +1,20 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   EventEmitter,
   Input,
+  NgZone,
   Output,
+  inject,
   signal,
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import type { PriceRow } from '../portal.service';
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CartFxService } from '../cart-fx.service';
+import { CountUpDirective } from './count-up.directive';
 
 /**
  * Bottom-sheet de detalle de producto al estilo Rappi: SUBE desde abajo, imagen
@@ -20,7 +25,7 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 @Component({
   selector: 'portal-product-sheet',
   standalone: true,
-  imports: [CommonModule, CurrencyPipe],
+  imports: [CommonModule, CurrencyPipe, CountUpDirective],
   template: `
     <div
       class="psheet-backdrop"
@@ -88,13 +93,13 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
             type="button"
             class="psheet-add"
             [disabled]="adding || p.price == null"
-            (click)="add.emit({ product: p, qty: qty() })"
+            (click)="onAdd(p)"
           >
             <i *ngIf="adding" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
             <ng-container *ngIf="!adding">
               Agregar
               <span class="psheet-add-sub" *ngIf="p.price != null">
-                · {{ qty() * +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                · <span [countUp]="qty() * +p.price"></span>
               </span>
             </ng-container>
           </button>
@@ -323,11 +328,23 @@ export class ProductSheetComponent {
   @Input() note: string | null = null;
   @Input() adding = false;
 
-  /** Producto a mostrar; null = cerrado. Al cambiar, resetea la cantidad al mínimo. */
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
+  private readonly cartFx = inject(CartFxService);
+  private G: any = null;
+  private gsapLoading?: Promise<any>;
+  private entranceTl?: { kill: () => void };
+
+  /** Producto a mostrar; null = cerrado. Al cambiar, resetea la cantidad y anima entrada. */
   private _product: PriceRow | null = null;
   @Input() set product(p: PriceRow | null) {
     this._product = p;
-    if (p) this.qty.set(Math.max(1, p.min_qty || 1));
+    if (p) {
+      this.qty.set(Math.max(1, p.min_qty || 1));
+      this.animateIn();
+    } else {
+      this.entranceTl?.kill?.();
+    }
   }
   get product(): PriceRow | null {
     return this._product;
@@ -337,6 +354,54 @@ export class ProductSheetComponent {
   @Output() add = new EventEmitter<{ product: PriceRow; qty: number }>();
 
   readonly qty = signal<number>(1);
+
+  /** Vuela la imagen al carrito + emite el add con la cantidad elegida. */
+  onAdd(p: PriceRow): void {
+    const media = this.host.nativeElement.querySelector('.psheet-media') as HTMLElement | null;
+    this.cartFx.fly(media, this.hasImg(p) ? this.img(p) : null);
+    this.add.emit({ product: p, qty: this.qty() });
+  }
+
+  /** Entrada escalonada GSAP: imagen escala, info sube, barra inferior entra. */
+  private animateIn(): void {
+    if (
+      typeof window === 'undefined' ||
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+    this.zone.runOutsideAngular(() =>
+      requestAnimationFrame(async () => {
+        try {
+          const gsap = await this.gsap();
+          const el = this.host.nativeElement;
+          const media = el.querySelector('.psheet-media');
+          if (!media) return;
+          const info = el.querySelectorAll('.psheet-info > *');
+          const foot = el.querySelector('.psheet-foot');
+          this.entranceTl?.kill?.();
+          const tl = gsap.timeline({ delay: 0.1 });
+          tl.from(media, { scale: 0.82, opacity: 0, duration: 0.45, ease: 'back.out(1.4)' })
+            .from(info, { y: 18, opacity: 0, duration: 0.4, stagger: 0.06, ease: 'power3.out' }, '-=0.2')
+            .from(foot, { y: 26, opacity: 0, duration: 0.4, ease: 'power3.out' }, '-=0.25');
+          this.entranceTl = tl;
+        } catch {
+          /* sin GSAP el sheet entra con el slide CSS, sin stagger */
+        }
+      }),
+    );
+  }
+
+  private gsap(): Promise<any> {
+    if (this.G) return Promise.resolve(this.G);
+    if (this.gsapLoading) return this.gsapLoading;
+    this.gsapLoading = (async () => {
+      const mod: any = await import('gsap');
+      this.G = mod.gsap || mod.default;
+      return this.G;
+    })();
+    return this.gsapLoading;
+  }
 
   inc(): void {
     this.qty.update((v) => v + 1);

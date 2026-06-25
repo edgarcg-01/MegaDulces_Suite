@@ -7,6 +7,7 @@ import {
   NgZone,
   OnDestroy,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -28,6 +29,8 @@ import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { PortalService } from './portal.service';
+import { CartFxService } from './cart-fx.service';
+import { CountUpDirective } from './ui/count-up.directive';
 import { NotificationPrefsService, NotifKey } from './notification-prefs.service';
 import {
   AlertsSocketService,
@@ -52,6 +55,7 @@ interface NavItem {
     ToastModule,
     BadgeModule,
     TooltipModule,
+    CountUpDirective,
   ],
   providers: [MessageService],
   animations: [
@@ -104,7 +108,7 @@ interface NavItem {
               ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
               : null"
           >
-            <span class="portal-nav-icon-wrap">
+            <span class="portal-nav-icon-wrap" [class.cart-fx-target]="item.isCart">
               <i [class]="item.icon" aria-hidden="true"></i>
               <span
                 *ngIf="item.isCart && cart.cartLineCount() > 0"
@@ -177,7 +181,7 @@ interface NavItem {
                 ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
                 : item.label"
             >
-              <span class="portal-tab-icon-wrap">
+              <span class="portal-tab-icon-wrap" [class.cart-fx-target]="item.isCart">
                 <i [class]="item.icon" aria-hidden="true"></i>
                 <span
                   *ngIf="item.isCart && cart.cartLineCount() > 0"
@@ -205,14 +209,19 @@ interface NavItem {
           type="button"
           class="portal-cartbar"
           [class.show]="cart.cartLineCount() > 0"
-          (click)="goCart()"
           [attr.aria-hidden]="cart.cartLineCount() === 0"
           [attr.tabindex]="cart.cartLineCount() === 0 ? -1 : 0"
-          [attr.aria-label]="'Ver carrito, ' + cart.cartLineCount() + ' productos'"
+          [attr.aria-label]="cartBelowMin()
+            ? 'Carrito: te faltan para el mínimo'
+            : 'Ver carrito, ' + cart.cartLineCount() + ' productos'"
+          (click)="goCart()"
         >
+          <span class="cb-fill" [style.width.%]="cartProgress() * 100" aria-hidden="true"></span>
           <span class="cb-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
-          <span class="cb-label">Ver carrito</span>
-          <span class="cb-total">{{ cart.cartTotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          <span class="cb-label">
+            {{ cartBelowMin() ? 'Te faltan ' + (cartRemaining() | currency:'MXN':'symbol-narrow':'1.0-0') : 'Ver carrito' }}
+          </span>
+          <span class="cb-total" [countUp]="cart.cartTotal()"></span>
           <i class="pi pi-arrow-right cb-arrow" aria-hidden="true"></i>
         </button>
 
@@ -696,8 +705,21 @@ interface NavItem {
         transform: translateX(-50%) translateY(180%);
         opacity: 0;
         pointer-events: none;
+        overflow: hidden;
         transition: transform 420ms var(--ease-spring), opacity 240ms var(--ease-standard);
       }
+      /* Relleno determinado: el pill se "carga" hacia el mínimo de pedido. */
+      .cb-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        background: rgba(253, 231, 7, 0.20);
+        z-index: 0;
+        transition: width 420ms var(--ease-spring);
+      }
+      .portal-cartbar > :not(.cb-fill) { position: relative; z-index: 1; }
       .portal-cartbar.show {
         transform: translateX(-50%) translateY(0);
         opacity: 1;
@@ -1104,6 +1126,7 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private readonly el = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
+  private readonly cartFx = inject(CartFxService);
   readonly cart = inject(PortalService);
   readonly notif = inject(NotificationPrefsService);
 
@@ -1116,6 +1139,14 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
   );
 
   readonly settingsOpen = signal<boolean>(false);
+
+  /** Mínimo de pedido B2B (Mega Dulces). Driver del nudge de progreso. */
+  readonly MIN_ORDER = 2500;
+  readonly cartProgress = computed(() => Math.min(1, this.cart.cartTotal() / this.MIN_ORDER));
+  readonly cartRemaining = computed(() => Math.max(0, this.MIN_ORDER - this.cart.cartTotal()));
+  readonly cartBelowMin = computed(
+    () => this.cart.cartLineCount() > 0 && this.cart.cartTotal() < this.MIN_ORDER,
+  );
 
   readonly themeMode = computed<'system' | 'light' | 'dark'>(() => {
     if (this.theme.followingSystem()) return 'system';
@@ -1154,7 +1185,18 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
     { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
   ];
 
+  /** Detecta el cruce del mínimo (below → not-below con items) para celebrar. */
+  private prevBelowMin = false;
+
   constructor() {
+    // Celebración al alcanzar el mínimo de pedido.
+    effect(() => {
+      const below = this.cartBelowMin();
+      const reached = this.prevBelowMin && !below && this.cart.cartLineCount() > 0;
+      this.prevBelowMin = below;
+      if (reached) this.cartFx.celebrate();
+    });
+
     this.cart.refreshCart();
 
     // Resolver el customer_id del JWT una vez al montar (lo usamos para filtrar
