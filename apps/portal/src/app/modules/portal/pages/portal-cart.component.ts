@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  NgZone,
   OnInit,
   computed,
   inject,
@@ -18,17 +20,9 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PortalService, Order } from '../portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
-
-const NEUTRAL_PALETTE = [
-  '#3F3F46', '#52525B', '#71717A', '#27272A',
-  '#404040', '#525252', '#262626', '#171717',
-];
-
-function hashColor(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return NEUTRAL_PALETTE[Math.abs(h) % NEUTRAL_PALETTE.length];
-}
+import { cldImage } from '../../../core/util/cloudinary';
+import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CountUpDirective } from '../ui/count-up.directive';
 
 @Component({
   selector: 'app-portal-cart',
@@ -41,6 +35,7 @@ function hashColor(key: string): string {
     SkeletonModule,
     ConfirmDialogModule,
     TooltipModule,
+    CountUpDirective,
   ],
   providers: [ConfirmationService, CurrencyPipe],
   template: `
@@ -68,7 +63,25 @@ function hashColor(key: string): string {
       </button>
     </header>
 
-    <p-skeleton *ngIf="loading()" height="320px"></p-skeleton>
+    <div *ngIf="loading()" class="ca-skel ca-layout" aria-hidden="true">
+      <div class="ca-skel-lines">
+        <div class="ca-skel-line" *ngFor="let i of [1, 2, 3, 4]">
+          <p-skeleton width="56px" height="56px" borderRadius="12px"></p-skeleton>
+          <div class="ca-skel-body">
+            <p-skeleton width="35%" height="0.6rem"></p-skeleton>
+            <p-skeleton width="72%" height="0.95rem"></p-skeleton>
+          </div>
+          <p-skeleton width="128px" height="44px" borderRadius="12px"></p-skeleton>
+        </div>
+      </div>
+      <div class="ca-skel-sum">
+        <p-skeleton width="45%" height="1rem"></p-skeleton>
+        <p-skeleton width="100%" height="0.8rem"></p-skeleton>
+        <p-skeleton width="100%" height="0.8rem"></p-skeleton>
+        <p-skeleton width="100%" height="3rem" borderRadius="12px"></p-skeleton>
+        <p-skeleton width="100%" height="2.9rem" borderRadius="999px"></p-skeleton>
+      </div>
+    </div>
 
     <!-- Empty state -->
     <div *ngIf="!loading() && !cart()" class="portal-empty">
@@ -97,8 +110,12 @@ function hashColor(key: string): string {
           >
             <div
               class="ca-line-avatar"
-              [style.background]="lineGradient(line.product_id)"
-            >{{ line.line_number }}</div>
+              [class.has-photo]="lineImg(line)"
+              [style.background]="lineImg(line) ? null : linePh(line)"
+            >
+              <img *ngIf="lineImg(line) as src" [src]="src" [alt]="line.product_name || ''" loading="lazy" decoding="async" />
+              <span *ngIf="!lineImg(line)" class="ca-line-mono" aria-hidden="true">{{ lineInitials(line) }}</span>
+            </div>
 
             <div class="ca-line-body">
               <span class="ca-line-brand" *ngIf="line.brand_name">{{ line.brand_name }}</span>
@@ -185,7 +202,7 @@ function hashColor(key: string): string {
               </div>
               <div class="ca-summary-row">
                 <span>Subtotal</span>
-                <b>{{ c.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                <b [countUp]="+(c.subtotal || 0)"></b>
               </div>
               <div class="ca-summary-row">
                 <span>IVA</span>
@@ -220,7 +237,7 @@ function hashColor(key: string): string {
 
             <div class="ca-summary-total">
               <span>Total</span>
-              <b>{{ c.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+              <b [countUp]="+(c.total || 0)"></b>
             </div>
 
             <button
@@ -292,7 +309,7 @@ function hashColor(key: string): string {
       }
       .ca-line:hover {
         border-color: var(--neutral-300);
-        box-shadow: 0 4px 12px -6px rgba(0,0,0,0.08);
+        box-shadow: var(--shadow-float);
       }
       @media (max-width: 640px) {
         .ca-line {
@@ -316,17 +333,24 @@ function hashColor(key: string): string {
       }
 
       .ca-line-avatar {
+        position: relative;
         width: 56px;
         height: 56px;
         border-radius: var(--r-md);
-        color: #fff;
+        overflow: hidden;
         display: grid;
         place-items: center;
-        font-weight: 800;
-        font-size: var(--fs-h2);
-        font-variant-numeric: tabular-nums;
-        box-shadow: inset 0 -8px 14px rgba(0,0,0,0.12);
         flex-shrink: 0;
+      }
+      .ca-line-avatar.has-photo { background: #fff; border: 1px solid var(--border-color); }
+      .ca-line-avatar img { width: 100%; height: 100%; object-fit: contain; padding: 6px; }
+      .ca-line-mono {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: var(--fs-h3);
+        color: #fff;
+        letter-spacing: -0.01em;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
       @media (max-width: 640px) {
         .ca-line-avatar { width: 48px; height: 48px; }
@@ -478,7 +502,7 @@ function hashColor(key: string): string {
         border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
         padding: 1.25rem;
-        box-shadow: 0 8px 24px -10px rgba(0,0,0,0.08);
+        box-shadow: var(--shadow-float);
       }
       .ca-summary-title {
         margin: 0 0 1rem;
@@ -587,7 +611,6 @@ function hashColor(key: string): string {
         padding: 0.875rem 1rem;
         background: var(--neutral-100);
         border: 1px solid var(--border-color);
-        border-left: 3px solid var(--brand-500);
         border-radius: var(--r-md);
         margin-bottom: 0.875rem;
       }
@@ -640,6 +663,35 @@ function hashColor(key: string): string {
         gap: 0.25rem;
         line-height: 1.4;
       }
+
+      /* ── Skeleton con forma (filas + summary), refleja el layout real ── */
+      .ca-skel-lines { display: flex; flex-direction: column; gap: 0.625rem; }
+      .ca-skel-line {
+        display: grid;
+        grid-template-columns: 56px 1fr 128px;
+        gap: 0.875rem;
+        align-items: center;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg);
+        padding: 0.75rem 0.875rem;
+      }
+      .ca-skel-body { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+      .ca-skel-sum {
+        align-self: start;
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg);
+        padding: 1.25rem;
+        box-shadow: var(--shadow-float);
+      }
+      @media (max-width: 640px) {
+        .ca-skel-line { grid-template-columns: 56px 1fr; }
+        .ca-skel-line > :last-child { display: none; }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -651,6 +703,8 @@ export class PortalCartComponent implements OnInit {
   private readonly confirmSvc = inject(ConfirmationService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
 
   readonly loading = signal(true);
   readonly cart = signal<Order | null>(null);
@@ -706,10 +760,12 @@ export class PortalCartComponent implements OnInit {
             next: (full) => {
               this.cart.set(full);
               this.loading.set(false);
+              this.revealLines();
             },
             error: () => {
               this.cart.set(draft);
               this.loading.set(false);
+              this.revealLines();
             },
           });
         },
@@ -837,9 +893,17 @@ export class PortalCartComponent implements OnInit {
     return Number(line?.discount_amount) || 0;
   }
 
-  lineGradient(productId: string): string {
-    const c = hashColor(productId || '');
-    return `linear-gradient(135deg, ${c}, ${this.darken(c, 0.15)})`;
+  /** Thumbnail Cloudinary si la línea trae imagen (futuro backend), sino null. */
+  lineImg(line: any): string | null {
+    return line?.image_url ? cldImage(line.image_url, 120) : null;
+  }
+  /** Placeholder Stone canónico (mismo que las cards). */
+  linePh(line: any): string {
+    return brandPlaceholderGradient(line?.product_id || line?.product_name);
+  }
+  lineInitials(line: any): string {
+    const words = (line?.product_name || '?').trim().split(/\s+/).slice(0, 2);
+    return words.map((w: string) => w.charAt(0).toUpperCase()).join('') || '?';
   }
 
   taxPct(rate: any): string {
@@ -852,11 +916,60 @@ export class PortalCartComponent implements OnInit {
     return new Date(s).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' } as any);
   }
 
-  private darken(hex: string, amount: number): string {
-    const h = hex.replace('#', '');
-    const r = Math.max(0, parseInt(h.slice(0, 2), 16) - Math.round(255 * amount));
-    const g = Math.max(0, parseInt(h.slice(2, 4), 16) - Math.round(255 * amount));
-    const b = Math.max(0, parseInt(h.slice(4, 6), 16) - Math.round(255 * amount));
-    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+  // ── Reveal GSAP de las líneas (solo primera carga) ─────────────
+  private didReveal = false;
+  private cartG: any = null;
+  private cartGsapLoading?: Promise<any>;
+
+  private ensureGsap(): Promise<any> {
+    if (this.cartG) return Promise.resolve(this.cartG);
+    if (this.cartGsapLoading) return this.cartGsapLoading;
+    this.cartGsapLoading = import('gsap').then((m: any) => (this.cartG = m.gsap || m.default));
+    return this.cartGsapLoading;
+  }
+
+  /**
+   * Entrada escalonada de las líneas + el summary. Solo la PRIMERA vez que hay
+   * líneas — los `reload()` por cambio de qty no re-animan (evita flicker).
+   * Bajo prefers-reduced-motion no anima (marca como hecho y sale).
+   */
+  private revealLines(): void {
+    if (this.didReveal || typeof window === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.didReveal = true;
+      return;
+    }
+    this.zone.runOutsideAngular(() =>
+      requestAnimationFrame(async () => {
+        const el = this.host.nativeElement;
+        const rows = Array.from(el.querySelectorAll('.ca-line')) as HTMLElement[];
+        if (!rows.length) return; // sin líneas todavía → reintenta en la próxima carga
+        this.didReveal = true;
+        const summary = el.querySelector('.ca-summary-inner') as HTMLElement | null;
+        try {
+          const gsap = await this.ensureGsap();
+          gsap.from(rows, {
+            opacity: 0,
+            y: 16,
+            duration: 0.42,
+            stagger: 0.05,
+            ease: 'power3.out',
+            clearProps: 'opacity,transform',
+          });
+          if (summary) {
+            gsap.from(summary, {
+              opacity: 0,
+              y: 16,
+              duration: 0.45,
+              delay: 0.08,
+              ease: 'power3.out',
+              clearProps: 'opacity,transform',
+            });
+          }
+        } catch {
+          /* sin gsap: visible */
+        }
+      }),
+    );
   }
 }

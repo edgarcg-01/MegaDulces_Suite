@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  NgZone,
   OnInit,
   inject,
   signal,
@@ -15,17 +17,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { trigger, transition, style, animate } from '@angular/animations';
 import { forkJoin } from 'rxjs';
 import { PortalService, Order, OrderHistoryEntry, OrderShipmentEntry } from '../portal.service';
-
-const NEUTRAL_PALETTE = [
-  '#3F3F46', '#52525B', '#71717A', '#27272A',
-  '#404040', '#525252', '#262626', '#171717',
-];
-
-function hashColor(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return NEUTRAL_PALETTE[Math.abs(h) % NEUTRAL_PALETTE.length];
-}
+import { cldImage } from '../../../core/util/cloudinary';
+import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CountUpDirective } from '../ui/count-up.directive';
 
 @Component({
   selector: 'app-portal-order-detail',
@@ -37,6 +31,7 @@ function hashColor(key: string): string {
     SkeletonModule,
     TagModule,
     ButtonModule,
+    CountUpDirective,
   ],
   animations: [
     trigger('celebrateOverlay', [
@@ -76,7 +71,26 @@ function hashColor(key: string): string {
       <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a mis pedidos
     </a>
 
-    <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
+    <div *ngIf="loading()" class="od-skel" aria-hidden="true">
+      <p-skeleton width="100%" height="96px" borderRadius="16px"></p-skeleton>
+      <div class="od-skel-layout">
+        <div class="od-skel-lines">
+          <div class="od-skel-line" *ngFor="let i of [1, 2, 3]">
+            <p-skeleton width="48px" height="48px" borderRadius="12px"></p-skeleton>
+            <div class="od-skel-body">
+              <p-skeleton width="35%" height="0.6rem"></p-skeleton>
+              <p-skeleton width="70%" height="0.95rem"></p-skeleton>
+            </div>
+            <p-skeleton width="72px" height="1rem"></p-skeleton>
+          </div>
+        </div>
+        <div class="od-skel-side">
+          <p-skeleton width="50%" height="0.9rem"></p-skeleton>
+          <p-skeleton width="100%" height="3.25rem" borderRadius="12px"></p-skeleton>
+          <p-skeleton width="100%" height="3.25rem" borderRadius="12px"></p-skeleton>
+        </div>
+      </div>
+    </div>
 
     <ng-container *ngIf="!loading() && order() as o">
       <!-- Page header consistente -->
@@ -120,7 +134,7 @@ function hashColor(key: string): string {
         </div>
         <div class="od-hero-total">
           <span class="od-hero-total-label">Total</span>
-          <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          <b [countUp]="+(o.total || 0)"></b>
         </div>
       </section>
 
@@ -157,8 +171,12 @@ function hashColor(key: string): string {
             <article *ngFor="let l of o.lines || []; trackBy: trackByLine" class="od-line">
               <div
                 class="od-line-avatar"
-                [style.background]="lineGradient(l.product_id)"
-              >{{ l.line_number }}</div>
+                [class.has-photo]="lineImg(l)"
+                [style.background]="lineImg(l) ? null : linePh(l)"
+              >
+                <img *ngIf="lineImg(l) as src" [src]="src" [alt]="l.product_name || ''" loading="lazy" decoding="async" />
+                <span *ngIf="!lineImg(l)" class="od-line-mono" aria-hidden="true">{{ lineInitials(l) }}</span>
+              </div>
 
               <div class="od-line-body">
                 <span class="od-line-brand" *ngIf="l.brand_name">{{ l.brand_name }}</span>
@@ -573,16 +591,24 @@ function hashColor(key: string): string {
         padding: 0.75rem 0.875rem;
       }
       .od-line-avatar {
+        position: relative;
         width: 48px;
         height: 48px;
         border-radius: var(--r-md);
-        color: #fff;
+        overflow: hidden;
         display: grid;
         place-items: center;
-        font-weight: 800;
+        flex-shrink: 0;
+      }
+      .od-line-avatar.has-photo { background: #fff; border: 1px solid var(--border-color); }
+      .od-line-avatar img { width: 100%; height: 100%; object-fit: contain; padding: 5px; }
+      .od-line-mono {
+        font-family: var(--font-display);
+        font-weight: 700;
         font-size: var(--fs-h3);
-        font-variant-numeric: tabular-nums;
-        box-shadow: inset 0 -6px 12px rgba(0,0,0,0.12);
+        color: #fff;
+        letter-spacing: -0.01em;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
       .od-line-body {
         display: flex;
@@ -673,7 +699,7 @@ function hashColor(key: string): string {
         left: 0;
         width: 32px;
         height: 2px;
-        background: var(--brand-500);
+        background: var(--neutral-400);
       }
       .od-totals-grand span {
         color: var(--text-muted);
@@ -873,6 +899,37 @@ function hashColor(key: string): string {
         justify-content: center;
         gap: 0.375rem;
       }
+
+      /* ── Skeleton con forma (hero + líneas + side) ── */
+      .od-skel { display: flex; flex-direction: column; gap: 1.5rem; }
+      .od-skel-layout {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 1.25rem;
+        align-items: start;
+      }
+      @media (max-width: 900px) { .od-skel-layout { grid-template-columns: 1fr; } }
+      .od-skel-lines { display: flex; flex-direction: column; gap: 0.5rem; }
+      .od-skel-line {
+        display: grid;
+        grid-template-columns: 48px 1fr auto;
+        gap: 0.875rem;
+        align-items: center;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-md);
+        padding: 0.75rem 0.875rem;
+      }
+      .od-skel-body { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+      .od-skel-side {
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg);
+        padding: 1.125rem;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -882,6 +939,8 @@ export class PortalOrderDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
 
   readonly loading = signal(true);
   readonly order = signal<Order | null>(null);
@@ -932,6 +991,7 @@ export class PortalOrderDetailComponent implements OnInit {
           this.history.set(history);
           this.shipments.set(shipments);
           this.loading.set(false);
+          this.revealContent();
           if (this.justConfirmed) {
             this.celebrate.set(true);
             setTimeout(() => this.celebrate.set(false), 3000);
@@ -947,9 +1007,17 @@ export class PortalOrderDetailComponent implements OnInit {
     return id?.slice(0, 8) || '—';
   }
 
-  lineGradient(productId: string): string {
-    const c = hashColor(productId || '');
-    return `linear-gradient(135deg, ${c}, ${this.darken(c, 0.15)})`;
+  /** Thumbnail Cloudinary si la línea trae imagen (futuro backend), sino null. */
+  lineImg(line: any): string | null {
+    return line?.image_url ? cldImage(line.image_url, 120) : null;
+  }
+  /** Placeholder Stone canónico (mismo que las cards/carrito). */
+  linePh(line: any): string {
+    return brandPlaceholderGradient(line?.product_id || line?.product_name);
+  }
+  lineInitials(line: any): string {
+    const words = (line?.product_name || '?').trim().split(/\s+/).slice(0, 2);
+    return words.map((w: string) => w.charAt(0).toUpperCase()).join('') || '?';
   }
 
   statusLabel(s: string | null | undefined): string {
@@ -1020,11 +1088,42 @@ export class PortalOrderDetailComponent implements OnInit {
     return new Date(s).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' } as any);
   }
 
-  private darken(hex: string, amount: number): string {
-    const h = hex.replace('#', '');
-    const r = Math.max(0, parseInt(h.slice(0, 2), 16) - Math.round(255 * amount));
-    const g = Math.max(0, parseInt(h.slice(2, 4), 16) - Math.round(255 * amount));
-    const b = Math.max(0, parseInt(h.slice(4, 6), 16) - Math.round(255 * amount));
-    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+  // ── Reveal GSAP del contenido al cargar ────────────────────────
+  private G: any = null;
+  private gsapLoading?: Promise<any>;
+
+  private ensureGsap(): Promise<any> {
+    if (this.G) return Promise.resolve(this.G);
+    if (this.gsapLoading) return this.gsapLoading;
+    this.gsapLoading = import('gsap').then((m: any) => (this.G = m.gsap || m.default));
+    return this.gsapLoading;
+  }
+
+  /** Entrada escalonada de líneas + items del timeline. Reduced-motion: no-op. */
+  private revealContent(): void {
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    this.zone.runOutsideAngular(() =>
+      requestAnimationFrame(async () => {
+        const el = this.host.nativeElement;
+        const items = Array.from(
+          el.querySelectorAll('.od-line, .od-tl-item'),
+        ) as HTMLElement[];
+        if (!items.length) return;
+        try {
+          const gsap = await this.ensureGsap();
+          gsap.from(items, {
+            opacity: 0,
+            y: 16,
+            duration: 0.42,
+            stagger: 0.045,
+            ease: 'power3.out',
+            clearProps: 'opacity,transform',
+          });
+        } catch {
+          /* sin gsap: visible */
+        }
+      }),
+    );
   }
 }

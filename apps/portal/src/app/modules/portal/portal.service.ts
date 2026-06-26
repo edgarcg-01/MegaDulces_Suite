@@ -106,6 +106,9 @@ export interface OrderLine {
   /** Backend (orderById) hace join con products/brands — disponibles al leer el pedido. */
   product_name?: string | null;
   brand_name?: string | null;
+  /** Aún no lo expone findById (la imagen vive en inventory.products_active);
+      la UI lo usa si llega, sino cae al monograma. */
+  image_url?: string | null;
   stock_available?: number | null;
   line_number: number;
   quantity: number | string;
