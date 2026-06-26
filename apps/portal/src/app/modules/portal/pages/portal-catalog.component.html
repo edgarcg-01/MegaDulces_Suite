@@ -1,10 +1,5 @@
-    <div *ngIf="isAdmin()" class="portal-banner" role="status">
-      <i class="pi pi-eye" aria-hidden="true"></i>
-      <span><b>Vista administrador</b> — catálogo default del tenant, solo lectura. Inicia sesión como cliente para hacer pedidos.</span>
-    </div>
-
-    <!-- Buscador al tope (search-first). Visible también durante loading() para
-         reservar su lugar y evitar CLS cuando llega el catálogo. -->
+    <!-- Buscador al tope absoluto (search-first): es lo primero que se ve.
+         Visible también durante loading() para reservar su lugar (sin CLS). -->
     <div class="cat-search-bar" *ngIf="loading() || prices().length > 0">
       <i [class]="aiSearch() ? 'pi pi-bolt cat-search-icon cat-search-icon-ai' : 'pi pi-search cat-search-icon'"></i>
       <input
@@ -68,6 +63,11 @@
       <span *ngIf="smartMode() === 'fallback_like'" class="cat-search-state-warn">
         — sin LLM, fallback texto
       </span>
+    </div>
+
+    <div *ngIf="isAdmin()" class="portal-banner" role="status">
+      <i class="pi pi-eye" aria-hidden="true"></i>
+      <span><b>Vista administrador</b> — catálogo default del tenant, solo lectura. Inicia sesión como cliente para hacer pedidos.</span>
     </div>
 
     <header class="portal-page-head cat-page-head">
