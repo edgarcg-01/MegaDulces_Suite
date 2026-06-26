@@ -21,6 +21,8 @@ import {
 } from '../portal.service';
 import { Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
+import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
+import { CountUpDirective } from '../ui/count-up.directive';
 
 interface ChatTurn {
   role: 'user' | 'assistant';
@@ -36,17 +38,6 @@ const EXAMPLES = [
   'Pedido de 5,000 pesos con dulces tradicionales',
 ];
 
-const NEUTRAL_PALETTE = [
-  '#3F3F46', '#52525B', '#71717A', '#27272A',
-  '#404040', '#525252', '#262626', '#171717',
-];
-
-function hashColor(key: string): string {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return NEUTRAL_PALETTE[Math.abs(h) % NEUTRAL_PALETTE.length];
-}
-
 @Component({
   selector: 'app-portal-recommendations',
   standalone: true,
@@ -57,6 +48,7 @@ function hashColor(key: string): string {
     ButtonModule,
     TooltipModule,
     ConfirmDialogModule,
+    CountUpDirective,
   ],
   providers: [ConfirmationService],
   template: `
@@ -203,7 +195,7 @@ function hashColor(key: string): string {
                 <div class="ai-sug-foot-row">
                   <div class="ai-sug-total">
                     <span class="ai-total-label">Total estimado</span>
-                    <b>{{ totalOf(t.suggestions!) | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                    <b [countUp]="totalOf(t.suggestions!)"></b>
                   </div>
                   <button
                     type="button"
@@ -288,7 +280,7 @@ function hashColor(key: string): string {
         border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
         overflow: hidden;
-        box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-float);
       }
       @media (max-width: 900px) {
         .ai-chat {
@@ -607,10 +599,12 @@ function hashColor(key: string): string {
         color: #fff;
         display: grid;
         place-items: center;
-        font-weight: 800;
+        overflow: hidden;
+        font-family: var(--font-display);
+        font-weight: 700;
         font-size: var(--fs-body);
-        letter-spacing: 0.02em;
-        box-shadow: inset 0 -6px 12px rgba(0,0,0,0.12);
+        letter-spacing: 0.01em;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
       @media (max-width: 640px) {
         .ai-sug-avatar { width: 40px; height: 40px; }
@@ -730,6 +724,13 @@ function hashColor(key: string): string {
         background: rgba(220, 38, 38, 0.1);
         color: var(--bad-fg);
       }
+      /* Touch targets ≥44px en punteros gruesos (DESIGN binding). */
+      @media (pointer: coarse) {
+        .ai-sug-qty { height: 44px; }
+        .ai-qty-btn { width: 44px; }
+        .ai-sug-qty input { width: 42px; }
+        .ai-sug-remove { width: 44px; height: 44px; }
+      }
 
       .ai-sug-foot {
         display: flex;
@@ -799,8 +800,8 @@ function hashColor(key: string): string {
       }
 
       .ai-add-cart {
-        background: var(--ember-grad);
-        color: #fff;
+        background: var(--action);
+        color: var(--action-ink, #fff);
         border: none;
         border-radius: var(--r-md);
         padding: 0.625rem 1rem;
@@ -812,10 +813,10 @@ function hashColor(key: string): string {
         align-items: center;
         gap: 0.375rem;
         box-shadow: 0 8px 20px -10px var(--action-ring);
-        transition: filter 150ms var(--ease-standard), transform 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
+        transition: background-color 150ms var(--ease-standard), transform 120ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
       }
       .ai-add-cart:hover:not(:disabled) {
-        filter: brightness(1.05);
+        background: var(--action-hover);
         transform: translateY(-1px);
         box-shadow: 0 12px 26px -10px var(--action-ring);
       }
@@ -1173,22 +1174,14 @@ export class PortalRecommendationsComponent implements AfterViewChecked {
 
   trackByTurn = (_i: number, t: ChatTurn) => t.timestamp;
 
+  /** Placeholder Stone canónico (mismo que cards/carrito/order-detail). */
   sugGradient(productId: string): string {
-    const c = hashColor(productId || '');
-    return `linear-gradient(135deg, ${c}, ${this.darken(c, 0.15)})`;
+    return brandPlaceholderGradient(productId);
   }
 
   sugInitials(name: string): string {
     const n = (name || '?').trim();
     const words = n.split(/\s+/).slice(0, 2);
     return words.map((w) => w.charAt(0).toUpperCase()).join('') || '?';
-  }
-
-  private darken(hex: string, amount: number): string {
-    const h = hex.replace('#', '');
-    const r = Math.max(0, parseInt(h.slice(0, 2), 16) - Math.round(255 * amount));
-    const g = Math.max(0, parseInt(h.slice(2, 4), 16) - Math.round(255 * amount));
-    const b = Math.max(0, parseInt(h.slice(4, 6), 16) - Math.round(255 * amount));
-    return `#${[r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
   }
 }
