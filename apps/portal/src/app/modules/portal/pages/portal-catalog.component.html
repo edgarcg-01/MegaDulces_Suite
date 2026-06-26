@@ -104,7 +104,16 @@
       </span>
     </div>
 
-    <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
+    <div *ngIf="loading()" class="cat-grid cat-skel-grid" aria-hidden="true">
+      <div class="cat-skel-card" *ngFor="let i of skeletonCards">
+        <div class="cat-skel-img"><p-skeleton width="100%" height="100%"></p-skeleton></div>
+        <div class="cat-skel-body">
+          <p-skeleton width="40%" height="0.6rem"></p-skeleton>
+          <p-skeleton width="85%" height="0.85rem"></p-skeleton>
+          <p-skeleton width="55%" height="1.15rem" styleClass="cat-skel-price"></p-skeleton>
+        </div>
+      </div>
+    </div>
 
     <div *ngIf="!loading() && prices().length === 0" class="portal-empty">
       <div class="portal-empty-icon"><i class="pi pi-info-circle" aria-hidden="true"></i></div>
@@ -324,40 +333,20 @@
 
     <div *ngIf="!loading() && prices().length > 0" class="cat-layout">
       <section class="cat-main">
-        <section *ngIf="topSellers().length > 0" class="cat-bestsellers" aria-label="Más vendidos">
-          <header class="cat-bestsellers-head">
-            <h3>
-              <i class="pi pi-chart-line" aria-hidden="true"></i>
-              Más vendidos
-            </h3>
-            <span class="cat-bestsellers-meta">{{ topSellers().length }} producto(s) — últimos 90 días</span>
-          </header>
-          <div class="cat-bestsellers-strip">
-            <article
-              *ngFor="let p of topSellers(); let i = index; trackBy: trackByProduct"
-              class="cat-bestseller-card"
-              (click)="openSheet(p)"
-              tabindex="0"
-              role="button"
-              [attr.aria-label]="'Más vendido #' + (i + 1) + ' — ' + p.product_name"
-              (keydown.enter)="openSheet(p)"
-              (keydown.space)="openSheet(p); $event.preventDefault()"
-            >
-              <span class="cat-bestseller-rank">#{{ i + 1 }}</span>
-              <div class="cat-bestseller-img" [class.has-photo]="hasImg(p)">
-                <img *ngIf="hasImg(p)" [src]="img(p, 400)" [alt]="p.product_name" loading="lazy" decoding="async" fetchpriority="low" (error)="onImgError(p)" />
-                <span *ngIf="!hasImg(p)" class="cat-bestseller-img-initials">{{ productInitials(p) }}</span>
-              </div>
-              <div class="cat-bestseller-body">
-                <span class="cat-bestseller-brand">{{ p.brand_name || 'Sin marca' }}</span>
-                <h4 class="cat-bestseller-name" [title]="p.product_name">{{ p.product_name }}</h4>
-                <span class="cat-bestseller-price">
-                  {{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                </span>
-              </div>
-            </article>
-          </div>
-        </section>
+        <!-- Rail premium compartido (mismo organismo que el home): reveal GSAP,
+             card lead espresso, drag/flechas. Reemplaza el strip inline. -->
+        <portal-top-products
+          *ngIf="topSellers().length > 0"
+          class="cat-topsellers"
+          [products]="topSellers()"
+          eyebrow="Más vendidos"
+          heading="Lo más pedido"
+          meta="Últimos 90 días"
+          [showRank]="true"
+          [addedIds]="cartProductIds()"
+          (open)="openSheet($event)"
+          (add)="addToCart($event)"
+        ></portal-top-products>
 
         <header class="cat-main-head">
           <h2>{{ selectedBrandName() }}</h2>
@@ -452,147 +441,20 @@
       <span class="cat-fab-divider" aria-hidden="true"></span>
       <span class="cat-fab-label">
         <span class="cat-fab-eyebrow">Carrito</span>
-        <span class="cat-fab-total">{{ cart.cartTotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+        <span class="cat-fab-total" [countUp]="cart.cartTotal()"></span>
       </span>
     </button>
 
-    <!-- ── PRODUCT DETAIL SHEET (click en `+`) ──────────────────── -->
-    <div
-      class="cat-sheet-backdrop"
-      [class.open]="!!sheetProduct()"
-      (click)="closeSheet()"
-      aria-hidden="true"
-    ></div>
-    <aside
-      class="cat-sheet"
-      [class.open]="!!sheetProduct()"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="cat-sheet-title"
-    >
-      @if (sheetProduct(); as sp) {
-        <button
-          type="button"
-          class="cat-sheet-close"
-          (click)="closeSheet()"
-          aria-label="Cerrar detalle del producto"
-        ><i class="pi pi-times" aria-hidden="true"></i></button>
-
-        <div class="cat-sheet-img" [class.has-photo]="hasImg(sp)" [style.background]="cardGradient(sp)" aria-hidden="true">
-          <img
-            *ngIf="hasImg(sp)"
-            [src]="img(sp, 800)"
-            [alt]="sp.product_name"
-            loading="lazy"
-            decoding="async"
-            class="cat-sheet-img-real"
-            (error)="onImgError(sp)"
-          />
-          <span *ngIf="!hasImg(sp)" class="cat-sheet-img-initials">{{ productInitials(sp) }}</span>
-        </div>
-
-        <div class="cat-sheet-body">
-          <span class="cat-sheet-brand">{{ sp.brand_name || 'Sin marca' }}</span>
-          <h3 id="cat-sheet-title" class="cat-sheet-name">{{ sp.product_name }}</h3>
-
-          <div class="cat-sheet-meta">
-            @if (sp.price != null) {
-              <span class="cat-sheet-meta-item">
-                <i class="pi pi-tag" aria-hidden="true"></i>
-                {{ +sp.price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
-              </span>
-            } @else {
-              <span class="cat-sheet-meta-item cat-sheet-meta-warn">
-                <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
-                Sin precio configurado
-              </span>
-            }
-            @if (sp.min_qty > 1) {
-              <span class="cat-sheet-meta-item">
-                <i class="pi pi-info-circle" aria-hidden="true"></i>
-                Mínimo {{ sp.min_qty }} unidades
-              </span>
-            }
-            @if (sp.stock_available != null) {
-              <span
-                class="cat-sheet-meta-item"
-                [class.cat-sheet-meta-warn]="sp.stock_available <= 5"
-              >
-                <i class="pi pi-box" aria-hidden="true"></i>
-                {{ sp.stock_available }} en stock
-              </span>
-            }
-          </div>
-
-          <div class="cat-sheet-qty-row">
-            <span class="cat-sheet-qty-label">Cantidad</span>
-            <div class="cat-sheet-stepper">
-              <button
-                type="button"
-                class="cat-sheet-stepper-btn"
-                (click)="sheetDec()"
-                [disabled]="sheetQty() <= (sp.min_qty || 1)"
-                aria-label="Disminuir"
-              ><i class="pi pi-minus"></i></button>
-              <span class="cat-sheet-qty-val" aria-live="polite">{{ sheetQty() }}</span>
-              <button
-                type="button"
-                class="cat-sheet-stepper-btn"
-                (click)="sheetInc()"
-                aria-label="Aumentar"
-              ><i class="pi pi-plus"></i></button>
-            </div>
-          </div>
-
-          <div class="cat-sheet-subtotal">
-            <span>Subtotal</span>
-            <b>{{ sheetSubtotal() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-          </div>
-
-          <!-- Cross-sell "Va bien con esto" (P1 #6) -->
-          <div class="cat-sheet-cross" *ngIf="sheetCrossSell().length > 0">
-            <span class="cat-sheet-cross-lbl"><i class="pi pi-sparkles" aria-hidden="true"></i> Va bien con esto</span>
-            <div class="cat-sheet-cross-row">
-              <button
-                type="button"
-                class="cat-sheet-cross-item"
-                *ngFor="let x of sheetCrossSell(); trackBy: trackByProduct"
-                (click)="openSheet(x)"
-                [attr.aria-label]="'Ver ' + x.product_name"
-              >
-                <span
-                  class="cat-sheet-cross-th"
-                  [class.has-photo]="hasImg(x)"
-                  [style.background]="hasImg(x) ? null : cardGradient(x)"
-                >
-                  <img *ngIf="hasImg(x)" [src]="img(x, 200)" [alt]="x.product_name" loading="lazy" decoding="async" />
-                  <span *ngIf="!hasImg(x)">{{ productInitials(x) }}</span>
-                </span>
-                <span class="cat-sheet-cross-nm">{{ x.product_name }}</span>
-                <span class="cat-sheet-cross-pr">{{ +(x.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="cat-sheet-actions">
-            <button
-              type="button"
-              class="cat-sheet-btn cat-sheet-btn-secondary"
-              (click)="closeSheet()"
-            >Cancelar</button>
-            <button
-              type="button"
-              class="cat-sheet-btn cat-sheet-btn-primary"
-              [disabled]="!!adding[sp.product_id]"
-              (click)="confirmAddFromSheet()"
-            >
-              <i [class]="adding[sp.product_id] ? 'pi pi-spin pi-spinner' : 'pi pi-shopping-cart'"></i>
-              {{ adding[sp.product_id] ? 'Agregando…' : 'Agregar al carrito' }}
-            </button>
-          </div>
-        </div>
-      }
-    </aside>
+    <!-- Bottom-sheet de detalle compartido (mismo organismo que el home):
+         entrada GSAP escalonada, count-up del subtotal, focus-trap, cross-sell. -->
+    <portal-product-sheet
+      [product]="sheetProduct()"
+      [adding]="addingSheet()"
+      [crossSell]="sheetCrossSell()"
+      (close)="closeSheet()"
+      (add)="addFromSheet($event)"
+      (openCross)="openSheet($event)"
+    ></portal-product-sheet>
 
     <div
       class="cat-drawer-backdrop"

@@ -39,10 +39,10 @@ export interface BrandFacet {
           <a
             *ngFor="let b of loop; let i = index; trackBy: trackByIdx"
             class="bc-card"
-            [class.is-fallback]="failed.has(b.brand_id || '')"
+            [class.is-fallback]="isFallback(b)"
             [style.--bc]="brandColor(b.brand_name)"
             [style.--bc-ink]="brandInk(b.brand_name)"
-            [style.background]="failed.has(b.brand_id || '') ? null : logoBg(b.brand_name)"
+            [style.background]="isFallback(b) ? null : logoBg(b.brand_name)"
             [routerLink]="['/portal/catalog']"
             [queryParams]="{ brand: b.brand_id }"
             [attr.aria-hidden]="i >= half ? 'true' : null"
@@ -50,7 +50,7 @@ export interface BrandFacet {
             [attr.aria-label]="'Ver productos de ' + label(b.brand_name)"
           >
             <img
-              *ngIf="!failed.has(b.brand_id || '')"
+              *ngIf="!isFallback(b)"
               [src]="srcFor(b)"
               [alt]="label(b.brand_name)"
               [style.padding.px]="logoPad(b.brand_name)"
@@ -58,7 +58,7 @@ export interface BrandFacet {
               decoding="async"
               (error)="onErr(b, $event)"
             />
-            <span *ngIf="failed.has(b.brand_id || '')" class="bc-mono">{{ mono(b.brand_name) }}</span>
+            <span *ngIf="isFallback(b)" class="bc-mono">{{ mono(b.brand_name) }}</span>
           </a>
         </div>
       </div>
@@ -234,7 +234,7 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   // círculo con el mismo color → sin huecos para logos cuadrados (ej. Ricolino).
   // `bg` = relleno del chip (logo cuadrado con fondo de color). `pad` = padding
   // del logo en px para normalizar tamaños (algunos PNG vienen sin margen).
-  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string; pad?: number; ext?: 'svg' | 'png' }> = [
+  private readonly KNOWN: Array<{ re: RegExp; slug: string; label: string; color: string; bg?: string; pad?: number; ext?: 'svg' | 'png'; noLogo?: boolean }> = [
     { re: /hershey/, slug: 'hersheys', label: "Hershey's", color: '#6F4E37' },
     { re: /\bmars\b|effem/, slug: 'mars', label: 'Mars', color: '#CC2229' },
     { re: /mondelez|ricolino/, slug: 'ricolino', label: 'Ricolino', color: '#304C9C', bg: '#304C9C' },
@@ -244,8 +244,8 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     { re: /barcel|bimbo/, slug: 'bimbo', label: 'Barcel', color: '#C32B30' },
     { re: /canel/, slug: 'canels', label: "Canel's", color: '#202A83' },
     { re: /\bla rosa\b|de la rosa/, slug: 'de-la-rosa', label: 'De la Rosa', color: '#D81F26', ext: 'png' },
-    { re: /jovy/, slug: 'jovy', label: 'Jovy', color: '#1E2B8F' },
-    { re: /payaso|globo/, slug: 'globo-payaso', label: 'Paleta Payaso', color: '#E2231A' },
+    { re: /jovy/, slug: 'jovy', label: 'Jovy', color: '#1E2B8F', ext: 'png' },
+    { re: /payaso|globo/, slug: 'globo-payaso', label: 'Paleta Payaso', color: '#E2231A', noLogo: true },
     { re: /delicias/, slug: 'delicias', label: 'Delicias', color: '#FFE600', bg: '#FFE600', ext: 'png' },
     { re: /gonac/, slug: 'gonac', label: 'Gonac', color: '#111111', ext: 'png' },
     { re: /nutresa/, slug: 'nutresa', label: 'Nutresa', color: '#2E6B3E', pad: 28, ext: 'png' },
@@ -261,6 +261,12 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
   private slugFor(name: string | null | undefined): string {
     return this.match(name)?.slug || this.norm(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
+  /** Monograma si la imagen falló O si la marca está mapeada sin archivo de logo
+   *  (jovy / globo-payaso) → evita el GET 404 que se veía en consola. */
+  isFallback(b: BrandFacet): boolean {
+    return this.failed.has(b.brand_id || '') || !!this.match(b.brand_name)?.noLogo;
+  }
+
   /** Usa la extensión declarada por marca (png/svg). Sin sondeo → sin 404. */
   srcFor(b: BrandFacet): string {
     const ext = this.match(b.brand_name)?.ext || 'svg';

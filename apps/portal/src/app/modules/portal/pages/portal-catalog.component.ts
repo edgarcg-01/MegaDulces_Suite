@@ -4,6 +4,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  NgZone,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -45,6 +46,9 @@ import { AuthService } from '../../../core/services/auth.service';
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 import { PortalProductCardComponent } from '../ui/portal-product-card.component';
+import { TopProductsComponent } from '../ui/top-products.component';
+import { ProductSheetComponent } from '../ui/product-sheet.component';
+import { CountUpDirective } from '../ui/count-up.directive';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 
@@ -90,6 +94,9 @@ function initial(name: string): string {
     TagModule,
     TooltipModule,
     PortalProductCardComponent,
+    TopProductsComponent,
+    ProductSheetComponent,
+    CountUpDirective,
   ],
   templateUrl: './portal-catalog.component.html',
   styleUrls: ['./portal-catalog.component.css'],
@@ -117,6 +124,8 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly zone = inject(NgZone);
   readonly cart = inject(PortalService);
 
   readonly isAdmin = signal<boolean>(this.auth.user()?.role_name === 'superadmin');
@@ -268,6 +277,8 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   search = '';
   qtyByProduct: Record<string, number> = {};
   adding: Record<string, boolean> = {};
+  /** Placeholders del skeleton-grid mientras carga la página 1. */
+  readonly skeletonCards = [1, 2, 3, 4, 5, 6, 7, 8];
 
   /**
    * Sheet de detalle del producto (se abre con el botón `+`).
@@ -275,16 +286,24 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
    * El commit es explícito (no auto-debounce).
    */
   readonly sheetProductId = signal<string | null>(null);
-  readonly sheetQty = signal<number>(1);
+  /** Loading del add desde el sheet (el sheet compartido lee este flag). */
+  readonly addingSheet = signal<boolean>(false);
   readonly sheetProduct = computed<PriceRow | null>(() => {
     const id = this.sheetProductId();
     if (!id) return null;
-    return this.prices().find((p) => p.product_id === id) || null;
+    // Busca en el catálogo paginado y también en top-sellers — el cross-sell
+    // puede referenciar un SKU que no está en la página actual de `prices()`.
+    return (
+      this.prices().find((p) => p.product_id === id) ||
+      this.topSellers().find((p) => p.product_id === id) ||
+      null
+    );
   });
-  readonly sheetSubtotal = computed<number>(() => {
-    const p = this.sheetProduct();
-    if (!p) return 0;
-    return this.sheetQty() * (Number(p.price) || 0);
+
+  /** product_ids actualmente en el carrito — drive del check ✓ en los rails. */
+  readonly cartProductIds = computed<Set<string>>(() => {
+    const lines = this.cart.cartDetail()?.lines || [];
+    return new Set(lines.map((l: any) => l.product_id));
   });
 
   /**
@@ -487,6 +506,7 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
                 for (const r of res.results) scores[r.product_id] = r.score;
                 this.scoreById.set(scores);
                 this.pushHistory(this.search);
+                this.revealGrid(0);
               }
             },
             error: () => {
@@ -736,6 +756,7 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
+          const prevLen = this.prices().length;
           if (replace) this.prices.set(r.data);
           else this.prices.update((arr) => [...arr, ...r.data]);
           r.data.forEach((p) => {
@@ -747,6 +768,8 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
           this.currentPage.set(r.pagination.page);
           this.loadingMore.set(false);
           this.loading.set(false);
+          // Reveal: todo el set si reemplazó (filtro/primer paint), solo lo nuevo si append.
+          this.revealGrid(replace ? 0 : prevLen);
         },
         error: (e) => {
           this.toast.add({ severity: 'error', summary: 'Error', detail: e.message });
@@ -767,6 +790,50 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   private loadNextPage(): void {
     if (!this.hasMorePages() || this.loadingMore()) return;
     this.loadCatalogPage(this.currentPage() + 1, /* replace */ false);
+  }
+
+  // ── Reveal GSAP del grid ───────────────────────────────────────
+  private gridG: any = null;
+  private gridGsapLoading?: Promise<any>;
+
+  private ensureGridGsap(): Promise<any> {
+    if (this.gridG) return Promise.resolve(this.gridG);
+    if (this.gridGsapLoading) return this.gridGsapLoading;
+    this.gridGsapLoading = import('gsap').then((m: any) => (this.gridG = m.gsap || m.default));
+    return this.gridGsapLoading;
+  }
+
+  /**
+   * Reveal escalonado de los cards del grid. `fromIndex` anima solo los cards
+   * nuevos (append del infinite-scroll); 0 = primer paint / filtro / búsqueda.
+   * Cap de 24 para no encadenar staggers largos. Bajo prefers-reduced-motion
+   * no hace nada (los cards quedan visibles).
+   */
+  private revealGrid(fromIndex: number): void {
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    this.zone.runOutsideAngular(() =>
+      requestAnimationFrame(async () => {
+        const grid = this.host.nativeElement.querySelector('.cat-grid:not(.cat-skel-grid)');
+        if (!grid) return;
+        const cards = Array.from(grid.children) as HTMLElement[];
+        const slice = cards.slice(fromIndex, fromIndex + 24);
+        if (!slice.length) return;
+        try {
+          const gsap = await this.ensureGridGsap();
+          gsap.from(slice, {
+            opacity: 0,
+            y: 18,
+            duration: 0.45,
+            stagger: 0.04,
+            ease: 'power3.out',
+            clearProps: 'opacity,transform',
+          });
+        } catch {
+          /* sin gsap: los cards quedan visibles */
+        }
+      }),
+    );
   }
 
   openFilters(): void { this.filtersOpen.set(true); }
@@ -835,6 +902,7 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
       this.smartResults.set([]);
       this.smartMode.set(null);
     }
+    this.revealGrid(0);
   }
 
   onSearchChange(v: string): void {
@@ -853,6 +921,8 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     // el set in-memory del quick-chip).
     if (!this.quickFilter() && !this.loading()) {
       this.resetAndFetch();
+    } else {
+      this.revealGrid(0);
     }
   }
 
@@ -1023,7 +1093,6 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
       });
       return;
     }
-    this.sheetQty.set(p.min_qty || 1);
     this.sheetProductId.set(p.product_id);
   }
 
@@ -1031,35 +1100,36 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     this.sheetProductId.set(null);
   }
 
-  sheetInc(): void {
-    this.sheetQty.update((v) => v + 1);
-  }
-
-  sheetDec(): void {
-    const p = this.sheetProduct();
-    const min = p?.min_qty || 1;
-    this.sheetQty.update((v) => Math.max(min, v - 1));
-  }
-
-  confirmAddFromSheet(): void {
-    const p = this.sheetProduct();
-    if (!p) return;
-    const qty = this.sheetQty();
-    if (qty < (p.min_qty || 1)) {
+  /**
+   * Add desde el sheet compartido (`portal-product-sheet` ya voló la imagen y
+   * eligió la cantidad). No abre el drawer — el sheet se cierra y el FAB/badge
+   * reflejan el cambio. Reusa el flujo ensureDraft → addLine de addToCart.
+   */
+  addFromSheet(e: { product: PriceRow; qty: number }): void {
+    const p = e.product;
+    if (this.isAdmin()) {
       this.toast.add({
-        severity: 'warn',
-        summary: 'Cantidad mínima',
-        detail: `Este producto requiere mínimo ${p.min_qty} unidad(es).`,
+        severity: 'info',
+        summary: 'Vista admin',
+        detail: 'Solo lectura. Inicia sesión como cliente para agregar.',
       });
       return;
     }
-    const id = p.product_id;
-    this.adding[id] = true;
+    if (p.price == null) {
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Sin precio',
+        detail: 'Este producto no tiene precio configurado para tu lista.',
+      });
+      return;
+    }
+    const qty = Math.max(e.qty, p.min_qty || 1);
+    this.addingSheet.set(true);
     this.api.ensureDraft(this.customerId(), this.warehouseId()).subscribe({
       next: (draft) => {
-        this.api.addLine(draft.id, id, qty).subscribe({
+        this.api.addLine(draft.id, p.product_id, qty).subscribe({
           next: () => {
-            this.adding[id] = false;
+            this.addingSheet.set(false);
             this.toast.add({
               severity: 'success',
               summary: 'Agregado',
@@ -1067,9 +1137,10 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
               life: 1800,
             });
             this.closeSheet();
+            this.cart.refreshCartDetail();
           },
           error: (err) => {
-            this.adding[id] = false;
+            this.addingSheet.set(false);
             this.toast.add({
               severity: 'error',
               summary: 'No se pudo agregar',
@@ -1079,7 +1150,7 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
         });
       },
       error: (err) => {
-        this.adding[id] = false;
+        this.addingSheet.set(false);
         this.toast.add({
           severity: 'error',
           summary: 'No se pudo crear carrito',

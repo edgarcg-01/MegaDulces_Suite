@@ -33,9 +33,19 @@ export interface Customer {
   payment_terms_days?: number;
   active?: boolean;
   notes?: string | null;
+  /** Username del acceso Portal B2B enlazado (null si no tiene). Read-only. */
+  portal_username?: string | null;
   created_at?: string;
   updated_at?: string;
   deleted_at?: string | null;
+}
+
+/** Respuesta de crear/resetear acceso Portal B2B (password one-time). */
+export interface PortalAccessResult {
+  user_id: string;
+  username: string;
+  temporary_password: string;
+  message: string;
 }
 
 /**
@@ -455,12 +465,17 @@ export class ComercialService {
   }
   /** J.6.3 — crea user Portal B2B vinculado al customer. */
   createPortalAccess(customerId: string, body: { username?: string; password?: string } = {}) {
-    return this.http.post<{
-      user_id: string;
-      username: string;
-      temporary_password: string;
-      message: string;
-    }>(`${this.base}/customers/${customerId}/portal-access`, body);
+    return this.http.post<PortalAccessResult>(
+      `${this.base}/customers/${customerId}/portal-access`,
+      body,
+    );
+  }
+  /** J.6.3b — resetea el password del acceso Portal B2B (devuelve nuevo temporal). */
+  resetPortalAccess(customerId: string, body: { password?: string } = {}) {
+    return this.http.post<PortalAccessResult>(
+      `${this.base}/customers/${customerId}/portal-access/reset-password`,
+      body,
+    );
   }
 
   // ── Stores (Trade Marketing) ───────────────────────────────────────

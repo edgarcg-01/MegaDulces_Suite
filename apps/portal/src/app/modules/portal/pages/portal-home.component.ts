@@ -490,17 +490,17 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       /* ── Jerarquía de vista del home (Opción A: buscar/descubrir primero).
          El orden visual se asigna aquí; ajustar = cambiar el número. ── */
       .ph-ribbon                 { order: 0; }
-      .ph-search                 { order: 1; }
-      .ph-chips                  { order: 2; }
-      portal-brands-carousel     { order: 3; }
-      .ph-restock                { order: 4; }
-      .ph-section-reorder        { order: 5; }
-      portal-top-products.ph-suggested { order: 6; }
-      portal-products-of-month   { order: 7; }
-      .ph-banner                 { order: 8; }
-      portal-featured-promo, .ph-hero { order: 9; }
-      portal-promos-carousel, .ph-skel-grid { order: 10; }
-      portal-top-products.ph-toptrends { order: 11; }
+      portal-featured-promo, .ph-hero { order: 1; }
+      portal-brands-carousel     { order: 2; }
+      portal-top-products.ph-suggested { order: 3; }
+      .ph-search                 { order: 4; }
+      .ph-chips                  { order: 5; }
+      .ph-restock                { order: 6; }
+      .ph-section-reorder        { order: 7; }
+      portal-products-of-month   { order: 8; }
+      .ph-banner                 { order: 9; }
+      portal-top-products.ph-toptrends { order: 10; }
+      portal-promos-carousel, .ph-skel-grid { order: 11; }
       .ph-trust                  { order: 12; }
       .ph-history, .ph-skel-list { order: 13; }
       portal-home-feed           { order: 14; }

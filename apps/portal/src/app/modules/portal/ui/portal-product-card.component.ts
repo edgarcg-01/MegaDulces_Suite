@@ -54,7 +54,6 @@ import { CartFxService } from '../cart-fx.service';
         />
         <ng-container *ngIf="!showImg">
           <span class="cat-card-ph-monogram" aria-hidden="true">{{ initials() }}</span>
-          <span class="cat-card-ph-wordmark" aria-hidden="true">MEGA DULCES</span>
         </ng-container>
         <span
           *ngIf="promo"
@@ -72,7 +71,7 @@ import { CartFxService } from '../cart-fx.service';
           {{ product.stock_available }} en stock
         </span>
         <span
-          *ngIf="score"
+          *ngIf="score && !promo"
           class="cat-card-score-pill"
           [attr.title]="'Relevancia semántica: ' + score + '%'"
         >
@@ -147,36 +146,36 @@ import { CartFxService } from '../cart-fx.service';
         position: relative;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: var(--r-lg);
+        border-radius: var(--r-xl);
+        box-shadow: var(--shadow-float);
         overflow: hidden;
         display: flex;
         flex-direction: column;
         cursor: pointer;
         transition:
-          transform 180ms var(--ease-standard),
-          box-shadow 200ms var(--ease-standard),
+          transform 200ms var(--ease-spring),
+          box-shadow 220ms var(--ease-standard),
           border-color 200ms var(--ease-standard);
       }
       .cat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 22px -10px rgba(0, 0, 0, 0.12);
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-hover);
         border-color: var(--neutral-300);
       }
       .cat-card:focus-visible {
-        outline: 2px solid var(--brand-500);
+        outline: 2px solid var(--action);
         outline-offset: 2px;
       }
-      .cat-card:active { transform: translateY(0); }
+      .cat-card:active { transform: scale(0.985); }
       .cat-card-active { border-left: 4px solid var(--brand-500); }
       .cat-card-active:hover { border-left-color: var(--brand-500); }
 
       .cat-card-img {
         position: relative;
-        aspect-ratio: 4 / 3;
+        aspect-ratio: 1;
         display: grid;
         place-items: center;
         overflow: hidden;
-        border-bottom: 1px solid var(--border-color);
       }
       .cat-card-img.has-photo { background: var(--card-bg) !important; }
       .cat-card-img-real {
@@ -185,35 +184,10 @@ import { CartFxService } from '../cart-fx.service';
         width: 100%;
         height: 100%;
         object-fit: contain;
-        padding: 8px;
+        padding: 10px;
       }
 
-      /* ── Placeholder de marca (sin foto) ── */
-      .cat-card-img.is-ph {
-        background-blend-mode: normal;
-      }
-      /* Textura de confite: puntos suaves sobre el gradiente */
-      .cat-card-img.is-ph::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background-image:
-          radial-gradient(circle at 18% 28%, rgba(255, 255, 255, 0.35) 0, rgba(255, 255, 255, 0) 9px),
-          radial-gradient(circle at 78% 22%, rgba(255, 255, 255, 0.28) 0, rgba(255, 255, 255, 0) 7px),
-          radial-gradient(circle at 32% 78%, rgba(255, 255, 255, 0.22) 0, rgba(255, 255, 255, 0) 6px),
-          radial-gradient(circle at 88% 72%, rgba(255, 255, 255, 0.30) 0, rgba(255, 255, 255, 0) 8px),
-          radial-gradient(circle at 58% 50%, rgba(255, 255, 255, 0.18) 0, rgba(255, 255, 255, 0) 11px);
-        opacity: 0.9;
-        pointer-events: none;
-      }
-      /* Brillo superior para dar volumen "envoltura" */
-      .cat-card-img.is-ph::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(0, 0, 0, 0.06) 100%);
-        pointer-events: none;
-      }
+      /* Placeholder de marca (sin foto): gradiente Stone + monograma, sin ruido. */
       .cat-card-ph-monogram {
         position: relative;
         z-index: 1;
@@ -224,16 +198,6 @@ import { CartFxService } from '../cart-fx.service';
         letter-spacing: -0.02em;
         color: #fff;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 2px 10px rgba(0, 0, 0, 0.14);
-      }
-      .cat-card-ph-wordmark {
-        position: absolute;
-        bottom: 0.5rem;
-        z-index: 1;
-        font-size: 0.5rem;
-        font-weight: 800;
-        letter-spacing: 0.18em;
-        color: rgba(255, 255, 255, 0.82);
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
       }
       .cat-card-promo-pill {
         position: absolute;
@@ -319,6 +283,8 @@ import { CartFxService } from '../cart-fx.service';
         justify-content: space-between;
         gap: 0.5rem;
         margin-top: 0.25rem;
+        /* Reserva el ancho del + flotante para que precio/mín no queden debajo. */
+        padding-right: 2.75rem;
       }
       .cat-card-price {
         font-size: var(--fs-h3);
@@ -443,9 +409,6 @@ import { CartFxService } from '../cart-fx.service';
         border-right: 1px solid var(--border-color);
       }
       :host(.is-list) .cat-card-ph-monogram { font-size: var(--fs-h3); }
-      :host(.is-list) .cat-card-ph-wordmark { display: none; }
-      :host(.is-list) .cat-card-img.is-ph::before,
-      :host(.is-list) .cat-card-img.is-ph::after { opacity: 0.6; }
       :host(.is-list) .cat-card-stock-pill,
       :host(.is-list) .cat-card-score-pill,
       :host(.is-list) .cat-card-promo-pill { display: none; }
@@ -477,6 +440,7 @@ import { CartFxService } from '../cart-fx.service';
         flex-direction: column;
         align-items: flex-end;
         gap: 0;
+        padding-right: 0;
       }
       :host(.is-list) .cat-add,
       :host(.is-list) .cat-stepper {

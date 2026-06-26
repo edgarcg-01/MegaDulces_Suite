@@ -33,8 +33,8 @@
         gap: 1rem;
         padding: 0.875rem 1.25rem;
         margin: 0.5rem 0 1.25rem;
-        background: var(--brand-50, var(--card-bg));
-        border: 1px solid var(--brand-100, var(--border-color));
+        background: var(--surface-ground);
+        border: 1px solid var(--border-color);
         border-radius: var(--r-lg);
       }
       .cat-hero-item {
@@ -55,6 +55,7 @@
         font-weight: 700;
         color: var(--neutral-950);
         letter-spacing: -0.005em;
+        font-variant-numeric: tabular-nums;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -62,7 +63,7 @@
       .cat-hero-divider {
         width: 1px;
         height: 28px;
-        background: var(--brand-200, var(--border-color));
+        background: var(--border-color);
       }
       @media (max-width: 900px) {
         .cat-hero {
@@ -90,7 +91,7 @@
         box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
       }
       .cat-search-icon { color: var(--text-faint); font-size: var(--fs-h3); }
-      .cat-search-icon-ai { color: var(--text-main); }
+      .cat-search-icon-ai { color: var(--brand-700); }
       .cat-search-mode {
         background: transparent;
         border: 1px solid var(--border-color);
@@ -211,57 +212,19 @@
         margin-bottom: 0.5rem;
         padding-bottom: 0;
       }
+      /* Chips planos (quiet-luxury): lienzo neutro; el color vive solo en el
+         icono (identidad) y el activo es uniforme neutro como el resto. */
       .cat-chip-quick {
-        background: linear-gradient(135deg, var(--warn-soft-bg) 0%, var(--card-bg) 100%);
-        border-color: var(--accent-border, var(--neutral-300));
+        background: var(--card-bg);
+        border-color: var(--border-color);
       }
-      .cat-chip-quick i { font-size: var(--fs-body); opacity: 0.8; }
+      .cat-chip-quick i { font-size: var(--fs-body); opacity: 0.85; }
       .cat-chip-quick.active i { opacity: 1; }
-      .cat-chip-quick.active {
-        background: var(--neutral-900);
-        border-color: var(--neutral-900);
-        color: #fff;
-      }
-      .cat-chip-ai {
-        background: linear-gradient(135deg, color-mix(in srgb, var(--ai-accent) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
-        border-color: color-mix(in srgb, var(--ai-accent) 30%, var(--border-color));
-      }
-      .cat-chip-ai i { color: var(--ai-accent); }
-      .cat-chip-ai.active {
-        background: var(--ai-accent);
-        border-color: var(--ai-accent);
-        color: #fff;
-      }
-      .cat-chip-ai.active i { color: #fff; }
-      .cat-chip-promo {
-        background: linear-gradient(135deg, color-mix(in srgb, var(--bad-fg) 8%, var(--card-bg)) 0%, var(--card-bg) 100%);
-        border-color: color-mix(in srgb, var(--bad-fg) 30%, var(--border-color));
-      }
+      /* IA = identidad ember (sunset), NO el azul de --ai-accent. */
+      .cat-chip-ai i { color: var(--brand-700); }
+      .cat-chip-ai.active i { color: var(--brand-400); }
+      /* Promo = rojo semántico solo en el icono. */
       .cat-chip-promo i { color: var(--bad-fg); }
-      .cat-chip-promo.active {
-        background: var(--bad-fg);
-        border-color: var(--bad-fg);
-        color: #fff;
-      }
-      .cat-chip-promo.active i { color: #fff; }
-
-      .cat-card-promo-pill {
-        position: absolute;
-        top: 0.5rem;
-        left: 0.5rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.2rem 0.5rem;
-        border-radius: var(--r-pill);
-        font-size: var(--fs-micro);
-        font-weight: 600;
-        background: var(--bad-fg);
-        color: #fff;
-        z-index: 2;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-      }
-      .cat-card-promo-pill i { font-size: var(--fs-micro); }
 
       /* ── Toolbar de filtros (reemplaza chip-rail de brands) ── */
       .cat-toolbar {
@@ -358,63 +321,12 @@
         outline-offset: -2px;
       }
 
-      /* ── Vista LISTA densa (reusa .cat-card en layout de fila) ── */
+      /* ── Vista LISTA densa: el contenedor pasa a 1 columna; el layout de
+           fila lo resuelve el propio portal-product-card vía :host(.is-list). ── */
       .cat-grid-list {
         grid-template-columns: 1fr;
         gap: 6px;
       }
-      .cat-grid-list .cat-card {
-        flex-direction: row;
-        align-items: stretch;
-        border-radius: var(--r-md);
-        padding-right: 12px;
-      }
-      .cat-grid-list .cat-card:hover { transform: none; }
-      .cat-grid-list .cat-card-img {
-        width: 60px;
-        flex-shrink: 0;
-        aspect-ratio: auto;
-        border-bottom: none;
-        border-right: 1px solid var(--border-color);
-      }
-      .cat-grid-list .cat-card-img-initials { font-size: var(--fs-h3); }
-      .cat-grid-list .cat-card-stock-pill,
-      .cat-grid-list .cat-card-score-pill,
-      .cat-grid-list .cat-card-promo-pill { display: none; }
-      .cat-grid-list .cat-card-body {
-        flex: 1;
-        display: grid;
-        grid-template-columns: 1fr auto auto;
-        grid-template-areas:
-          'brand price action'
-          'name  price action';
-        align-items: center;
-        column-gap: 14px;
-        row-gap: 0;
-        padding: 8px 0 8px 12px;
-        min-width: 0;
-      }
-      .cat-grid-list .cat-card-brand { grid-area: brand; }
-      .cat-grid-list .cat-card-name {
-        grid-area: name;
-        margin: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .cat-grid-list .cat-card-price-row {
-        grid-area: price;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 0;
-      }
-      .cat-grid-list .cat-add,
-      .cat-grid-list .cat-stepper {
-        position: static;
-        grid-area: action;
-        align-self: center;
-      }
-      .cat-grid-list .cat-stepper { animation: none; }
 
       /* ── Panel de filtros (drawer side-right) ── */
       .cat-filters-backdrop {
@@ -633,23 +545,6 @@
       }
       .cat-empty-grid i { font-size: var(--fs-h1); display: block; margin-bottom: 0.5rem; }
 
-      .cat-bestsellers { margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color); }
-      .cat-bestsellers-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; margin-bottom: .625rem; }
-      .cat-bestsellers-head h3 { font-size: var(--fs-h3); font-weight: 700; letter-spacing: -.01em; color: var(--text-color); margin: 0; display: inline-flex; align-items: center; gap: .4rem; }
-      .cat-bestsellers-head h3 i { font-size: var(--fs-body); color: var(--text-color-secondary); }
-      .cat-bestsellers-meta { font-size: var(--fs-micro); color: var(--text-muted); }
-      .cat-bestsellers-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(160px,180px); gap: .625rem; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; padding-bottom: .5rem; scrollbar-width: thin; }
-      .cat-bestsellers-strip::-webkit-scrollbar { height: 6px; }
-      .cat-bestsellers-strip::-webkit-scrollbar-thumb { background: var(--neutral-300); border-radius: 3px; }
-      .cat-bestseller-card { position: relative; scroll-snap-align: start; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; display: flex; flex-direction: column; cursor: pointer; transition: transform .2s var(--ease-standard), box-shadow .2s var(--ease-standard), border-color .2s var(--ease-standard); }
-      .cat-bestseller-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px -8px rgba(0,0,0,.12); border-color: var(--neutral-300); }
-      .cat-bestseller-card:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 2px; }
-      .cat-bestseller-rank { position: absolute; top: 6px; left: 6px; z-index: 2; font-size: var(--fs-nano); font-weight: 700; padding: .15rem .4rem; background: var(--neutral-950); color: var(--brand-400); border-radius: var(--r-pill); }
-      .cat-bestseller-img { position: relative; aspect-ratio: 1/1; background: var(--neutral-100); display: grid; place-items: center; overflow: hidden; }
-      .cat-bestseller-img.has-photo { background: var(--card-bg); }
-      .cat-bestseller-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 6px; }
-      .cat-bestseller-img-initials { font-weight: 800; font-size: var(--fs-h2); color: var(--text-faint); opacity: .7; }
-
       /* ── Unidad nativa "Destacado" al tope de resultados (P0 #4) ── */
       .cat-promo-native {
         position: relative;
@@ -737,114 +632,30 @@
       }
       .cat-promo-add:hover { transform: translateY(-2px) scale(1.05); }
       .cat-promo-add:active { transform: translateY(1px) scale(0.94); }
-      .cat-bestseller-body { padding: .5rem .625rem .625rem; display: flex; flex-direction: column; gap: .2rem; }
-      .cat-bestseller-brand { font-size: var(--fs-nano); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .cat-bestseller-name { font-size: var(--fs-xs); font-weight: 600; color: var(--text-color); line-height: 1.25; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-      .cat-bestseller-price { margin-top: .15rem; font-size: var(--fs-body); font-weight: 700; color: var(--text-color); }
-      .cat-bestseller-noprice { margin-top: .15rem; font-size: var(--fs-micro); color: var(--text-muted); font-style: italic; }
-
       .cat-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        /* 160px → 2 columnas en teléfono (~375px), ~6 en desktop. La card 1:1
+           pide grilla más densa que el viejo 200px (1 col en móvil). */
+        grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr));
         gap: 0.875rem;
       }
 
-      .cat-card {
-        position: relative;
-        background: var(--card-bg);
+      /* Skeleton con forma de card (CLS 0): refleja el layout real del grid. */
+      .cat-skel-grid { margin-top: 0.25rem; }
+      .cat-skel-card {
         border: 1px solid var(--border-color);
-        border-radius: var(--r-lg);
+        border-radius: var(--r-xl);
         overflow: hidden;
+        background: var(--card-bg);
+        box-shadow: var(--shadow-float);
+      }
+      .cat-skel-img { aspect-ratio: 1; }
+      .cat-skel-body {
         display: flex;
         flex-direction: column;
-        cursor: pointer;
-        transition:
-          transform 180ms var(--ease-standard),
-          box-shadow 200ms var(--ease-standard),
-          border-color 200ms var(--ease-standard);
+        gap: 0.5rem;
+        padding: 0.75rem 0.875rem 0.95rem;
       }
-      .cat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 22px -10px rgba(0, 0, 0, 0.12);
-        border-color: var(--neutral-300);
-      }
-      .cat-card:focus-visible {
-        outline: 2px solid var(--brand-500);
-        outline-offset: 2px;
-      }
-      .cat-card:active {
-        transform: translateY(0);
-      }
-      .cat-card-active {
-        border-left: 4px solid var(--brand-500);
-      }
-      .cat-card-active:hover {
-        border-left-color: var(--brand-500);
-      }
-
-      .cat-card-img {
-        position: relative;
-        aspect-ratio: 4 / 3;
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-        border-bottom: 1px solid var(--border-color);
-      }
-      .cat-card-img.has-photo {
-        background: var(--card-bg) !important;
-      }
-      .cat-card-img-real {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        padding: 8px;
-      }
-      .cat-card-img-initials {
-        position: relative;
-        z-index: 1;
-        font-weight: 800;
-        font-size: clamp(1.5rem, 5vw, 2rem);
-        letter-spacing: -0.02em;
-        color: var(--brand-700);
-        opacity: 0.5;
-      }
-      .cat-card-stock-pill {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        z-index: 2;
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: var(--fs-micro);
-        font-weight: 600;
-        padding: 0.25rem 0.55rem;
-        background: var(--warn-soft-bg);
-        color: var(--warn-soft-fg);
-        border: 1px solid var(--warn-border);
-        border-radius: var(--r-pill);
-      }
-      .cat-card-stock-pill i { font-size: var(--fs-micro); }
-      .cat-card-score-pill {
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        z-index: 2;
-        display: inline-flex;
-        align-items: center;
-        gap: 3px;
-        font-size: var(--fs-micro);
-        font-weight: 700;
-        padding: 0.25rem 0.55rem;
-        background: var(--card-bg);
-        color: var(--text-main);
-        border: 1px solid var(--border-color);
-        border-radius: var(--r-pill);
-        font-variant-numeric: tabular-nums;
-      }
-      .cat-card-score-pill i { font-size: var(--fs-nano); color: var(--brand-700); }
 
       .cat-history {
         margin: -0.5rem 0 1rem;
@@ -1003,145 +814,6 @@
         font-size: var(--fs-body);
       }
 
-      .cat-card-body {
-        padding: 0.75rem 0.875rem 0.875rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.375rem;
-        flex: 1;
-      }
-      .cat-card-brand {
-        font-size: var(--fs-nano);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        font-weight: 700;
-      }
-      .cat-card-name {
-        font-size: var(--fs-body);
-        font-weight: 600;
-        margin: 0;
-        line-height: 1.3;
-        color: var(--text-main);
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-      .cat-card-price-row {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 0.5rem;
-        margin-top: 0.25rem;
-      }
-      .cat-card-price {
-        font-size: var(--fs-h3);
-        font-weight: 800;
-        color: var(--text-main);
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -0.01em;
-      }
-      .cat-card-price-na {
-        font-size: var(--fs-sm);
-        font-weight: 600;
-        color: var(--text-muted);
-        letter-spacing: normal;
-      }
-      .cat-card-min {
-        font-size: var(--fs-micro);
-        font-weight: 600;
-        color: var(--text-muted);
-        background: var(--neutral-100);
-        padding: 0.1rem 0.5rem;
-        border-radius: var(--r-pill);
-      }
-
-      .cat-add {
-        position: absolute;
-        right: 0.625rem;
-        bottom: 0.625rem;
-        z-index: 3;
-        width: 44px;
-        height: 44px;
-        border-radius: var(--r-pill);
-        border: none;
-        background: var(--neutral-950);
-        color: var(--brand-400);
-        font-size: var(--fs-h3);
-        cursor: pointer;
-        display: grid;
-        place-items: center;
-        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.28),
-                    0 0 0 0 rgba(253, 231, 7, 0);
-        transition: transform 140ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
-      }
-      .cat-add:hover:not(:disabled) {
-        transform: scale(1.08);
-        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.28),
-                    0 0 0 4px rgba(253, 231, 7, 0.22);
-      }
-      .cat-add:active:not(:disabled) { transform: scale(0.94); }
-
-      /* ── Inline stepper (cuando producto está en carrito) ── */
-      .cat-stepper {
-        position: absolute;
-        right: 0.625rem;
-        bottom: 0.625rem;
-        z-index: 3;
-        display: inline-flex;
-        align-items: center;
-        justify-content: space-between;
-        width: auto;
-        min-width: 132px;
-        height: 44px;
-        padding: 0;
-        background: var(--neutral-900);
-        color: var(--brand-400);
-        border-radius: var(--r-pill);
-        box-shadow: 0 4px 12px -3px rgba(0, 0, 0, 0.25);
-        overflow: hidden;
-        animation: stepperIn 240ms cubic-bezier(0.34, 1.4, 0.5, 1) both;
-      }
-      @keyframes stepperIn {
-        from { opacity: 0; transform: scale(0.7); }
-        to   { opacity: 1; transform: scale(1); }
-      }
-      .cat-stepper-btn {
-        width: 44px;
-        height: 44px;
-        background: transparent;
-        border: none;
-        color: var(--brand-400);
-        cursor: pointer;
-        display: grid;
-        place-items: center;
-        font-size: var(--fs-body);
-        border-radius: var(--r-pill);
-        transition: background-color 120ms var(--ease-standard), transform 120ms var(--ease-standard);
-      }
-      .cat-stepper-btn:hover:not(:disabled) {
-        background: rgba(253, 231, 7, 0.18);
-      }
-      .cat-stepper-btn:active:not(:disabled) {
-        transform: scale(0.88);
-      }
-      .cat-stepper-btn:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-      }
-      .cat-stepper-val {
-        min-width: 22px;
-        text-align: center;
-        font-size: var(--fs-sm);
-        font-weight: 800;
-        font-variant-numeric: tabular-nums;
-        color: var(--brand-400);
-        line-height: 1;
-        padding: 0 0.125rem;
-      }
-
-      .cat-add:disabled { opacity: 0.35; cursor: not-allowed; }
-
       /* Mini-cart FAB enriquecido (Stitch style: icon+badge | label+total) */
       .cat-fab {
         position: fixed;
@@ -1172,8 +844,8 @@
         to   { transform: translateY(0) scale(1); opacity: 1; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .cat-fab, .cat-stepper, .cat-sheet, .cat-drawer { animation: none !important; transition: none !important; }
-        .cat-fab:hover, .cat-card:hover, .cat-add:hover { transform: none !important; }
+        .cat-fab, .cat-drawer { animation: none !important; transition: none !important; }
+        .cat-fab:hover { transform: none !important; }
       }
       .cat-fab:hover {
         transform: translateY(-2px);
@@ -1392,348 +1064,5 @@
       }
       .cat-drawer-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-      /* ── PRODUCT DETAIL SHEET ─────────────────────────────────── */
-      .cat-sheet-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.55);
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 220ms var(--ease-standard), visibility 220ms;
-        z-index: 110;
-        backdrop-filter: blur(4px);
-      }
-      .cat-sheet-backdrop.open { opacity: 1; visibility: visible; }
-
-      .cat-sheet {
-        position: fixed;
-        z-index: 111;
-        background: var(--card-bg);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.35);
-
-        /* Mobile: bottom sheet desde abajo */
-        left: 0;
-        right: 0;
-        bottom: 0;
-        max-height: 88dvh;
-        border-radius: 20px 20px 0 0;
-        transform: translateY(100%);
-        transition: transform 360ms cubic-bezier(0.2, 0, 0, 1);
-        padding-bottom: env(safe-area-inset-bottom);
-      }
-      .cat-sheet.open { transform: translateY(0); }
-
-      @media (min-width: 720px) {
-        /* Desktop / tablet: popover centrado */
-        .cat-sheet {
-          left: 50%;
-          right: auto;
-          bottom: auto;
-          top: 50%;
-          width: min(440px, 90vw);
-          max-height: 86dvh;
-          border-radius: var(--r-lg);
-          transform: translate(-50%, calc(-50% + 24px));
-          opacity: 0;
-          transition: transform 320ms cubic-bezier(0.34, 1.4, 0.5, 1), opacity 220ms ease;
-        }
-        .cat-sheet.open {
-          transform: translate(-50%, -50%);
-          opacity: 1;
-        }
-      }
-
-      .cat-sheet-close {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        z-index: 2;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.9);
-        border: none;
-        color: var(--text-main);
-        cursor: pointer;
-        display: grid;
-        place-items: center;
-        backdrop-filter: blur(8px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-      }
-      .cat-sheet-close:hover { background: #fff; transform: scale(1.06); }
-
-      .cat-sheet-img {
-        width: 100%;
-        aspect-ratio: 16 / 9;
-        display: grid;
-        place-items: center;
-        color: rgba(255, 255, 255, 0.92);
-        font-size: clamp(3.5rem, 12vw, 5rem);
-        font-weight: 900;
-        letter-spacing: -0.02em;
-        position: relative;
-        overflow: hidden;
-      }
-      .cat-sheet-img::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(60% 50% at 30% 25%, rgba(255,255,255,0.20), transparent 60%),
-          radial-gradient(80% 60% at 80% 90%, rgba(0,0,0,0.20), transparent 60%);
-        pointer-events: none;
-      }
-      .cat-sheet-img.has-photo {
-        background: var(--card-bg) !important;
-      }
-      .cat-sheet-img-real {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        padding: 16px;
-      }
-      .cat-sheet-img-initials {
-        position: relative;
-        z-index: 1;
-        text-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
-      }
-
-      .cat-sheet-body {
-        padding: 1.25rem 1.25rem 1.25rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.875rem;
-        overflow-y: auto;
-        flex: 1;
-        min-height: 0;
-      }
-
-      .cat-sheet-brand {
-        font-size: var(--fs-micro);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--text-faint);
-      }
-      .cat-sheet-name {
-        margin: 0;
-        font-family: var(--font-display, inherit);
-        font-size: var(--fs-h2);
-        font-weight: 700;
-        color: var(--text-main);
-        letter-spacing: -0.02em;
-        line-height: 1.2;
-      }
-
-      .cat-sheet-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.375rem;
-      }
-      .cat-sheet-meta-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-        font-size: var(--fs-xs);
-        font-weight: 600;
-        color: var(--text-muted);
-        background: var(--neutral-100);
-        padding: 0.3rem 0.625rem;
-        border-radius: var(--r-pill);
-      }
-      .cat-sheet-meta-item i { font-size: var(--fs-micro); }
-      .cat-sheet-meta-warn {
-        color: var(--bad-fg);
-        background: var(--bad-soft-bg);
-      }
-
-      .cat-sheet-qty-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem;
-        padding: 0.75rem 0.875rem;
-        background: var(--neutral-100);
-        border-radius: var(--r-lg);
-        margin-top: 0.25rem;
-      }
-      .cat-sheet-qty-label {
-        font-size: var(--fs-body);
-        font-weight: 700;
-        color: var(--text-main);
-      }
-      .cat-sheet-stepper {
-        display: inline-flex;
-        align-items: center;
-        height: 42px;
-        background: var(--card-bg);
-        border: 1.5px solid var(--border-color);
-        border-radius: var(--r-pill);
-        overflow: hidden;
-      }
-      .cat-sheet-stepper-btn {
-        width: 40px;
-        height: 100%;
-        background: transparent;
-        border: none;
-        color: var(--text-main);
-        cursor: pointer;
-        display: grid;
-        place-items: center;
-        font-size: var(--fs-body);
-        transition: background-color 120ms var(--ease-standard);
-      }
-      .cat-sheet-stepper-btn:hover:not(:disabled) { background: var(--neutral-100); }
-      .cat-sheet-stepper-btn:active:not(:disabled) { transform: scale(0.92); }
-      .cat-sheet-stepper-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-      .cat-sheet-qty-val {
-        min-width: 40px;
-        text-align: center;
-        font-size: var(--fs-h3);
-        font-weight: 800;
-        font-variant-numeric: tabular-nums;
-        color: var(--text-main);
-        padding: 0 0.25rem;
-      }
-
-      .cat-sheet-subtotal {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        padding: 0.875rem 1rem;
-        background: var(--neutral-100);
-        border-left: 3px solid var(--brand-500);
-        border-radius: var(--r-md);
-      }
-      .cat-sheet-subtotal span {
-        font-size: var(--fs-xs);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--text-muted);
-      }
-      .cat-sheet-subtotal b {
-        font-size: var(--fs-h2);
-        font-weight: 800;
-        color: var(--text-main);
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -0.015em;
-      }
-
-      /* CTA sticky al fondo del sheet (P0 #2): nunca se pierde al hacer scroll. */
-      /* Cross-sell "Va bien con esto" (P1 #6) */
-      .cat-sheet-cross {
-        border-top: 1px solid var(--border-color);
-        padding-top: 0.875rem;
-      }
-      .cat-sheet-cross-lbl {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        font-size: var(--fs-xs);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--text-muted);
-        margin-bottom: 0.6rem;
-      }
-      .cat-sheet-cross-lbl i { font-size: var(--fs-micro); color: var(--brand-700); }
-      .cat-sheet-cross-row {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 0.5rem;
-      }
-      .cat-sheet-cross-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.3rem;
-        padding: 0.5rem;
-        background: var(--surface-ground);
-        border: 1px solid var(--border-color);
-        border-radius: var(--r-md);
-        cursor: pointer;
-        font-family: var(--font-body);
-        transition: transform 140ms var(--ease-standard), border-color 140ms var(--ease-standard);
-      }
-      .cat-sheet-cross-item:hover { transform: translateY(-2px); border-color: var(--neutral-300); }
-      .cat-sheet-cross-th {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-        color: #fff;
-        font-family: var(--font-display, inherit);
-        font-weight: 700;
-        font-size: var(--fs-sm);
-        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-      }
-      .cat-sheet-cross-th.has-photo { background: var(--card-bg); }
-      .cat-sheet-cross-th img { width: 100%; height: 100%; object-fit: contain; }
-      .cat-sheet-cross-nm {
-        font-size: var(--fs-nano);
-        font-weight: 600;
-        color: var(--text-main);
-        line-height: 1.2;
-        text-align: center;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        min-height: 1.9em;
-      }
-      .cat-sheet-cross-pr { font-size: var(--fs-xs); font-weight: 800; color: var(--text-main); }
-
-      .cat-sheet-actions {
-        position: sticky;
-        bottom: 0;
-        display: flex;
-        gap: 0.5rem;
-        margin: 0.875rem -1.25rem -1.25rem;
-        padding: 0.875rem 1.25rem;
-        background: var(--card-bg);
-        border-top: 1px solid var(--border-color);
-      }
-      .cat-sheet-btn {
-        flex: 1;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.375rem;
-        padding: 0.875rem 1rem;
-        border-radius: var(--r-md);
-        font-weight: 700;
-        font-size: var(--fs-body);
-        cursor: pointer;
-        border: none;
-        transition: filter 150ms var(--ease-standard), background-color 150ms var(--ease-standard), box-shadow 200ms var(--ease-standard);
-      }
-      .cat-sheet-btn-secondary {
-        background: var(--neutral-100);
-        color: var(--text-main);
-      }
-      .cat-sheet-btn-secondary:hover { background: var(--neutral-200); }
-      .cat-sheet-btn-primary {
-        flex: 2;
-        background: var(--action);
-        color: var(--action-ink, #fff);
-        box-shadow: 0 8px 18px -8px var(--action-ring),
-                    inset 0 -2px 0 rgba(0, 0, 0, 0.16),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-      }
-      .cat-sheet-btn-primary:hover:not(:disabled) {
-        background: var(--action-hover);
-        transform: translateY(-1px);
-      }
-      .cat-sheet-btn-primary:active:not(:disabled) {
-        background: var(--action-press);
-        transform: translateY(1px);
-      }
-      .cat-sheet-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      /* El reveal escalonado del grid (primer paint / filtro / append) lo maneja
+         GSAP en el componente (revealGrid) — ver portal-catalog.component.ts. */

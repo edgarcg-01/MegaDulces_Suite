@@ -221,7 +221,17 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       const data = await q
         .limit(pageSize)
         .offset(offset)
-        .select('c.*', 'r.name as route_name');
+        .select(
+          'c.*',
+          'r.name as route_name',
+          // Username del Portal B2B enlazado (o null si no tiene acceso). El
+          // índice (tenant_id, customer_id) en public.users lo hace barato.
+          trx.raw(
+            `(select u.username from public.users u
+                where u.customer_id = c.id and u.role_name = 'customer_b2b'
+                limit 1) as portal_username`,
+          ),
+        );
 
       return {
         data,
@@ -569,6 +579,49 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
         username: user.username,
         temporary_password: temporaryPassword,
         message: 'Acceso B2B creado. Copiar password ahora — no se mostrará de nuevo.',
+      };
+    });
+  }
+
+  /**
+   * J.6.3b — Resetea el password del acceso Portal B2B de un cliente. Útil cuando
+   * el cliente perdió la contraseña (la original solo se muestra una vez). Genera
+   * una nueva temporal (devuelta UNA SOLA VEZ), la hashea y reactiva el usuario.
+   * Mismo patrón one-time-reveal que createPortalAccess.
+   */
+  async resetPortalPassword(customerId: string, dto: { password?: string } = {}) {
+    if (!UUID_REGEX.test(customerId)) {
+      throw new BadRequestException('customerId inválido');
+    }
+
+    return this.tk.run(async (trx) => {
+      const user = await trx('public.users')
+        .where({ customer_id: customerId, role_name: 'customer_b2b' })
+        .first();
+      if (!user) {
+        throw new NotFoundException(
+          'Este cliente no tiene acceso al Portal B2B. Usá "Crear acceso" primero.',
+        );
+      }
+
+      if (dto.password && !/.{4,}/.test(dto.password)) {
+        throw new BadRequestException('El password debe tener al menos 4 caracteres.');
+      }
+      const temporaryPassword =
+        dto.password || randomBytes(6).toString('base64url').slice(0, 8);
+      const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+
+      // Reactivamos por si el usuario había quedado desactivado (ej. el cliente
+      // estuvo soft-deleted y luego se reactivó).
+      await trx('public.users')
+        .where({ id: user.id })
+        .update({ password_hash: passwordHash, activo: true });
+
+      return {
+        user_id: user.id,
+        username: user.username,
+        temporary_password: temporaryPassword,
+        message: 'Password reseteado. Copiarlo ahora — no se mostrará de nuevo.',
       };
     });
   }

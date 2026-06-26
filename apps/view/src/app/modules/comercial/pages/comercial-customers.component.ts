@@ -220,6 +220,7 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
                 <span *ngIf="c.email"><i class="pi pi-envelope" aria-hidden="true"></i>{{ c.email }}</span>
                 <span *ngIf="c.phone"><i class="pi pi-phone" aria-hidden="true"></i>{{ c.phone }}</span>
                 <span *ngIf="c.whatsapp"><i class="pi pi-whatsapp" aria-hidden="true"></i>{{ c.whatsapp }}</span>
+                <span *ngIf="c.portal_username" class="cu-portal-chip" pTooltip="Acceso al Portal B2B"><i class="pi pi-key" aria-hidden="true"></i>{{ c.portal_username }}</span>
               </div>
             </td>
             <td class="cu-link-cell">
@@ -248,11 +249,19 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
             </td>
             <td class="comm-actions" (click)="$event.stopPropagation()">
               <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
-              <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
-                      *ngIf="c.active !== false"
-                      [disabled]="creatingAccessId() === c.id"
-                      (click)="createPortalAccess(c)"
-                      pTooltip="Crear acceso Portal B2B"></button>
+              @if (c.active !== false) {
+                @if (c.portal_username) {
+                  <button pButton icon="pi pi-refresh" size="small" severity="secondary" [text]="true"
+                          [disabled]="creatingAccessId() === c.id"
+                          (click)="resetPortalAccess(c)"
+                          [pTooltip]="'Resetear contraseña de ' + c.portal_username"></button>
+                } @else {
+                  <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
+                          [disabled]="creatingAccessId() === c.id"
+                          (click)="createPortalAccess(c)"
+                          pTooltip="Crear acceso Portal B2B"></button>
+                }
+              }
               <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(c)" *ngIf="c.active !== false" pTooltip="Desactivar"></button>
             </td>
           </tr>
@@ -303,7 +312,7 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
       [closable]="true"
       [draggable]="false"
       [style]="{ width: '460px' }"
-      header="Acceso Portal B2B creado"
+      [header]="accessMode() === 'reset' ? 'Contraseña Portal B2B reseteada' : 'Acceso Portal B2B creado'"
       (onHide)="onCloseAccessDialog()"
     >
       <div class="access-result" *ngIf="lastAccess() as a">
@@ -456,6 +465,13 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
       gap: .3rem;
     }
     .cu-cell-meta i { font-size: var(--fs-nano); color: var(--c-text-3); }
+    /* Username del Portal B2B: chip con leve acento para distinguir "tiene acceso". */
+    .cu-portal-chip {
+      font-family: var(--font-mono, monospace);
+      color: var(--action, var(--c-text-1));
+      font-weight: 600;
+    }
+    .cu-portal-chip i { color: var(--action, var(--c-text-3)) !important; }
 
     /* ── CHIP de tienda/ruta en la lista (solo lectura) ── */
     .cu-link-cell { min-width: 160px; }
@@ -580,6 +596,8 @@ export class ComercialCustomersComponent {
   // J.6.3 — Portal B2B access
   readonly creatingAccessId = signal<string | null>(null);
   readonly lastAccess = signal<{ username: string; temporary_password: string; user_id: string } | null>(null);
+  /** Modo del diálogo de revelado: acceso recién creado vs password reseteado. */
+  readonly accessMode = signal<'created' | 'reset'>('created');
   accessDialogVisible = false;
 
   /** Resumen total cargado aparte (todas las filas) para KPI strip — independiente del paginado actual. */
@@ -858,6 +876,7 @@ export class ComercialCustomersComponent {
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-success',
       accept: () => {
+        this.accessMode.set('created');
         this.creatingAccessId.set(c.id);
         this.api.createPortalAccess(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: (res) => {
@@ -874,6 +893,46 @@ export class ComercialCustomersComponent {
             this.toast.add({
               severity: 'error',
               summary: 'No se pudo crear acceso',
+              detail: err?.error?.message || 'Error desconocido',
+              life: 8000,
+            });
+          },
+        });
+      },
+    });
+  }
+
+  /**
+   * J.6.3b — Resetea la contraseña del acceso Portal B2B existente. Reusa el
+   * mismo dialog one-time-reveal que createPortalAccess (modo 'reset').
+   */
+  resetPortalAccess(c: Customer): void {
+    if (this.creatingAccessId() === c.id) return;
+    this.confirm.confirm({
+      message: `¿Resetear la contraseña del Portal B2B de "${c.name}" (usuario ${c.portal_username})? La contraseña anterior dejará de funcionar y la nueva se mostrará una sola vez.`,
+      header: 'Resetear contraseña Portal B2B',
+      icon: 'pi pi-refresh',
+      acceptLabel: 'Sí, resetear',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-warning',
+      accept: () => {
+        this.accessMode.set('reset');
+        this.creatingAccessId.set(c.id);
+        this.api.resetPortalAccess(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (res) => {
+            this.creatingAccessId.set(null);
+            this.lastAccess.set({
+              user_id: res.user_id,
+              username: res.username,
+              temporary_password: res.temporary_password,
+            });
+            this.accessDialogVisible = true;
+          },
+          error: (err) => {
+            this.creatingAccessId.set(null);
+            this.toast.add({
+              severity: 'error',
+              summary: 'No se pudo resetear',
               detail: err?.error?.message || 'Error desconocido',
               life: 8000,
             });

@@ -80,6 +80,32 @@ import { CountUpDirective } from './count-up.directive';
               <i class="pi pi-box" aria-hidden="true"></i>
               {{ p.stock_available > 0 ? p.stock_available + ' disponibles' : 'Sin stock' }}
             </div>
+
+            <div class="psheet-cross" *ngIf="crossSell?.length">
+              <span class="psheet-cross-lbl">
+                <i class="pi pi-sparkles" aria-hidden="true"></i> Va bien con esto
+              </span>
+              <div class="psheet-cross-row">
+                <button
+                  type="button"
+                  class="psheet-cross-item"
+                  *ngFor="let x of crossSell; trackBy: trackById"
+                  (click)="openCross.emit(x)"
+                  [attr.aria-label]="'Ver ' + x.product_name"
+                >
+                  <span
+                    class="psheet-cross-th"
+                    [class.has-photo]="hasImg(x)"
+                    [style.background]="hasImg(x) ? null : ph(x)"
+                  >
+                    <img *ngIf="hasImg(x)" [src]="img(x)" [alt]="x.product_name" loading="lazy" decoding="async" />
+                    <span *ngIf="!hasImg(x)">{{ initials(x) }}</span>
+                  </span>
+                  <span class="psheet-cross-nm">{{ x.product_name }}</span>
+                  <span class="psheet-cross-pr">{{ +(x.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -322,6 +348,78 @@ import { CountUpDirective } from './count-up.directive';
       .psheet-add:disabled { opacity: 0.55; cursor: not-allowed; }
       .psheet-add-sub { font-weight: 700; opacity: 0.92; }
 
+      /* Cross-sell "Va bien con esto" — 3 SKUs afines (heurístico hoy, Thot mañana). */
+      .psheet-cross {
+        margin-top: 1rem;
+        padding-top: 0.95rem;
+        border-top: 1px solid var(--border-color);
+      }
+      .psheet-cross-lbl {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: var(--fs-xs);
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-muted);
+        margin-bottom: 0.65rem;
+      }
+      .psheet-cross-lbl i { font-size: var(--fs-micro); color: var(--brand-700); }
+      .psheet-cross-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+      }
+      .psheet-cross-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.55rem 0.4rem;
+        background: var(--surface-ground);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-md);
+        cursor: pointer;
+        font-family: var(--font-body);
+        transition: transform 140ms var(--ease-spring), border-color 140ms var(--ease-standard);
+      }
+      .psheet-cross-item:hover { border-color: var(--neutral-300); }
+      .psheet-cross-item:active { transform: scale(0.96); }
+      .psheet-cross-th {
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        color: #fff;
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: var(--fs-sm);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      }
+      .psheet-cross-th.has-photo { background: #fff; }
+      .psheet-cross-th img { width: 100%; height: 100%; object-fit: contain; }
+      .psheet-cross-nm {
+        font-size: var(--fs-nano);
+        font-weight: 600;
+        color: var(--neutral-950);
+        line-height: 1.2;
+        text-align: center;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: 1.9em;
+      }
+      .psheet-cross-pr {
+        font-size: var(--fs-xs);
+        font-weight: 800;
+        color: var(--neutral-950);
+        font-variant-numeric: tabular-nums;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .psheet, .psheet-backdrop { transition: none; }
       }
@@ -332,6 +430,8 @@ import { CountUpDirective } from './count-up.directive';
 export class ProductSheetComponent implements OnDestroy {
   @Input() note: string | null = null;
   @Input() adding = false;
+  /** Cross-sell "Va bien con esto" — hasta 3 SKUs. Vacío = no se muestra la sección. */
+  @Input() crossSell: PriceRow[] = [];
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
@@ -405,6 +505,10 @@ export class ProductSheetComponent implements OnDestroy {
 
   @Output() close = new EventEmitter<void>();
   @Output() add = new EventEmitter<{ product: PriceRow; qty: number }>();
+  /** Tap en un item de cross-sell → el padre reabre el sheet con ese producto. */
+  @Output() openCross = new EventEmitter<PriceRow>();
+
+  trackById = (_i: number, p: PriceRow) => p.product_id;
 
   readonly qty = signal<number>(1);
 

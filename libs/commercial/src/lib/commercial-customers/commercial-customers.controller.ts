@@ -131,4 +131,17 @@ export class CommercialCustomersController {
   ) {
     return this.service.createPortalAccess(customerId, body || {});
   }
+
+  @Post(':id/portal-access/reset-password')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'J.6.3b: resetea el password del acceso Portal B2B. Devuelve nuevo password temporal una sola vez.',
+  })
+  resetPortalPassword(
+    @Param('id') customerId: string,
+    @Body() body: { password?: string },
+  ) {
+    return this.service.resetPortalPassword(customerId, body || {});
+  }
 }
