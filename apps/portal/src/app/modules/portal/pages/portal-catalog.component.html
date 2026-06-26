@@ -3,43 +3,9 @@
       <span><b>Vista administrador</b> — catálogo default del tenant, solo lectura. Inicia sesión como cliente para hacer pedidos.</span>
     </div>
 
-    <header class="portal-page-head cat-page-head">
-      <div class="portal-page-head-text">
-        <span class="portal-eyebrow">
-          <i class="pi pi-th-large" aria-hidden="true"></i>
-          Catálogo
-        </span>
-        <h1 class="cat-h1">Productos disponibles</h1>
-        <p class="portal-page-sub" *ngIf="customerName()">
-          Lista de precios de <b>{{ customerName() }}</b>
-        </p>
-      </div>
-      <button type="button" class="portal-btn-ember portal-btn-pill" (click)="goAi()">
-        <i class="pi pi-sparkles" aria-hidden="true"></i>
-        <span>Recomendado para ti</span>
-      </button>
-    </header>
-
-    <!-- Mini strip operativo (SKUs · entrega · mínimo). "Tu cartera" se removió:
-         ya está en el subtítulo del page-head ("Lista de precios de ..."). -->
-    <section class="cat-hero" *ngIf="!loading() && prices().length > 0" aria-label="Información de tu cuenta">
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Productos</span>
-        <strong>{{ totalCount() || prices().length }} SKUs</strong>
-      </div>
-      <div class="cat-hero-divider" aria-hidden="true"></div>
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Entrega</span>
-        <strong>24-48h hábiles</strong>
-      </div>
-      <div class="cat-hero-divider" aria-hidden="true"></div>
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Mín. pedido</span>
-        <strong>$2,500 MXN</strong>
-      </div>
-    </section>
-
-    <div class="cat-search-bar" *ngIf="!loading() && prices().length > 0">
+    <!-- Buscador al tope (search-first). Visible también durante loading() para
+         reservar su lugar y evitar CLS cuando llega el catálogo. -->
+    <div class="cat-search-bar" *ngIf="loading() || prices().length > 0">
       <i [class]="aiSearch() ? 'pi pi-bolt cat-search-icon cat-search-icon-ai' : 'pi pi-search cat-search-icon'"></i>
       <input
         type="text"
@@ -103,6 +69,42 @@
         — sin LLM, fallback texto
       </span>
     </div>
+
+    <header class="portal-page-head cat-page-head">
+      <div class="portal-page-head-text">
+        <span class="portal-eyebrow">
+          <i class="pi pi-th-large" aria-hidden="true"></i>
+          Catálogo
+        </span>
+        <h1 class="cat-h1">Productos disponibles</h1>
+        <p class="portal-page-sub" *ngIf="customerName()">
+          Lista de precios de <b>{{ customerName() }}</b>
+        </p>
+      </div>
+      <button type="button" class="portal-btn-ember portal-btn-pill" (click)="goAi()">
+        <i class="pi pi-sparkles" aria-hidden="true"></i>
+        <span>Recomendado para ti</span>
+      </button>
+    </header>
+
+    <!-- Mini strip operativo (SKUs · entrega · mínimo). "Tu cartera" se removió:
+         ya está en el subtítulo del page-head ("Lista de precios de ..."). -->
+    <section class="cat-hero" *ngIf="!loading() && prices().length > 0" aria-label="Información de tu cuenta">
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Productos</span>
+        <strong>{{ totalCount() || prices().length }} SKUs</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Entrega</span>
+        <strong>24-48h hábiles</strong>
+      </div>
+      <div class="cat-hero-divider" aria-hidden="true"></div>
+      <div class="cat-hero-item">
+        <span class="cat-hero-label">Mín. pedido</span>
+        <strong>$2,500 MXN</strong>
+      </div>
+    </section>
 
     <div *ngIf="loading()" class="cat-grid cat-skel-grid" aria-hidden="true">
       <div class="cat-skel-card" *ngFor="let i of skeletonCards">

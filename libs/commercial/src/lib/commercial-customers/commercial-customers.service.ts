@@ -469,8 +469,8 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
   /**
    * J.6.3 — Crea user Portal B2B vinculado al customer.
    *
-   * - Username default: `cliente_{slug del NOMBRE}` (ej. "Abarrotes Doña Lupita"
-   *   → `cliente_abarrotes_dona_lupita`), con sufijo numérico ante colisión.
+   * - Username default: slug del NOMBRE del cliente (ej. "Abarrotes Doña Lupita"
+   *   → `abarrotes_dona_lupita`), con sufijo numérico ante colisión.
    *   El admin puede override pasando `dto.username`.
    * - Password default: random 8 chars URL-safe (devuelto UNA SOLA VEZ en el
    *   response, NUNCA persistido en plano).
@@ -520,7 +520,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
 
       // 4. Generar username + password.
       // Si el admin NO especifica username, lo derivamos del NOMBRE del cliente:
-      //   "Abarrotes Doña Lupita" → "cliente_abarrotes_dona_lupita"
+      //   "Abarrotes Doña Lupita" → "abarrotes_dona_lupita"
       // resolviendo colisiones con sufijo numérico (_2, _3, …). Un username
       // explícito se respeta tal cual y choca con 409 si ya existe.
       let username: string;
@@ -546,15 +546,14 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
             .replace(/[^a-z0-9]+/g, '_')
             .replace(/_+/g, '_')
             .replace(/^_+|_+$/g, '')
-            .slice(0, 38)
+            .slice(0, 45)
             .replace(/_+$/, '');
-        const base = slugify(customer.name) || slugify(customer.code) || 'cliente';
-        const root = `cliente_${base}`;
-        username = root;
+        const base = slugify(customer.name) || slugify(customer.code) || 'usuario';
+        username = base;
         for (let n = 2; n <= 999; n++) {
           const taken = await trx('public.users').where({ username }).first();
           if (!taken) break;
-          username = `${root}_${n}`;
+          username = `${base}_${n}`;
         }
       }
 

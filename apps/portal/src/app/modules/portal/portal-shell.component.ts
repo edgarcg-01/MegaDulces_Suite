@@ -376,8 +376,6 @@ interface NavItem {
       .portal-sidebar {
         width: 248px;
         flex-shrink: 0;
-        /* Estable durante la microtransición de ruta (no entra al cross-fade). */
-        view-transition-name: portal-nav;
         background: var(--card-bg);
         border-right: 1px solid var(--border-color);
         display: flex;
@@ -546,7 +544,6 @@ interface NavItem {
 
       .portal-header-mobile {
         display: none;
-        view-transition-name: portal-topbar;
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
@@ -611,7 +608,6 @@ interface NavItem {
       /* ── MOBILE BOTTOM TAB DOCK (píldora + búsqueda circular — Rappi style) ─── */
       .portal-tabdock {
         display: none;
-        view-transition-name: portal-dock;
         position: fixed;
         bottom: calc(1rem + env(safe-area-inset-bottom));
         left: 50%;
