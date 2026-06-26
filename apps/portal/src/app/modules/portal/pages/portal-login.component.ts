@@ -643,22 +643,31 @@ export class PortalLoginComponent implements AfterViewInit, OnDestroy {
         }
       }
 
-      // Ocultar para evitar flash (solo con GSAP cargado).
-      gsap.set([logo, sub, ...formKids].filter(Boolean), { opacity: 0, y: 16 });
-      if (chars) gsap.set(chars, { opacity: 0, y: 26, rotateX: -50, transformOrigin: '0 100%' });
-      else gsap.set([...(display ? [display] : []), ...headDesktop].filter(Boolean), { opacity: 0, y: 16 });
-      if (underPath && DrawSVG) gsap.set(underPath, { drawSVG: '0%' });
+      // Todos los targets que vamos a ocultar — para recuperarlos si algo lanza.
+      const hidden = [logo, sub, ...formKids, display, ...headDesktop].filter(Boolean);
+      try {
+        // Ocultar para evitar flash (solo con GSAP cargado).
+        gsap.set([logo, sub, ...formKids].filter(Boolean), { opacity: 0, y: 16 });
+        if (chars) gsap.set(chars, { opacity: 0, y: 26, rotateX: -50, transformOrigin: '0 100%' });
+        else gsap.set([...(display ? [display] : []), ...headDesktop].filter(Boolean), { opacity: 0, y: 16 });
+        if (underPath && DrawSVG) gsap.set(underPath, { drawSVG: '0%' });
 
-      const tl = gsap.timeline({ delay: 0.3 });
-      tl.to(logo, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' });
-      if (chars) {
-        tl.to(chars, { opacity: 1, y: 0, rotateX: 0, stagger: 0.02, duration: 0.5, ease: 'back.out(1.5)' }, '-=0.15');
-        if (underPath && DrawSVG) tl.to(underPath, { drawSVG: '100%', duration: 0.6, ease: 'power2.out' }, '-=0.15');
-      } else {
-        tl.to([...(display ? [display] : []), ...headDesktop].filter(Boolean), { opacity: 1, y: 0, duration: 0.45, stagger: 0.06, ease: 'power3.out' }, '-=0.1');
+        // revert del SplitText al terminar → restaura el DOM del titular.
+        const tl = gsap.timeline({ delay: 0.3, onComplete: () => this.split?.revert?.() });
+        tl.to(logo, { opacity: 1, y: 0, duration: 0.4, ease: 'power3.out' });
+        if (chars) {
+          tl.to(chars, { opacity: 1, y: 0, rotateX: 0, stagger: 0.02, duration: 0.5, ease: 'back.out(1.5)' }, '-=0.15');
+          if (underPath && DrawSVG) tl.to(underPath, { drawSVG: '100%', duration: 0.6, ease: 'power2.out' }, '-=0.15');
+        } else {
+          tl.to([...(display ? [display] : []), ...headDesktop].filter(Boolean), { opacity: 1, y: 0, duration: 0.45, stagger: 0.06, ease: 'power3.out' }, '-=0.1');
+        }
+        tl.to(sub, { opacity: 1, y: 0, duration: 0.4 }, '-=0.25');
+        tl.to(formKids, { opacity: 1, y: 0, duration: 0.45, stagger: 0.05, ease: 'power3.out', clearProps: 'transform,opacity' }, '-=0.2');
+      } catch {
+        // Si algo falla tras ocultar, garantizar que el form quede visible.
+        try { this.split?.revert?.(); } catch { /* noop */ }
+        gsap.set(hidden, { clearProps: 'opacity,transform' });
       }
-      tl.to(sub, { opacity: 1, y: 0, duration: 0.4 }, '-=0.25');
-      tl.to(formKids, { opacity: 1, y: 0, duration: 0.45, stagger: 0.05, ease: 'power3.out', clearProps: 'transform,opacity' }, '-=0.2');
     });
   }
 

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, NgZone, computed, inject, signal } from '@angular/core';
 import { CommonModule, DatePipe, CurrencyPipe } from '@angular/common';
 import { RouterModule, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -435,6 +435,18 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       (open)="openMonthly($event)"
       (add)="addMonthly($event)"
     ></portal-home-feed>
+
+    <!-- Volver arriba (aparece tras scrollear el feed) -->
+    <button
+      type="button"
+      class="ph-totop"
+      [class.show]="showTop()"
+      (click)="scrollTop()"
+      aria-label="Volver arriba"
+      [attr.tabindex]="showTop() ? 0 : -1"
+    >
+      <i class="pi pi-arrow-up" aria-hidden="true"></i>
+    </button>
 
     <!-- TOP-SHEET de detalle de producto (baja desde arriba al tocar un card) -->
     <portal-product-sheet
@@ -1190,6 +1202,42 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-restock-add:disabled { opacity: 0.6; cursor: default; }
       .ph-restock-add.is-added { background: var(--ok-fg); }
 
+      /* ── VOLVER ARRIBA ──────────────────────────────────────────── */
+      .ph-totop {
+        position: fixed;
+        right: max(1rem, env(safe-area-inset-right));
+        bottom: calc(9.5rem + env(safe-area-inset-bottom));
+        z-index: 45;
+        width: 46px;
+        height: 46px;
+        border: none;
+        border-radius: 50%;
+        background: var(--neutral-950);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        opacity: 0;
+        transform: translateY(12px) scale(0.85);
+        pointer-events: none;
+        transition: opacity 240ms var(--ease-standard), transform 320ms var(--ease-spring);
+      }
+      .ph-totop.show {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+      .ph-totop:hover { background: var(--neutral-800); }
+      .ph-totop:active { transform: translateY(0) scale(0.92); }
+      .ph-totop i { font-size: var(--fs-h3); }
+      @media (min-width: 900px) {
+        .ph-totop { bottom: 2rem; right: 2rem; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .ph-totop { transition: opacity 200ms linear; }
+      }
+
       /* ── SKELETONS ──────────────────────────────────────────────── */
       .ph-skel-grid, .ph-skel-list {
         margin-bottom: 2.5rem;
@@ -1201,12 +1249,39 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PortalHomeComponent {
+export class PortalHomeComponent implements AfterViewInit {
   private readonly portal = inject(PortalService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly haptic = inject(HapticService);
   private readonly cartFx = inject(CartFxService);
+  private readonly zone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Botón "volver arriba": aparece tras scrollear bastante en el feed. */
+  readonly showTop = signal(false);
+
+  ngAfterViewInit(): void {
+    if (typeof window === 'undefined') return;
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        const v = window.scrollY > 1200;
+        if (v !== this.showTop()) this.zone.run(() => this.showTop.set(v));
+      });
+    };
+    this.zone.runOutsideAngular(() => window.addEventListener('scroll', onScroll, { passive: true }));
+    this.destroyRef.onDestroy(() => window.removeEventListener('scroll', onScroll));
+  }
+
+  scrollTop(): void {
+    this.haptic.selection();
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+  }
 
   /** Vuela la imagen al carrito desde el strip y reordena (restock / comprar de nuevo). */
   reorderAdd(p: CatalogHistoryRow, ev: Event): void {

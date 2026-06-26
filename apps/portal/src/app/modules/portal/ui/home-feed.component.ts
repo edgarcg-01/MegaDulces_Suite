@@ -244,8 +244,23 @@ interface RailSpec {
 })
 export class HomeFeedComponent implements AfterViewInit, OnDestroy {
   @Input() warehouseId: string | null = null;
-  @Input() bannerUrl: string | null = null;
   @Input() addingId: string | null = null;
+
+  /** Banner de promo. Llega por HTTP aparte de las marcas; si la receta ya se
+   *  armó sin él, lo inyectamos en la cola de specs (carrera facets vs promos). */
+  private _bannerUrl: string | null = null;
+  private bannerInserted = false;
+  @Input() set bannerUrl(v: string | null) {
+    this._bannerUrl = v;
+    if (v && this.recipeReady && !this.bannerInserted) {
+      const at = Math.min(this.specIndex + 1, this.specs.length);
+      this.specs.splice(at, 0, { kind: 'banner', bannerUrl: v });
+      this.bannerInserted = true;
+    }
+  }
+  get bannerUrl(): string | null {
+    return this._bannerUrl;
+  }
   @Input() addedIds = new Set<string>();
 
   /** Marcas top (de catalogFacets). Al llegar, arma la receta y arranca el feed. */
@@ -344,7 +359,10 @@ export class HomeFeedComponent implements AfterViewInit, OnDestroy {
     for (let i = 0; i < max; i++) {
       if (brandSpecs[i]) out.push(brandSpecs[i]);
       if (catSpecs[i]) out.push(catSpecs[i]);
-      if (this.bannerUrl && i === 1) out.push({ kind: 'banner', bannerUrl: this.bannerUrl });
+      if (this.bannerUrl && i === 1) {
+        out.push({ kind: 'banner', bannerUrl: this.bannerUrl });
+        this.bannerInserted = true;
+      }
     }
     this.specs = out;
   }

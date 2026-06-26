@@ -1,10 +1,12 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   EventEmitter,
   Input,
   NgZone,
+  OnDestroy,
   Output,
   inject,
   signal,
@@ -41,6 +43,8 @@ import { CountUpDirective } from './count-up.directive';
       aria-modal="true"
       [attr.aria-label]="product?.product_name || 'Detalle de producto'"
       (keydown.escape)="close.emit()"
+      (keydown.tab)="trapTab($event, false)"
+      (keydown.shift.tab)="trapTab($event, true)"
     >
       <ng-container *ngIf="product as p">
         <div class="psheet-scroll">
@@ -93,12 +97,13 @@ import { CountUpDirective } from './count-up.directive';
             type="button"
             class="psheet-add"
             [disabled]="adding || p.price == null"
+            aria-label="Agregar al carrito"
             (click)="onAdd(p)"
           >
             <i *ngIf="adding" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
             <ng-container *ngIf="!adding">
               Agregar
-              <span class="psheet-add-sub" *ngIf="p.price != null">
+              <span class="psheet-add-sub" *ngIf="p.price != null" aria-hidden="true">
                 · <span [countUp]="qty() * +p.price"></span>
               </span>
             </ng-container>
@@ -324,7 +329,7 @@ import { CountUpDirective } from './count-up.directive';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProductSheetComponent {
+export class ProductSheetComponent implements OnDestroy {
   @Input() note: string | null = null;
   @Input() adding = false;
 
@@ -335,19 +340,67 @@ export class ProductSheetComponent {
   private gsapLoading?: Promise<any>;
   private entranceTl?: { kill: () => void };
 
+  /** Elemento que tenía el foco antes de abrir → se le devuelve al cerrar. */
+  private opener: HTMLElement | null = null;
+
   /** Producto a mostrar; null = cerrado. Al cambiar, resetea la cantidad y anima entrada. */
   private _product: PriceRow | null = null;
   @Input() set product(p: PriceRow | null) {
+    const wasOpen = !!this._product;
     this._product = p;
     if (p) {
       this.qty.set(Math.max(1, p.min_qty || 1));
+      if (!wasOpen && typeof document !== 'undefined') {
+        this.opener = document.activeElement as HTMLElement | null;
+      }
+      this.focusSheet();
       this.animateIn();
     } else {
       this.entranceTl?.kill?.();
+      this.restoreFocus();
     }
   }
   get product(): PriceRow | null {
     return this._product;
+  }
+
+  ngOnDestroy(): void {
+    this.entranceTl?.kill?.();
+  }
+
+  /** Mueve el foco al botón Cerrar al abrir → Escape y lectores funcionan. */
+  private focusSheet(): void {
+    this.zone.runOutsideAngular(() =>
+      requestAnimationFrame(() =>
+        (this.host.nativeElement.querySelector('.psheet-close') as HTMLElement | null)?.focus(),
+      ),
+    );
+  }
+  private restoreFocus(): void {
+    const o = this.opener;
+    this.opener = null;
+    if (o?.focus) this.zone.runOutsideAngular(() => requestAnimationFrame(() => o.focus()));
+  }
+
+  /** Focus trap: cicla el Tab dentro del sheet (el fondo no es alcanzable). */
+  trapTab(ev: Event, back: boolean): void {
+    const root = this.host.nativeElement as HTMLElement;
+    const focusables = Array.from(
+      root.querySelectorAll(
+        '.psheet button:not([disabled]), .psheet a[href], .psheet [tabindex]:not([tabindex="-1"])',
+      ),
+    ) as HTMLElement[];
+    if (focusables.length < 2) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (!back && active === last) {
+      ev.preventDefault();
+      first.focus();
+    } else if (back && active === first) {
+      ev.preventDefault();
+      last.focus();
+    }
   }
 
   @Output() close = new EventEmitter<void>();

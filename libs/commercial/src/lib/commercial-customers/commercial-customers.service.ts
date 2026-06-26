@@ -357,7 +357,17 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
         })
         .returning('id');
       if (!row) throw new NotFoundException(`Customer ${id} no encontrado`);
-      return { deleted: true, id };
+
+      // Desactivar el acceso al Portal B2B enlazado (si lo hay). Sin esto, el
+      // usuario customer_b2b quedaba activo apuntando a un cliente soft-deleted:
+      // podía loguear pero /customers/me devolvía null (filtra deleted_at) →
+      // login huérfano en estado roto. La FK es ON DELETE SET NULL, pero el soft-
+      // delete no dispara el FK, así que lo desactivamos explícitamente acá.
+      const disabled = await trx('public.users')
+        .where({ customer_id: id, activo: true })
+        .update({ activo: false });
+
+      return { deleted: true, id, portal_logins_disabled: disabled };
     });
   }
 
@@ -449,7 +459,9 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
   /**
    * J.6.3 — Crea user Portal B2B vinculado al customer.
    *
-   * - Username default: `cliente_{customer.code lowercase}`.
+   * - Username default: `cliente_{slug del NOMBRE}` (ej. "Abarrotes Doña Lupita"
+   *   → `cliente_abarrotes_dona_lupita`), con sufijo numérico ante colisión.
+   *   El admin puede override pasando `dto.username`.
    * - Password default: random 8 chars URL-safe (devuelto UNA SOLA VEZ en el
    *   response, NUNCA persistido en plano).
    * - role_name: `customer_b2b` (debe existir en role_permissions del tenant).
@@ -496,16 +508,44 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
         );
       }
 
-      // 4. Generar username + password
-      const username = (dto.username || `cliente_${customer.code.toLowerCase()}`).trim();
-      if (!/^[a-z0-9_-]{3,50}$/i.test(username)) {
-        throw new BadRequestException(
-          `username inválido: "${username}". Debe matchear [a-z0-9_-]{3,50}.`,
-        );
-      }
-      const usernameDup = await trx('public.users').where({ username }).first();
-      if (usernameDup) {
-        throw new ConflictException(`Username "${username}" ya está en uso. Especificar otro.`);
+      // 4. Generar username + password.
+      // Si el admin NO especifica username, lo derivamos del NOMBRE del cliente:
+      //   "Abarrotes Doña Lupita" → "cliente_abarrotes_dona_lupita"
+      // resolviendo colisiones con sufijo numérico (_2, _3, …). Un username
+      // explícito se respeta tal cual y choca con 409 si ya existe.
+      let username: string;
+      if (dto.username) {
+        username = dto.username.trim();
+        if (!/^[a-z0-9_-]{3,50}$/i.test(username)) {
+          throw new BadRequestException(
+            `username inválido: "${username}". Debe matchear [a-z0-9_-]{3,50}.`,
+          );
+        }
+        const usernameDup = await trx('public.users').where({ username }).first();
+        if (usernameDup) {
+          throw new ConflictException(`Username "${username}" ya está en uso. Especificar otro.`);
+        }
+      } else {
+        // slug: sin acentos, minúsculas, no-alfanumérico → "_", bordes limpios.
+        // Tope 38 para dejar margen a "cliente_" (8) + sufijo "_NNN" dentro de 50.
+        const slugify = (s: string) =>
+          (s || '')
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .slice(0, 38)
+            .replace(/_+$/, '');
+        const base = slugify(customer.name) || slugify(customer.code) || 'cliente';
+        const root = `cliente_${base}`;
+        username = root;
+        for (let n = 2; n <= 999; n++) {
+          const taken = await trx('public.users').where({ username }).first();
+          if (!taken) break;
+          username = `${root}_${n}`;
+        }
       }
 
       const temporaryPassword =

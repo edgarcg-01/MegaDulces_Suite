@@ -166,7 +166,22 @@ interface NavItem {
 
         <!-- CONTENT -->
         <main class="portal-main">
-          <router-outlet></router-outlet>
+          @if (accountUnlinked()) {
+            <div class="portal-unlinked" role="alert">
+              <i class="pi pi-id-card portal-unlinked-ico" aria-hidden="true"></i>
+              <h2 class="portal-unlinked-title">Tu cuenta aún no está vinculada</h2>
+              <p class="portal-unlinked-text">
+                Tu usuario existe pero todavía no está asociado a un cliente, así que aún no
+                puedes ver tus precios ni hacer pedidos. Pídele a tu asesor de Mega Dulces
+                que active tu acceso al portal.
+              </p>
+              <button type="button" class="portal-btn-primary" (click)="logout()">
+                Cerrar sesión
+              </button>
+            </div>
+          } @else {
+            <router-outlet></router-outlet>
+          }
         </main>
 
         <!-- MOBILE BOTTOM TAB DOCK (píldora 4 destinos + búsqueda circular, Rappi-style) -->
@@ -1113,6 +1128,38 @@ interface NavItem {
       .ps-logout:hover {
         background: var(--bad-soft-bg);
       }
+
+      /* Gate "cuenta no vinculada" (customer_b2b sin customer_id) */
+      .portal-unlinked {
+        max-width: 460px;
+        margin: clamp(2rem, 10vh, 6rem) auto;
+        padding: 0 1.5rem;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+      .portal-unlinked-ico {
+        font-size: 2.5rem;
+        color: var(--text-muted);
+      }
+      .portal-unlinked-title {
+        font-family: var(--font-display);
+        font-size: var(--fs-h2);
+        font-weight: 700;
+        margin: 0;
+        color: var(--text-main);
+      }
+      .portal-unlinked-text {
+        margin: 0;
+        font-size: var(--fs-body);
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+      .portal-unlinked .portal-btn-primary {
+        margin-top: 0.5rem;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1154,6 +1201,11 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
   });
 
   private readonly myCustomerId = signal<string | null>(null);
+  /** customer_b2b autenticado pero SIN cliente vinculado (users.customer_id null,
+   *  o apuntando a un cliente borrado). No puede ver precios ni pedir → en vez del
+   *  mix confuso (carrito vacío + 403 al precio + toast suelto) mostramos UN gate
+   *  claro. Solo aplica a customer_b2b; superadmin (preview QA) navega normal. */
+  readonly accountUnlinked = signal<boolean>(false);
 
   openSettings(): void { this.settingsOpen.set(true); }
   closeSettings(): void { this.settingsOpen.set(false); }
@@ -1202,8 +1254,16 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
     // Resolver el customer_id del JWT una vez al montar (lo usamos para filtrar
     // alertas WS que llegan tenant-wide).
     this.cart.myCustomerInfo().subscribe({
-      next: (c) => this.myCustomerId.set(c?.id || null),
-      error: () => this.myCustomerId.set(null),
+      next: (c) => {
+        this.myCustomerId.set(c?.id || null);
+        this.accountUnlinked.set(!c?.id && this.auth.user()?.role_name === 'customer_b2b');
+      },
+      error: () => {
+        // Error de red ≠ cuenta no vinculada → no bloquear (el flujo normal ya
+        // muestra sus propios errores de carga).
+        this.myCustomerId.set(null);
+        this.accountUnlinked.set(false);
+      },
     });
 
     // Conectar al namespace /alerts. Las alertas llegan a TODO el tenant —
