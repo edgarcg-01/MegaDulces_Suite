@@ -473,6 +473,10 @@ import { CountUpDirective } from '../ui/count-up.directive';
         background: rgba(220, 38, 38, 0.1);
         color: var(--bad-fg);
       }
+      /* Touch target ≥44px en punteros gruesos (DESIGN binding). */
+      @media (pointer: coarse) {
+        .ca-line-remove { width: 44px; height: 44px; }
+      }
 
       .ca-no-lines {
         text-align: center;

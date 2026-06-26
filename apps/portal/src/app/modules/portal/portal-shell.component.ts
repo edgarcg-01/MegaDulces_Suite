@@ -376,6 +376,8 @@ interface NavItem {
       .portal-sidebar {
         width: 248px;
         flex-shrink: 0;
+        /* Estable durante la microtransición de ruta (no entra al cross-fade). */
+        view-transition-name: portal-nav;
         background: var(--card-bg);
         border-right: 1px solid var(--border-color);
         display: flex;
@@ -544,6 +546,7 @@ interface NavItem {
 
       .portal-header-mobile {
         display: none;
+        view-transition-name: portal-topbar;
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
@@ -608,6 +611,7 @@ interface NavItem {
       /* ── MOBILE BOTTOM TAB DOCK (píldora + búsqueda circular — Rappi style) ─── */
       .portal-tabdock {
         display: none;
+        view-transition-name: portal-dock;
         position: fixed;
         bottom: calc(1rem + env(safe-area-inset-bottom));
         left: 50%;
@@ -1179,6 +1183,10 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
 
   /** GSAP Observer que retrae el header al hacer scroll abajo (lazy, cacheado). */
   private chromeObserver?: { kill: () => void };
+  /** Estado del header retraído — coordina el Observer con el listener de resize. */
+  private headerHidden = false;
+  /** Cleanup del listener de resize que re-mide la altura del header. */
+  private stickyResizeOff?: () => void;
 
   readonly username = signal<string>(this.auth.user()?.username || '');
   readonly initial = computed(() =>
@@ -1307,6 +1315,7 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.chromeObserver?.kill?.();
+    this.stickyResizeOff?.();
   }
 
   /**
@@ -1317,28 +1326,45 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
    */
   private async setupScrollChrome(): Promise<void> {
     if (typeof window === 'undefined') return;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     const header = this.el.nativeElement.querySelector(
       '.portal-header-mobile',
     ) as HTMLElement | null;
     if (!header) return;
+
+    // Ancla sticky para el contenido sticky de las páginas (p.ej. el buscador del
+    // catálogo): = alto del header cuando se muestra, 0 cuando se retrae. La var
+    // se publica en el host del shell y se hereda por el subtree. En desktop el
+    // header es display:none → offsetHeight 0 → las páginas pegan a top:0.
+    const host = this.el.nativeElement as HTMLElement;
+    const setStickyTop = (px: number) =>
+      host.style.setProperty('--portal-sticky-top', `${px}px`);
+    setStickyTop(header.offsetHeight);
+    const onResize = () => {
+      if (!this.headerHidden) setStickyTop(header.offsetHeight);
+    };
+    window.addEventListener('resize', onResize, { passive: true });
+    this.stickyResizeOff = () => window.removeEventListener('resize', onResize);
+
+    // Header fijo bajo prefers-reduced-motion: la var queda en el alto del header.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     try {
       const mod: any = await import('gsap');
       const gsap = mod.gsap || mod.default;
       const Observer = (await import('gsap/Observer')).Observer;
       gsap.registerPlugin(Observer);
       this.zone.runOutsideAngular(() => {
-        let hidden = false;
         const show = () => {
-          if (hidden) {
-            hidden = false;
+          if (this.headerHidden) {
+            this.headerHidden = false;
             header.classList.remove('nav-hidden');
+            setStickyTop(header.offsetHeight);
           }
         };
         const hide = () => {
-          if (!hidden && window.scrollY > 90) {
-            hidden = true;
+          if (!this.headerHidden && window.scrollY > 90) {
+            this.headerHidden = true;
             header.classList.add('nav-hidden');
+            setStickyTop(0);
           }
         };
         this.chromeObserver = Observer.create({

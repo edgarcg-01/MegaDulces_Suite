@@ -1,5 +1,5 @@
 import { APP_INITIALIZER, ApplicationConfig, ErrorHandler, provideZoneChangeDetection } from '@angular/core';
-import { provideRouter, withPreloading, PreloadAllModules, Router, NavigationEnd } from '@angular/router';
+import { provideRouter, withPreloading, PreloadAllModules, withViewTransitions, Router, NavigationEnd } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { providePrimeNG } from 'primeng/config';
@@ -20,7 +20,10 @@ import { PortalService } from './modules/portal/portal.service';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
-    provideRouter(appRoutes, withPreloading(PreloadAllModules)),
+    // Microtransición entre pantallas: corre la activación de ruta dentro de
+    // document.startViewTransition(). El look se define en styles.css
+    // (::view-transition-*). Degrada a corte instantáneo donde no hay soporte.
+    provideRouter(appRoutes, withPreloading(PreloadAllModules), withViewTransitions()),
     provideAnimationsAsync(),
     provideHttpClient(withInterceptors([authInterceptor])),
     providePrimeNG({

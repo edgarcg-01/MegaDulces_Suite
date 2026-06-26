@@ -75,7 +75,8 @@
 
       .cat-search-bar {
         position: sticky;
-        top: 0;
+        /* Ancla bajo el header móvil del shell (se retrae → 0). Desktop = 0. */
+        top: var(--portal-sticky-top, 0px);
         z-index: 11;
         margin: 0 -0.25rem 0.625rem;
         padding: 0.5rem 1rem;
@@ -151,6 +152,13 @@
       }
       .cat-search-clear:hover { color: var(--text-main); background: var(--neutral-200); }
 
+      /* Touch targets ≥44px en punteros gruesos (Ley de Fitts / DESIGN binding). */
+      @media (pointer: coarse) {
+        .cat-viewtog-btn { width: 44px; height: 44px; }
+        .cat-search-clear { width: 40px; height: 40px; }
+        .cat-search-mode { padding: 0.5rem 0.85rem; }
+      }
+
       .cat-layout {
         display: block;
       }
@@ -166,7 +174,7 @@
         -webkit-overflow-scrolling: touch;
         scrollbar-width: thin;
         position: sticky;
-        top: calc(2.75rem + 1rem);
+        top: calc(var(--portal-sticky-top, 0px) + 4rem + 0.5rem);
         z-index: 10;
         background: var(--layout-bg, var(--surface-ground));
       }
@@ -234,7 +242,7 @@
         padding: 0.5rem 0;
         margin-bottom: 1rem;
         position: sticky;
-        top: calc(2.75rem + 1rem);
+        top: calc(var(--portal-sticky-top, 0px) + 4rem + 0.5rem);
         z-index: 10;
         background: var(--layout-bg, var(--surface-ground));
       }
@@ -634,9 +642,9 @@
       .cat-promo-add:active { transform: translateY(1px) scale(0.94); }
       .cat-grid {
         display: grid;
-        /* 160px → 2 columnas en teléfono (~375px), ~6 en desktop. La card 1:1
-           pide grilla más densa que el viejo 200px (1 col en móvil). */
-        grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr));
+        /* 150px → 2 columnas firmes hasta ~360px (Android común), ~6 en desktop.
+           A 160px caía a 1 col gigante en teléfonos de 360px con la card 1:1. */
+        grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
         gap: 0.875rem;
       }
 

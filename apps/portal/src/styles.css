@@ -2798,3 +2798,30 @@ code.comm-code,
 .cell .data-table tbody td {
   padding: 0.6rem 1.25rem;
 }
+
+/* ── Microtransición entre pantallas (View Transitions API) ──────────────────
+   Cross-fade + leve elevación del contenido de página al navegar. El chrome
+   persistente (sidebar/header/tab-dock) lleva su propio view-transition-name en
+   el shell → se mantiene estable y solo transiciona el contenido. Degrada a
+   corte instantáneo donde la API no existe (iOS <18, browsers viejos) — sin
+   regresión. Presupuesto de motion: <300ms, solo opacity+transform. */
+::view-transition-old(root) {
+  animation: vt-page-out 120ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+::view-transition-new(root) {
+  animation: vt-page-in 260ms cubic-bezier(0, 0, 0.2, 1) 40ms both;
+}
+@keyframes vt-page-out {
+  to { opacity: 0; }
+}
+@keyframes vt-page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
