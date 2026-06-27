@@ -86,17 +86,45 @@ import { CartFxService } from '../cart-fx.service';
           </div>
 
           <button
+            *ngIf="!(qtyOf(p) > 0)"
             type="button"
             class="pom-add"
-            [class.is-added]="addedIds.has(p.product_id)"
             [disabled]="addingId === p.product_id || p.price == null"
             (click)="$event.stopPropagation(); onAdd(p, $event)"
             [attr.aria-label]="'Agregar ' + p.product_name"
           >
             <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <i *ngIf="addingId !== p.product_id && addedIds.has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
-            <i *ngIf="addingId !== p.product_id && !addedIds.has(p.product_id)" class="pi pi-plus" aria-hidden="true"></i>
+            <i *ngIf="addingId !== p.product_id" class="pi pi-plus" aria-hidden="true"></i>
           </button>
+
+          <!-- En carrito: stepper flotante (mismo lenguaje que el catálogo). -->
+          <div
+            *ngIf="qtyOf(p) > 0"
+            class="pom-stepper"
+            role="group"
+            [attr.aria-label]="'Cantidad de ' + p.product_name"
+            (click)="$event.stopPropagation()"
+          >
+            <button
+              type="button"
+              class="pom-step"
+              [disabled]="addingId === p.product_id"
+              (click)="$event.stopPropagation(); dec.emit(p)"
+              [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
+            >
+              <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
+            </button>
+            <span class="pom-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
+            <button
+              type="button"
+              class="pom-step"
+              [disabled]="addingId === p.product_id"
+              (click)="$event.stopPropagation(); inc.emit(p)"
+              aria-label="Aumentar"
+            >
+              <i class="pi pi-plus" aria-hidden="true"></i>
+            </button>
+          </div>
         </article>
       </div>
     </section>
@@ -279,6 +307,50 @@ import { CartFxService } from '../cart-fx.service';
       .pom-add:disabled { opacity: 0.4; cursor: not-allowed; }
       .pom-add.is-added { background: var(--ok-fg); color: #fff; }
 
+      /* Stepper flotante (en carrito): mismo lenguaje que la card del catálogo. */
+      .pom-stepper {
+        position: absolute;
+        right: 0.6rem;
+        bottom: 0.6rem;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        min-width: 116px;
+        height: 40px;
+        background: var(--neutral-900);
+        border-radius: var(--r-pill);
+        overflow: hidden;
+        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.3), inset 0 -2px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        animation: pomStepIn 220ms var(--ease-spring) both;
+      }
+      @keyframes pomStepIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+      .pom-step {
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
+        border: none;
+        background: transparent;
+        color: var(--brand-400);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        font-size: var(--fs-body);
+        transition: background-color 120ms var(--ease-standard), transform 120ms var(--ease-spring);
+      }
+      .pom-step:hover:not(:disabled) { background: rgba(253, 231, 7, 0.18); }
+      .pom-step:active:not(:disabled) { transform: scale(0.88); }
+      .pom-step:disabled { opacity: 0.5; cursor: not-allowed; }
+      .pom-step-val {
+        flex: 1;
+        text-align: center;
+        font-weight: 800;
+        font-size: var(--fs-sm);
+        font-variant-numeric: tabular-nums;
+        color: var(--brand-400);
+      }
+      @media (prefers-reduced-motion: reduce) { .pom-stepper { animation: none; } }
+
       /* Pre-animación: oculta las cards hasta que GSAP las revele. Solo se
          aplica cuando vamos a animar (no en reduced-motion / sin JS). */
       :host(.pom-pending) .pom-card { opacity: 0; }
@@ -297,9 +369,17 @@ export class ProductsOfMonthCarouselComponent implements AfterViewInit, OnChange
   @Input({ required: true }) products: PriceRow[] = [];
   @Input() addingId: string | null = null;
   @Input() addedIds = new Set<string>();
+  /** product_id → cantidad en carrito. >0 → muestra stepper en vez de "Agregar". */
+  @Input() cartQty: Record<string, number> = {};
 
   @Output() open = new EventEmitter<PriceRow>();
   @Output() add = new EventEmitter<PriceRow>();
+  @Output() inc = new EventEmitter<PriceRow>();
+  @Output() dec = new EventEmitter<PriceRow>();
+
+  qtyOf(p: PriceRow): number {
+    return this.cartQty[p.product_id] || 0;
+  }
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);

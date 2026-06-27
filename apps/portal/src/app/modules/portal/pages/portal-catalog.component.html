@@ -349,8 +349,11 @@
           meta="Últimos 90 días"
           [showRank]="true"
           [addedIds]="cartProductIds()"
+          [cartQty]="cartQtyMap()"
           (open)="openSheet($event)"
           (add)="addToCart($event)"
+          (inc)="incrementCartLine($event)"
+          (dec)="decrementCartLine($event)"
         ></portal-top-products>
 
         <header class="cat-main-head">

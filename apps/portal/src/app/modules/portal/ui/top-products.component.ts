@@ -87,22 +87,51 @@ import { CartFxService } from '../cart-fx.service';
             <span class="tp-brand">{{ p.brand_name || 'Sin marca' }}</span>
             <h3 class="tp-name" [title]="p.product_name">{{ p.product_name }}</h3>
             <div class="tp-foot">
-              <span class="tp-price" *ngIf="p.price != null">
-                {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-              </span>
-              <span class="tp-price tp-price-na" *ngIf="p.price == null">Sin precio</span>
-              <button
-                type="button"
-                class="tp-add"
-                [class.is-added]="addedIds.has(p.product_id)"
-                [disabled]="addingId === p.product_id || p.price == null"
-                (click)="$event.stopPropagation(); onAdd(p, $event)"
-                [attr.aria-label]="'Agregar ' + p.product_name"
+              <ng-container *ngIf="!(qtyOf(p) > 0)">
+                <span class="tp-price" *ngIf="p.price != null">
+                  {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                </span>
+                <span class="tp-price tp-price-na" *ngIf="p.price == null">Sin precio</span>
+                <button
+                  type="button"
+                  class="tp-add"
+                  [disabled]="addingId === p.product_id || p.price == null"
+                  (click)="$event.stopPropagation(); onAdd(p, $event)"
+                  [attr.aria-label]="'Agregar ' + p.product_name"
+                >
+                  <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                  <i *ngIf="addingId !== p.product_id" class="pi pi-plus" aria-hidden="true"></i>
+                </button>
+              </ng-container>
+
+              <!-- En carrito: stepper (mismo lenguaje que el catálogo). -->
+              <div
+                *ngIf="qtyOf(p) > 0"
+                class="tp-stepper"
+                role="group"
+                [attr.aria-label]="'Cantidad de ' + p.product_name"
+                (click)="$event.stopPropagation()"
               >
-                <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-                <i *ngIf="addingId !== p.product_id && addedIds.has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
-                <i *ngIf="addingId !== p.product_id && !addedIds.has(p.product_id)" class="pi pi-plus" aria-hidden="true"></i>
-              </button>
+                <button
+                  type="button"
+                  class="tp-step"
+                  [disabled]="addingId === p.product_id"
+                  (click)="$event.stopPropagation(); dec.emit(p)"
+                  [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
+                >
+                  <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
+                </button>
+                <span class="tp-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
+                <button
+                  type="button"
+                  class="tp-step"
+                  [disabled]="addingId === p.product_id"
+                  (click)="$event.stopPropagation(); inc.emit(p)"
+                  aria-label="Aumentar"
+                >
+                  <i class="pi pi-plus" aria-hidden="true"></i>
+                </button>
+              </div>
             </div>
           </div>
         </article>
@@ -310,6 +339,50 @@ import { CartFxService } from '../cart-fx.service';
       .tp-add:disabled { opacity: 0.4; cursor: not-allowed; }
       .tp-add.is-added { background: var(--ok-fg); color: #fff; }
 
+      /* Stepper (en carrito): ocupa el foot, mismo lenguaje que el catálogo. */
+      .tp-stepper {
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 40px;
+        background: var(--neutral-950);
+        border-radius: var(--r-pill);
+        overflow: hidden;
+        box-shadow: 0 6px 14px -4px rgba(0, 0, 0, 0.3), inset 0 -2px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        animation: tpStepIn 220ms var(--ease-spring) both;
+      }
+      @keyframes tpStepIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+      .tp-step {
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
+        border: none;
+        background: transparent;
+        color: var(--brand-400);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        font-size: var(--fs-body);
+        transition: background-color 120ms var(--ease-standard), transform 120ms var(--ease-spring);
+      }
+      .tp-step:hover:not(:disabled) { background: rgba(253, 231, 7, 0.18); }
+      .tp-step:active:not(:disabled) { transform: scale(0.88); }
+      .tp-step:disabled { opacity: 0.5; cursor: not-allowed; }
+      .tp-step-val {
+        flex: 1;
+        text-align: center;
+        font-weight: 800;
+        font-size: var(--fs-sm);
+        font-variant-numeric: tabular-nums;
+        color: var(--brand-400);
+      }
+      .tp-card-lead .tp-stepper { background: var(--brand-400); }
+      .tp-card-lead .tp-step,
+      .tp-card-lead .tp-step-val { color: var(--neutral-950); }
+      .tp-card-lead .tp-step:hover:not(:disabled) { background: rgba(0, 0, 0, 0.12); }
+      @media (prefers-reduced-motion: reduce) { .tp-stepper { animation: none; } }
+
       /* Card lead (#1) = espresso oscuro, jerarquía por contraste. */
       .tp-card-lead { background: var(--neutral-950); border-color: var(--neutral-900); }
       .tp-card-lead .tp-media.has-photo { background: var(--neutral-900); }
@@ -361,9 +434,17 @@ export class TopProductsComponent implements AfterViewInit, OnChanges, OnDestroy
   @Input() showRank = true;
   @Input() addingId: string | null = null;
   @Input() addedIds = new Set<string>();
+  /** product_id → cantidad en carrito. >0 → muestra stepper en vez de "Agregar". */
+  @Input() cartQty: Record<string, number> = {};
 
   @Output() open = new EventEmitter<PriceRow>();
   @Output() add = new EventEmitter<PriceRow>();
+  @Output() inc = new EventEmitter<PriceRow>();
+  @Output() dec = new EventEmitter<PriceRow>();
+
+  qtyOf(p: PriceRow): number {
+    return this.cartQty[p.product_id] || 0;
+  }
 
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);

@@ -319,6 +319,14 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     return new Set(lines.map((l: any) => l.product_id));
   });
 
+  /** product_id → cantidad en carrito — drive del stepper del rail "Más vendidos". */
+  readonly cartQtyMap = computed<Record<string, number>>(() => {
+    const lines = (this.cart.cartDetail()?.lines || []) as any[];
+    const m: Record<string, number> = {};
+    for (const l of lines) m[l.product_id] = Number(l.quantity) || 0;
+    return m;
+  });
+
   /**
    * Cross-sell "Va bien con esto" (P1 #6): hasta 3 SKUs distintos al actual,
    * con precio. Reusa top-sellers (señal de demanda) y cae al catálogo

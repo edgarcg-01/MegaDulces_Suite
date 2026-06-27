@@ -346,8 +346,11 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       [showRank]="false"
       [addingId]="addingId()"
       [addedIds]="addedIds()"
+      [cartQty]="cartQtyMap()"
       (open)="openMonthly($event)"
       (add)="addMonthly($event)"
+      (inc)="incRail($event)"
+      (dec)="decRail($event)"
     ></portal-top-products>
 
     <!-- [4.5] PRODUCTOS TOP — tendencia del mercado MX cruzada con el catálogo -->
@@ -358,8 +361,11 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       [notes]="trendNotes()"
       [addingId]="addingId()"
       [addedIds]="addedIds()"
+      [cartQty]="cartQtyMap()"
       (open)="openMonthly($event)"
       (add)="addMonthly($event)"
+      (inc)="incRail($event)"
+      (dec)="decRail($event)"
     ></portal-top-products>
 
     <!-- [PRODUCTOS DEL MES] carrusel top-sellers con capa de motion GSAP -->
@@ -368,8 +374,11 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       [products]="monthlyProducts()"
       [addingId]="addingId()"
       [addedIds]="addedIds()"
+      [cartQty]="cartQtyMap()"
       (open)="openMonthly($event)"
       (add)="addMonthly($event)"
+      (inc)="incRail($event)"
+      (dec)="decRail($event)"
     ></portal-products-of-month>
 
     <!-- [5] PROMOS DEL MES — rail swipeable con capa de motion GSAP -->
@@ -1314,6 +1323,52 @@ export class PortalHomeComponent implements AfterViewInit {
   readonly frequentProducts = signal<CatalogHistoryRow[]>([]);
   readonly addingId = signal<string | null>(null);
   readonly addedIds = signal<Set<string>>(new Set<string>());
+
+  /** product_id → cantidad en carrito (de cartDetail) — drive del stepper de los rails. */
+  readonly cartQtyMap = computed<Record<string, number>>(() => {
+    const lines = (this.portal.cartDetail()?.lines || []) as any[];
+    const m: Record<string, number> = {};
+    for (const l of lines) m[l.product_id] = Number(l.quantity) || 0;
+    return m;
+  });
+
+  private lineForProduct(productId: string): any | null {
+    return (
+      (this.portal.cartDetail()?.lines as any[] | undefined)?.find(
+        (l) => l.product_id === productId,
+      ) || null
+    );
+  }
+
+  /** +1 a la línea existente (botón "+" del stepper en los rails). */
+  incRail(p: PriceRow): void {
+    const cid = this.portal.cartId();
+    const line = this.lineForProduct(p.product_id);
+    if (!cid || !line || this.addingId()) return;
+    this.haptic.selection();
+    this.addingId.set(p.product_id);
+    this.portal.updateLine(cid, line.id, (Number(line.quantity) || 0) + 1).subscribe({
+      next: () => this.addingId.set(null),
+      error: () => this.addingId.set(null),
+    });
+  }
+
+  /** −1 a la línea; si llega al mínimo, la quita (botón "−" del stepper en los rails). */
+  decRail(p: PriceRow): void {
+    const cid = this.portal.cartId();
+    const line = this.lineForProduct(p.product_id);
+    if (!cid || !line || this.addingId()) return;
+    this.haptic.selection();
+    const qty = Number(line.quantity) || 0;
+    const min = Math.max(1, Number(p.min_qty) || 1);
+    this.addingId.set(p.product_id);
+    const done = () => this.addingId.set(null);
+    if (qty <= min) {
+      this.portal.removeLine(cid, line.id).subscribe({ next: done, error: done });
+    } else {
+      this.portal.updateLine(cid, line.id, qty - 1).subscribe({ next: done, error: done });
+    }
+  }
   private custId: string | null = null;
   private whId: string | null = null;
   /** Almacén resuelto, expuesto como signal para el feed de descubrimiento. */
