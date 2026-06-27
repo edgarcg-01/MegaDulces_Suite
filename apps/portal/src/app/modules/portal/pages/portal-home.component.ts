@@ -18,6 +18,7 @@ import { PromosCarouselComponent } from '../ui/promos-carousel.component';
 import { TopProductsComponent } from '../ui/top-products.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
 import { HomeFeedComponent } from '../ui/home-feed.component';
+import { TypeHintDirective } from '../ui/type-hint.directive';
 import { MX_TRENDS } from '../data/mx-market-trends';
 import { CartFxService } from '../cart-fx.service';
 
@@ -48,6 +49,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     TopProductsComponent,
     ProductSheetComponent,
     HomeFeedComponent,
+    TypeHintDirective,
   ],
   template: `
     <!-- [1] LIVE STATUS RIBBON — greeting + ongoing en una línea -->
@@ -258,7 +260,12 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     <!-- [3] SEARCH BAR + chips trending -->
     <button type="button" class="ph-search" (click)="goSearch()" aria-label="Buscar en el catálogo">
       <i class="pi pi-search ph-search-icon" aria-hidden="true"></i>
-      <span class="ph-search-placeholder">Buscar 500+ SKUs por nombre, marca, código…</span>
+      <span
+        class="ph-search-placeholder"
+        [typeHint]="searchHints"
+        typeHintPrefix="Buscar "
+        [typeHintBase]="searchHintBase"
+      >Buscar producto, marca o código…</span>
       <span class="ph-search-kbd" aria-hidden="true">⌘K</span>
     </button>
     <nav class="ph-chips" aria-label="Categorías más buscadas">
@@ -493,7 +500,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       portal-featured-promo, .ph-hero { order: 1; }
       portal-brands-carousel     { order: 2; }
       portal-top-products.ph-suggested { order: 3; }
-      .ph-search                 { order: 4; }
+      .ph-search                 { order: -1; }
       .ph-chips                  { order: 5; }
       .ph-restock                { order: 6; }
       .ph-section-reorder        { order: 7; }
@@ -741,9 +748,14 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       }
       .ph-search-placeholder {
         flex: 1;
+        min-width: 0;
         font-size: var(--fs-body);
         font-weight: 500;
         color: var(--text-muted);
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .ph-search-kbd {
         font-family: var(--font-mono);
@@ -1656,6 +1668,10 @@ export class PortalHomeComponent implements AfterViewInit {
       this.router.navigateByUrl('/portal/catalog');
     }
   }
+
+  /** Frases del hint typewriter del buscador (referencias estables → no re-dispara ngOnChanges). */
+  readonly searchHints = ['chocolates', '"La Rosa"', 'paletas', 'tamarindo', 'mazapán', 'gomitas', '"Vero"', 'chicles'];
+  readonly searchHintBase = 'Buscar producto, marca o código…';
 
   goSearch(): void {
     this.haptic.selection();

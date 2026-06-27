@@ -9,18 +9,20 @@ import {
 } from '@angular/core';
 
 /**
- * Placeholder "typewriter" rotativo para inputs de búsqueda, manejado por GSAP.
+ * Hint "typewriter" rotativo, manejado por GSAP. Sirve para:
+ *  - `<input>`/`<textarea>`: anima el atributo `placeholder`. Se pausa al
+ *    enfocar o cuando hay valor, y reanuda al desenfocar vacío.
+ *  - cualquier otro elemento (p.ej. un `<span>` dentro de un botón "fake
+ *    search"): anima su `textContent` y rota siempre (no hay focus/valor).
+ *
  * Escribe el `typeHintPrefix` fijo + cada frase de `typeHint` letra por letra,
- * con caret parpadeante, la mantiene, la borra y pasa a la siguiente (loop).
+ * con caret parpadeante; la mantiene, la borra y pasa a la siguiente (loop).
+ * GSAP lazy + fuera de zona (cero change-detection). Bajo prefers-reduced-motion
+ * deja el `typeHintBase` estático. Guard de generación para no encadenar
+ * timelines al cambiar de frases (p.ej. togglear IA).
  *
- * - Se pausa cuando el input está enfocado o tiene valor; reanuda al desenfocar
- *   vacío (no distrae mientras se teclea, y el screen-reader oye el base estable).
- * - Bajo prefers-reduced-motion deja el `typeHintBase` estático, sin animar.
- * - GSAP lazy + fuera de zona (cero change-detection). Guard de generación para
- *   no encadenar timelines al cambiar de frases (p.ej. al togglear IA).
- *
- *   <input [typeHint]="['chocolates','paletas']" typeHintPrefix="Buscar "
- *          typeHintBase="Buscar producto o marca…" />
+ *   <input [typeHint]="hints" typeHintPrefix="Buscar " typeHintBase="Buscar…" />
+ *   <span  [typeHint]="hints" typeHintPrefix="Buscar " typeHintBase="Buscar…"></span>
  */
 @Directive({
   selector: '[typeHint]',
@@ -31,7 +33,7 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
   @Input() typeHintPrefix = '';
   @Input() typeHintBase = '';
 
-  private readonly el = inject<ElementRef<HTMLInputElement>>(ElementRef);
+  private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly zone = inject(NgZone);
 
   private G: any = null;
@@ -40,6 +42,14 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
   private gen = 0;
   private listening = false;
   private reduced = false;
+
+  /** El host como input (anima placeholder) o null si es otro elemento (textContent). */
+  private get input(): HTMLInputElement | null {
+    const el = this.el.nativeElement;
+    return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+      ? (el as unknown as HTMLInputElement)
+      : null;
+  }
 
   ngOnChanges(): void {
     this.reduced =
@@ -58,8 +68,9 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
     el.removeEventListener('input', this.onInput);
   }
 
+  /** Solo inputs tienen focus/valor → solo ellos llevan listeners de pausa. */
   private attachListeners(): void {
-    if (this.listening || typeof window === 'undefined') return;
+    if (this.listening || typeof window === 'undefined' || !this.input) return;
     this.listening = true;
     const el = this.el.nativeElement;
     // Fuera de zona: pausar/reanudar el typewriter no necesita change-detection.
@@ -72,23 +83,29 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
 
   private onFocus = (): void => this.stop();
   private onBlur = (): void => {
-    if (!this.el.nativeElement.value) this.restart();
+    if (!this.input?.value) this.restart();
   };
   private onInput = (): void => {
-    if (this.el.nativeElement.value) this.stop();
+    if (this.input?.value) this.stop();
   };
 
-  /** Detiene la animación y deja el placeholder base (estado en reposo/pausa). */
+  /** Escribe el hint en placeholder (input) o textContent (resto). */
+  private setHint(value: string): void {
+    const input = this.input;
+    if (input) input.placeholder = value;
+    else this.el.nativeElement.textContent = value;
+  }
+
+  /** Detiene la animación y deja el hint base (reposo/pausa). */
   private stop(): void {
     this.gen++;
     this.tl?.kill?.();
     this.tl = undefined;
-    this.el.nativeElement.placeholder = this.typeHintBase;
+    this.setHint(this.typeHintBase);
   }
 
   private write(text: string, caret = true): void {
-    this.el.nativeElement.placeholder =
-      this.typeHintPrefix + text + (caret ? '|' : '');
+    this.setHint(this.typeHintPrefix + text + (caret ? '|' : ''));
   }
 
   private restart(): void {
@@ -97,30 +114,27 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
     const el = this.el.nativeElement;
     const myGen = ++this.gen;
 
+    const focused =
+      typeof document !== 'undefined' && el === document.activeElement;
     // Sin animación: deja el base (reduced-motion, sin frases, enfocado o con valor).
-    if (
-      this.reduced ||
-      !this.phrases?.length ||
-      el === (typeof document !== 'undefined' ? document.activeElement : null) ||
-      el.value
-    ) {
-      el.placeholder = this.typeHintBase;
+    if (this.reduced || !this.phrases?.length || focused || this.input?.value) {
+      this.setHint(this.typeHintBase);
       return;
     }
 
-    // Base inmediato: nunca un placeholder vacío mientras GSAP carga (lazy).
-    el.placeholder = this.typeHintBase;
+    // Base inmediato: nunca un hint vacío mientras GSAP carga (lazy).
+    this.setHint(this.typeHintBase);
 
     this.zone.runOutsideAngular(async () => {
       let gsap: any;
       try {
         gsap = await this.ensureGsap();
       } catch {
-        el.placeholder = this.typeHintBase;
+        this.setHint(this.typeHintBase);
         return;
       }
       // El estado pudo cambiar mientras cargaba GSAP (focus, valor, nuevas frases).
-      if (myGen !== this.gen || el === document.activeElement || el.value) return;
+      if (myGen !== this.gen || el === document.activeElement || this.input?.value) return;
 
       const tl = gsap.timeline({ repeat: -1 });
       for (const phrase of this.phrases) {
