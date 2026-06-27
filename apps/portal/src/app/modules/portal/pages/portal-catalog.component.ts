@@ -49,6 +49,7 @@ import { PortalProductCardComponent } from '../ui/portal-product-card.component'
 import { TopProductsComponent } from '../ui/top-products.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
 import { CountUpDirective } from '../ui/count-up.directive';
+import { TypeHintDirective } from '../ui/type-hint.directive';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 
@@ -97,6 +98,7 @@ function initial(name: string): string {
     TopProductsComponent,
     ProductSheetComponent,
     CountUpDirective,
+    TypeHintDirective,
   ],
   templateUrl: './portal-catalog.component.html',
   styleUrls: ['./portal-catalog.component.css'],
@@ -270,6 +272,17 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   readonly smartMode = signal<'semantic' | 'fallback_like' | null>(null);
   readonly scoreById = signal<Record<string, number>>({});
   readonly searchHistory = signal<string[]>([]);
+
+  /** Placeholder typewriter (directiva [typeHint]): frases + prefijo + base estático. */
+  readonly searchHints = computed<string[]>(() =>
+    this.aiSearch()
+      ? ['dulces enchilados', 'chocolate en caja', 'paletas de caramelo', 'algo para una fiesta']
+      : ['chocolates', '"La Rosa"', 'paletas', 'tamarindo', 'mazapán', 'gomitas', '"Vero"', 'chicles'],
+  );
+  readonly searchHintPrefix = computed<string>(() => (this.aiSearch() ? '' : 'Buscar '));
+  readonly searchHintBase = computed<string>(() =>
+    this.aiSearch() ? 'Describe qué buscas (IA)…' : 'Buscar producto o marca…',
+  );
   private readonly searchSubject = new Subject<string>();
   private readonly HISTORY_KEY = 'portal:catalog:search-history';
   private readonly HISTORY_LIMIT = 6;

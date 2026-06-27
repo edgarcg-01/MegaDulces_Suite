@@ -5,7 +5,10 @@
       <input
         type="text"
         [(ngModel)]="search"
-        [placeholder]="aiSearch() ? 'Describe qué buscas (IA)…' : 'Buscar producto o marca...'"
+        [typeHint]="searchHints()"
+        [typeHintPrefix]="searchHintPrefix()"
+        [typeHintBase]="searchHintBase()"
+        [attr.aria-label]="searchHintBase()"
         (ngModelChange)="onSearchChange($event)"
         autocomplete="off"
         autocapitalize="none"
