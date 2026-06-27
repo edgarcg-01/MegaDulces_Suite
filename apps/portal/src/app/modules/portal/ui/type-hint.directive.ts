@@ -62,9 +62,12 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
     if (this.listening || typeof window === 'undefined') return;
     this.listening = true;
     const el = this.el.nativeElement;
-    el.addEventListener('focus', this.onFocus, { passive: true });
-    el.addEventListener('blur', this.onBlur, { passive: true });
-    el.addEventListener('input', this.onInput, { passive: true });
+    // Fuera de zona: pausar/reanudar el typewriter no necesita change-detection.
+    this.zone.runOutsideAngular(() => {
+      el.addEventListener('focus', this.onFocus, { passive: true });
+      el.addEventListener('blur', this.onBlur, { passive: true });
+      el.addEventListener('input', this.onInput, { passive: true });
+    });
   }
 
   private onFocus = (): void => this.stop();
@@ -104,6 +107,9 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
       el.placeholder = this.typeHintBase;
       return;
     }
+
+    // Base inmediato: nunca un placeholder vacío mientras GSAP carga (lazy).
+    el.placeholder = this.typeHintBase;
 
     this.zone.runOutsideAngular(async () => {
       let gsap: any;
