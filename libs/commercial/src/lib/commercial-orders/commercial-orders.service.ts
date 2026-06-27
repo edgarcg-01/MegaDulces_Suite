@@ -265,7 +265,37 @@ export class CommercialOrdersService {
       const order = await this.requireDraft(trx, orderId);
       await this.enforceOrderOwnership(trx, order);
 
-      // Resolver precio para este customer
+      // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
+      // (igual que updateLine: conserva el snapshot de precio y recalcula) en vez
+      // de crear una línea duplicada. Antes addLine SIEMPRE insertaba → el mismo
+      // producto aparecía como líneas separadas al re-agregarlo desde rails/sheet.
+      const existing = await trx('commercial.order_lines')
+        .where({ order_id: orderId, product_id: dto.product_id })
+        .first();
+      if (existing) {
+        const newQty = Number(existing.quantity) + dto.quantity;
+        const exUnit = Number(existing.unit_price);
+        const exTax = Number(existing.tax_rate);
+        const exDiscount = Number(existing.discount_percent) || 0;
+        const exSubtotal = +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
+        const exLineTax = +(exSubtotal * exTax).toFixed(2);
+        const exTotal = +(exSubtotal + exLineTax).toFixed(2);
+        const [merged] = await trx('commercial.order_lines')
+          .where({ id: existing.id })
+          .update({
+            quantity: newQty,
+            // draft-only (requireDraft arriba): la cantidad pedida sigue al carrito.
+            requested_quantity: newQty,
+            line_subtotal: exSubtotal,
+            line_tax: exLineTax,
+            line_total: exTotal,
+          })
+          .returning('*');
+        await this.recalcOrderTotals(trx, orderId);
+        return merged;
+      }
+
+      // Línea nueva: resolver precio del customer + validar MOQ + insertar.
       const priceInfo = await this.pricing.resolvePriceForCustomer(
         dto.product_id,
         order.customer_id,
