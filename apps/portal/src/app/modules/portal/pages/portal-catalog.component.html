@@ -411,6 +411,19 @@
           ></portal-product-card>
         </div>
 
+        <!-- Skeleton de continuación: feedback de carga en red lenta mientras
+             llega la siguiente página (mismas tarjetas-fantasma que el inicial). -->
+        <div *ngIf="loadingMore()" class="cat-grid cat-skel-grid" aria-hidden="true">
+          <div class="cat-skel-card" *ngFor="let i of skeletonCards">
+            <div class="cat-skel-img"><p-skeleton width="100%" height="100%"></p-skeleton></div>
+            <div class="cat-skel-body">
+              <p-skeleton width="40%" height="0.6rem"></p-skeleton>
+              <p-skeleton width="85%" height="0.85rem"></p-skeleton>
+              <p-skeleton width="55%" height="1.15rem" styleClass="cat-skel-price"></p-skeleton>
+            </div>
+          </div>
+        </div>
+
         <!-- Sentinel para infinite scroll: el IntersectionObserver dispara
              loadNextPage() cuando este div entra al viewport. Solo presente
              si quedan páginas por traer del backend. -->

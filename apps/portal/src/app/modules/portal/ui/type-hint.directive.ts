@@ -42,6 +42,7 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
   private gen = 0;
   private listening = false;
   private reduced = false;
+  private io?: IntersectionObserver;
 
   /** El host como input (anima placeholder) o null si es otro elemento (textContent). */
   private get input(): HTMLInputElement | null {
@@ -52,7 +53,13 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
   }
 
   ngOnChanges(): void {
+    // En gama baja tratamos el typewriter como reduced-motion: hint estático, sin
+    // timeline GSAP infinito (ahorra CPU/batería en idle). Mismo path que reduced.
+    const lowEnd =
+      typeof document !== 'undefined' &&
+      document.documentElement.classList.contains('low-end');
     this.reduced =
+      lowEnd ||
       typeof window === 'undefined' ||
       !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     this.attachListeners();
@@ -62,6 +69,7 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.gen++;
     this.tl?.kill?.();
+    this.io?.disconnect();
     const el = this.el.nativeElement;
     el.removeEventListener('focus', this.onFocus);
     el.removeEventListener('blur', this.onBlur);
@@ -164,6 +172,25 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
         return;
       }
       this.tl = tl;
+      this.setupVisibility();
+    });
+  }
+
+  /** Pausa el timeline cuando el host sale del viewport (no quema CPU fuera de vista). */
+  private setupVisibility(): void {
+    if (this.io || typeof IntersectionObserver === 'undefined') return;
+    const el = this.el.nativeElement;
+    this.zone.runOutsideAngular(() => {
+      this.io = new IntersectionObserver((entries) => {
+        const tl = this.tl as unknown as { play: () => void; pause: () => void } | undefined;
+        if (!tl) return;
+        if (entries.some((e) => e.isIntersecting)) {
+          if (!this.input?.value && el !== document.activeElement) tl.play();
+        } else {
+          tl.pause();
+        }
+      });
+      this.io.observe(el);
     });
   }
 

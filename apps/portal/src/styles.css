@@ -1262,6 +1262,20 @@ html.low-end .glass-dark {
 html.low-end .theme-monochrome .glass {
   background: rgba(17, 17, 17, 0.97) !important;
 }
+/* Transiciones que tocan layout/filter (width/flex/padding/filter) trabajan
+   CPU/GPU por frame en gama baja → instantáneas (el estado final es el mismo). */
+html.low-end .fp-dot {
+  transition: background-color 0.2s var(--ease-standard) !important;
+}
+html.low-end .portal-tab {
+  transition: color 220ms var(--ease-standard), background-color 220ms var(--ease-standard) !important;
+}
+html.low-end .cb-fill {
+  transition: none !important;
+}
+html.low-end .cat-drawer-btn {
+  transition: background-color 150ms var(--ease-standard) !important;
+}
 
 /* 4. EFECTO SPOTLIGHT/HALO - Monocromático sutil */
 .spotlight {
