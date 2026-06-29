@@ -46,7 +46,6 @@ import { AuthService } from '../../../core/services/auth.service';
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 import { PortalProductCardComponent } from '../ui/portal-product-card.component';
-import { TopProductsComponent } from '../ui/top-products.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
 import { CountUpDirective } from '../ui/count-up.directive';
 import { TypeHintDirective } from '../ui/type-hint.directive';
@@ -95,7 +94,6 @@ function initial(name: string): string {
     TagModule,
     TooltipModule,
     PortalProductCardComponent,
-    TopProductsComponent,
     ProductSheetComponent,
     CountUpDirective,
     TypeHintDirective,
@@ -311,20 +309,6 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
       this.topSellers().find((p) => p.product_id === id) ||
       null
     );
-  });
-
-  /** product_ids actualmente en el carrito — drive del check ✓ en los rails. */
-  readonly cartProductIds = computed<Set<string>>(() => {
-    const lines = this.cart.cartDetail()?.lines || [];
-    return new Set(lines.map((l: any) => l.product_id));
-  });
-
-  /** product_id → cantidad en carrito — drive del stepper del rail "Más vendidos". */
-  readonly cartQtyMap = computed<Record<string, number>>(() => {
-    const lines = (this.cart.cartDetail()?.lines || []) as any[];
-    const m: Record<string, number> = {};
-    for (const l of lines) m[l.product_id] = Number(l.quantity) || 0;
-    return m;
   });
 
   /**
@@ -742,6 +726,35 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
       return null;
     }
     return this.promoProducts()[0] || null;
+  });
+
+  /** Hay una búsqueda activa (texto o IA). Drive del pin "Más vendido" + list-first. */
+  readonly isSearching = computed<boolean>(() => !!this.searchSignal().trim());
+
+  /**
+   * #1: al buscar, el producto MÁS VENDIDO que coincide, fijado arriba de los
+   * resultados. Cruza los resultados visibles con el ranking de top-sellers;
+   * si no hay coincidencias, cae al #1 global (la búsqueda nunca queda sin
+   * "más vendido"). null si no se está buscando o no hay top-sellers cargados.
+   */
+  readonly topMatch = computed<PriceRow | null>(() => {
+    if (!this.isSearching()) return null;
+    const sellers = this.topSellers();
+    if (!sellers.length) return null;
+    const results = this.visibleProducts();
+    if (!results.length) return sellers[0] || null; // sin coincidencias → #1 global
+    const rank = new Map<string, number>();
+    sellers.forEach((p, i) => rank.set(p.product_id, i));
+    let best: PriceRow | null = null;
+    let bestRank = Infinity;
+    for (const p of results) {
+      const r = rank.get(p.product_id);
+      if (r !== undefined && r < bestRank) {
+        bestRank = r;
+        best = p;
+      }
+    }
+    return best || results[0]; // ningún resultado es top-seller conocido → 1º resultado
   });
 
   /** Cast estrecho: CatalogWithPromoRow → PriceRow para reusar openSheet/addToCart. */

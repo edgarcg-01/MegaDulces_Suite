@@ -73,41 +73,8 @@
       <span><b>Vista administrador</b> — catálogo default del tenant, solo lectura. Inicia sesión como cliente para hacer pedidos.</span>
     </div>
 
-    <header class="portal-page-head cat-page-head">
-      <div class="portal-page-head-text">
-        <span class="portal-eyebrow">
-          <i class="pi pi-th-large" aria-hidden="true"></i>
-          Catálogo
-        </span>
-        <h1 class="cat-h1">Productos disponibles</h1>
-        <p class="portal-page-sub" *ngIf="customerName()">
-          Lista de precios de <b>{{ customerName() }}</b>
-        </p>
-      </div>
-      <button type="button" class="portal-btn-ember portal-btn-pill" (click)="goAi()">
-        <i class="pi pi-sparkles" aria-hidden="true"></i>
-        <span>Recomendado para ti</span>
-      </button>
-    </header>
-
-    <!-- Mini strip operativo (SKUs · entrega · mínimo). "Tu cartera" se removió:
-         ya está en el subtítulo del page-head ("Lista de precios de ..."). -->
-    <section class="cat-hero" *ngIf="!loading() && prices().length > 0" aria-label="Información de tu cuenta">
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Productos</span>
-        <strong>{{ totalCount() || prices().length }} SKUs</strong>
-      </div>
-      <div class="cat-hero-divider" aria-hidden="true"></div>
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Entrega</span>
-        <strong>24-48h hábiles</strong>
-      </div>
-      <div class="cat-hero-divider" aria-hidden="true"></div>
-      <div class="cat-hero-item">
-        <span class="cat-hero-label">Mín. pedido</span>
-        <strong>$2,500 MXN</strong>
-      </div>
-    </section>
+    <!-- List-first: sin page-head ni strip de info. El buscador (arriba) + la
+         grilla son lo primero. El acceso a IA se reubicó en el toolbar. -->
 
     <div *ngIf="loading()" class="cat-grid cat-skel-grid" aria-hidden="true">
       <div class="cat-skel-card" *ngFor="let i of skeletonCards">
@@ -120,7 +87,7 @@
       </div>
     </div>
 
-    <div *ngIf="!loading() && prices().length === 0" class="portal-empty">
+    <div *ngIf="!loading() && prices().length === 0 && !isSearching()" class="portal-empty">
       <div class="portal-empty-icon"><i class="pi pi-info-circle" aria-hidden="true"></i></div>
       <h2>Catálogo vacío</h2>
       <p>Aún no hay productos con precio configurado. Contacta a tu administrador.</p>
@@ -174,7 +141,7 @@
     <!-- Toolbar de filtros: botón abre panel lateral con marca/precio/stock.
          Reemplaza al chip-rail de 438 marcas que era inmanejable. -->
     <div
-      *ngIf="!loading() && prices().length > 0 && !quickFilter()"
+      *ngIf="!loading() && (prices().length > 0 || isSearching()) && !quickFilter()"
       class="cat-toolbar"
     >
       <button
@@ -198,6 +165,15 @@
       >
         <i class="pi pi-times" aria-hidden="true"></i>
         Limpiar
+      </button>
+      <button
+        type="button"
+        class="cat-filters-btn cat-toolbar-ai"
+        (click)="goAi()"
+        aria-label="Pedir con IA — recomendaciones"
+      >
+        <i class="pi pi-sparkles" aria-hidden="true"></i>
+        <span class="cat-toolbar-ai-label">Recomendado</span>
       </button>
       <div class="cat-viewtog" role="group" aria-label="Vista del catálogo">
         <button
@@ -336,27 +312,38 @@
       </footer>
     </aside>
 
-    <div *ngIf="!loading() && prices().length > 0" class="cat-layout">
+    <div *ngIf="!loading() && (prices().length > 0 || isSearching())" class="cat-layout">
       <section class="cat-main">
-        <!-- Rail premium compartido (mismo organismo que el home): reveal GSAP,
-             card lead espresso, drag/flechas. Reemplaza el strip inline. -->
-        <portal-top-products
-          *ngIf="topSellers().length > 0"
-          class="cat-topsellers"
-          [products]="topSellers()"
-          eyebrow="Más vendidos"
-          heading="Lo más pedido"
-          meta="Últimos 90 días"
-          [showRank]="true"
-          [addedIds]="cartProductIds()"
-          [cartQty]="cartQtyMap()"
-          (open)="openSheet($event)"
-          (add)="addToCart($event)"
-          (inc)="incrementCartLine($event)"
-          (dec)="decrementCartLine($event)"
-        ></portal-top-products>
+        <!-- #1: al buscar, el producto MÁS VENDIDO que coincide, fijado arriba de
+             los resultados (fallback al #1 global si no hay coincidencias). -->
+        <article
+          *ngIf="isSearching() && topMatch() as bm"
+          class="cat-promo-native"
+          (click)="openSheet(bm)"
+          tabindex="0"
+          role="button"
+          [attr.aria-label]="'Más vendido: ' + bm.product_name"
+          (keydown.enter)="openSheet(bm)"
+        >
+          <span class="cat-promo-badge"><i class="pi pi-chart-line" aria-hidden="true"></i> Más vendido</span>
+          <div class="cat-promo-img" [style.background]="bm.image_url ? null : cardGradient(bm)">
+            <img *ngIf="bm.image_url" [src]="img(bm, 200)" [alt]="bm.product_name" loading="lazy" decoding="async" />
+            <span *ngIf="!bm.image_url" class="cat-promo-mono">{{ productInitials(bm) }}</span>
+          </div>
+          <div class="cat-promo-body">
+            <span class="cat-promo-brand">{{ bm.brand_name || 'Sin marca' }}</span>
+            <span class="cat-promo-name" [title]="bm.product_name">{{ bm.product_name }}</span>
+            <span class="cat-promo-tag" *ngIf="bm.price != null">{{ +bm.price | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+          </div>
+          <button
+            type="button"
+            class="cat-promo-add"
+            (click)="$event.stopPropagation(); addToCart(bm)"
+            [attr.aria-label]="'Agregar ' + bm.product_name"
+          ><i class="pi pi-plus" aria-hidden="true"></i></button>
+        </article>
 
-        <header class="cat-main-head">
+        <header class="cat-main-head" *ngIf="visibleProducts().length > 0">
           <h2>{{ selectedBrandName() }}</h2>
           <span class="cat-main-meta">
             <ng-container *ngIf="hasMorePages(); else allShown">
@@ -399,7 +386,11 @@
 
         <div *ngIf="visibleProducts().length === 0" class="cat-empty-grid">
           <i class="pi pi-inbox"></i>
-          <p>No hay productos que coincidan.</p>
+          <p *ngIf="isSearching()">
+            No encontramos resultados para "{{ searchSignal() }}".
+            <ng-container *ngIf="topMatch()"> Te mostramos el más vendido arriba.</ng-container>
+          </p>
+          <p *ngIf="!isSearching()">No hay productos que coincidan.</p>
         </div>
 
         <div class="cat-grid" [class.cat-grid-list]="viewMode() === 'list'" *ngIf="visibleProducts().length > 0">

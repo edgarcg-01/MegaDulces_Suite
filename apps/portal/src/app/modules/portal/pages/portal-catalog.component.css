@@ -1,78 +1,5 @@
       :host { display: block; }
 
-      /* ── Page head: Fraunces + AI button identitario ─────────────── */
-      .cat-page-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 1rem;
-        flex-wrap: wrap;
-      }
-      /* Mobile: el botón "Recomendado para ti" baja debajo del título en vez de
-         quedar apretado al lado del h1 que envuelve a 2 líneas. */
-      @media (max-width: 640px) {
-        .cat-page-head { flex-direction: column; align-items: stretch; gap: 0.75rem; }
-        .cat-page-head .portal-btn-ember { align-self: flex-start; }
-      }
-      .cat-h1 {
-        font-family: var(--font-display, inherit);
-        font-optical-sizing: auto;
-        font-size: clamp(1.875rem, 4vw, 2.25rem);
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        line-height: 1.1;
-        margin: 0;
-        color: var(--neutral-950);
-      }
-
-      /* ── Hero mini con trust signals contextualizados ─────────────── */
-      .cat-hero {
-        display: grid;
-        grid-template-columns: 1fr auto 1fr auto 1fr;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.875rem 1.25rem;
-        margin: 0.5rem 0 1.25rem;
-        background: var(--surface-ground);
-        border: 1px solid var(--border-color);
-        border-radius: var(--r-lg);
-      }
-      .cat-hero-item {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-        min-width: 0;
-      }
-      .cat-hero-label {
-        font-size: var(--fs-nano);
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--text-muted, var(--neutral-600));
-      }
-      .cat-hero-item strong {
-        font-size: var(--fs-body);
-        font-weight: 700;
-        color: var(--neutral-950);
-        letter-spacing: -0.005em;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .cat-hero-divider {
-        width: 1px;
-        height: 28px;
-        background: var(--border-color);
-      }
-      @media (max-width: 900px) {
-        .cat-hero {
-          grid-template-columns: 1fr 1fr;
-          gap: 0.875rem 1rem;
-        }
-        .cat-hero-divider { display: none; }
-      }
-
       .cat-search-bar {
         position: sticky;
         /* Ancla bajo el header móvil del shell (se retrae → 0). Desktop = 0. */
@@ -291,6 +218,13 @@
         cursor: pointer;
       }
       .cat-clear-btn:hover { color: var(--text-main); background: var(--neutral-100); }
+
+      /* Botón IA reubicado en el toolbar (acceso a recomendaciones). Icono ember. */
+      .cat-toolbar-ai i { color: var(--brand-700); }
+      .cat-toolbar-ai-label { margin-left: 0.1rem; }
+      @media (max-width: 480px) {
+        .cat-toolbar-ai-label { display: none; }
+      }
       .cat-toolbar-meta {
         margin-left: auto;
         font-size: var(--fs-sm);
