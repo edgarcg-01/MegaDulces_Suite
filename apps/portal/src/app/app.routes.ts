@@ -27,11 +27,13 @@ export const appRoutes: Route[] = [
       },
       {
         path: 'catalog',
+        data: { preload: true },
         loadComponent: () =>
           import('./modules/portal/pages/portal-catalog.component').then((m) => m.PortalCatalogComponent),
       },
       {
         path: 'cart',
+        data: { preload: true },
         loadComponent: () =>
           import('./modules/portal/pages/portal-cart.component').then((m) => m.PortalCartComponent),
       },

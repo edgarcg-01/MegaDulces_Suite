@@ -5,6 +5,21 @@
     <title>Mega Dulces</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Gama baja: marca el documento para degradar efectos caros (blur, loops GSAP).
+         deviceMemory en GiB (Chrome, bucketed, cap 8); cores = hilos lógicos. Inline y
+         síncrono → la clase existe antes del primer paint (sin flash de blur). Erramos
+         hacia "low-end": el estado degradado sigue siendo legible y rápido. -->
+    <script>
+      (function () {
+        try {
+          var m = navigator.deviceMemory,
+            c = navigator.hardwareConcurrency;
+          if ((typeof m === 'number' && m <= 4) || (typeof c === 'number' && c <= 4)) {
+            document.documentElement.classList.add('low-end');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/webp" href="assets/logos/mega-dulces-logo-240.webp" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />

@@ -1,5 +1,5 @@
 import { APP_INITIALIZER, ApplicationConfig, ErrorHandler, provideZoneChangeDetection } from '@angular/core';
-import { provideRouter, withPreloading, PreloadAllModules, withViewTransitions, Router, NavigationEnd } from '@angular/router';
+import { provideRouter, withPreloading, withViewTransitions, Router, NavigationEnd } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { providePrimeNG } from 'primeng/config';
@@ -9,6 +9,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { filter } from 'rxjs/operators';
 import { environment } from '../environments/environment';
 import { appRoutes } from './app.routes';
+import { SelectivePreloadStrategy } from './core/perf/selective-preload.strategy';
 import { authInterceptor } from './core/http/auth.interceptor';
 import { TelemetryService } from './core/telemetry/telemetry.service';
 import { GlobalErrorHandler } from './core/telemetry/global-error-handler';
@@ -23,7 +24,7 @@ export const appConfig: ApplicationConfig = {
     // Microtransición entre pantallas: corre la activación de ruta dentro de
     // document.startViewTransition(). El look se define en styles.css
     // (::view-transition-*). Degrada a corte instantáneo donde no hay soporte.
-    provideRouter(appRoutes, withPreloading(PreloadAllModules), withViewTransitions()),
+    provideRouter(appRoutes, withPreloading(SelectivePreloadStrategy), withViewTransitions()),
     provideAnimationsAsync(),
     provideHttpClient(withInterceptors([authInterceptor])),
     providePrimeNG({

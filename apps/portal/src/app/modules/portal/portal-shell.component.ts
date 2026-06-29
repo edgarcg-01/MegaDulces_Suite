@@ -1335,11 +1335,13 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
     const setStickyTop = (px: number) =>
       host.style.setProperty('--portal-sticky-top', `${px}px`);
     setStickyTop(header.offsetHeight);
-    const onResize = () => {
-      if (!this.headerHidden) setStickyTop(header.offsetHeight);
-    };
-    window.addEventListener('resize', onResize, { passive: true });
-    this.stickyResizeOff = () => window.removeEventListener('resize', onResize);
+    this.zone.runOutsideAngular(() => {
+      const onResize = () => {
+        if (!this.headerHidden) setStickyTop(header.offsetHeight);
+      };
+      window.addEventListener('resize', onResize, { passive: true });
+      this.stickyResizeOff = () => window.removeEventListener('resize', onResize);
+    });
 
     // Header fijo bajo prefers-reduced-motion: la var queda en el alto del header.
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;

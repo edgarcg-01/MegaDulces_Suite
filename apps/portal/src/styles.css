@@ -1237,6 +1237,32 @@ input:focus, textarea:focus, select:focus {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+/* ───────────────────────────────────────────────────────────────────────────
+   GAMA BAJA — degradación de efectos caros. La clase `low-end` la marca
+   index.html (inline, por deviceMemory/cores) antes del primer paint.
+   backdrop-filter recompone en cada frame de scroll y mata la GPU débil → se
+   apaga en TODA la app y se compensa la opacidad donde el fondo era translúcido.
+   ─────────────────────────────────────────────────────────────────────────── */
+html.low-end *,
+html.low-end *::before,
+html.low-end *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html.low-end .portal-tabbar,
+html.low-end .portal-tabsearch {
+  background: var(--card-bg) !important;
+}
+html.low-end .glass {
+  background: rgba(255, 255, 255, 0.97) !important;
+}
+html.low-end .glass-dark {
+  background: rgba(0, 0, 0, 0.92) !important;
+}
+html.low-end .theme-monochrome .glass {
+  background: rgba(17, 17, 17, 0.97) !important;
+}
+
 /* 4. EFECTO SPOTLIGHT/HALO - Monocromático sutil */
 .spotlight {
   position: relative;
