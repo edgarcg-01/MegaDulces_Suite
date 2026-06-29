@@ -148,6 +148,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
               >−</button>
               <input
                 type="number"
+                inputmode="numeric"
                 [ngModel]="+line.quantity"
                 (ngModelChange)="updateQty(line, $event)"
                 min="1"
@@ -423,6 +424,10 @@ import { CountUpDirective } from '../ui/count-up.directive';
       .ca-line-qty input::-webkit-inner-spin-button {
         -webkit-appearance: none;
         margin: 0;
+      }
+      /* iOS hace zoom al enfocar inputs <16px; en touch subimos a 16px. */
+      @media (pointer: coarse) {
+        .ca-line-qty input { font-size: 16px; }
       }
       .ca-qty-btn {
         background: var(--surface-ground);

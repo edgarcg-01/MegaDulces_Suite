@@ -967,6 +967,11 @@ export class OfflineDatabaseService extends Dexie {
     });
   }
 
+  /** Resetea los intentos de un pedido "muerto" → vuelve a la cola activa de sync. */
+  async reintentarPedidoMuerto(id: string): Promise<void> {
+    await this.pedidosPendientes.update(id, { intentos_fallidos: 0 });
+  }
+
   /**
    * Limpieza de fotos cuyas visitas ya no existen (defensa contra leaks
    * por crashes mid-flow). Se corre como parte de limpiarDatosAntiguos.

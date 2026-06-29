@@ -56,6 +56,8 @@ const TESTS = [
   { file: 'http-commercial-map-test.js', label: 'Mapa Comercial: stores (coord híbrida + presencia) + history (propio/competencia)', needsApi: true },
   // V.6 Modo Vendedor — autodetección de llegada (nearby + anti-traslape + backfill capture-on-visit)
   { file: 'http-vendor-geo-test.js', label: 'V.6 autodetección llegada (nearby ranked + guard anti-traslape + check-in backfill)', needsApi: true },
+  // Take-order: place atómico (preventa draft→confirmed 1 trx idempotente) + replay offline
+  { file: 'http-vendor-place-test.js', label: 'Take-order: POST /orders/:id/place (atómico+idempotente, history, preventa no-reserva, replay offline)', needsApi: true },
   // Thot T.1 — recomendación producto-first (afinidad market-basket + zona + rotación + margen)
   { file: 'http-thot-test.js', label: 'Thot T.1 suggest (afinidad cart-aware + zona + rotación·margen, sin basura)', needsApi: true },
   // Thot T.2 — empuje dirigido (marca foco): el negocio decide qué empujar

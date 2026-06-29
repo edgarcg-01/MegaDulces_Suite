@@ -1,14 +1,17 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Capacitor } from '@capacitor/core';
-import { Router, RouterModule, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { filter } from 'rxjs';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { RoutePingService } from '../../core/services/route-ping.service';
 import { PushService } from '../../core/services/push.service';
+import { OfflineOrderService } from '../../core/services/offline-order.service';
 
 interface DiagProbe {
   build: { commit: string; ts: string };
@@ -62,16 +65,19 @@ interface DiagProbe {
             routerLinkActive="header-active"
             aria-label="Notificaciones"
           ></a>
-          <a
-            pButton
-            icon="pi pi-chart-bar"
-            severity="secondary"
-            size="small"
-            text
-            routerLink="today"
-            routerLinkActive="header-active"
-            aria-label="Mi día"
-          ></a>
+          <span class="hdr-badge-wrap">
+            <a
+              pButton
+              icon="pi pi-chart-bar"
+              severity="secondary"
+              size="small"
+              text
+              routerLink="today"
+              routerLinkActive="header-active"
+              [attr.aria-label]="pendingOrders() > 0 ? 'Mi día — ' + pendingOrders() + ' pedidos sin enviar' : 'Mi día'"
+            ></a>
+            <span class="hdr-dot" *ngIf="pendingOrders() > 0">{{ pendingOrders() }}</span>
+          </span>
           <button
             pButton
             icon="pi pi-cog"
@@ -226,6 +232,8 @@ interface DiagProbe {
       .vendor-brand i { font-size: 1.25rem; }
       .vendor-user { display: flex; align-items: center; gap: 0.25rem; }
       .vendor-user a.header-active { color: var(--brand-700); }
+      .hdr-badge-wrap { position: relative; display: inline-flex; }
+      .hdr-dot { position: absolute; top: -1px; right: -1px; min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px; background: var(--warn-fg, #d97706); color: #fff; font-size: 0.62rem; font-weight: 800; display: grid; place-items: center; pointer-events: none; font-variant-numeric: tabular-nums; box-sizing: border-box; }
       .vendor-main {
         flex: 1;
         /* El scroll lo lleva el DOCUMENTO (no main) → sin overflow propio. main
@@ -353,6 +361,8 @@ export class VendorShellComponent {
   protected readonly routePing = inject(RoutePingService);
   readonly push = inject(PushService);
   private readonly toast = inject(MessageService);
+  private readonly offlineApi = inject(OfflineOrderService);
+  private readonly destroyRef = inject(DestroyRef);
 
   private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
 
@@ -362,15 +372,29 @@ export class VendorShellComponent {
   readonly diag = signal<DiagProbe | null>(null);
   readonly copied = signal(false);
   readonly bgHelpOpen = signal(false);
+  /** Pedidos confirmados offline sin sincronizar (badge en "Mi día"). */
+  readonly pendingOrders = signal(0);
 
   constructor() {
     // Tracking de jornada: arranca al entrar al modo vendedor.
     this.routePing.startShift();
+
+    // Badge de pedidos sin enviar: refrescar al entrar y en cada navegación
+    // (captura volver de tomar un pedido offline y el drenado del sync).
+    this.refreshPendingBadge();
+    this.router.events
+      .pipe(filter((e) => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.refreshPendingBadge());
     // Onboarding one-time de ubicación en segundo plano (solo nativo): explica
     // los 3 ajustes que hacen que el GPS siga con la pantalla bloqueada.
     if (Capacitor.isNativePlatform() && !this.bgOnboarded()) {
       setTimeout(() => { this.bgHelpOpen.set(true); this.markBgOnboarded(); }, 1200);
     }
+  }
+
+  /** Refresca el contador de pedidos offline sin sincronizar (badge "Mi día"). */
+  private refreshPendingBadge(): void {
+    void this.offlineApi.count().then((n) => this.pendingOrders.set(n)).catch(() => void 0);
   }
 
   /** Pide permiso + suscribe a push (recordatorio de cierre de ruta). */

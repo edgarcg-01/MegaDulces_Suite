@@ -561,7 +561,7 @@ interface OfferCard {
         text-transform: uppercase;
         letter-spacing: 0.08em;
         padding: 0.3rem 0.75rem;
-        border-radius: 6px;
+        border-radius: var(--r-sm);
         margin-bottom: 0.875rem;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
       }

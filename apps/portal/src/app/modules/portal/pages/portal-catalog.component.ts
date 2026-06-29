@@ -846,6 +846,7 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   private revealGrid(fromIndex: number): void {
     if (typeof window === 'undefined') return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    if (document.documentElement.classList.contains('low-end')) return;
     this.zone.runOutsideAngular(() =>
       requestAnimationFrame(async () => {
         const grid = this.host.nativeElement.querySelector('.cat-grid:not(.cat-skel-grid)');

@@ -12,16 +12,21 @@ import { Router, RouterLink } from '@angular/router';
 import { CardModule } from 'primeng/card';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ButtonModule } from 'primeng/button';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { ConfirmationService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { VendorService } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
+import { OfflineOrderService, PendingOrderSummary } from '../../../core/services/offline-order.service';
 
 /** Mi día — resumen del día del vendedor (rediseño Mercado): mini-hero con KPIs + lista de pedidos. */
 @Component({
   selector: 'app-vendor-today',
   standalone: true,
-  imports: [CommonModule, RouterLink, CardModule, SkeletonModule, ButtonModule],
+  imports: [CommonModule, RouterLink, CardModule, SkeletonModule, ButtonModule, ConfirmDialogModule],
+  providers: [ConfirmationService],
   template: `
+    <p-confirmDialog></p-confirmDialog>
     <section class="hero" *ngIf="!loading()">
       <button
         type="button"
@@ -47,6 +52,24 @@ import { Order } from '../../portal/portal.service';
     <div class="body-pad">
       <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
 
+      <!-- Pedidos confirmados offline en espera de sincronizar -->
+      <div *ngIf="!loading() && pendingOffline().length > 0" class="pending-sync">
+        <div class="seclab"><i class="pi pi-cloud-upload"></i> Pedidos sin enviar ({{ pendingOffline().length }})</div>
+        <div class="psrow" *ngFor="let p of pendingOffline()" [class.dead]="p.dead">
+          <div class="psinfo">
+            <div class="psname">{{ p.customerName }}</div>
+            <div class="psmeta">{{ p.units }} u · {{ fmtMoney(p.total) }}</div>
+          </div>
+          <div class="psright">
+            <span class="chip" [ngClass]="p.dead ? 'bad' : 'warn'">{{ p.dead ? 'No se pudo enviar' : 'En cola' }}</span>
+            <div class="psactions" *ngIf="p.dead">
+              <button class="ps-retry" (click)="retryPending(p)"><i class="pi pi-refresh"></i> Reintentar</button>
+              <button class="ps-discard" (click)="discardPending(p)" aria-label="Descartar pedido"><i class="pi pi-trash"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Fallo de red (distinto de "sin pedidos hoy") -->
       <p-card *ngIf="!loading() && loadError() && orders().length === 0">
         <div class="empty">
@@ -56,7 +79,7 @@ import { Order } from '../../portal/portal.service';
         </div>
       </p-card>
 
-      <p-card *ngIf="!loading() && !loadError() && orders().length === 0">
+      <p-card *ngIf="!loading() && !loadError() && orders().length === 0 && pendingOffline().length === 0">
         <div class="empty">
           <i class="pi pi-calendar"></i>
           <p>Aún no tomaste pedidos hoy.</p>
@@ -142,6 +165,20 @@ import { Order } from '../../portal/portal.service';
       .chip.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
       .chip.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
       .chip.muted { background: var(--stone-100); color: var(--stone-600); }
+
+      .pending-sync { margin-bottom: 1.1rem; }
+      .pending-sync .seclab { display: flex; align-items: center; gap: 0.35rem; }
+      .pending-sync .seclab i { color: var(--info-soft-fg); }
+      .psrow { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg, 16px); padding: 0.7rem 0.9rem; margin-bottom: 0.5rem; }
+      .psrow.dead { border-color: var(--bad-fg); background: var(--bad-soft-bg); }
+      .psinfo { min-width: 0; flex: 1; }
+      .psname { font-weight: 700; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .psmeta { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .psright { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; flex-shrink: 0; }
+      .psactions { display: flex; align-items: center; gap: 0.4rem; }
+      .ps-retry { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--action); background: var(--action); color: #fff; border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.74rem; padding: 0.3rem 0.7rem; }
+      .ps-retry i { font-size: 0.7rem; }
+      .ps-discard { width: 2rem; height: 2rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--bad-fg); border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -150,12 +187,16 @@ export class VendorTodayComponent implements OnInit {
   private readonly api = inject(VendorService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
+  private readonly offlineApi = inject(OfflineOrderService);
+  private readonly confirmSvc = inject(ConfirmationService);
 
   readonly loading = signal(true);
   /** Falló la carga (red) — distinto de "sin pedidos hoy" (estándar PWA §5). */
   readonly loadError = signal(false);
   readonly refreshing = signal(false);
   readonly orders = signal<Order[]>([]);
+  /** Pedidos confirmados offline en espera de sincronizar (cola + muertos). */
+  readonly pendingOffline = signal<PendingOrderSummary[]>([]);
 
   /** Formatters/constante reutilizados — no instanciar Intl ni Date por CD. */
   private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
@@ -177,6 +218,7 @@ export class VendorTodayComponent implements OnInit {
     if (silent) this.refreshing.set(true);
     else this.loading.set(true);
     this.loadError.set(false);
+    this.loadPending(); // local (Dexie) — independiente de la red
     this.api
       .myOrdersToday()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -198,6 +240,31 @@ export class VendorTodayComponent implements OnInit {
   refresh(): void {
     if (this.refreshing()) return;
     this.load(true);
+  }
+
+  /** Carga (local) los pedidos confirmados offline sin sincronizar. */
+  private loadPending(): void {
+    void this.offlineApi
+      .pendingSummaries()
+      .then((s) => this.pendingOffline.set(s))
+      .catch(() => void 0);
+  }
+
+  /** Reintenta un pedido "muerto": vuelve a la cola y dispara sync si hay red. */
+  retryPending(p: PendingOrderSummary): void {
+    void this.offlineApi.retry(p.id).then(() => this.loadPending());
+  }
+
+  /** Descarta un pedido pendiente (no se enviará). Confirma porque es destructivo. */
+  discardPending(p: PendingOrderSummary): void {
+    this.confirmSvc.confirm({
+      header: 'Descartar pedido',
+      message: `¿Descartar el pedido de ${p.customerName} (${this.fmtMoney(p.total)})? No se enviará.`,
+      icon: 'pi pi-trash',
+      acceptLabel: 'Descartar',
+      rejectLabel: 'No',
+      accept: () => { void this.offlineApi.cancel(p.id).then(() => this.loadPending()); },
+    });
   }
 
   goToOrder(o: Order): void {

@@ -394,7 +394,7 @@ interface NavItem {
         width: 44px;
         height: 44px;
         object-fit: contain;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         padding: 4px;
       }
@@ -425,7 +425,7 @@ interface NavItem {
         align-items: center;
         gap: 0.75rem;
         padding: 0.625rem 0.75rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         color: var(--text-muted);
         text-decoration: none;
         font-size: var(--fs-body);
@@ -469,7 +469,7 @@ interface NavItem {
         min-width: 18px;
         height: 18px;
         padding: 0 5px;
-        border-radius: 9px;
+        border-radius: var(--r-sm);
         background: var(--brand-400);
         color: var(--neutral-950);
         font-size: var(--fs-nano);
@@ -491,7 +491,7 @@ interface NavItem {
         align-items: center;
         gap: 0.625rem;
         padding: 0.5rem;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         background: var(--surface-ground);
       }
       .portal-user-avatar {
@@ -569,14 +569,14 @@ interface NavItem {
         width: 32px;
         height: 32px;
         object-fit: contain;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         background: var(--neutral-100);
         padding: 3px;
       }
       .portal-icon-btn {
         width: 40px;
         height: 40px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         background: transparent;
         border: none;
         color: var(--text-muted);
@@ -607,7 +607,7 @@ interface NavItem {
         left: 50%;
         transform: translateX(-50%);
         width: 94%;
-        max-width: 520px;
+        max-width: min(520px, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 2rem));
         z-index: 40;
         align-items: center;
         gap: 0.5rem;
@@ -617,7 +617,7 @@ interface NavItem {
         display: flex;
         background: color-mix(in srgb, var(--card-bg) 86%, transparent);
         border: 1px solid var(--border-color);
-        border-radius: 9999px;
+        border-radius: var(--r-pill);
         padding: 0.375rem;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
         backdrop-filter: blur(20px) saturate(180%);
@@ -651,7 +651,7 @@ interface NavItem {
         gap: 2px;
         min-height: 44px;
         padding: 0.375rem 0.5rem;
-        border-radius: 9999px;
+        border-radius: var(--r-pill);
         text-decoration: none;
         color: var(--text-muted);
         font-size: var(--fs-nano);
@@ -705,7 +705,7 @@ interface NavItem {
         gap: 0.625rem;
         padding: 0.75rem 0.875rem 0.75rem 0.75rem;
         border: none;
-        border-radius: 9999px;
+        border-radius: var(--r-pill);
         background: var(--neutral-950);
         color: #fff;
         cursor: pointer;
@@ -739,7 +739,7 @@ interface NavItem {
         min-width: 28px;
         height: 28px;
         padding: 0 6px;
-        border-radius: 9999px;
+        border-radius: var(--r-pill);
         background: var(--brand-400);
         color: var(--neutral-950);
         font-size: var(--fs-sm);
@@ -775,7 +775,7 @@ interface NavItem {
         min-width: 18px;
         height: 18px;
         padding: 0 5px;
-        border-radius: 9px;
+        border-radius: var(--r-sm);
         background: var(--brand-400);
         color: var(--neutral-950);
         font-size: var(--fs-nano);
@@ -889,7 +889,7 @@ interface NavItem {
       .ps-close {
         width: 36px;
         height: 36px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         border: none;
         cursor: pointer;
@@ -943,7 +943,7 @@ interface NavItem {
         gap: 0.75rem;
         padding: 0.875rem;
         background: var(--neutral-100);
-        border-radius: 12px;
+        border-radius: var(--r-md);
       }
       .ps-user-avatar {
         width: 44px;
@@ -981,7 +981,7 @@ interface NavItem {
         padding: 4px;
         background: var(--neutral-100);
         border: 1px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
       }
       .ps-segment-btn {
         display: inline-flex;
@@ -992,7 +992,7 @@ interface NavItem {
         padding: 0.625rem 0.5rem;
         background: transparent;
         border: none;
-        border-radius: 8px;
+        border-radius: var(--r-sm);
         cursor: pointer;
         color: var(--text-muted);
         font-size: var(--fs-xs);
@@ -1033,12 +1033,12 @@ interface NavItem {
         padding: 0.75rem;
         background: var(--card-bg);
         border: 1px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: var(--r-md);
       }
       .ps-notif-icon {
         width: 36px;
         height: 36px;
-        border-radius: 10px;
+        border-radius: var(--r-md);
         background: var(--neutral-100);
         color: var(--text-main);
         display: grid;
@@ -1067,7 +1067,7 @@ interface NavItem {
       .ps-switch {
         width: 40px;
         height: 22px;
-        border-radius: 999px;
+        border-radius: var(--r-pill);
         background: var(--neutral-300);
         border: none;
         position: relative;
@@ -1113,7 +1113,7 @@ interface NavItem {
         background: transparent;
         color: var(--bad-fg);
         border: 1px solid var(--bad-border);
-        border-radius: 10px;
+        border-radius: var(--r-md);
         font-weight: 700;
         font-size: var(--fs-body);
         cursor: pointer;

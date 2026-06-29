@@ -66,6 +66,10 @@
         outline: none;
         min-width: 0;
       }
+      /* iOS hace zoom al enfocar inputs <16px; en touch subimos a 16px. */
+      @media (pointer: coarse) {
+        .cat-search-bar input { font-size: 16px; }
+      }
       .cat-search-clear {
         background: var(--neutral-100);
         border: none;
@@ -306,7 +310,7 @@
         padding: 0.4rem;
         color: var(--text-muted);
         cursor: pointer;
-        border-radius: 6px;
+        border-radius: var(--r-sm);
       }
       .cat-filters-close:hover { background: var(--neutral-100); color: var(--text-main); }
 
@@ -442,7 +446,7 @@
           max-height: 85vh;
           border-left: 0;
           border-top: 1px solid var(--border-color);
-          border-radius: 16px 16px 0 0;
+          border-radius: var(--r-lg) var(--r-lg) 0 0;
           animation: catSlideInBottom 220ms var(--ease-standard);
         }
       }
@@ -528,7 +532,7 @@
         width: 56px;
         height: 56px;
         flex: 0 0 auto;
-        border-radius: 11px;
+        border-radius: var(--r-md);
         display: grid;
         place-items: center;
         overflow: hidden;
@@ -712,7 +716,7 @@
       .cat-drawer-line-qty .cat-qty-btn {
         width: 40px;
         height: 40px;
-        border-radius: 6px;
+        border-radius: var(--r-sm);
         background: var(--surface-ground);
         border: none;
         cursor: pointer;
@@ -740,7 +744,7 @@
         border: none;
         background: transparent;
         color: var(--text-faint);
-        border-radius: 6px;
+        border-radius: var(--r-sm);
         cursor: pointer;
         display: grid;
         place-items: center;

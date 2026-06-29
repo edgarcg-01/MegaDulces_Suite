@@ -638,7 +638,7 @@ body {
 
 /* Enhanced interactions */
 .p-button {
-  transition: all 0.2s ease !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease !important;
 }
 
 .p-button:active {
@@ -866,7 +866,7 @@ input:focus, textarea:focus, select:focus {
   padding: 0.75rem 1.5rem !important;
   margin: 0 !important;
   position: relative !important;
-  transition: all 0.2s ease !important;
+  transition: color 0.2s ease, background-color 0.2s ease !important;
   font-weight: 600 !important;
   font-size: 0.875rem !important;
   color: var(--text-muted, #6b7280) !important;
@@ -1276,6 +1276,18 @@ html.low-end .cb-fill {
 html.low-end .cat-drawer-btn {
   transition: background-color 150ms var(--ease-standard) !important;
 }
+/* Animaciones decorativas infinitas (shimmer de skeletons, pulse de indicadores)
+   repintan sin fin → se congelan en gama baja. El estado base ya es legible. */
+html.low-end .animate-shimmer,
+html.low-end .animate-subtle-pulse {
+  animation: none !important;
+}
+/* filter: brightness() en hover de botones recompone el layer cada frame. */
+html.low-end .p-button.p-button-brand:hover,
+html.low-end .p-button-brand:hover,
+html.low-end .cat-search-mode.active {
+  filter: none !important;
+}
 
 /* 4. EFECTO SPOTLIGHT/HALO - Monocromático sutil */
 .spotlight {
@@ -1574,7 +1586,7 @@ html.low-end .cat-drawer-btn {
   border-radius: 12px;
   padding: 1.25rem;
   box-shadow: var(--shadow-light);
-  transition: all 0.2s ease;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .card-premium:hover {
