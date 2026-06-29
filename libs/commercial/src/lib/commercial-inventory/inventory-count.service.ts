@@ -212,6 +212,10 @@ export class InventoryCountService {
       }
 
       const expectedItems = snapInserted.rowCount ?? 0;
+      if (expectedItems === 0)
+        throw new BadRequestException(
+          `El almacén no tiene productos con stock para contar${subset ? ' en el subconjunto indicado' : ''}; no se abrió folio.`,
+        );
       this.logger.log(
         `Folio ${folio} abierto para almacén ${wh.code} con ${expectedItems} SKUs snapshot (freeze=${freeze}, blind=${blind}).`,
       );
@@ -273,7 +277,10 @@ export class InventoryCountService {
   }
 
   private async nextFolio(trx: any): Promise<string> {
-    const year = new Date().getFullYear();
+    // Año en TZ MX (no la del server) para que el folio no cambie de año ~6h antes.
+    const year = Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: 'America/Mexico_City', year: 'numeric' }).format(new Date()),
+    );
     const [{ current_value }] = await trx.raw(
       `INSERT INTO commercial.inventory_count_sequences (tenant_id, year, current_value)
        VALUES (public.current_tenant_id(), ?, 1)
@@ -284,6 +291,14 @@ export class InventoryCountService {
       [year],
     ).then((r: any) => r.rows);
     return `INV-${year}-${String(current_value).padStart(5, '0')}`;
+  }
+
+  /** Baseline de la varianza: en folios NO congelados, el libro AL MOMENTO DEL
+   *  CONTEO (book_at_count) para no contar las ventas del período como merma;
+   *  congelados (o sin snapshot) usan el teórico de apertura. */
+  private varianceBaseline(count: any, item: any): number {
+    if (!count.freeze_movements && item.book_at_count != null) return Number(item.book_at_count);
+    return Number(item.expected_qty);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -298,6 +313,9 @@ export class InventoryCountService {
 
     const result = await this.tk.run(async (trx) => {
       const uid = this.userId();
+      // Fail-closed: sin usuario no se puede atribuir el conteo (rompería la
+      // segregación de funciones aguas abajo).
+      if (!uid) throw new ForbiddenException('Sesión sin usuario; no se puede registrar el conteo.');
 
       // OFF.0 — FOR UPDATE: serializa por folio (excluye con reconcile) → ni el
       // status ni current_pass cambian entre la lectura y la escritura. A ritmo
@@ -439,22 +457,50 @@ export class InventoryCountService {
         patch.counted_by_3 = uid;
         patch.counted_at_3 = trx.fn.now();
       } else if (effectivePass >= 2) {
-        // Segundo conteo ciego: no podés verificar un SKU que vos mismo contaste
-        // en la primera pasada (segregación). Re-escanear tu propio count_2 = corrige.
-        if (uid && item.counted_by_1 === uid && item.count_2 == null) {
+        // Segundo conteo ciego: lo hace alguien DISTINTO al de la 1ra pasada, y
+        // nadie puede pisar el count_2 de otra persona (solo corregir el propio) —
+        // si no, el doble conteo ciego colapsa a un único observador que auto-resuelve.
+        if (uid && item.counted_by_1 === uid)
           throw new ConflictException(
             'No podés hacer el segundo conteo de un SKU que vos mismo contaste en la primera pasada.',
           );
-        }
+        if (uid && item.count_2 != null && item.counted_by_2 && item.counted_by_2 !== uid)
+          throw new ConflictException(
+            'Este SKU ya tiene un segundo conteo de otra persona; no se puede sobrescribir. Pedí un reconteo de desempate.',
+          );
         slot = 'count_2';
         patch.count_2 = dto.quantity;
         patch.counted_by_2 = uid;
         patch.counted_at_2 = trx.fn.now();
       } else {
+        // Primer conteo: nadie pisa el count_1 de otra persona (solo corrige el propio).
+        if (uid && item.count_1 != null && item.counted_by_1 && item.counted_by_1 !== uid)
+          throw new ConflictException(
+            'Este SKU ya tiene un primer conteo de otra persona; no se puede sobrescribir.',
+          );
         slot = 'count_1';
         patch.count_1 = dto.quantity;
         patch.counted_by_1 = uid;
         patch.counted_at_1 = trx.fn.now();
+      }
+
+      // Folio NO congelado (cíclico): fotografía el saldo en libros al PRIMER
+      // conteo. reconcile usa este baseline (no el de apertura) para el delta, así
+      // las ventas ocurridas durante el conteo no se borran.
+      if (slot === 'count_1' && !count.freeze_movements && item.book_at_count == null) {
+        let book = 0;
+        if (isInv) {
+          const ws = await trx('inventory.warehouse_stock')
+            .where({ warehouse_id: count.warehouse_id, sku: productSku })
+            .first();
+          book = ws ? Number(ws.quantity) : 0;
+        } else {
+          const sr = await trx('commercial.stock')
+            .where({ warehouse_id: count.warehouse_id, product_id: productId })
+            .first();
+          book = sr ? Number(sr.quantity) : 0;
+        }
+        patch.book_at_count = book;
       }
 
       patch.status = 'counted';
@@ -563,10 +609,11 @@ export class InventoryCountService {
         }
 
         if (finalQty != null) {
-          const variance = +(finalQty - Number(it.expected_qty)).toFixed(3);
+          const baseline = this.varianceBaseline(count, it);
+          const variance = +(finalQty - baseline).toFixed(3);
           // Count-back: conteos coincidentes pero |varianza| fuera de tolerancia
           // → NO auto-resolver; queda en discrepancy para recuento/revisión.
-          if (threshold > 0 && Math.abs(variance) > Math.abs(Number(it.expected_qty)) * threshold / 100) {
+          if (threshold > 0 && Math.abs(variance) > Math.abs(baseline) * threshold / 100) {
             discrepancies++;
             await trx('commercial.inventory_count_items')
               .where({ id: it.id })
@@ -614,7 +661,8 @@ export class InventoryCountService {
         .where({ id: itemId, count_id: countId })
         .first();
       if (!item) throw new NotFoundException('Item no encontrado');
-      const variance = +(dto.final_qty - Number(item.expected_qty)).toFixed(3);
+      const count = await this.getCountOrThrow(trx, countId);
+      const variance = +(dto.final_qty - this.varianceBaseline(count, item)).toFixed(3);
       await trx('commercial.inventory_count_items')
         .where({ id: itemId })
         .update({
@@ -623,6 +671,7 @@ export class InventoryCountService {
           status: 'resolved',
           notes: dto.notes || item.notes,
           reason_code: dto.reason_code || item.reason_code,
+          resolved_by: this.userId(),
           updated_at: trx.fn.now(),
           updated_by: this.userId(),
         });
@@ -656,7 +705,7 @@ export class InventoryCountService {
       if (q.warehouse_id) { filters.push(`c.warehouse_id = ?`); binds.push(q.warehouse_id); }
       if (q.from) { filters.push(`c.reconciled_at >= ?`); binds.push(q.from); }
       if (q.to) { filters.push(`c.reconciled_at < ?`); binds.push(q.to); }
-      const cost = `COALESCE(p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)`;
+      const cost = `COALESCE(i.unit_cost, p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)`;
       const accurate = `ABS(COALESCE(i.variance, 0)) <= (i.expected_qty * ${tolPct} / 100.0)`;
       const baseFrom = `
         FROM commercial.inventory_counts c
@@ -861,6 +910,33 @@ export class InventoryCountService {
     });
   }
 
+  /** Catálogo blind-safe del folio para pre-cache offline del contador: identifica
+   *  cada SKU del folio (barcode/sku/nombre/ubic.) SIN existencia ni teórico. (CONTAR) */
+  async counterCatalog(countId: string) {
+    if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
+    return this.tk.run(async (trx) => {
+      const count = await this.getCountOrThrow(trx, countId);
+      if (count.stock_source === 'inventory') {
+        return trx('commercial.inventory_count_items as i')
+          .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
+          .where('i.count_id', countId)
+          .select(
+            trx.raw('NULL::uuid AS product_id'),
+            'i.product_sku as sku',
+            trx.raw('ip.codigo_barras AS barcode'),
+            'ip.nombre as product_name',
+            trx.raw('NULL::text AS location'),
+          )
+          .limit(20000);
+      }
+      return trx('commercial.inventory_count_items as i')
+        .leftJoin('public.products as p', 'p.id', 'i.product_id')
+        .where('i.count_id', countId)
+        .select('i.product_id', 'p.sku', 'p.barcode', 'p.nombre as product_name', 'i.location')
+        .limit(20000);
+    });
+  }
+
   // Lista de items con teórico + varianza (NO la usa el contador). (SUPERVISAR/VER)
   async listItems(countId: string, status?: string) {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
@@ -1044,7 +1120,13 @@ export class InventoryCountService {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
 
     return this.tk.run(async (trx) => {
+      const t0 = Date.now();
+      // Acota cualquier statement patológico (p. ej. lock contention en un full
+      // count de ~9k SKUs) en vez de colgar la conexión indefinidamente.
+      await trx.raw(`SET LOCAL statement_timeout = '60s'`);
       const uid = this.userId();
+      // Fail-closed: la reconciliación mueve stock; exige usuario para la SoD.
+      if (!uid) throw new ForbiddenException('Sesión sin usuario; no se puede autorizar la reconciliación.');
       const count = await trx('commercial.inventory_counts')
         .where({ id: countId })
         .forUpdate()
@@ -1076,6 +1158,23 @@ export class InventoryCountService {
           `No se puede reconciliar: ${unresolved.length} item(s) sin valor final. Corré "calcular discrepancias" o resolvelos.`,
         );
 
+      // #9 — exigir causa en varianzas materiales (opt-in: solo si el folio define
+      // un umbral de recuento). Una merma/sobrante grande no se postea al ledger
+      // sin clasificar — alimenta el shrinkage por causa (IRA by_reason).
+      const reasonThreshold = Number(count.recount_threshold_pct) || 0;
+      if (reasonThreshold > 0) {
+        const unclassified = items.filter((it) => {
+          if (it.final_qty == null) return false;
+          const baseline = this.varianceBaseline(count, it);
+          const v = Number(it.final_qty) - baseline;
+          return Math.abs(v) > Math.abs(baseline) * reasonThreshold / 100 && !it.reason_code;
+        });
+        if (unclassified.length)
+          throw new ConflictException(
+            `No se puede reconciliar: ${unclassified.length} ítem(s) con varianza material sin motivo. Clasificá la causa (reason_code) al resolverlos.`,
+          );
+      }
+
       // ── FREEZE INTEGRITY GUARD ── (validez del conteo; va con los demás guards
       // de validez, ANTES del de autoridad). El ajuste fija el saldo de forma
       // ABSOLUTA al físico contado contra un teórico (expected_qty) fotografiado
@@ -1083,7 +1182,9 @@ export class InventoryCountService {
       // entonces (ventas, ajustes, carga de ruta), ese set absoluto BORRARÍA esos
       // movimientos y la varianza estaría mal atribuida → bloquear, no corromper.
       // (Solo modo commercial: inventory.warehouse_stock no lo mueven los pedidos.)
-      if (count.stock_source !== 'inventory') {
+      // Solo CONGELADOS: los no-congelados (cíclicos) reconcilian con delta relativo
+      // contra book_at_count y por eso ya no se bloquean por movimientos.
+      if (count.freeze_movements && count.stock_source !== 'inventory') {
         const since = count.started_at || count.created_at;
         // Scopeado a los productos DEL FOLIO: un movimiento de un SKU no contado no
         // invalida este conteo. Para un full count los items = todo el snapshot, así
@@ -1103,15 +1204,15 @@ export class InventoryCountService {
       }
 
       // ── SEGREGACIÓN DE FUNCIONES: el reconciliador no puede ser quien contó ──
-      const counters = new Set<string>();
+      const participants = new Set<string>();
       items.forEach((it) => {
-        [it.counted_by_1, it.counted_by_2, it.counted_by_3].forEach(
-          (c) => c && counters.add(c),
+        [it.counted_by_1, it.counted_by_2, it.counted_by_3, it.resolved_by].forEach(
+          (c) => c && participants.add(c),
         );
       });
-      if (uid && counters.has(uid))
+      if (uid && participants.has(uid))
         throw new ForbiddenException(
-          'Segregación de funciones: quien participó en el conteo no puede autorizar la reconciliación.',
+          'Segregación de funciones: quien contó o resolvió ítems del folio no puede autorizar la reconciliación.',
         );
 
       // ── Aplicar ajustes en la MISMA transacción ──
@@ -1120,20 +1221,55 @@ export class InventoryCountService {
       let totalDelta = 0;
       const skippedReserved: string[] = [];
 
+      // #14 — costo congelado AL RECONCILIAR (la merma no debe derivar si cambia
+      // cost_base después). Batch del costo de los productos del folio + acumulado
+      // del valor de varianza por folio.
+      const costMap = new Map<string, number>();
+      if (isInv) {
+        const skuList = items.map((it) => it.product_sku).filter(Boolean);
+        if (skuList.length) {
+          const rows = await trx('inventory.products')
+            .whereIn('sku', skuList)
+            .select('sku', trx.raw('venta_valor_costo_anual / NULLIF(venta_unidad_anual, 0) AS cost'));
+          rows.forEach((r: any) => costMap.set(r.sku, Number(r.cost) || 0));
+        }
+      } else {
+        const idList = items.map((it) => it.product_id).filter(Boolean);
+        if (idList.length) {
+          const rows = await trx('public.products').whereIn('id', idList).select('id', 'cost_base');
+          rows.forEach((r: any) => costMap.set(r.id, Number(r.cost_base) || 0));
+        }
+      }
+      let netVarValue = 0;
+      let absVarValue = 0;
+
       for (const it of items) {
         const finalQty = Number(it.final_qty);
         const expected = Number(it.expected_qty);
-        const delta = +(finalQty - expected).toFixed(3);
-        if (delta === 0) continue;
 
-        // Modo inventory: ajusta inventory.warehouse_stock por sku (upsert) +
-        // bitácora en inventory.warehouse_stock_movements (ajuste auditable).
+        // Modo inventory: set absoluto (inventory.warehouse_stock no lo mueven los
+        // pedidos → no hay ventas durante el conteo que preservar).
         if (isInv) {
+          const delta = +(finalQty - expected).toFixed(3);
+          if (delta === 0) continue;
           const wsRow = await trx('inventory.warehouse_stock')
             .where({ warehouse_id: count.warehouse_id, sku: it.product_sku })
             .forUpdate()
             .first();
           const wsBefore = wsRow ? Number(wsRow.quantity) : 0;
+          // Defensa: el saldo no puede quedar bajo lo reservado (CHECK en la tabla).
+          const wsReserved = wsRow ? Number(wsRow.reserved_quantity) : 0;
+          if (finalQty < wsReserved) {
+            skippedReserved.push(it.product_sku);
+            await trx('commercial.inventory_count_items')
+              .where({ id: it.id })
+              .update({
+                status: 'discrepancy',
+                notes: `Saldo ${finalQty} < reservado ${wsReserved}; ajuste bloqueado.`,
+                updated_at: trx.fn.now(),
+              });
+            continue;
+          }
           await trx('inventory.warehouse_stock')
             .insert({
               tenant_id: trx.raw('public.current_tenant_id()'),
@@ -1158,11 +1294,17 @@ export class InventoryCountService {
             notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
             created_by: uid,
           });
+          const unitCost = costMap.get(it.product_sku) || 0;
+          await trx('commercial.inventory_count_items').where({ id: it.id }).update({ unit_cost: unitCost });
+          netVarValue += delta * unitCost;
+          absVarValue += Math.abs(delta) * unitCost;
           adjusted++;
           totalDelta = +(totalDelta + delta).toFixed(3);
           continue;
         }
 
+        // Modo commercial. Lock del saldo ANTES de calcular (cierra el TOCTOU del
+        // path no-congelado).
         const stockRow = await trx('commercial.stock')
           .where({ warehouse_id: count.warehouse_id, product_id: it.product_id })
           .forUpdate()
@@ -1171,15 +1313,30 @@ export class InventoryCountService {
         const qtyBefore = stockRow ? Number(stockRow.quantity) : 0;
         const reservedBefore = stockRow ? Number(stockRow.reserved_quantity) : 0;
 
-        // El físico no puede quedar por debajo de lo reservado (viola CHECK
+        // Frozen → set absoluto (el freeze guard garantiza que el saldo no se movió
+        // desde la apertura). No-frozen (cíclico) → delta RELATIVO contra el libro
+        // al momento del conteo (book_at_count): así las ventas ocurridas durante el
+        // conteo se conservan en vez de borrarse por un set absoluto.
+        const baseline = count.freeze_movements
+          ? expected
+          : it.book_at_count != null
+            ? Number(it.book_at_count)
+            : expected;
+        const newQty = count.freeze_movements
+          ? finalQty
+          : +(qtyBefore + (finalQty - baseline)).toFixed(3);
+        const appliedDelta = +(newQty - qtyBefore).toFixed(3);
+        if (appliedDelta === 0) continue;
+
+        // El saldo resultante no puede quedar por debajo de lo reservado (viola CHECK
         // quantity >= reserved). Lo dejamos pendiente para revisión manual.
-        if (finalQty < reservedBefore) {
+        if (newQty < reservedBefore) {
           skippedReserved.push(it.product_id);
           await trx('commercial.inventory_count_items')
             .where({ id: it.id })
             .update({
               status: 'discrepancy',
-              notes: `Físico ${finalQty} < reservado ${reservedBefore}; ajuste bloqueado, requiere liberar reservas.`,
+              notes: `Saldo resultante ${newQty} < reservado ${reservedBefore}; ajuste bloqueado, requiere liberar reservas.`,
               updated_at: trx.fn.now(),
             });
           continue;
@@ -1188,13 +1345,13 @@ export class InventoryCountService {
         if (stockRow) {
           await trx('commercial.stock')
             .where({ id: stockRow.id })
-            .update({ quantity: finalQty, updated_at: trx.fn.now(), updated_by: uid });
+            .update({ quantity: newQty, updated_at: trx.fn.now(), updated_by: uid });
         } else {
           await trx('commercial.stock').insert({
             tenant_id: trx.raw('public.current_tenant_id()'),
             warehouse_id: count.warehouse_id,
             product_id: it.product_id,
-            quantity: finalQty,
+            quantity: newQty,
             reserved_quantity: 0,
             updated_by: uid,
           });
@@ -1205,23 +1362,35 @@ export class InventoryCountService {
           warehouse_id: count.warehouse_id,
           product_id: it.product_id,
           movement_type: 'adjust',
-          quantity: Math.abs(delta),
+          quantity: Math.abs(appliedDelta),
           quantity_before: qtyBefore,
-          quantity_after: finalQty,
+          quantity_after: newQty,
           reference_type: 'inventory_count',
           reference_id: countId,
           reason_code: it.reason_code || null,
           notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
           created_by: uid,
         });
+        const unitCost = costMap.get(it.product_id) || 0;
+        await trx('commercial.inventory_count_items').where({ id: it.id }).update({ unit_cost: unitCost });
+        netVarValue += appliedDelta * unitCost;
+        absVarValue += Math.abs(appliedDelta) * unitCost;
         adjusted++;
-        totalDelta = +(totalDelta + delta).toFixed(3);
+        totalDelta = +(totalDelta + appliedDelta).toFixed(3);
       }
 
-      if (skippedReserved.length)
+      if (skippedReserved.length) {
+        // En modo inventory skippedReserved trae SKUs; en commercial, product_ids
+        // (uuid) que resolvemos a SKU. No mezclar (evita 22P02 al buscar por id).
+        let label = skippedReserved.join(', ');
+        if (!isInv) {
+          const skus = await trx('public.products').whereIn('id', skippedReserved).pluck('sku');
+          if (skus.filter(Boolean).length) label = skus.filter(Boolean).join(', ');
+        }
         throw new ConflictException(
-          `${skippedReserved.length} SKU(s) con físico < reservado: libera las reservas (pedidos) antes de reconciliar. El folio queda en review.`,
+          `${skippedReserved.length} SKU(s) con saldo resultante < reservado (${label}): liberá las reservas (pedidos) antes de reconciliar.`,
         );
+      }
 
       await trx('commercial.inventory_counts')
         .where({ id: countId })
@@ -1230,18 +1399,21 @@ export class InventoryCountService {
           reconciled_at: trx.fn.now(),
           reconciled_by: uid,
           closed_at: trx.fn.now(),
+          net_variance_value: +netVarValue.toFixed(2),
+          variance_value_abs: +absVarValue.toFixed(2),
           updated_at: trx.fn.now(),
           updated_by: uid,
         });
 
       this.logger.log(
-        `Folio ${count.folio} reconciliado: ${adjusted} ajustes, delta neto ${totalDelta}.`,
+        `Folio ${count.folio} reconciliado: ${adjusted} ajustes, delta neto ${totalDelta} (${items.length} ítems, ${Date.now() - t0}ms).`,
       );
       return {
         status: 'reconciled',
         folio: count.folio,
         items_adjusted: adjusted,
         net_delta: totalDelta,
+        net_variance_value: +netVarValue.toFixed(2),
       };
     });
   }
@@ -1251,6 +1423,7 @@ export class InventoryCountService {
     return this.tk.run(async (trx) => {
       const count = await trx('commercial.inventory_counts')
         .where({ id: countId })
+        .forUpdate()
         .first();
       if (!count) throw new NotFoundException('Folio no encontrado');
       if (count.status === 'reconciled')
@@ -1297,10 +1470,16 @@ export class InventoryCountService {
 
       const items = await trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
+        .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
         .where('i.count_id', countId)
         .whereRaw('COALESCE(i.variance, 0) <> 0')
-        .select('p.sku', 'p.nombre as product_name', 'p.unit_sale', 'p.cost_base',
-          'i.expected_qty', 'i.final_qty', 'i.variance');
+        .select(
+          trx.raw('COALESCE(p.sku, i.product_sku) AS sku'),
+          trx.raw('COALESCE(p.nombre, ip.nombre) AS product_name'),
+          trx.raw('COALESCE(p.unit_sale, ip.unidad_venta) AS unit_sale'),
+          trx.raw('COALESCE(p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0) AS cost_base'),
+          'i.expected_qty', 'i.final_qty', 'i.variance',
+        );
 
       let mermaValue = 0, sobranteValue = 0;
       const lines = items.map((it: any) => {
@@ -1441,12 +1620,6 @@ export class InventoryCountService {
         .select('user_id');
       if (counters.length && !counters.some((a) => a.user_id === uid))
         throw new ForbiddenException('No estás asignado como contador de este folio.');
-
-      if (count.status === 'open') {
-        await trx('commercial.inventory_counts')
-          .where({ id: countId })
-          .update({ status: 'counting', started_at: count.started_at || trx.fn.now() });
-      }
 
       const pass = Number(count.current_pass) || 1;
       const ctx = this.tenantCtx.get();

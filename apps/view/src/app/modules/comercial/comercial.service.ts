@@ -821,6 +821,11 @@ export class ComercialService {
     return this.http.get<InventoryCount[]>(`${this.base}/inventory/counts/mine`);
   }
 
+  /** Catálogo blind-safe del folio (sku/barcode/nombre/ubic., sin existencia) para pre-cache offline. */
+  inventoryCounterCatalog(countId: string) {
+    return this.http.get<InventoryCatalogRow[]>(`${this.base}/inventory/counts/${countId}/catalog`);
+  }
+
   resolveInventoryProduct(barcode: string) {
     return this.http.get<ResolvedProduct>(`${this.base}/inventory/counts/resolve`, { params: new HttpParams().set('barcode', barcode) });
   }
@@ -957,6 +962,14 @@ export interface AssignableUser {
   username: string;
   nombre: string | null;
   role_name: string;
+}
+
+export interface InventoryCatalogRow {
+  product_id: string | null;
+  sku: string | null;
+  barcode: string | null;
+  product_name: string | null;
+  location: string | null;
 }
 
 export interface InventoryAssignment {

@@ -178,6 +178,64 @@ export interface RouteTicketPendiente {
   createdAt: string;
 }
 
+/**
+ * v8: caché del catálogo por price-list (compartido entre clientes con la misma
+ * lista → dedup). Permite ABRIR el take-order sin red. Se rellena al cargar un
+ * cliente online. `prices`/`warehouseId` son lo que necesita la pantalla.
+ */
+export interface VendorCatalogCache {
+  id: string; // priceListId
+  warehouseId: string;
+  prices: any[]; // PriceRow[] (tipo del front; evitamos acoplar la lib offline)
+  cachedAt: string;
+}
+
+/**
+ * v8: contexto del cliente para take-order offline. Liviano: apunta al
+ * priceListId (catálogo en VendorCatalogCache) + sus habituales. Se rellena al
+ * abrir el cliente online.
+ */
+export interface VendorCustomerCache {
+  id: string; // customerId
+  customer: any; // VendorCustomer
+  priceListId: string;
+  frequent: any[]; // FrequentProduct[]
+  cachedAt: string;
+}
+
+/** Línea de un pedido armado offline (snapshot de precio para totales locales). */
+export interface OfflinePedidoLine {
+  product_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  tax_rate: number;
+  min_qty: number;
+}
+
+/**
+ * v8: pedido armado SIN red. `status='building'` mientras el vendedor lo arma;
+ * `'ready'` cuando lo confirma (entra a la cola de sync). El replay hace
+ * createDraft → replaceLines → place. `serverOrderId` se llena tras crear el
+ * draft real → idempotencia: si el replay reintenta, no recrea el pedido.
+ */
+export interface PedidoPendiente {
+  id: string; // UUID v4 local (sync_uuid)
+  userId: string;
+  customerId: string;
+  customerName: string;
+  warehouseId: string;
+  requestedDeliveryDate: string;
+  lines: OfflinePedidoLine[];
+  status: 'building' | 'ready';
+  serverOrderId?: string; // order.id real tras createDraft (guard de idempotencia)
+  serverCode?: string; // folio real tras sync
+  sincronizado: boolean;
+  intentos_fallidos: number;
+  ultimo_intento: string;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OfflineDatabaseService extends Dexie {
   tiendas!: Table<TiendaOffline, string>;
@@ -189,6 +247,9 @@ export class OfflineDatabaseService extends Dexie {
   routePings!: Table<RoutePing, string>;
   clientesPendientes!: Table<PendingCustomer, string>;
   routeTicketsPendientes!: Table<RouteTicketPendiente, string>;
+  vendorCatalogCache!: Table<VendorCatalogCache, string>;
+  vendorCustomerCache!: Table<VendorCustomerCache, string>;
+  pedidosPendientes!: Table<PedidoPendiente, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
@@ -268,6 +329,23 @@ export class OfflineDatabaseService extends Dexie {
       routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
       clientesPendientes: 'id, userId, sincronizado, intentos_fallidos',
       routeTicketsPendientes: 'id, userId, sincronizado, ticketType, intentos_fallidos',
+    });
+
+    // v8: take-order offline — caché de catálogo/cliente (abrir sin red) +
+    // pedidosPendientes (armar/confirmar sin red, replay al reconectar).
+    this.version(8).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+      routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
+      clientesPendientes: 'id, userId, sincronizado, intentos_fallidos',
+      routeTicketsPendientes: 'id, userId, sincronizado, ticketType, intentos_fallidos',
+      vendorCatalogCache: 'id, cachedAt',
+      vendorCustomerCache: 'id, cachedAt',
+      pedidosPendientes: 'id, userId, customerId, sincronizado, status, intentos_fallidos',
     });
 
     // Hooks para auditoría
@@ -761,6 +839,130 @@ export class OfflineDatabaseService extends Dexie {
       entidad_id: localId,
       estado: 'error',
       mensaje: `tienda pending: ${error}`,
+      fecha: new Date().toISOString(),
+    });
+  }
+
+  // --- Take-order offline: caché de contexto (abrir sin red) ---
+
+  /**
+   * Cachea el contexto de take-order de un cliente: el catálogo se guarda por
+   * price-list (compartido/dedup) y el cliente apunta a esa lista + sus
+   * habituales. Idempotente (put). Se llama al cargar el cliente ONLINE.
+   */
+  async cacheVendorContext(
+    customerId: string,
+    ctx: { customer: any; priceListId: string; warehouseId: string; prices: any[]; frequent: any[] },
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.transaction('rw', this.vendorCatalogCache, this.vendorCustomerCache, async () => {
+      await this.vendorCatalogCache.put({
+        id: ctx.priceListId,
+        warehouseId: ctx.warehouseId,
+        prices: ctx.prices,
+        cachedAt: now,
+      });
+      await this.vendorCustomerCache.put({
+        id: customerId,
+        customer: ctx.customer,
+        priceListId: ctx.priceListId,
+        frequent: ctx.frequent,
+        cachedAt: now,
+      });
+    });
+  }
+
+  /** Lee el contexto cacheado para abrir el take-order sin red. Null si falta. */
+  async getVendorContext(customerId: string): Promise<{
+    customer: any;
+    warehouseId: string;
+    prices: any[];
+    frequent: any[];
+  } | null> {
+    const cust = await this.vendorCustomerCache.get(customerId);
+    if (!cust) return null;
+    const cat = await this.vendorCatalogCache.get(cust.priceListId);
+    if (!cat) return null;
+    return {
+      customer: cust.customer,
+      warehouseId: cat.warehouseId,
+      prices: cat.prices || [],
+      frequent: cust.frequent || [],
+    };
+  }
+
+  // --- Take-order offline: pedidos pendientes (armar/confirmar sin red) ---
+
+  /** Draft local "building" abierto de este vendedor para este cliente (o undefined). */
+  async getOpenPedido(userId: string, customerId: string): Promise<PedidoPendiente | undefined> {
+    const todos = await this.pedidosPendientes.toArray();
+    return todos.find(
+      (p) => !p.sincronizado && p.status === 'building' && p.userId === userId && p.customerId === customerId,
+    );
+  }
+
+  async getPedidoById(id: string): Promise<PedidoPendiente | undefined> {
+    return this.pedidosPendientes.get(id);
+  }
+
+  /** Crea o reemplaza un pedido pendiente (put). */
+  async savePedido(p: PedidoPendiente): Promise<void> {
+    await this.pedidosPendientes.put(p);
+  }
+
+  /** Reemplaza las líneas de un draft local. */
+  async updatePedidoLines(id: string, lines: OfflinePedidoLine[]): Promise<void> {
+    await this.pedidosPendientes.update(id, { lines });
+  }
+
+  /** Marca el draft local como confirmado (entra a la cola de sync). */
+  async setPedidoReady(id: string, requestedDeliveryDate: string): Promise<void> {
+    await this.pedidosPendientes.update(id, { status: 'ready', requestedDeliveryDate });
+  }
+
+  /** Borra un draft local (cancelado por el vendedor). */
+  async deletePedido(id: string): Promise<void> {
+    await this.pedidosPendientes.delete(id);
+  }
+
+  /** Pedidos confirmados offline (ready) pendientes de sync, dentro del cap de reintentos. */
+  async getPedidosListos(): Promise<PedidoPendiente[]> {
+    const todos = await this.pedidosPendientes.toArray();
+    return todos.filter((p) => !p.sincronizado && p.status === 'ready');
+  }
+
+  /** Cuenta pedidos sin sincronizar (building + ready) de un vendedor — para el badge. */
+  async contarPedidosPendientes(userId: string): Promise<number> {
+    const todos = await this.pedidosPendientes.toArray();
+    return todos.filter((p) => !p.sincronizado && p.userId === userId && p.status === 'ready').length;
+  }
+
+  /** Guarda el order.id real tras crear el draft en server (idempotencia del replay). */
+  async setPedidoServerOrderId(id: string, serverOrderId: string): Promise<void> {
+    await this.pedidosPendientes.update(id, { serverOrderId });
+  }
+
+  async marcarPedidoSincronizado(id: string, serverOrderId: string, serverCode?: string): Promise<void> {
+    await this.pedidosPendientes.update(id, {
+      sincronizado: true,
+      serverOrderId,
+      serverCode,
+      ultimo_intento: new Date().toISOString(),
+    });
+  }
+
+  async incrementarIntentoPedido(id: string, error: string): Promise<void> {
+    const p = await this.pedidosPendientes.get(id);
+    if (!p) return;
+    await this.pedidosPendientes.update(id, {
+      intentos_fallidos: (p.intentos_fallidos || 0) + 1,
+      ultimo_intento: new Date().toISOString(),
+    });
+    await this.addSyncLog({
+      tipo: 'visita',
+      entidad_id: id,
+      estado: 'error',
+      mensaje: `pedido offline: ${error}`,
       fecha: new Date().toISOString(),
     });
   }

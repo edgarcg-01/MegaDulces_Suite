@@ -20,10 +20,13 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of, switchMap, catchError } from 'rxjs';
+import { Observable, forkJoin, from, of, switchMap, catchError, map } from 'rxjs';
+import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
 import { VendorService, VendorCustomer, VendorOrder, ThotSuggestion, FrequentProduct, AiSuggestion } from '../vendor.service';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
+import { ConnectivityService } from '../../../core/services/connectivity.service';
+import { OfflineOrderService } from '../../../core/services/offline-order.service';
 
 type OrderMode = 'instante' | 'futuro';
 
@@ -69,6 +72,15 @@ const foldText = (s: string | null | undefined): string =>
 
     <ng-container *ngIf="!loading() && customer()">
       <div class="scroll">
+        <!-- Modo offline: el pedido se arma local y se sincroniza al reconectar -->
+        <div class="offline-banner" *ngIf="offlineMode()">
+          <i class="pi pi-cloud-upload"></i>
+          <div class="ob-body">
+            <b>Sin conexión</b>
+            <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar.</span>
+          </div>
+        </div>
+
         <!-- Aviso: el cliente ya tiene un pedido pendiente (preventa/portal o de campo) -->
         <div class="pending-warn" *ngIf="!pendingDismissed() && pendingOrders().length > 0">
           <i class="pi pi-exclamation-triangle"></i>
@@ -83,6 +95,19 @@ const foldText = (s: string | null | undefined): string =>
           <div class="pw-actions">
             <button class="pw-see" (click)="goPending()">Ver</button>
             <button class="pw-x" (click)="pendingDismissed.set(true)">Continuar</button>
+          </div>
+        </div>
+
+        <!-- Oferta de pedido sugerido (opt-in: no se arma solo) -->
+        <div class="prefill-note offer" *ngIf="showPrefillOffer()">
+          <i class="pi pi-bolt"></i>
+          <div class="pn-body">
+            <b>¿Cargar pedido sugerido?</b>
+            <span>{{ predictedLines().length }} productos según lo que suele pedir.</span>
+          </div>
+          <div class="pn-actions">
+            <button class="pn-yes" (click)="usePrefill()">Cargar</button>
+            <button (click)="prefillDismissed.set(true)">No</button>
           </div>
         </div>
 
@@ -112,7 +137,7 @@ const foldText = (s: string | null | undefined): string =>
             [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
-          <button *ngIf="voiceSupported" class="mic" [class.on]="listening()"
+          <button *ngIf="voiceSupported && !offlineMode()" class="mic" [class.on]="listening()"
             (click)="listening() ? stopVoice() : startVoice()"
             [attr.aria-label]="listening() ? 'Detener dictado' : 'Dictar pedido por voz'">
             <i class="pi" [ngClass]="listening() ? 'pi-stop-circle' : 'pi-microphone'"></i>
@@ -244,14 +269,14 @@ const foldText = (s: string | null | undefined): string =>
           <button class="sh-x" (click)="cartOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
         </div>
         <div class="sh-lines">
-          <div class="cline" *ngFor="let l of cartLines(); trackBy: trackLine">
+          <div class="cline" *ngFor="let l of visibleCartLines(); trackBy: trackLine">
             <div class="cl-info">
               <div class="cl-n">{{ productNameById(l.product_id) }}</div>
               <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
             </div>
             <div class="stepper">
               <button (click)="dec(l)" aria-label="Menos">−</button>
-              <span class="q">{{ +l.quantity }}</span>
+              <span class="q">{{ cartQty(l.product_id) }}</span>
               <button (click)="inc(l)" aria-label="Más">+</button>
             </div>
             <button class="rm" (click)="removeLine(l)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
@@ -423,6 +448,9 @@ const foldText = (s: string | null | undefined): string =>
       .prefill-note .pn-body span { font-size: 0.76rem; color: var(--text-muted); }
       .prefill-note button { flex-shrink: 0; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.78rem; padding: 0.35rem 0.8rem; }
       .prefill-note.loading { color: var(--text-muted); font-size: 0.88rem; }
+      .prefill-note .pn-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+      .prefill-note .pn-actions button { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem; }
+      .prefill-note .pn-actions .pn-yes { border-color: var(--action); background: var(--action); color: #fff; }
 
       .list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.6rem; }
       .list-head .lh-t { font-weight: 800; font-size: 0.95rem; color: var(--text-main); display: inline-flex; align-items: center; gap: 0.35rem; }
@@ -598,6 +626,11 @@ const foldText = (s: string | null | undefined): string =>
       .pending-warn .pw-see { background: var(--warn-fg); color: #fff; border: none; border-radius: var(--r-sm, 8px); font-weight: 700; font-size: 0.76rem; padding: 0.35rem 0.7rem; }
       .pending-warn .pw-x { background: none; border: none; color: var(--text-muted); font-size: 0.72rem; font-weight: 600; }
 
+      .offline-banner { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.875rem; padding: 0.7rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--info-soft-bg); border: 1px solid var(--info-border); }
+      .offline-banner > i { color: var(--info-soft-fg); font-size: 1.1rem; margin-top: 1px; flex-shrink: 0; }
+      .offline-banner .ob-body b { display: block; font-size: 0.85rem; color: var(--text-main); }
+      .offline-banner .ob-body span { font-size: 0.76rem; color: var(--text-muted); line-height: 1.3; }
+
       @media (prefers-reduced-motion: reduce) { .add, .cartbar .cb-go, .cart-sheet, .sheet-backdrop, .cart-sheet .sh-go { transition: none; animation: none; } }
     `,
   ],
@@ -613,6 +646,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private readonly doc = inject(DOCUMENT);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly conn = inject(ConnectivityService);
+  private readonly offlineApi = inject(OfflineOrderService);
 
   /** Cifra reutilizada — no instanciar Intl en cada fila/total (estándar PWA perf). */
   private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
@@ -638,6 +673,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.doc.body.style.removeProperty('overflow');
     this.stopVoice();
+    if (this.qtyFlushTimer) clearTimeout(this.qtyFlushTimer);
+    if (this.suggestTimer) clearTimeout(this.suggestTimer);
   }
 
   /** ¿Hay algún bottom-sheet abierto? (carrito / pitch / acciones / finalizar / voz). */
@@ -691,6 +728,10 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
   readonly warehouseId = signal<string>('');
+  /** Modo offline: fijado al cargar. true → el pedido se arma/confirma 100% local
+   *  (Dexie) y se sincroniza al reconectar. No cambia a mitad de la sesión. */
+  readonly offlineMode = signal(false);
+  private priceListId = '';
   readonly submitting = signal(false);
   /** Siempre preventa: el pedido se agenda y queda para reparto (la venta directa
    *  se registra capturando el ticket, no por este flujo). */
@@ -736,6 +777,16 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly adding = signal<Record<string, boolean>>({});
   /** Signal (no campo plano): un `computed` que lo lea reacciona al tipear. */
   readonly searchTerm = signal('');
+
+  /**
+   * Cantidad objetivo optimista por producto, pendiente de PATCH (debounced). La
+   * UI la refleja al instante; el server se sincroniza en una ráfaga (1 update
+   * por línea al soltar, no uno por cada tap de +/−). Evita la lluvia de requests
+   * del ajuste fino en campo.
+   */
+  private readonly pendingQty = signal<Map<string, number>>(new Map());
+  private qtyFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private suggestTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ─── Pedido por voz (dictado → IA → confirmar → pad) ───
   /** ¿el navegador soporta dictado? (Web Speech API). */
@@ -831,6 +882,18 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** ¿el pedido se pre-cargó con la canasta predicha? (para el banner + "Vaciar"). */
   readonly prefilled = signal(false);
   readonly prefilling = signal(false);
+  /** El vendedor descartó la oferta de pedido sugerido (banner opt-in). */
+  readonly prefillDismissed = signal(false);
+  /** ¿Ofrecer cargar la canasta predicha? Pedido nuevo, vacío y con predicción. */
+  readonly showPrefillOffer = computed(
+    () =>
+      !this.loading() &&
+      !this.prefilled() &&
+      !this.prefilling() &&
+      !this.prefillDismissed() &&
+      this.cartLines().length === 0 &&
+      this.predictedLines().length > 0,
+  );
 
   /**
    * Canasta PREDICHA para pre-cargar el pedido: los productos del núcleo de compra
@@ -1007,25 +1070,42 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     }
     return m;
   });
-  /** Cantidad del producto en el carrito = SUMA de sus líneas (robusto a líneas
-   *  duplicadas que el addLine del backend pudo crear con taps repetidos). */
+  /** Cantidad del producto en el carrito. Prioriza el override optimista
+   *  (pendiente de flush); si no, la SUMA de sus líneas reales. */
   cartQty(productId: string): number {
+    const pend = this.pendingQty().get(productId);
+    if (pend != null) return pend;
     return this.qtyByProduct().get(productId) ?? 0;
   }
+
+  /** Líneas a mostrar en el sheet: oculta las que el optimista llevó a 0 (en
+   *  tránsito a quitarse) para que la vista no muestre una línea con qty 0. */
+  readonly visibleCartLines = computed(() =>
+    this.cartLines().filter((l) => this.cartQty(l.product_id) > 0),
+  );
 
   ngOnInit(): void {
     const customerId = this.route.snapshot.paramMap.get('id');
     if (!customerId) return;
     this.customerId = customerId;
+    if (this.conn.isOnline()) this.loadOnline(customerId);
+    else this.loadOffline(customerId);
+  }
 
-    this.api
-      .defaultWarehouseId()
+  /** Carga online: backend + cachea el contexto para poder abrir offline luego. */
+  private loadOnline(customerId: string): void {
+    // Ronda 1: warehouse default + customer (en paralelo). El customer alimenta
+    // el catálogo de la ronda 2 sin re-pedirlo (antes se fetcheaba 2 veces).
+    forkJoin({
+      warehouseId: this.api.defaultWarehouseId(),
+      customer: this.api.getCustomer(customerId),
+    })
       .pipe(
-        switchMap((warehouseId) =>
+        switchMap(({ warehouseId, customer }) =>
           forkJoin({
-            customer: this.api.getCustomer(customerId),
-            prices: this.api.catalogForCustomer(customerId, warehouseId || undefined),
+            customer: of(customer),
             warehouseId: of(warehouseId),
+            catalog: this.api.catalogForCustomer(customer, warehouseId || undefined),
             existingDraft: this.api.draftForCustomer(customerId),
             pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
             frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
@@ -1034,13 +1114,27 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe({
-        next: ({ customer, prices, warehouseId, existingDraft, pending, frequent }) => {
+        next: ({ customer, catalog, warehouseId, existingDraft, pending, frequent }) => {
           this.customer.set(customer);
-          this.prices.set(prices);
+          this.prices.set(catalog.prices);
+          this.priceListId = catalog.priceListId;
           this.warehouseId.set(warehouseId || '');
           this.pendingOrders.set(pending);
           this.frequent.set(frequent);
           this.loading.set(false);
+          // Cachear el contexto (best-effort) para poder armar el pedido sin red
+          // en una próxima visita a este cliente.
+          if (catalog.priceListId) {
+            void this.offlineApi
+              .cacheContext(customerId, {
+                customer,
+                priceListId: catalog.priceListId,
+                warehouseId: warehouseId || '',
+                prices: catalog.prices,
+                frequent,
+              })
+              .catch(() => void 0);
+          }
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
             this.cartOrderId.set(existingDraft.id);
@@ -1048,10 +1142,10 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
               this.cartLines.set(full.lines || []);
               this.loadSuggestions(); // cart-aware una vez que cargan las líneas
             });
-          } else if (this.predictedLines().length) {
-            // Pedido nuevo → pre-cargar la canasta predicha (suggested order).
-            this.prefillPredicted();
           } else {
+            // Pedido nuevo: NO auto-armamos la canasta predicha (evitar agendar de
+            // más sin querer). Se ofrece como CTA opt-in (banner) y mostramos las
+            // sugerencias del motor en el pad.
             this.loadSuggestions();
           }
         },
@@ -1059,6 +1153,38 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.loading.set(false);
           this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.message || e.message });
         },
+      });
+  }
+
+  /** Carga offline: del caché Dexie. Abre/crea el draft local del cliente. */
+  private loadOffline(customerId: string): void {
+    this.offlineMode.set(true);
+    this.offlineApi
+      .getContext(customerId)
+      .then(async (ctx) => {
+        if (!ctx) {
+          this.loading.set(false);
+          this.toast.add({
+            severity: 'warn',
+            summary: 'Sin datos offline',
+            detail: 'Este cliente no se cargó con conexión antes. Abrilo una vez con señal.',
+            life: 6000,
+          });
+          return;
+        }
+        this.customer.set(ctx.customer);
+        this.prices.set(ctx.prices);
+        this.warehouseId.set(ctx.warehouseId || '');
+        this.frequent.set(ctx.frequent);
+        // Abrir/crear el draft local y reflejar sus líneas.
+        const draft = await this.offlineApi.ensureDraft(ctx.customer, ctx.warehouseId || '');
+        this.cartOrderId.set(draft.id);
+        this.cartLines.set(this.offlineApi.toOrderLines(draft));
+        this.loading.set(false);
+      })
+      .catch(() => {
+        this.loading.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el cliente sin conexión.' });
       });
   }
 
@@ -1071,16 +1197,16 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.router.navigate(['/vendor/pending']);
   }
 
-  /** "+" en la fila → sube la línea existente, o crea con la cantidad sugerida. */
+  /** "+" en la fila → sube (optimista, debounced) o crea con la cantidad sugerida. */
   incProduct(p: PriceRow): void {
-    const line = this.cartLines().find((l) => l.product_id === p.product_id);
-    if (line) this.setQty(line, Number(line.quantity) + 1);
+    const cur = this.cartQty(p.product_id);
+    if (cur > 0) this.bumpQty(p.product_id, cur + 1);
     else this.createLine(p, this.suggestedQty(p));
   }
-  /** "−" en la fila → baja la línea (la quita al llegar a 0). */
+  /** "−" en la fila → baja (optimista; al llegar a 0 el flush quita la línea). */
   decProduct(p: PriceRow): void {
-    const line = this.cartLines().find((l) => l.product_id === p.product_id);
-    if (line) this.dec(line);
+    const cur = this.cartQty(p.product_id);
+    if (cur > 0) this.bumpQty(p.product_id, cur - 1);
   }
 
   /** Cantidad inicial al tocar "+": promedio histórico si es habitual, si no min_qty. */
@@ -1094,22 +1220,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   setQtyTyped(p: PriceRow, raw: string | number): void {
     const n = Math.max(0, Math.floor(Number(raw) || 0));
-    const line = this.cartLines().find((l) => l.product_id === p.product_id);
-    if (line) {
-      if (n <= 0) this.removeLine(line);
-      else this.setQty(line, n);
-    } else if (n > 0) {
-      this.createLine(p, n);
-    }
+    const cur = this.cartQty(p.product_id);
+    if (cur > 0) this.bumpQty(p.product_id, n); // existe → ajustar (0 = quitar en flush)
+    else if (n > 0) this.createLine(p, n); // nuevo → crear inmediato
   }
 
   /** Agregar desde el pitch / "+" — usa la cantidad sugerida. */
   addToCart(p: PriceRow): void {
-    const existing = this.cartLines().find((l) => l.product_id === p.product_id);
-    if (existing) {
-      this.setQty(existing, Number(existing.quantity) + 1);
-      return;
-    }
+    const cur = this.cartQty(p.product_id);
+    if (cur > 0) { this.bumpQty(p.product_id, cur + 1); return; }
     this.createLine(p, this.suggestedQty(p));
   }
 
@@ -1120,7 +1239,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const q = Math.max(Math.floor(qty), p.min_qty || 1);
     if (q <= 0) return;
     if (p.stock_available != null && q > Number(p.stock_available)) {
-      this.toast.add({ severity: 'warn', summary: 'Sin stock suficiente', detail: `Sólo hay ${p.stock_available}. Queda en backorder.`, life: 4000 });
+      this.toast.add({ severity: 'warn', summary: 'Stock actual bajo', detail: `Hoy hay ${p.stock_available}. Es preventa: se surte al repartir.`, life: 4000 });
+    }
+    if (this.offlineMode()) {
+      this.haptic.selection();
+      void this.setLocalQty(p.product_id, q);
+      return;
     }
     this.adding.update((m) => ({ ...m, [p.product_id]: true }));
     const ensure$ = this.cartOrderId()
@@ -1138,8 +1262,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         next: () => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           this.haptic.selection();
-          // reload primero, luego re-rankear cart-aware sobre el carrito ya actualizado.
-          this.reloadCart(() => this.loadSuggestions());
+          // reload primero, luego re-rankear cart-aware (debounced — fuera del tap).
+          this.reloadCart(() => this.loadSuggestionsDebounced());
         },
         error: (err) => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
@@ -1150,34 +1274,111 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   inc(line: OrderLine): void {
-    this.setQty(line, Number(line.quantity) + 1);
+    this.bumpQty(line.product_id, this.cartQty(line.product_id) + 1);
   }
   dec(line: OrderLine): void {
-    const next = Number(line.quantity) - 1;
-    if (next <= 0) { this.removeLine(line); return; }
-    this.setQty(line, next);
+    this.bumpQty(line.product_id, this.cartQty(line.product_id) - 1);
   }
-  private setQty(line: OrderLine, qty: number): void {
+
+  /** Ajuste optimista de cantidad por producto + PATCH debounced. No crea líneas
+   *  nuevas (eso es createLine, inmediato). 0 → la línea se quita en el flush. */
+  private bumpQty(productId: string, qty: number): void {
+    const next = Math.max(0, Math.floor(qty));
+    this.pendingQty.update((m) => new Map(m).set(productId, next));
+    this.haptic.selection();
+    this.scheduleQtyFlush();
+  }
+
+  private scheduleQtyFlush(): void {
+    if (this.qtyFlushTimer) clearTimeout(this.qtyFlushTimer);
+    this.qtyFlushTimer = setTimeout(() => {
+      this.flushQty().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        // Offline: applyLocalBatch ya actualizó cartLines → no recargar ni Thot.
+        next: () => { if (!this.offlineMode()) this.reloadCart(() => this.loadSuggestionsDebounced()); },
+        error: (err) => {
+          this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message });
+          if (!this.offlineMode()) this.reloadCart(); // reconciliar con el server tras el fallo
+        },
+      });
+    }, 500);
+  }
+
+  /**
+   * Aplica las cantidades pendientes contra las líneas reales: 0 → quitar,
+   * distinto → actualizar. Completa cuando el server quedó sincronizado (o de
+   * inmediato si no había nada). NO recarga: eso lo decide el caller. Offline →
+   * aplica al draft local Dexie en vez de pegar al backend.
+   */
+  private flushQty(): Observable<void> {
+    if (this.qtyFlushTimer) { clearTimeout(this.qtyFlushTimer); this.qtyFlushTimer = null; }
+    const orderId = this.cartOrderId();
+    const pend = this.pendingQty();
+    if (!orderId || pend.size === 0) { this.pendingQty.set(new Map()); return of(void 0); }
+    if (this.offlineMode()) {
+      const entries = Array.from(pend);
+      this.pendingQty.set(new Map());
+      return from(this.applyLocalBatch(entries)).pipe(map(() => void 0));
+    }
+    const lines = this.cartLines();
+    const ops: Observable<unknown>[] = [];
+    for (const [productId, qty] of pend) {
+      const line = lines.find((l) => l.product_id === productId);
+      if (!line || Number(line.quantity) === qty) continue;
+      ops.push(qty <= 0 ? this.api.removeLine(orderId, line.id) : this.api.updateLine(orderId, line.id, qty));
+    }
+    this.pendingQty.set(new Map());
+    return ops.length ? forkJoin(ops).pipe(map(() => void 0)) : of(void 0);
+  }
+
+  /** Offline: fija la cantidad de un producto en el draft local (0 = quitar). */
+  private async setLocalQty(productId: string, qty: number): Promise<void> {
+    await this.applyLocalBatch([[productId, qty]]);
+  }
+
+  /** Offline: aplica un lote de cantidades al draft local Dexie y re-deriva cartLines. */
+  private async applyLocalBatch(entries: Array<[string, number]>): Promise<void> {
     const orderId = this.cartOrderId();
     if (!orderId) return;
-    this.haptic.selection();
-    this.api.updateLine(orderId, line.id, qty).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.reloadCart(),
-      error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message }),
-    });
+    const draft = await this.offlineApi.getById(orderId);
+    if (!draft) return;
+    const byId = this.byIdMap();
+    const lines: OfflinePedidoLine[] = [...draft.lines];
+    for (const [productId, qty] of entries) {
+      const idx = lines.findIndex((l) => l.product_id === productId);
+      if (qty <= 0) {
+        if (idx >= 0) lines.splice(idx, 1);
+      } else if (idx >= 0) {
+        lines[idx] = { ...lines[idx], quantity: qty };
+      } else {
+        const p = byId.get(productId);
+        if (p) lines.push(this.offlineApi.buildLine(p, qty));
+      }
+    }
+    await this.offlineApi.setLines(orderId, lines);
+    this.cartLines.set(this.offlineApi.toOrderLines({ ...draft, lines }));
+  }
+
+  /** Refresca sugerencias Thot fuera del camino caliente (cada add/remove). */
+  private loadSuggestionsDebounced(): void {
+    if (this.suggestTimer) clearTimeout(this.suggestTimer);
+    this.suggestTimer = setTimeout(() => this.loadSuggestions(), 1200);
   }
 
   removeLine(line: OrderLine): void {
     const orderId = this.cartOrderId();
     if (!orderId) return;
+    this.pendingQty.update((m) => { const n = new Map(m); n.delete(line.product_id); return n; });
+    if (this.offlineMode()) { void this.setLocalQty(line.product_id, 0); return; }
     this.api.removeLine(orderId, line.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.reloadCart(() => this.loadSuggestions()),
+      next: () => this.reloadCart(() => this.loadSuggestionsDebounced()),
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message }),
     });
   }
 
   /** Trae las sugerencias de Thot (cart-aware). Best-effort: si falla, queda el fallback local. */
   private loadSuggestions(): void {
+    // Offline: Thot necesita red; suggestRows() cae solo a impulsarLocal (local).
+    if (this.offlineMode()) return;
     if (!this.customerId) return;
     const cartIds = this.cartLines().map((l) => l.product_id);
     this.api
@@ -1193,11 +1394,35 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   // ─── Pedido sugerido (pre-cargado) ───
 
+  /** Opt-in: el vendedor acepta cargar la canasta predicha. */
+  usePrefill(): void {
+    this.prefillPredicted();
+  }
+
   /** Pre-carga el draft con la canasta predicha en 1 request. Best-effort. */
   private prefillPredicted(): void {
     const lines = this.predictedLines();
     const c = this.customer();
     if (!lines.length || !c || !this.warehouseId()) { this.loadSuggestions(); return; }
+    if (this.offlineMode()) {
+      const orderId = this.cartOrderId();
+      if (!orderId) return;
+      this.prefilling.set(true);
+      const byId = this.byIdMap();
+      const offlineLines = lines
+        .map((l) => { const p = byId.get(l.product_id); return p ? this.offlineApi.buildLine(p, l.quantity) : null; })
+        .filter((x): x is OfflinePedidoLine => !!x);
+      void this.offlineApi
+        .setLines(orderId, offlineLines)
+        .then(() => this.offlineApi.getById(orderId))
+        .then((draft) => {
+          if (draft) this.cartLines.set(this.offlineApi.toOrderLines(draft));
+          this.prefilling.set(false);
+          this.prefilled.set(true);
+        })
+        .catch(() => this.prefilling.set(false));
+      return;
+    }
     this.prefilling.set(true);
     this.api
       .ensureDraftForCustomer(c.id, this.warehouseId(), 'route')
@@ -1229,6 +1454,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       icon: 'pi pi-eraser',
       acceptLabel: 'Vaciar', rejectLabel: 'No',
       accept: () => {
+        if (this.offlineMode()) {
+          void this.offlineApi.setLines(orderId, []).then(() => {
+            this.prefilled.set(false); this.cartLines.set([]); this.cartOpen.set(false);
+          });
+          return;
+        }
         this.api.replaceLines(orderId, []).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: () => { this.prefilled.set(false); this.reloadCart(() => this.loadSuggestions()); },
           error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message }),
@@ -1396,14 +1627,23 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       acceptLabel: 'Agendar', rejectLabel: 'Cancelar',
       accept: () => {
         this.submitting.set(true);
-        // El vendedor mismo toma el pedido → confirm() lo deja en pending_approval
-        // (estado pensado para preventa del cliente); lo aprobamos en el acto para
-        // que quede confirmed y entre a Carga sin un paso manual redundante.
-        this.api
-          .updateDraftHeader(orderId, { requested_delivery_date: this.requestedDate })
+        // Offline: confirmar el pedido local (queda en cola, se sincroniza al
+        // reconectar). flushQty primero para volcar los ajustes pendientes.
+        if (this.offlineMode()) {
+          this.flushQty()
+            .pipe(
+              switchMap(() => from(this.offlineApi.confirm(orderId, this.requestedDate))),
+              takeUntilDestroyed(this.destroyRef),
+            )
+            .subscribe({ next: () => this.onDoneOffline(), error: (err) => this.onError(err) });
+          return;
+        }
+        // Online: 1 request atómico e idempotente: draft → confirmed con la fecha
+        // de entrega (reemplaza updateDraftHeader→confirm→approve, que podía
+        // quedar a medias). flushQty primero para no confirmar con qty viejas.
+        this.flushQty()
           .pipe(
-            switchMap(() => this.api.confirm(orderId)),
-            switchMap(() => this.api.approve(orderId)),
+            switchMap(() => this.api.placeOrder(orderId, { requested_delivery_date: this.requestedDate })),
             takeUntilDestroyed(this.destroyRef),
           )
           .subscribe({
@@ -1472,6 +1712,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       },
     });
   }
+
+  /** Confirmación offline: el pedido quedó encolado; se envía al reconectar. */
+  private onDoneOffline(): void {
+    this.submitting.set(false);
+    this.haptic.notification('success');
+    const c = this.customer();
+    this.router.navigate(['/vendor/order-success'], {
+      queryParams: {
+        mode: this.mode(),
+        code: '',
+        total: this.cartTotal(),
+        units: this.cartUnitsTotal(),
+        name: c?.name || '',
+        wa: c?.whatsapp || '',
+        date: this.requestedDate,
+        customer: c?.id || '',
+        offline: '1',
+      },
+    });
+  }
   private onError(err: any): void {
     this.submitting.set(false);
     this.haptic.notification('error');
@@ -1486,6 +1746,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       header: 'Cancelar pedido',
       icon: 'pi pi-trash',
       accept: () => {
+        if (this.offlineMode()) {
+          void this.offlineApi.cancel(orderId).then(() => {
+            this.cartLines.set([]);
+            this.cartOrderId.set(null);
+            this.cartOpen.set(false);
+            this.toast.add({ severity: 'info', summary: 'Borrador cancelado' });
+          });
+          return;
+        }
         this.api.cancel(orderId, 'Cancelado por el vendedor').subscribe({
           next: () => {
             this.cartLines.set([]);
@@ -1535,6 +1804,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private reloadCart(after?: () => void): void {
     const orderId = this.cartOrderId();
     if (!orderId) return;
+    if (this.offlineMode()) {
+      void this.offlineApi.getById(orderId).then((draft) => {
+        const lines = draft ? this.offlineApi.toOrderLines(draft) : [];
+        this.cartLines.set(lines);
+        if (!lines.length) this.cartOpen.set(false);
+        after?.();
+      });
+      return;
+    }
     this.api.orderById(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (full) => {
         const lines = full.lines || [];

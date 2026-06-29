@@ -5,7 +5,8 @@
  * Ejercita los 3 fixes P0 contra los endpoints REALES (no DB-direct):
  *   A4 — segregación del 3er conteo: count_3 del mismo contador → 409.
  *   A2 — computeDiscrepancies NO revierte resoluciones manuales (override sobrevive).
- *   A1 — freeze integrity guard: folio sin congelar + movimiento → reconcile 409.
+ *   A1 — folio no-congelado reconcilia con DELTA RELATIVO (preserva los movimientos
+ *        ocurridos durante el conteo); el set absoluto sí se mantiene para congelados.
  *
  * Auto-contenido: crea un almacén dedicado de 1 SKU (modo commercial) para que
  * A1/A2 sean testeables con un solo usuario sin contar todo un almacén real, y
@@ -139,22 +140,29 @@ function check(name, cond, detail) {
     check('reason-codes: clasificación (merma) persiste tras re-compute', item?.reason_code === 'merma', { reason_code: item?.reason_code });
     await cancel(openFolio); openFolio = null;
 
-    // ── A1: freeze integrity guard ──
-    console.log('\n── 5. A1 · folio sin congelar + movimiento → reconcile 409 ──');
+    // ── A1: folio no-congelado reconcilia con DELTA RELATIVO (preserva movimientos) ──
+    console.log('\n── 5. A1 · folio sin congelar → delta relativo (preserva movimiento posterior) ──');
+    const st0 = await req('GET', `/commercial/inventory/stock?warehouse_id=${whId}&pageSize=50`, null, token);
+    const S = Number((st0.body?.data || st0.body || []).find((s) => s.product_id === productId)?.on_hand ?? 0);
+    check('stock inicial del SKU leído (> 3)', S > 3, { S });
     f = await req('POST', '/commercial/inventory/counts/open', { warehouse_id: whId, freeze_movements: false, blind_double_count: false }, token);
     openFolio = f.body?.id;
     check('folio A1 abierto (freeze=false)', !!openFolio, f.body);
-    // movimiento DESPUÉS de abrir (permitido porque NO está congelado)
+    // contar con merma real de 3 (físico = libro_al_abrir − 3); book_at_count se fotografía acá
+    await req('POST', `/commercial/inventory/counts/${openFolio}/count`, { product_id: productId, quantity: S - 3 }, token);
+    // movimiento DESPUÉS de contar (permitido: no congelado) → debe PRESERVARSE en el reconcile
     const mv = await req('POST', '/commercial/inventory/movements', {
       warehouse_id: whId, product_id: productId, movement_type: 'in', quantity: 5, reference_type: 'test-move',
     }, token);
     check('movimiento durante folio no-congelado permitido', mv.status === 201 || mv.status === 200, { status: mv.status });
-    await req('POST', `/commercial/inventory/counts/${openFolio}/count`, { product_id: productId, quantity: 100 }, token);
     await req('POST', `/commercial/inventory/counts/${openFolio}/advance-pass`, {}, token);
     await req('POST', `/commercial/inventory/counts/${openFolio}/compute`, {}, token);
     const rec = await req('POST', `/commercial/inventory/counts/${openFolio}/reconcile`, {}, token);
-    check('A1: reconcile BLOQUEADO por movimiento sin congelar (409)', rec.status === 409, { status: rec.status, body: rec.body });
-    check('A1: el mensaje explica el motivo (movimiento/congelar)', /movimiento|congel/i.test(JSON.stringify(rec.body || '')), rec.body);
+    check('A1: reconcile NO se bloquea (no-congelado → delta relativo)', rec.status === 200 || rec.status === 201, { status: rec.status, body: rec.body });
+    check('A1: folio reconciliado', rec.body?.status === 'reconciled', rec.body);
+    const st1 = await req('GET', `/commercial/inventory/stock?warehouse_id=${whId}&pageSize=50`, null, token);
+    const Sf = Number((st1.body?.data || st1.body || []).find((s) => s.product_id === productId)?.on_hand ?? 0);
+    check('A1: el movimiento posterior se PRESERVA (stock = S − 3 merma + 5 = S + 2)', Sf === S + 2, { S, Sf, esperado: S + 2 });
     await cancel(openFolio); openFolio = null;
 
     // ── T: count-back por tolerancia (umbral de recuento) ──

@@ -66,7 +66,12 @@ import { forkJoin } from 'rxjs';
             <td class="in-mono">{{ c.folio }}</td>
             <td>{{ c.warehouse_code }} · {{ c.warehouse_name }}</td>
             <td>{{ c.type === 'full' ? 'Total' : 'Cíclico' }}</td>
-            <td><p-tag [value]="statusLabel(c.status)" [severity]="statusSeverity(c.status)"></p-tag></td>
+            <td>
+              <p-tag [value]="statusLabel(c.status)" [severity]="statusSeverity(c.status)"></p-tag>
+              @if (isStale(c)) {
+                <span class="in-stale" [title]="c.freeze_movements ? 'Sin avanzar +24h — está congelando el almacén' : 'Sin avanzar hace +24h'"><i class="pi pi-clock"></i> Estancado</span>
+              }
+            </td>
             <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
             <td>
               <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/comercial/inventory/sessions', c.id]" (click)="$event.stopPropagation()"></button>
@@ -137,6 +142,8 @@ import { forkJoin } from 'rxjs';
   `,
   styles: [`
     .in-mono { font-family: var(--font-mono, monospace); font-weight: 600; }
+    .in-stale { display: inline-flex; align-items: center; gap: .25rem; margin-left: .4rem; font-size: .72rem; font-weight: 600; color: var(--warn-soft-fg, #92400e); background: var(--warn-soft-bg, #fef3c7); padding: .1rem .4rem; border-radius: var(--r-pill, 999px); }
+    .in-stale i { font-size: .7rem; }
     .in-head-actions { display: flex; gap: .5rem; }
     .in-form { display: flex; flex-direction: column; gap: .4rem; }
     .in-form label { font-size: .8rem; font-weight: 600; color: var(--text-muted, #78716c); margin-top: .6rem; }
@@ -268,6 +275,13 @@ export class ComercialInventorySessionsComponent {
           this.toast.add({ severity: 'warn', summary: 'No se abrió', detail: e?.error?.message || 'Error' });
         },
       });
+  }
+
+  /** Folio activo sin avanzar hace +24h: si está congelado, bloquea el almacén. */
+  isStale(c: InventoryCount): boolean {
+    if (!['open', 'counting', 'review', 'ready_to_reconcile'].includes(c.status)) return false;
+    if (!c.started_at) return false;
+    return Date.now() - new Date(c.started_at).getTime() > 24 * 3600 * 1000;
   }
 
   statusLabel(s: string): string {

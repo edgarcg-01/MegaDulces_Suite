@@ -24,12 +24,16 @@ import { VendorService } from '../vendor.service';
       </div>
 
       <h2>{{ isFuturo() ? 'Pedido agendado' : 'Entregado' }}</h2>
-      <div class="folio">{{ code() }}<ng-container *ngIf="name()"> · {{ name() }}</ng-container></div>
+      <div class="folio">
+        <ng-container *ngIf="offline()"><i class="pi pi-cloud-upload"></i> Se enviará al reconectar</ng-container>
+        <ng-container *ngIf="!offline()">{{ code() }}</ng-container>
+        <ng-container *ngIf="name()"> · {{ name() }}</ng-container>
+      </div>
       <div class="amt">{{ fmtMoney(total()) }}</div>
       <div class="sub">{{ summary() }}</div>
 
       <div class="acts">
-        <a *ngIf="wa()" class="wa" [href]="waLink()" target="_blank" rel="noopener">
+        <a *ngIf="wa() && !offline()" class="wa" [href]="waLink()" target="_blank" rel="noopener">
           <i class="pi pi-whatsapp"></i> Enviar ticket por WhatsApp
         </a>
         <button class="ghost" (click)="goCaptureExhibit()"><i class="pi pi-camera"></i> Capturar exhibición</button>
@@ -102,6 +106,8 @@ export class VendorOrderSuccessComponent implements OnInit {
   readonly date = signal<string>('');
   readonly customerId = signal<string>('');
   readonly finishing = signal(false);
+  /** Pedido tomado sin conexión: aún no tiene folio; se sincroniza al reconectar. */
+  readonly offline = signal(false);
 
   readonly confetti = [
     { l: 12, c: '#FDE707', d: 0 }, { l: 26, c: '#fff', d: 0.5 }, { l: 40, c: '#FDE707', d: 0.9 },
@@ -123,6 +129,7 @@ export class VendorOrderSuccessComponent implements OnInit {
     this.wa.set(q.get('wa') || '');
     this.date.set(q.get('date') || '');
     this.customerId.set(q.get('customer') || '');
+    this.offline.set(q.get('offline') === '1');
     this.haptic.notification('success');
   }
 

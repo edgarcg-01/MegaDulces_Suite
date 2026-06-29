@@ -703,6 +703,122 @@ export class CommercialOrdersService {
   }
 
   /**
+   * "Tomar pedido en campo" (preventa): el vendedor arma el pedido y lo deja
+   * `confirmed` en UNA transacción atómica e idempotente. Equivale a
+   * updateDraft(fecha) + confirm + approve, pero sin los 3 round-trips ni el
+   * riesgo de quedar a medias (un fallo de red dejaba el pedido en
+   * `pending_approval` y el reintento moría en "solo desde draft").
+   *
+   * Avanza lo que falte e ignora lo ya hecho:
+   *   - draft            → confirmed (camino normal)
+   *   - pending_approval → confirmed (reintento tras un place a medias)
+   *   - confirmed        → no-op (reintento por red; la trx previa ya aplicó)
+   *   - fulfilled/cancelled → 409
+   *
+   * Stock: la preventa (con fecha de entrega) NO reserva — se consume en el
+   * reparto (fulfill), igual que confirm(). Sin fecha sí reserva al confirmar.
+   */
+  async place(orderId: string, dto: UpdateOrderDraftDto = {}) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      if (order.status === 'confirmed') return order; // idempotente: ya tomado
+      if (order.status === 'fulfilled')
+        throw new ConflictException('Pedido ya entregado');
+      if (order.status === 'cancelled')
+        throw new ConflictException('Pedido cancelado no se puede tomar');
+
+      const userId = this.tenantCtx.get()?.userId || null;
+
+      // Header (fecha de entrega / notes / delivery_type): solo editable en draft.
+      if (order.status === 'draft') {
+        const patch: Record<string, any> = {};
+        if (dto.notes !== undefined) patch.notes = dto.notes || null;
+        if (dto.delivery_type !== undefined) {
+          if (!['route', 'long_trip'].includes(dto.delivery_type))
+            throw new BadRequestException(`delivery_type inválido: ${dto.delivery_type}`);
+          patch.delivery_type = dto.delivery_type;
+        }
+        if (dto.requested_delivery_date !== undefined) {
+          const d = dto.requested_delivery_date || null;
+          if (d && !DATE_REGEX.test(d))
+            throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+          patch.requested_delivery_date = d;
+        }
+        if (Object.keys(patch).length) {
+          await trx('commercial.orders').where({ id: orderId }).update(patch);
+          Object.assign(order, patch);
+        }
+      }
+
+      const lines = await trx('commercial.order_lines')
+        .where({ order_id: orderId })
+        .orderBy('line_number');
+      if (lines.length === 0)
+        throw new ConflictException('Pedido sin líneas no puede confirmarse');
+
+      const isPreventa = !!order.requested_delivery_date;
+
+      // Paso draft → pending_approval (reserva si no es preventa, congela qty).
+      // Si ya entró en pending_approval, este paso ya se hizo en el confirm previo.
+      if (order.status === 'draft') {
+        if (!isPreventa) {
+          for (const line of lines) {
+            await this.stock.reserve(trx, order.warehouse_id, line.product_id, Number(line.quantity), orderId);
+          }
+        }
+        await trx('commercial.order_lines')
+          .where({ order_id: orderId })
+          .whereNull('requested_quantity')
+          .update({ requested_quantity: trx.raw('quantity') });
+        await this.recordHistory(trx, orderId, 'draft', 'pending_approval', null);
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'confirmed',
+          pending_approval_at: order.pending_approval_at || trx.fn.now(),
+          confirmed_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        })
+        .returning('*');
+
+      await this.recordHistory(trx, orderId, 'pending_approval', 'confirmed', 'preventa: tomada en campo');
+
+      // Mismas señales que confirm() + approve() juntas.
+      const tenantId = this.tenantCtx.requireTenantId();
+      const customer = await trx('commercial.customers')
+        .where({ id: order.customer_id })
+        .select('name')
+        .first();
+      const customerName = customer?.name || order.customer_id;
+      const total = Number(updated.total);
+
+      this.alerts.emitLargeOrder(tenantId, {
+        order_id: orderId, code: updated.code, customer_id: order.customer_id, customer_name: customerName, total,
+      });
+      this.alerts.emitOrderConfirmed(tenantId, {
+        order_id: orderId, code: updated.code, customer_id: order.customer_id, customer_name: customerName, total,
+      });
+      this.notifyCustomer(
+        order.customer_id,
+        orderId,
+        'Pedido confirmado ✓',
+        `Tu pedido ${updated.code} fue confirmado y está en proceso.`,
+      );
+
+      return updated;
+    });
+  }
+
+  /**
    * confirmed → fulfilled
    * Consume reservas como `sale`. Wrapper que abre su propio trx.
    *

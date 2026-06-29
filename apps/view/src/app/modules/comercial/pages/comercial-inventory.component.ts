@@ -204,7 +204,8 @@ import { Permission } from '../../../core/constants/permissions';
                 </td>
                 <td class="comm-actions">
                   <button *ngIf="canAdjust()" pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                          pTooltip="Ajustar saldo"
+                          [disabled]="!!frozenFolio(s.warehouse_id)"
+                          [pTooltip]="frozenFolio(s.warehouse_id) ? ('Almacén congelado por inventario ' + frozenFolio(s.warehouse_id)) : 'Ajustar saldo'"
                           (click)="openAdjust(s)"></button>
                 </td>
               </tr>
@@ -487,6 +488,8 @@ export class ComercialInventoryComponent {
     };
   });
 
+  readonly frozenWh = signal<Map<string, string>>(new Map());
+
   readonly adjusting = signal<StockRow | null>(null);
   dialogVisible = false;
   readonly saving = signal(false);
@@ -500,6 +503,7 @@ export class ComercialInventoryComponent {
     });
     this.load();
     this.loadSummary();
+    this.loadFrozen();
   }
 
   private loadSummary(): void {
@@ -507,6 +511,27 @@ export class ComercialInventoryComponent {
       next: (r) => this.summaryAll.set(r.data || []),
       error: () => this.summaryAll.set([]),
     });
+  }
+
+  /** Almacenes con un folio de inventario CONGELADO abierto → su ajuste manual se
+   *  bloquea anticipadamente (el backend igual lo rechaza). */
+  private loadFrozen(): void {
+    this.api.listInventoryCounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (cs) => {
+        const m = new Map<string, string>();
+        for (const c of cs) {
+          if (c.freeze_movements && ['open', 'counting', 'review', 'ready_to_reconcile'].includes(c.status)) {
+            m.set(c.warehouse_id, c.folio);
+          }
+        }
+        this.frozenWh.set(m);
+      },
+      error: () => { /* no crítico */ },
+    });
+  }
+
+  frozenFolio(warehouseId: string): string | null {
+    return this.frozenWh().get(warehouseId) || null;
   }
 
   load(): void {
@@ -551,6 +576,11 @@ export class ComercialInventoryComponent {
   readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
   openAdjust(s: StockRow): void {
+    const folio = this.frozenFolio(s.warehouse_id);
+    if (folio) {
+      this.toast.add({ severity: 'warn', summary: 'Almacén congelado', detail: `Inventario físico en curso (${folio}).` });
+      return;
+    }
     this.adjusting.set(s);
     this.newQuantity = s.on_hand;
     this.adjustNotes = '';

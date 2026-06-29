@@ -241,6 +241,16 @@ export class CommercialOrdersController {
     return this.service.approve(id);
   }
 
+  @Post(':id/place')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
+  @ApiOperation({
+    summary:
+      'Tomar pedido en campo (preventa): draft → confirmed en 1 transacción atómica e idempotente. Reemplaza updateDraft+confirm+approve del vendedor. Acepta fecha de entrega / notes / delivery_type en el body.',
+  })
+  place(@Param('id') id: string, @Body() body: UpdateOrderDraftDto) {
+    return this.service.place(id, body);
+  }
+
   @Post(':id/fulfill')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
   @ApiOperation({ summary: 'Entregar pedido (confirmed → fulfilled). Consume stock.' })

@@ -370,6 +370,13 @@ export class OfflineSyncService {
         console.warn('[OfflineSync] Clientes pendientes fallaron, continuando:', cliErr);
       }
 
+      // Pedidos tomados offline → backend (createDraft→lines→place). Best-effort.
+      try {
+        await this.sincronizarPedidosPendientes();
+      } catch (pedErr) {
+        console.warn('[OfflineSync] Pedidos offline fallaron, continuando:', pedErr);
+      }
+
       // Sincronizar visitas — fuente real de verdad del trabajo del usuario.
       resultadoVisitas = await this.sincronizarVisitas();
 
@@ -1114,6 +1121,67 @@ export class OfflineSyncService {
         console.warn(
           `[OfflineSync] Cliente offline ${c.id} falló (status=${err?.status}): reintenta en próximo ciclo`,
         );
+      }
+    }
+  }
+
+  /**
+   * Pedidos tomados OFFLINE → backend al reconectar. Por pedido: crea el draft
+   * (si falta), reemplaza líneas y lo "place"a (draft → confirmed) en server.
+   * Idempotente: el `serverOrderId` se persiste apenas se crea el draft, así un
+   * reintento tras fallo parcial NO duplica el pedido (replaceLines + place ya
+   * son idempotentes server-side). Best-effort por pedido.
+   */
+  private async sincronizarPedidosPendientes(): Promise<void> {
+    const pendientes = await this.db.getPedidosListos();
+    const activos = pendientes.filter((p) => (p.intentos_fallidos || 0) < this.MAX_RETRY_ATTEMPTS);
+    if (!activos.length) return;
+    console.log(`[OfflineSync] Sincronizando ${activos.length} pedido(s) offline`);
+    for (const p of activos) {
+      try {
+        let serverOrderId = p.serverOrderId;
+        if (!serverOrderId) {
+          const created = await firstValueFrom(
+            this.http
+              .post<any>(`${this.apiUrl}/commercial/orders`, {
+                customer_id: p.customerId,
+                warehouse_id: p.warehouseId,
+                delivery_type: 'route',
+              })
+              .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+          );
+          serverOrderId = created?.id;
+          if (!serverOrderId) throw new Error('createDraft sin id');
+          // Persistir YA el id → si place falla, el reintento no recrea el draft.
+          await this.db.setPedidoServerOrderId(p.id, serverOrderId);
+        }
+        const lines = (p.lines || [])
+          .filter((l) => Number(l.quantity) > 0)
+          .map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity) }));
+        if (!lines.length) {
+          await this.db.marcarPedidoSincronizado(p.id, serverOrderId);
+          continue;
+        }
+        await firstValueFrom(
+          this.http
+            .put<any>(`${this.apiUrl}/commercial/orders/${serverOrderId}/lines`, { lines })
+            .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+        );
+        const placed = await firstValueFrom(
+          this.http
+            .post<any>(`${this.apiUrl}/commercial/orders/${serverOrderId}/place`, {
+              requested_delivery_date: p.requestedDeliveryDate || undefined,
+            })
+            .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
+        );
+        await this.db.marcarPedidoSincronizado(p.id, serverOrderId, placed?.code);
+        console.log(`[OfflineSync] Pedido offline ${p.id} → ${placed?.code || serverOrderId}`);
+      } catch (err: any) {
+        await this.db.incrementarIntentoPedido(
+          p.id,
+          err?.error?.message || err?.message || `status ${err?.status}`,
+        );
+        console.warn(`[OfflineSync] Pedido offline ${p.id} falló (status=${err?.status}): reintenta`);
       }
     }
   }

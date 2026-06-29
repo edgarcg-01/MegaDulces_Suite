@@ -17,6 +17,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import { ComercialService, InventoryCount, InventoryCounterProgress, ResolvedProduct } from '../comercial.service';
 import { CountFocusService } from '../../../core/services/count-focus.service';
 import { InventoryOfflineService } from '../../../core/services/inventory-offline.service';
+import type { InventoryScanPending } from '../../../core/services/offline-database.service';
 
 interface FeedEntry {
   sku: string | null;
@@ -115,7 +116,20 @@ interface FeedEntry {
                 <span><i class="pi pi-wifi"></i> Sin conexión — los conteos se guardan y se suben al reconectar.</span>
               } @else {
                 <span><i class="pi pi-sync pi-spin"></i> Subiendo {{ offline.pending() }} pendiente(s)…</span>
+                <button pButton label="Reintentar" icon="pi pi-refresh" [text]="true" size="small" class="ic-net-retry" (click)="retrySync()"></button>
               }
+            </div>
+          }
+          <!-- Escaneos rechazados por el servidor (folio cerrado / segregación): no se
+               reintentan, pero NO desaparecen en silencio — el contador los ve y avisa. -->
+          @if (discarded().length) {
+            <div class="ic-net ic-net-off ic-net-discarded">
+              <span><i class="pi pi-exclamation-triangle"></i> {{ discarded().length }} escaneo(s) rechazado(s) — no llegaron al conteo. Avisá al supervisor.</span>
+              <ul class="ic-discarded-list">
+                @for (d of discarded(); track d.scan_uuid) {
+                  <li><b>{{ d.quantity }}</b> · {{ d.barcode || d.product_id }} <small>{{ d.motivo_descarte }}</small></li>
+                }
+              </ul>
             </div>
           }
           <!-- Progreso ciego -->
@@ -178,7 +192,11 @@ interface FeedEntry {
                 </div>
               </div>
             } @else if (notFound()) {
-              <div class="ic-prod ic-prod-bad"><i class="pi pi-exclamation-triangle"></i> Código no reconocido en el catálogo</div>
+              @if (!offline.online()) {
+                <div class="ic-prod ic-prod-warn"><i class="pi pi-cloud"></i> Sin conexión — se registra y se identifica al subir.</div>
+              } @else {
+                <div class="ic-prod ic-prod-bad"><i class="pi pi-exclamation-triangle"></i> Código no reconocido en el catálogo</div>
+              }
             }
 
             <label class="ic-label" for="ic-qty">Cantidad física</label>
@@ -271,6 +289,11 @@ interface FeedEntry {
     .ic-net { display: flex; align-items: center; gap: .4rem; padding: .5rem .8rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); font-size: .8rem; font-weight: 600; background: var(--warn-soft-bg, #fef3c7); color: var(--warn-soft-fg, #92400e); }
     .ic-net-off { background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b); }
     .ic-net i { font-size: 1rem; }
+    .ic-net-discarded { flex-direction: column; align-items: flex-start; gap: .35rem; }
+    :host ::ng-deep .ic-net-retry { margin-left: auto; }
+    .ic-discarded-list { margin: 0; padding-left: 1.1rem; font-size: .78rem; font-weight: 500; }
+    .ic-discarded-list li { margin: .1rem 0; }
+    .ic-discarded-list small { opacity: .8; }
 
     /* Progreso ciego — barra + cifras tabulares (Geist Mono). */
     .ic-progress { margin-bottom: 1.25rem; }
@@ -315,6 +338,8 @@ interface FeedEntry {
     .ic-prod-ok i { color: var(--ok-fg, #16a34a); }
     .ic-prod-bad { background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b); }
     .ic-prod-bad i { color: var(--bad-fg, #dc2626); }
+    .ic-prod-warn { background: var(--warn-soft-bg, #fef3c7); color: var(--warn-soft-fg, #92400e); }
+    .ic-prod-warn i { color: var(--warn-fg, #d97706); }
     .ic-prod-info { display: flex; flex-direction: column; min-width: 0; }
     .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; color: var(--text-main, #100d09); }
     .ic-prod-meta { font-size: .8rem; color: var(--text-muted, #5e564b); font-family: var(--font-mono, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -360,6 +385,10 @@ export class ComercialInventoryCountComponent {
   progress = signal<InventoryCounterProgress | null>(null);
   feed = signal<FeedEntry[]>([]);
   submitting = signal(false);
+  // Escaneos que el server rechazó (409): visibles para que el contador no crea
+  // que sincronizó algo que en realidad nunca llegó al folio.
+  discarded = signal<InventoryScanPending[]>([]);
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
 
   // Jornada de conteo: el contador la abre con "Iniciar" y la cierra con
   // "Terminar". Mientras está activa → modo foco (nav oculto, guard al salir).
@@ -388,7 +417,7 @@ export class ComercialInventoryCountComponent {
 
   constructor() {
     this.loadFolios();
-    this.destroyRef.onDestroy(() => { this.stopScan(); this.focus.stop(); });
+    this.destroyRef.onDestroy(() => { this.stopScan(); this.focus.stop(); this.stopPeriodicFlush(); });
     this.setupIntegrityMonitor();
   }
 
@@ -510,7 +539,9 @@ export class ComercialInventoryCountComponent {
     this.sessionActive.set(false);
     this.justFinishedPass.set(null);
     this.focus.stop();
+    this.stopPeriodicFlush();
     this.refreshProgress();
+    this.refreshDiscarded();
   }
 
   startCount() {
@@ -526,6 +557,9 @@ export class ComercialInventoryCountComponent {
           this.justFinishedPass.set(null);
           this.focus.start();
           this.refreshProgress();
+          this.refreshDiscarded();
+          this.prefetchCatalog();
+          this.startPeriodicFlush();
           this.focusCode();
         },
         error: (e) => {
@@ -547,6 +581,7 @@ export class ComercialInventoryCountComponent {
           this.sessionActive.set(false);
           this.focus.stop();
           this.stopScan();
+          this.stopPeriodicFlush();
           this.justFinishedPass.set(r.pass ?? this.currentPass());
         },
         error: (e) => {
@@ -562,6 +597,58 @@ export class ComercialInventoryCountComponent {
     this.svc.inventoryCountProgress(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (p) => this.progress.set(p) });
+  }
+
+  private refreshDiscarded() {
+    const id = this.selectedFolioId();
+    if (!id) { this.discarded.set([]); return; }
+    this.offline.discardedFor(id).then((d) => this.discarded.set(d)).catch(() => { /* best-effort */ });
+  }
+
+  /** Pre-cachea el catálogo del folio (blind-safe) al iniciar la jornada con red,
+   *  para que el primer escaneo offline de un SKU del folio se reconozca sin red. */
+  private prefetchCatalog() {
+    const id = this.selectedFolioId();
+    if (!id || !this.offline.online()) return;
+    this.svc.inventoryCounterCatalog(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rows) => this.offline.cacheFolioCatalog(id, rows.map((r) => ({
+          barcode: r.barcode ?? '',
+          product_id: r.product_id ?? null,
+          sku: r.sku ?? null,
+          product_name: r.product_name ?? null,
+          location: r.location ?? null,
+        }))),
+        error: () => { /* best-effort; el lazy-cache cubre lo escaneado online */ },
+      });
+  }
+
+  /** Reintento manual de la cola (los fallos transitorios no se reintentan solos
+   *  sin un nuevo escaneo ni hasta reconectar). */
+  retrySync() {
+    this.offline.flush().then((res) => {
+      if (res.synced) this.refreshProgress();
+      if (res.discarded) this.refreshDiscarded();
+    });
+  }
+
+  /** Drena la cola cada 15s mientras se cuenta: cubre fallos transitorios (5xx/
+   *  timeout) que dejarían pendientes sin un nuevo escaneo que dispare el flush. */
+  private startPeriodicFlush() {
+    this.stopPeriodicFlush();
+    this.flushTimer = setInterval(() => {
+      if (this.sessionActive() && this.offline.online() && this.offline.pending() > 0) {
+        this.offline.flush().then((res) => {
+          if (res.synced) this.refreshProgress();
+          if (res.discarded) this.refreshDiscarded();
+        });
+      }
+    }, 15000);
+  }
+
+  private stopPeriodicFlush() {
+    if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
   }
 
   onCodeEnter() {
@@ -647,7 +734,10 @@ export class ComercialInventoryCountComponent {
     this.submitting.set(false);
     this.focusCode();
     // 4) Sincronizar best-effort; refresca el avance si subió algo.
-    this.offline.flush().then((res) => { if (res.synced) this.refreshProgress(); });
+    this.offline.flush().then((res) => {
+      if (res.synced) this.refreshProgress();
+      if (res.discarded) this.refreshDiscarded();
+    });
   }
 
   private focusCode() {

@@ -10,6 +10,28 @@
 
 ## [Unreleased]
 
+### Added / Fixed — Auditoría del take-order del vendedor: offline-first + robustez (2026-06-29)
+- Origen: auditoría del apartado "tomar pedido" de `apps/vendor` (8 hallazgos). 6 altos/medios corregidos, **builds api+vendor verdes**. Sin deploy.
+- **Added — Offline-first** (`#1`, híbrido por conectividad para no regresionar el flujo online): el vendedor ahora puede **abrir, armar y confirmar** un pedido **sin señal**; se sincroniza solo al reconectar.
+  - Dexie **v8**: `vendorCatalogCache` (catálogo por price-list, dedup) + `vendorCustomerCache` (cliente + habituales) → abrir sin red; `pedidosPendientes` (draft local con `serverOrderId` como guard de idempotencia).
+  - Nuevos `ConnectivityService` (signal online/offline) y `OfflineOrderService` (draft local + totales client-side). `take-order` ramifica por conectividad (banner "Sin conexión", mic de voz oculto offline). `order-success` muestra "Se enviará al reconectar".
+  - Replay en `OfflineSyncService.sincronizarPedidosPendientes` (createDraft → PUT lines → POST place), best-effort, idempotente. Límite: un cliente creado offline no se puede pedir offline (sin contexto cacheado).
+- **Added — `POST /commercial/orders/:id/place`** (`#4`): toma un pedido **draft → confirmed en 1 transacción atómica e idempotente** (reemplaza el encadenado `updateDraftHeader→confirm→approve`, que ante un fallo de red dejaba el pedido en `pending_approval` y el reintento atascado en "solo desde draft"). Preventa no reserva stock (igual que `confirm`).
+- **Fixed — Chattiness de red** (`#2`): cantidad **optimista** + debounce (los `+/−` ya no pegan al backend por cada tap → 1 update por ráfaga); sugerencias Thot fuera del camino caliente.
+- **Fixed — Carga inicial** (`#3`): eliminado el doble `getCustomer` y el doble `draftForCustomer` al abrir un cliente (2 rondas en vez de ~8-11 requests).
+- **Changed — Pedido sugerido** (`#6`): pasa de auto-armarse (riesgo de agendar de más) a **opt-in** (banner "¿Cargar pedido sugerido?").
+- **Fixed — Mensaje de stock** (`#5`): ya no promete un "backorder" inexistente; en preventa avisa "stock actual bajo, se surte al repartir".
+- **Internal**: borrado `updateDraftHeader` (huérfano tras `place`); eliminado `setQty`. **Pendiente**: verificación en device real + test http de `/place` en la regression.
+
+### Fixed — Auditoría del inventario físico (Fase I): integridad + reconcile cíclico + endurecimiento (2026-06-27)
+- Origen: auditoría multi-agente de `/comercial/inventory` (38 hallazgos verificados, 4 refutados). 6 bloques aplicados, **regression verde en vivo**. Detalle en `inventory-count.service.ts` + 5 migraciones `20260627*`.
+- **Integridad / SoD**: el doble conteo ciego ya no se puede colapsar (nadie pisa el `count_1`/`count_2` de otra persona); el reconciliador no puede ser quien **resolvió** ítems (nueva col `resolved_by` + set de segregación); `cancel()` con `FOR UPDATE` (cierra carrera cancel↔reconcile); `submitCount`/`reconcile` **fail-closed** si no hay usuario.
+- **Reconcile cíclico (reestructura, ADR-pendiente)**: los folios **no congelados** ya no se bloquean por movimientos — reconcilian con **delta relativo** contra el libro al momento del conteo (`book_at_count`), preservando las ventas ocurridas durante el conteo en vez de borrarlas con un set absoluto. Lock antes de calcular (cierra TOCTOU). El set absoluto + freeze guard se mantiene para conteos **congelados**.
+- **Contabilidad de varianza**: la varianza/IRA se calcula contra `book_at_count` en cíclicos (ya no infla la merma con ventas del período); **costo congelado al reconciliar** (`unit_cost` + `net_variance_value`/`variance_value_abs` por folio) → el valor de merma no deriva si cambia `cost_base`; `reason_code` exigible en varianzas materiales (opt-in por umbral).
+- **Operabilidad del día de conteo**: endpoint blind-safe `GET /commercial/inventory/counts/:id/catalog` + pre-cache offline al iniciar jornada (1er scan offline ya reconoce); escaneos rechazados (409) visibles + flush periódico + reintento; badge "Estancado" en folios y aviso anticipado de almacén congelado en Existencias.
+- **Robustez**: guards del path inventory-source (CHECK `quantity>=0`/`>=reserved` + reserva en reconcile); folio de 0 ítems rechazado; año del folio en TZ MX; `statement_timeout` + logging en reconcile; kepler-export arreglado para folios inventory-source (ya no emite SKU null/$0).
+- **Diferido**: aprobación por valor (#12), tolerancia/IRA por clase ABC (#17), hook GL/COGS, limpieza del CHECK de estados muertos. **Pendiente prod**: aplicar las 5 migraciones en el deploy.
+
 ### Added — Tiendas de oportunidad: prospección con INEGI DENUE (Fase DENUE) (2026-06-24)
 - Nueva capa **"Tiendas de oportunidad"** en `dashboard/commercial-map`: descubre PdV reales (dulcerías,
   abarrotes, minisúper) que **aún no son clientes** vía **INEGI DENUE** (dato abierto → almacenable con atribución).

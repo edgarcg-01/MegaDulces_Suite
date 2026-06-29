@@ -335,21 +335,27 @@ export class VendorService {
   /**
    * Devuelve productos con SU precio + stock disponible para el customer y warehouse
    * dados. J.6.7: si pasás `warehouseId`, cada item incluye `stock_available`.
+   *
+   * Recibe el customer YA resuelto (no lo re-fetchea): el caller ya lo tiene del
+   * forkJoin de carga, así evitamos pedir `getCustomer` dos veces.
    */
-  catalogForCustomer(customerId: string, warehouseId?: string): Observable<PriceRow[]> {
-    return forkJoin({
-      customer: this.getCustomer(customerId),
-      priceLists: this.portal.listPriceLists(),
-    }).pipe(
-      switchMap(({ customer, priceLists }) => {
+  catalogForCustomer(
+    customer: VendorCustomer,
+    warehouseId?: string,
+  ): Observable<{ priceListId: string; prices: PriceRow[] }> {
+    return this.portal.listPriceLists().pipe(
+      switchMap((priceLists) => {
         const list =
           (customer.default_price_list_id &&
             priceLists.find((p: any) => p.id === customer.default_price_list_id)) ||
           priceLists.find((p: any) => p.is_default);
-        if (!list) return of([]);
+        if (!list) return of({ priceListId: '', prices: [] as PriceRow[] });
         // priced_only: el catálogo del vendedor = solo lo pedible (con precio),
-        // completo. Sin esto el backend capa a 500 productos.
-        return this.portal.listPricesForList(list.id, warehouseId, { pricedOnly: true });
+        // completo. Sin esto el backend capa a 500 productos. Devolvemos el
+        // priceListId para cachearlo (dedup del catálogo offline por lista).
+        return this.portal
+          .listPricesForList(list.id, warehouseId, { pricedOnly: true })
+          .pipe(map((prices) => ({ priceListId: list.id, prices })));
       }),
     );
   }
@@ -375,36 +381,30 @@ export class VendorService {
       .pipe(map((r) => (r.data?.[0] || null) as Order | null));
   }
 
+  /** Crea un draft nuevo (sin chequear si ya hay uno). Para cuando el caller ya
+   *  sabe que no existe draft — evita el GET extra de `draftForCustomer`. */
+  createDraftForCustomer(
+    customerId: string,
+    warehouseId: string,
+    deliveryType: 'route' | 'long_trip' = 'route',
+  ): Observable<Order> {
+    return this.http.post<Order>(`${this.base}/orders`, {
+      customer_id: customerId,
+      warehouse_id: warehouseId,
+      delivery_type: deliveryType,
+    });
+  }
+
   ensureDraftForCustomer(
     customerId: string,
     warehouseId: string,
     deliveryType: 'route' | 'long_trip' = 'route',
   ): Observable<Order> {
     return this.draftForCustomer(customerId).pipe(
-      switchMap((existing) => {
-        if (existing) return of(existing);
-        return this.http.post<Order>(`${this.base}/orders`, {
-          customer_id: customerId,
-          warehouse_id: warehouseId,
-          delivery_type: deliveryType,
-        });
-      }),
+      switchMap((existing) =>
+        existing ? of(existing) : this.createDraftForCustomer(customerId, warehouseId, deliveryType),
+      ),
     );
-  }
-
-  /**
-   * J.6.6 — actualiza header del draft (delivery_type, notes, fecha de entrega
-   * agendada para "pedido futuro"). Solo válido en draft.
-   */
-  updateDraftHeader(
-    orderId: string,
-    dto: {
-      delivery_type?: 'route' | 'long_trip';
-      notes?: string;
-      requested_delivery_date?: string | null;
-    },
-  ): Observable<Order> {
-    return this.http.patch<Order>(`${this.base}/orders/${orderId}`, dto);
   }
 
   addLine(orderId: string, productId: string, quantity: number): Observable<OrderLine> {
@@ -426,6 +426,18 @@ export class VendorService {
   /** pending_approval → confirmed. El vendedor aprueba un pedido de preventa. */
   approve(orderId: string): Observable<VendorOrder> {
     return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/approve`, {});
+  }
+
+  /**
+   * Tomar pedido en campo (preventa): draft → confirmed en 1 request atómico e
+   * idempotente. Reemplaza el encadenado updateDraftHeader→confirm→approve, que
+   * podía quedar a medias y dejar el reintento atascado en "solo desde draft".
+   */
+  placeOrder(
+    orderId: string,
+    dto: { requested_delivery_date?: string; notes?: string; delivery_type?: 'route' | 'long_trip' } = {},
+  ): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/place`, dto);
   }
 
   /** confirmed → fulfilled. El vendedor marca el pedido como entregado en campo. */

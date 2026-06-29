@@ -113,6 +113,13 @@ export class InventoryCountController {
     return this.service.counterProgress(id);
   }
 
+  @Get(':id/catalog')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
+  @ApiOperation({ summary: 'Catálogo blind-safe del folio (sku/barcode/nombre/ubic., SIN existencia) para pre-cache offline' })
+  catalog(@Param('id') id: string) {
+    return this.service.counterCatalog(id);
+  }
+
   @Post(':id/session/start')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_CONTAR)
   @ApiOperation({ summary: 'El contador abre su jornada de conteo (modo foco)' })
