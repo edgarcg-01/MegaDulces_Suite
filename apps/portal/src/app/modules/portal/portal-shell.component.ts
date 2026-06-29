@@ -23,8 +23,6 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
-import { BadgeModule } from 'primeng/badge';
-import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
@@ -53,8 +51,6 @@ interface NavItem {
     RouterOutlet,
     ButtonModule,
     ToastModule,
-    BadgeModule,
-    TooltipModule,
     CountUpDirective,
   ],
   providers: [MessageService],
@@ -126,8 +122,7 @@ interface NavItem {
             type="button"
             class="portal-user-card portal-user-card-btn"
             (click)="openSettings()"
-            pTooltip="Abrir configuración"
-            tooltipPosition="right"
+            title="Abrir configuración"
             aria-label="Abrir configuración"
           >
             <div class="portal-user-avatar">{{ initial() }}</div>
@@ -156,8 +151,7 @@ interface NavItem {
             type="button"
             class="portal-icon-btn"
             (click)="openSettings()"
-            pTooltip="Configuración"
-            tooltipPosition="bottom"
+            title="Configuración"
             aria-label="Abrir configuración"
           >
             <i class="pi pi-cog" aria-hidden="true"></i>
