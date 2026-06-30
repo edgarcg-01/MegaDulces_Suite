@@ -192,7 +192,13 @@ CREATE TABLE IF NOT EXISTS analytics.product_sales_stats (
 
 ---
 
-## KV.4 — Margen → `catalog.products.margin_pct` + en `sales_daily`
+## KV.4 — Margen → `catalog.products.markup_pct` + cost en `sales_daily` — 🔨 CÓDIGO (deploy pendiente) 2026-06-30
+
+**Hallazgo:** `kdpv_prod_util.c6` es **markup % sobre costo** (no margen sobre precio: llega a 139%, imposible para margen). Modelo: `cost = revenue/(1+markup/100)`, robusto a unidades (a diferencia de cost_base). Columna honesta `markup_pct` (no `margin_pct`).
+
+**Construido (build verde):** migración `20260630150000_products_markup_pct` + `import-margin.js` (sucursal md_03 → products.markup_pct, dry-run 7840 prod, markup prom 13.4%) + `import-sales-fact.js` ahora calcula cost desde markup + endpoint `historical/margin-by-category` re-apuntado a sales_daily + cron `marginFeed` @04:40 (antes del fact) + runner nightly. **Deploy + apply pendiente** (margin --apply, luego re-apply sales-fact para poblar cost).
+
+### Detalle de diseño (KV.4)
 
 **Objetivo:** margen real como señal (Thot multi-señal margen) y en analítica.
 

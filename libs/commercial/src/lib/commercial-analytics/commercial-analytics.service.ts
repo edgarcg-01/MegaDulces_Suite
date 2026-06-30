@@ -721,53 +721,36 @@ export class CommercialAnalyticsService {
   async historicalMarginByCategory(q: { from?: string; to?: string; limit?: number }) {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
-    return this.guardErp('historicalMarginByCategory', [], () =>
-     this.tk.run(async (trx) => {
+    // KV.4: margen por categoría desde analytics.sales_daily (cost = revenue/(1+markup),
+    // markup del ERP). Antes leía el FDW ventas_legacy (muerto en Railway). cost/margin
+    // sólo de productos con markup; categorías sin costo dan margin_pct NULL.
+    return this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
       const rows = await trx.raw(
         `
         SELECT
-          COALESCE(cat.name, 'Sin categoría')                AS category,
-          cat.id                                              AS category_id,
-          COUNT(DISTINCT v.producto_id)::int                  AS products,
-          COUNT(*)::int                                       AS lines,
-          COALESCE(SUM(v.cantidad), 0)::numeric               AS units,
-          COALESCE(SUM(v.venta_diaria), 0)::numeric           AS revenue,
-          COALESCE(SUM(
-            COALESCE(v.costo, v.cantidad * COALESCE(p.cost_base, 0))
-          ), 0)::numeric                                       AS cost,
-          COALESCE(SUM(v.venta_diaria), 0)::numeric
-            - COALESCE(SUM(
-                COALESCE(v.costo, v.cantidad * COALESCE(p.cost_base, 0))
-              ), 0)::numeric                                   AS margin,
-          CASE WHEN SUM(v.venta_diaria) > 0
-            THEN ROUND(
-              ((SUM(v.venta_diaria) - COALESCE(SUM(
-                  COALESCE(v.costo, v.cantidad * COALESCE(p.cost_base, 0))
-                ), 0)) / SUM(v.venta_diaria)) * 100,
-              2
-            )
-            ELSE NULL
-          END                                                  AS margin_pct
-        FROM analytics_external.ventas_legacy v
-        LEFT JOIN public.products p
-          ON p.sku = v.producto_id AND p.tenant_id = ?
-        LEFT JOIN public.categories cat
-          ON cat.id = p.category_id AND cat.tenant_id = ?
-        WHERE 1=1
-          ${from ? `AND v.fecha >= ?` : ''}
-          ${to ? `AND v.fecha <= ?` : ''}
+          COALESCE(cat.name, 'Sin categoría')        AS category,
+          cat.id                                      AS category_id,
+          COUNT(DISTINCT s.product_id)::int           AS products,
+          COUNT(*)::int                               AS lines,
+          COALESCE(SUM(s.units), 0)::numeric          AS units,
+          COALESCE(SUM(s.revenue), 0)::numeric        AS revenue,
+          COALESCE(SUM(s.cost), 0)::numeric           AS cost,
+          (COALESCE(SUM(s.revenue),0) - COALESCE(SUM(s.cost),0))::numeric AS margin,
+          CASE WHEN SUM(s.cost) IS NOT NULL AND SUM(s.revenue) > 0
+            THEN ROUND(((SUM(s.revenue) - SUM(s.cost)) / SUM(s.revenue)) * 100, 2)
+            ELSE NULL END                             AS margin_pct
+        FROM analytics.sales_daily s
+        JOIN catalog.products p ON p.id = s.product_id
+        LEFT JOIN catalog.categories cat ON cat.id = p.category_id AND cat.tenant_id = ?
+        WHERE s.tenant_id = ?
+          ${from ? `AND s.sale_date >= ?` : ''}
+          ${to ? `AND s.sale_date <= ?` : ''}
         GROUP BY cat.id, cat.name
         ORDER BY revenue DESC
         LIMIT ?
         `,
-        [
-          tenantId,
-          tenantId,
-          ...(from ? [from] : []),
-          ...(to ? [to] : []),
-          limit,
-        ],
+        [tenantId, tenantId, ...(from ? [from] : []), ...(to ? [to] : []), limit],
       );
       return rows.rows.map((r: any) => ({
         category: r.category,
@@ -780,7 +763,7 @@ export class CommercialAnalyticsService {
         margin: Number(r.margin),
         margin_pct: r.margin_pct != null ? Number(r.margin_pct) : null,
       }));
-    }));
+    });
   }
 
   /**

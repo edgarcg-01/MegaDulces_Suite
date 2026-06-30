@@ -31,7 +31,7 @@ const MONTHS = 13;
 
     // Lookups del destino.
     const prods = (await db.query(
-      `SELECT id, sku, cost_base FROM public.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
+      `SELECT id, sku, markup_pct FROM public.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
     const skuTo = new Map(prods.map((p) => [p.sku, p]));
     const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
     const whTo = new Map(whs.map((w) => [w.code, w.id]));
@@ -48,20 +48,23 @@ const MONTHS = 13;
         GROUP BY almacen, sku, channel, fecha`);
     console.log(`  origen agregado: ${agg.length} filas (almacen×sku×canal×día)`);
 
-    // Transform + match. cost = NULL: el costo por unidad vendida no es derivable
-    // confiablemente de cost_base (unidad inconsistente pieza/caja). Margen se
-    // computa en KV.4 (kdpv_prod_util). Acá solo revenue/units reales.
-    const rows = []; let noSku = 0, noWh = 0;
+    // Transform + match. cost = revenue/(1+markup/100) (KV.4: markup% del ERP,
+    // robusto a unidades). NULL si el producto no tiene markup → margen NULL.
+    const rows = []; let noSku = 0, noWh = 0, noMarkup = 0;
     const byChannel = {};
     for (const r of agg) {
       const p = skuTo.get(r.sku);
       if (!p) { noSku++; continue; }
       const wid = whTo.get(r.almacen);
       if (!wid) { noWh++; continue; }
-      rows.push([p.id, wid, r.channel, r.fecha, r.units, r.revenue, null, r.tickets]);
+      const mk = p.markup_pct != null ? Number(p.markup_pct) : null;
+      const cost = mk != null && mk > -100 ? Number(r.revenue) / (1 + mk / 100) : null;
+      if (cost == null) noMarkup++;
+      rows.push([p.id, wid, r.channel, r.fecha, r.units, r.revenue, cost, r.tickets]);
       const c = (byChannel[r.channel] ||= { filas: 0, revenue: 0 });
       c.filas++; c.revenue += Number(r.revenue);
     }
+    console.log(`  (sin markup → cost NULL: ${noMarkup})`);
     console.log(`  a cargar: ${rows.length} (sin sku en catálogo: ${noSku}, sin warehouse: ${noWh})`);
     console.table(Object.fromEntries(Object.entries(byChannel).map(([k, v]) => [k, { filas: v.filas, revenue: Math.round(v.revenue) }])));
 

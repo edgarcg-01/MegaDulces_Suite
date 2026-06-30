@@ -17,6 +17,7 @@ import { KNEX_KEPLER_CONSOLIDADO } from './kepler-consolidado.constants';
 const ROTATION_SCRIPT = 'database/importers/kepler/import-rotation-from-consolidado.js';
 const PH_STOCK_SCRIPT = 'database/importers/kepler/import-branch-stock-live.js';
 const TOP_SELLERS_SCRIPT = 'database/importers/kepler/import-top-sellers-from-consolidado.js';
+const MARGIN_SCRIPT = 'database/importers/kepler/import-margin.js';
 const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
 
@@ -27,6 +28,7 @@ export class KeplerConsolidadoService {
   private rotationRunning = false;
   private phStockRunning = false;
   private topSellersRunning = false;
+  private marginRunning = false;
   private salesFactRunning = false;
   private salesStatsRunning = false;
 
@@ -131,6 +133,25 @@ export class KeplerConsolidadoService {
       await this.runScript(TOP_SELLERS_SCRIPT, 'Best-sellers portal', /Best-sellers|match catálogo|ERROR/);
     } finally {
       this.topSellersRunning = false;
+    }
+  }
+
+  /**
+   * Markup % por producto → catalog.products.markup_pct (KV.4). Nightly 04:40,
+   * ANTES del fact (el fact usa markup para el costo). Lee una sucursal Kepler.
+   */
+  @Cron('0 40 4 * * *')
+  async marginFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.marginRunning) {
+      this.logger.warn('Skip marginFeed: corrida anterior aún activa');
+      return;
+    }
+    this.marginRunning = true;
+    try {
+      await this.runScript(MARGIN_SCRIPT, 'Markup de productos', /markup_pct|COMMIT|ERROR/);
+    } finally {
+      this.marginRunning = false;
     }
   }
 

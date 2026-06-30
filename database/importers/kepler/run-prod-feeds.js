@@ -33,7 +33,8 @@ const STEPS = {
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
-    path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado)
+    path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
+    path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
   ],
   catalog: [
