@@ -60,7 +60,7 @@ export interface ThotAsk {
             (focus)="activate()"
             (keydown.enter)="submit()"
             [attr.aria-label]="hintBase()"
-            [attr.placeholder]="(recording() || transcribing()) ? '' : hintBase()"
+            [attr.placeholder]="(recording() || transcribing() || sttError()) ? '' : hintBase()"
             autocomplete="off"
             autocapitalize="none"
             autocorrect="off"
@@ -73,6 +73,8 @@ export interface ThotAsk {
             </div>
           } @else if (transcribing()) {
             <div class="aci-rec aci-rec-busy" aria-hidden="true">Transcribiendo…</div>
+          } @else if (sttError()) {
+            <div class="aci-rec aci-rec-err" role="alert">{{ sttError() }}</div>
           }
         </div>
 
@@ -215,6 +217,7 @@ export interface ThotAsk {
       font-variant-numeric: tabular-nums;
     }
     .aci-rec-busy { color: #6b7280; }
+    .aci-rec-err { color: #dc2626; font-weight: 500; }
     .aci-rec-dot {
       width: 9px; height: 9px; border-radius: 9999px; background: #dc2626;
       animation: aciRecBlink 1.1s ease-in-out infinite;
@@ -334,6 +337,7 @@ export class ThotAiInputComponent implements OnInit {
   readonly recording = signal(false);
   readonly transcribing = signal(false);
   readonly recSeconds = signal(0);
+  readonly sttError = signal<string | null>(null);
   readonly micSupported =
     typeof navigator !== 'undefined' &&
     !!navigator.mediaDevices?.getUserMedia &&
@@ -512,7 +516,7 @@ export class ThotAiInputComponent implements OnInit {
     const blob = new Blob(this.chunks, { type });
     this.chunks = [];
     this.recorder = null;
-    if (!blob.size) return;
+    if (!blob.size) { this.flashSttError('No grabé audio. Probá de nuevo.'); return; }
     this.zone.run(() => this.transcribing.set(true));
     const reader = new FileReader();
     reader.onload = () => {
@@ -522,17 +526,30 @@ export class ThotAiInputComponent implements OnInit {
         .subscribe({
           next: (r) => {
             this.transcribing.set(false);
+            if (r?.error) {
+              this.flashSttError(r.error === 'no_key' ? 'Dictado no configurado (falta GROQ_API_KEY).' : 'No se pudo transcribir.');
+              return;
+            }
             const t = (r?.text || '').trim();
             if (t) {
               const base = this.value();
               this.value.set(base ? `${base} ${t}` : t);
-              queueMicrotask(() => this.inp?.nativeElement?.focus());
+              // Dictado → auto-enviar (estilo modo voz de ChatGPT).
+              this.submit();
+            } else {
+              this.flashSttError('No te entendí, probá de nuevo.');
             }
           },
-          error: () => this.transcribing.set(false),
+          error: () => { this.transcribing.set(false); this.flashSttError('No se pudo transcribir.'); },
         });
     };
     reader.readAsDataURL(blob);
+  }
+
+  /** Muestra un aviso efímero de error del dictado (3s). */
+  private flashSttError(msg: string): void {
+    this.sttError.set(msg);
+    setTimeout(() => { if (this.sttError() === msg) this.sttError.set(null); }, 3000);
   }
 
   private pickMime(): string {

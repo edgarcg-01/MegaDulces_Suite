@@ -182,7 +182,23 @@ const SUGGESTIONS = [
     </div>
   `,
   styles: [`
-    .tc-page { display: flex; flex-direction: column; height: calc(100vh - 7rem); }
+    .tc-page { display: flex; flex-direction: column; height: calc(100dvh - 7rem); }
+    /* Móvil (<lg): el layout muestra bottom-nav y main ya lo descuenta; restamos
+       header + breadcrumb + bottom-nav + safe-areas para que el composer no quede
+       tapado ni bajo el fold. */
+    @media (max-width: 1023.98px) {
+      .tc-page {
+        height: calc(100dvh - 3.5rem - 2.2rem - 3.6rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+      }
+    }
+    @media (max-width: 640px) {
+      .tc-thread { gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }
+      .tc-msg { gap: var(--sp-2); max-width: 100%; }
+      .tc-avatar { width: 28px; height: 28px; }
+      .tc-bubble { padding: var(--sp-2) var(--sp-3); }
+      .tc-md { font-size: .9rem; line-height: 1.65; }
+      .tc-suggest { gap: var(--sp-2); }
+    }
     .tc-thread { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-1) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-4); }
 
     /* ── EMPTY STATE — ícono ember + sugerencias como tarjetas ── */
