@@ -9,7 +9,6 @@ import {
   Body,
   Req,
   UseGuards,
-  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -387,7 +386,7 @@ export class CommercialIntelligenceController {
   // ─── TC.2 (ADR-026): Thot Chat — analítica conversacional sobre ventas ───
 
   @Post('thot/chat')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
   @ApiOperation({ summary: 'Chat analítico ADMIN (todo el tenant). Back-office only. Stateless: enviar `history`.' })
   async thotChat(
     @Req() req: any,
@@ -399,13 +398,12 @@ export class CommercialIntelligenceController {
       image?: { media_type?: string; data?: string };
     },
   ) {
-    // TC-S hardening: aunque customer_b2b/vendedor tengan COMMERCIAL_ORDERS_VER, el
-    // perfil ADMIN ve TODO el tenant (márgenes, todos los clientes). Esas audiencias
-    // tienen su propio endpoint scoped (/portal/thot/chat, /vendor/thot/chat).
-    const role = req.user?.roleName || req.user?.role_name;
-    if (role === 'customer_b2b' || role === 'vendedor') {
-      throw new ForbiddenException('Usá el asistente de tu app (portal/vendedor).');
-    }
+    // TC-S hardening: el perfil ADMIN ve TODO el tenant (márgenes, todos los
+    // clientes). Se gatea por COMMERCIAL_CUSTOMERS_GESTIONAR (gestión back-office):
+    // customer_b2b y vendedores de campo NO lo tienen (aunque sí ORDERS_VER) y
+    // quedan fuera; usan sus endpoints scoped (/portal, /vendor). Gatear por permiso
+    // —no por nombre de rol— es robusto ante roles custom de prod (p.ej.
+    // supervisor_ventas, que SÍ es gestión y debe entrar).
     const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
     if (body?.message) history.push({ role: 'user', content: String(body.message) });
     const userName = req.user?.full_name || req.user?.username || undefined;
