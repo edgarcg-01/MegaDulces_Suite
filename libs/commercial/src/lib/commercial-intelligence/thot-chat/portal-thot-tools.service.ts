@@ -35,10 +35,21 @@ export class PortalThotToolsService implements ThotToolProvider {
     ];
   }
 
+  /** El customer del JWT no viene en req.user: se resuelve por public.users.customer_id (igual que /orders/my). */
+  private async resolveCustomerId(scope: ThotScope): Promise<string | null> {
+    if (scope.customerId) return scope.customerId;
+    const userId = this.ctx.get()?.userId;
+    if (!userId) return null;
+    return this.tk.run(async (trx) => {
+      const row = await trx('public.users').where({ id: userId }).select('customer_id').first();
+      return row?.customer_id || null;
+    });
+  }
+
   async execute(name: string, input: any, scope: ThotScope): Promise<any> {
     const args = input || {};
-    const customerId = scope.customerId;
-    if (!customerId) return { error: 'No hay cliente en el contexto.' };
+    const customerId = await this.resolveCustomerId(scope);
+    if (!customerId) return { error: 'Tu usuario no está enlazado a un cliente; no puedo ver tu cuenta.' };
     try {
       switch (name) {
         case 'thot_my_recommendations': {

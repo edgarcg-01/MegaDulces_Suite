@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
@@ -40,6 +41,8 @@ import { ThotScope, PH_FULFILLMENT_WAREHOUSE } from './thot-chat/thot-tool-provi
 @UseGuards(RolesGuard)
 @Controller('commercial/intelligence')
 export class CommercialIntelligenceController {
+  private readonly logger = new Logger(CommercialIntelligenceController.name);
+
   constructor(
     private readonly customer360: Customer360Service,
     private readonly refresh: Customer360RefreshService,
@@ -421,17 +424,60 @@ export class CommercialIntelligenceController {
     return result;
   }
 
+  // ─── Dictado por voz: transcribe audio → texto (Groq Whisper) ───
+  // Proxy fino: el front graba con MediaRecorder y manda el audio en base64; acá
+  // lo reenviamos a Groq (la API key vive solo en el server). Calidad Whisper.
+  @Post('thot/transcribe')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Transcribe audio de dictado a texto (Groq Whisper large-v3-turbo).' })
+  async transcribe(@Body() body: { audio?: string; mime?: string }) {
+    const b64 = body?.audio || '';
+    if (!b64) return { text: '' };
+    const key = process.env.GROQ_API_KEY || '';
+    if (!key) return { text: '', error: 'no_key' };
+
+    const buf = Buffer.from(b64, 'base64');
+    const form = new FormData();
+    form.append('file', new Blob([buf], { type: body?.mime || 'audio/webm' }), 'audio.webm');
+    form.append('model', process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo');
+    form.append('language', 'es');
+    form.append('response_format', 'json');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        this.logger.warn(`Groq STT HTTP ${res.status}: ${txt.slice(0, 200)}`);
+        return { text: '', error: 'stt_failed' };
+      }
+      const json: any = await res.json();
+      return { text: (json?.text || '').trim() };
+    } catch (e: any) {
+      this.logger.warn(`Groq STT error: ${e?.message || e}`);
+      return { text: '', error: 'stt_error' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ─── Portal B2B: chat scoped al cliente del JWT (sin márgenes, surtido PH) ───
   @Post('portal/thot/chat')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Chat del Portal B2B. Scoped al cliente del JWT; surtido PH; sin datos de terceros ni márgenes.' })
   async portalThotChat(@Req() req: any, @Body() body: { history?: ThotChatTurn[]; message?: string }) {
-    const customerId = req.user?.customer_id;
-    if (!customerId) throw new ForbiddenException('Tu usuario no está enlazado a un cliente.');
+    // El customer_id del cliente NO viene en req.user; el provider lo resuelve por
+    // public.users.customer_id (ctx.userId), igual que /orders/my.
     const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
     if (body?.message) history.push({ role: 'user', content: String(body.message) });
     const userName = req.user?.full_name || req.user?.username || undefined;
-    const scope: ThotScope = { profile: 'portal', customerId, warehouseCode: PH_FULFILLMENT_WAREHOUSE, userName };
+    const scope: ThotScope = { profile: 'portal', customerId: req.user?.customer_id ?? null, warehouseCode: PH_FULFILLMENT_WAREHOUSE, userName };
     const result = await this.chat.ask(this.portalTools, scope, { history });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'portal', question: lastQuestion }, result);

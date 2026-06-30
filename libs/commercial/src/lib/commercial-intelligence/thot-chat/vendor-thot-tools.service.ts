@@ -50,7 +50,7 @@ export class VendorThotToolsService implements ThotToolProvider {
 
   async execute(name: string, input: any, scope: ThotScope): Promise<any> {
     const args = input || {};
-    const vendor = scope.vendorUserId;
+    const vendor = scope.vendorUserId || this.ctx.get()?.userId;
     if (!vendor) return { error: 'No hay vendedor en el contexto.' };
     try {
       switch (name) {
