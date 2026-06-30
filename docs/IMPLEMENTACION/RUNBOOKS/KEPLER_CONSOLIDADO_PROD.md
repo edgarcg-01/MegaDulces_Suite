@@ -85,8 +85,28 @@ schtasks /Create /TN "Kepler\StockProd" /SC MINUTE /MO 30 /TR ^
 ```
 (env vars vía variables de sistema o un `.cmd` wrapper que las exporte antes del `node`.)
 
-> Alternativa: desplegar una instancia NestJS on-prem con esas env vars → los 4
+> Alternativa: desplegar una instancia NestJS on-prem con esas env vars → los
 > `@Cron` del módulo `kepler-consolidado` corren solos. Más pesado que el scheduler.
+
+### 4.1 — Runner ACTIVO (2026-06-30)
+
+Programado en la **laptop `192.168.0.249`** (Task Scheduler), wrapper en
+`C:\KeplerRunner\run-feeds.cmd` (fuera del repo — contiene credenciales; setea
+`DATABASE_URL_NEW`=prod, `DATABASE_URL_KEPLER_CONSOLIDADO`, `MEGA_DULCES_URL`).
+Logs en `C:\KeplerRunner\logs\<modo>.log`.
+
+| Tarea | Schedule | Modo |
+|---|---|---|
+| `Kepler\Stock` | cada 30 min | `stock` |
+| `Kepler\Nightly` | diario 03:00 | `nightly` (rotación, top-sellers, margin, sales-fact, stats, inventory-health, promos, customers, customer-sales) |
+| `Kepler\Catalog` | domingo 02:00 | `catalog` (catálogo + precios) |
+
+**DEPENDENCIAS (si falla la actualización, revisar esto):**
+1. La laptop debe estar **encendida y con sesión iniciada** (las tareas corren "solo si el usuario inició sesión" porque Docker Desktop vive en la sesión del usuario).
+2. **Docker Desktop arriba** con el contenedor `pgvector-md` (kepler_consolidado en localhost:5433).
+3. VPN a las sucursales activa (para stock/margin/customers).
+
+Recrear/editar: `schtasks /Query /TN "Kepler\Stock"` · borrar: `schtasks /Delete /TN "Kepler\Stock" /F`.
 
 ## 5. Seguridad / pendientes
 
