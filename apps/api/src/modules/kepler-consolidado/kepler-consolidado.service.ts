@@ -21,6 +21,7 @@ const MARGIN_SCRIPT = 'database/importers/kepler/import-margin.js';
 const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
 const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js';
+const ERP_PROMOS_SCRIPT = 'database/importers/kepler/import-erp-promos.js';
 
 @Injectable()
 export class KeplerConsolidadoService {
@@ -33,6 +34,7 @@ export class KeplerConsolidadoService {
   private salesFactRunning = false;
   private salesStatsRunning = false;
   private invHealthRunning = false;
+  private promosRunning = false;
 
   constructor(
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
@@ -212,6 +214,25 @@ export class KeplerConsolidadoService {
       await this.runScript(INV_HEALTH_SCRIPT, 'Salud de inventario', /upserted|COMMIT|ERROR/);
     } finally {
       this.invHealthRunning = false;
+    }
+  }
+
+  /**
+   * Promos vigentes del ERP → analytics.erp_promotions (KV.6). Nightly 05:00.
+   * Señal para Thot / portal.
+   */
+  @Cron('0 0 5 * * *')
+  async promosFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.promosRunning) {
+      this.logger.warn('Skip promosFeed: corrida anterior aún activa');
+      return;
+    }
+    this.promosRunning = true;
+    try {
+      await this.runScript(ERP_PROMOS_SCRIPT, 'Promos ERP', /vigentes|COMMIT|ERROR/);
+    } finally {
+      this.promosRunning = false;
     }
   }
 
