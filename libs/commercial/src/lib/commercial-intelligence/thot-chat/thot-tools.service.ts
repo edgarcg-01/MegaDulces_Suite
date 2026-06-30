@@ -336,12 +336,22 @@ export class ThotToolsService implements ThotToolProvider {
          LIMIT ?`,
         [tenantId, ...(from ? [from] : []), ...(to ? [to] : []), limit],
       );
+      // % determinista (NUNCA dejar que el LLM divida de cabeza). El total es el
+      // de las filas devueltas; si hubo LIMIT, total_is_partial avisa.
+      const rows = res.rows.map((r: any) => ({ label: r.label, value: Number(r.value) }));
+      const total = rows.reduce((s: number, r: any) => s + (r.value || 0), 0);
+      const withShare = rows.map((r: any) => ({
+        ...r,
+        share_pct: total > 0 && !dim.time ? +((r.value / total) * 100).toFixed(1) : null,
+      }));
       return {
         metric: args.metric,
         group_by: args.group_by,
         period: { from, to },
         source: 'venta real ERP (analytics.sales_daily)',
-        rows: res.rows.map((r: any) => ({ label: r.label, value: Number(r.value) })),
+        total: +total.toFixed(2),
+        total_is_partial: rows.length >= limit,
+        rows: withShare,
       };
     });
   }
