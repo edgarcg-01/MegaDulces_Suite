@@ -12,6 +12,7 @@ import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { SkeletonModule } from 'primeng/skeleton';
 import { SelectModule } from 'primeng/select';
+import { DatePickerModule } from 'primeng/datepicker';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
@@ -32,11 +33,20 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 
 interface DatePreset { key: string; label: string; days: number; }
+/** Trimestre del año en curso. `m0` = mes inicial (0-index). */
+interface Quarter { key: string; label: string; m0: number; }
 
 const PRESETS: DatePreset[] = [
   { key: '7d',  label: '7 días',   days: 7  },
   { key: '30d', label: '30 días',  days: 30 },
   { key: '90d', label: '90 días',  days: 90 },
+];
+
+const QUARTERS: Quarter[] = [
+  { key: 'q1', label: 'Q1', m0: 0 },
+  { key: 'q2', label: 'Q2', m0: 3 },
+  { key: 'q3', label: 'Q3', m0: 6 },
+  { key: 'q4', label: 'Q4', m0: 9 },
 ];
 
 @Component({
@@ -49,6 +59,7 @@ const PRESETS: DatePreset[] = [
     ChartModule,
     SkeletonModule,
     SelectModule,
+    DatePickerModule,
     TableModule,
     ToastModule,
     TooltipModule,
@@ -94,7 +105,7 @@ const PRESETS: DatePreset[] = [
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush ha-filters-cell">
           <div class="ha-toolbar">
-            <div class="ha-segment" role="group" aria-label="Rango">
+            <div class="ha-segment" role="group" aria-label="Rango rápido">
               <button
                 *ngFor="let p of presets"
                 type="button"
@@ -102,6 +113,53 @@ const PRESETS: DatePreset[] = [
                 [class.active]="preset() === p.key"
                 (click)="setPreset(p.key)"
               >{{ p.label }}</button>
+            </div>
+
+            <p-select
+              [options]="yearOptions"
+              [ngModel]="quarterYear()"
+              (onChange)="setYear($event.value)"
+              styleClass="ha-year-select"
+              appendTo="body"
+              [pTooltip]="'Año de los trimestres'"
+              tooltipPosition="top"
+            ></p-select>
+
+            <div class="ha-segment" role="group" [attr.aria-label]="'Trimestre ' + quarterYear()">
+              <button
+                *ngFor="let q of quarters"
+                type="button"
+                class="ha-seg-btn"
+                [class.active]="preset() === q.key"
+                (click)="setQuarter(q)"
+                [pTooltip]="q.label + ' ' + quarterYear()"
+                tooltipPosition="top"
+              >{{ q.label }}</button>
+            </div>
+
+            <div class="ha-custom">
+              <button
+                type="button"
+                class="ha-custom-btn"
+                [class.active]="preset() === 'custom'"
+                (click)="toggleCustom()"
+              >
+                <i class="pi pi-calendar" aria-hidden="true"></i> Personalizado
+              </button>
+              @if (showCalendar()) {
+                <div class="ha-cal-backdrop" (click)="showCalendar.set(false)"></div>
+                <div class="ha-cal-pop">
+                  <p-datePicker
+                    [inline]="true"
+                    selectionMode="range"
+                    [(ngModel)]="customDates"
+                    (onSelect)="onCustomRange()"
+                    [readonlyInput]="true"
+                    [maxDate]="maxDate"
+                    [numberOfMonths]="2"
+                  ></p-datePicker>
+                </div>
+              }
             </div>
 
             <div class="ha-field">
@@ -413,6 +471,35 @@ const PRESETS: DatePreset[] = [
 
     .ha-field { display:inline-flex; align-items:center; }
     :host ::ng-deep .ha-zone-select { min-width: 220px; }
+    :host ::ng-deep .ha-year-select { min-width: 92px; }
+
+    /* Botón "Personalizado" + calendario PrimeNG en overlay. */
+    .ha-custom { position: relative; display: inline-flex; }
+    .ha-custom-btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      height: 32px; padding: 0 .75rem;
+      background: var(--c-surface-2); border: 1px solid var(--c-divider);
+      border-radius: 8px;
+      font-size: var(--fs-xs); font-weight: var(--fw-medium);
+      color: var(--c-text-2); cursor: pointer; white-space: nowrap;
+      transition: all 100ms var(--ease-standard);
+    }
+    .ha-custom-btn:hover { color: var(--c-text-1); border-color: var(--c-text-3); }
+    .ha-custom-btn.active {
+      background: var(--c-surface-1); color: var(--action);
+      border-color: var(--action); font-weight: var(--fw-bold);
+    }
+    .ha-custom-btn i { font-size: .85rem; }
+    .ha-cal-backdrop { position: fixed; inset: 0; z-index: 29; }
+    .ha-cal-pop {
+      position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+      background: var(--card-bg, var(--c-surface-1));
+      border: 1px solid var(--border-color, var(--c-divider));
+      border-radius: var(--r-md, 12px);
+      box-shadow: var(--shadow-hover, 0 10px 30px -10px rgba(0,0,0,.2));
+      padding: 4px;
+    }
+    @media (max-width: 640px) { .ha-cal-pop { left: auto; right: 0; } }
 
     .ha-chart-wrap {
       padding: 1rem 1.25rem 1.25rem;
@@ -521,6 +608,22 @@ export class HistoricalAnalyticsComponent {
   readonly preset = signal<string>('30d');
   readonly zonaFilter = signal<string | null>(null);
 
+  /** Rango explícito {from,to} (ISO) cuando se usa trimestre o fecha custom; null = preset de días. */
+  readonly customRange = signal<{ from: string; to: string } | null>(null);
+  /** Modelo del date-picker de rango (refleja trimestre/custom). */
+  customDates: Date[] | null = null;
+  readonly quarters = QUARTERS;
+  readonly currentYear = new Date().getFullYear();
+  readonly maxDate = new Date();
+  /** Año aplicado a los trimestres (Q1 2026, Q1 2025, …). */
+  readonly quarterYear = signal(new Date().getFullYear());
+  readonly yearOptions = Array.from({ length: 4 }, (_, i) => {
+    const y = new Date().getFullYear() - i;
+    return { label: String(y), value: y };
+  });
+  /** Muestra el calendario PrimeNG (overlay) del rango personalizado. */
+  readonly showCalendar = signal(false);
+
   readonly daily = signal<HistoricalDailyRow[]>([]);
   readonly topProducts = signal<HistoricalTopProductRow[]>([]);
   readonly byZona = signal<HistoricalByZonaRow[]>([]);
@@ -584,7 +687,14 @@ export class HistoricalAnalyticsComponent {
   });
 
   readonly rangeLabel = computed(() => {
-    const p = this.presets.find((x) => x.key === this.preset());
+    const key = this.preset();
+    const q = this.quarters.find((x) => x.key === key);
+    if (q) return `${q.label} ${this.quarterYear()}`;
+    if (key === 'custom') {
+      const c = this.customRange();
+      return c ? `${c.from} → ${c.to}` : 'Personalizado';
+    }
+    const p = this.presets.find((x) => x.key === key);
     return p ? `Últimos ${p.label}` : '—';
   });
 
@@ -642,8 +752,46 @@ export class HistoricalAnalyticsComponent {
   }
 
   setPreset(key: string): void {
+    this.showCalendar.set(false);
     if (this.preset() === key) return;
     this.preset.set(key);
+    this.customRange.set(null);   // vuelve a "últimos N días"
+    this.customDates = null;
+    this.load();
+  }
+
+  /** Trimestre del año seleccionado (to acotado a hoy para no pedir futuro). */
+  setQuarter(q: Quarter): void {
+    this.showCalendar.set(false);
+    const year = this.quarterYear();
+    const from = new Date(year, q.m0, 1);
+    let to = new Date(year, q.m0 + 3, 0); // último día del trimestre
+    if (to > this.maxDate) to = this.maxDate;
+    this.customRange.set({ from: this.localISO(from), to: this.localISO(to) });
+    this.customDates = [from, to];
+    this.preset.set(q.key);
+    this.load();
+  }
+
+  /** Cambia el año de los trimestres; si hay un trimestre activo, lo re-aplica. */
+  setYear(year: number): void {
+    this.quarterYear.set(year);
+    const q = this.quarters.find((x) => x.key === this.preset());
+    if (q) this.setQuarter(q);
+  }
+
+  /** Botón "Personalizado" → abre/cierra el calendario PrimeNG. */
+  toggleCustom(): void {
+    this.showCalendar.update((v) => !v);
+  }
+
+  /** Fecha personalizada (calendario rango). Aplica cuando hay ambas fechas. */
+  onCustomRange(): void {
+    const d = this.customDates;
+    if (!d || d.length < 2 || !d[0] || !d[1]) return;
+    this.customRange.set({ from: this.localISO(d[0]), to: this.localISO(d[1]) });
+    this.preset.set('custom');
+    this.showCalendar.set(false);
     this.load();
   }
 
@@ -693,13 +841,21 @@ export class HistoricalAnalyticsComponent {
   }
 
   private dateRange(): { from: string; to: string } {
+    // Trimestre o fecha custom → rango explícito; sino, últimos N días del preset.
+    const c = this.customRange();
+    if (c) return c;
     const p = this.presets.find((x) => x.key === this.preset()) || this.presets[1];
     const today = new Date();
     const from = new Date(today.getTime() - (p.days - 1) * 86400_000);
-    return {
-      from: from.toISOString().slice(0, 10),
-      to: today.toISOString().slice(0, 10),
-    };
+    return { from: this.localISO(from), to: this.localISO(today) };
+  }
+
+  /** Date → 'YYYY-MM-DD' en hora local (evita el corrimiento de día de toISOString/UTC). */
+  private localISO(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   private shortDay(iso: string): string {
