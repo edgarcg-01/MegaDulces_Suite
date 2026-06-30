@@ -22,6 +22,8 @@ const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
 const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js';
 const ERP_PROMOS_SCRIPT = 'database/importers/kepler/import-erp-promos.js';
+const ERP_CUSTOMERS_SCRIPT = 'database/importers/kepler/import-erp-customers.js';
+const CUSTOMER_SALES_SCRIPT = 'database/importers/kepler/import-customer-sales.js';
 
 @Injectable()
 export class KeplerConsolidadoService {
@@ -35,6 +37,8 @@ export class KeplerConsolidadoService {
   private salesStatsRunning = false;
   private invHealthRunning = false;
   private promosRunning = false;
+  private custRunning = false;
+  private custSalesRunning = false;
 
   constructor(
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
@@ -233,6 +237,38 @@ export class KeplerConsolidadoService {
       await this.runScript(ERP_PROMOS_SCRIPT, 'Promos ERP', /vigentes|COMMIT|ERROR/);
     } finally {
       this.promosRunning = false;
+    }
+  }
+
+  /**
+   * Dim de clientes Kepler → analytics.erp_customers (KV.3). Nightly 05:05.
+   * Lee kdud de las 6 sucursales (no toca commercial.customers).
+   */
+  @Cron('0 5 5 * * *')
+  async customersFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.custRunning) { this.logger.warn('Skip customersFeed: corrida anterior aún activa'); return; }
+    this.custRunning = true;
+    try {
+      await this.runScript(ERP_CUSTOMERS_SCRIPT, 'Dim clientes ERP', /clientes en erp_customers|COMMIT|ERROR/);
+    } finally {
+      this.custRunning = false;
+    }
+  }
+
+  /**
+   * Historial de compra por cliente → analytics.customer_product_sales (KV.3).
+   * Nightly 05:10. Base de Customer 360 (vendedor/televenta/portal).
+   */
+  @Cron('0 10 5 * * *')
+  async customerSalesFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.custSalesRunning) { this.logger.warn('Skip customerSalesFeed: corrida anterior aún activa'); return; }
+    this.custSalesRunning = true;
+    try {
+      await this.runScript(CUSTOMER_SALES_SCRIPT, 'Historial por cliente', /cliente.producto|COMMIT|ERROR/);
+    } finally {
+      this.custSalesRunning = false;
     }
   }
 

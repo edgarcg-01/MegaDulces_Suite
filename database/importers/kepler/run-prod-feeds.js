@@ -38,6 +38,8 @@ const STEPS = {
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily)
     path.join(K, 'import-erp-promos.js'),    // KV.6 promos vigentes (lee sucursal)
+    path.join(K, 'import-erp-customers.js'), // KV.3 dim clientes (lee 6 sucursales)
+    path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado)
   ],
   catalog: [
     path.join(DIR, 'import-catalog-bulk.js'),

@@ -258,7 +258,15 @@ CREATE TABLE IF NOT EXISTS analytics.inventory_health (
 
 ---
 
-## KV.3 — Customer 360 real (el track más delicado)
+## KV.3 — Customer 360 real — 🔨 CÓDIGO (deploy pendiente) 2026-06-30
+
+**Decisión del usuario:** opción "solo historial, sin tocar `commercial.customers`". Modelo en `analytics.*`:
+- `analytics.erp_customers` (dim, dedup 6 sucursales, excluye "NO USAR") — dry-run 1112 clientes.
+- `analytics.customer_product_sales` (qué compró cada cliente 90/180d, key erp_code) — dry-run 20,200 filas.
+
+**Hallazgos:** `erp_customer_ref` mezcla TI00x (transferencias/mayoreo interno, top por venta — sin fila en dim) y códigos numéricos reales (matchean kdud.c2 con lpad a 5). CONTADO (mostrador) excluido. Migración `20260630180000` + 2 importers + crons customersFeed @05:05 / customerSalesFeed @05:10 + runner. **Deploy + apply pendiente.** Consumo (vendedor/televenta/portal) = KV.3.2 follow-up (frontend).
+
+### Detalle de diseño (KV.3)
 
 **Realidad verificada (2026-06-30):**
 - **Prod** tiene **85 clientes** con código `V-XXXX` (capturados por la app del vendedor), **sin RFC ni link a Kepler**. `mega_dulces_sync` **no** sincroniza clientes.
@@ -306,7 +314,11 @@ CREATE TABLE IF NOT EXISTS analytics.customer_product_sales (
 
 ---
 
-## KV.6 — Promos del ERP → `analytics.erp_promotions`
+## KV.6 — Promos del ERP → `analytics.erp_promotions` — ✅ CERRADO 2026-06-30
+
+**En prod:** migración `20260630170000` + `import-erp-promos.js` (4 tablas kdpv_*, sólo vigentes, refresco full) + cron `promosFeed` @05:00 + runner. 6 promos vigentes hoy (todas descuento_qty). Infra lista; se auto-puebla cuando haya más promos. Consumo (Thot/portal) = follow-up.
+
+### Detalle de diseño (KV.6)
 
 **Objetivo:** las reglas de promo reales de Kepler (`kdpv_descuxq`/`gratisxq`/`descuxm`/`gratisxm`) como señal.
 
