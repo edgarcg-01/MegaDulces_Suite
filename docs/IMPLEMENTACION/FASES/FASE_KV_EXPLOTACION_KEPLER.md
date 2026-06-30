@@ -24,14 +24,16 @@
 
 ---
 
-## 0bis. Deuda operacional previa (desbloquear antes de KV)
+## 0bis. Deuda operacional previa (desbloquear antes de KV) — ✅ CERRADO 2026-06-30
 
 Heredada de la sesión de sync de catálogo. **Prerrequisito de KV.1+.**
 
-1. **Deploy de migración + código** `top_sellers_live` (`20260629120000`) + endpoint `listTopSellers` + módulo `kepler-consolidado` + exclusión MD-10 en `mega_dulces_sync`. (Migración aditiva, aplica en deploy normal.)
-2. **Bulk-ificar rotación** (`import-rotation-from-consolidado.js` hoy per-fila ~1.7 h → staging+merge).
-3. **Bulk-ificar top-sellers** (mismo patrón) para que el nightly sea viable contra prod.
-4. Montar **runner on-prem permanente** (servicio/cron del SO) que ejecute los importers contra prod. Hoy se corren a mano.
+1. ✅ **Deploy de migración + código** `top_sellers_live` (`20260629120000`) + endpoint `listTopSellers` + módulo `kepler-consolidado` + exclusión MD-10 en `mega_dulces_sync`. Aplicado en prod (migración registrada, tabla creada).
+2. ✅ **Bulk-ificar rotación** (`import-rotation-from-consolidado.js`: per-fila ~1.7 h → staging temp + `UPDATE FROM`).
+3. ✅ **Bulk-ificar top-sellers** (`import-top-sellers-from-consolidado.js`: `INSERT` per-fila → multi-fila batches de 500).
+4. ✅ **Runner on-prem** (`run-prod-feeds.js` orquestador: modos `stock`/`nightly`/`catalog`/`all`, guarda que exige prod en `--apply`) + runbook actualizado con `schtasks`.
+
+**Poblado de prod (2026-06-30):** rotación 5028 SKUs (alta=1105/media=1556/baja=1698/dead=669) + top_sellers_live 975 best-sellers (top-1 ALTOS CAM CHICA $962k). 235/25 sin match catálogo respectivamente.
 
 ---
 

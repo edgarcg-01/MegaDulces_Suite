@@ -17,6 +17,7 @@ import { KNEX_KEPLER_CONSOLIDADO } from './kepler-consolidado.constants';
 const ROTATION_SCRIPT = 'database/importers/kepler/import-rotation-from-consolidado.js';
 const PH_STOCK_SCRIPT = 'database/importers/kepler/import-branch-stock-live.js';
 const TOP_SELLERS_SCRIPT = 'database/importers/kepler/import-top-sellers-from-consolidado.js';
+const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 
 @Injectable()
 export class KeplerConsolidadoService {
@@ -25,6 +26,7 @@ export class KeplerConsolidadoService {
   private rotationRunning = false;
   private phStockRunning = false;
   private topSellersRunning = false;
+  private salesFactRunning = false;
 
   constructor(
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
@@ -127,6 +129,26 @@ export class KeplerConsolidadoService {
       await this.runScript(TOP_SELLERS_SCRIPT, 'Best-sellers portal', /Best-sellers|match catálogo|ERROR/);
     } finally {
       this.topSellersRunning = false;
+    }
+  }
+
+  /**
+   * Fact de venta real de la red → analytics.sales_daily (KV.1). Base de
+   * command-center / ABC / margen / demanda. Nightly 04:45, tras top-sellers.
+   * Ventana 13 meses, bulk staging+merge.
+   */
+  @Cron('0 45 4 * * *')
+  async salesFactFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.salesFactRunning) {
+      this.logger.warn('Skip salesFactFeed: corrida anterior aún activa');
+      return;
+    }
+    this.salesFactRunning = true;
+    try {
+      await this.runScript(SALES_FACT_SCRIPT, 'Fact de ventas', /sales_daily|COMMIT|ERROR/);
+    } finally {
+      this.salesFactRunning = false;
     }
   }
 

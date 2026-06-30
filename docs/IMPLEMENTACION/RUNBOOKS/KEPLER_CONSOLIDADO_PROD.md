@@ -43,35 +43,47 @@ ON-PREM (laptop/server en LAN Mega Dulces)            RAILWAY (nube)
 
 > **Backup primero** (rollback): `pg_dump <prod> -t public.products -t commercial.product_prices -t catalog.brands -t catalog.categories --data-only --column-inserts -f backup.sql`
 
-1. **Catálogo Kepler → prod** (on-prem, `DATABASE_URL_NEW=<prod>`), por scope, SALTANDO warehouses/stock:
+> **Todos los importers a prod son BULK** (staging temp + merge server-side). El
+> per-fila contra Railway (~1.2 s/query) tomaba horas; bulk = segundos/<2 min.
+
+1. **Catálogo + precios Kepler → prod** (on-prem, `DATABASE_URL_NEW=<prod>`, `MEGA_DULCES_URL=<.245>`):
    ```
-   node database/importers/mega_dulces_sync.js --tenant-slug=mega_dulces --scope=categories
-   node database/importers/mega_dulces_sync.js --tenant-slug=mega_dulces --scope=brands
-   node database/importers/mega_dulces_sync.js --tenant-slug=mega_dulces --scope=products
-   node database/importers/mega_dulces_sync.js --tenant-slug=mega_dulces --scope=price-lists
-   node database/importers/mega_dulces_sync.js --tenant-slug=mega_dulces --scope=prices
+   node database/importers/import-catalog-bulk.js --apply   # match por nombre, setea sku
+   node database/importers/import-prices-bulk.js  --apply   # 5 listas, solo activos
    ```
-   Verificar tras products: `SELECT count(*), count(*) FILTER (WHERE sku<>'') FROM public.products` (~12.9k, sku poblado) y sin duplicados por nombre.
-2. **Deploy de código** (migración `20260629120000_catalog_top_sellers_live.js` crea la tabla; cambio de endpoint `listTopSellers`; exclusión MD-10 en `mega_dulces_sync`; módulo inerte).
-3. **Feeds → prod** (on-prem):
+   Verificar: `SELECT count(*), count(*) FILTER (WHERE btrim(coalesce(sku,''))<>'') FROM public.products` (~12.4k, ~11.1k con sku) y precios `> 0` en `commercial.product_prices`.
+2. **Deploy de código** (migración `20260629120000_catalog_top_sellers_live.js` crea la tabla; endpoint `listTopSellers`; exclusión MD-10 en `mega_dulces_sync`; módulo inerte en Railway). Verificar tras deploy: `SELECT to_regclass('catalog.top_sellers_live')` no nula.
+3. **Feeds → prod** (on-prem, Docker `kepler_consolidado` arriba):
    ```
-   PH_WAREHOUSE_CODE=01 node database/importers/kepler/import-ph-stock-live.js --apply
-   node database/importers/kepler/import-rotation-from-consolidado.js --apply
-   node database/importers/kepler/import-top-sellers-from-consolidado.js --apply
+   node database/importers/kepler/import-branch-stock-live.js        --apply   # stock 6 sucursales (00..05)
+   node database/importers/kepler/import-rotation-from-consolidado.js --apply  # rotación de red → Thot
+   node database/importers/kepler/import-top-sellers-from-consolidado.js --apply # best-sellers portal
    ```
+   O en un solo paso: `node database/importers/kepler/run-prod-feeds.js all --apply`.
 
 ## 4. Operación continua (runner on-prem)
 
-Programar en la máquina on-prem (Windows Task Scheduler o equivalente), con env
-`DATABASE_URL_KEPLER_CONSOLIDADO`, `DATABASE_URL_NEW=<prod>`, `PH_WAREHOUSE_CODE=01`:
+**Punto de entrada único:** `database/importers/kepler/run-prod-feeds.js <modo> [--apply]`
+(orquesta los importers bulk como subprocesos; guarda: `--apply` exige
+`DATABASE_URL_NEW` = proxy Railway, default dry-run). Modos: `stock` · `nightly`
+(rotación+top-sellers) · `catalog` (catálogo+precios) · `all`.
+
+Env de la tarea: `DATABASE_URL_NEW=<prod>`, `DATABASE_URL_KEPLER_CONSOLIDADO=<localhost:5433>`,
+`MEGA_DULCES_URL=<.245>` (solo `catalog`).
 
 | Tarea | Frecuencia | Comando |
 |---|---|---|
 | Refresh consolidación | cada 2 min | `psql <kepler_consolidado> -c "SELECT mart.refresh_si_cambio(7)"` |
-| Stock PH | cada 30 min | `import-ph-stock-live.js --apply` |
-| Rotación | nightly 04:00 | `import-rotation-from-consolidado.js --apply` |
-| Best-sellers | nightly 04:15 | `import-top-sellers-from-consolidado.js --apply` |
-| Catálogo (opcional) | semanal | `mega_dulces_sync.js --scope=products` (+ prices) |
+| Stock 6 sucursales | cada 30 min | `run-prod-feeds.js stock --apply` |
+| Rotación + best-sellers | nightly 04:00 | `run-prod-feeds.js nightly --apply` |
+| Catálogo + precios | semanal | `run-prod-feeds.js catalog --apply` |
+
+Ejemplo Task Scheduler (Windows), stock cada 30 min:
+```
+schtasks /Create /TN "Kepler\StockProd" /SC MINUTE /MO 30 /TR ^
+ "cmd /c cd /d C:\ruta\Trade_marketing && node database/importers/kepler/run-prod-feeds.js stock --apply >> logs\stock.log 2>&1"
+```
+(env vars vía variables de sistema o un `.cmd` wrapper que las exporte antes del `node`.)
 
 > Alternativa: desplegar una instancia NestJS on-prem con esas env vars → los 4
 > `@Cron` del módulo `kepler-consolidado` corren solos. Más pesado que el scheduler.
