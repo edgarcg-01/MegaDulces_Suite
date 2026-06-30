@@ -543,4 +543,11 @@ export class CommercialIntelligenceController {
   toggleExample(@Param('id') id: string, @Body() body: { enabled: boolean }) {
     return this.examples.setEnabled(id, !!body?.enabled);
   }
+
+  @Post('thot/examples/reindex')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'TC.4b — Reindexa semillas + ejemplos curados en la DB vector (embeddings).' })
+  reindexExamples() {
+    return this.examples.reindex();
+  }
 }

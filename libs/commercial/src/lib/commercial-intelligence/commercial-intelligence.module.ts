@@ -18,6 +18,8 @@ import { PortalThotToolsService } from './thot-chat/portal-thot-tools.service';
 import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
 import { ThotChatService } from './thot-chat/thot-chat.service';
 import { ThotExamplesService } from './thot-chat/thot-examples.service';
+import { ThotExampleVectorService } from './thot-chat/thot-example-vector.service';
+import { EmbeddingsService } from '@megadulces/platform-core';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
 /**
@@ -50,6 +52,8 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     VendorThotToolsService,
     ThotChatService,
     ThotExamplesService,
+    ThotExampleVectorService,
+    EmbeddingsService,
   ],
   exports: [
     Customer360Service,

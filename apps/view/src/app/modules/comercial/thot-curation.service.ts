@@ -45,4 +45,7 @@ export class ThotCurationService {
   toggle(id: string, enabled: boolean) {
     return this.http.patch<{ id: string; enabled: boolean }>(`${this.base}/examples/${id}`, { enabled });
   }
+  reindex() {
+    return this.http.post<{ indexed: number }>(`${this.base}/examples/reindex`, {});
+  }
 }

@@ -10,6 +10,7 @@ import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ANALYTICS_TABS } from '../analytics-tabs';
@@ -22,7 +23,7 @@ import { ThotCurationService, ThotExampleRow, ThotCandidateRow } from '../thot-c
 @Component({
   selector: 'app-comercial-thot-curation',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, TextareaModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, TextareaModule, ToastModule, TooltipModule, PageTabsComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -38,6 +39,7 @@ import { ThotCurationService, ThotExampleRow, ThotCandidateRow } from '../thot-c
         <div class="tcur-actions">
           <p-select [options]="profiles" [(ngModel)]="profile" optionLabel="label" optionValue="value" (onChange)="loadExamples()" styleClass="tcur-sel"></p-select>
           <button pButton icon="pi pi-plus" label="Nuevo ejemplo" size="small" severity="contrast" (click)="openAdd()"></button>
+          <button pButton icon="pi pi-sync" label="Reindexar" size="small" [outlined]="true" (click)="reindex()" [loading]="reindexing()" pTooltip="Re-embeber ejemplos en la DB vector (few-shot semántico)"></button>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="reload()" [loading]="loading()"></button>
         </div>
       </header>
@@ -137,6 +139,7 @@ export class ComercialThotCurationComponent {
   examples = signal<ThotExampleRow[]>([]);
   candidates = signal<ThotCandidateRow[]>([]);
   loading = signal(false);
+  reindexing = signal(false);
   profile = '';
   addOpen = signal(false);
   form = { profile: 'admin', question: '', answer: '', toolsStr: '', note: '' };
@@ -171,6 +174,14 @@ export class ComercialThotCurationComponent {
     this.svc.toggle(e.id, !e.enabled).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { e.enabled = !e.enabled; this.examples.update((x) => [...x]); },
       error: () => this.toast.add({ severity: 'error', summary: 'No se pudo cambiar' }),
+    });
+  }
+
+  reindex() {
+    this.reindexing.set(true);
+    this.svc.reindex().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.reindexing.set(false); this.toast.add({ severity: 'success', summary: `Reindexado: ${r?.indexed ?? 0} ejemplos` }); },
+      error: () => { this.reindexing.set(false); this.toast.add({ severity: 'warn', summary: 'Reindex no disponible', detail: 'Verificá VECTOR_DATABASE_URL y VOYAGE_API_KEY' }); },
     });
   }
 
