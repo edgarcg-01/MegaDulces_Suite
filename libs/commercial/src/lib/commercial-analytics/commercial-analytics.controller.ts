@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CommercialAnalyticsService } from './commercial-analytics.service';
@@ -216,5 +216,35 @@ export class CommercialAnalyticsController {
       limit: limit ? Number(limit) : undefined,
       topN: topN ? Number(topN) : undefined,
     });
+  }
+
+  // ─────────── KV.3/5/6 — analytics.* (venta real Kepler) ───────────
+
+  @Get('inventory-health')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'KV.5 — Salud de inventario: días de cobertura + status por producto×almacén.' })
+  inventoryHealth(@Query('warehouse_id') warehouseId?: string, @Query('status') status?: string) {
+    return this.service.inventoryHealth({ warehouse_id: warehouseId, status });
+  }
+
+  @Get('erp-customers')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'KV.3 — Clientes Kepler con compra agregada 180d.' })
+  erpCustomers(@Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.service.erpCustomers({ search, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('erp-customers/:code/products')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'KV.3 — Productos comprados por un cliente Kepler.' })
+  erpCustomerProducts(@Param('code') code: string) {
+    return this.service.erpCustomerProducts(code);
+  }
+
+  @Get('erp-promotions')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'KV.6 — Promos vigentes del ERP.' })
+  erpPromotions() {
+    return this.service.erpPromotions();
   }
 }

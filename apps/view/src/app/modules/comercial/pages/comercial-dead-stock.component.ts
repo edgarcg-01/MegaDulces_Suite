@@ -9,7 +9,8 @@ import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, DeadStockReport, Warehouse } from '../comercial.service';
-import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ANALYTICS_TABS } from '../analytics-tabs';
 
 /**
  * Reporte de STOCK MUERTO: existencia > 0 sin venta en 90 días = capital parado
@@ -115,11 +116,7 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
   `],
 })
 export class ComercialDeadStockComponent {
-  readonly analyticsTabs: PageTab[] = [
-    { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt' },
-    { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database' },
-    { label: 'Stock muerto', route: '/comercial/dead-stock', icon: 'pi pi-exclamation-triangle' },
-  ];
+  readonly analyticsTabs = ANALYTICS_TABS;
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

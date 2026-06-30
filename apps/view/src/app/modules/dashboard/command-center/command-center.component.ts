@@ -20,7 +20,8 @@ import { catchError } from 'rxjs/operators';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
 import { CountUpDirective } from '../../../shared/directives/count-up.directive';
-import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import {
   CommandCenterService,
   OverviewResponse,
@@ -74,11 +75,7 @@ interface ProductPeekRef {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CommandCenterComponent implements OnInit {
-  readonly analyticsTabs: PageTab[] = [
-    { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt' },
-    { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database' },
-    { label: 'Stock muerto', route: '/comercial/dead-stock', icon: 'pi pi-exclamation-triangle' },
-  ];
+  readonly analyticsTabs = ANALYTICS_TABS;
 
   private readonly api = inject(CommandCenterService);
   private readonly toast = inject(MessageService);

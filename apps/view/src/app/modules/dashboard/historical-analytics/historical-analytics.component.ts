@@ -28,7 +28,8 @@ import {
 } from '../command-center/command-center.service';
 import { getChartTokens } from '../../../shared/theme/chart-theme';
 import { ThemeService } from '../../../core/services/theme.service';
-import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 
 interface DatePreset { key: string; label: string; days: number; }
 
@@ -509,11 +510,7 @@ const PRESETS: DatePreset[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HistoricalAnalyticsComponent {
-  readonly analyticsTabs: PageTab[] = [
-    { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt' },
-    { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database' },
-    { label: 'Stock muerto', route: '/comercial/dead-stock', icon: 'pi pi-exclamation-triangle' },
-  ];
+  readonly analyticsTabs = ANALYTICS_TABS;
 
   private readonly api = inject(CommandCenterService);
   private readonly toast = inject(MessageService);

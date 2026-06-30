@@ -919,6 +919,69 @@ export class ComercialService {
     if (limit) params = params.set('limit', String(limit));
     return this.http.get<DeadStockReport>(`${this.base}/analytics/dead-stock`, { params });
   }
+
+  // KV.5/KV.3/KV.6 — analytics de venta real Kepler
+  inventoryHealth(warehouseId?: string, status?: string) {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    if (status) params = params.set('status', status);
+    return this.http.get<InventoryHealthResponse>(`${this.base}/analytics/inventory-health`, { params });
+  }
+  erpCustomers(search?: string, limit = 200) {
+    let params = new HttpParams().set('limit', String(limit));
+    if (search) params = params.set('search', search);
+    return this.http.get<ErpCustomerRow[]>(`${this.base}/analytics/erp-customers`, { params });
+  }
+  erpCustomerProducts(code: string) {
+    return this.http.get<ErpCustomerProduct[]>(`${this.base}/analytics/erp-customers/${encodeURIComponent(code)}/products`);
+  }
+  erpPromotions() {
+    return this.http.get<ErpPromoRow[]>(`${this.base}/analytics/erp-promotions`);
+  }
+}
+
+export interface InventoryHealthRow {
+  warehouse_code: string;
+  sku: string;
+  product_name: string;
+  brand_name: string | null;
+  on_hand: number;
+  avg_daily_units: number;
+  days_cover: number | null;
+  status: string;
+}
+export interface InventoryHealthResponse {
+  summary: { status: string; n: number }[];
+  items: InventoryHealthRow[];
+}
+export interface ErpCustomerRow {
+  erp_code: string;
+  name: string;
+  rfc: string | null;
+  city: string | null;
+  last_purchase: string | null;
+  rev_180d: number;
+  products: number;
+}
+export interface ErpCustomerProduct {
+  sku: string;
+  product_name: string;
+  units_90d: number;
+  revenue_90d: number;
+  units_180d: number;
+  revenue_180d: number;
+  last_purchase_date: string | null;
+}
+export interface ErpPromoRow {
+  sku: string;
+  product_name: string;
+  promo_type: string;
+  threshold: number | null;
+  benefit: number | null;
+  free_product_name: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  warehouse_code: string | null;
 }
 
 export interface DeadStockItem {

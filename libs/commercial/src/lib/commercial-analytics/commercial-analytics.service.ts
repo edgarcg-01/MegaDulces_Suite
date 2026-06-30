@@ -692,21 +692,28 @@ export class CommercialAnalyticsService {
    */
   async historicalRanking(q: { limit?: number }) {
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 100));
-    return this.guardErp('historicalRanking', [], () =>
-     this.tk.run(async (trx) => {
-      const rows = await trx('analytics_external.ranking_legacy')
-        .orderBy('posicion', 'asc')
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.2: ranking por venta real desde analytics.product_sales_stats (365d) en
+    // vez del FDW ranking_legacy (muerto en Railway). total_cajas no derivable del
+    // fact por-producto → 0; piezas = units_365d.
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.product_sales_stats AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .where('s.tenant_id', tenantId)
+        .whereRaw('COALESCE(s.revenue_365d,0) > 0')
+        .select('p.sku AS articulo', 'p.nombre AS nombre', 's.units_365d', 's.revenue_365d')
+        .orderBy('s.revenue_365d', 'desc')
         .limit(limit);
-      return rows.map((r) => ({
-        posicion: Number(r.posicion),
+      return rows.map((r, i) => ({
+        posicion: i + 1,
         articulo: r.articulo,
         nombre: r.nombre,
-        total_cajas: Number(r.total_cajas || 0),
-        total_piezas: Number(r.total_piezas || 0),
-        total_piezas_totales: Number(r.total_piezas_totales || 0),
-        total_venta: Number(r.total_venta || 0),
+        total_cajas: 0,
+        total_piezas: Number(r.units_365d || 0),
+        total_piezas_totales: Number(r.units_365d || 0),
+        total_venta: Number(r.revenue_365d || 0),
       }));
-    }));
+    });
   }
 
   /**
@@ -871,6 +878,99 @@ export class CommercialAnalyticsService {
         revenue: Number(r.revenue),
       }));
     });
+  }
+
+  // ─────────── KV.3/5/6 — consumo de analytics.* (venta real Kepler) ───────────
+
+  /** KV.5 — Salud de inventario: días de cobertura + status por producto×almacén. */
+  async inventoryHealth(q: { warehouse_id?: string; status?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const summary = await trx('analytics.inventory_health AS h')
+        .where('h.tenant_id', tenantId)
+        .modify((qb) => { if (q.warehouse_id) qb.where('h.warehouse_id', q.warehouse_id); })
+        .groupBy('h.status')
+        .select('h.status', trx.raw('count(*)::int AS n'));
+      const items = await trx('analytics.inventory_health AS h')
+        .join('catalog.products AS p', 'p.id', 'h.product_id')
+        .leftJoin('commercial.warehouses AS w', 'w.id', 'h.warehouse_id')
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('h.tenant_id', tenantId)
+        .modify((qb) => {
+          if (q.warehouse_id) qb.where('h.warehouse_id', q.warehouse_id);
+          if (q.status) qb.where('h.status', q.status);
+        })
+        .select(
+          'w.code AS warehouse_code', 'p.sku', 'p.nombre AS product_name', 'b.nombre AS brand_name',
+          'h.on_hand', 'h.avg_daily_units', 'h.days_cover', 'h.status',
+        )
+        .orderByRaw('h.days_cover ASC NULLS LAST')
+        .limit(2000);
+      return { summary, items };
+    });
+  }
+
+  /** KV.3 — Lista de clientes Kepler con su compra agregada (180d). */
+  async erpCustomers(q: { search?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
+    return this.tk.run(async (trx) => {
+      const agg = trx('analytics.customer_product_sales')
+        .where('tenant_id', tenantId)
+        .groupBy('erp_code')
+        .select(
+          'erp_code',
+          trx.raw('sum(revenue_180d) AS rev_180d'),
+          trx.raw('count(*)::int AS products'),
+          trx.raw('max(last_purchase_date) AS last_purchase'),
+        )
+        .as('s');
+      return trx('analytics.erp_customers AS c')
+        .leftJoin(agg, 's.erp_code', 'c.erp_code')
+        .where('c.tenant_id', tenantId)
+        .modify((qb) => { if (q.search) qb.whereRaw('c.name ILIKE ?', [`%${q.search}%`]); })
+        .select(
+          'c.erp_code', 'c.name', 'c.rfc', 'c.city', 's.last_purchase',
+          trx.raw('COALESCE(s.rev_180d,0)::numeric AS rev_180d'),
+          trx.raw('COALESCE(s.products,0)::int AS products'),
+        )
+        .orderByRaw('COALESCE(s.rev_180d,0) DESC')
+        .limit(limit);
+    });
+  }
+
+  /** KV.3 — Productos comprados por un cliente Kepler (90/180d). */
+  async erpCustomerProducts(erpCode: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('analytics.customer_product_sales AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.erp_code', erpCode)
+        .select(
+          'p.sku', 'p.nombre AS product_name',
+          's.units_90d', 's.revenue_90d', 's.units_180d', 's.revenue_180d', 's.last_purchase_date',
+        )
+        .orderBy('s.revenue_180d', 'desc')
+        .limit(500),
+    );
+  }
+
+  /** KV.6 — Promos vigentes del ERP. */
+  async erpPromotions() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('analytics.erp_promotions AS pr')
+        .join('catalog.products AS p', 'p.id', 'pr.product_id')
+        .leftJoin('catalog.products AS fp', 'fp.id', 'pr.free_product_id')
+        .where('pr.tenant_id', tenantId)
+        .select(
+          'p.sku', 'p.nombre AS product_name', 'pr.promo_type', 'pr.threshold', 'pr.benefit',
+          'fp.nombre AS free_product_name', 'pr.valid_from', 'pr.valid_to', 'pr.warehouse_code',
+        )
+        .orderBy('pr.valid_to', 'asc')
+        .limit(1000),
+    );
   }
 
   // ─────────── helpers ───────────
