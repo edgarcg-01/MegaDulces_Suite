@@ -17,6 +17,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { makeLazyLoad } from '../../../shared/util';
 import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
+import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { Permission } from '../../../core/constants/permissions';
 
 @Component({
@@ -36,6 +37,7 @@ import { Permission } from '../../../core/constants/permissions';
     TooltipModule,
     PageTabsComponent,
     MetricCardComponent,
+    ProductSearchComponent,
   ],
   providers: [MessageService],
   template: `
@@ -119,6 +121,8 @@ import { Permission } from '../../../core/constants/permissions';
                 appendTo="body"
               ></p-select>
             </div>
+
+            <app-product-search class="in-product-search" (productSelected)="onProductSelected($event)"></app-product-search>
 
             <div class="in-toolbar-spacer"></div>
 
@@ -466,6 +470,13 @@ export class ComercialInventoryComponent {
   isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
   private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
 
+  /** Filtro de producto del buscador inteligente (null = todos). */
+  productFilter: string | null = null;
+  onProductSelected(hit: ProductHit | null): void {
+    this.productFilter = hit?.id ?? null;
+    this.reload();
+  }
+
   readonly summaryAll = signal<StockRow[]>([]);
   readonly kpis = computed(() => {
     const list = this.summaryAll();
@@ -546,6 +557,7 @@ export class ComercialInventoryComponent {
     this.api
       .listStock({
         warehouse_id: this.whParam(),
+        product_id: this.productFilter || undefined,
         page: this.page(),
         pageSize: this.pageSize(),
       })
