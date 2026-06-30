@@ -945,7 +945,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    *  de filas, así cada tecla responde instantáneo. */
   private readonly SEARCH_CAP = 60;
   /** Índice de búsqueda precomputado (1 vez por cambio de catálogo): texto
-   *  normalizado "nombre + sku" por producto → cada tecla solo hace includes. */
+   *  normalizado "nombre + código de producto (sku)" por producto → cada tecla
+   *  solo hace includes. */
   readonly priceIndex = computed(() =>
     this.prices().map((p) => ({ p, hay: foldText(p.product_name + ' ' + (p.sku || '')) })),
   );

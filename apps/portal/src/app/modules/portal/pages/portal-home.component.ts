@@ -18,7 +18,7 @@ import { PromosCarouselComponent } from '../ui/promos-carousel.component';
 import { TopProductsComponent } from '../ui/top-products.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
 import { HomeFeedComponent } from '../ui/home-feed.component';
-import { TypeHintDirective } from '../ui/type-hint.directive';
+import { PortalSearchBarComponent } from '../ui/portal-search-bar.component';
 import { MX_TRENDS } from '../data/mx-market-trends';
 import { CartFxService } from '../cart-fx.service';
 
@@ -49,7 +49,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
     TopProductsComponent,
     ProductSheetComponent,
     HomeFeedComponent,
-    TypeHintDirective,
+    PortalSearchBarComponent,
   ],
   template: `
     <!-- [1] LIVE STATUS RIBBON — greeting + ongoing en una línea -->
@@ -257,17 +257,16 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       </div>
     </section>
 
-    <!-- [3] SEARCH BAR + chips trending -->
-    <button type="button" class="ph-search" (click)="goSearch()" aria-label="Buscar en el catálogo">
-      <i class="pi pi-search ph-search-icon" aria-hidden="true"></i>
-      <span
-        class="ph-search-placeholder"
-        [typeHint]="searchHints"
-        typeHintPrefix="Buscar "
-        [typeHintBase]="searchHintBase"
-      >Buscar producto, marca o código…</span>
-      <span class="ph-search-kbd" aria-hidden="true">⌘K</span>
-    </button>
+    <!-- [3] SEARCH BAR + chips trending — mismo componente que /catalog -->
+    <portal-search-bar
+      class="ph-search"
+      mode="trigger"
+      [hints]="searchHints"
+      hintPrefix="Buscar "
+      [hintBase]="searchHintBase"
+      [showKbd]="true"
+      (activate)="goSearch()"
+    ></portal-search-bar>
     <nav class="ph-chips" aria-label="Categorías más buscadas">
       <button
         *ngFor="let chip of trendingChips"
@@ -509,7 +508,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       portal-featured-promo, .ph-hero { order: 1; }
       portal-brands-carousel     { order: 2; }
       portal-top-products.ph-suggested { order: 3; }
-      .ph-search                 { order: -1; }
+      portal-search-bar.ph-search { order: -1; display: block; margin-bottom: 0.75rem; }
       .ph-chips                  { order: 5; }
       .ph-restock                { order: 6; }
       .ph-section-reorder        { order: 7; }
@@ -727,56 +726,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         .ph-hero-illust svg { max-width: 220px; }
       }
 
-      /* ── [3] SEARCH BAR + chips ─────────────────────────────────── */
-      .ph-search {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.875rem 1.125rem;
-        margin-bottom: 0.75rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: var(--r-lg);
-        box-shadow: var(--shadow-float);
-        cursor: pointer;
-        font-family: var(--font-body);
-        text-align: left;
-        transition: transform 200ms var(--ease-spring), border-color 180ms var(--ease-standard), box-shadow 220ms var(--ease-standard);
-      }
-      .ph-search:hover {
-        border-color: var(--brand-700);
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-hover);
-      }
-      .ph-search:active { transform: translateY(0); }
-      .ph-search-icon {
-        font-size: var(--fs-h3);
-        color: var(--brand-700);
-        flex-shrink: 0;
-      }
-      .ph-search-placeholder {
-        flex: 1;
-        min-width: 0;
-        font-size: var(--fs-body);
-        font-weight: 500;
-        color: var(--text-muted);
-        text-align: left;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .ph-search-kbd {
-        font-family: var(--font-mono);
-        font-size: var(--fs-micro);
-        font-weight: 700;
-        padding: 0.25rem 0.5rem;
-        background: var(--neutral-100);
-        border: 1px solid var(--neutral-200);
-        border-radius: 6px;
-        color: var(--text-muted);
-      }
-
+      /* ── [3] SEARCH BAR + chips — la barra es <portal-search-bar> ── */
       .ph-chips {
         display: flex;
         gap: 0.5rem;

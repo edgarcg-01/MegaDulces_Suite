@@ -371,10 +371,10 @@ export class CommercialPricingService {
   }
 
   /**
-   * Top sellers para una price_list. Lee de la TABLE
-   * `catalog.products_top_sellers` (sincronizada manualmente desde el ERP
-   * mientras el FDW al ERP sea inalcanzable desde Railway — ver L.2 / hotfix
-   * 2026-06-03 que convirtió la MV a TABLE).
+   * Top sellers para una price_list. Lee de `catalog.top_sellers_live`,
+   * alimentada por la venta REAL consolidada de las 6 sucursales
+   * (import-top-sellers-from-consolidado.js, ventana 90d) en vez del ranking
+   * stale del ERP. El MV viejo `catalog.products_top_sellers` queda intacto.
    * Joinea con `commercial.product_prices` del price_list para devolver el
    * precio del customer + sales_rank + units_sold.
    *
@@ -404,7 +404,7 @@ export class CommercialPricingService {
       // precio configurado en la price_list del customer. Garantiza que cada
       // card del portal sea comprable (sin "Sin precio"). MV ya viene filtrada
       // por productos_activos del ERP, así que no requiere brand.is_commercial.
-      let q = trx('catalog.products_top_sellers as ts')
+      let q = trx('catalog.top_sellers_live as ts')
         .innerJoin('commercial.product_prices as pp', function () {
           this.on('pp.product_id', '=', 'ts.id')
             .andOn('pp.tenant_id', '=', 'ts.tenant_id')

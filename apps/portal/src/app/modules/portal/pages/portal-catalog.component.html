@@ -1,37 +1,21 @@
     <!-- Buscador al tope absoluto (search-first): es lo primero que se ve.
-         Visible también durante loading() para reservar su lugar (sin CLS). -->
-    <div class="cat-search-bar" *ngIf="loading() || prices().length > 0">
-      <i [class]="aiSearch() ? 'pi pi-bolt cat-search-icon cat-search-icon-ai' : 'pi pi-search cat-search-icon'"></i>
-      <input
-        type="text"
-        [(ngModel)]="search"
-        [typeHint]="searchHints()"
-        [typeHintPrefix]="searchHintPrefix()"
-        [typeHintBase]="searchHintBase()"
-        [attr.aria-label]="searchHintBase()"
-        (ngModelChange)="onSearchChange($event)"
-        autocomplete="off"
-        autocapitalize="none"
-        autocorrect="off"
-        spellcheck="false"
-      />
-      <button
-        *ngIf="search"
-        type="button"
-        class="cat-search-clear"
-        (click)="clearSearch()"
-        pTooltip="Limpiar"
-        aria-label="Limpiar búsqueda"
-      ><i class="pi pi-times"></i></button>
-      <button
-        type="button"
-        class="cat-search-mode"
-        [class.active]="aiSearch()"
-        (click)="toggleAiSearch()"
-        [pTooltip]="aiSearch() ? 'Búsqueda IA activa' : 'Activar búsqueda IA'"
-        aria-label="Toggle búsqueda IA"
-      ><i class="pi pi-bolt"></i> IA</button>
-    </div>
+         Visible también durante loading() para reservar su lugar (sin CLS).
+         Mismo componente que /home (portal-search-bar). -->
+    <portal-search-bar
+      *ngIf="loading() || prices().length > 0"
+      class="cat-search-bar"
+      mode="input"
+      [value]="search"
+      (valueChange)="search = $event; onSearchChange($event)"
+      [hints]="searchHints()"
+      [hintPrefix]="searchHintPrefix()"
+      [hintBase]="searchHintBase()"
+      [ai]="aiSearch()"
+      [showClear]="true"
+      [showAiToggle]="true"
+      (clear)="clearSearch()"
+      (toggleAi)="toggleAiSearch()"
+    ></portal-search-bar>
 
     <div
       *ngIf="aiSearch() && !searching() && !searchSignal().trim() && searchHistory().length > 0"

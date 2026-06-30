@@ -44,6 +44,15 @@
 | [`FASES/FASE_J_LOGISTICA.md`](FASES/FASE_J_LOGISTICA.md) | 🟡 En progreso (60%) | 3-4 sem |
 | [`FASES/FASE_K_AI_PRODUCT_MATCH.md`](FASES/FASE_K_AI_PRODUCT_MATCH.md) | 🟡 **Plan listo 2026-05-27** | 1-2 sesiones |
 | [`FASES/FASE_M_MOTOR_INTELIGENCIA.md`](FASES/FASE_M_MOTOR_INTELIGENCIA.md) | 📝 **Plan listo 2026-06-10** (rebanada vertical) | 2-3 sprints V1 |
+| [`FASES/FASE_KV_EXPLOTACION_KEPLER.md`](FASES/FASE_KV_EXPLOTACION_KEPLER.md) | 📝 **Plan listo 2026-06-30** (ventas/márgenes/demanda/clientes Kepler) | 9 sprints |
+
+### Referencia Kepler (ERP)
+
+| Archivo | Contiene |
+|---|---|
+| [`KEPLER_CATALOGO_TABLAS.md`](KEPLER_CATALOGO_TABLAS.md) | **Análisis tabla por tabla** del schema `md` (330 tablas) — qué integrar, relevancia por dominio |
+| [`ERP_KEPLER_SCHEMA.md`](ERP_KEPLER_SCHEMA.md) | Esquema descifrado de inventario + write-back físico Fase I → Kepler |
+| [`RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md`](RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md) | Runbook de despliegue de la consolidación viva a prod |
 
 ---
 

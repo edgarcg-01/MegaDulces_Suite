@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — Subida GPS nativa en background (app Vendedor, patch al plugin) (2026-06-29)
+- Diagnóstico por logcat (teléfono Honor): el foreground service **sobrevive** al bloqueo, pero la subida vivía
+  en el WebView (que se congela al bloquear) → los fixes capturados con pantalla bloqueada no se subían.
+- **Patch nativo** (`@capacitor-community/background-geolocation` vía patch-package): el `BackgroundGeolocationService`
+  ahora **POSTea los fixes directo** a `/reports/route-pings` con `HttpURLConnection` en un executor (cola in-memory
+  con retry, token Bearer cacheado — el JWT dura 12h). Nuevo método `setUploadConfig` y opciones `uploadUrl/authToken/routeId`.
+- **Aditivo**: el path JS (Dexie + drain) queda de respaldo cuando la app está viva; el server deduplica por `client_uuid`.
+- Cierra el gap "capturado pero no subido al bloquear". **El Java se compila solo al armar el APK** (no en `nx build`).
+- Sigue pendiente del lado device: probar **al aire libre** (el GPS no engancha indoor bloqueado) + whitelist Honor.
+  `POST_NOTIFICATIONS` (notif invisible en Android 13+) no resuelto pero no bloquea el tracking.
+
 ### Added / Fixed — Auditoría del take-order del vendedor: offline-first + robustez (2026-06-29)
 - Origen: auditoría del apartado "tomar pedido" de `apps/vendor` (8 hallazgos). 6 altos/medios corregidos, **builds api+vendor verdes**. Sin deploy.
 - **Added — Offline-first** (`#1`, híbrido por conectividad para no regresionar el flujo online): el vendedor ahora puede **abrir, armar y confirmar** un pedido **sin señal**; se sincroniza solo al reconectar.

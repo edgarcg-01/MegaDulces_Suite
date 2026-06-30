@@ -1,50 +1,14 @@
       :host { display: block; }
 
+      /* El chrome del buscador vive en <portal-search-bar>; acá solo el
+         posicionamiento sticky (full-bleed bajo el header retráctil del shell). */
       .cat-search-bar {
         position: sticky;
-        /* Ancla bajo el header móvil del shell (se retrae → 0). Desktop = 0. */
         top: var(--portal-sticky-top, 0px);
         z-index: 11;
+        display: block;
         margin: 0 -0.25rem 0.625rem;
-        padding: 0.5rem 1rem;
-        background: var(--card-bg);
-        border: 1.5px solid var(--border-color);
-        border-radius: var(--r-md);
-        display: flex;
-        align-items: center;
-        transition: border-color 150ms var(--ease-standard), box-shadow 150ms var(--ease-standard);
       }
-      .cat-search-bar:focus-within {
-        border-color: var(--neutral-950);
-        box-shadow: 0 0 0 3px var(--c-focus-ring, rgba(0, 0, 0, 0.08));
-      }
-      .cat-search-icon { color: var(--text-faint); font-size: var(--fs-h3); }
-      .cat-search-icon-ai { color: var(--brand-700); }
-      .cat-search-mode {
-        background: transparent;
-        border: 1px solid var(--border-color);
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-        font-weight: 700;
-        padding: 0.3rem 0.625rem;
-        border-radius: var(--r-pill);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        margin-left: 0.5rem;
-        transition: all 150ms var(--ease-standard);
-      }
-      .cat-search-mode:hover {
-        border-color: var(--neutral-400);
-        color: var(--text-main);
-      }
-      .cat-search-mode.active {
-        background: var(--neutral-900);
-        border-color: var(--neutral-900);
-        color: #fff;
-      }
-      .cat-search-mode.active i { color: var(--brand-400); }
       .cat-search-state {
         display: flex;
         align-items: center;
@@ -56,38 +20,10 @@
       }
       .cat-search-state-info { color: var(--text-muted); }
       .cat-search-state-warn { color: var(--warn-fg); font-weight: 600; }
-      .cat-search-bar input {
-        flex: 1;
-        border: none;
-        background: transparent;
-        padding: 0.875rem 0.75rem;
-        font-size: var(--fs-body);
-        color: var(--text-main);
-        outline: none;
-        min-width: 0;
-      }
-      /* iOS hace zoom al enfocar inputs <16px; en touch subimos a 16px. */
-      @media (pointer: coarse) {
-        .cat-search-bar input { font-size: 16px; }
-      }
-      .cat-search-clear {
-        background: var(--neutral-100);
-        border: none;
-        width: 28px;
-        height: 28px;
-        border-radius: var(--r-sm);
-        color: var(--text-muted);
-        cursor: pointer;
-        display: grid;
-        place-items: center;
-      }
-      .cat-search-clear:hover { color: var(--text-main); background: var(--neutral-200); }
 
       /* Touch targets ≥44px en punteros gruesos (Ley de Fitts / DESIGN binding). */
       @media (pointer: coarse) {
         .cat-viewtog-btn { width: 44px; height: 44px; }
-        .cat-search-clear { width: 40px; height: 40px; }
-        .cat-search-mode { padding: 0.5rem 0.85rem; }
       }
 
       .cat-layout {

@@ -87,6 +87,7 @@ import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
 import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';
 import { CustomerProvisioningBindingModule } from './composition/customer-provisioning.binding.module';
+import { KeplerConsolidadoModule } from './modules/kepler-consolidado/kepler-consolidado.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -187,6 +188,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     DataModule,
     WebSocketModule,
     ScheduleModule.forRoot(),
+    // Consolidación de ventas Kepler (polling inteligente sobre kepler_consolidado).
+    // Null-safe: inerte si DATABASE_URL_KEPLER_CONSOLIDADO no está seteado.
+    KeplerConsolidadoModule,
     // Bus de eventos in-process para side-effects cross-domain (síncrono).
     // CONVENCIÓN: emitir SOLO post-commit (nunca dentro de una trx abierta).
     EventEmitterModule.forRoot(),

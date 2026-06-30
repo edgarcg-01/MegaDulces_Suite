@@ -11,3 +11,203 @@ index 2d88a67..983a1df 100644
          }
      }
      lintOptions {
+diff --git a/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocation.java b/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocation.java
+index a92fcf9..4cea23b 100644
+--- a/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocation.java
++++ b/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocation.java
+@@ -161,6 +161,13 @@ public class BackgroundGeolocation extends Plugin {
+                 backgroundNotification,
+                 call.getFloat("distanceFilter", 0f)
+         );
++        // Subida nativa: si el caller pasa uploadUrl, el servicio POSTea los fixes
++        // directamente (sobrevive a la pantalla bloqueada / WebView congelado).
++        service.setUploadConfig(
++                call.getString("uploadUrl"),
++                call.getString("authToken"),
++                call.getString("routeId")
++        );
+     }
+ 
+     @PermissionCallback
+@@ -205,6 +212,19 @@ public class BackgroundGeolocation extends Plugin {
+         call.resolve();
+     }
+ 
++    // Permite refrescar token/ruta de la subida nativa sin re-crear el watcher.
++    @PluginMethod()
++    public void setUploadConfig(PluginCall call) {
++        if (service != null) {
++            service.setUploadConfig(
++                    call.getString("uploadUrl"),
++                    call.getString("authToken"),
++                    call.getString("routeId")
++            );
++        }
++        call.resolve();
++    }
++
+     // Checks if device-wide location services are disabled
+     private static Boolean isLocationEnabled(Context context) {
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+diff --git a/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocationService.java b/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocationService.java
+index fafbb86..952e986 100644
+--- a/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocationService.java
++++ b/node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocationService.java
+@@ -19,6 +19,22 @@ import com.google.android.gms.location.LocationServices;
+ 
+ import java.util.HashSet;
+ 
++import java.io.OutputStream;
++import java.net.HttpURLConnection;
++import java.net.URL;
++import java.text.SimpleDateFormat;
++import java.util.ArrayList;
++import java.util.Date;
++import java.util.List;
++import java.util.Locale;
++import java.util.TimeZone;
++import java.util.UUID;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++
+ import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+ 
+ // A bound and started service that is promoted to a foreground service
+@@ -42,6 +58,16 @@ public class BackgroundGeolocationService extends Service {
+     }
+     private HashSet<Watcher> watchers = new HashSet<Watcher>();
+ 
++    // Subida nativa: POSTea los fixes al backend desde el servicio (sigue
++    // funcionando con la pantalla bloqueada / WebView congelado). Aditivo: el
++    // path JS por broadcast queda como respaldo cuando la app está viva.
++    private volatile String uploadUrl = null;
++    private volatile String authToken = null;
++    private volatile String uploadRouteId = null;
++    private final List<JSONObject> uploadQueue = new ArrayList<JSONObject>();
++    private ExecutorService uploadExecutor = null;
++    private static final int UPLOAD_QUEUE_MAX = 1000;
++
+     @Override
+     public IBinder onBind(Intent intent) {
+         return binder;
+@@ -96,6 +122,7 @@ public class BackgroundGeolocationService extends Service {
+                     LocalBroadcastManager.getInstance(
+                             getApplicationContext()
+                     ).sendBroadcast(intent);
++                    enqueueUpload(location);
+                 }
+                 @Override
+                 public void onLocationAvailability(LocationAvailability availability) {
+@@ -171,5 +198,109 @@ public class BackgroundGeolocationService extends Service {
+         void stopService() {
+             BackgroundGeolocationService.this.stopSelf();
+         }
++
++        void setUploadConfig(String url, String token, String routeId) {
++            BackgroundGeolocationService.this.setUploadConfig(url, token, routeId);
++        }
++    }
++
++    // ── Subida nativa (HTTP POST desde el servicio) ──────────────────────────
++    void setUploadConfig(String url, String token, String routeId) {
++        this.uploadUrl = (url != null && url.length() > 0) ? url : null;
++        this.authToken = token;
++        this.uploadRouteId = routeId;
++        if (this.uploadExecutor == null && this.uploadUrl != null) {
++            this.uploadExecutor = Executors.newSingleThreadExecutor();
++        }
++        scheduleFlush();
++    }
++
++    void enqueueUpload(Location location) {
++        if (uploadUrl == null || location == null) return;
++        try {
++            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
++            fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
++            JSONObject p = new JSONObject();
++            p.put("client_uuid", UUID.randomUUID().toString());
++            if (uploadRouteId != null && uploadRouteId.length() > 0) p.put("route_id", uploadRouteId);
++            p.put("captured_at", fmt.format(new Date(location.getTime())));
++            p.put("lat", location.getLatitude());
++            p.put("lng", location.getLongitude());
++            if (location.hasAccuracy()) p.put("accuracy_m", location.getAccuracy());
++            if (location.hasSpeed()) p.put("speed_mps", location.getSpeed());
++            p.put("source", "background");
++            p.put("platform", "android");
++            synchronized (uploadQueue) {
++                uploadQueue.add(p);
++                while (uploadQueue.size() > UPLOAD_QUEUE_MAX) uploadQueue.remove(0);
++            }
++            scheduleFlush();
++        } catch (Exception e) {
++            Logger.error("enqueueUpload failed", e);
++        }
++    }
++
++    private void scheduleFlush() {
++        final ExecutorService ex = uploadExecutor;
++        if (ex == null || uploadUrl == null) return;
++        try {
++            ex.submit(new Runnable() {
++                @Override
++                public void run() { flushUploads(); }
++            });
++        } catch (Exception ignore) {}
++    }
++
++    private void flushUploads() {
++        String url = uploadUrl;
++        String token = authToken;
++        if (url == null) return;
++        List<JSONObject> batch;
++        synchronized (uploadQueue) {
++            if (uploadQueue.isEmpty()) return;
++            batch = new ArrayList<JSONObject>(uploadQueue);
++        }
++        String json;
++        try {
++            JSONArray arr = new JSONArray();
++            for (JSONObject p : batch) arr.put(p);
++            JSONObject body = new JSONObject();
++            body.put("pings", arr);
++            json = body.toString();
++        } catch (Exception e) {
++            return;
++        }
++        if (postJson(url, token, json)) {
++            synchronized (uploadQueue) {
++                uploadQueue.removeAll(batch);
++            }
++        }
++    }
++
++    private boolean postJson(String urlStr, String token, String json) {
++        HttpURLConnection conn = null;
++        try {
++            URL url = new URL(urlStr);
++            conn = (HttpURLConnection) url.openConnection();
++            conn.setRequestMethod("POST");
++            conn.setConnectTimeout(15000);
++            conn.setReadTimeout(15000);
++            conn.setDoOutput(true);
++            conn.setRequestProperty("Content-Type", "application/json");
++            if (token != null && token.length() > 0) {
++                conn.setRequestProperty("Authorization", "Bearer " + token);
++            }
++            OutputStream os = conn.getOutputStream();
++            os.write(json.getBytes("UTF-8"));
++            os.flush();
++            os.close();
++            int code = conn.getResponseCode();
++            return code >= 200 && code < 300;
++        } catch (Exception e) {
++            Logger.error("native upload failed", e);
++            return false;
++        } finally {
++            if (conn != null) conn.disconnect();
++        }
+     }
+ }

@@ -111,7 +111,10 @@ const MD_WAREHOUSE_CODES = ['MD-10', 'MD-30', 'MD-40', 'MD-42', 'MD-44', 'MD-50'
 // Mapping de prefijo de columna en productos_activos → warehouse code.
 // `ex_cedis` es columna especial → MD-CEDIS.
 const WAREHOUSE_COLUMN_MAP = {
-  alm10_existencia_g: 'MD-10',
+  // MD-10 (PH / Sucursal Hidalgo) lo gobierna el sync EN VIVO desde md_01
+  // (import-ph-stock-live.js) porque los vendedores se surten de ahí y
+  // necesitan disponibilidad real. NO lo pisamos con el snapshot central stale.
+  // alm10_existencia_g: 'MD-10',
   alm30_existencias_g: 'MD-30', // typo de la fuente: "existencias" no "existencia"
   alm50_existencia_g: 'MD-50',
   // Los siguientes no tienen `_existencia_g` puro pero sí `_existencia_wc` y `_actual_*`.

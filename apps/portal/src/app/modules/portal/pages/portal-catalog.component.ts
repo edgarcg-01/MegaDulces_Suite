@@ -48,7 +48,7 @@ import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 import { PortalProductCardComponent } from '../ui/portal-product-card.component';
 import { ProductSheetComponent } from '../ui/product-sheet.component';
 import { CountUpDirective } from '../ui/count-up.directive';
-import { TypeHintDirective } from '../ui/type-hint.directive';
+import { PortalSearchBarComponent } from '../ui/portal-search-bar.component';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 
@@ -96,7 +96,7 @@ function initial(name: string): string {
     PortalProductCardComponent,
     ProductSheetComponent,
     CountUpDirective,
-    TypeHintDirective,
+    PortalSearchBarComponent,
   ],
   templateUrl: './portal-catalog.component.html',
   styleUrls: ['./portal-catalog.component.css'],
@@ -243,6 +243,8 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
     }
   }
   private scrollObserver?: IntersectionObserver;
+
+  @ViewChild(PortalSearchBarComponent) private searchBar?: PortalSearchBarComponent;
 
   constructor() {
     // Effect: cuando cambian los filtros del panel (brand / bucket / stock)
@@ -452,6 +454,12 @@ export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy 
   }
 
   ngAfterViewInit(): void {
+    // Deep-link de foco (botón de búsqueda del home → ?focus=search): enfoca el
+    // input al montar para que el cliente teclee de inmediato.
+    if (this.route.snapshot.queryParamMap.get('focus') === 'search') {
+      requestAnimationFrame(() => this.searchBar?.focus());
+    }
+
     // SSR-safe: IntersectionObserver no existe en server-side. La app es CSR
     // (Capacitor + browser puro) pero por defensividad chequeamos.
     if (typeof IntersectionObserver === 'undefined') return;

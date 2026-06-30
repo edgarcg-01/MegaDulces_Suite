@@ -95,6 +95,7 @@ export class RoutePingService {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && this.pingTimer) {
           void this.acquireWakeLock();
+          void this.pushUploadConfig(); // refresca token/ruta del uploader nativo al volver
         }
       });
     }
@@ -112,6 +113,7 @@ export class RoutePingService {
 
   private start(routeId: string | null): void {
     this.activeRouteId = routeId;
+    void this.pushUploadConfig(); // propaga ruta/token al uploader nativo (no-op si aún no hay watcher)
     if (this.running) return; // ya corriendo
     this.running = true;
     // Drain siempre (foreground + background comparten la cola).
@@ -246,6 +248,11 @@ export class RoutePingService {
             requestPermissions: true,
             stale: false,
             distanceFilter: RoutePingService.MOVE_THRESHOLD_M,
+            // Subida nativa (patch al plugin): el servicio POSTea los fixes
+            // directo al backend → sobrevive a la pantalla bloqueada.
+            uploadUrl: `${environment.apiUrl}/reports/route-pings`,
+            authToken: this.auth.token() || '',
+            routeId: this.activeRouteId || '',
           },
           onFix,
         );
@@ -276,6 +283,26 @@ export class RoutePingService {
       await BG.removeWatcher({ id });
     } catch {
       /* noop */
+    }
+  }
+
+  /**
+   * Refresca token/ruta del uploader nativo sin re-crear el watcher (el JWT dura
+   * 12h, así que alcanza con empujarlo al volver a foreground y al cambiar de ruta).
+   * No-op si no hay watcher activo o no es nativo.
+   */
+  private async pushUploadConfig(): Promise<void> {
+    if (!this.native || !this.bgWatcherId) return;
+    try {
+      const { registerPlugin } = await import('@capacitor/core');
+      const BG = registerPlugin<any>('BackgroundGeolocation');
+      await BG.setUploadConfig({
+        uploadUrl: `${environment.apiUrl}/reports/route-pings`,
+        authToken: this.auth.token() || '',
+        routeId: this.activeRouteId || '',
+      });
+    } catch {
+      /* plugin sin el método (build viejo) o web — no-op */
     }
   }
 
