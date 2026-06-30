@@ -10,6 +10,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryHealthResponse, Warehouse } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { ANALYTICS_TABS } from '../analytics-tabs';
 
 /**
@@ -19,7 +20,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
 @Component({
   selector: 'app-comercial-inventory-health',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, ProductSearchComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -35,6 +36,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         <div class="ih-actions">
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="ih-wh"></p-select>
+          <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
@@ -49,7 +51,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         }
       </div>
 
-      <p-table [value]="resp()?.items ?? []" [loading]="loading()" styleClass="p-datatable-sm surf-table"
+      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100,200]">
         <ng-template pTemplate="header">
           <tr>
@@ -109,6 +111,15 @@ export class ComercialInventoryHealthComponent {
 
   isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
   private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
+
+  /** Filtro de producto (client-side por SKU sobre las filas cargadas). */
+  prodFilter = signal<ProductHit | null>(null);
+  items = computed(() => {
+    const all = this.resp()?.items ?? [];
+    const f = this.prodFilter();
+    if (!f) return all;
+    return all.filter((r) => (f.sku ? r.sku === f.sku : r.product_name === f.label));
+  });
 
   private readonly STATUS = [
     { key: 'agotado', label: 'Agotado', color: 'var(--bad-fg,#b91c1c)' },

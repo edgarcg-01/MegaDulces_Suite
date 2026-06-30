@@ -12,6 +12,7 @@ import { ComercialService, ExpiringLot, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
+import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 
 /**
  * P2.2c — POR VENCER: lotes con caducidad próxima o ya vencida (FEFO), con valor
@@ -20,7 +21,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 @Component({
   selector: 'app-comercial-inventory-expiring',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, MetricCardComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, MetricCardComponent, ProductSearchComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -39,6 +40,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                     (onChange)="load()" styleClass="ex-days"></p-select>
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="ex-wh"></p-select>
+          <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
@@ -60,7 +62,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           accent="var(--bad-fg)" sub="retirar de inventario"></app-metric-card>
       </div>
 
-      <p-table [value]="lots()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
+      <p-table [value]="filteredLots()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
@@ -129,6 +131,15 @@ export class ComercialInventoryExpiringComponent {
   warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
   isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
   private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
+
+  /** Filtro de producto (client-side por SKU). */
+  prodFilter = signal<ProductHit | null>(null);
+  filteredLots = computed(() => {
+    const all = this.lots();
+    const f = this.prodFilter();
+    if (!f) return all;
+    return all.filter((r) => (f.sku ? r.sku === f.sku : r.product_name === f.label));
+  });
 
   totalValue = computed(() => this.lots().reduce((s, l) => s + Number(l.value_at_cost || 0), 0));
   expiredCount = computed(() => this.lots().filter((l) => Number(l.days_to_expiry) < 0).length);
