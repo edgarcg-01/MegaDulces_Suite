@@ -65,24 +65,37 @@ export class ThotChatService {
     private readonly examples: ThotExamplesService,
   ) {}
 
-  /** Registra el intercambio en commercial.thot_chat_log (auditable). Best-effort. */
-  async logExchange(meta: { userId?: string; userName?: string; profile?: string; question: string }, res: ThotChatResult): Promise<void> {
+  /** Registra el intercambio en commercial.thot_chat_log (auditable). Best-effort. Devuelve el id (o null) para el feedback 👍/👎. */
+  async logExchange(meta: { userId?: string; userName?: string; profile?: string; question: string }, res: ThotChatResult): Promise<string | null> {
     try {
-      await this.tk.run(async (trx) => {
-        await trx('commercial.thot_chat_log').insert({
-          tenant_id: trx.raw('public.current_tenant_id()'),
-          user_id: meta.userId || null,
-          user_name: meta.userName || null,
-          question: meta.question.slice(0, 4000),
-          answer: (res.answer || '').slice(0, 8000),
-          tools_used: JSON.stringify(res.tools_used.map((t) => ({ name: t.name, input: t.input }))),
-          iterations: res.iterations,
-          source: res.source,
-        });
+      return await this.tk.run(async (trx) => {
+        const [row] = await trx('commercial.thot_chat_log')
+          .insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            user_id: meta.userId || null,
+            user_name: meta.userName || null,
+            question: meta.question.slice(0, 4000),
+            answer: (res.answer || '').slice(0, 8000),
+            tools_used: JSON.stringify(res.tools_used.map((t) => ({ name: t.name, input: t.input }))),
+            iterations: res.iterations,
+            source: res.source,
+          })
+          .returning('id');
+        return row?.id || null;
       });
     } catch (e: any) {
       this.logger.warn(`No se pudo registrar thot_chat_log: ${e?.message || e}`);
+      return null;
     }
+  }
+
+  /** Registra el voto 👍/👎 sobre una respuesta. */
+  async recordFeedback(logId: string, vote: number): Promise<{ ok: boolean }> {
+    const v = vote > 0 ? 1 : vote < 0 ? -1 : 0;
+    await this.tk.run(async (trx) => {
+      await trx('commercial.thot_chat_log').where({ id: logId }).update({ feedback: v });
+    });
+    return { ok: true };
   }
 
   /**

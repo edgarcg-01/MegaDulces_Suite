@@ -420,8 +420,8 @@ export class CommercialIntelligenceController {
       image,
     });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
-    await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'admin', question: lastQuestion }, result);
-    return result;
+    const logId = await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'admin', question: lastQuestion }, result);
+    return { ...result, log_id: logId };
   }
 
   // ─── Dictado por voz: transcribe audio → texto (Groq Whisper) ───
@@ -480,8 +480,8 @@ export class CommercialIntelligenceController {
     const scope: ThotScope = { profile: 'portal', customerId: req.user?.customer_id ?? null, warehouseCode: PH_FULFILLMENT_WAREHOUSE, userName };
     const result = await this.chat.ask(this.portalTools, scope, { history });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
-    await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'portal', question: lastQuestion }, result);
-    return result;
+    const logId = await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'portal', question: lastQuestion }, result);
+    return { ...result, log_id: logId };
   }
 
   // ─── Vendedor: chat scoped a su cartera (surtido PH) ───
@@ -495,8 +495,17 @@ export class CommercialIntelligenceController {
     const scope: ThotScope = { profile: 'vendor', vendorUserId: req.user?.id, warehouseCode: PH_FULFILLMENT_WAREHOUSE, userName };
     const result = await this.chat.ask(this.vendorTools, scope, { history });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
-    await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'vendor', question: lastQuestion }, result);
-    return result;
+    const logId = await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'vendor', question: lastQuestion }, result);
+    return { ...result, log_id: logId };
+  }
+
+  // ─── TC.5a: feedback 👍/👎 sobre una respuesta (alimenta la curaduría) ───
+  @Post('thot/feedback')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Registra 👍/👎 sobre una respuesta de Thot. body: { log_id, vote: 1|-1 }' })
+  thotFeedback(@Body() body: { log_id?: string; vote?: number }) {
+    if (!body?.log_id) return { ok: false };
+    return this.chat.recordFeedback(String(body.log_id), Number(body.vote) || 0);
   }
 
   // ─── TC.4a: biblioteca de ejemplos verificados (few-shot). Back-office. ───
@@ -505,6 +514,13 @@ export class CommercialIntelligenceController {
   @ApiOperation({ summary: 'Lista los ejemplos verificados (few-shot). ?profile=admin|portal|vendor' })
   listExamples(@Query('profile') profile?: string) {
     return this.examples.list(profile);
+  }
+
+  @Get('thot/examples/candidates')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Cola de curaduría: respuestas con 👍 aún no promovidas a ejemplo.' })
+  exampleCandidates(@Query('limit') limit?: string) {
+    return this.examples.candidates(limit ? parseInt(limit, 10) : undefined);
   }
 
   @Post('thot/examples')

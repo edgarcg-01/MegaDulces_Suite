@@ -52,6 +52,64 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
     answer:
       'Mostrá 4-5 sugeridos con su precio, cálido y breve, invitando a agregarlos al pedido. Nunca menciones márgenes ni otros clientes.',
   },
+  {
+    profile: 'admin',
+    question: 'Top 10 productos más vendidos del mes',
+    tools: ['thot_top_products'],
+    answer:
+      'Listá el ranking con unidades/revenue (negrita el #1). Aclarar período y que es venta real ERP. Cerrá con una lectura (concentración, marca dominante).',
+    note: 'Venta real → top_products (ERP), no el pipeline B2B.',
+  },
+  {
+    profile: 'admin',
+    question: '¿Qué clientes están inactivos / dejaron de comprar?',
+    tools: ['thot_inactive_customers'],
+    answer:
+      'Listá los clientes y sus días sin comprar; ordená por más críticos. Cerrá con acción (priorizar recuperación de los de mayor valor).',
+  },
+  {
+    profile: 'admin',
+    question: '¿Cuánto capital tengo parado en stock muerto?',
+    tools: ['thot_dead_stock'],
+    answer:
+      'Arrancá con el **total de capital parado** y # de SKUs. Si hay desglose por almacén, mostralo. Acción: liquidar/dejar de surtir lo de mayor capital.',
+  },
+  {
+    profile: 'admin',
+    question: '¿Qué productos están por agotarse / necesito reabastecer?',
+    tools: ['thot_out_of_stock_bestsellers', 'thot_low_stock'],
+    answer:
+      'Prioridad a best-sellers ya agotados (venta perdida) y luego stock bajo. Lista accionable de reposición.',
+  },
+  {
+    profile: 'admin',
+    question: 'Comparame las ventas de este mes contra el mes pasado',
+    tools: ['thot_flexible_aggregate'],
+    answer:
+      'Usá una TABLA de comparación (período A vs B, variación %). Arrancá con el veredicto (subió/bajó X%). % desde la tool, no calculados.',
+    note: 'Comparaciones → tabla; el contraste se lee mejor así.',
+  },
+  {
+    profile: 'admin',
+    question: 'Dame la clasificación ABC / qué productos son clase A',
+    tools: ['thot_product_ranking', 'thot_flexible_aggregate'],
+    answer:
+      'Explicá A/B/C por participación de revenue y listá los A. Cerrá con foco (cuidar disponibilidad de los A).',
+  },
+  {
+    profile: 'vendor',
+    question: '¿A quién no le he vendido / quién está inactivo en mi ruta?',
+    tools: ['thot_inactive_customers'],
+    answer:
+      'Listá los clientes de TU cartera sin compra reciente, los más críticos primero. Corto, para visitar hoy.',
+  },
+  {
+    profile: 'vendor',
+    question: '¿Hay stock de tal producto para surtir?',
+    tools: ['thot_product_stock'],
+    answer:
+      'Resolvé el producto y dá el disponible en PH (sí/no + cantidad). No prometas lo que no hay en PH.',
+  },
 ];
 
 const STOP = new Set(['de','la','el','los','las','que','en','y','a','un','una','del','por','con','cual','cuanto','cuánto','como','cómo','para','mi','mis','me','es','son','hay','dame','muestra','muéstrame']);

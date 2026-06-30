@@ -78,7 +78,7 @@ export class ThotExamplesService {
     });
   }
 
-  /** Promueve una fila de thot_chat_log a ejemplo dorado. */
+  /** Promueve una fila de thot_chat_log a ejemplo dorado (y la marca como promovida). */
   async promoteFromLog(logId: string, opts: { note?: string; profile?: string } = {}, userId?: string) {
     return this.tk.run(async (trx) => {
       const log = await trx('commercial.thot_chat_log').where({ id: logId }).first('question', 'answer', 'tools_used');
@@ -94,7 +94,21 @@ export class ThotExamplesService {
           created_by: userId || null,
         })
         .returning(['id', 'question']);
+      await trx('commercial.thot_chat_log').where({ id: logId }).update({ promoted: true }).catch(() => undefined);
       return row;
     });
+  }
+
+  /** Cola de curaduría: respuestas con 👍 que aún no son ejemplo. */
+  async candidates(limitParam?: number) {
+    const limit = Math.min(100, Math.max(1, Number(limitParam) || 30));
+    return this.tk.run(async (trx) =>
+      trx('commercial.thot_chat_log')
+        .where({ feedback: 1, promoted: false })
+        .whereNotNull('answer')
+        .orderBy('created_at', 'desc')
+        .limit(limit)
+        .select('id', 'question', 'answer', 'tools_used', 'user_name', 'created_at'),
+    );
   }
 }
