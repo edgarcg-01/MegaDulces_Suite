@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
@@ -19,6 +19,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
+import { ThotAiInputComponent, ThotAsk } from '../components/thot-ai-input.component';
 
 interface Directive {
   id: string;
@@ -47,7 +48,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
     CommonModule, FormsModule, RouterLink,
     ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, InputNumberModule,
     AutoCompleteModule, DatePickerModule, DialogModule, ToastModule, ConfirmDialogModule,
-    TooltipModule, SkeletonModule,
+    TooltipModule, SkeletonModule, ThotAiInputComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -73,6 +74,9 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                   (click)="openCreate()"></button>
         </div>
       </header>
+
+      <!-- ENTRADA IA — pregúntale a Thot (va al chat con la pregunta precargada) -->
+      <app-thot-ai-input (ask)="askThot($event)"></app-thot-ai-input>
 
       <!-- TABLA flush -->
       <div class="sheet cols-12">
@@ -197,6 +201,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
   `,
   styles: [`
     :host { display:block; }
+    app-thot-ai-input { display:block; margin:var(--sp-3) 0 var(--sp-5); }
     .td-head-actions { display:flex; gap:var(--sp-2); align-items:center; }
     .td-thot { color:var(--action); font-weight:var(--fw-bold); }
     .surf-page-sub { max-width:62ch; }
@@ -225,6 +230,7 @@ export class ComercialThotDirectivesComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly router = inject(Router);
   private readonly base = environment.apiUrl + '/commercial/intelligence/directives';
 
   readonly directives = signal<Directive[]>([]);
@@ -247,6 +253,11 @@ export class ComercialThotDirectivesComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
+  }
+
+  /** Banda de IA → abre el chat de Thot con la pregunta precargada (auto-envío). */
+  askThot(e: ThotAsk): void {
+    this.router.navigate(['/comercial/thot-chat'], { queryParams: { q: e.text } });
   }
 
   reload(): void {

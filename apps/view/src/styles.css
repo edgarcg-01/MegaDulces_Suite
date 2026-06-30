@@ -819,8 +819,10 @@ body {
   transform: scale(0.98) !important;
 }
 
+/* Foco de formularios = anillo de acción (sunset), no el sello amarillo.
+   Coherente con quiet-luxury: marca solo en CTA/activo; foco = --action. */
 input:focus, textarea:focus, select:focus {
-  outline: 2px solid var(--accent-brand) !important;
+  outline: 2px solid var(--action) !important;
   outline-offset: 2px !important;
 }
 
