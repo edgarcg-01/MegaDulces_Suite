@@ -31,8 +31,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       </header>
 
       <div class="ira-filters">
-        <p-select [options]="warehouses()" optionLabel="code" optionValue="id" [(ngModel)]="warehouseId" (onChange)="load()"
-          placeholder="Todos los almacenes" [showClear]="true" styleClass="ira-wh"></p-select>
+        <p-select [options]="warehouseOptions()" optionLabel="code" optionValue="id" [(ngModel)]="warehouseFilter" (onChange)="load()"
+          styleClass="ira-wh"></p-select>
         <span class="ira-tol">
           <label>Tolerancia %</label>
           <p-inputNumber [(ngModel)]="tolerancePct" [min]="0" [max]="100" [maxFractionDigits]="2" (onBlur)="load()"></p-inputNumber>
@@ -100,7 +100,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 </tr>
               </ng-template>
             </p-table>
-          } @else { <p class="ira-empty">Aún no hay folios reconciliados{{ warehouseId() ? ' en este almacén' : '' }}.</p> }
+          } @else { <p class="ira-empty">Aún no hay folios reconciliados{{ isSpecific() ? ' en este almacén' : '' }}.</p> }
         </section>
       } @else {
         <p class="ira-empty">Cargando…</p>
@@ -123,9 +123,16 @@ export class ComercialInventoryIraComponent {
   private svc = inject(ComercialService);
   private destroyRef = inject(DestroyRef);
 
+  readonly ALL = '__all__';
   warehouses = signal<Warehouse[]>([]);
-  warehouseId = signal<string | null>(null);
-  tolerancePct = signal<number>(0);
+  warehouseFilter = this.ALL;
+  warehouseOptions = computed(() => [
+    { id: this.ALL, code: 'Todos los almacenes', name: 'Todos los almacenes' } as unknown as Warehouse,
+    ...this.warehouses(),
+  ]);
+  tolerancePct = 0;
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
   data = signal<InventoryIra | null>(null);
   private reasonMap = signal<Record<string, string>>({});
 
@@ -140,7 +147,7 @@ export class ComercialInventoryIraComponent {
   }
 
   load() {
-    this.svc.inventoryIra({ warehouse_id: this.warehouseId() || undefined, tolerance_pct: this.tolerancePct() ?? 0 })
+    this.svc.inventoryIra({ warehouse_id: this.whParam(), tolerance_pct: this.tolerancePct })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (d) => this.data.set(d), error: () => { /* no crítico */ } });
   }

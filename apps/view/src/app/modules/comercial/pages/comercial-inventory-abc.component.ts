@@ -44,14 +44,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <p class="surf-page-sub">Clasificá por valor (ABC) y contá lo que toca — control continuo</p>
         </div>
         <div class="abc-head-actions">
-          <p-select [options]="whOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-                    placeholder="Todos los almacenes" [showClear]="true" (onChange)="load()" styleClass="abc-wh"
-                    ariaLabel="Filtrar por almacén"></p-select>
+          <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
+                    (onChange)="load()" styleClass="abc-wh" ariaLabel="Filtrar por almacén"></p-select>
           <button pButton type="button" label="Recalcular ABC" icon="pi pi-sync" [text]="true" severity="secondary"
                   size="small" (click)="recalc()" [loading]="working()"></button>
           <button pButton type="button" label="Generar folios" icon="pi pi-plus" size="small"
-                  (click)="confirmGenerate()" [loading]="working()" [disabled]="!warehouseId()"
-                  [pTooltip]="warehouseId() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"></button>
+                  (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()"
+                  [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"></button>
         </div>
       </header>
 
@@ -203,8 +202,12 @@ export class ComercialInventoryAbcComponent {
   loading = signal(false);
   working = signal(false);
   view = signal<'due' | 'class'>('due');
-  warehouseId = signal<string | null>(null);
-  whOptions = signal<{ label: string; value: string }[]>([]);
+  readonly ALL = '__all__';
+  warehouseFilter = this.ALL;
+  warehouses = signal<{ label: string; value: string }[]>([]);
+  warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
   summary = signal<AbcSummary | null>(null);
   rows = signal<AbcRow[]>([]);
   due = signal<CycleDueResult | null>(null);
@@ -221,13 +224,13 @@ export class ComercialInventoryAbcComponent {
   constructor() {
     this.svc.listWarehouses()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (ws: Warehouse[]) => this.whOptions.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
+      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
     this.load();
   }
 
   load() {
     this.loading.set(true);
-    const wh = this.warehouseId() || undefined;
+    const wh = this.whParam();
     forkJoin({
       summary: this.svc.abcSummary(wh),
       rows: this.svc.listAbc({ warehouse_id: wh }),
@@ -255,7 +258,7 @@ export class ComercialInventoryAbcComponent {
   }
 
   confirmGenerate() {
-    const whLabel = this.whOptions().find((o) => o.value === this.warehouseId())?.label || 'el almacén';
+    const whLabel = this.warehouseOptions().find((o) => o.value === this.warehouseFilter)?.label || 'el almacén';
     this.confirm.confirm({
       header: 'Generar folios cíclicos',
       message: `Se abrirá un folio de conteo cíclico para ${whLabel} con los productos que toca contar (prioriza clase A). ¿Continuar?`,
@@ -267,7 +270,7 @@ export class ComercialInventoryAbcComponent {
 
   private generate() {
     this.working.set(true);
-    this.svc.generateCycleFolios({ warehouse_id: this.warehouseId() || undefined })
+    this.svc.generateCycleFolios({ warehouse_id: this.whParam() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {

@@ -37,8 +37,8 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <div class="ex-head-actions">
           <p-select [options]="dayOptions" [(ngModel)]="days" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="ex-days"></p-select>
-          <p-select [options]="whOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-                    placeholder="Todos los almacenes" [showClear]="true" (onChange)="load()" styleClass="ex-wh"></p-select>
+          <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
+                    (onChange)="load()" styleClass="ex-wh"></p-select>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
@@ -120,11 +120,15 @@ export class ComercialInventoryExpiringComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly ALL = '__all__';
   lots = signal<ExpiringLot[]>([]);
   loading = signal(false);
-  days = signal(30);
-  warehouseId = signal<string | null>(null);
-  whOptions = signal<{ label: string; value: string }[]>([]);
+  days = 30;
+  warehouseFilter = this.ALL;
+  warehouses = signal<{ label: string; value: string }[]>([]);
+  warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
 
   totalValue = computed(() => this.lots().reduce((s, l) => s + Number(l.value_at_cost || 0), 0));
   expiredCount = computed(() => this.lots().filter((l) => Number(l.days_to_expiry) < 0).length);
@@ -147,13 +151,13 @@ export class ComercialInventoryExpiringComponent {
   constructor() {
     this.svc.listWarehouses()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (ws: Warehouse[]) => this.whOptions.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
+      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
     this.load();
   }
 
   load() {
     this.loading.set(true);
-    this.svc.listExpiringLots({ days: this.days(), warehouse_id: this.warehouseId() || undefined })
+    this.svc.listExpiringLots({ days: this.days, warehouse_id: this.whParam() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (rows) => { this.lots.set(rows || []); this.loading.set(false); },
