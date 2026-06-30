@@ -119,6 +119,8 @@ const QUARTERS: Quarter[] = [
               [options]="yearOptions"
               [ngModel]="quarterYear()"
               (onChange)="setYear($event.value)"
+              optionLabel="label"
+              optionValue="value"
               styleClass="ha-year-select"
               appendTo="body"
               [pTooltip]="'Año de los trimestres'"
@@ -137,30 +139,21 @@ const QUARTERS: Quarter[] = [
               >{{ q.label }}</button>
             </div>
 
-            <div class="ha-custom">
-              <button
-                type="button"
-                class="ha-custom-btn"
-                [class.active]="preset() === 'custom'"
-                (click)="toggleCustom()"
-              >
-                <i class="pi pi-calendar" aria-hidden="true"></i> Personalizado
-              </button>
-              @if (showCalendar()) {
-                <div class="ha-cal-backdrop" (click)="showCalendar.set(false)"></div>
-                <div class="ha-cal-pop">
-                  <p-datePicker
-                    [inline]="true"
-                    selectionMode="range"
-                    [(ngModel)]="customDates"
-                    (onSelect)="onCustomRange()"
-                    [readonlyInput]="true"
-                    [maxDate]="maxDate"
-                    [numberOfMonths]="2"
-                  ></p-datePicker>
-                </div>
-              }
-            </div>
+            <p-datePicker
+              selectionMode="range"
+              [(ngModel)]="customDates"
+              (onSelect)="onCustomRange()"
+              dateFormat="dd/M/yy"
+              [readonlyInput]="true"
+              [maxDate]="maxDate"
+              [numberOfMonths]="2"
+              [showIcon]="true"
+              iconDisplay="input"
+              appendTo="body"
+              placeholder="Personalizado…"
+              styleClass="ha-date"
+              [class.is-active]="preset() === 'custom'"
+            ></p-datePicker>
 
             <div class="ha-field">
               <p-select
@@ -473,33 +466,9 @@ const QUARTERS: Quarter[] = [
     :host ::ng-deep .ha-zone-select { min-width: 220px; }
     :host ::ng-deep .ha-year-select { min-width: 92px; }
 
-    /* Botón "Personalizado" + calendario PrimeNG en overlay. */
-    .ha-custom { position: relative; display: inline-flex; }
-    .ha-custom-btn {
-      display: inline-flex; align-items: center; gap: .4rem;
-      height: 32px; padding: 0 .75rem;
-      background: var(--c-surface-2); border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      font-size: var(--fs-xs); font-weight: var(--fw-medium);
-      color: var(--c-text-2); cursor: pointer; white-space: nowrap;
-      transition: all 100ms var(--ease-standard);
-    }
-    .ha-custom-btn:hover { color: var(--c-text-1); border-color: var(--c-text-3); }
-    .ha-custom-btn.active {
-      background: var(--c-surface-1); color: var(--action);
-      border-color: var(--action); font-weight: var(--fw-bold);
-    }
-    .ha-custom-btn i { font-size: .85rem; }
-    .ha-cal-backdrop { position: fixed; inset: 0; z-index: 29; }
-    .ha-cal-pop {
-      position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
-      background: var(--card-bg, var(--c-surface-1));
-      border: 1px solid var(--border-color, var(--c-divider));
-      border-radius: var(--r-md, 12px);
-      box-shadow: var(--shadow-hover, 0 10px 30px -10px rgba(0,0,0,.2));
-      padding: 4px;
-    }
-    @media (max-width: 640px) { .ha-cal-pop { left: auto; right: 0; } }
+    /* Date-picker "Personalizado" (overlay PrimeNG via appendTo body). */
+    :host ::ng-deep .ha-date { min-width: 200px; }
+    :host ::ng-deep .ha-date.is-active input { border-color: var(--action); }
 
     .ha-chart-wrap {
       padding: 1rem 1.25rem 1.25rem;
@@ -621,8 +590,6 @@ export class HistoricalAnalyticsComponent {
     const y = new Date().getFullYear() - i;
     return { label: String(y), value: y };
   });
-  /** Muestra el calendario PrimeNG (overlay) del rango personalizado. */
-  readonly showCalendar = signal(false);
 
   readonly daily = signal<HistoricalDailyRow[]>([]);
   readonly topProducts = signal<HistoricalTopProductRow[]>([]);
@@ -752,7 +719,6 @@ export class HistoricalAnalyticsComponent {
   }
 
   setPreset(key: string): void {
-    this.showCalendar.set(false);
     if (this.preset() === key) return;
     this.preset.set(key);
     this.customRange.set(null);   // vuelve a "últimos N días"
@@ -762,7 +728,6 @@ export class HistoricalAnalyticsComponent {
 
   /** Trimestre del año seleccionado (to acotado a hoy para no pedir futuro). */
   setQuarter(q: Quarter): void {
-    this.showCalendar.set(false);
     const year = this.quarterYear();
     const from = new Date(year, q.m0, 1);
     let to = new Date(year, q.m0 + 3, 0); // último día del trimestre
@@ -780,18 +745,12 @@ export class HistoricalAnalyticsComponent {
     if (q) this.setQuarter(q);
   }
 
-  /** Botón "Personalizado" → abre/cierra el calendario PrimeNG. */
-  toggleCustom(): void {
-    this.showCalendar.update((v) => !v);
-  }
-
   /** Fecha personalizada (calendario rango). Aplica cuando hay ambas fechas. */
   onCustomRange(): void {
     const d = this.customDates;
     if (!d || d.length < 2 || !d[0] || !d[1]) return;
     this.customRange.set({ from: this.localISO(d[0]), to: this.localISO(d[1]) });
     this.preset.set('custom');
-    this.showCalendar.set(false);
     this.load();
   }
 
