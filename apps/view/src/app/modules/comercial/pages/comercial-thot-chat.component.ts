@@ -9,6 +9,7 @@ import { ButtonModule } from 'primeng/button';
 import { ComercialService, ThotChatTurn, ThotToolTrace } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ANALYTICS_TABS } from '../analytics-tabs';
+import { ThotAiInputComponent, ThotAsk, ThotImage } from '../components/thot-ai-input.component';
 
 /** Mensaje en la UI: turno + (para assistant) bloques de datos de las tools. */
 interface ChatMsg {
@@ -50,7 +51,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-comercial-thot-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   animations: [
     // Entrada/salida de mensajes — "materializan" con blur-rise + leve overshoot
@@ -88,8 +89,8 @@ const SUGGESTIONS = [
             <h3>¿Qué querés saber?</h3>
             <p>Probá con una de estas:</p>
             <div class="tc-suggest">
-              @for (s of suggestions; track s) {
-                <button class="tc-chip" (click)="send(s)">
+              @for (s of suggestions; track s; let si = $index) {
+                <button class="tc-chip" (click)="send(s)" [style.animation-delay.ms]="220 + si * 45">
                   <i class="pi pi-sparkles" aria-hidden="true"></i>
                   <span>{{ s }}</span>
                 </button>
@@ -177,12 +178,7 @@ const SUGGESTIONS = [
         }
       </div>
 
-      <form class="tc-input" (ngSubmit)="send(draft)">
-        <i class="pi pi-comment tc-input-icon" aria-hidden="true"></i>
-        <input type="text" [(ngModel)]="draft" name="draft" [disabled]="loading()"
-               placeholder="Escribí tu pregunta…" autocomplete="off" />
-        <button pButton type="submit" icon="pi pi-send" [rounded]="true" [loading]="loading()" [disabled]="!draft.trim()"></button>
-      </form>
+      <app-thot-ai-input class="tc-composer" (ask)="onAsk($event)"></app-thot-ai-input>
     </div>
   `,
   styles: [`
@@ -232,15 +228,19 @@ const SUGGESTIONS = [
       0%, 100% { box-shadow: 0 0 0 0 var(--action-ring, rgba(240,90,40,.35)); }
       50%      { box-shadow: 0 0 0 7px transparent; }
     }
-    /* Burbujas con sombra suave → "flotan" sobre el fondo. */
     .tc-bubble {
-      background: var(--card-bg); border: 1px solid var(--border-color);
       border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4);
-      font-size: var(--fs-body); line-height: 1.55; color: var(--text-main);
-      box-shadow: var(--shadow-light);
+      font-size: var(--fs-body); line-height: 1.6; color: var(--text-main);
+      min-width: 0;
     }
-    .tc-user .tc-bubble { background: var(--surface-hover-bg); border-color: transparent; }
-    .tc-err { border-color: var(--bad-fg); }
+    /* Usuario = burbuja-chip a la derecha. */
+    .tc-user .tc-bubble { background: var(--surface-hover-bg); border: 1px solid transparent; }
+    /* Asistente = SIN burbuja: el texto fluye (estilo Claude/ChatGPT), más legible. */
+    .tc-bot .tc-bubble { background: transparent; padding: var(--sp-1) 0 0; flex: 1; }
+    .tc-bot .tc-bubble.tc-err {
+      background: var(--bad-soft-bg); border: 1px solid var(--bad-border, var(--bad-fg));
+      border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); color: var(--bad-soft-fg);
+    }
     .tc-text { white-space: pre-wrap; }
     .tc-block { margin-top: var(--sp-3); }
     .tc-block-title { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: var(--sp-1); font-weight: var(--fw-bold, 700); }
@@ -275,6 +275,22 @@ const SUGGESTIONS = [
     .tc-bar { position: absolute; right: 0; bottom: 0; height: 3px; background: var(--action); opacity: .4; border-radius: 2px; }
     .tc-bar-num { position: relative; }
 
+    /* ── ENTRADA AL MODO "Pregúntale a Thot" — micro-animación escalonada ── */
+    @keyframes tc-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes tc-pop { from { opacity: 0; transform: translateY(8px) scale(.82); } to { opacity: 1; transform: none; } }
+    .tc-page > .surf-page-head { animation: tc-enter .45s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
+    .tc-page > .tc-composer { animation: tc-enter .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .08s; }
+    .tc-empty-icon { animation: tc-pop .55s cubic-bezier(.34,1.4,.5,1) both; animation-delay: .06s; }
+    .tc-empty h3 { animation: tc-enter .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .13s; }
+    .tc-empty p  { animation: tc-enter .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; animation-delay: .18s; }
+    /* Chip: entra con la propiedad 'translate' (independiente del 'transform' del hover). */
+    @keyframes tc-enter-chip { from { opacity: 0; translate: 0 10px; } to { opacity: 1; translate: 0 0; } }
+    .tc-chip { animation: tc-enter-chip .5s var(--ease-out, cubic-bezier(.23,1,.32,1)) both; }
+    @media (prefers-reduced-motion: reduce) {
+      .tc-page > .surf-page-head, .tc-page > .tc-composer,
+      .tc-empty-icon, .tc-empty h3, .tc-empty p, .tc-chip { animation: none; }
+    }
+
     /* ── INDICADOR "escribiendo" ── */
     .tc-typing { display: inline-flex; gap: 4px; padding: var(--sp-1) 0; }
     .tc-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: tc-blink 1.2s infinite both; }
@@ -291,39 +307,45 @@ const SUGGESTIONS = [
       .tc-reveal, .tc-avatar.is-thinking { animation: none; }
     }
 
-    /* ── COMPOSER — contenedor con anillo en foco (sin outline amarillo) ── */
-    .tc-input {
-      display: flex; align-items: center; gap: var(--sp-2);
-      margin-top: var(--sp-3);
-      padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-4);
-      background: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: var(--r-xl);
-      box-shadow: var(--shadow-light);
-      transition: border-color .18s var(--ease-standard), box-shadow .2s var(--ease-standard);
-    }
-    .tc-input:focus-within { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
-    .tc-input-icon { color: var(--text-faint); font-size: 1rem; flex-shrink: 0; }
-    .tc-input input {
-      flex: 1; min-width: 0;
-      border: none !important; outline: none !important; background: transparent;
-      font-size: var(--fs-body); color: var(--text-main);
-      padding: var(--sp-2) var(--sp-1);
-    }
-    @media (pointer: coarse) { .tc-input input { font-size: 16px; } }
-    /* Composer flota sobre el hilo al scrollear. */
-    .tc-input { position: relative; z-index: 2; }
-    .tc-input:not(:focus-within) { box-shadow: 0 -4px 16px -10px rgba(0,0,0,.18), var(--shadow-light); }
+    /* ── COMPOSER — mismo componente que /comercial/empuje (app-thot-ai-input) ── */
+    .tc-composer { display: block; margin-top: var(--sp-3); position: relative; z-index: 2; }
 
-    /* ── MARKDOWN en respuestas del asistente ── */
+    /* ── MARKDOWN en respuestas del asistente — tipografía de lectura ── */
+    .tc-md {
+      font-size: .95rem;
+      line-height: 1.72;
+      color: var(--text-main);
+      letter-spacing: .002em;
+    }
+    /* Medida óptima de lectura SOLO en bloques de texto; tablas a ancho completo. */
+    .tc-md > p, .tc-md > ul, .tc-md > ol, .tc-md > blockquote, .tc-md > .tc-md-h { max-width: 70ch; }
     .tc-md > :first-child { margin-top: 0; }
     .tc-md > :last-child { margin-bottom: 0; }
-    .tc-md p { margin: 0 0 var(--sp-2); }
-    .tc-md ul, .tc-md ol { margin: var(--sp-1) 0 var(--sp-2); padding-left: 1.25rem; }
-    .tc-md li { margin: .15rem 0; }
-    .tc-md code { font-family: var(--font-mono); font-size: .85em; background: var(--surface-hover-bg); padding: .1rem .35rem; border-radius: var(--r-sm); }
-    .tc-md a { color: var(--action); text-decoration: underline; }
-    .tc-md .tc-md-h { margin: var(--sp-2) 0 var(--sp-1); font-size: var(--fs-body); font-weight: var(--fw-bold, 700); }
+    .tc-md p { margin: 0 0 .75em; }
+    .tc-md .tc-table-wrap { margin: .65em 0 .9em; }
+    .tc-md strong { font-weight: var(--fw-bold, 700); color: var(--text-main); }
+    .tc-md em { font-style: italic; }
+    .tc-md ul, .tc-md ol { margin: .5em 0 .85em; padding-left: 1.3em; }
+    .tc-md li { margin: .25em 0; padding-left: .15em; }
+    .tc-md li::marker { color: var(--action); }
+    .tc-md code {
+      font-family: var(--font-mono); font-size: .85em;
+      background: var(--surface-hover-bg); color: var(--text-main);
+      padding: .12em .4em; border-radius: var(--r-sm);
+    }
+    .tc-md a { color: var(--action); text-decoration: underline; text-underline-offset: 2px; }
+    .tc-md a:hover { color: var(--action-hover, var(--action)); }
+    /* Encabezados: jerarquía clara por nivel. */
+    .tc-md .tc-md-h { font-weight: var(--fw-bold, 700); color: var(--text-main); line-height: 1.3; margin: 1.1em 0 .45em; }
+    .tc-md .tc-md-h1 { font-size: 1.2rem; letter-spacing: -.01em; }
+    .tc-md .tc-md-h2 { font-size: 1.08rem; }
+    .tc-md .tc-md-h3 { font-size: .98rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .tc-md blockquote {
+      margin: .6em 0; padding: .3em 0 .3em 1em;
+      border-left: 3px solid var(--action); color: var(--text-muted);
+    }
+    .tc-md blockquote p { margin: .2em 0; }
+    .tc-md-hr { border: none; border-top: 1px solid var(--border-color); margin: 1em 0; }
 
     /* ── ACCIONES por mensaje (copiar / regenerar) ── */
     .tc-actions { display: flex; gap: var(--sp-1); margin-top: var(--sp-2); }
@@ -369,13 +391,22 @@ export class ComercialThotChatComponent implements OnInit {
     this.messages().filter((m) => !m.pending && !m.error).map((m) => ({ role: m.role, content: m.content })),
   );
 
-  send(text: string) {
+  /** Flags del último envío — `regenerate()` reusa el mismo modo. */
+  private lastOpts: { think: boolean; deepSearch: boolean; image?: ThotImage | null } = { think: false, deepSearch: false };
+
+  send(text: string, think = false, deepSearch = false, image?: ThotImage | null) {
     const q = (text || '').trim();
-    if (!q || this.loading()) return;
+    if ((!q && !image) || this.loading()) return;
     const histForApi = this.history();
-    this.messages.update((ms) => [...ms, { role: 'user', content: q }]);
+    const shown = q || (image ? `🖼️ ${image.name}` : '');
+    this.messages.update((ms) => [...ms, { role: 'user', content: shown }]);
     this.draft = '';
-    this.dispatch(histForApi, q);
+    this.dispatch(histForApi, q || 'Analiza esta imagen.', { think, deepSearch, image });
+  }
+
+  /** Entrada IA (mismo componente que /comercial/empuje) → envía en sitio con su modo. */
+  onAsk(e: ThotAsk) {
+    this.send(e.text, e.think, e.deepSearch, e.image);
   }
 
   /** Reintenta la última pregunta del usuario (regenera la respuesta). */
@@ -394,16 +425,17 @@ export class ComercialThotChatComponent implements OnInit {
       return c;
     });
     const h = this.history();          // ahora termina en el último user
-    this.dispatch(h.slice(0, -1), lastUser);
+    this.dispatch(h.slice(0, -1), lastUser, this.lastOpts);
   }
 
   /** Lanza la consulta al backend (agrega burbuja pending y resuelve). */
-  private dispatch(histForApi: ThotChatTurn[], q: string) {
+  private dispatch(histForApi: ThotChatTurn[], q: string, opts: { think: boolean; deepSearch: boolean; image?: ThotImage | null }) {
+    this.lastOpts = opts;
     this.messages.update((ms) => [...ms, { role: 'assistant', content: '', pending: true }]);
     this.loading.set(true);
     this.scroll();
 
-    this.svc.thotChat(histForApi, q)
+    this.svc.thotChat(histForApi, q, opts)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -570,29 +602,82 @@ export class ComercialThotChatComponent implements OnInit {
         '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   }
 
+  /** Fila de tabla markdown → celdas (sin los pipes de borde). */
+  private splitRow(s: string): string[] {
+    let r = s.trim();
+    if (r.startsWith('|')) r = r.slice(1);
+    if (r.endsWith('|')) r = r.slice(0, -1);
+    return r.split('|').map((c) => c.trim());
+  }
+
+  /** ¿Es la línea separadora de una tabla markdown? (|---|:--:|---:|) */
+  private isTableSep(s: string): boolean {
+    return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
+  }
+
+  /** Tabla markdown → HTML con el mismo estilo pulido (números a la derecha, 1ª col fuerte). */
+  private mdTable(header: string[], body: string[][]): string {
+    const cols = header.length;
+    const isNum = (v: string) => /^[$+\-]?\s?[\d][\d.,\s]*%?$/.test((v || '').trim());
+    const numCol: boolean[] = [];
+    for (let c = 0; c < cols; c++) {
+      const vals = body.map((r) => r[c] ?? '').filter((v) => v !== '');
+      numCol[c] = vals.length > 0 && vals.filter(isNum).length >= Math.ceil(vals.length / 2);
+    }
+    const th = header.map((h, c) => `<th class="${numCol[c] ? 'tc-r' : ''}">${this.inlineMd(h)}</th>`).join('');
+    const rows = body.map((r) => '<tr>' + header.map((_, c) => {
+      const cls = `${numCol[c] ? 'tc-r ' : ''}${c === 0 ? 'tc-strong' : ''}`.trim();
+      return `<td class="${cls}">${this.inlineMd(r[c] ?? '')}</td>`;
+    }).join('') + '</tr>').join('');
+    return `<div class="tc-table-wrap"><table class="tc-table"><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
   private mdToHtml(raw: string): string {
     const lines = this.esc(raw).split(/\r?\n/);
     const out: string[] = [];
     let list: 'ul' | 'ol' | null = null;
+    let quote = false;
     const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+    const closeQuote = () => { if (quote) { out.push('</blockquote>'); quote = false; } };
+    const close = () => { closeList(); closeQuote(); };
 
-    for (const line of lines) {
-      const t = line.trim();
-      if (!t) { closeList(); continue; }
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (!t) { close(); continue; }
+
+      // Tabla markdown: fila con pipes + siguiente línea separadora.
+      if (t.includes('|') && i + 1 < lines.length && this.isTableSep(lines[i + 1])) {
+        close();
+        const header = this.splitRow(t);
+        const body: string[][] = [];
+        let j = i + 2;
+        while (j < lines.length && lines[j].trim().includes('|') && !this.isTableSep(lines[j])) {
+          body.push(this.splitRow(lines[j].trim()));
+          j++;
+        }
+        out.push(this.mdTable(header, body));
+        i = j - 1;
+        continue;
+      }
+
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { close(); out.push('<hr class="tc-md-hr">'); continue; }
 
       const h = t.match(/^(#{1,3})\s+(.*)$/);
-      if (h) { closeList(); out.push(`<h4 class="tc-md-h">${this.inlineMd(h[2])}</h4>`); continue; }
+      if (h) { close(); out.push(`<p class="tc-md-h tc-md-h${h[1].length}">${this.inlineMd(h[2])}</p>`); continue; }
+
+      const bq = t.match(/^>\s?(.*)$/);
+      if (bq) { closeList(); if (!quote) { out.push('<blockquote>'); quote = true; } out.push(`<p>${this.inlineMd(bq[1])}</p>`); continue; }
 
       const ul = t.match(/^[-*]\s+(.*)$/);
-      if (ul) { if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${this.inlineMd(ul[1])}</li>`); continue; }
+      if (ul) { closeQuote(); if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${this.inlineMd(ul[1])}</li>`); continue; }
 
       const ol = t.match(/^\d+\.\s+(.*)$/);
-      if (ol) { if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${this.inlineMd(ol[1])}</li>`); continue; }
+      if (ol) { closeQuote(); if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${this.inlineMd(ol[1])}</li>`); continue; }
 
-      closeList();
+      close();
       out.push(`<p>${this.inlineMd(t)}</p>`);
     }
-    closeList();
+    close();
     return out.join('');
   }
 

@@ -16,10 +16,18 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
+export interface ThotImage {
+  name: string;
+  mediaType: string;
+  /** base64 sin el prefijo data: (lo que espera Anthropic). */
+  data: string;
+}
+
 export interface ThotAsk {
   text: string;
   think: boolean;
   deepSearch: boolean;
+  image?: ThotImage | null;
 }
 
 /**
@@ -33,18 +41,21 @@ export interface ThotAsk {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="aci" [class.expanded]="active() || !!value" (click)="activate()">
+    <div class="aci" [class.expanded]="active() || !!value() || !!attached()" [class.has-attach]="!!attached()" (click)="activate()">
       <!-- Fila de input -->
       <div class="aci-row">
-        <button class="aci-ic" type="button" tabindex="-1" aria-label="Adjuntar" title="Adjuntar">
+        <button class="aci-ic" type="button" tabindex="-1" aria-label="Adjuntar imagen"
+                title="Adjuntar imagen" (click)="pickFile($event)">
           <i class="pi pi-paperclip" aria-hidden="true"></i>
         </button>
+        <input #fileInp type="file" accept="image/*" hidden (change)="onFile($event)" />
 
         <div class="aci-field">
           <input
             #inp
             type="text"
-            [(ngModel)]="value"
+            [ngModel]="value()"
+            (ngModelChange)="value.set($event)"
             (focus)="activate()"
             (keydown.enter)="submit()"
             [attr.aria-label]="hintBase()"
@@ -53,7 +64,7 @@ export interface ThotAsk {
             autocorrect="off"
             spellcheck="false"
           />
-          @if (!active() && !value) {
+          @if (!active() && !value()) {
             <div class="aci-ph" aria-hidden="true">
               <span class="aci-ph-line">
                 @for (ch of letters(); track phIndex() + ':' + $index) {
@@ -69,20 +80,37 @@ export interface ThotAsk {
           }
         </div>
 
-        <button class="aci-ic" type="button" tabindex="-1" aria-label="Dictar" title="Dictar por voz">
-          <i class="pi pi-microphone" aria-hidden="true"></i>
-        </button>
+        @if (micSupported) {
+          <button class="aci-ic" type="button" tabindex="-1"
+                  [class.recording]="recognizing()"
+                  [attr.aria-label]="recognizing() ? 'Detener dictado' : 'Dictar por voz'"
+                  [title]="recognizing() ? 'Detener dictado' : 'Dictar por voz'"
+                  (click)="toggleMic($event)">
+            <i class="pi" [class.pi-microphone]="!recognizing()" [class.pi-stop-circle]="recognizing()" aria-hidden="true"></i>
+          </button>
+        }
         <button
           class="aci-send"
           type="button"
           (click)="submit(); $event.stopPropagation()"
-          [disabled]="!value.trim()"
+          [disabled]="!value().trim() && !attached()"
           aria-label="Enviar"
           title="Enviar"
         >
           <i class="pi pi-send" aria-hidden="true"></i>
         </button>
       </div>
+
+      <!-- Adjunto (imagen) -->
+      @if (attached(); as att) {
+        <div class="aci-attach">
+          <i class="pi pi-image" aria-hidden="true"></i>
+          <span class="aci-attach-name">{{ att.name }}</span>
+          <button type="button" class="aci-attach-x" (click)="removeAttached($event)" aria-label="Quitar imagen" title="Quitar">
+            <i class="pi pi-times" aria-hidden="true"></i>
+          </button>
+        </div>
+      }
 
       <!-- Controles expandibles -->
       <div class="aci-ctrls">
@@ -129,6 +157,7 @@ export interface ThotAsk {
         box-shadow 450ms cubic-bezier(0.34, 1.4, 0.5, 1);
     }
     .aci.expanded { height: 128px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16); }
+    .aci.has-attach.expanded { height: 172px; }
 
     .aci-row { display: flex; align-items: center; gap: 8px; padding: 12px; height: 68px; }
 
@@ -144,6 +173,34 @@ export interface ThotAsk {
     }
     .aci-ic:hover { background: #f3f4f6; }
     .aci-ic i { font-size: 1.15rem; }
+    /* Mic grabando: rojo + pulso. */
+    .aci-ic.recording { color: #dc2626; }
+    .aci-ic.recording::after {
+      content: ''; position: absolute; inset: 0; border-radius: 9999px;
+      box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+      animation: aciPulse 1.4s ease-out infinite;
+    }
+    .aci-ic { position: relative; }
+    @keyframes aciPulse {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45); }
+      100% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+    }
+
+    /* Chip de imagen adjunta. */
+    .aci-attach {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin: 0 14px 8px;
+      padding: 6px 8px 6px 10px;
+      background: #f3f4f6; border-radius: 12px;
+      font-size: 13px; color: #374151; max-width: calc(100% - 28px);
+    }
+    .aci-attach > .pi-image { color: var(--action, #f05a28); }
+    .aci-attach-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .aci-attach-x {
+      flex-shrink: 0; width: 22px; height: 22px; display: grid; place-items: center;
+      border: none; background: transparent; color: #6b7280; cursor: pointer; border-radius: 9999px;
+    }
+    .aci-attach-x:hover { background: #e5e7eb; color: #111; }
 
     .aci-field { position: relative; flex: 1; min-width: 0; }
     .aci-field input {
@@ -264,23 +321,30 @@ export class ThotAiInputComponent implements OnInit {
 
   readonly ask = output<ThotAsk>();
 
-  value = '';
+  readonly value = signal('');
   readonly active = signal(false);
   readonly think = signal(false);
   readonly deepSearch = signal(false);
   readonly phIndex = signal(0);
   readonly phOut = signal(false);
+  readonly attached = signal<ThotImage | null>(null);
+  readonly recognizing = signal(false);
+  readonly micSupported =
+    typeof window !== 'undefined' &&
+    !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
   readonly letters = computed(() => this.placeholders()[this.phIndex()].split(''));
 
   @ViewChild('inp') private inp?: ElementRef<HTMLInputElement>;
+  @ViewChild('fileInp') private fileInp?: ElementRef<HTMLInputElement>;
+  private recognition: any = null;
 
   ngOnInit(): void {
     if (typeof window === 'undefined') return;
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     this.zone.runOutsideAngular(() => {
       const id = setInterval(() => {
-        if (this.active() || this.value) return;
+        if (this.active() || this.value()) return;
         this.zone.run(() => {
           if (reduced) {
             this.phIndex.update((i) => (i + 1) % this.placeholders().length);
@@ -313,15 +377,83 @@ export class ThotAiInputComponent implements OnInit {
   }
 
   submit(): void {
-    const text = this.value.trim();
-    if (!text) return;
-    this.ask.emit({ text, think: this.think(), deepSearch: this.deepSearch() });
-    this.value = '';
+    const text = this.value().trim();
+    const img = this.attached();
+    if (!text && !img) return;
+    this.stopMic();
+    this.ask.emit({ text, think: this.think(), deepSearch: this.deepSearch(), image: img });
+    this.value.set('');
+    this.attached.set(null);
+  }
+
+  // ── Adjuntar imagen (Claude vision) ───────────────────────────────
+  pickFile(ev: Event): void {
+    ev.stopPropagation();
+    this.fileInp?.nativeElement?.click();
+  }
+
+  onFile(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // permite re-elegir el mismo archivo
+    if (!file || !file.type.startsWith('image/')) return;
+    if (file.size > 5 * 1024 * 1024) return; // tope 5MB
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const data = dataUrl.split(',')[1] || '';
+      this.zone.run(() => {
+        this.attached.set({ name: file.name, mediaType: file.type, data });
+        this.active.set(true);
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  removeAttached(ev: Event): void {
+    ev.stopPropagation();
+    this.attached.set(null);
+  }
+
+  // ── Dictado por voz (Web Speech API, es-MX) ───────────────────────
+  toggleMic(ev: Event): void {
+    ev.stopPropagation();
+    if (this.recognizing()) { this.stopMic(); return; }
+    this.startMic();
+  }
+
+  private startMic(): void {
+    const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = 'es-MX';
+    rec.interimResults = true;
+    rec.continuous = false;
+    const baseValue = this.value();
+    rec.onresult = (e: any) => {
+      let transcript = '';
+      for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+      this.zone.run(() => this.value.set((baseValue ? baseValue + ' ' : '') + transcript));
+    };
+    rec.onerror = () => this.zone.run(() => this.recognizing.set(false));
+    rec.onend = () => this.zone.run(() => this.recognizing.set(false));
+    this.recognition = rec;
+    this.active.set(true);
+    this.recognizing.set(true);
+    try { rec.start(); } catch { this.recognizing.set(false); }
+  }
+
+  private stopMic(): void {
+    if (this.recognition) {
+      try { this.recognition.stop(); } catch { /* noop */ }
+      this.recognition = null;
+    }
+    this.recognizing.set(false);
   }
 
   @HostListener('document:mousedown', ['$event'])
   onDocClick(ev: MouseEvent): void {
     if (this.host.nativeElement.contains(ev.target as Node)) return;
-    if (!this.value) this.active.set(false);
+    if (!this.value() && !this.attached()) this.active.set(false);
   }
 }

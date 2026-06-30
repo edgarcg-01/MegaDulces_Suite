@@ -388,7 +388,13 @@ export class CommercialIntelligenceController {
   @ApiOperation({ summary: 'Chat analítico ADMIN (todo el tenant). Back-office only. Stateless: enviar `history`.' })
   async thotChat(
     @Req() req: any,
-    @Body() body: { history?: ThotChatTurn[]; message?: string; think?: boolean; deep_search?: boolean },
+    @Body() body: {
+      history?: ThotChatTurn[];
+      message?: string;
+      think?: boolean;
+      deep_search?: boolean;
+      image?: { media_type?: string; data?: string };
+    },
   ) {
     // TC-S hardening: aunque customer_b2b/vendedor tengan COMMERCIAL_ORDERS_VER, el
     // perfil ADMIN ve TODO el tenant (márgenes, todos los clientes). Esas audiencias
@@ -401,10 +407,14 @@ export class CommercialIntelligenceController {
     if (body?.message) history.push({ role: 'user', content: String(body.message) });
     const userName = req.user?.full_name || req.user?.username || undefined;
     const scope: ThotScope = { profile: 'admin', userName };
+    const image = body?.image?.data && body?.image?.media_type
+      ? { mediaType: body.image.media_type, data: body.image.data }
+      : undefined;
     const result = await this.chat.ask(this.adminTools, scope, {
       history,
       think: !!body?.think,
       deepSearch: !!body?.deep_search,
+      image,
     });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'admin', question: lastQuestion }, result);

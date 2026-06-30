@@ -88,7 +88,12 @@ export class ThotChatService {
   async ask(
     provider: ThotToolProvider,
     scope: ThotScope,
-    input: { history: ThotChatTurn[]; think?: boolean; deepSearch?: boolean },
+    input: {
+      history: ThotChatTurn[];
+      think?: boolean;
+      deepSearch?: boolean;
+      image?: { mediaType: string; data: string };
+    },
   ): Promise<ThotChatResult> {
     const think = !!input.think;
     const deep = !!input.deepSearch;
@@ -112,6 +117,20 @@ export class ThotChatService {
     const toolDefs = provider.definitions(scope);
     // Estado del diálogo en formato Anthropic (content puede ser string o blocks).
     const messages: any[] = history.map((t) => ({ role: t.role, content: t.content }));
+
+    // Adjunto de imagen (Claude vision): se inyecta como bloque en el último turno
+    // del usuario, junto al texto. El modelo puede "leer" la foto (reporte, etiqueta…).
+    if (input.image?.data && input.image?.mediaType) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === 'user') {
+        const text = typeof last.content === 'string' ? last.content : '';
+        last.content = [
+          { type: 'image', source: { type: 'base64', media_type: input.image.mediaType, data: input.image.data } },
+          ...(text ? [{ type: 'text', text }] : []),
+        ];
+      }
+    }
+
     const traces: ThotToolTrace[] = [];
 
     let iterations = 0;

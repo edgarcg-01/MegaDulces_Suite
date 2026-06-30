@@ -455,8 +455,18 @@ export class ComercialService {
   private readonly base = `${environment.apiUrl}/commercial`;
 
   // ── Thot Chat ──────────────────────────────────────────────────────
-  thotChat(history: ThotChatTurn[], message: string): Observable<ThotChatResult> {
-    return this.http.post<ThotChatResult>(`${this.base}/intelligence/thot/chat`, { history, message });
+  thotChat(
+    history: ThotChatTurn[],
+    message: string,
+    opts?: { think?: boolean; deepSearch?: boolean; image?: { mediaType: string; data: string } | null },
+  ): Observable<ThotChatResult> {
+    return this.http.post<ThotChatResult>(`${this.base}/intelligence/thot/chat`, {
+      history,
+      message,
+      think: opts?.think ?? false,
+      deep_search: opts?.deepSearch ?? false,
+      image: opts?.image ? { media_type: opts.image.mediaType, data: opts.image.data } : undefined,
+    });
   }
 
   // ── Customers ──────────────────────────────────────────────────────

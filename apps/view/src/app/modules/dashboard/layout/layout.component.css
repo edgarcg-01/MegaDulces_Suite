@@ -7,25 +7,30 @@
    */
 }
 
-/* Scrollbar del nav del sidebar — sutil pero visible. */
-:host nav::-webkit-scrollbar {
-  width: 4px;
-}
-:host nav::-webkit-scrollbar-track {
-  background: transparent;
-}
-:host nav::-webkit-scrollbar-thumb {
-  background-color: var(--border-color);
-  border-radius: 4px;
-}
-:host nav::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-faint);
-}
+/* Scrollbar del nav del sidebar — OCULTO (sigue scrolleando con rueda/touch).
+   En Windows el webkit-scrollbar mostraba botones de flecha ▲▼ y un riel feo;
+   los matamos para un rail limpio (patrón Linear/Vercel). */
 :host nav {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-color) transparent;
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* IE/Edge legacy */
+}
+:host nav::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;                /* Chrome/Safari/Edge — incluye los botones */
 }
 
 :host aside > .flex.items-center.justify-between {
   transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Item de nav activo — tratamiento sutil (quiet-luxury): fondo neutro tenue +
+   ícono y texto en acento (--action). Reemplaza el pill sólido casi-negro. */
+:host .nav-active {
+  background: var(--surface-selected-bg);
+  color: var(--action);
+  font-weight: 600;
+}
+:host .nav-active i {
+  color: var(--action);
 }

@@ -37,11 +37,35 @@ LLM                   → orquesta tools + narra + cita fuente/período  ← NUN
 | **TC.2** | Endpoint `POST /commercial/intelligence/thot/chat` + permiso + persistencia (`commercial.thot_chat_log`) | 🔨 EN CÓDIGO (migración sin aplicar) |
 | **TC.3** | Frontend chat UI `/comercial/thot-chat` (Operations) + render estructurado + tab "Pregúntale a Thot" | 🔨 EN CÓDIGO (build view verde) |
 | Evals | `database/tests/http-thot-chat-test.js` (golden-questions, ruteo de tools) | 🔨 EN CÓDIGO (pendiente correr live) |
+| **TC-S** | Hardening + refactor a perfiles (ToolProvider/ThotScope); admin `/thot/chat` rechaza `customer_b2b`/`vendedor` | 🔨 EN CÓDIGO (build api verde) |
+| **TC-P** | Portal B2B: `PortalThotToolsService` scoped a `customer_id` (sin márgenes/terceros, surtido PH) + `/portal/thot/chat` + UI Storefront `/portal/assistant` | 🔨 EN CÓDIGO (build portal verde) |
+| **TC-V** | Vendedor: `VendorThotToolsService` scoped a cartera (stock PH, márgenes OK) + `/vendor/thot/chat` + UI mobile + voz `/vendor/assistant` | 🔨 EN CÓDIGO (build vendor verde) |
+| **TC-E** | Banco 50 preguntas + red-team de fuga por perfil (`http-thot-chat-*.js`) | 🔨 EN CÓDIGO (pendiente correr live) |
 | TC.4 | Ejemplos verificados con retrieval (few-shot) | ⬜ diferido |
 | TC.5 | Telemetría tokens/tools + feedback 👍👎 | ⬜ diferido |
 | TC.6 | Text-to-SQL controlado completo + streaming SSE | ⬜ diferido |
 
-**Pendientes operacionales (prod):** (1) aplicar migración `20260630200000_thot_chat_log` en Railway; (2) `ANTHROPIC_API_KEY` en el entorno (ya usada por otros módulos AI); (3) correr `http-thot-chat-test.js` con la API arriba y ver verde; (4) opcional `THOT_CHAT_MODEL` para usar Sonnet en orquestación compleja. Re-login NO requerido (reusa permiso `COMMERCIAL_ORDERS_VER`).
+**Pendientes operacionales (prod):** (1) aplicar migración `20260630200000_thot_chat_log` en Railway; (2) `ANTHROPIC_API_KEY` en el entorno; (3) correr `http-thot-chat-test.js` (50 preguntas) + `http-thot-chat-scoped-test.js` (red-team) con la API arriba; (4) opcional `THOT_CHAT_MODEL` (Sonnet) y `THOT_FULFILLMENT_WAREHOUSE` (default `MD-10`). Re-login NO requerido.
+
+---
+
+## TC-S/P/V — Perfiles scoped (Portal + Vendor)
+
+**Principio:** el loop se reusa; cambian **tool-provider + prompt + scope** por audiencia. El **scope se deriva del JWT en el controller y se impone server-side** — el LLM jamás elige cliente/almacén fuera de alcance.
+
+| Perfil | Endpoint | Scope | Ve | NUNCA ve |
+|---|---|---|---|---|
+| admin | `/thot/chat` | tenant completo | todo | — (rechaza customer_b2b/vendedor) |
+| portal | `/portal/thot/chat` | `customer_id` del JWT | solo lo suyo, surtido PH | otros clientes, márgenes, analítica global |
+| vendor | `/vendor/thot/chat` | cartera (rutas asignadas) | sus clientes, stock PH, márgenes | clientes fuera de su cartera |
+
+**Hallazgo de seguridad (cerrado en TC-S):** `customer_b2b` y `vendedor` tienen `COMMERCIAL_ORDERS_VER` → con el gate original podían pegarle al chat admin y ver TODO el tenant. Fix: deny explícito por rol en el endpoint admin + endpoints scoped propios.
+
+**Surtido PH:** `PH_FULFILLMENT_WAREHOUSE` (`MD-10`, env `THOT_FULFILLMENT_WAREHOUSE`). Disponibilidad/stock de portal y vendor sale de ese almacén (alineado con `import-ph-stock-live.js`).
+
+**Frontends:** Portal = Storefront (Fraunces) en `/portal/assistant`. Vendor = mobile-first + **voz Web Speech es-MX** en `/vendor/assistant`.
+
+**Nota:** el build de `apps/view` quedó rojo por WIP de otro thread (`ThotAiInputComponent`), ajeno a esta fase; api/portal/vendor compilan verde.
 
 ---
 
