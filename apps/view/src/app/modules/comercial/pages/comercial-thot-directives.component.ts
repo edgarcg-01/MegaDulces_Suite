@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
@@ -43,7 +44,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
   selector: 'app-comercial-thot-directives',
   standalone: true,
   imports: [
-    CommonModule, FormsModule,
+    CommonModule, FormsModule, RouterLink,
     ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, InputNumberModule,
     AutoCompleteModule, DatePickerModule, DialogModule, ToastModule, ConfirmDialogModule,
     TooltipModule, SkeletonModule,
@@ -64,6 +65,8 @@ interface BrandOpt { id: string; nombre: string; products: number; }
           </p>
         </div>
         <div class="td-head-actions">
+          <button pButton icon="pi pi-comments" label="Pregúntale a Thot" size="small" [outlined]="true"
+                  routerLink="/comercial/thot-chat" pTooltip="Chat analítico sobre ventas"></button>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small"
                   (click)="reload()" [loading]="loading()" pTooltip="Refrescar"></button>
           <button pButton icon="pi pi-plus" label="Nueva directriz" size="small" severity="contrast"
