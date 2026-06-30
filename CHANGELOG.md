@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added / Security — Thot Chat en Portal y Vendor con perfiles scoped (Fase TC-S/P/V / ADR-026) (2026-06-30)
+- Lleva el asistente conversacional a las apps de **cliente** y **vendedor**. Builds api+portal+vendor verdes. Sin deploy.
+- **Security (TC-S):** se detectó y cerró un leak — `customer_b2b` y `vendedor` tienen `COMMERCIAL_ORDERS_VER`, así que con el gate original podían pegarle al chat **admin** y ver TODO el tenant (márgenes, todos los clientes). Fix: el endpoint admin `/thot/chat` rechaza esos roles; cada audiencia tiene su endpoint scoped.
+- **Refactor a perfiles:** `ThotChatService` agnóstico (recibe `ToolProvider` + `ThotScope`); el scope se deriva del JWT y se **impone server-side** (el LLM nunca elige cliente/almacén fuera de alcance).
+- **TC-P Portal** (`customer_b2b`): `PortalThotToolsService` scoped a `customer_id`, **sin márgenes ni datos de terceros** (mis pedidos / recomendaciones / lo habitual / catálogo+mi precio / disponibilidad / promos) + `/portal/thot/chat` + UI Storefront `/portal/assistant`.
+- **TC-V Vendor:** `VendorThotToolsService` scoped a la **cartera** (rutas asignadas), márgenes OK (interno): buscar cliente / 360 / historial / sugeridos / mi día / inactivos / stock + `/vendor/thot/chat` + UI mobile con **voz Web Speech es-MX** `/vendor/assistant`.
+- **Surtido PH:** disponibilidad/stock de portal y vendor sale del almacén **MD-10** (`THOT_FULFILLMENT_WAREHOUSE`), alineado con el feed `import-ph-stock-live.js`.
+- **TC-E:** `http-thot-chat-scoped-test.js` (red-team de fuga: admin rechaza al cliente, superficie de tools acotada por perfil, no entrega márgenes).
+- **Pendiente:** reiniciar API (build nuevo) + correr el red-team. `apps/view` quedó rojo por WIP ajeno (`ThotAiInputComponent`), no de esta fase.
+
 ### Added — Thot Chat: analítica conversacional sobre ventas (Fase TC / ADR-026) (2026-06-30)
 - **Qué:** "Pregúntale a Thot" — un chat que responde preguntas complejas de ventas/inventario/clientes/márgenes en lenguaje natural, orquestando vía **tool-use de Claude** los métodos deterministas que ya existen. Builds api+view verdes. Sin deploy.
 - **Decisión (ADR-026):** capa conversacional sobre el motor, **NO RAG sobre la DB**. Validado contra cómo lo hacen Uber/LinkedIn/Snowflake/Databricks/Anthropic: capa semántica curada + tools deterministas + RAG solo para entidades + evals. El LLM **nunca calcula ni genera SQL**; los números salen de tools tenant-scoped (RLS). Read-only.
