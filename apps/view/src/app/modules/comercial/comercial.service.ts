@@ -469,6 +469,14 @@ export class ComercialService {
     });
   }
 
+  /** Dictado por voz → texto (Groq Whisper). `audio` = base64 sin prefijo data:. */
+  transcribe(audio: string, mime: string): Observable<{ text: string; error?: string }> {
+    return this.http.post<{ text: string; error?: string }>(
+      `${this.base}/intelligence/thot/transcribe`,
+      { audio, mime },
+    );
+  }
+
   // ── Customers ──────────────────────────────────────────────────────
   listCustomers(opts: { page?: number; pageSize?: number; search?: string; active?: boolean } = {}): Observable<Paged<Customer>> {
     let params = new HttpParams();

@@ -7,7 +7,6 @@ import {
   NgZone,
   OnInit,
   ViewChild,
-  computed,
   inject,
   input,
   output,
@@ -15,6 +14,8 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ComercialService } from '../comercial.service';
 
 export interface ThotImage {
   name: string;
@@ -59,34 +60,36 @@ export interface ThotAsk {
             (focus)="activate()"
             (keydown.enter)="submit()"
             [attr.aria-label]="hintBase()"
+            [attr.placeholder]="(recording() || transcribing()) ? '' : hintBase()"
             autocomplete="off"
             autocapitalize="none"
             autocorrect="off"
             spellcheck="false"
           />
-          @if (!active() && !value()) {
-            <div class="aci-ph" aria-hidden="true">
-              <span class="aci-ph-line">
-                @for (ch of letters(); track phIndex() + ':' + $index) {
-                  <span
-                    class="aci-ch"
-                    [class.is-out]="phOut()"
-                    [style.--i]="$index"
-                    [style.--o]="letters().length - 1 - $index"
-                  >{{ ch === ' ' ? ' ' : ch }}</span>
-                }
-              </span>
+          @if (recording()) {
+            <div class="aci-rec" aria-hidden="true">
+              <span class="aci-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+              {{ mmss(recSeconds()) }} · Grabando…
             </div>
+          } @else if (transcribing()) {
+            <div class="aci-rec aci-rec-busy" aria-hidden="true">Transcribiendo…</div>
           }
         </div>
 
         @if (micSupported) {
-          <button class="aci-ic" type="button" tabindex="-1"
-                  [class.recording]="recognizing()"
-                  [attr.aria-label]="recognizing() ? 'Detener dictado' : 'Dictar por voz'"
-                  [title]="recognizing() ? 'Detener dictado' : 'Dictar por voz'"
+          <button class="aci-ic aci-mic" type="button" tabindex="-1"
+                  [class.recording]="recording()"
+                  [disabled]="transcribing()"
+                  [attr.aria-label]="recording() ? 'Detener y transcribir' : 'Dictar por voz'"
+                  [title]="recording() ? 'Detener y transcribir' : (transcribing() ? 'Transcribiendo…' : 'Dictar por voz')"
                   (click)="toggleMic($event)">
-            <i class="pi" [class.pi-microphone]="!recognizing()" [class.pi-stop-circle]="recognizing()" aria-hidden="true"></i>
+            @if (transcribing()) {
+              <i class="pi pi-spinner pi-spin" aria-hidden="true"></i>
+            } @else if (recording()) {
+              <i class="pi pi-stop-circle" aria-hidden="true"></i>
+            } @else {
+              <i class="pi pi-microphone" aria-hidden="true"></i>
+            }
           </button>
         }
         <button
@@ -202,43 +205,52 @@ export interface ThotAsk {
     }
     .aci-attach-x:hover { background: #e5e7eb; color: #111; }
 
+    /* Overlay de grabación / transcripción dentro del campo. */
+    .aci-rec {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 4px;
+      font-size: 15px; color: #dc2626; font-weight: 600;
+      pointer-events: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .aci-rec-busy { color: #6b7280; }
+    .aci-rec-dot {
+      width: 9px; height: 9px; border-radius: 9999px; background: #dc2626;
+      animation: aciRecBlink 1.1s ease-in-out infinite;
+    }
+    @keyframes aciRecBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+    /* Onda de voz reactiva (JS escribe scaleY); CSS anima como fallback. */
+    .aci-wave { display: inline-flex; align-items: center; gap: 3px; height: 20px; }
+    .aci-wave i {
+      width: 3px; height: 100%; border-radius: 2px; background: #dc2626;
+      transform: scaleY(0.3); transform-origin: center;
+      animation: aciWave 0.85s ease-in-out infinite alternate;
+    }
+    .aci-wave i:nth-child(2) { animation-delay: .12s; }
+    .aci-wave i:nth-child(3) { animation-delay: .24s; }
+    .aci-wave i:nth-child(4) { animation-delay: .08s; }
+    .aci-wave i:nth-child(5) { animation-delay: .30s; }
+    .aci-wave i:nth-child(6) { animation-delay: .16s; }
+    .aci-wave i:nth-child(7) { animation-delay: .04s; }
+    @keyframes aciWave { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .aci-rec-dot, .aci-wave i { animation: none; }
+    }
+
     .aci-field { position: relative; flex: 1; min-width: 0; }
     .aci-field input {
       width: 100%;
-      border: none; outline: none; background: transparent;
+      border: none !important; outline: none !important; box-shadow: none !important;
+      background: transparent;
       color: #000;
       font-family: var(--font-body);
       font-size: 16px;
       padding: 8px 4px;
     }
-
-    .aci-ph {
-      position: absolute; inset: 0;
-      display: flex; align-items: center;
-      padding: 0 4px;
-      pointer-events: none;
-      overflow: hidden;
-    }
-    .aci-ph-line { white-space: nowrap; color: #9ca3af; font-size: 16px; }
-
-    /* Reveal letra-por-letra (entra con blur + stagger; sale en reversa). */
-    .aci-ch {
-      display: inline-block;
-      animation: aciChIn 450ms cubic-bezier(0.23, 1, 0.32, 1) both;
-      animation-delay: calc(var(--i, 0) * 25ms);
-    }
-    .aci-ch.is-out {
-      animation: aciChOut 300ms cubic-bezier(0.23, 1, 0.32, 1) both;
-      animation-delay: calc(var(--o, 0) * 15ms);
-    }
-    @keyframes aciChIn {
-      from { opacity: 0; filter: blur(12px); transform: translateY(10px); }
-      to   { opacity: 1; filter: blur(0);    transform: translateY(0); }
-    }
-    @keyframes aciChOut {
-      from { opacity: 1; filter: blur(0);    transform: translateY(0); }
-      to   { opacity: 0; filter: blur(12px); transform: translateY(-10px); }
-    }
+    .aci-field input::placeholder { color: #9ca3af; }
 
     .aci-send {
       flex-shrink: 0;
@@ -297,7 +309,7 @@ export interface ThotAsk {
     .aci-tg-grow.on .aci-tg-label { max-width: 160px; opacity: 1; margin-left: 4px; }
 
     @media (prefers-reduced-motion: reduce) {
-      .aci, .aci-ch, .aci-ch.is-out, .aci-ctrls, .aci-tg, .aci-tg-grow .aci-tg-label, .aci-send {
+      .aci, .aci-ctrls, .aci-tg, .aci-tg-grow .aci-tg-label, .aci-send {
         transition: none; animation: none;
       }
     }
@@ -308,15 +320,8 @@ export class ThotAiInputComponent implements OnInit {
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly zone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly api = inject(ComercialService);
 
-  readonly placeholders = input<string[]>([
-    '¿Cuánto vendí los últimos 30 días?',
-    'Top 10 productos del mes',
-    '¿Qué está en rotura de stock?',
-    'Margen por categoría del trimestre',
-    'Clientes inactivos hace más de 30 días',
-    '¿Qué marca conviene empujar este mes?',
-  ]);
   readonly hintBase = input<string>('Pregúntale a Thot sobre tus ventas…');
 
   readonly ask = output<ThotAsk>();
@@ -325,40 +330,36 @@ export class ThotAiInputComponent implements OnInit {
   readonly active = signal(false);
   readonly think = signal(false);
   readonly deepSearch = signal(false);
-  readonly phIndex = signal(0);
-  readonly phOut = signal(false);
   readonly attached = signal<ThotImage | null>(null);
-  readonly recognizing = signal(false);
+  readonly recording = signal(false);
+  readonly transcribing = signal(false);
+  readonly recSeconds = signal(0);
   readonly micSupported =
-    typeof window !== 'undefined' &&
-    !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
-
-  readonly letters = computed(() => this.placeholders()[this.phIndex()].split(''));
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof (window as any).MediaRecorder !== 'undefined';
 
   @ViewChild('inp') private inp?: ElementRef<HTMLInputElement>;
   @ViewChild('fileInp') private fileInp?: ElementRef<HTMLInputElement>;
-  private recognition: any = null;
+  private recorder: MediaRecorder | null = null;
+  private chunks: Blob[] = [];
+  private stream: MediaStream | null = null;
+  private recTimer: any = null;
+  private audioCtx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private rafId: number | null = null;
 
   ngOnInit(): void {
-    if (typeof window === 'undefined') return;
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    this.zone.runOutsideAngular(() => {
-      const id = setInterval(() => {
-        if (this.active() || this.value()) return;
-        this.zone.run(() => {
-          if (reduced) {
-            this.phIndex.update((i) => (i + 1) % this.placeholders().length);
-            return;
-          }
-          this.phOut.set(true);
-          setTimeout(() => {
-            this.phIndex.update((i) => (i + 1) % this.placeholders().length);
-            this.phOut.set(false);
-          }, 400);
-        });
-      }, 3000);
-      this.destroyRef.onDestroy(() => clearInterval(id));
+    this.destroyRef.onDestroy(() => {
+      this.stopTimer();
+      this.releaseStream();
     });
+  }
+
+  /** Segundos → m:ss para el timer de grabación. */
+  mmss(s: number): string {
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, '0')}`;
   }
 
   activate(): void {
@@ -380,7 +381,7 @@ export class ThotAiInputComponent implements OnInit {
     const text = this.value().trim();
     const img = this.attached();
     if (!text && !img) return;
-    this.stopMic();
+    if (this.recording()) this.cancelRec();
     this.ask.emit({ text, think: this.think(), deepSearch: this.deepSearch(), image: img });
     this.value.set('');
     this.attached.set(null);
@@ -415,40 +416,139 @@ export class ThotAiInputComponent implements OnInit {
     this.attached.set(null);
   }
 
-  // ── Dictado por voz (Web Speech API, es-MX) ───────────────────────
+  // ── Dictado por voz (MediaRecorder → Groq Whisper, calidad ChatGPT) ──
   toggleMic(ev: Event): void {
     ev.stopPropagation();
-    if (this.recognizing()) { this.stopMic(); return; }
-    this.startMic();
+    if (this.transcribing()) return;
+    if (this.recording()) { this.finishRec(); return; }
+    void this.startRec();
   }
 
-  private startMic(): void {
-    const Ctor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!Ctor) return;
-    const rec = new Ctor();
-    rec.lang = 'es-MX';
-    rec.interimResults = true;
-    rec.continuous = false;
-    const baseValue = this.value();
-    rec.onresult = (e: any) => {
-      let transcript = '';
-      for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
-      this.zone.run(() => this.value.set((baseValue ? baseValue + ' ' : '') + transcript));
-    };
-    rec.onerror = () => this.zone.run(() => this.recognizing.set(false));
-    rec.onend = () => this.zone.run(() => this.recognizing.set(false));
-    this.recognition = rec;
-    this.active.set(true);
-    this.recognizing.set(true);
-    try { rec.start(); } catch { this.recognizing.set(false); }
-  }
-
-  private stopMic(): void {
-    if (this.recognition) {
-      try { this.recognition.stop(); } catch { /* noop */ }
-      this.recognition = null;
+  private async startRec(): Promise<void> {
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      return; // permiso denegado / sin micrófono
     }
-    this.recognizing.set(false);
+    const mime = this.pickMime();
+    this.chunks = [];
+    this.recorder = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined);
+    this.recorder.ondataavailable = (e) => { if (e.data.size > 0) this.chunks.push(e.data); };
+    this.recorder.onstop = () => this.onRecStop();
+    this.recorder.start();
+    this.active.set(true);
+    this.recording.set(true);
+    this.recSeconds.set(0);
+    this.zone.runOutsideAngular(() => {
+      this.recTimer = setInterval(() => this.zone.run(() => this.recSeconds.update((s) => s + 1)), 1000);
+    });
+    this.startMeter();
+  }
+
+  /** Analyser de Web Audio → barras de onda reactivas al volumen (escritas
+   *  directo al DOM, fuera de Angular, para no disparar change-detection). */
+  private startMeter(): void {
+    try {
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC || !this.stream) return;
+      this.audioCtx = new AC();
+      const src = this.audioCtx!.createMediaStreamSource(this.stream);
+      this.analyser = this.audioCtx!.createAnalyser();
+      this.analyser.fftSize = 64;
+      src.connect(this.analyser);
+      const data = new Uint8Array(this.analyser.frequencyBinCount);
+      this.zone.runOutsideAngular(() => {
+        const loop = () => {
+          if (!this.analyser) return;
+          const bars = this.host.nativeElement.querySelectorAll('.aci-wave i') as NodeListOf<HTMLElement>;
+          if (bars.length) {
+            this.analyser.getByteFrequencyData(data);
+            const n = bars.length;
+            const per = Math.max(1, Math.floor(data.length / n));
+            for (let i = 0; i < n; i++) {
+              let s = 0;
+              for (let j = 0; j < per; j++) s += data[i * per + j] || 0;
+              const v = s / per / 255;
+              bars[i].style.transform = `scaleY(${(0.18 + v * 0.82).toFixed(3)})`;
+            }
+          }
+          this.rafId = requestAnimationFrame(loop);
+        };
+        this.rafId = requestAnimationFrame(loop);
+      });
+    } catch {
+      /* sin Web Audio: las barras animan por CSS (fallback) */
+    }
+  }
+
+  private stopMeter(): void {
+    if (this.rafId != null) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+    this.analyser = null;
+    if (this.audioCtx) { this.audioCtx.close().catch(() => {}); this.audioCtx = null; }
+  }
+
+  /** Detener y transcribir. */
+  private finishRec(): void {
+    if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop();
+    this.stopTimer();
+    this.recording.set(false);
+  }
+
+  /** Cancelar sin transcribir (ej. al enviar manualmente). */
+  private cancelRec(): void {
+    this.chunks = [];
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      this.recorder.onstop = null as any;
+      this.recorder.stop();
+    }
+    this.releaseStream();
+    this.stopTimer();
+    this.recording.set(false);
+  }
+
+  private onRecStop(): void {
+    this.releaseStream();
+    const type = this.recorder?.mimeType || 'audio/webm';
+    const blob = new Blob(this.chunks, { type });
+    this.chunks = [];
+    this.recorder = null;
+    if (!blob.size) return;
+    this.zone.run(() => this.transcribing.set(true));
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result || '').split(',')[1] || '';
+      this.api.transcribe(data, type)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (r) => {
+            this.transcribing.set(false);
+            const t = (r?.text || '').trim();
+            if (t) {
+              const base = this.value();
+              this.value.set(base ? `${base} ${t}` : t);
+              queueMicrotask(() => this.inp?.nativeElement?.focus());
+            }
+          },
+          error: () => this.transcribing.set(false),
+        });
+    };
+    reader.readAsDataURL(blob);
+  }
+
+  private pickMime(): string {
+    const cands = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+    const MR: any = (window as any).MediaRecorder;
+    return cands.find((c) => MR?.isTypeSupported?.(c)) || '';
+  }
+
+  private releaseStream(): void {
+    this.stopMeter();
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+  }
+
+  private stopTimer(): void {
+    if (this.recTimer) { clearInterval(this.recTimer); this.recTimer = null; }
   }
 
   @HostListener('document:mousedown', ['$event'])
