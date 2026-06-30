@@ -110,13 +110,11 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="in-field">
               <i class="pi pi-warehouse in-field-icon" aria-hidden="true"></i>
               <p-select
-                [options]="warehouses()"
+                [options]="warehouseOptions()"
                 [(ngModel)]="warehouseFilter"
                 (onChange)="reload()"
                 optionLabel="name"
                 optionValue="id"
-                [showClear]="true"
-                placeholder="Todos los almacenes"
                 styleClass="in-warehouse-select"
                 appendTo="body"
               ></p-select>
@@ -125,7 +123,7 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="in-toolbar-spacer"></div>
 
             <button
-              *ngIf="warehouseFilter"
+              *ngIf="isSpecific()"
               type="button"
               class="in-reset"
               (click)="clearFilter()"
@@ -216,9 +214,9 @@ import { Permission } from '../../../core/constants/permissions';
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
                     <h3>Sin stock registrado</h3>
-                    <p>{{ warehouseFilter ? 'Este almacén no tiene productos con saldo.' : 'Aún no hay líneas de stock en el tenant.' }}</p>
+                    <p>{{ isSpecific() ? 'Este almacén no tiene productos con saldo.' : 'Aún no hay líneas de stock en el tenant.' }}</p>
                     <button
-                      *ngIf="warehouseFilter"
+                      *ngIf="isSpecific()"
                       type="button"
                       pButton
                       icon="pi pi-refresh"
@@ -456,8 +454,17 @@ export class ComercialInventoryComponent {
   readonly pageSize = signal(25);
   readonly loading = signal(false);
 
+  readonly ALL = '__all__';
   readonly warehouses = signal<Warehouse[]>([]);
-  warehouseFilter: string | null = null;
+  warehouseFilter: string = this.ALL;
+  readonly warehouseOptions = computed<{ id: string; name: string }[]>(() => [
+    { id: this.ALL, name: 'Todos los almacenes' },
+    ...this.warehouses().map((w) => ({ id: w.id, name: w.name })),
+  ]);
+
+  /** True si hay un almacén concreto seleccionado (no "Todos"). */
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
 
   readonly summaryAll = signal<StockRow[]>([]);
   readonly kpis = computed(() => {
@@ -507,7 +514,7 @@ export class ComercialInventoryComponent {
   }
 
   private loadSummary(): void {
-    this.api.listStock({ pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.listStock({ warehouse_id: this.whParam(), pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.summaryAll.set(r.data || []),
       error: () => this.summaryAll.set([]),
     });
@@ -538,7 +545,7 @@ export class ComercialInventoryComponent {
     this.loading.set(true);
     this.api
       .listStock({
-        warehouse_id: this.warehouseFilter || undefined,
+        warehouse_id: this.whParam(),
         page: this.page(),
         pageSize: this.pageSize(),
       })
@@ -559,10 +566,11 @@ export class ComercialInventoryComponent {
   reload(): void {
     this.page.set(1);
     this.load();
+    this.loadSummary();
   }
 
   clearFilter(): void {
-    this.warehouseFilter = null;
+    this.warehouseFilter = this.ALL;
     this.reload();
   }
 
