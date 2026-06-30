@@ -192,7 +192,9 @@ CREATE TABLE IF NOT EXISTS analytics.product_sales_stats (
 
 ---
 
-## KV.4 — Margen → `catalog.products.markup_pct` + cost en `sales_daily` — 🔨 CÓDIGO (deploy pendiente) 2026-06-30
+## KV.4 — Margen → `catalog.products.markup_pct` + cost en `sales_daily` — ✅ CERRADO 2026-06-30
+
+**En prod:** 7840 productos con markup_pct (prom 13.4%), sales_daily.cost recalculado. **Margen agregado plausible ~10.2% por canal** (categorías 8.8%–12.3%). Endpoint margin-by-category lee sales_daily. Gotcha: el lookup del fact lee `catalog.products` (no `public.products` — la vista no expone columnas nuevas).
 
 **Hallazgo:** `kdpv_prod_util.c6` es **markup % sobre costo** (no margen sobre precio: llega a 139%, imposible para margen). Modelo: `cost = revenue/(1+markup/100)`, robusto a unidades (a diferencia de cost_base). Columna honesta `markup_pct` (no `margin_pct`).
 

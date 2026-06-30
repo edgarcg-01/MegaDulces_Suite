@@ -31,7 +31,7 @@ const MONTHS = 13;
 
     // Lookups del destino.
     const prods = (await db.query(
-      `SELECT id, sku, markup_pct FROM public.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
+      `SELECT id, sku, markup_pct FROM catalog.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
     const skuTo = new Map(prods.map((p) => [p.sku, p]));
     const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
     const whTo = new Map(whs.map((w) => [w.code, w.id]));
