@@ -56,7 +56,13 @@ KV.8  Embarques (opt, logística) → analytics.erp_shipments
 
 ---
 
-## KV.0 — Consolidación enriquecida (precondición)
+## KV.0 — Consolidación enriquecida (precondición) — ✅ CERRADO 2026-06-30
+
+Entregado como **vista `mart.ventas_enriched`** (aditiva, en el Docker `kepler_consolidado`, no toca tabla base ni `refresh_ventas`): añade `channel` (tienda/mayoreo/ruta/credito desde `forma_pago=kdm1.c10`) + `erp_customer_ref` (forma_pago ≠ CONTADO) + filtro de pseudo-productos (DEVOLUCIONES/TIEMPO AIRE). SQL en `database/importers/kepler/sql/mart_ventas_enriched.sql`. Validado 90d: tienda $49M (mostrador anónimo) / mayoreo $13.7M / crédito $6.4M. Costo NO incluido (se difiere a KV.4). Hallazgo: el canal "ruta" cae en "credito" (código numérico de cliente) — se afina en KV.3.
+
+---
+
+### Detalle de diseño (KV.0)
 
 **Objetivo:** que `mart.ventas` (o una vista `mart.ventas_enriched`) tenga todas las dimensiones que KV.1+ necesitan. Hoy es probable que tenga fecha/sucursal/sku/cantidad/importe pero **falten canal, costo y cliente**.
 
@@ -82,7 +88,13 @@ KV.8  Embarques (opt, logística) → analytics.erp_shipments
 
 ---
 
-## KV.1 — Fact de ventas real → `analytics.sales_daily`
+## KV.1 — Fact de ventas real → `analytics.sales_daily` — ✅ CERRADO (datos) 2026-06-30
+
+**En prod:** migración `20260630120000_analytics_sales_daily` + fix `20260630130000_sales_daily_cost_nullable`. Importer `import-sales-fact.js` (bulk, ventana 13m, DELETE+INSERT agrupado). Cron `salesFactFeed` @04:45. **422,489 filas** de revenue/units/tickets reales (tienda $113M / crédito $14.9M / mayoreo $13.5M). `cost`/`margin` = **NULL** (cost_base tiene unidad inconsistente pieza/caja → margen se computa en KV.4 con `kdpv_prod_util`). Anomalía menor: data arranca oct-2025 (no may-2025) — sku-match limita la ventana; revisar si se quiere histórico más largo.
+
+**PENDIENTE (consumo, follow-up):** switch de `commercial-analytics` a `sales_daily`. Hallazgo: los endpoints `historical/*` ya leen el ERP por FDW `analytics_external` (MUERTO en Railway por red) → candidatos ideales a re-apuntar a `sales_daily` (data que sí funciona en prod, sin regresión porque hoy devuelven vacío). Mejor hacerlo tras KV.2 (los dashboards quieren rolling stats + ABC).
+
+### Detalle de diseño (KV.1)
 
 **Objetivo:** el hecho de venta real (no nuestros pedidos) como base de todo el reporting. Hoy las MVs de Fase C leen `commercial.orders` (casi vacío en beta) → migrarlas a venta real.
 
