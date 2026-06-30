@@ -33,6 +33,7 @@ import { ThotChatService, ThotChatTurn } from './thot-chat/thot-chat.service';
 import { ThotToolsService } from './thot-chat/thot-tools.service';
 import { PortalThotToolsService } from './thot-chat/portal-thot-tools.service';
 import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
+import { ThotExamplesService } from './thot-chat/thot-examples.service';
 import { ThotScope, PH_FULFILLMENT_WAREHOUSE } from './thot-chat/thot-tool-provider';
 
 @ApiTags('commercial-intelligence')
@@ -59,6 +60,7 @@ export class CommercialIntelligenceController {
     private readonly adminTools: ThotToolsService,
     private readonly portalTools: PortalThotToolsService,
     private readonly vendorTools: VendorThotToolsService,
+    private readonly examples: ThotExamplesService,
   ) {}
 
   // ─── Thot T.2: empuje dirigido (el negocio decide qué empujar) ───
@@ -495,5 +497,34 @@ export class CommercialIntelligenceController {
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'vendor', question: lastQuestion }, result);
     return result;
+  }
+
+  // ─── TC.4a: biblioteca de ejemplos verificados (few-shot). Back-office. ───
+  @Get('thot/examples')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Lista los ejemplos verificados (few-shot). ?profile=admin|portal|vendor' })
+  listExamples(@Query('profile') profile?: string) {
+    return this.examples.list(profile);
+  }
+
+  @Post('thot/examples')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Agrega un ejemplo dorado (pregunta → tools → respuesta modelo).' })
+  addExample(@Req() req: any, @Body() body: { profile?: string; question: string; answer?: string; tools?: any[]; note?: string }) {
+    return this.examples.add(body, req.user?.id);
+  }
+
+  @Post('thot/examples/from-log/:logId')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Promueve una conversación del log a ejemplo dorado.' })
+  promoteExample(@Req() req: any, @Param('logId') logId: string, @Body() body: { note?: string; profile?: string }) {
+    return this.examples.promoteFromLog(logId, body || {}, req.user?.id);
+  }
+
+  @Patch('thot/examples/:id')
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @ApiOperation({ summary: 'Habilita/deshabilita un ejemplo.' })
+  toggleExample(@Param('id') id: string, @Body() body: { enabled: boolean }) {
+    return this.examples.setEnabled(id, !!body?.enabled);
   }
 }

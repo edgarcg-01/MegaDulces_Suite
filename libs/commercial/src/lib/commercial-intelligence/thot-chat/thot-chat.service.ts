@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { ThotToolProvider, ThotScope } from './thot-tool-provider';
+import { ThotExamplesService } from './thot-examples.service';
 
 /**
  * TC.1 — Agente conversacional de Thot (ADR-026).
@@ -59,7 +60,10 @@ export class ThotChatService {
   private readonly logger = new Logger(ThotChatService.name);
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
 
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly examples: ThotExamplesService,
+  ) {}
 
   /** Registra el intercambio en commercial.thot_chat_log (auditable). Best-effort. */
   async logExchange(meta: { userId?: string; userName?: string; profile?: string; question: string }, res: ThotChatResult): Promise<void> {
@@ -114,6 +118,10 @@ export class ThotChatService {
 
     let system = provider.systemPrompt(scope, { today: mxToday() });
     if (deep) system += DEEP_DIRECTIVE;
+    // TC.4a — few-shot: ejemplos verificados parecidos a la pregunta (semilla + curados).
+    const lastQ = [...history].reverse().find((t) => t.role === 'user')?.content || '';
+    const fewShot = await this.examples.promptFragment(scope.profile, lastQ).catch(() => '');
+    if (fewShot) system += `\n\n${fewShot}`;
     const toolDefs = provider.definitions(scope);
     // Estado del diálogo en formato Anthropic (content puede ser string o blocks).
     const messages: any[] = history.map((t) => ({ role: t.role, content: t.content }));
