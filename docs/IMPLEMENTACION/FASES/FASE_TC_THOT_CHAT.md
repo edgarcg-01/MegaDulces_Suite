@@ -43,8 +43,10 @@ LLM                   → orquesta tools + narra + cita fuente/período  ← NUN
 | **TC-E** | Banco 50 preguntas + red-team de fuga por perfil (`http-thot-chat-*.js`) | 🔨 EN CÓDIGO (pendiente correr live) |
 | **TC.4a** | Ejemplos verificados (few-shot) — `thot_chat_examples` + semillas + injection por solape | 🔨 EN CÓDIGO (build verde) |
 | **TC.5a** | Feedback loop 👍/👎 (`thot_chat_log` +feedback/+promoted) + cola de candidatos + pantalla de curaduría `/comercial/thot-curation` + thumbs en portal/vendor | 🔨 EN CÓDIGO (build verde) |
-| TC.4b | Retrieval por embeddings (Voyage/pgvector) en vez de solape — bloqueado: pgvector es Docker local, no en Railway | ⬜ diferido |
+| **TC.4b** | Retrieval por embeddings (Voyage + pgvector dedicado de prod, `VECTOR_DATABASE_URL`) + endpoint/botón Reindexar. Degrada a solape si no hay vector DB | 🔨 EN CÓDIGO (build verde) |
 | TC.6 | Text-to-SQL controlado completo + streaming SSE | ⬜ diferido |
+
+**Nota TC.4b:** existe DB vector dedicada en prod (pgvector 0.8.2, ya con `product_embeddings` de Fase K). `thot_example_embeddings` (denormalizada, HNSW cosine) se crea sola (`ensureSchema`) al reindexar. Pendiente prod: `VECTOR_DATABASE_URL` + `VOYAGE_API_KEY` en la API + correr "Reindexar" una vez.
 
 **"Entrenamiento" de Thot (TC.4a/5a):** NO se fine-tunea el modelo ni se hornean cifras. Se aprende del USO: biblioteca de ejemplos dorados (pregunta→tools→respuesta) inyectados como few-shot; loop usar→👍→promover (cola de curaduría)→few-shot. Determinista y auditable (ADR-021). Mejoras de comportamiento sobre la marcha: regla "investigá antes de preguntar" + `share_pct` determinista (el LLM no calcula %). Validado en PROD: red-team 31/31 (portal/vendor/admin); gate admin por `COMMERCIAL_CUSTOMERS_GESTIONAR` (no por nombre de rol). Pendiente prod: aplicar migraciones `thot_chat_examples` y `thot_chat_log_feedback`.
 
