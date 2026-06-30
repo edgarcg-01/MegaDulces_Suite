@@ -222,7 +222,11 @@ CREATE TABLE IF NOT EXISTS analytics.product_sales_stats (
 
 ---
 
-## KV.5 — Demanda / reabasto → `analytics.inventory_health`
+## KV.5 — Demanda / reabasto → `analytics.inventory_health` — 🔨 CÓDIGO (deploy pendiente) 2026-06-30
+
+**Construido (build verde):** migración `20260630160000` + `import-inventory-health.js` (server-side stock × sales_daily 90d → days_cover + status) + cron `healthFeed` @04:55 + runner. Dry-run prod: sano 7057 / sobrestock 6993 / agotado 6993 / nuevo 2134 / crítico 56 / muerto 48. **Caveat:** "nuevo" usa `products.created_at<30d` — inflado tras el sync de catálogo del 29-jun (se auto-corrige). **Deploy + apply pendiente.** Consumo (/comercial/inventory + alertas demanda) = follow-up.
+
+### Detalle de diseño (KV.5)
 
 **Objetivo:** cruzar stock vivo (ya en prod) × velocidad de venta (KV.1) = días de cobertura, punto de reorden, dead-stock **real** (no umbral fijo).
 

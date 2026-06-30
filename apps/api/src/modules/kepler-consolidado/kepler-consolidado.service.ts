@@ -20,6 +20,7 @@ const TOP_SELLERS_SCRIPT = 'database/importers/kepler/import-top-sellers-from-co
 const MARGIN_SCRIPT = 'database/importers/kepler/import-margin.js';
 const SALES_FACT_SCRIPT = 'database/importers/kepler/import-sales-fact.js';
 const SALES_STATS_SCRIPT = 'database/importers/kepler/import-sales-stats.js';
+const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js';
 
 @Injectable()
 export class KeplerConsolidadoService {
@@ -31,6 +32,7 @@ export class KeplerConsolidadoService {
   private marginRunning = false;
   private salesFactRunning = false;
   private salesStatsRunning = false;
+  private invHealthRunning = false;
 
   constructor(
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
@@ -191,6 +193,25 @@ export class KeplerConsolidadoService {
       await this.runScript(SALES_STATS_SCRIPT, 'Stats de producto (ABC)', /upserted|COMMIT|ERROR/);
     } finally {
       this.salesStatsRunning = false;
+    }
+  }
+
+  /**
+   * Salud de inventario → analytics.inventory_health (KV.5): stock × velocidad =
+   * días de cobertura + status. Nightly 04:55, tras stats (necesita sales_daily).
+   */
+  @Cron('0 55 4 * * *')
+  async healthFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.invHealthRunning) {
+      this.logger.warn('Skip healthFeed: corrida anterior aún activa');
+      return;
+    }
+    this.invHealthRunning = true;
+    try {
+      await this.runScript(INV_HEALTH_SCRIPT, 'Salud de inventario', /upserted|COMMIT|ERROR/);
+    } finally {
+      this.invHealthRunning = false;
     }
   }
 
