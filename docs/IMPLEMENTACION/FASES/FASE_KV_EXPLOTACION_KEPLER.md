@@ -258,7 +258,9 @@ CREATE TABLE IF NOT EXISTS analytics.inventory_health (
 
 ---
 
-## KV.3 — Customer 360 real — 🔨 CÓDIGO (deploy pendiente) 2026-06-30
+## KV.3 — Customer 360 real — ✅ CERRADO (datos) 2026-06-30
+
+**En prod:** 1112 clientes en `erp_customers` + 20,200 filas en `customer_product_sales`. **Cobertura 100%** (673/673 códigos con compra tienen nombre en la dim). Top "clientes" = transferencias inter-sucursal (TI00x = SUCURSAL ZAMORA/8ESQ, están en kdud como clientes internos); externos debajo. Crons customersFeed @05:05 / customerSalesFeed @05:10. Consumo (vendedor/televenta/portal = KV.3.2) = follow-up frontend.
 
 **Decisión del usuario:** opción "solo historial, sin tocar `commercial.customers`". Modelo en `analytics.*`:
 - `analytics.erp_customers` (dim, dedup 6 sucursales, excluye "NO USAR") — dry-run 1112 clientes.
