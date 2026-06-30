@@ -34,8 +34,8 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
           <p class="surf-page-sub">Existencia sin venta en 90 días — capital parado al costo</p>
         </div>
         <div class="ds-head-actions">
-          <p-select [options]="whOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-                    placeholder="Todos los almacenes" [showClear]="true" (onChange)="load()" styleClass="ds-wh"></p-select>
+          <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
+                    (onChange)="load()" styleClass="ds-wh"></p-select>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
@@ -53,7 +53,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
       </div>
 
       <!-- Resumen por almacén -->
-      @if ((report()?.by_warehouse?.length ?? 0) > 1 && !warehouseId()) {
+      @if ((report()?.by_warehouse?.length ?? 0) > 1 && !isSpecific()) {
         <div class="ds-by-wh">
           @for (w of report()?.by_warehouse; track w.warehouse_code) {
             <div class="ds-wh-chip">
@@ -122,22 +122,27 @@ export class ComercialDeadStockComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly ALL = '__all__';
   report = signal<DeadStockReport | null>(null);
   loading = signal(false);
   rows = signal(25);
-  warehouseId = signal<string | null>(null);
-  whOptions = signal<{ label: string; value: string }[]>([]);
+  warehouseFilter = this.ALL;
+  warehouses = signal<{ label: string; value: string }[]>([]);
+  warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
+
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
 
   constructor() {
     this.svc.listWarehouses()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (ws: Warehouse[]) => this.whOptions.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
+      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
     this.load();
   }
 
   load() {
     this.loading.set(true);
-    this.svc.deadStock(this.warehouseId() || undefined, 1000)
+    this.svc.deadStock(this.whParam(), 1000)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },

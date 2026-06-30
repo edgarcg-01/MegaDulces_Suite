@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -33,8 +33,8 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
           <p class="surf-page-sub">Días de cobertura (stock ÷ venta diaria 90d) y status por producto</p>
         </div>
         <div class="ih-actions">
-          <p-select [options]="whOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-                    placeholder="Todos los almacenes" [showClear]="true" (onChange)="load()" styleClass="ih-wh"></p-select>
+          <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
+                    (onChange)="load()" styleClass="ih-wh"></p-select>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
@@ -42,7 +42,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
       <!-- KPIs por status (clic = filtra) -->
       <div class="ih-kpis">
         @for (s of statusKpis(); track s.key) {
-          <button class="ih-kpi" [class.active]="status() === s.key" (click)="toggleStatus(s.key)">
+          <button class="ih-kpi" [class.active]="statusFilter === s.key" (click)="toggleStatus(s.key)">
             <span class="ih-kpi-v" [style.color]="s.color">{{ s.n }}</span>
             <span class="ih-kpi-l">{{ s.label }}</span>
           </button>
@@ -99,11 +99,16 @@ export class ComercialInventoryHealthComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
+  readonly ALL = '__all__';
   resp = signal<InventoryHealthResponse | null>(null);
   loading = signal(false);
-  warehouseId = signal<string | null>(null);
-  status = signal<string | null>(null);
-  whOptions = signal<{ label: string; value: string }[]>([]);
+  warehouseFilter = this.ALL;
+  statusFilter: string | null = null;
+  warehouses = signal<{ label: string; value: string }[]>([]);
+  warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
+
+  isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
+  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
 
   private readonly STATUS = [
     { key: 'agotado', label: 'Agotado', color: 'var(--bad-fg,#b91c1c)' },
@@ -122,7 +127,7 @@ export class ComercialInventoryHealthComponent {
   constructor() {
     this.svc.listWarehouses()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (ws: Warehouse[]) => this.whOptions.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
+      .subscribe({ next: (ws: Warehouse[]) => this.warehouses.set(ws.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }))) });
     this.load();
   }
 
@@ -134,13 +139,13 @@ export class ComercialInventoryHealthComponent {
   }
 
   toggleStatus(s: string) {
-    this.status.set(this.status() === s ? null : s);
+    this.statusFilter = this.statusFilter === s ? null : s;
     this.load();
   }
 
   load() {
     this.loading.set(true);
-    this.svc.inventoryHealth(this.warehouseId() || undefined, this.status() || undefined)
+    this.svc.inventoryHealth(this.whParam(), this.statusFilter || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.resp.set(r); this.loading.set(false); },
