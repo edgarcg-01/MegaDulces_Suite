@@ -147,6 +147,7 @@ export interface VendorThotChatResult {
   source: 'llm' | 'no_api_key' | 'error';
   tools_used: VendorThotToolTrace[];
   iterations: number;
+  log_id?: string | null;
 }
 
 /** VQ: producto que el cliente compra habitualmente (agregado de su historial). */
@@ -558,6 +559,9 @@ export class VendorService {
   /** TC-V — Copiloto conversacional del vendedor (scoped a su cartera, stock PH). */
   thotChat(history: { role: 'user' | 'assistant'; content: string }[], message: string): Observable<VendorThotChatResult> {
     return this.http.post<VendorThotChatResult>(`${this.base}/intelligence/vendor/thot/chat`, { history, message });
+  }
+  thotFeedback(logId: string, vote: number): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/intelligence/thot/feedback`, { log_id: logId, vote });
   }
 
   /**

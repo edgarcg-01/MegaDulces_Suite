@@ -5,7 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { PortalService } from '../portal.service';
 
-interface Msg { role: 'user' | 'assistant'; content: string; blocks?: Block[]; pending?: boolean; error?: boolean; }
+interface Msg { role: 'user' | 'assistant'; content: string; blocks?: Block[]; pending?: boolean; error?: boolean; logId?: string | null; vote?: number; }
 interface Block { title: string; columns: string[]; rows: Record<string, any>[]; }
 
 const SUGGESTIONS = [
@@ -61,6 +61,12 @@ const SUGGESTIONS = [
                     </table>
                   </div>
                 }
+                @if (m.role === 'assistant' && !m.error && m.logId) {
+                  <div class="pa-fb">
+                    <button [class.on]="m.vote === 1" (click)="vote(m, 1)" aria-label="Útil"><i class="pi pi-thumbs-up"></i></button>
+                    <button [class.on]="m.vote === -1" (click)="vote(m, -1)" aria-label="No útil"><i class="pi pi-thumbs-down"></i></button>
+                  </div>
+                }
               }
             </div>
           </div>
@@ -95,6 +101,10 @@ const SUGGESTIONS = [
     .pa-block table { border-collapse: collapse; width: 100%; font-size: .85rem; }
     .pa-block th, .pa-block td { padding: .35rem .6rem; text-align: left; border-bottom: 1px solid var(--c-border, #eee); white-space: nowrap; }
     .pa-block th { color: var(--c-text-2, #777); font-weight: 600; }
+    .pa-fb { display: flex; gap: .4rem; margin-top: .5rem; }
+    .pa-fb button { border: 1px solid var(--c-border, #e6e1d8); background: transparent; border-radius: 8px; width: 30px; height: 28px; cursor: pointer; color: var(--c-text-2, #999); }
+    .pa-fb button:hover { border-color: var(--action, #d2691e); }
+    .pa-fb button.on { background: var(--action, #d2691e); color: #fff; border-color: var(--action, #d2691e); }
     .pa-cta { align-self: flex-start; color: var(--action, #d2691e); font-weight: 600; text-decoration: none; margin-top: .25rem; }
     .pa-dots { display: inline-flex; gap: 4px; }
     .pa-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--c-text-2, #aaa); animation: pad 1.2s infinite both; }
@@ -130,7 +140,7 @@ export class PortalAssistantComponent {
     this.svc.thotChat(hist, q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
         const blocks = (res.tools_used || []).map((t) => this.toBlock(t.result)).filter((b): b is Block => !!b);
-        this.replacePending({ role: 'assistant', content: res.answer, blocks, error: res.source === 'error' });
+        this.replacePending({ role: 'assistant', content: res.answer, blocks, error: res.source === 'error', logId: res.log_id });
         this.loading.set(false); this.scroll();
       },
       error: () => { this.replacePending({ role: 'assistant', content: 'No pude responder ahora. Probá de nuevo.', error: true }); this.loading.set(false); this.scroll(); },
@@ -139,6 +149,13 @@ export class PortalAssistantComponent {
 
   private replacePending(msg: Msg) {
     this.messages.update((ms) => { const c = [...ms]; const i = c.findIndex((m) => m.pending); if (i >= 0) c[i] = msg; else c.push(msg); return c; });
+  }
+
+  vote(m: Msg, v: number) {
+    if (!m.logId || m.vote === v) return;
+    m.vote = v;
+    this.messages.update((ms) => [...ms]);
+    this.svc.thotFeedback(m.logId, v).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ error: () => {} });
   }
 
   private toBlock(result: any): Block | null {

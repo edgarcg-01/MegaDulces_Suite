@@ -4,7 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { VendorService } from '../vendor.service';
 
-interface Msg { role: 'user' | 'assistant'; content: string; blocks?: Block[]; pending?: boolean; error?: boolean; }
+interface Msg { role: 'user' | 'assistant'; content: string; blocks?: Block[]; pending?: boolean; error?: boolean; logId?: string | null; vote?: number; }
 interface Block { columns: string[]; rows: Record<string, any>[]; }
 
 const SUGGESTIONS = [
@@ -48,6 +48,12 @@ const SUGGESTIONS = [
                     </table>
                   </div>
                 }
+                @if (m.role === 'assistant' && !m.error && m.logId) {
+                  <div class="va-fb">
+                    <button [class.on]="m.vote === 1" (click)="vote(m, 1)" aria-label="Útil"><i class="pi pi-thumbs-up"></i></button>
+                    <button [class.on]="m.vote === -1" (click)="vote(m, -1)" aria-label="No útil"><i class="pi pi-thumbs-down"></i></button>
+                  </div>
+                }
               }
             </div>
           </div>
@@ -81,6 +87,9 @@ const SUGGESTIONS = [
     .va-block table { border-collapse: collapse; width: 100%; font-size: .82rem; }
     .va-block th, .va-block td { padding: .3rem .5rem; text-align: left; border-bottom: 1px solid var(--c-border, #eee); white-space: nowrap; }
     .va-block th { color: var(--c-text-2, #777); }
+    .va-fb { display: flex; gap: .4rem; margin-top: .5rem; }
+    .va-fb button { border: 1px solid var(--c-border, #e6e1d8); background: transparent; border-radius: 8px; width: 34px; height: 30px; color: var(--c-text-2, #999); }
+    .va-fb button.on { background: var(--action, #2f6fed); color: #fff; border-color: var(--action, #2f6fed); }
     .va-dots { display: inline-flex; gap: 4px; }
     .va-dots i { width: 6px; height: 6px; border-radius: 50%; background: #aaa; animation: vad 1.2s infinite both; }
     .va-dots i:nth-child(2) { animation-delay: .2s; } .va-dots i:nth-child(3) { animation-delay: .4s; }
@@ -124,7 +133,7 @@ export class VendorAssistantComponent {
     this.svc.thotChat(hist, q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
         const blocks = (res.tools_used || []).map((t) => this.toBlock(t.result)).filter((b): b is Block => !!b);
-        this.replacePending({ role: 'assistant', content: res.answer, blocks, error: res.source === 'error' });
+        this.replacePending({ role: 'assistant', content: res.answer, blocks, error: res.source === 'error', logId: res.log_id });
         this.loading.set(false); this.scroll();
       },
       error: () => { this.replacePending({ role: 'assistant', content: 'No pude responder ahora.', error: true }); this.loading.set(false); this.scroll(); },
@@ -154,6 +163,13 @@ export class VendorAssistantComponent {
 
   private replacePending(msg: Msg) {
     this.messages.update((ms) => { const c = [...ms]; const i = c.findIndex((m) => m.pending); if (i >= 0) c[i] = msg; else c.push(msg); return c; });
+  }
+
+  vote(m: Msg, v: number) {
+    if (!m.logId || m.vote === v) return;
+    m.vote = v;
+    this.messages.update((ms) => [...ms]);
+    this.svc.thotFeedback(m.logId, v).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ error: () => {} });
   }
 
   private toBlock(result: any): Block | null {

@@ -15,6 +15,7 @@ export interface ThotChatResult {
   source: 'llm' | 'no_api_key' | 'error';
   tools_used: ThotToolTrace[];
   iterations: number;
+  log_id?: string | null;
 }
 
 export interface PriceRow {
@@ -207,6 +208,9 @@ export class PortalService {
   /** TC-P — Asistente conversacional (scoped al cliente del JWT, surtido PH). */
   thotChat(history: { role: 'user' | 'assistant'; content: string }[], message: string): Observable<ThotChatResult> {
     return this.http.post<ThotChatResult>(`${this.base}/intelligence/portal/thot/chat`, { history, message });
+  }
+  thotFeedback(logId: string, vote: number): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/intelligence/thot/feedback`, { log_id: logId, vote });
   }
 
   /**
