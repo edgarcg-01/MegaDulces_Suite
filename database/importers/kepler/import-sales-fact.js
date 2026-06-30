@@ -48,7 +48,9 @@ const MONTHS = 13;
         GROUP BY almacen, sku, channel, fecha`);
     console.log(`  origen agregado: ${agg.length} filas (almacen×sku×canal×día)`);
 
-    // Transform + match.
+    // Transform + match. cost = NULL: el costo por unidad vendida no es derivable
+    // confiablemente de cost_base (unidad inconsistente pieza/caja). Margen se
+    // computa en KV.4 (kdpv_prod_util). Acá solo revenue/units reales.
     const rows = []; let noSku = 0, noWh = 0;
     const byChannel = {};
     for (const r of agg) {
@@ -56,8 +58,7 @@ const MONTHS = 13;
       if (!p) { noSku++; continue; }
       const wid = whTo.get(r.almacen);
       if (!wid) { noWh++; continue; }
-      const cost = (p.cost_base != null ? Number(p.cost_base) : 0) * Number(r.units);
-      rows.push([p.id, wid, r.channel, r.fecha, r.units, r.revenue, cost, r.tickets]);
+      rows.push([p.id, wid, r.channel, r.fecha, r.units, r.revenue, null, r.tickets]);
       const c = (byChannel[r.channel] ||= { filas: 0, revenue: 0 });
       c.filas++; c.revenue += Number(r.revenue);
     }
