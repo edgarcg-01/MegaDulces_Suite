@@ -184,6 +184,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
       },
       {
+        path: 'thot-chat',
+        loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
         path: 'pricing',
         loadComponent: () => import('./modules/comercial/pages/comercial-pricing.component').then(m => m.ComercialPricingComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]

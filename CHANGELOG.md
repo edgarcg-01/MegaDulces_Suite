@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — Thot Chat: analítica conversacional sobre ventas (Fase TC / ADR-026) (2026-06-30)
+- **Qué:** "Pregúntale a Thot" — un chat que responde preguntas complejas de ventas/inventario/clientes/márgenes en lenguaje natural, orquestando vía **tool-use de Claude** los métodos deterministas que ya existen. Builds api+view verdes. Sin deploy.
+- **Decisión (ADR-026):** capa conversacional sobre el motor, **NO RAG sobre la DB**. Validado contra cómo lo hacen Uber/LinkedIn/Snowflake/Databricks/Anthropic: capa semántica curada + tools deterministas + RAG solo para entidades + evals. El LLM **nunca calcula ni genera SQL**; los números salen de tools tenant-scoped (RLS). Read-only.
+- **TC.0 — Tool registry + capa semántica** (`libs/commercial/.../thot-chat/`): `thot-semantic.ts` (glosario de negocio ES + reglas duras) y `thot-tools.service.ts` (~20 tools `thot_*` envolviendo `CommercialAnalyticsService` + `ThotService`, con distinción venta real ERP vs pipeline B2B) + `resolve_entity` (RAG ligero ILIKE) + `flexible_aggregate` (escape hatch con whitelist, sin SQL libre) + `list_warehouses`.
+- **TC.1 — `ThotChatService`:** bucle tool-use (máx 6 iteraciones, timeout 30s) con self-correction (errores de tool vuelven como texto accionable). Modelo Haiku 4.5 por defecto, env `THOT_CHAT_MODEL` para Sonnet. Degrada limpio sin `ANTHROPIC_API_KEY`.
+- **TC.2 — Endpoint** `POST /commercial/intelligence/thot/chat` (gated `COMMERCIAL_ORDERS_VER`, sin permiso nuevo → sin re-login) + persistencia auditable `commercial.thot_chat_log` (migración `20260630200000`, RLS forzado, append-only).
+- **TC.3 — Frontend** `/comercial/thot-chat` (Operations): hilo de chat, prompts sugeridos, **render estructurado** de las tablas que devolvieron las tools (transparencia) + tab "Pregúntale a Thot" en la barra de analytics.
+- **Evals:** `database/tests/http-thot-chat-test.js` (golden-questions: verifica el ruteo a la tool correcta, estilo LinkedIn SQL Bot).
+- **Pendiente prod:** aplicar migración + `ANTHROPIC_API_KEY` + correr evals live.
+
 ### Added — Subida GPS nativa en background (app Vendedor, patch al plugin) (2026-06-29)
 - Diagnóstico por logcat (teléfono Honor): el foreground service **sobrevive** al bloqueo, pero la subida vivía
   en el WebView (que se congela al bloquear) → los fixes capturados con pantalla bloqueada no se subían.

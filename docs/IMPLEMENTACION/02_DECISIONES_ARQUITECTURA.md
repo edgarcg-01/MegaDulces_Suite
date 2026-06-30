@@ -773,6 +773,30 @@ Capas:
 
 ---
 
+## ADR-026 — **Thot Chat**: analítica conversacional por tool-use, no RAG sobre la DB
+
+**Fecha:** 2026-06-30 · **Estado:** Aceptado
+
+**Contexto:** Con la data de Kepler ya explotada (Fase KV: `analytics.sales_daily`, `product_sales_stats`, `inventory_health`, `erp_customers`, `customer_product_sales`, `erp_promotions`, márgenes) queremos que Thot conteste preguntas complejas de ventas en lenguaje natural. Tentación inicial: "volver la base un RAG". Se investigó cómo lo resuelven Uber (QueryGPT), LinkedIn (SQL Bot), Snowflake (Cortex Analyst), Databricks (Genie) y las guías de Anthropic.
+
+**Decisión:** **Capa conversacional sobre el motor existente vía tool-use de Claude — NO RAG sobre las tablas de hechos.** El LLM orquesta tools deterministas (los métodos de `CommercialAnalyticsService` + `ThotService`, ya tenant-scoped) y narra; nunca calcula ni genera SQL. RAG se usa **solo** para resolución de entidades difusas (`resolve_entity`). Para el long-tail, una tool `flexible_aggregate` parametrizada (whitelist de métricas/dimensiones sobre `analytics.sales_daily`), sin SQL libre. Hereda ADR-016/018: el motor decide y calcula, el agente comunica, el LLM fuera del camino del dinero. Read-only en v1.
+
+**Por qué NO RAG sobre datos:** embeddings no suman ni agregan — "¿cuánto vendí de Kinder en mayo?" es `SUM(...) WHERE`, no similitud. RAG sobre filas de hechos da números mal. Convergencia de toda la industria: capa semántica curada (no schema crudo) + RAG sobre metadata/ejemplos + evals. Snowflake/Databricks/LinkedIn lo confirman.
+
+**Alternativas:**
+- RAG sobre `sales_daily` (422k filas) — rechazada: incorrecta para agregación + cara de re-embeber + riesgo multi-tenant.
+- Text-to-SQL libre (estilo Uber/LinkedIn) — diferida (TC.6): a escala beta los tools curados son más simples y seguros; `flexible_aggregate` cubre el hueco.
+
+**Consecuencias:**
+- ✅ Multi-tenant gratis (RLS por `TenantKnexService`), respuestas auditables (log de tool calls).
+- ✅ Reusa infra existente (fetch Claude Haiku, `ANTHROPIC_API_KEY`); cero infra nueva.
+- ✅ Números siempre correctos (salen del motor determinista).
+- ⚠️ La precisión depende de la capa semántica (glosario ES) y de las evals golden-questions (gate de TC.1).
+
+**Plan:** [`FASES/FASE_TC_THOT_CHAT.md`](FASES/FASE_TC_THOT_CHAT.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

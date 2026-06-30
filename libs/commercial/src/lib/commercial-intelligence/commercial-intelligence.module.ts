@@ -12,6 +12,9 @@ import { CommercialDiagnosisService } from './commercial-diagnosis.service';
 import { CommercialActionsService } from './commercial-actions.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
 import { AutonomyService } from './autonomy.service';
+import { CommercialAnalyticsService } from '../commercial-analytics/commercial-analytics.service';
+import { ThotToolsService } from './thot-chat/thot-tools.service';
+import { ThotChatService } from './thot-chat/thot-chat.service';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
 /**
@@ -38,6 +41,9 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     CommercialActionsService,
     CommercialCalibrationService,
     AutonomyService,
+    CommercialAnalyticsService,
+    ThotToolsService,
+    ThotChatService,
   ],
   exports: [
     Customer360Service,

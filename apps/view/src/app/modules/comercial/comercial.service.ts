@@ -432,10 +432,32 @@ export interface Paged<T> {
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
+/** TC.2 — Thot Chat (analítica conversacional). */
+export interface ThotChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+export interface ThotToolTrace {
+  name: string;
+  input: any;
+  result: any;
+}
+export interface ThotChatResult {
+  answer: string;
+  source: 'llm' | 'no_api_key' | 'error';
+  tools_used: ThotToolTrace[];
+  iterations: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComercialService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial`;
+
+  // ── Thot Chat ──────────────────────────────────────────────────────
+  thotChat(history: ThotChatTurn[], message: string): Observable<ThotChatResult> {
+    return this.http.post<ThotChatResult>(`${this.base}/intelligence/thot/chat`, { history, message });
+  }
 
   // ── Customers ──────────────────────────────────────────────────────
   listCustomers(opts: { page?: number; pageSize?: number; search?: string; active?: boolean } = {}): Observable<Paged<Customer>> {

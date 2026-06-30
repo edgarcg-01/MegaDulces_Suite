@@ -7,6 +7,7 @@ import {
   Param,
   Query,
   Body,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -27,6 +28,7 @@ import { CommercialDiagnosisService } from './commercial-diagnosis.service';
 import { CommercialActionsService } from './commercial-actions.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
 import { AutonomyService } from './autonomy.service';
+import { ThotChatService, ThotChatTurn } from './thot-chat/thot-chat.service';
 
 @ApiTags('commercial-intelligence')
 @ApiBearerAuth()
@@ -46,6 +48,7 @@ export class CommercialIntelligenceController {
     private readonly actions: CommercialActionsService,
     private readonly calibration: CommercialCalibrationService,
     private readonly autonomy: AutonomyService,
+    private readonly chat: ThotChatService,
   ) {}
 
   // ─── Thot T.2: empuje dirigido (el negocio decide qué empujar) ───
@@ -368,5 +371,24 @@ export class CommercialIntelligenceController {
       days ? parseInt(days, 10) || 30 : 30,
       attr ? parseInt(attr, 10) || 7 : 7,
     );
+  }
+
+  // ─── TC.2 (ADR-026): Thot Chat — analítica conversacional sobre ventas ───
+
+  @Post('thot/chat')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Pregunta en lenguaje natural sobre ventas/inventario/clientes. Stateless: enviar el historial completo en `history`.' })
+  async thotChat(
+    @Req() req: any,
+    @Body() body: { history?: ThotChatTurn[]; message?: string },
+  ) {
+    const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
+    // Conveniencia: si mandan solo `message`, lo agregamos como último turno user.
+    if (body?.message) history.push({ role: 'user', content: String(body.message) });
+    const userName = req.user?.full_name || req.user?.username || undefined;
+    const result = await this.chat.ask({ history, userName });
+    const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
+    await this.chat.logExchange({ userId: req.user?.id, userName, question: lastQuestion }, result);
+    return result;
   }
 }
