@@ -9,4 +9,5 @@ export const ANALYTICS_TABS: PageTab[] = [
   { label: 'Salud inv.', route: '/comercial/inventory-health', icon: 'pi pi-heart' },
   { label: 'Clientes 360', route: '/comercial/customers-360', icon: 'pi pi-users' },
   { label: 'Promos', route: '/comercial/erp-promos', icon: 'pi pi-percentage' },
+  { label: 'Curaduría Thot', route: '/comercial/thot-curation', icon: 'pi pi-book' },
 ];
