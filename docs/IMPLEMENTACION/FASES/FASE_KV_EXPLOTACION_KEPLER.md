@@ -92,7 +92,9 @@ Entregado como **vista `mart.ventas_enriched`** (aditiva, en el Docker `kepler_c
 
 **En prod:** migración `20260630120000_analytics_sales_daily` + fix `20260630130000_sales_daily_cost_nullable`. Importer `import-sales-fact.js` (bulk, ventana 13m, DELETE+INSERT agrupado). Cron `salesFactFeed` @04:45. **422,489 filas** de revenue/units/tickets reales (tienda $113M / crédito $14.9M / mayoreo $13.5M). `cost`/`margin` = **NULL** (cost_base tiene unidad inconsistente pieza/caja → margen se computa en KV.4 con `kdpv_prod_util`). Anomalía menor: data arranca oct-2025 (no may-2025) — sku-match limita la ventana; revisar si se quiere histórico más largo.
 
-**PENDIENTE (consumo, follow-up):** switch de `commercial-analytics` a `sales_daily`. Hallazgo: los endpoints `historical/*` ya leen el ERP por FDW `analytics_external` (MUERTO en Railway por red) → candidatos ideales a re-apuntar a `sales_daily` (data que sí funciona en prod, sin regresión porque hoy devuelven vacío). Mejor hacerlo tras KV.2 (los dashboards quieren rolling stats + ABC).
+**CONSUMO ✅ (parcial) 2026-06-30:** `commercial-analytics` re-apuntado a venta real:
+- `historical/daily`, `historical/top-products`, `historical/by-zona` → ahora leen `analytics.sales_daily` (antes FDW `analytics_external` MUERTO en Railway → devolvían `[]`). revenue/units **exactos**; `tickets`/`lines` = proxy (grano-producto no aditivo), `cost/margin=0` y `unique_customers=0` hasta KV.4/KV.3. Build verde. Solo código (sin migración).
+- **Pendiente:** `historical/ranking` (→ `product_sales_stats`, shape cajas/piezas difiere) + `historical/margin-by-category` (→ KV.4, necesita costo) siguen en el FDW muerto.
 
 ### Detalle de diseño (KV.1)
 
@@ -155,7 +157,11 @@ CREATE INDEX IF NOT EXISTS ix_sales_daily_prod  ON analytics.sales_daily (tenant
 
 ---
 
-## KV.2 — Participación / ABC → `analytics.product_sales_stats`
+## KV.2 — Participación / ABC → `analytics.product_sales_stats` — ✅ CERRADO 2026-06-30
+
+**En prod:** migración `20260630140000` + importer `import-sales-stats.js` (server-side desde sales_daily, sin ship de filas) + cron `statsFeed` @04:50 + en runner nightly. **4993 productos**, ABC Pareto exacto: **A 944 / B 1302 / C 2747** = share 80/15/5. Top: ALTOS CAM CHICA 1.1%.
+
+### Detalle de diseño (KV.2)
 
 **Objetivo:** share % por marca/categoría/SKU y clasificación ABC sobre **venta real** (barato, se computa de KV.1).
 

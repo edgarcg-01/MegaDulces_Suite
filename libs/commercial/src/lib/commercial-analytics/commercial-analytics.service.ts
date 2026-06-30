@@ -602,55 +602,73 @@ export class CommercialAnalyticsService {
    */
   async historicalSalesDaily(q: { from?: string; to?: string; zona?: string }) {
     const { from, to } = this.parseDateRange(q);
-    return this.guardErp('historicalSalesDaily', [], () =>
-     this.tk.run(async (trx) => {
-      const rows = await trx('analytics_external.ventas_legacy')
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.1: lee venta real de analytics.sales_daily (push on-prem) en vez del FDW
+    // analytics_external.ventas_legacy (inalcanzable desde Railway). revenue/units
+    // exactos; `lines` = sum(tickets) (proxy de actividad, grano-producto no aditivo);
+    // cost/margin = 0 hasta KV.4 (margen con kdpv_prod_util).
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
         .modify((qb) => {
-          if (from) qb.where('fecha', '>=', from);
-          if (to) qb.where('fecha', '<=', to);
-          if (q.zona) qb.where('zona', q.zona);
+          if (from) qb.where('sale_date', '>=', from);
+          if (to) qb.where('sale_date', '<=', to);
+          if (q.zona)
+            qb.whereRaw(
+              'warehouse_id IN (SELECT id FROM commercial.warehouses WHERE tenant_id = ? AND (name ILIKE ? OR code = ?))',
+              [tenantId, q.zona, q.zona],
+            );
         })
         .select(
-          'fecha AS day',
-          trx.raw('COUNT(*)::int AS lines'),
-          trx.raw('COALESCE(SUM(cantidad), 0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(venta_diaria), 0)::numeric AS revenue'),
-          trx.raw('COALESCE(SUM(costo), 0)::numeric AS cost'),
+          'sale_date AS day',
+          trx.raw('SUM(tickets)::int AS lines'),
+          trx.raw('COALESCE(SUM(units), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(revenue), 0)::numeric AS revenue'),
         )
-        .groupBy('fecha')
-        .orderBy('fecha', 'asc');
+        .groupBy('sale_date')
+        .orderBy('sale_date', 'asc');
       return rows.map((r) => ({
         day: r.day,
         lines: Number(r.lines),
         units: Number(r.units),
         revenue: Number(r.revenue),
-        cost: Number(r.cost),
-        margin: Number(r.revenue) - Number(r.cost),
+        cost: 0,
+        margin: 0,
       }));
-    }));
+    });
   }
 
   /** Top productos del ERP por revenue en el período. */
   async historicalTopProducts(q: { from?: string; to?: string; zona?: string; limit?: number }) {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
-    return this.guardErp('historicalTopProducts', [], () =>
-     this.tk.run(async (trx) => {
-      const rows = await trx('analytics_external.ventas_legacy')
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.1: venta real desde analytics.sales_daily ⋈ catálogo. subfamilia = marca
+    // (en Kepler subfamilia == brand). revenue/units exactos.
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.sales_daily AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .leftJoin('catalog.categories AS cat', 'cat.id', 'p.category_id')
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId)
         .modify((qb) => {
-          if (from) qb.where('fecha', '>=', from);
-          if (to) qb.where('fecha', '<=', to);
-          if (q.zona) qb.where('zona', q.zona);
+          if (from) qb.where('s.sale_date', '>=', from);
+          if (to) qb.where('s.sale_date', '<=', to);
+          if (q.zona)
+            qb.whereRaw(
+              's.warehouse_id IN (SELECT id FROM commercial.warehouses WHERE tenant_id = ? AND (name ILIKE ? OR code = ?))',
+              [tenantId, q.zona, q.zona],
+            );
         })
         .select(
-          'producto_id',
-          'producto',
-          'categoria',
-          'subfamilia',
-          trx.raw('COALESCE(SUM(cantidad), 0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(venta_diaria), 0)::numeric AS revenue'),
+          'p.id AS producto_id',
+          'p.nombre AS producto',
+          'cat.name AS categoria',
+          'b.nombre AS subfamilia',
+          trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
         )
-        .groupBy('producto_id', 'producto', 'categoria', 'subfamilia')
+        .groupBy('p.id', 'p.nombre', 'cat.name', 'b.nombre')
         .orderBy('revenue', 'desc')
         .limit(limit);
       return rows.map((r) => ({
@@ -661,7 +679,7 @@ export class CommercialAnalyticsService {
         units: Number(r.units),
         revenue: Number(r.revenue),
       }));
-    }));
+    });
   }
 
   /**
@@ -840,32 +858,36 @@ export class CommercialAnalyticsService {
   /** Resumen por zona/sucursal en el período. */
   async historicalSalesByZona(q: { from?: string; to?: string }) {
     const { from, to } = this.parseDateRange(q);
-    return this.guardErp('historicalSalesByZona', [], () =>
-     this.tk.run(async (trx) => {
-      const rows = await trx('analytics_external.ventas_legacy')
+    const tenantId = this.tenantCtx.requireTenantId();
+    // KV.1: venta real por almacén desde analytics.sales_daily ⋈ warehouses.
+    // revenue/units exactos; tickets = sum proxy (grano-producto, no aditivo);
+    // unique_customers = 0 (no derivable del fact por-producto, llega en KV.3).
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.sales_daily AS s')
+        .join('commercial.warehouses AS w', 'w.id', 's.warehouse_id')
+        .where('s.tenant_id', tenantId)
         .modify((qb) => {
-          if (from) qb.where('fecha', '>=', from);
-          if (to) qb.where('fecha', '<=', to);
+          if (from) qb.where('s.sale_date', '>=', from);
+          if (to) qb.where('s.sale_date', '<=', to);
         })
         .select(
-          'zona',
-          'almacen',
-          trx.raw('COUNT(DISTINCT folio)::int AS tickets'),
-          trx.raw('COUNT(DISTINCT tercero_id)::int AS unique_customers'),
-          trx.raw('COALESCE(SUM(cantidad), 0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(venta_diaria), 0)::numeric AS revenue'),
+          'w.name AS zona',
+          'w.code AS almacen',
+          trx.raw('SUM(s.tickets)::int AS tickets'),
+          trx.raw('COALESCE(SUM(s.units), 0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(s.revenue), 0)::numeric AS revenue'),
         )
-        .groupBy('zona', 'almacen')
+        .groupBy('w.name', 'w.code')
         .orderBy('revenue', 'desc');
       return rows.map((r) => ({
         zona: r.zona,
         almacen: r.almacen,
         tickets: Number(r.tickets),
-        unique_customers: Number(r.unique_customers),
+        unique_customers: 0,
         units: Number(r.units),
         revenue: Number(r.revenue),
       }));
-    }));
+    });
   }
 
   // ─────────── helpers ───────────
