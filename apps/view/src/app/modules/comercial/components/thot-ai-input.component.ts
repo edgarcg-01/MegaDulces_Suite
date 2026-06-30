@@ -430,9 +430,17 @@ export class ThotAiInputComponent implements OnInit {
 
   private async startRec(): Promise<void> {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,   // sube voces bajas → mejor transcripción
+          channelCount: 1,
+        },
+      });
     } catch {
-      return; // permiso denegado / sin micrófono
+      this.flashSttError('No pude acceder al micrófono (revisá permisos).');
+      return;
     }
     const mime = this.pickMime();
     this.chunks = [];
@@ -456,24 +464,32 @@ export class ThotAiInputComponent implements OnInit {
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
       if (!AC || !this.stream) return;
       this.audioCtx = new AC();
+      if (this.audioCtx!.state === 'suspended') this.audioCtx!.resume().catch(() => {});
       const src = this.audioCtx!.createMediaStreamSource(this.stream);
       this.analyser = this.audioCtx!.createAnalyser();
-      this.analyser.fftSize = 64;
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.6;
       src.connect(this.analyser);
-      const data = new Uint8Array(this.analyser.frequencyBinCount);
+      // Dominio temporal → volumen RMS real: toda la onda reacciona a la voz
+      // (con freq bins la energía caía solo en las primeras barras).
+      const time = new Uint8Array(this.analyser.fftSize);
+      let tick = 0;
       this.zone.runOutsideAngular(() => {
         const loop = () => {
           if (!this.analyser) return;
           const bars = this.host.nativeElement.querySelectorAll('.aci-wave i') as NodeListOf<HTMLElement>;
           if (bars.length) {
-            this.analyser.getByteFrequencyData(data);
-            const n = bars.length;
-            const per = Math.max(1, Math.floor(data.length / n));
-            for (let i = 0; i < n; i++) {
-              let s = 0;
-              for (let j = 0; j < per; j++) s += data[i * per + j] || 0;
-              const v = s / per / 255;
-              bars[i].style.transform = `scaleY(${(0.18 + v * 0.82).toFixed(3)})`;
+            this.analyser.getByteTimeDomainData(time);
+            let sum = 0;
+            for (let i = 0; i < time.length; i++) { const x = (time[i] - 128) / 128; sum += x * x; }
+            const rms = Math.sqrt(sum / time.length);
+            const level = Math.min(1, rms * 3.4);   // ganancia
+            tick++;
+            for (let i = 0; i < bars.length; i++) {
+              // base mínima + volumen modulado por barra (efecto "baile")
+              const wobble = 0.6 + 0.4 * Math.abs(Math.sin(tick * 0.18 + i * 0.9));
+              const h = 0.16 + level * wobble * 0.84;
+              bars[i].style.transform = `scaleY(${Math.min(1, h).toFixed(3)})`;
             }
           }
           this.rafId = requestAnimationFrame(loop);
