@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Thot "aprende del uso": few-shot + feedback loop 👍/👎 (Fase TC.4a/5a / ADR-026) (2026-07-01)
+- **No es fine-tuning ni hornear cifras** (eso quedaría stale + alucinaría): Thot aprende del USO con una **biblioteca de ejemplos verificados** (pregunta → tools → respuesta) inyectados como **few-shot** según similitud. Patrón verified-queries (Snowflake) / few-shot RAG (Uber). Determinista y auditable (ADR-021).
+- **TC.4a**: migración `commercial.thot_chat_examples` (RLS, por perfil) + 14 ejemplos **semilla** en código (valor desde el deploy, incl. la lección "ventas en ruta") + injection por solape de tokens. Endpoints `/thot/examples` (GET/POST/PATCH + `from-log`).
+- **TC.5a feedback loop**: migración `thot_chat_log` +`feedback`/+`promoted`; el chat devuelve `log_id`; `POST /thot/feedback` (👍/👎); cola `GET /thot/examples/candidates` (👍 sin promover) → promover a ejemplo. **Botones 👍/👎** en chat de portal y vendedor + **pantalla de curaduría** `/comercial/thot-curation` (revisar cola, promover 1-clic, alta manual, enable/disable).
+- **Mejoras de comportamiento** (vistas en prod con "% de ventas en ruta"): regla **"investigá antes de preguntar"** (probá la dimensión obvia en vez de pedir aclaración) + `flexible_aggregate` devuelve **`share_pct` determinista** (el LLM ya no calcula % de cabeza ni se equivoca).
+- **Pendiente prod:** aplicar migraciones `thot_chat_examples` + `thot_chat_log_feedback`. Diferido TC.4b (embeddings; pgvector es Docker local, falta resolver en Railway).
+
 ### Added / Security — Thot Chat en Portal y Vendor con perfiles scoped (Fase TC-S/P/V / ADR-026) (2026-06-30)
 - Lleva el asistente conversacional a las apps de **cliente** y **vendedor**. Builds api+portal+vendor verdes. Sin deploy.
 - **Security (TC-S):** se detectó y cerró un leak — `customer_b2b` y `vendedor` tienen `COMMERCIAL_ORDERS_VER`, así que con el gate original podían pegarle al chat **admin** y ver TODO el tenant (márgenes, todos los clientes). Fix: el endpoint admin `/thot/chat` rechaza esos roles; cada audiencia tiene su endpoint scoped.

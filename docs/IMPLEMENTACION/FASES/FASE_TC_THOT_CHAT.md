@@ -41,9 +41,12 @@ LLM                   → orquesta tools + narra + cita fuente/período  ← NUN
 | **TC-P** | Portal B2B: `PortalThotToolsService` scoped a `customer_id` (sin márgenes/terceros, surtido PH) + `/portal/thot/chat` + UI Storefront `/portal/assistant` | 🔨 EN CÓDIGO (build portal verde) |
 | **TC-V** | Vendedor: `VendorThotToolsService` scoped a cartera (stock PH, márgenes OK) + `/vendor/thot/chat` + UI mobile + voz `/vendor/assistant` | 🔨 EN CÓDIGO (build vendor verde) |
 | **TC-E** | Banco 50 preguntas + red-team de fuga por perfil (`http-thot-chat-*.js`) | 🔨 EN CÓDIGO (pendiente correr live) |
-| TC.4 | Ejemplos verificados con retrieval (few-shot) | ⬜ diferido |
-| TC.5 | Telemetría tokens/tools + feedback 👍👎 | ⬜ diferido |
+| **TC.4a** | Ejemplos verificados (few-shot) — `thot_chat_examples` + semillas + injection por solape | 🔨 EN CÓDIGO (build verde) |
+| **TC.5a** | Feedback loop 👍/👎 (`thot_chat_log` +feedback/+promoted) + cola de candidatos + pantalla de curaduría `/comercial/thot-curation` + thumbs en portal/vendor | 🔨 EN CÓDIGO (build verde) |
+| TC.4b | Retrieval por embeddings (Voyage/pgvector) en vez de solape — bloqueado: pgvector es Docker local, no en Railway | ⬜ diferido |
 | TC.6 | Text-to-SQL controlado completo + streaming SSE | ⬜ diferido |
+
+**"Entrenamiento" de Thot (TC.4a/5a):** NO se fine-tunea el modelo ni se hornean cifras. Se aprende del USO: biblioteca de ejemplos dorados (pregunta→tools→respuesta) inyectados como few-shot; loop usar→👍→promover (cola de curaduría)→few-shot. Determinista y auditable (ADR-021). Mejoras de comportamiento sobre la marcha: regla "investigá antes de preguntar" + `share_pct` determinista (el LLM no calcula %). Validado en PROD: red-team 31/31 (portal/vendor/admin); gate admin por `COMMERCIAL_CUSTOMERS_GESTIONAR` (no por nombre de rol). Pendiente prod: aplicar migraciones `thot_chat_examples` y `thot_chat_log_feedback`.
 
 **Pendientes operacionales (prod):** (1) aplicar migración `20260630200000_thot_chat_log` en Railway; (2) `ANTHROPIC_API_KEY` en el entorno; (3) correr `http-thot-chat-test.js` (50 preguntas) + `http-thot-chat-scoped-test.js` (red-team) con la API arriba; (4) opcional `THOT_CHAT_MODEL` (Sonnet) y `THOT_FULFILLMENT_WAREHOUSE` (default `MD-10`). Re-login NO requerido.
 
