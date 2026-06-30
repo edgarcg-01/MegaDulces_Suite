@@ -9,6 +9,7 @@ import {
   Body,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import {
@@ -29,6 +30,10 @@ import { CommercialActionsService } from './commercial-actions.service';
 import { CommercialCalibrationService } from './commercial-calibration.service';
 import { AutonomyService } from './autonomy.service';
 import { ThotChatService, ThotChatTurn } from './thot-chat/thot-chat.service';
+import { ThotToolsService } from './thot-chat/thot-tools.service';
+import { PortalThotToolsService } from './thot-chat/portal-thot-tools.service';
+import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
+import { ThotScope, PH_FULFILLMENT_WAREHOUSE } from './thot-chat/thot-tool-provider';
 
 @ApiTags('commercial-intelligence')
 @ApiBearerAuth()
@@ -49,6 +54,9 @@ export class CommercialIntelligenceController {
     private readonly calibration: CommercialCalibrationService,
     private readonly autonomy: AutonomyService,
     private readonly chat: ThotChatService,
+    private readonly adminTools: ThotToolsService,
+    private readonly portalTools: PortalThotToolsService,
+    private readonly vendorTools: VendorThotToolsService,
   ) {}
 
   // ─── Thot T.2: empuje dirigido (el negocio decide qué empujar) ───
@@ -377,18 +385,61 @@ export class CommercialIntelligenceController {
 
   @Post('thot/chat')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
-  @ApiOperation({ summary: 'Pregunta en lenguaje natural sobre ventas/inventario/clientes. Stateless: enviar el historial completo en `history`.' })
+  @ApiOperation({ summary: 'Chat analítico ADMIN (todo el tenant). Back-office only. Stateless: enviar `history`.' })
   async thotChat(
     @Req() req: any,
-    @Body() body: { history?: ThotChatTurn[]; message?: string },
+    @Body() body: { history?: ThotChatTurn[]; message?: string; think?: boolean; deep_search?: boolean },
   ) {
+    // TC-S hardening: aunque customer_b2b/vendedor tengan COMMERCIAL_ORDERS_VER, el
+    // perfil ADMIN ve TODO el tenant (márgenes, todos los clientes). Esas audiencias
+    // tienen su propio endpoint scoped (/portal/thot/chat, /vendor/thot/chat).
+    const role = req.user?.roleName || req.user?.role_name;
+    if (role === 'customer_b2b' || role === 'vendedor') {
+      throw new ForbiddenException('Usá el asistente de tu app (portal/vendedor).');
+    }
     const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
-    // Conveniencia: si mandan solo `message`, lo agregamos como último turno user.
     if (body?.message) history.push({ role: 'user', content: String(body.message) });
     const userName = req.user?.full_name || req.user?.username || undefined;
-    const result = await this.chat.ask({ history, userName });
+    const scope: ThotScope = { profile: 'admin', userName };
+    const result = await this.chat.ask(this.adminTools, scope, {
+      history,
+      think: !!body?.think,
+      deepSearch: !!body?.deep_search,
+    });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
-    await this.chat.logExchange({ userId: req.user?.id, userName, question: lastQuestion }, result);
+    await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'admin', question: lastQuestion }, result);
+    return result;
+  }
+
+  // ─── Portal B2B: chat scoped al cliente del JWT (sin márgenes, surtido PH) ───
+  @Post('portal/thot/chat')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Chat del Portal B2B. Scoped al cliente del JWT; surtido PH; sin datos de terceros ni márgenes.' })
+  async portalThotChat(@Req() req: any, @Body() body: { history?: ThotChatTurn[]; message?: string }) {
+    const customerId = req.user?.customer_id;
+    if (!customerId) throw new ForbiddenException('Tu usuario no está enlazado a un cliente.');
+    const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
+    if (body?.message) history.push({ role: 'user', content: String(body.message) });
+    const userName = req.user?.full_name || req.user?.username || undefined;
+    const scope: ThotScope = { profile: 'portal', customerId, warehouseCode: PH_FULFILLMENT_WAREHOUSE, userName };
+    const result = await this.chat.ask(this.portalTools, scope, { history });
+    const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
+    await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'portal', question: lastQuestion }, result);
+    return result;
+  }
+
+  // ─── Vendedor: chat scoped a su cartera (surtido PH) ───
+  @Post('vendor/thot/chat')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
+  @ApiOperation({ summary: 'Chat del vendedor. Scoped a su cartera/ruta; surtido PH.' })
+  async vendorThotChat(@Req() req: any, @Body() body: { history?: ThotChatTurn[]; message?: string }) {
+    const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
+    if (body?.message) history.push({ role: 'user', content: String(body.message) });
+    const userName = req.user?.full_name || req.user?.username || undefined;
+    const scope: ThotScope = { profile: 'vendor', vendorUserId: req.user?.id, warehouseCode: PH_FULFILLMENT_WAREHOUSE, userName };
+    const result = await this.chat.ask(this.vendorTools, scope, { history });
+    const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
+    await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'vendor', question: lastQuestion }, result);
     return result;
   }
 }

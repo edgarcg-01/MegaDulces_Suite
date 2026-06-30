@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialAnalyticsService } from '../../commercial-analytics/commercial-analytics.service';
 import { ThotService } from '../thot.service';
+import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
+import { buildThotSystemPrompt } from './thot-semantic';
 
 /**
  * TC.0 — Tool registry de Thot Chat (ADR-026).
@@ -16,12 +18,6 @@ import { ThotService } from '../thot.service';
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export interface ThotToolDef {
-  name: string;
-  description: string;
-  input_schema: Record<string, any>;
-}
 
 /** Métricas y dimensiones permitidas en flexible_aggregate (whitelist, anti-injection). */
 const FLEX_METRICS: Record<string, string> = {
@@ -49,7 +45,7 @@ const FLEX_DIMS: Record<string, { join: string; group: string; label: string; ti
 };
 
 @Injectable()
-export class ThotToolsService {
+export class ThotToolsService implements ThotToolProvider {
   private readonly logger = new Logger(ThotToolsService.name);
 
   constructor(
@@ -59,8 +55,13 @@ export class ThotToolsService {
     private readonly ctx: TenantContextService,
   ) {}
 
+  /** Perfil admin: acceso completo al tenant (back-office). */
+  systemPrompt(scope: ThotScope, ctx: { today: string }): string {
+    return buildThotSystemPrompt({ today: ctx.today, userName: scope.userName || undefined });
+  }
+
   // ── Schema para Claude ───────────────────────────────────────────────
-  definitions(): ThotToolDef[] {
+  definitions(_scope?: ThotScope): ThotToolDef[] {
     const dateRange = {
       from: { type: 'string', description: 'Fecha inicio ISO (YYYY-MM-DD). Opcional.' },
       to: { type: 'string', description: 'Fecha fin ISO (YYYY-MM-DD). Opcional.' },
@@ -188,7 +189,7 @@ export class ThotToolsService {
   }
 
   // ── Ejecución ────────────────────────────────────────────────────────
-  async execute(name: string, input: any): Promise<any> {
+  async execute(name: string, input: any, _scope?: ThotScope): Promise<any> {
     const args = input || {};
     try {
       switch (name) {

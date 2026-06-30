@@ -9,6 +9,14 @@ import { OutboxService } from '../../core/offline/outbox.service';
 
 // ─────────── Tipos ───────────
 
+export interface ThotToolTrace { name: string; input: any; result: any; }
+export interface ThotChatResult {
+  answer: string;
+  source: 'llm' | 'no_api_key' | 'error';
+  tools_used: ThotToolTrace[];
+  iterations: number;
+}
+
 export interface PriceRow {
   id: string;
   product_id: string;
@@ -195,6 +203,11 @@ export class PortalService {
   readonly cartTotal = signal<number>(0);
   readonly cartId = signal<string | null>(null);
   readonly cartDetail = signal<Order | null>(null);
+
+  /** TC-P — Asistente conversacional (scoped al cliente del JWT, surtido PH). */
+  thotChat(history: { role: 'user' | 'assistant'; content: string }[], message: string): Observable<ThotChatResult> {
+    return this.http.post<ThotChatResult>(`${this.base}/intelligence/portal/thot/chat`, { history, message });
+  }
 
   /**
    * Reconcilia el carrito con la verdad del servidor.

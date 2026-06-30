@@ -1221,6 +1221,7 @@ export class PortalShellComponent implements AfterViewInit, OnDestroy {
   readonly navItems: NavItem[] = [
     { path: 'home', label: 'Inicio', icon: 'pi pi-home' },
     { path: 'catalog', label: 'Catálogo', icon: 'pi pi-th-large' },
+    { path: 'assistant', label: 'Asistente', icon: 'pi pi-sparkles' },
     { path: 'promotions', label: 'Promos', icon: 'pi pi-megaphone' },
     { path: 'cart', label: 'Carrito', icon: 'pi pi-shopping-bag', isCart: true },
     { path: 'orders', label: 'Pedidos', icon: 'pi pi-receipt' },

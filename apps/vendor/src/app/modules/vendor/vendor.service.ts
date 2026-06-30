@@ -140,6 +140,15 @@ export interface ThotSuggestion {
   reason_label: string;
 }
 
+/** TC-V — chat del vendedor. */
+export interface VendorThotToolTrace { name: string; input: any; result: any; }
+export interface VendorThotChatResult {
+  answer: string;
+  source: 'llm' | 'no_api_key' | 'error';
+  tools_used: VendorThotToolTrace[];
+  iterations: number;
+}
+
 /** VQ: producto que el cliente compra habitualmente (agregado de su historial). */
 export interface FrequentProduct {
   product_id: string;
@@ -544,6 +553,11 @@ export class VendorService {
       `${this.base}/intelligence/thot/suggest/${customerId}`,
       { params: p },
     );
+  }
+
+  /** TC-V — Copiloto conversacional del vendedor (scoped a su cartera, stock PH). */
+  thotChat(history: { role: 'user' | 'assistant'; content: string }[], message: string): Observable<VendorThotChatResult> {
+    return this.http.post<VendorThotChatResult>(`${this.base}/intelligence/vendor/thot/chat`, { history, message });
   }
 
   /**

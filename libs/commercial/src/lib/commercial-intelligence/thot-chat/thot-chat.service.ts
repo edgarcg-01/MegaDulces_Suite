@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { ThotToolsService } from './thot-tools.service';
-import { buildThotSystemPrompt } from './thot-semantic';
+import { ThotToolProvider, ThotScope } from './thot-tool-provider';
 
 /**
  * TC.1 — Agente conversacional de Thot (ADR-026).
@@ -14,9 +13,24 @@ import { buildThotSystemPrompt } from './thot-semantic';
 
 const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = process.env.THOT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
+// Modo Think usa un modelo más potente (Sonnet) + extended thinking.
+const CLAUDE_THINK_MODEL = process.env.THOT_CHAT_THINK_MODEL || 'claude-sonnet-4-6';
 const TIMEOUT_MS = 30_000;
 const MAX_ITERATIONS = 6;
 const MAX_TOKENS = 1500;
+
+// ── Modos opt-in (toggles del input) ──────────────────────────────────────
+// Think = extended thinking de Claude (razona antes de responder).
+const THINK_BUDGET = 1536;          // tokens de razonamiento
+const THINK_MAX_TOKENS = 4096;      // debe ser > THINK_BUDGET
+const THINK_TIMEOUT_MS = 60_000;    // el razonamiento agrega latencia
+// Deep Search = más iteraciones para cruzar más tools + directiva exhaustiva.
+const DEEP_ITERATIONS = 12;
+const DEEP_DIRECTIVE =
+  '\n\nMODO BÚSQUEDA PROFUNDA: investigá de forma exhaustiva. Usá varias tools y ' +
+  'cruzá los resultados (compará períodos, segmentá por marca/cliente/categoría, validá ' +
+  'contra totales). No te conformes con el primer dato; entregá un análisis completo y ' +
+  'contextualizado, citando los números que respaldan cada afirmación.';
 
 export interface ThotChatTurn {
   role: 'user' | 'assistant';
@@ -45,13 +59,10 @@ export class ThotChatService {
   private readonly logger = new Logger(ThotChatService.name);
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
 
-  constructor(
-    private readonly tools: ThotToolsService,
-    private readonly tk: TenantKnexService,
-  ) {}
+  constructor(private readonly tk: TenantKnexService) {}
 
   /** Registra el intercambio en commercial.thot_chat_log (auditable). Best-effort. */
-  async logExchange(meta: { userId?: string; userName?: string; question: string }, res: ThotChatResult): Promise<void> {
+  async logExchange(meta: { userId?: string; userName?: string; profile?: string; question: string }, res: ThotChatResult): Promise<void> {
     try {
       await this.tk.run(async (trx) => {
         await trx('commercial.thot_chat_log').insert({
@@ -70,7 +81,18 @@ export class ThotChatService {
     }
   }
 
-  async ask(input: { history: ThotChatTurn[]; userName?: string }): Promise<ThotChatResult> {
+  /**
+   * Corre el loop con el PROVIDER y SCOPE de la audiencia. El provider define qué
+   * tools existen y cómo se ejecutan respetando el scope (admin/portal/vendor).
+   */
+  async ask(
+    provider: ThotToolProvider,
+    scope: ThotScope,
+    input: { history: ThotChatTurn[]; think?: boolean; deepSearch?: boolean },
+  ): Promise<ThotChatResult> {
+    const think = !!input.think;
+    const deep = !!input.deepSearch;
+    const maxIterations = deep ? DEEP_ITERATIONS : MAX_ITERATIONS;
     const history = (input.history || []).filter((t) => t && t.content && typeof t.content === 'string').slice(-12);
     if (history.length === 0 || history[history.length - 1].role !== 'user') {
       return { answer: 'No recibí ninguna pregunta.', source: 'error', tools_used: [], iterations: 0 };
@@ -85,18 +107,19 @@ export class ThotChatService {
       };
     }
 
-    const system = buildThotSystemPrompt({ today: mxToday(), userName: input.userName });
-    const toolDefs = this.tools.definitions();
+    let system = provider.systemPrompt(scope, { today: mxToday() });
+    if (deep) system += DEEP_DIRECTIVE;
+    const toolDefs = provider.definitions(scope);
     // Estado del diálogo en formato Anthropic (content puede ser string o blocks).
     const messages: any[] = history.map((t) => ({ role: t.role, content: t.content }));
     const traces: ThotToolTrace[] = [];
 
     let iterations = 0;
-    while (iterations < MAX_ITERATIONS) {
+    while (iterations < maxIterations) {
       iterations++;
       let resp: any;
       try {
-        resp = await this.callClaude(system, messages, toolDefs);
+        resp = await this.callClaude(system, messages, toolDefs, think);
       } catch (e: any) {
         this.logger.warn(`Claude error: ${e?.message || e}`);
         return {
@@ -119,7 +142,7 @@ export class ThotChatService {
       messages.push({ role: 'assistant', content });
       const toolResults: any[] = [];
       for (const tu of toolUses) {
-        const result = await this.tools.execute(tu.name, tu.input);
+        const result = await provider.execute(tu.name, tu.input, scope);
         traces.push({ name: tu.name, input: tu.input, result });
         toolResults.push({
           type: 'tool_result',
@@ -139,10 +162,21 @@ export class ThotChatService {
     };
   }
 
-  private async callClaude(system: string, messages: any[], tools: any[]): Promise<any> {
+  private async callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), think ? THINK_TIMEOUT_MS : TIMEOUT_MS);
     try {
+      const body: any = {
+        model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
+        max_tokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
+        system,
+        tools,
+        messages,
+      };
+      // Extended thinking: razona antes de responder. El bloque `thinking` que
+      // devuelve se re-emite tal cual al apilar el turno del assistant (ya lo
+      // hacemos con `content` completo), requisito de la API con tool-use.
+      if (think) body.thinking = { type: 'enabled', budget_tokens: THINK_BUDGET };
       const res = await fetch(CLAUDE_ENDPOINT, {
         method: 'POST',
         headers: {
@@ -151,7 +185,7 @@ export class ThotChatService {
           'content-type': 'application/json',
         },
         signal: controller.signal,
-        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: MAX_TOKENS, system, tools, messages }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const txt = await res.text().catch(() => '');

@@ -38,6 +38,11 @@ export const appRoutes: Route[] = [
           import('./modules/portal/pages/portal-cart.component').then((m) => m.PortalCartComponent),
       },
       {
+        path: 'assistant',
+        loadComponent: () =>
+          import('./modules/portal/pages/portal-assistant.component').then((m) => m.PortalAssistantComponent),
+      },
+      {
         path: 'promotions',
         loadComponent: () =>
           import('./modules/portal/pages/portal-promotions.component').then((m) => m.PortalPromotionsComponent),

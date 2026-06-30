@@ -14,6 +14,8 @@ import { CommercialCalibrationService } from './commercial-calibration.service';
 import { AutonomyService } from './autonomy.service';
 import { CommercialAnalyticsService } from '../commercial-analytics/commercial-analytics.service';
 import { ThotToolsService } from './thot-chat/thot-tools.service';
+import { PortalThotToolsService } from './thot-chat/portal-thot-tools.service';
+import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
 import { ThotChatService } from './thot-chat/thot-chat.service';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
@@ -43,6 +45,8 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     AutonomyService,
     CommercialAnalyticsService,
     ThotToolsService,
+    PortalThotToolsService,
+    VendorThotToolsService,
     ThotChatService,
   ],
   exports: [

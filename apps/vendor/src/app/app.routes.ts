@@ -77,6 +77,13 @@ export const appRoutes: Routes = [
           ),
       },
       {
+        path: 'assistant',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-assistant.component').then(
+            (m) => m.VendorAssistantComponent,
+          ),
+      },
+      {
         path: 'close-route',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-close-route.component').then(
