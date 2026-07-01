@@ -60,4 +60,16 @@ export class LogisticsAnalyticsController {
   roi(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.roiSummary({ from, to });
   }
+
+  @Get('erp-shipments')
+  @ApiOperation({ summary: 'KV.8: embarques REALES del ERP Kepler (histórico read-only) agregados. ?group_by=route|status|warehouse|day|product ?from ?to ?route ?status' })
+  erpShipments(
+    @Query('group_by') groupBy?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('route') route?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.erpShipments({ group_by: groupBy, from, to, route, status });
+  }
 }

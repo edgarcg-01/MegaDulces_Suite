@@ -5,11 +5,13 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TabsModule } from 'primeng/tabs';
 import { DatePickerModule } from 'primeng/datepicker';
+import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { forkJoin } from 'rxjs';
 import {
   AnalyticsOverview,
+  ErpShipmentsResponse,
   FleetUtilizationRow,
   KpiCards,
   KpiSummary,
@@ -39,7 +41,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   imports: [
     CommonModule, FormsModule,
     ButtonModule, TableModule, TabsModule,
-    DatePickerModule, ToastModule,
+    DatePickerModule, SelectModule, ToastModule,
     MetricCardComponent,
   ],
   providers: [MessageService],
@@ -66,6 +68,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-tab value="shipments"><i class="pi pi-truck"></i> Por embarque ({{ shipmentRows().length }})</p-tab>
           <p-tab value="fleet"><i class="pi pi-car"></i> Por unidad ({{ fleetRows().length }})</p-tab>
           <p-tab value="roi"><i class="pi pi-dollar"></i> ROI</p-tab>
+          <p-tab value="erp"><i class="pi pi-database"></i> Embarques ERP</p-tab>
         </p-tablist>
         <p-tabpanels>
 
@@ -268,6 +271,62 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </div>
             </ng-container>
           </p-tabpanel>
+
+          <!-- ──── Tab 5: Embarques ERP (KV.8 — histórico Kepler, read-only) ──── -->
+          <p-tabpanel value="erp">
+            <div class="tab-toolbar">
+              <div class="erp-controls">
+                <p-select [options]="erpDims" [(ngModel)]="erpGroupBy" optionLabel="label" optionValue="value"
+                          (onChange)="loadErp()" styleClass="erp-dim"></p-select>
+                <span class="comm-muted is-small">Fuente: <strong>ERP Kepler</strong> (embarques reales, read-only). Distinto de los embarques operativos de la app.</span>
+              </div>
+              <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="loadErp()" [loading]="erpLoading()"></button>
+            </div>
+
+            <ng-container *ngIf="erp() as e">
+              <div class="surf-grid logr-kpis">
+                <app-metric-card class="panel-col-3" label="Folios de embarque" [value]="e.totals.folios" format="number" accent="var(--action)"
+                  [sub]="e.totals.embarcados + ' EMBARCADO'"></app-metric-card>
+                <app-metric-card class="panel-col-3" label="Unidades embarcadas" [value]="e.totals.units" format="number" accent="var(--chart-2)"></app-metric-card>
+                <app-metric-card class="panel-col-3" label="Líneas" [value]="e.totals.lines" format="number" accent="var(--chart-6)"></app-metric-card>
+                <app-metric-card class="panel-col-3" label="Rango de datos" [value]="0" format="number" accent="var(--c-text-3)"
+                  [sub]="(e.totals.date_from || '—') + ' → ' + (e.totals.date_to || '—')"></app-metric-card>
+              </div>
+
+              <section class="surf-panel" style="margin-top:1rem;">
+                <div class="surf-panel-body is-flush">
+                  <p-table [value]="e.rows" [loading]="erpLoading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="e.rows.length > 25" [rows]="25" sortMode="single">
+                    <ng-template pTemplate="header">
+                      <tr>
+                        <th scope="col">{{ erpDimLabel() }}</th>
+                        <th scope="col" pSortableColumn="folios" class="comm-num">Folios <p-sortIcon field="folios"></p-sortIcon></th>
+                        <th scope="col" pSortableColumn="units" class="comm-num">Unidades <p-sortIcon field="units"></p-sortIcon></th>
+                        <th scope="col" pSortableColumn="lines" class="comm-num">Líneas <p-sortIcon field="lines"></p-sortIcon></th>
+                      </tr>
+                    </ng-template>
+                    <ng-template pTemplate="body" let-r>
+                      <tr>
+                        <td>{{ r.label }}</td>
+                        <td class="comm-num">{{ r.folios | number:'1.0-0' }}</td>
+                        <td class="comm-num">{{ r.units | number:'1.0-0' }}</td>
+                        <td class="comm-num">{{ r.lines | number:'1.0-0' }}</td>
+                      </tr>
+                    </ng-template>
+                    <ng-template pTemplate="emptymessage">
+                      <tr>
+                        <td colspan="4" class="comm-empty-cell">
+                          <div class="comm-empty">
+                            <i class="pi pi-database comm-empty-icon" aria-hidden="true"></i>
+                            <span>Sin embarques del ERP en el período. ¿Ya corriste el feed KV.8?</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                </div>
+              </section>
+            </ng-container>
+          </p-tabpanel>
         </p-tabpanels>
       </p-tabs>
     </div>
@@ -292,6 +351,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .rep-row strong { font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
 
     .tab-toolbar { display:flex; justify-content:space-between; align-items:center; margin: 0 0 1rem; gap: 1rem; flex-wrap: wrap; }
+    .erp-controls { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+    :host ::ng-deep .erp-dim { min-width: 170px; }
 
     /* Dirección crítica del margen en celdas numéricas */
     .pos { color: var(--c-ok); font-weight: var(--fw-medium); }
@@ -314,8 +375,32 @@ export class LogisticaReportsComponent {
   readonly kpis = signal<KpiCards | null>(null);
   readonly loading = signal(false);
 
+  // KV.8 — Embarques ERP (histórico Kepler, read-only).
+  readonly erp = signal<ErpShipmentsResponse | null>(null);
+  readonly erpLoading = signal(false);
+  erpGroupBy = 'route';
+  readonly erpDims = [
+    { label: 'Por ruta', value: 'route' },
+    { label: 'Por estado', value: 'status' },
+    { label: 'Por almacén', value: 'warehouse' },
+    { label: 'Por día', value: 'day' },
+    { label: 'Por producto', value: 'product' },
+  ];
+
   constructor() {
     this.reload();
+  }
+
+  erpDimLabel(): string {
+    return this.erpDims.find((d) => d.value === this.erpGroupBy)?.label.replace('Por ', '') ?? 'Dimensión';
+  }
+
+  loadErp(): void {
+    this.erpLoading.set(true);
+    this.api.erpShipments({ group_by: this.erpGroupBy, from: this.fmtDate(this.from), to: this.fmtDate(this.to) }).subscribe({
+      next: (r) => { this.erp.set(r); this.erpLoading.set(false); },
+      error: () => { this.erpLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se cargaron los embarques ERP' }); },
+    });
   }
 
   fmtDate(d: Date | null): string | undefined {
@@ -328,6 +413,7 @@ export class LogisticaReportsComponent {
 
   reload(): void {
     this.loading.set(true);
+    this.loadErp();
     const f = this.fmtDate(this.from);
     const t = this.fmtDate(this.to);
     forkJoin({

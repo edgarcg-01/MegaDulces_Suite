@@ -1015,6 +1015,25 @@ export class LogisticaService {
     if (to) p = p.set('to', to);
     return this.http.get<RoiSummary>(`${this.base}/analytics/roi`, { params: p });
   }
+
+  /** KV.8 — Embarques REALES del ERP (histórico read-only), agregados por dimensión. */
+  erpShipments(q: { group_by?: string; from?: string; to?: string; route?: string; status?: string } = {}): Observable<ErpShipmentsResponse> {
+    let p = new HttpParams();
+    if (q.group_by) p = p.set('group_by', q.group_by);
+    if (q.from) p = p.set('from', q.from);
+    if (q.to) p = p.set('to', q.to);
+    if (q.route) p = p.set('route', q.route);
+    if (q.status) p = p.set('status', q.status);
+    return this.http.get<ErpShipmentsResponse>(`${this.base}/analytics/erp-shipments`, { params: p });
+  }
+}
+
+export interface ErpShipmentsResponse {
+  group_by: string;
+  period: { from: string | null; to: string | null };
+  source: string;
+  totals: { folios: number; embarcados: number; lines: number; units: number; date_from: string | null; date_to: string | null };
+  rows: { label: string; folios: number; lines: number; units: number }[];
 }
 
 export interface RoiSummary {

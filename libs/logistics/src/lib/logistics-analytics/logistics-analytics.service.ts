@@ -471,4 +471,64 @@ export class LogisticsAnalyticsService {
       };
     });
   }
+
+  // ── KV.8: embarques REALES del ERP (analytics.erp_shipments) ────────────────
+
+  /**
+   * Embarques históricos del ERP Kepler (read-only), agregados por dimensión.
+   * Fuente `analytics.erp_shipments` (feed KV.8) — SEPARADO de logistics.shipments
+   * (operativo de la app). Sin RLS en analytics.* → filtra por current_tenant_id().
+   */
+  async erpShipments(q: { from?: string; to?: string; group_by?: string; route?: string; status?: string }) {
+    const DIMS: Record<string, string> = {
+      route: 'route', status: 'status', warehouse: 'warehouse_code',
+      day: 'shipped_date', product: 'product_id',
+    };
+    const dim = DIMS[q.group_by || 'route'] || 'route';
+    const from = q.from && !Number.isNaN(Date.parse(q.from)) ? q.from : null;
+    const to = q.to && !Number.isNaN(Date.parse(q.to)) ? q.to : null;
+    return this.tk.run(async (trx) => {
+      const base = trx('analytics.erp_shipments as s')
+        .whereRaw('s.tenant_id = public.current_tenant_id()')
+        .modify((qb) => {
+          if (from) qb.where('s.shipped_date', '>=', from);
+          if (to) qb.where('s.shipped_date', '<=', to);
+          if (q.route) qb.whereRaw('s.route ILIKE ?', [`%${q.route}%`]);
+          if (q.status) qb.where('s.status', q.status);
+        });
+      const rows: any[] = await base.clone()
+        .modify((qb) => { if (dim === 'product_id') qb.leftJoin('catalog.products as p', 'p.id', 's.product_id'); })
+        .select(
+          trx.raw(`COALESCE(${dim === 'product_id' ? 'p.nombre' : `s.${dim}::text`}, '(s/d)') AS label`),
+          trx.raw('COUNT(*)::int AS lines'),
+          trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
+          trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
+        )
+        .groupByRaw(dim === 'product_id' ? 'p.nombre' : `s.${dim}`)
+        .orderByRaw('SUM(s.quantity) DESC NULLS LAST')
+        .limit(200);
+      const [tot] = await base.clone().select(
+        trx.raw('COUNT(*)::int AS lines'),
+        trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
+        trx.raw("COUNT(DISTINCT s.shipment_folio) FILTER (WHERE s.status = 'EMBARCADO')::int AS embarcados"),
+        trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
+        trx.raw('MIN(s.shipped_date) AS date_from'),
+        trx.raw('MAX(s.shipped_date) AS date_to'),
+      );
+      return {
+        group_by: q.group_by || 'route',
+        period: { from, to },
+        source: 'embarques reales ERP Kepler (analytics.erp_shipments)',
+        totals: {
+          folios: Number(tot?.folios || 0),
+          embarcados: Number(tot?.embarcados || 0),
+          lines: Number(tot?.lines || 0),
+          units: Number(tot?.units || 0),
+          date_from: tot?.date_from || null,
+          date_to: tot?.date_to || null,
+        },
+        rows: rows.map((r) => ({ label: r.label, folios: Number(r.folios), lines: Number(r.lines), units: Number(r.units) })),
+      };
+    });
+  }
 }
