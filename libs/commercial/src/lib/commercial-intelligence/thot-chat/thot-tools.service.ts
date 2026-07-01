@@ -41,6 +41,7 @@ const FLEX_DIMS: Record<string, { join: string; group: string; label: string; ti
   },
   channel: { join: '', group: 's.channel', label: "COALESCE(s.channel,'(sin canal)')" },
   day: { join: '', group: 's.sale_date', label: "to_char(s.sale_date,'YYYY-MM-DD')", time: true },
+  week: { join: '', group: "date_trunc('week', s.sale_date)", label: "to_char(date_trunc('week', s.sale_date),'IYYY-\"W\"IW')", time: true },
   month: { join: '', group: "date_trunc('month', s.sale_date)", label: "to_char(date_trunc('month', s.sale_date),'YYYY-MM')", time: true },
 };
 
@@ -118,7 +119,7 @@ export class ThotToolsService implements ThotToolProvider {
           type: 'object',
           properties: {
             metric: { type: 'string', enum: ['revenue', 'units', 'tickets'], description: 'Qué sumar.' },
-            group_by: { type: 'string', enum: ['product', 'brand', 'category', 'warehouse', 'channel', 'day', 'month'], description: 'Cómo agrupar.' },
+            group_by: { type: 'string', enum: ['product', 'brand', 'category', 'warehouse', 'channel', 'day', 'week', 'month'], description: 'Cómo agrupar. week = semana ISO (ej 2026-W27).' },
             ...dateRange,
             limit: { type: 'number', description: 'Default 25, máx 200.' },
           },
