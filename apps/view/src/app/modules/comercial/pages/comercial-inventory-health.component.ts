@@ -11,7 +11,7 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryHealthResponse, Warehouse } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { ANALYTICS_TABS } from '../analytics-tabs';
+import { INVENTORY_TABS } from '../inventory-tabs';
 
 /**
  * KV.5 — Salud de inventario: días de cobertura (stock ÷ velocidad de venta 90d)
@@ -96,7 +96,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
   `],
 })
 export class ComercialInventoryHealthComponent {
-  readonly tabs = ANALYTICS_TABS;
+  readonly tabs = INVENTORY_TABS;
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

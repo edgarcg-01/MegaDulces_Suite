@@ -9,8 +9,6 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { ComercialService, ErpCustomerRow, ErpCustomerProduct } from '../comercial.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { ANALYTICS_TABS } from '../analytics-tabs';
 
 /**
  * KV.3 — Customer 360 sobre venta real Kepler. Lista de clientes (analytics.erp_customers)
@@ -20,13 +18,12 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
 @Component({
   selector: 'app-comercial-customers-360',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -113,7 +110,6 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
   `],
 })
 export class ComercialCustomers360Component {
-  readonly tabs = ANALYTICS_TABS;
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

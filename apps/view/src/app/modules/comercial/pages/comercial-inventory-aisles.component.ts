@@ -13,7 +13,8 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, WarehouseAisle, AisleBrand, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { INVENTORY_TABS } from '../inventory-tabs';
 
 /**
  * Fase PA.1b — Editor 2D de pasillos. Surface Operations (DESIGN.md): page-head
@@ -179,13 +180,7 @@ import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs
   `],
 })
 export class ComercialInventoryAislesComponent {
-  readonly inventoryTabs: PageTab[] = [
-    { label: 'Existencias', route: '/comercial/inventory', icon: 'pi pi-box', permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Folios', route: '/comercial/inventory/sessions', icon: 'pi pi-clipboard', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Por vencer', route: '/comercial/inventory/expiring', icon: 'pi pi-calendar-times', permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Cíclico', route: '/comercial/inventory/abc', icon: 'pi pi-sync', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Pasillos', route: '/comercial/inventory/aisles', icon: 'pi pi-th-large', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
-  ];
+  readonly inventoryTabs = INVENTORY_TABS;
   readonly assignModes = [
     { label: 'Por marca', value: 'brand' },
     { label: 'Por clase ABC', value: 'abc' },

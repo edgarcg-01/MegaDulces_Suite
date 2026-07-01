@@ -16,7 +16,8 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { INVENTORY_TABS } from '../inventory-tabs';
 import { forkJoin } from 'rxjs';
 
 /**
@@ -154,13 +155,7 @@ import { forkJoin } from 'rxjs';
   `],
 })
 export class ComercialInventorySessionsComponent {
-  readonly inventoryTabs: PageTab[] = [
-    { label: 'Existencias', route: '/comercial/inventory', icon: 'pi pi-box', permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Folios', route: '/comercial/inventory/sessions', icon: 'pi pi-clipboard', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Por vencer', route: '/comercial/inventory/expiring', icon: 'pi pi-calendar-times', permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Cíclico', route: '/comercial/inventory/abc', icon: 'pi pi-sync', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Pasillos', route: '/comercial/inventory/aisles', icon: 'pi pi-th-large', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
-  ];
+  readonly inventoryTabs = INVENTORY_TABS;
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

@@ -10,7 +10,8 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, ExpiringLot, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent, PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { INVENTORY_TABS } from '../inventory-tabs';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 
@@ -102,13 +103,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   `],
 })
 export class ComercialInventoryExpiringComponent {
-  readonly inventoryTabs: PageTab[] = [
-    { label: 'Existencias', route: '/comercial/inventory', icon: 'pi pi-box', permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Folios', route: '/comercial/inventory/sessions', icon: 'pi pi-clipboard', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Por vencer', route: '/comercial/inventory/expiring', icon: 'pi pi-calendar-times', permission: Permission.COMMERCIAL_INVENTORY_VER },
-    { label: 'Cíclico', route: '/comercial/inventory/abc', icon: 'pi pi-sync', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
-    { label: 'Pasillos', route: '/comercial/inventory/aisles', icon: 'pi pi-th-large', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
-  ];
+  readonly inventoryTabs = INVENTORY_TABS;
 
   readonly dayOptions = [
     { label: 'Próx. 7 días', value: 7 },

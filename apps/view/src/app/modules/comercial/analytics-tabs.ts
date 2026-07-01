@@ -1,13 +1,13 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
+import { Permission } from '../../core/constants/permissions';
 
-/** Navegación compartida de la sección de analytics comercial (venta real Kepler). */
+/**
+ * Navegación de la analítica COMERCIAL (venta real Kepler + IA). Solo lo que es
+ * analítica de ventas/clientes. Las analíticas de inventario (Stock muerto, Salud)
+ * viven en INVENTORY_TABS; Curaduría (ML-ops) queda gateada a admin.
+ */
 export const ANALYTICS_TABS: PageTab[] = [
-  { label: 'Pregúntale a Thot', route: '/comercial/thot-chat', icon: 'pi pi-comments' },
-  { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt' },
-  { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database' },
-  { label: 'Stock muerto', route: '/comercial/dead-stock', icon: 'pi pi-exclamation-triangle' },
-  { label: 'Salud inv.', route: '/comercial/inventory-health', icon: 'pi pi-heart' },
-  { label: 'Clientes 360', route: '/comercial/customers-360', icon: 'pi pi-users' },
-  { label: 'Promos', route: '/comercial/erp-promos', icon: 'pi pi-percentage' },
-  { label: 'Curaduría Thot', route: '/comercial/thot-curation', icon: 'pi pi-book' },
+  { label: 'Pregúntale a Thot', route: '/comercial/thot-chat', icon: 'pi pi-comments', permission: Permission.COMMERCIAL_ORDERS_VER },
+  { label: 'En vivo', route: '/comercial/command-center', icon: 'pi pi-bolt', permission: Permission.COMMERCIAL_ORDERS_VER },
+  { label: 'Histórico ERP', route: '/comercial/historical', icon: 'pi pi-database', permission: Permission.COMMERCIAL_ORDERS_VER },
 ];
