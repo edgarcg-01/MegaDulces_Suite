@@ -7,17 +7,20 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, ErpPromoRow } from '../comercial.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PROMOS_TABS } from '../promos-tabs';
 
 /** KV.6 — Promos vigentes del ERP Kepler (descuento/gratis por cantidad o monto). */
 @Component({
   selector: 'app-comercial-erp-promos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule],
+  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule, PageTabsComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
+      <app-page-tabs [tabs]="promoTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -63,6 +66,7 @@ import { ComercialService, ErpPromoRow } from '../comercial.service';
   `],
 })
 export class ComercialErpPromosComponent {
+  readonly promoTabs = PROMOS_TABS;
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

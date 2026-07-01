@@ -11,7 +11,7 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, ExpiringLot, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INVENTORY_TABS } from '../inventory-tabs';
+import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 
@@ -103,7 +103,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   `],
 })
 export class ComercialInventoryExpiringComponent {
-  readonly inventoryTabs = INVENTORY_TABS;
+  readonly inventoryTabs = INV_ANALYTICS_TABS;
 
   readonly dayOptions = [
     { label: 'Próx. 7 días', value: 7 },

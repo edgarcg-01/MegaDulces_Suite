@@ -24,6 +24,8 @@ import { CustomerFormDialogComponent } from '../components/customer-form-dialog.
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
 import { CountUpDirective } from '../../../shared/directives/count-up.directive';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CUSTOMERS_TABS } from '../customers-tabs';
 
 @Component({
   selector: 'app-comercial-customers',
@@ -50,12 +52,14 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
     SidePeekComponent,
     Customer360PanelComponent,
     CountUpDirective,
+    PageTabsComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page cu">
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
+      <app-page-tabs [tabs]="customerTabs" />
 
       <!-- PAGE HEAD edge-to-edge -->
       <header class="surf-page-head">
@@ -565,6 +569,7 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialCustomersComponent {
+  readonly customerTabs = CUSTOMERS_TABS;
   private readonly api = inject(ComercialService);
   private readonly logistica = inject(LogisticaService);
   private readonly fb = inject(FormBuilder);

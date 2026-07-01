@@ -24,6 +24,8 @@ import {
 import { makeLazyLoad } from '../../../shared/util';
 import { PROMOTION_META, PROMOTION_META_LIST, summarizePromotion } from '../promotions-meta';
 import { PromotionFormDialogComponent } from '../components/promotion-form-dialog.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PROMOS_TABS } from '../promos-tabs';
 
 interface ProductOption {
   id: string;
@@ -53,12 +55,14 @@ interface ProductOption {
     ConfirmDialogModule,
     TooltipModule,
     PromotionFormDialogComponent,
+    PageTabsComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page pm">
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
+      <app-page-tabs [tabs]="promoTabs" />
 
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
@@ -398,6 +402,7 @@ interface ProductOption {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialPromotionsComponent {
+  readonly promoTabs = PROMOS_TABS;
   private readonly api = inject(ComercialService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);

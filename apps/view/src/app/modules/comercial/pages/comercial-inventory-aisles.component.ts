@@ -14,7 +14,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, WarehouseAisle, AisleBrand, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INVENTORY_TABS } from '../inventory-tabs';
+import { INV_COUNT_TABS } from '../inventory-tabs';
 
 /**
  * Fase PA.1b — Editor 2D de pasillos. Surface Operations (DESIGN.md): page-head
@@ -180,7 +180,7 @@ import { INVENTORY_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialInventoryAislesComponent {
-  readonly inventoryTabs = INVENTORY_TABS;
+  readonly inventoryTabs = INV_COUNT_TABS;
   readonly assignModes = [
     { label: 'Por marca', value: 'brand' },
     { label: 'Por clase ABC', value: 'abc' },

@@ -255,17 +255,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
-        { label: 'Clientes 360',      icon: 'pi pi-id-card',    route: '/comercial/customers-360',  permission: Permission.COMMERCIAL_CUSTOMERS_VER },
         { label: 'Cartera de ventas', icon: 'pi pi-sitemap',    route: '/comercial/cartera',        permission: Permission.USUARIOS_ASIGNAR_RUTA },
       ],
     },
     {
       title: 'Inventario',
       items: [
-        { label: 'Inventario',    icon: 'pi pi-box',       route: '/comercial/inventory',       permission: Permission.COMMERCIAL_INVENTORY_VER },
-        { label: 'Almacenes',     icon: 'pi pi-warehouse', route: '/comercial/warehouses',      permission: Permission.COMMERCIAL_WAREHOUSES_VER },
-        { label: 'Conteo físico', icon: 'pi pi-qrcode',    route: '/comercial/inventory/count', permission: Permission.COMMERCIAL_INVENTORY_CONTAR },
-        { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/comercial/inventory/ira',  permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+        { label: 'Existencias',    icon: 'pi pi-box',              route: '/comercial/inventory',          permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+        { label: 'Conteo',         icon: 'pi pi-qrcode',           route: '/comercial/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
+        { label: 'Analítica inv.', icon: 'pi pi-calendar-times',   route: '/comercial/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
       ],
     },
     {
@@ -274,7 +272,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Catálogo',          icon: 'pi pi-shopping-bag', route: '/comercial/products',   permission: Permission.CATALOGO_GESTIONAR },
         { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
-        { label: 'Promos ERP',        icon: 'pi pi-percentage',   route: '/comercial/erp-promos', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
         { label: 'Curaduría Thot',    icon: 'pi pi-book',         route: '/comercial/thot-curation', permission: Permission.COMMERCIAL_CUSTOMERS_GESTIONAR },
       ],

@@ -17,7 +17,7 @@ import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INVENTORY_TABS } from '../inventory-tabs';
+import { INV_COUNT_TABS } from '../inventory-tabs';
 import { forkJoin } from 'rxjs';
 
 /**
@@ -155,7 +155,7 @@ import { forkJoin } from 'rxjs';
   `],
 })
 export class ComercialInventorySessionsComponent {
-  readonly inventoryTabs = INVENTORY_TABS;
+  readonly inventoryTabs = INV_COUNT_TABS;
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

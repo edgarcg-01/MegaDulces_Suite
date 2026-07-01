@@ -11,7 +11,7 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, DeadStockReport, Warehouse } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { INVENTORY_TABS } from '../inventory-tabs';
+import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 
 /**
  * Reporte de STOCK MUERTO: existencia > 0 sin venta en 90 días = capital parado
@@ -118,7 +118,7 @@ import { INVENTORY_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialDeadStockComponent {
-  readonly inventoryTabs = INVENTORY_TABS;
+  readonly inventoryTabs = INV_ANALYTICS_TABS;
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

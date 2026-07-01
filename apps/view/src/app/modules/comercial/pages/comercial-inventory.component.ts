@@ -16,7 +16,7 @@ import { ComercialService, StockRow, Warehouse } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { makeLazyLoad } from '../../../shared/util';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INVENTORY_TABS } from '../inventory-tabs';
+import { INV_STOCK_TABS } from '../inventory-tabs';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { Permission } from '../../../core/constants/permissions';
@@ -436,7 +436,7 @@ import { Permission } from '../../../core/constants/permissions';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialInventoryComponent {
-  readonly inventoryTabs = INVENTORY_TABS;
+  readonly inventoryTabs = INV_STOCK_TABS;
 
   private readonly api = inject(ComercialService);
   private readonly toast = inject(MessageService);
