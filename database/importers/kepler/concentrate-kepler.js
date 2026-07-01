@@ -19,8 +19,8 @@
  * (snapshot estable → ctid monótono, O(n), memoria acotada). Sin deps externas.
  *
  * Env:
- *   KP_DEST_URL     = postgresql://postgres:kepler123@192.168.0.245:5432/KP_CONCENTRADA
- *   KP_BRANCH_MAP   = JSON [{code,url}] (default = las 6 sucursales)
+ *   KP_DEST_URL     = postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA
+ *   KP_BRANCH_MAP   = JSON [{code,url}] (default = las 6 sucursales; creds platform_ro/kepler123)
  *   KP_EXCLUDE      = csv de tablas a saltar (ej "kdmx_25,kdmx_26" para omitir XML pesado)
  *
  * Flags:
@@ -36,7 +36,7 @@
 
 const { Client } = require('pg');
 
-const DEST_URL = process.env.KP_DEST_URL || 'postgresql://postgres:kepler123@192.168.0.245:5432/KP_CONCENTRADA';
+const DEST_URL = process.env.KP_DEST_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const APPLY = process.argv.includes('--apply');
 const FULL = process.argv.includes('--full');
 const CREATE_DB = process.argv.includes('--create-db');

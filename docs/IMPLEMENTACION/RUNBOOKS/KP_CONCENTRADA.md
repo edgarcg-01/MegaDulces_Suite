@@ -19,7 +19,7 @@ Script: [`database/importers/kepler/concentrate-kepler.js`](../../../database/im
 ## Requisitos
 
 - Correr desde on-prem (laptop `192.168.0.249` o el propio `.245`) con acceso a las 6 sucursales + a `.245`.
-- Credenciales: sucursales `platform_ro/kepler123`; destino `postgres/kepler123` (ajustar en env).
+- Credenciales: destino `.245` = `postgres/superoot`; sucursales = `platform_ro/kepler123` (ajustar en env si difiere).
 
 ## Uso
 
@@ -41,7 +41,7 @@ node database/importers/kepler/concentrate-kepler.js --apply --full
 
 - `--branch=03` — solo una sucursal. `--tables=kdm1,kdpord` — solo esas (pruebas).
 - `--create-db` — crea `KP_CONCENTRADA` si falta (necesita permiso de superusuario).
-- `KP_DEST_URL` — destino (default `postgresql://postgres:kepler123@192.168.0.245:5432/KP_CONCENTRADA`).
+- `KP_DEST_URL` — destino (default `postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA`).
 - `KP_BRANCH_MAP` — JSON `[{code,url}]` para override de sucursales (IPs/puertos).
 - `KP_EXCLUDE` — csv de tablas a saltar. **Recomendado** si no querés el peso fiscal:
   `KP_EXCLUDE=kdmx_25,kdmx_26` (XML CFDI, ~450k filas de blobs). Los `kdfe*` (119 tablas
