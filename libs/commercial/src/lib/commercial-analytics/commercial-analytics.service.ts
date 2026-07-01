@@ -1166,20 +1166,36 @@ export class CommercialAnalyticsService {
         WHEN v.forma_pago ~ '^RD' THEN 'ruta'
         WHEN v.forma_pago ~ '^[0-9]' THEN 'credito'
         ELSE 'otro' END`;
-    const raw: any[] = await this.kepler('mart.ventas as v')
-      .join('dim.sucursales as s', 's.db', 'v.sucursal')
-      .whereIn('v.sku', skus)
-      .andWhere('v.fecha', '>=', from)
-      .andWhere('v.fecha', '<=', to)
-      .select(
-        'v.sucursal as branch_code',
-        's.nombre as branch_name',
-        'v.sku as sku',
-        this.kepler.raw(`${channelExpr} as channel`),
-      )
-      .sum({ units: 'v.cantidad' })
-      .sum({ monto: 'v.importe' })
-      .groupByRaw(`v.sucursal, s.nombre, v.sku, ${channelExpr}`);
+    let raw: any[];
+    try {
+      raw = await this.kepler('mart.ventas as v')
+        .join('dim.sucursales as s', 's.db', 'v.sucursal')
+        .whereIn('v.sku', skus)
+        .andWhere('v.fecha', '>=', from)
+        .andWhere('v.fecha', '<=', to)
+        .select(
+          'v.sucursal as branch_code',
+          's.nombre as branch_name',
+          'v.sku as sku',
+          this.kepler.raw(`${channelExpr} as channel`),
+        )
+        .sum({ units: 'v.cantidad' })
+        .sum({ monto: 'v.importe' })
+        .groupByRaw(`v.sucursal, s.nombre, v.sku, ${channelExpr}`);
+    } catch (err: any) {
+      // La consolidación (kepler_consolidado, on-prem) puede no ser alcanzable
+      // en el entorno que corre la API → degradar a vacío con aviso en vez de
+      // colgar el request hasta el timeout del proxy (504).
+      this.logger.warn(`sell-out: consulta a kepler_consolidado falló: ${err?.code || ''} ${err?.message || err}`);
+      return {
+        ...base,
+        coverage: {
+          branches_with_data: [],
+          branches_missing: [],
+          note: 'No se pudo consultar la consolidación Kepler (mart.ventas no alcanzable desde este entorno). Reintenta o verifica la conexión.',
+        },
+      };
+    }
 
     // Paso 3 — pivote en Node
     const columns = new Map<string, SellOutColumn>();

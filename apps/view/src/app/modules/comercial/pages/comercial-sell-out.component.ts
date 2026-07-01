@@ -366,8 +366,12 @@ export class ComercialSellOutComponent {
   canGenerate = computed(() => !!this.brandId());
 
   constructor() {
-    this.year = new Date().getFullYear();
-    this.quarter = Math.floor(new Date().getMonth() / 3) + 1;
+    const now = new Date();
+    // Default = mes anterior (cerrado). El mes en curso casi no tiene venta
+    // consolidada todavía → arrancar ahí daba "sin venta" en todas las marcas.
+    this.monthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    this.year = this.monthDate.getFullYear();
+    this.quarter = Math.floor(this.monthDate.getMonth() / 3) + 1;
     this.syncPeriod();
     this.loadBrands();
   }

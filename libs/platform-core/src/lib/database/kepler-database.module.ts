@@ -32,8 +32,17 @@ function buildKeplerRoConfig(): Knex.Config | null {
   logger.log('Conectando a kepler_consolidado (RO) para lecturas en vivo.');
   return {
     client: 'pg',
-    connection: { connectionString: connStr, ssl },
+    connection: {
+      connectionString: connStr,
+      ssl,
+      // Fail-fast a nivel socket + query: si la consolidación (on-prem) no es
+      // alcanzable/lenta, no colgar el request hasta el timeout del proxy (504)
+      // — el service degrada a vacío con aviso.
+      connectionTimeoutMillis: 8000,
+      statement_timeout: 25000,
+    },
     pool: { min: 0, max: 4 },
+    acquireConnectionTimeout: 8000,
   };
 }
 
