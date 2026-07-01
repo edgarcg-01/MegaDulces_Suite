@@ -966,6 +966,11 @@ export class CommercialAnalyticsService {
     };
     const dim = DIMS[q.group_by || 'route'] || 'route';
     return this.tk.run(async (trx) => {
+      // Degrada a vacío si el feed KV.8 aún no creó la tabla (no aborta la trx).
+      const reg = await trx.raw(`SELECT to_regclass('analytics.erp_shipments') AS t`);
+      if (!reg.rows?.[0]?.t) {
+        return { group_by: q.group_by || 'route', period: { from, to }, source: 'embarques reales ERP (analytics.erp_shipments)', totals: { folios: 0, lines: 0, units: 0 }, rows: [] };
+      }
       const base = trx('analytics.erp_shipments AS s')
         .where('s.tenant_id', tenantId)
         .modify((qb) => {

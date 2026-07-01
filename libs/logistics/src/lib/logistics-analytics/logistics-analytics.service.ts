@@ -487,7 +487,17 @@ export class LogisticsAnalyticsService {
     const dim = DIMS[q.group_by || 'route'] || 'route';
     const from = q.from && !Number.isNaN(Date.parse(q.from)) ? q.from : null;
     const to = q.to && !Number.isNaN(Date.parse(q.to)) ? q.to : null;
+    const empty = {
+      group_by: q.group_by || 'route', period: { from, to },
+      source: 'embarques reales ERP Kepler (analytics.erp_shipments)',
+      totals: { folios: 0, embarcados: 0, lines: 0, units: 0, date_from: null, date_to: null },
+      rows: [] as { label: string; folios: number; lines: number; units: number }[],
+    };
     return this.tk.run(async (trx) => {
+      // Guard: si el feed KV.8 aún no corrió, la tabla no existe → degradar a vacío
+      // (to_regclass NO aborta la trx del request, a diferencia de dejar fallar el query).
+      const reg = await trx.raw(`SELECT to_regclass('analytics.erp_shipments') AS t`);
+      if (!reg.rows?.[0]?.t) return empty;
       const base = trx('analytics.erp_shipments as s')
         .whereRaw('s.tenant_id = public.current_tenant_id()')
         .modify((qb) => {
