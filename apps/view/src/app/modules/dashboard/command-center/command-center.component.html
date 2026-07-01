@@ -7,10 +7,8 @@
     <div class="surf-page-head-text">
       <h1>Centro de control</h1>
       <p class="surf-page-sub">
-        <span *ngIf="overview() as ov">
-          Últimos 30 días · datos {{ ov.source === 'mv' ? 'en caché' : 'en vivo' }}
-          <span *ngIf="ov.refreshed_at" class="comm-muted is-small">· {{ fmtDate(ov.refreshed_at) }}</span>
-        </span>
+        Venta real de la red · últimos 30 días
+        <span *ngIf="overview()?.updated_at as u" class="comm-muted is-small">· datos al {{ fmtDate(u) }}</span>
       </p>
     </div>
     <div class="cc-head-actions">
@@ -23,10 +21,10 @@
         size="small"
         [disabled]="refreshing() || loading()"
         [loading]="refreshing()"
-        [pTooltip]="refreshing() ? 'Actualizando…' : 'Refrescar datos'"
+        [pTooltip]="refreshing() ? 'Actualizando…' : 'Recargar'"
         tooltipPosition="left"
-        aria-label="Refrescar datos"
-        (click)="refreshMvs()"
+        aria-label="Recargar"
+        (click)="reload()"
       ></button>
     </div>
   </header>
@@ -38,13 +36,13 @@
     <p-skeleton height="280px" borderRadius="12px"></p-skeleton>
   </div>
 
-  <!-- SHEET 1: Hero Ventas + 3 KPIs satélite -->
+  <!-- SHEET 1: Hero Ventas + Margen + Tickets + Clientes + Pipeline -->
   <div *ngIf="!loading()" class="sheet cols-12">
     <article class="cell cell-span-6 cell-row-2 cc-hero">
       <span class="cell-icon" aria-hidden="true">
         <i class="pi pi-dollar"></i>
       </span>
-      <span class="cell-label">Ventas brutas · 30d</span>
+      <span class="cell-label">Venta bruta · 30d</span>
       <span class="cell-value is-headline cc-hero-value" [appCountUp]="overview()?.revenue?.gross ?? 0" countUpFormat="money-short"></span>
       <span class="cell-sub cc-hero-sub">
         <span
@@ -59,7 +57,7 @@
           {{ fmtNumber(d.pct >= 0 ? d.pct : -d.pct, 1) }}%
         </span>
         <span class="cc-hero-meta">
-          Neto {{ fmtMoneyShort(overview()?.revenue?.net) }} · IVA {{ fmtMoneyShort(overview()?.revenue?.tax) }}
+          Margen {{ fmtNumber(overview()?.revenue?.margin_pct, 1) }}% · {{ fmtNumber(overview()?.units) }} unidades
         </span>
       </span>
 
@@ -80,14 +78,39 @@
 
     <article class="cell cell-span-3">
       <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-check-circle"></i>
+        <i class="pi pi-wallet"></i>
       </span>
-      <span class="cell-label">Pedidos entregados</span>
-      <span class="cell-value" [appCountUp]="overview()?.orders?.fulfilled ?? 0" countUpFormat="int"></span>
+      <span class="cell-label">Margen bruto · 30d</span>
+      <span class="cell-value" [appCountUp]="overview()?.revenue?.margin ?? 0" countUpFormat="money-short"></span>
       <span class="cell-sub">
-        Ticket prom {{ fmtMoneyShort(overview()?.orders?.avg_order_value) }}
+        {{ fmtNumber(overview()?.revenue?.margin_pct, 1) }}% del ingreso · costo {{ fmtMoneyShort(overview()?.revenue?.cost) }}
       </span>
-      <div class="cc-minibars" *ngIf="ordersBars() as b" aria-hidden="true">
+    </article>
+
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true">
+        <i class="pi pi-receipt"></i>
+      </span>
+      <span class="cell-label">Tickets · 30d</span>
+      <span class="cell-value" [appCountUp]="overview()?.tickets ?? 0" countUpFormat="int"></span>
+      <span class="cell-sub">
+        Ticket prom {{ fmtMoneyShort(overview()?.avg_ticket) }}
+      </span>
+      <div class="cc-minibars" *ngIf="ticketsBars() as b" aria-hidden="true">
+        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+        </svg>
+      </div>
+    </article>
+
+    <article class="cell cell-span-3">
+      <span class="cell-icon" aria-hidden="true">
+        <i class="pi pi-users"></i>
+      </span>
+      <span class="cell-label">Clientes activos · 30d</span>
+      <span class="cell-value" [appCountUp]="overview()?.unique_customers ?? 0" countUpFormat="int"></span>
+      <span class="cell-sub">Compraron en la red en los últimos 30 días</span>
+      <div class="cc-minibars" *ngIf="unitsBars() as b" aria-hidden="true">
         <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
           <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
         </svg>
@@ -98,10 +121,10 @@
       <span class="cell-icon" aria-hidden="true">
         <i class="pi pi-sync"></i>
       </span>
-      <span class="cell-label">En curso</span>
-      <span class="cell-value" [appCountUp]="overview()?.orders?.confirmed ?? 0" countUpFormat="int"></span>
+      <span class="cell-label">En curso · B2B</span>
+      <span class="cell-value" [appCountUp]="overview()?.pipeline?.confirmed ?? 0" countUpFormat="int"></span>
       <span class="cell-sub">
-        {{ fmtNumber(overview()?.orders?.draft) }} borradores · {{ fmtNumber(overview()?.orders?.cancelled) }} cancelados
+        {{ fmtNumber(overview()?.pipeline?.draft) }} borradores · {{ fmtNumber(overview()?.pipeline?.cancelled) }} cancelados
       </span>
       <div class="cc-stack" *ngIf="pipelineStack() as p" aria-hidden="true">
         <span class="cc-stack-seg is-confirmed" [style.width.%]="p.confirmedPct"></span>
@@ -109,18 +132,28 @@
         <span class="cc-stack-seg is-cancelled" [style.width.%]="p.cancelledPct"></span>
       </div>
     </article>
+  </div>
 
-    <article class="cell cell-span-6">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-users"></i>
-      </span>
-      <span class="cell-label">Clientes únicos · 30d</span>
-      <span class="cell-value" [appCountUp]="overview()?.unique_customers ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">Compraron al menos una vez en los últimos 30 días</span>
-      <div class="cc-minibars" *ngIf="customersBars() as b" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
-          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
-        </svg>
+  <!-- SHEET 1.4: Ventas por canal (ruta vs mostrador vs preventa) -->
+  <div *ngIf="!loading() && channels().length > 0" class="sheet cols-12">
+    <article class="cell cell-span-12 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Ventas por canal · 30d</span>
+        <span class="comm-muted is-small">{{ channels().length }} canales</span>
+      </div>
+      <div class="cc-brand-list">
+        <div *ngFor="let c of channels()" class="cc-brand-row">
+          <div class="cc-brand-head">
+            <span class="cc-brand-name">{{ channelLabel(c.channel) }}</span>
+            <span class="cc-brand-share">
+              <b>{{ fmtNumber(c.share_pct, 1) }}%</b>
+              <span class="comm-muted is-small">{{ fmtMoneyShort(c.revenue) }} · {{ fmtNumber(c.tickets) }} tickets</span>
+            </span>
+          </div>
+          <div class="cc-bar" [style.--pct]="c.share_pct + '%'">
+            <div class="cc-bar-fill"></div>
+          </div>
+        </div>
       </div>
     </article>
   </div>
@@ -170,11 +203,11 @@
     </article>
   </div>
 
-  <!-- SHEET 2: Mix por marca -->
+  <!-- SHEET 2: Mix por marca (venta real) -->
   <div *ngIf="!loading()" class="sheet cols-12">
     <article class="cell cell-span-12 is-flush">
       <div class="cell-head">
-        <span class="cell-label">Mix por marca · % de ventas</span>
+        <span class="cell-label">Mix por marca · % de venta real 30d</span>
         <span class="comm-muted is-small">{{ salesByBrand().length }} marcas</span>
       </div>
       <div class="cc-brand-list">
@@ -194,68 +227,21 @@
           </div>
         </div>
         <div *ngIf="salesByBrand().length === 0" class="cc-table-empty">
-          <i class="pi pi-chart-pie"></i>Sin ventas por marca
+          <i class="pi pi-chart-pie"></i>Sin venta real por marca
         </div>
       </div>
     </article>
   </div>
 
-  <!-- SHEET 3: Top customers + Top products -->
+  <!-- SHEET 3: Top productos (venta real) + Top clientes (red) -->
   <div *ngIf="!loading()" class="sheet cols-12">
     <article class="cell cell-span-6 is-flush">
       <div class="cell-head">
-        <span class="cell-label">Top clientes · 30d</span>
-        <span class="comm-muted is-small">{{ topCustomers().length }}</span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table" aria-label="Top clientes por ventas en 30 días">
-          <thead>
-            <tr>
-              <th scope="col" style="width:36px">#</th>
-              <th scope="col">Cliente</th>
-              <th scope="col" class="num">Pedidos</th>
-              <th scope="col" class="num">Ventas</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              *ngFor="let r of topCustomers(); let i = index"
-              class="is-clickable"
-              role="button"
-              tabindex="0"
-              [attr.aria-label]="'Ver 360° de ' + r.name"
-              (click)="openCustomer(r)"
-              (keydown.enter)="openCustomer(r)"
-              (keydown.space)="$event.preventDefault(); openCustomer(r)"
-            >
-              <td><span class="cc-rank-badge">{{ r.rank || i + 1 }}</span></td>
-              <td>
-                <div class="strong">{{ r.name }}</div>
-                <div class="muted small">{{ r.code }}</div>
-              </td>
-              <td class="num">{{ fmtNumber(r.orders_count) }}</td>
-              <td class="num">
-                <div class="strong">{{ fmtMoney(r.revenue) }}</div>
-                <div class="muted small">{{ fmtNumber(topShareCustomer(r.revenue), 1) }}%</div>
-              </td>
-            </tr>
-            <tr *ngIf="topCustomers().length === 0">
-              <td colspan="4" class="cc-table-empty">
-                <i class="pi pi-users"></i>Sin ventas en el período
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-
-    <article class="cell cell-span-6 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Top productos · 30d</span>
+        <span class="cell-label">Top productos · venta real 30d</span>
         <span class="comm-muted is-small">{{ topProducts().length }}</span>
       </div>
       <div class="data-table-wrap">
-        <table class="data-table" aria-label="Top productos por ventas en 30 días">
+        <table class="data-table" aria-label="Top productos por venta real 30 días">
           <thead>
             <tr>
               <th scope="col" style="width:36px">#</th>
@@ -277,7 +263,10 @@
             >
               <td><span class="cc-rank-badge">{{ r.rank_by_revenue || i + 1 }}</span></td>
               <td>
-                <div class="strong">{{ r.product_name }}</div>
+                <div class="strong">
+                  {{ r.product_name }}
+                  <span *ngIf="r.abc_class" class="comm-pill no-dot cc-abc" [class]="abcTone(r.abc_class)">{{ r.abc_class }}</span>
+                </div>
                 <div class="muted small">{{ r.brand_name }}</div>
               </td>
               <td class="num">{{ fmtNumber(r.units_sold, 0) }}</td>
@@ -288,7 +277,42 @@
             </tr>
             <tr *ngIf="topProducts().length === 0">
               <td colspan="4" class="cc-table-empty">
-                <i class="pi pi-box"></i>Sin ventas en el período
+                <i class="pi pi-box"></i>Sin venta real en el período
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="cell cell-span-6 is-flush">
+      <div class="cell-head">
+        <span class="cell-label">Top clientes · red 180d</span>
+        <span class="comm-muted is-small">{{ netCustomers().length }}</span>
+      </div>
+      <div class="data-table-wrap">
+        <table class="data-table" aria-label="Top clientes reales de la red">
+          <thead>
+            <tr>
+              <th scope="col" style="width:36px">#</th>
+              <th scope="col">Cliente</th>
+              <th scope="col">Última compra</th>
+              <th scope="col" class="num">Ventas 180d</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let c of netCustomers(); let i = index">
+              <td><span class="cc-rank-badge">{{ i + 1 }}</span></td>
+              <td>
+                <div class="strong">{{ c.name }}</div>
+                <div class="muted small">{{ c.city || c.erp_code }}</div>
+              </td>
+              <td>{{ fmtDate(c.last_purchase) }}</td>
+              <td class="num strong">{{ fmtMoney(c.rev_180d) }}</td>
+            </tr>
+            <tr *ngIf="netCustomers().length === 0">
+              <td colspan="4" class="cc-table-empty">
+                <i class="pi pi-users"></i>Sin clientes en la red
               </td>
             </tr>
           </tbody>
@@ -297,7 +321,7 @@
     </article>
   </div>
 
-  <!-- SHEET 5: Stock bajo + Inactivos -->
+  <!-- SHEET 5: Stock bajo + Inactivos B2B -->
   <div *ngIf="!loading()" class="sheet cols-12">
     <article class="cell cell-span-6 is-flush">
       <div class="cell-head">
@@ -356,7 +380,7 @@
 
     <article class="cell cell-span-6 is-flush">
       <div class="cell-head">
-        <span class="cell-label">Clientes inactivos · &gt; 30 días</span>
+        <span class="cell-label">Clientes B2B inactivos · &gt; 30 días</span>
         <span class="comm-pill is-info no-dot" *ngIf="inactiveCustomers()">
           {{ inactiveCustomers()!.customers.length }}
         </span>
@@ -446,7 +470,7 @@
     </article>
   </div>
 
-  <!-- Side-peek: drill-down 360° del cliente (DESIGN.md regla #8) -->
+  <!-- Side-peek: drill-down 360° del cliente B2B (inactivos) -->
   <app-side-peek
     [open]="peekOpen()"
     (openChange)="peekOpen.set($event)"
@@ -476,10 +500,6 @@
           <div class="cc-peek-metric">
             <span class="cc-peek-label">Ventas · 30d</span>
             <span class="cc-peek-val">{{ fmtMoneyShort(p.revenue) }}</span>
-          </div>
-          <div class="cc-peek-metric">
-            <span class="cc-peek-label">Pedidos · 30d</span>
-            <span class="cc-peek-val">{{ fmtNumber(p.orders_count) }}</span>
           </div>
         }
         <div class="cc-peek-metric">

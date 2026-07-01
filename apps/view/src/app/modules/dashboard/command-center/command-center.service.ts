@@ -85,6 +85,59 @@ export interface RefreshResponse {
   results: Array<{ mv: string; ok: boolean; ms?: number; error?: string }>;
 }
 
+// ───── Venta REAL de la red (analytics.*, feeds Kepler) — Command Center ─────
+
+export interface NetworkChannelRow {
+  channel: string;
+  revenue: number;
+  units: number;
+  tickets: number;
+  share_pct: number;
+}
+
+export interface NetworkOverviewResponse {
+  source: 'network';
+  updated_at: string | null;
+  period: { rolling_days: number };
+  revenue: { gross: number; cost: number; margin: number; margin_pct: number; currency: string };
+  units: number;
+  tickets: number;
+  avg_ticket: number;
+  unique_customers: number;
+  by_channel: NetworkChannelRow[];
+  pipeline: { confirmed: number; draft: number; cancelled: number };
+}
+
+export interface NetworkTopProductRow {
+  source: 'network';
+  product_id: string;
+  product_name: string;
+  brand_name: string;
+  units_sold: number;
+  revenue: number;
+  abc_class: string | null;
+  share_pct: number;
+  rank_by_revenue: number;
+}
+
+export interface NetworkDailyRow {
+  day: string;
+  revenue: number;
+  units: number;
+  tickets: number;
+}
+
+/** KV.3 — cliente real de la red (Kepler) con compra agregada. */
+export interface ErpCustomerRow {
+  erp_code: string;
+  name: string;
+  rfc: string | null;
+  city: string | null;
+  last_purchase: string | null;
+  rev_180d: number;
+  products: number;
+}
+
 export interface DailySeriesRow {
   day: string;
   orders_count: number;
@@ -201,6 +254,34 @@ export class CommandCenterService {
 
   overview(): Observable<OverviewResponse> {
     return this.http.get<OverviewResponse>(`${this.base}/overview`);
+  }
+
+  // ── Venta real de la red (analytics.*) ──
+
+  networkOverview(): Observable<NetworkOverviewResponse> {
+    return this.http.get<NetworkOverviewResponse>(`${this.base}/network/overview`);
+  }
+
+  networkTopProducts(limit = 8): Observable<NetworkTopProductRow[]> {
+    const params = new HttpParams().set('limit', limit);
+    return this.http.get<NetworkTopProductRow[]>(`${this.base}/network/top-products`, { params });
+  }
+
+  networkSalesByBrand(): Observable<SalesByBrandRow[]> {
+    return this.http.get<SalesByBrandRow[]>(`${this.base}/network/sales-by-brand`);
+  }
+
+  networkDailySeries(from?: string, to?: string): Observable<NetworkDailyRow[]> {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<NetworkDailyRow[]>(`${this.base}/network/daily-series`, { params });
+  }
+
+  /** Top clientes reales de la red (KV.3). Reusa el endpoint erp-customers. */
+  erpCustomers(limit = 6): Observable<ErpCustomerRow[]> {
+    const params = new HttpParams().set('limit', limit);
+    return this.http.get<ErpCustomerRow[]>(`${this.base}/erp-customers`, { params });
   }
 
   topCustomers(limit = 5): Observable<TopCustomerRow[]> {

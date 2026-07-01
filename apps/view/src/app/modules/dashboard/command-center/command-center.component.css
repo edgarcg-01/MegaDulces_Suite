@@ -264,3 +264,6 @@
   text-align: center;
 }
 .cc-peek-empty i { font-size: var(--fs-h2); opacity: 0.5; }
+
+/* Badge ABC junto al nombre del producto (Top productos venta real). */
+.cc-abc { margin-left: .4rem; font-size: .68rem; font-weight: 700; letter-spacing: .02em; }

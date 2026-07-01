@@ -15,6 +15,7 @@ import {
   SellOutCell,
   SellOutParams,
   SellOutReport,
+  SellOutWarehouseRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -103,6 +104,13 @@ const CHANNEL_OPTS = [
             </div>
           }
         }
+
+        <div class="so-field">
+          <label>Almacenes</label>
+          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
+                         placeholder="Todos" [showClear]="true" [loading]="loadingWarehouses()"
+                         appendTo="body" styleClass="w-full" />
+        </div>
 
         <div class="so-field">
           <label>Canales</label>
@@ -275,24 +283,39 @@ const CHANNEL_OPTS = [
     .so-matrix-head { display:flex; align-items:baseline; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; }
     .so-matrix-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
     .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; --so-h1:2.15rem; }
-    .so-matrix th, .so-matrix td { border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.3rem .5rem; }
+    /* Reglas horizontales solamente; verticales SOLO en fronteras de grupo (look de reporte, no de hoja de cálculo). */
+    .so-matrix th, .so-matrix td { border-bottom:1px solid var(--border); padding:.34rem .6rem; }
     .so-matrix thead th { background:var(--layout-bg); font-weight:700; text-align:center; position:sticky; top:0; z-index:2; }
     /* Header de 2 niveles: la sub-fila (Cajas/Monto) baja bajo la fila de grupos, si no se solapan al hacer scroll. */
     .so-matrix thead tr:first-child th { height:var(--so-h1); top:0; }
-    .so-matrix thead tr:nth-child(2) th { top:var(--so-h1); }
-    .so-matrix thead th.grp { text-align:center; }
+    .so-matrix thead tr:nth-child(2) th { top:var(--so-h1); border-bottom:2px solid var(--border-color); }
+    .so-matrix thead th.c0, .so-matrix thead th.c1 { text-align:left; }
+    .so-matrix thead th.c2 { text-align:right; }
+    .so-matrix thead th.grp { text-align:center; font-size:.72rem; border-right:1px solid var(--border); }
     .so-matrix thead th.grp.tot { background:var(--surface-selected-bg); }
-    .so-matrix .sub { font-size:.7rem; font-weight:600; color:var(--text-muted); }
+    /* Sub-headers Cajas/Monto: micro-label alineado a su número. */
+    .so-matrix .sub { font-size:.66rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; text-align:right; }
+    /* Separador continuo en cada frontera de grupo-sucursal (fin de cada Monto). */
     .so-matrix .m { border-right:1px solid var(--border); }
-    .so-matrix td.n { text-align:right; font-variant-numeric:tabular-nums; }
+    /* Números: Cajas = secundario (muted), Monto = primario (fuerte). */
+    .so-matrix td.n { text-align:right; font-variant-numeric:tabular-nums; min-width:64px; }
+    .so-matrix td.n:not(.m):not(.b) { color:var(--text-muted); }
     .so-matrix td.name { max-width:280px; overflow:hidden; text-overflow:ellipsis; }
-    .so-matrix td.mono { font-family:var(--font-mono); }
+    .so-matrix td.mono { font-family:var(--font-mono); font-size:.74rem; }
     .so-matrix td.b { font-weight:700; }
+    /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
     .so-matrix .frz { position:sticky; background:var(--card-bg); z-index:1; }
     .so-matrix thead .frz { z-index:3; }
+    .so-matrix .c0, .so-matrix .c1 { border-right:1px solid var(--border); }
     .so-matrix .c0 { left:0; } .so-matrix .c1 { left:70px; } .so-matrix .c2 { left:350px; }
-    /* Sombra de scroll: señala que hay columnas ocultas a la derecha del bloque congelado. */
     .so-matrix .c2 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
+    /* Columna TOTAL: resumen destacado (tinte + borde izquierdo marcado, header→foot). */
+    .so-matrix tbody td:last-child, .so-matrix tbody td:nth-last-child(2),
+    .so-matrix tfoot td:last-child, .so-matrix tfoot td:nth-last-child(2) { background:var(--surface-selected-bg); }
+    .so-matrix tbody td:nth-last-child(2),
+    .so-matrix tfoot td:nth-last-child(2),
+    .so-matrix thead tr:first-child th.tot,
+    .so-matrix thead tr:nth-child(2) th:nth-last-child(2) { border-left:2px solid var(--border-color); }
     .so-matrix tbody tr:hover td:not(.frz) { background:var(--table-hover); }
     .so-matrix tbody tr:hover td.frz { background:var(--hover-bg); }
     .so-matrix tfoot td { position:sticky; bottom:0; background:var(--surface-selected-bg); font-weight:700; z-index:2; }
@@ -352,8 +375,12 @@ export class ComercialSellOutComponent {
   quarter = 1;
   year = new Date().getFullYear();
   channels: string[] = [];
+  warehouses: string[] = [];
   byChannel = true;
   includeZeros = false;
+
+  warehouseOpts = signal<SellOutWarehouseRow[]>([]);
+  loadingWarehouses = signal(false);
 
   private curFrom = '';
   private curTo = '';
@@ -374,6 +401,7 @@ export class ComercialSellOutComponent {
     this.quarter = Math.floor(this.monthDate.getMonth() / 3) + 1;
     this.syncPeriod();
     this.loadBrands();
+    this.loadWarehouses();
   }
 
   private loadBrands() {
@@ -383,6 +411,16 @@ export class ComercialSellOutComponent {
       .subscribe({
         next: (b) => { this.brands.set(b); this.loadingBrands.set(false); },
         error: () => { this.loadingBrands.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar empresas' }); },
+      });
+  }
+
+  private loadWarehouses() {
+    this.loadingWarehouses.set(true);
+    this.svc.sellOutWarehouses()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (w) => { this.warehouseOpts.set(w); this.loadingWarehouses.set(false); },
+        error: () => { this.loadingWarehouses.set(false); },
       });
   }
 
@@ -435,6 +473,7 @@ export class ComercialSellOutComponent {
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
       channels: this.channels.length ? this.channels : undefined,
+      warehouses: this.warehouses.length ? this.warehouses : undefined,
       include_zeros: this.includeZeros,
     };
   }

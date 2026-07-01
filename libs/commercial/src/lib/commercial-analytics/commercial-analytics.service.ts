@@ -33,7 +33,49 @@ export interface SellOutQuery {
   to: string;
   group_by?: SellOutGroupBy;
   channels?: string[];
+  /** Códigos de almacén (commercial.warehouses.code) a incluir. Vacío = todos. */
+  warehouses?: string[];
   include_zeros?: boolean;
+}
+
+export interface SellOutWarehouseRow {
+  code: string;
+  name: string;
+}
+
+// ── Fase SAL — Salidas/Ventas por Producto ──
+export interface SalidasQuery {
+  year: number;
+  warehouses?: string[];
+  brand_id?: string;
+  supplier_id?: string;
+  search?: string;
+}
+
+export interface SalidasRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  product_id: string;
+  sku: string;
+  nombre: string;
+  uxc: number | null;
+  supplier: string | null;
+  brand: string | null;
+  costo_civa: number | null;
+  costo_caja: number | null;
+  exist_paq: number;
+  exist_cja: number;
+  costo_existencia: number;
+  monthly: Record<string, { venta: number; costo: number }>;
+  venta_total: number;
+  costo_total: number;
+}
+
+export interface SalidasReport {
+  year: number;
+  months: string[];
+  rows: SalidasRow[];
+  generated_at: string;
 }
 
 export interface SellOutColumn {
@@ -952,6 +994,188 @@ export class CommercialAnalyticsService {
 
   // ─────────── KV.3/5/6 — consumo de analytics.* (venta real Kepler) ───────────
 
+  // ── Command Center sobre VENTA REAL de la red (analytics.*, no commercial.orders) ──
+  // Estos leen las tablas KV.1/2/3 que los feeds Kepler aterrizan en el platform DB
+  // (funcionan en prod). analytics.* NO tiene RLS → filtro tenant_id explícito.
+
+  /** Ventana rolling 30d en TZ MX como expresión SQL reusable. */
+  private since30d(trx: any) {
+    return trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date - 29)`);
+  }
+
+  /**
+   * KPIs del Command Center desde `analytics.sales_daily` (venta real 30d):
+   * venta bruta, costo→margen, unidades, tickets, ticket prom, mix por canal +
+   * clientes activos (KV.3). El pipeline (draft/confirmed/cancelled) se conserva
+   * de `commercial.orders` — es el único bloque que sigue en data de plataforma.
+   */
+  async networkOverview() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const [tot] = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .select(
+          trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
+          trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
+          trx.raw('MAX(updated_at) AS updated_at'),
+        );
+
+      const channels = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .groupBy('channel')
+        .select(
+          'channel',
+          trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
+        )
+        .orderByRaw('SUM(revenue) DESC');
+
+      const [cust] = await trx('analytics.customer_product_sales')
+        .where('tenant_id', tenantId)
+        .andWhere('last_purchase_date', '>=', this.since30d(trx))
+        .countDistinct<{ n: string }[]>('erp_code as n');
+
+      const pipeRows: any[] = await trx('commercial.orders')
+        .whereNull('deleted_at')
+        .whereIn('status', ['confirmed', 'draft', 'cancelled'])
+        .andWhere('created_at', '>=', this.since30d(trx))
+        .groupBy('status')
+        .select('status', trx.raw('count(*)::int AS n'));
+      const pipe = (s: string) => Number(pipeRows.find((r) => r.status === s)?.n || 0);
+
+      const revenue = Number(tot?.revenue || 0);
+      const cost = Number(tot?.cost || 0);
+      const margin = revenue - cost;
+      const tickets = Number(tot?.tickets || 0);
+
+      return {
+        source: 'network',
+        updated_at: tot?.updated_at || null,
+        period: { rolling_days: 30 },
+        revenue: {
+          gross: revenue,
+          cost,
+          margin,
+          margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
+          currency: 'MXN',
+        },
+        units: Number(tot?.units || 0),
+        tickets,
+        avg_ticket: tickets > 0 ? +(revenue / tickets).toFixed(2) : 0,
+        unique_customers: Number(cust?.n || 0),
+        by_channel: channels.map((c: any) => ({
+          channel: c.channel,
+          revenue: Number(c.revenue),
+          units: Number(c.units),
+          tickets: Number(c.tickets),
+          share_pct: revenue > 0 ? +((Number(c.revenue) / revenue) * 100).toFixed(1) : 0,
+        })),
+        pipeline: {
+          confirmed: pipe('confirmed'),
+          draft: pipe('draft'),
+          cancelled: pipe('cancelled'),
+        },
+      };
+    });
+  }
+
+  /** Top productos por venta real 30d desde `analytics.product_sales_stats` (KV.2) + ABC. */
+  async networkTopProducts(limitParam?: number | string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await trx('analytics.product_sales_stats AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.revenue_30d', '>', 0)
+        .select(
+          's.product_id',
+          'p.nombre AS product_name',
+          'b.nombre AS brand_name',
+          trx.raw('s.units_30d::numeric AS units_sold'),
+          trx.raw('s.revenue_30d::numeric AS revenue'),
+          's.abc_class',
+          trx.raw('s.revenue_share_pct::numeric AS share_pct'),
+        )
+        .orderBy('s.revenue_30d', 'desc')
+        .limit(limit);
+      return rows.map((r, i) => ({
+        source: 'network',
+        product_id: r.product_id,
+        product_name: r.product_name,
+        brand_name: r.brand_name || '—',
+        units_sold: Number(r.units_sold),
+        revenue: Number(r.revenue),
+        abc_class: r.abc_class || null,
+        share_pct: Number(r.share_pct || 0),
+        rank_by_revenue: i + 1,
+      }));
+    });
+  }
+
+  /** Mix por marca sobre venta real 30d (analytics.sales_daily join catalog.*). */
+  async networkSalesByBrand() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await trx('analytics.sales_daily AS s')
+        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.sale_date', '>=', this.since30d(trx))
+        .groupBy('b.id', 'b.nombre')
+        .select(
+          'b.id AS brand_id',
+          'b.nombre AS brand_name',
+          trx.raw('COALESCE(SUM(s.units),0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+        )
+        .orderByRaw('SUM(s.revenue) DESC')
+        .limit(20);
+      const total = rows.reduce((a, r) => a + Number(r.revenue), 0);
+      return rows.map((r) => ({
+        brand_id: r.brand_id,
+        brand_name: r.brand_name || 'Sin marca',
+        units: Number(r.units),
+        revenue: Number(r.revenue),
+        share_pct: total > 0 ? +((Number(r.revenue) / total) * 100).toFixed(2) : 0,
+      }));
+    });
+  }
+
+  /** Serie diaria de venta real (revenue/units/tickets) para el sparkline del hero. */
+  async networkDailySeries(q: DateRangeQuery) {
+    const { from, to } = this.parseDateRange(q);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
+        .modify((qb) => {
+          if (from) qb.where('sale_date', '>=', from);
+          if (to) qb.where('sale_date', '<=', to);
+        })
+        .groupBy('sale_date')
+        .select(
+          trx.raw('sale_date::text AS day'),
+          trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
+          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
+        )
+        .orderBy('sale_date', 'asc');
+      return rows.map((r) => ({
+        day: r.day,
+        revenue: Number(r.revenue),
+        units: Number(r.units),
+        tickets: Number(r.tickets),
+      }));
+    });
+  }
+
   /** KV.5 — Salud de inventario: días de cobertura + status por producto×almacén. */
   async inventoryHealth(q: { warehouse_id?: string; status?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -1117,6 +1341,9 @@ export class CommercialAnalyticsService {
     const channelFilter = (q.channels && q.channels.length)
       ? new Set(q.channels.map((c) => c.trim().toLowerCase()).filter(Boolean))
       : null;
+    const warehouseFilter = (q.warehouses && q.warehouses.length)
+      ? q.warehouses.map((w) => w.trim()).filter(Boolean)
+      : null;
 
     const tenantId = this.tenantCtx.requireTenantId();
 
@@ -1155,6 +1382,7 @@ export class CommercialAnalyticsService {
         .andWhere('p.brand_id', brandId)
         .andWhere('sd.sale_date', '>=', from)
         .andWhere('sd.sale_date', '<=', to)
+        .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
         .select(
           'w.code as branch_code',
           'w.name as branch_name',
@@ -1174,6 +1402,7 @@ export class CommercialAnalyticsService {
         .where('sd.tenant_id', tenantId)
         .andWhere('sd.sale_date', '>=', from)
         .andWhere('sd.sale_date', '<=', to)
+        .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
         .distinct('w.name as name')
         .orderBy('w.name');
 
@@ -1319,6 +1548,130 @@ export class CommercialAnalyticsService {
       if (term) q = q.where('b.nombre', 'ilike', `%${term}%`);
       return q;
     });
+  }
+
+  /** Almacenes/sucursales con venta en analytics.sales_daily — para el selector. */
+  async sellOutWarehouses(): Promise<SellOutWarehouseRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.sales_daily as sd')
+        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+        .where('sd.tenant_id', tenantId)
+        .distinct('w.code as code', 'w.name as name')
+        .orderBy('w.code');
+      return rows as SellOutWarehouseRow[];
+    });
+  }
+
+  /**
+   * SAL — Reporte Salidas/Ventas por Producto: fila por (sucursal, producto)
+   * con venta+costo mensual, existencia actual, costos y proveedor/marca.
+   * Venta mensual = unidades reales (analytics.product_sales_monthly, feed live
+   * Kepler U/D/10). Costo mensual = venta × costo_por_caja (fórmula del ERP).
+   */
+  async salidasReport(q: SalidasQuery): Promise<SalidasReport> {
+    const year = Number(q.year) || new Date().getFullYear();
+    if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+    const from = `${year}-01-01`;
+    const to = `${year + 1}-01-01`;
+    const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const brandId = q.brand_id && RS_UUID.test(q.brand_id) ? q.brand_id : null;
+    const supplierId = q.supplier_id && RS_UUID.test(q.supplier_id) ? q.supplier_id : null;
+    const term = (q.search || '').trim();
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    const { salesRows, metaRows } = await this.tk.run(async (trx) => {
+      const applyFilters = (qb: any) => {
+        if (whFilter) qb.whereIn('w.code', whFilter);
+        if (brandId) qb.andWhere('p.brand_id', brandId);
+        if (supplierId) qb.andWhere('p.supplier_id', supplierId);
+        if (term) qb.andWhere((b: any) => b.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
+      };
+
+      // Venta mensual por (sucursal, producto, mes).
+      const sq = trx('analytics.product_sales_monthly as m')
+        .join('catalog.products as p', 'p.id', 'm.product_id')
+        .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .where('m.tenant_id', tenantId)
+        .andWhere('m.month', '>=', from)
+        .andWhere('m.month', '<', to)
+        .select('w.code as wcode', 'm.product_id as product_id', trx.raw(`to_char(m.month,'MM') as mes`))
+        .sum({ units: 'm.units' })
+        .groupByRaw(`w.code, m.product_id, to_char(m.month,'MM')`);
+      applyFilters(sq);
+
+      // Meta + existencia por (sucursal, producto) con venta en el año.
+      const mq = trx('analytics.product_sales_monthly as m')
+        .join('catalog.products as p', 'p.id', 'm.product_id')
+        .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('commercial.stock as st', function (this: any) {
+          this.on('st.product_id', 'm.product_id').andOn('st.warehouse_id', 'm.warehouse_id').andOn('st.tenant_id', 'm.tenant_id');
+        })
+        .where('m.tenant_id', tenantId)
+        .andWhere('m.month', '>=', from)
+        .andWhere('m.month', '<', to)
+        .distinct(
+          'w.code as wcode', 'w.name as wname', 'm.product_id as product_id',
+          'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
+          'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
+          's.name as supplier', 'b.nombre as brand', 'st.quantity as stock_qty',
+        );
+      applyFilters(mq);
+
+      return { salesRows: await sq, metaRows: await mq };
+    });
+
+    // Merge en Node.
+    const monthsSet = new Set<string>();
+    const salesByKey = new Map<string, Record<string, number>>();
+    for (const r of salesRows as any[]) {
+      const key = `${r.wcode}|${r.product_id}`;
+      monthsSet.add(r.mes);
+      (salesByKey.get(key) ?? salesByKey.set(key, {}).get(key)!)[r.mes] = Number(r.units) || 0;
+    }
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const rows: SalidasRow[] = (metaRows as any[]).map((r) => {
+      const key = `${r.wcode}|${r.product_id}`;
+      const factor = Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 1;
+      const costCase = r.cost_per_case != null ? Number(r.cost_per_case) : 0;
+      const months = salesByKey.get(key) ?? {};
+      const monthly: Record<string, { venta: number; costo: number }> = {};
+      let ventaTotal = 0, costoTotal = 0;
+      for (const [mes, venta] of Object.entries(months)) {
+        const costo = round(venta * costCase);
+        monthly[mes] = { venta: round(venta, 2), costo };
+        ventaTotal += venta;
+        costoTotal += costo;
+      }
+      const existPaq = Number(r.stock_qty) || 0;
+      const existCja = round(existPaq / factor, 2);
+      return {
+        warehouse_code: r.wcode,
+        warehouse_name: r.wname,
+        product_id: r.product_id,
+        sku: r.sku,
+        nombre: r.nombre,
+        uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+        supplier: r.supplier ?? null,
+        brand: r.brand ?? null,
+        costo_civa: r.cost_with_tax != null ? Number(r.cost_with_tax) : null,
+        costo_caja: r.cost_per_case != null ? Number(r.cost_per_case) : null,
+        exist_paq: existPaq,
+        exist_cja: existCja,
+        costo_existencia: round(existCja * costCase),
+        monthly,
+        venta_total: round(ventaTotal, 2),
+        costo_total: round(costoTotal),
+      };
+    });
+    rows.sort((a, b) =>
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es') || b.venta_total - a.venta_total,
+    );
+
+    const months = Array.from(monthsSet).sort();
+    return { year, months, rows, generated_at: new Date().toISOString() };
   }
 
   private sellOutCoverage(

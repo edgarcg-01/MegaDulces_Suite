@@ -189,6 +189,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
       },
       {
+        path: 'salidas',
+        loadComponent: () => import('./modules/comercial/pages/comercial-salidas.component').then(m => m.ComercialSalidasComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
         path: 'thot-chat',
         loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]

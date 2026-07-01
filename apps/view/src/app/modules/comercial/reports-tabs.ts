@@ -8,4 +8,10 @@ export const REPORTS_TABS: PageTab[] = [
     icon: 'pi pi-file-excel',
     permission: Permission.COMMERCIAL_ORDERS_VER,
   },
+  {
+    label: 'Salidas por producto',
+    route: '/comercial/salidas',
+    icon: 'pi pi-box',
+    permission: Permission.COMMERCIAL_ORDERS_VER,
+  },
 ];

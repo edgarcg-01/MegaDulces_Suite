@@ -286,6 +286,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Reportes',
       items: [
         { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_ORDERS_VER },
       ],
     },
   ];

@@ -34,6 +34,39 @@ export class CommercialAnalyticsController {
     return this.service.overview({ from, to, live: live === 'true' });
   }
 
+  // ── VENTA REAL de la red (analytics.*, feeds Kepler) — Command Center ──
+
+  @Get('network/overview')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'KPIs 30d sobre VENTA REAL de la red (analytics.sales_daily): bruto, margen, unidades, tickets, mix por canal + clientes activos (KV.3) + pipeline B2B.',
+  })
+  networkOverview() {
+    return this.service.networkOverview();
+  }
+
+  @Get('network/top-products')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Top productos por venta real 30d (analytics.product_sales_stats + ABC)' })
+  networkTopProducts(@Query('limit') limit?: string) {
+    return this.service.networkTopProducts(limit);
+  }
+
+  @Get('network/sales-by-brand')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Mix por marca sobre venta real 30d + share %' })
+  networkSalesByBrand() {
+    return this.service.networkSalesByBrand();
+  }
+
+  @Get('network/daily-series')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Serie diaria de venta real (revenue/units/tickets) para sparklines' })
+  networkDailySeries(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.networkDailySeries({ from, to });
+  }
+
   @Get('top-customers')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({ summary: 'Top N customers por revenue (MV rolling 30d o live)' })
@@ -273,11 +306,18 @@ export class CommercialAnalyticsController {
     return this.service.sellOutBrands(search);
   }
 
+  @Get('sell-out/warehouses')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta (para el selector del reporte).' })
+  sellOutWarehouses() {
+    return this.service.sellOutWarehouses();
+  }
+
   @Get('sell-out')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
     summary:
-      'RS — Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto. Fuente = consolidación Kepler (mart.ventas). Params: brand_id, from, to, group_by=branch|branch_channel, channels=csv, include_zeros=true.',
+      'RS — Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto. Fuente = analytics.sales_daily. Params: brand_id, from, to, group_by=branch|branch_channel, channels=csv, warehouses=csv (códigos), include_zeros=true.',
   })
   sellOut(
     @Query('brand_id') brandId: string,
@@ -285,16 +325,12 @@ export class CommercialAnalyticsController {
     @Query('to') to: string,
     @Query('group_by') groupBy?: 'branch' | 'branch_channel',
     @Query('channels') channels?: string,
+    @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
   ) {
-    return this.service.sellOut({
-      brand_id: brandId,
-      from,
-      to,
-      group_by: groupBy,
-      channels: channels ? channels.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
-      include_zeros: includeZeros === 'true',
-    });
+    return this.service.sellOut(
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros),
+    );
   }
 
   @Get('sell-out.xlsx')
@@ -307,16 +343,12 @@ export class CommercialAnalyticsController {
     @Query('to') to: string,
     @Query('group_by') groupBy?: 'branch' | 'branch_channel',
     @Query('channels') channels?: string,
+    @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
   ) {
-    const report = await this.service.sellOut({
-      brand_id: brandId,
-      from,
-      to,
-      group_by: groupBy,
-      channels: channels ? channels.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
-      include_zeros: includeZeros === 'true',
-    });
+    const report = await this.service.sellOut(
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros),
+    );
     const buf = await this.exporter.buildXlsx(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -332,18 +364,80 @@ export class CommercialAnalyticsController {
     @Query('to') to: string,
     @Query('group_by') groupBy?: 'branch' | 'branch_channel',
     @Query('channels') channels?: string,
+    @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
   ) {
-    const report = await this.service.sellOut({
+    const report = await this.service.sellOut(
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros),
+    );
+    const buf = await this.exporter.buildPdf(report);
+    this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
+  }
+
+  @Get('salidas')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'SAL — Salidas/Ventas por Producto: fila por sucursal×producto con venta+costo mensual, existencia y costos. Params: year, warehouses=csv, brand_id, supplier_id, search.',
+  })
+  salidas(
+    @Query('year') year?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('supplier_id') supplierId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.salidasReport({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      brand_id: brandId,
+      supplier_id: supplierId,
+      search,
+    });
+  }
+
+  @Get('salidas.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'SAL — Descarga XLSX de Salidas por Producto (mismos params que /salidas).' })
+  async salidasXlsx(
+    @Res() res: Response,
+    @Query('year') year?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('supplier_id') supplierId?: string,
+    @Query('search') search?: string,
+  ) {
+    const report = await this.service.salidasReport({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      brand_id: brandId,
+      supplier_id: supplierId,
+      search,
+    });
+    const buf = await this.exporter.buildSalidasXlsx(report);
+    this.sendFile(res, buf, this.exporter.salidasFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  private parseSellOutQuery(
+    brandId: string,
+    from: string,
+    to: string,
+    groupBy?: 'branch' | 'branch_channel',
+    channels?: string,
+    warehouses?: string,
+    includeZeros?: string,
+  ) {
+    const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
+    return {
       brand_id: brandId,
       from,
       to,
       group_by: groupBy,
-      channels: channels ? channels.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      channels: csv(channels),
+      warehouses: csv(warehouses),
       include_zeros: includeZeros === 'true',
-    });
-    const buf = await this.exporter.buildPdf(report);
-    this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
+    };
   }
 
   private sendFile(res: Response, buf: Buffer, filename: string, contentType: string) {

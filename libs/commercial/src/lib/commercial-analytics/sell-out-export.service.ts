@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
-import type { SellOutReport, SellOutColumn } from './commercial-analytics.service';
+import type { SellOutReport, SellOutColumn, SalidasReport } from './commercial-analytics.service';
+
+const MONTH_LABEL: Record<string, string> = {
+  '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
+  '07': 'Julio', '08': 'Agosto', '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre',
+};
 
 /**
  * Exporta un {@link SellOutReport} a XLSX (ExcelJS) y PDF (puppeteer), con el
@@ -141,6 +146,58 @@ export class SellOutExportService {
     ws.getColumn(3).width = 6;
     for (let c = 4; c <= totalCols; c++) ws.getColumn(c).width = 12;
 
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
+
+  // ─────────── SAL — Salidas/Ventas por Producto (XLSX estilo Kepler) ───────────
+
+  salidasFileName(report: SalidasReport): string {
+    return `Salidas_por_Producto_${report.year}.xlsx`;
+  }
+
+  async buildSalidasXlsx(report: SalidasReport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    const ws = wb.addWorksheet('Salidas por Producto', { views: [{ state: 'frozen', ySplit: 1 }] });
+    const months = report.months;
+
+    const headBase = ['#', 'Sucursal', 'Clave producto', 'Descripcion del producto', 'UXC', 'SN', 'CN', 'CostoCIVA', 'CostoXCaja', 'Exist. Paq. Actual', 'Exist. Cja. Actual', 'Costo Caja'];
+    const head: string[] = [...headBase];
+    for (const m of months) { head.push(`Venta ${MONTH_LABEL[m] ?? m}`, `Costo ${MONTH_LABEL[m] ?? m}`); }
+    head.push('Venta TOTAL');
+    ws.addRow(head);
+    const hr = ws.getRow(1);
+    hr.eachCell((c) => {
+      c.font = { bold: true, size: 9 };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4F4F5' } };
+      c.border = this.thin();
+    });
+    hr.height = 28;
+
+    const MONEY = '$#,##0.00';
+    report.rows.forEach((r, i) => {
+      const row: (string | number)[] = [
+        i + 1, r.warehouse_name, r.sku, r.nombre, r.uxc ?? '', r.supplier ?? '', r.brand ?? '',
+        r.costo_civa ?? 0, r.costo_caja ?? 0, r.exist_paq, r.exist_cja, r.costo_existencia,
+      ];
+      for (const m of months) {
+        const cell = r.monthly[m];
+        row.push(cell ? cell.venta : 0, cell ? cell.costo : 0);
+      }
+      row.push(r.venta_total);
+      const added = ws.addRow(row);
+      // formato moneda en columnas de costo
+      [8, 9, 12].forEach((ci) => (added.getCell(ci).numFmt = MONEY));
+      months.forEach((_, mi) => (added.getCell(14 + mi * 2).numFmt = MONEY)); // Costo mensual
+    });
+
+    ws.getColumn(2).width = 18;
+    ws.getColumn(3).width = 12;
+    ws.getColumn(4).width = 34;
+    ws.getColumn(6).width = 22;
+    ws.getColumn(7).width = 22;
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);
   }

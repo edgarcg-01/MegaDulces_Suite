@@ -986,6 +986,29 @@ export class ComercialService {
     return this.http.get<SellOutBrandRow[]>(`${this.base}/analytics/sell-out/brands`, { params });
   }
 
+  sellOutWarehouses() {
+    return this.http.get<SellOutWarehouseRow[]>(`${this.base}/analytics/sell-out/warehouses`);
+  }
+
+  // ── Fase SAL — Salidas/Ventas por Producto ──
+  salidas(p: SalidasParams) {
+    return this.http.get<SalidasReport>(`${this.base}/analytics/salidas`, { params: this.salidasParams(p) });
+  }
+
+  salidasDownloadXlsx(p: SalidasParams) {
+    return this.http.get(`${this.base}/analytics/salidas.xlsx`, {
+      params: this.salidasParams(p), responseType: 'blob', observe: 'response',
+    });
+  }
+
+  private salidasParams(p: SalidasParams): HttpParams {
+    let params = new HttpParams().set('year', String(p.year));
+    if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
+    if (p.brand_id) params = params.set('brand_id', p.brand_id);
+    if (p.search) params = params.set('search', p.search);
+    return params;
+  }
+
   sellOut(opts: SellOutParams) {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out`, {
       params: this.sellOutParams(opts),
@@ -1008,6 +1031,7 @@ export class ComercialService {
       .set('to', opts.to);
     if (opts.group_by) params = params.set('group_by', opts.group_by);
     if (opts.channels?.length) params = params.set('channels', opts.channels.join(','));
+    if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
     return params;
   }
@@ -1027,7 +1051,47 @@ export interface SellOutParams {
   to: string;
   group_by?: 'branch' | 'branch_channel';
   channels?: string[];
+  warehouses?: string[];
   include_zeros?: boolean;
+}
+
+export interface SellOutWarehouseRow {
+  code: string;
+  name: string;
+}
+
+// ── Fase SAL ──
+export interface SalidasParams {
+  year: number;
+  warehouses?: string[];
+  brand_id?: string;
+  search?: string;
+}
+
+export interface SalidasRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  product_id: string;
+  sku: string;
+  nombre: string;
+  uxc: number | null;
+  supplier: string | null;
+  brand: string | null;
+  costo_civa: number | null;
+  costo_caja: number | null;
+  exist_paq: number;
+  exist_cja: number;
+  costo_existencia: number;
+  monthly: Record<string, { venta: number; costo: number }>;
+  venta_total: number;
+  costo_total: number;
+}
+
+export interface SalidasReport {
+  year: number;
+  months: string[];
+  rows: SalidasRow[];
+  generated_at: string;
 }
 
 export interface SellOutColumn {
