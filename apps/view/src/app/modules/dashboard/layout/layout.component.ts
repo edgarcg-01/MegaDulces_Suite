@@ -255,7 +255,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
-        { label: 'Cartera de ventas', icon: 'pi pi-sitemap',    route: '/comercial/cartera',        permission: Permission.USUARIOS_ASIGNAR_RUTA },
       ],
     },
     {
@@ -273,14 +272,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
-        { label: 'Curaduría Thot',    icon: 'pi pi-book',         route: '/comercial/thot-curation', permission: Permission.COMMERCIAL_CUSTOMERS_GESTIONAR },
       ],
     },
     {
-      title: 'Ruta',
+      title: 'Ruta y vendedores',
       items: [
+        { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
         { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
         { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.ROUTE_CONTROL_VER },
+      ],
+    },
+    {
+      title: 'Reportes',
+      items: [
+        { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_ORDERS_VER },
       ],
     },
   ];

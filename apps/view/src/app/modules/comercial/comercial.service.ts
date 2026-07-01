@@ -978,6 +978,90 @@ export class ComercialService {
   erpPromotions() {
     return this.http.get<ErpPromoRow[]>(`${this.base}/analytics/erp-promotions`);
   }
+
+  // ── Fase RS — Generador Sell-Out por empresa ──
+  sellOutBrands(search?: string) {
+    let params = new HttpParams();
+    if (search) params = params.set('search', search);
+    return this.http.get<SellOutBrandRow[]>(`${this.base}/analytics/sell-out/brands`, { params });
+  }
+
+  sellOut(opts: SellOutParams) {
+    return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out`, {
+      params: this.sellOutParams(opts),
+    });
+  }
+
+  /** Descarga XLSX/PDF vía blob (respeta el interceptor de auth). */
+  sellOutDownload(opts: SellOutParams, fmt: 'xlsx' | 'pdf') {
+    return this.http.get(`${this.base}/analytics/sell-out.${fmt}`, {
+      params: this.sellOutParams(opts),
+      responseType: 'blob',
+      observe: 'response',
+    });
+  }
+
+  private sellOutParams(opts: SellOutParams): HttpParams {
+    let params = new HttpParams()
+      .set('brand_id', opts.brand_id)
+      .set('from', opts.from)
+      .set('to', opts.to);
+    if (opts.group_by) params = params.set('group_by', opts.group_by);
+    if (opts.channels?.length) params = params.set('channels', opts.channels.join(','));
+    if (opts.include_zeros) params = params.set('include_zeros', 'true');
+    return params;
+  }
+}
+
+// ── Fase RS — Sell-Out ──
+export interface SellOutBrandRow {
+  id: string;
+  nombre: string;
+  code: string | null;
+  products: number;
+}
+
+export interface SellOutParams {
+  brand_id: string;
+  from: string;
+  to: string;
+  group_by?: 'branch' | 'branch_channel';
+  channels?: string[];
+  include_zeros?: boolean;
+}
+
+export interface SellOutColumn {
+  key: string;
+  branch_code: string;
+  branch_name: string;
+  channel?: string;
+  channel_label?: string;
+}
+
+export interface SellOutCell {
+  cajas: number;
+  monto: number;
+}
+
+export interface SellOutRow {
+  product_id: string;
+  sku: string;
+  nombre: string;
+  uxc: number | null;
+  cells: Record<string, SellOutCell>;
+  total: SellOutCell;
+}
+
+export interface SellOutReport {
+  brand: { id: string; nombre: string; code: string | null };
+  period: { from: string; to: string };
+  group_by: 'branch' | 'branch_channel';
+  columns: SellOutColumn[];
+  rows: SellOutRow[];
+  column_totals: Record<string, SellOutCell>;
+  grand_total: SellOutCell;
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  generated_at: string;
 }
 
 export interface InventoryHealthRow {

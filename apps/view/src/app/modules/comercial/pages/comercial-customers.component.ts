@@ -399,9 +399,10 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
     .cu-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     .cu-search input {
       flex: 1;
-      border: none;
+      border: none !important;
       background: transparent;
-      outline: none;
+      outline: none !important;
+      box-shadow: none !important;
       font-size: var(--fs-sm);
       color: var(--c-text-1);
       min-width: 0;

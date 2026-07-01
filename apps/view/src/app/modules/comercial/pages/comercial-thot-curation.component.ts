@@ -13,6 +13,8 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ThotCurationService, ThotExampleRow, ThotCandidateRow } from '../thot-curation.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ANALYTICS_TABS } from '../analytics-tabs';
 
 /**
  * TC.4a/5a — Curaduría de Thot: revisar la cola de 👍 y promover a ejemplo dorado
@@ -21,12 +23,13 @@ import { ThotCurationService, ThotExampleRow, ThotCandidateRow } from '../thot-c
 @Component({
   selector: 'app-comercial-thot-curation',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, TextareaModule, ToastModule, TooltipModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, TextareaModule, ToastModule, TooltipModule, PageTabsComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
+      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -125,6 +128,7 @@ import { ThotCurationService, ThotExampleRow, ThotCandidateRow } from '../thot-c
   `],
 })
 export class ComercialThotCurationComponent {
+  readonly tabs = ANALYTICS_TABS;
   readonly profiles = [{ label: 'Todos los perfiles', value: '' }, { label: 'Admin', value: 'admin' }, { label: 'Portal', value: 'portal' }, { label: 'Vendedor', value: 'vendor' }];
   readonly profilesNoAll = this.profiles.slice(1);
 

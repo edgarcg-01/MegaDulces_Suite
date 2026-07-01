@@ -7,6 +7,7 @@ export * from './lib/database/database.module';
 export * from './lib/database/new-database.module';
 export * from './lib/database/tenant-knex.service';
 export * from './lib/database/vector-database.module';
+export * from './lib/database/kepler-database.module';
 
 // ── tenant ──
 export * from './lib/tenant/tenant.module';

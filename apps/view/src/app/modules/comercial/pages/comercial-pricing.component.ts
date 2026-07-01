@@ -408,9 +408,10 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
     }
     .pr-search input {
       flex: 1;
-      border: none;
+      border: none !important;
       background: transparent;
-      outline: none;
+      outline: none !important;
+      box-shadow: none !important;
       font-size: var(--fs-sm);
       color: var(--c-text-1);
       min-width: 0;

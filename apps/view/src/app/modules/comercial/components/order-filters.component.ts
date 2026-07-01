@@ -265,9 +265,10 @@ interface DatePreset { key: string; label: string; }
     .co-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     .co-search input {
       flex: 1;
-      border: none;
+      border: none !important;
       background: transparent;
-      outline: none;
+      outline: none !important;
+      box-shadow: none !important;
       font-size: var(--fs-sm);
       color: var(--c-text-1);
       min-width: 0;

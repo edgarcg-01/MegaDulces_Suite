@@ -337,11 +337,15 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     }
     .pp-search-icon { color: var(--c-text-3); font-size: var(--fs-sm); flex-shrink: 0; }
     .pp-search input {
-      flex: 1; border: none; background: transparent; outline: none;
+      flex: 1; background: transparent;
+      border: none !important; outline: none !important; box-shadow: none !important;
+      -webkit-appearance: none; appearance: none;
       font-size: var(--fs-sm); color: var(--c-text-1);
       min-width: 0; padding: 0; height: 28px;
     }
     .pp-search input::placeholder { color: var(--c-text-3); }
+    /* Sin la "x" nativa del type=search (ya hay botón propio de limpiar). */
+    .pp-search input::-webkit-search-cancel-button { display: none; }
     .pp-search-clear {
       background: transparent; border: none;
       width: 22px; height: 22px;

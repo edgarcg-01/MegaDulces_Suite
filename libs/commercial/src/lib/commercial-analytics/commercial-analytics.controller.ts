@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Query, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, Param, UseGuards, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
+import { SellOutExportService } from './sell-out-export.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -15,6 +17,7 @@ export class CommercialAnalyticsController {
   constructor(
     private readonly service: CommercialAnalyticsService,
     private readonly refresh: AnalyticsRefreshService,
+    private readonly exporter: SellOutExportService,
   ) {}
 
   @Get('overview')
@@ -259,5 +262,97 @@ export class CommercialAnalyticsController {
     @Query('status') status?: string,
   ) {
     return this.service.erpShipments({ group_by: groupBy, from, to, route, status });
+  }
+
+  // ─────────── Fase RS — Generador Sell-Out por empresa ───────────
+
+  @Get('sell-out/brands')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'RS — Empresas/proveedores (marcas con productos) para el selector de reporte.' })
+  sellOutBrands(@Query('search') search?: string) {
+    return this.service.sellOutBrands(search);
+  }
+
+  @Get('sell-out')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'RS — Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto. Fuente = consolidación Kepler (mart.ventas). Params: brand_id, from, to, group_by=branch|branch_channel, channels=csv, include_zeros=true.',
+  })
+  sellOut(
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('group_by') groupBy?: 'branch' | 'branch_channel',
+    @Query('channels') channels?: string,
+    @Query('include_zeros') includeZeros?: string,
+  ) {
+    return this.service.sellOut({
+      brand_id: brandId,
+      from,
+      to,
+      group_by: groupBy,
+      channels: channels ? channels.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      include_zeros: includeZeros === 'true',
+    });
+  }
+
+  @Get('sell-out.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'RS — Descarga XLSX del reporte Sell-Out (mismos params que /sell-out).' })
+  async sellOutXlsx(
+    @Res() res: Response,
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('group_by') groupBy?: 'branch' | 'branch_channel',
+    @Query('channels') channels?: string,
+    @Query('include_zeros') includeZeros?: string,
+  ) {
+    const report = await this.service.sellOut({
+      brand_id: brandId,
+      from,
+      to,
+      group_by: groupBy,
+      channels: channels ? channels.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      include_zeros: includeZeros === 'true',
+    });
+    const buf = await this.exporter.buildXlsx(report);
+    this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  @Get('sell-out.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'RS — Descarga PDF del reporte Sell-Out (mismos params que /sell-out).' })
+  async sellOutPdf(
+    @Res() res: Response,
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('group_by') groupBy?: 'branch' | 'branch_channel',
+    @Query('channels') channels?: string,
+    @Query('include_zeros') includeZeros?: string,
+  ) {
+    const report = await this.service.sellOut({
+      brand_id: brandId,
+      from,
+      to,
+      group_by: groupBy,
+      channels: channels ? channels.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      include_zeros: includeZeros === 'true',
+    });
+    const buf = await this.exporter.buildPdf(report);
+    this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
+  }
+
+  private sendFile(res: Response, buf: Buffer, filename: string, contentType: string) {
+    res.setHeader('Content-Type', contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename.replace(/[^ -~]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
   }
 }

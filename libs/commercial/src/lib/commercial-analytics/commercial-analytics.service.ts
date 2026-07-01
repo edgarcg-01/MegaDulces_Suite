@@ -1,6 +1,8 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Inject } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { KNEX_KEPLER_RO } from '@megadulces/platform-core';
 
 /**
  * Sales analytics agregado sobre `commercial.*`.
@@ -24,6 +26,76 @@ export interface DateRangeQuery {
   to?: string;
 }
 
+// ── Fase RS — Sell-Out ──
+export type SellOutGroupBy = 'branch' | 'branch_channel';
+
+export interface SellOutQuery {
+  brand_id: string;
+  from: string;
+  to: string;
+  group_by?: SellOutGroupBy;
+  channels?: string[];
+  include_zeros?: boolean;
+}
+
+export interface SellOutColumn {
+  key: string;
+  branch_code: string;
+  branch_name: string;
+  channel?: string;
+  channel_label?: string;
+}
+
+export interface SellOutCell {
+  cajas: number;
+  monto: number;
+}
+
+export interface SellOutRow {
+  product_id: string;
+  sku: string;
+  nombre: string;
+  uxc: number | null;
+  cells: Record<string, SellOutCell>;
+  total: SellOutCell;
+}
+
+export interface SellOutReport {
+  brand: { id: string; nombre: string; code: string | null };
+  period: { from: string; to: string };
+  group_by: SellOutGroupBy;
+  columns: SellOutColumn[];
+  rows: SellOutRow[];
+  column_totals: Record<string, SellOutCell>;
+  grand_total: SellOutCell;
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  generated_at: string;
+}
+
+export interface SellOutBrandRow {
+  id: string;
+  nombre: string;
+  code: string | null;
+  products: number;
+}
+
+const RS_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CHANNEL_LABELS: Record<string, string> = {
+  mostrador: 'Mostrador',
+  ruta: 'Ruta',
+  credito: 'Crédito',
+  otro: 'Otro',
+};
+const CHANNEL_ORDER: Record<string, number> = {
+  mostrador: 0,
+  ruta: 1,
+  credito: 2,
+  otro: 3,
+};
+// `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
+// venta a cliente → se excluye del sell-out (contarlo duplica + infla).
+const NON_SALE_CHANNEL = 'traspaso';
+
 const REVENUE_STATUSES = ['fulfilled'];
 // Para "trabajo en curso" que cuenta como pipeline (no revenue): 'confirmed'
 
@@ -34,6 +106,7 @@ export class CommercialAnalyticsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    @Inject(KNEX_KEPLER_RO) private readonly kepler: Knex | null,
   ) {}
 
   /**
@@ -1020,6 +1093,262 @@ export class CommercialAnalyticsService {
         .orderBy('pr.valid_to', 'asc')
         .limit(1000),
     );
+  }
+
+  // ─────────── Fase RS — Generador Sell-Out por empresa (marca/proveedor) ───────────
+
+  /**
+   * Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto,
+   * filtrado por marca/proveedor y periodo. Fuente = `mart.ventas` de la
+   * consolidación Kepler (venta real 6 sucursales). Cross-DB: resuelve los SKUs
+   * de la marca en `catalog.*` (postgres_platform) y filtra la consolidación.
+   *
+   *   cajas = SUM(cantidad) / factor_sale (UXC)   ·   monto = SUM(importe)
+   *
+   * Columnas DINÁMICAS: solo aparecen las sucursales×canales con venta en el
+   * periodo. Morelia y Can NO están en la consolidación (ver `coverage.note`).
+   */
+  async sellOut(q: SellOutQuery): Promise<SellOutReport> {
+    const brandId = (q.brand_id || '').trim();
+    if (!RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    const groupBy: SellOutGroupBy = q.group_by === 'branch' ? 'branch' : 'branch_channel';
+    const channelFilter = (q.channels && q.channels.length)
+      ? new Set(q.channels.map((c) => c.trim().toLowerCase()).filter(Boolean))
+      : null;
+
+    // Paso 1 — marca + SKUs (postgres_platform, tenant-scoped)
+    const { brand, products } = await this.tk.run(async (trx) => {
+      const b = await trx('catalog.brands as b')
+        .where('b.id', brandId)
+        .whereNull('b.deleted_at')
+        .select('b.id', 'b.nombre', 'b.code')
+        .first();
+      if (!b) throw new BadRequestException('Marca no encontrada');
+      const ps = await trx('catalog.products as p')
+        .where('p.brand_id', brandId)
+        .whereNull('p.deleted_at')
+        .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
+        .orderBy('p.nombre');
+      return { brand: b, products: ps };
+    });
+
+    const skus: string[] = products.map((p: any) => p.sku).filter(Boolean);
+    const bySku = new Map<string, any>(products.map((p: any) => [p.sku, p]));
+
+    const base: Omit<SellOutReport, 'coverage'> = {
+      brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
+      period: { from, to },
+      group_by: groupBy,
+      columns: [],
+      rows: [],
+      column_totals: {},
+      grand_total: { cajas: 0, monto: 0 },
+      generated_at: new Date().toISOString(),
+    };
+
+    if (!this.kepler) {
+      return { ...base, coverage: this.sellOutCoverage([], []) };
+    }
+    if (!skus.length) {
+      const retail = await this.sellOutRetailBranches();
+      return { ...base, coverage: this.sellOutCoverage([], retail) };
+    }
+
+    // Paso 2 — agregación desde kepler_consolidado (mart.ventas + dim.sucursales)
+    const channelExpr = `CASE
+        WHEN v.forma_pago = 'CONTADO' THEN 'mostrador'
+        WHEN v.forma_pago ~ '^TI' THEN 'traspaso'
+        WHEN v.forma_pago ~ '^RD' THEN 'ruta'
+        WHEN v.forma_pago ~ '^[0-9]' THEN 'credito'
+        ELSE 'otro' END`;
+    const raw: any[] = await this.kepler('mart.ventas as v')
+      .join('dim.sucursales as s', 's.db', 'v.sucursal')
+      .whereIn('v.sku', skus)
+      .andWhere('v.fecha', '>=', from)
+      .andWhere('v.fecha', '<=', to)
+      .select(
+        'v.sucursal as branch_code',
+        's.nombre as branch_name',
+        'v.sku as sku',
+        this.kepler.raw(`${channelExpr} as channel`),
+      )
+      .sum({ units: 'v.cantidad' })
+      .sum({ monto: 'v.importe' })
+      .groupByRaw(`v.sucursal, s.nombre, v.sku, ${channelExpr}`);
+
+    // Paso 3 — pivote en Node
+    const columns = new Map<string, SellOutColumn>();
+    const rowMap = new Map<string, SellOutRow>();
+    const colTotals = new Map<string, { cajas: number; monto: number }>();
+    const branchesWithData = new Set<string>();
+    let grandCajas = 0;
+    let grandMonto = 0;
+    let excludedTransfers = 0;
+
+    for (const r of raw) {
+      const channel: string = r.channel;
+      if (channel === NON_SALE_CHANNEL) {
+        excludedTransfers += Number(r.monto) || 0;
+        continue;
+      }
+      if (channelFilter && !channelFilter.has(channel)) continue;
+      const prod = bySku.get(r.sku);
+      if (!prod) continue;
+      const factor = Number(prod.factor_sale) > 0 ? Number(prod.factor_sale) : 1;
+      const units = Number(r.units) || 0;
+      const monto = Number(r.monto) || 0;
+      const cajas = units / factor;
+      branchesWithData.add(r.branch_name);
+
+      const colKey = groupBy === 'branch' ? r.branch_code : `${r.branch_code}|${channel}`;
+      if (!columns.has(colKey)) {
+        columns.set(colKey, {
+          key: colKey,
+          branch_code: r.branch_code,
+          branch_name: r.branch_name,
+          channel: groupBy === 'branch' ? undefined : channel,
+          channel_label: groupBy === 'branch' ? undefined : CHANNEL_LABELS[channel] ?? channel,
+        });
+        colTotals.set(colKey, { cajas: 0, monto: 0 });
+      }
+
+      let row = rowMap.get(r.sku);
+      if (!row) {
+        row = {
+          product_id: prod.id,
+          sku: prod.sku,
+          nombre: prod.nombre,
+          uxc: prod.factor_sale != null ? Number(prod.factor_sale) : null,
+          cells: {},
+          total: { cajas: 0, monto: 0 },
+        };
+        rowMap.set(r.sku, row);
+      }
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
+      cell.cajas += cajas;
+      cell.monto += monto;
+      row.total.cajas += cajas;
+      row.total.monto += monto;
+      const ct = colTotals.get(colKey)!;
+      ct.cajas += cajas;
+      ct.monto += monto;
+      grandCajas += cajas;
+      grandMonto += monto;
+    }
+
+    // Filas: incluir SKUs sin venta si include_zeros
+    let rows = Array.from(rowMap.values());
+    if (q.include_zeros) {
+      for (const p of products) {
+        if (!rowMap.has(p.sku)) {
+          rows.push({
+            product_id: p.id,
+            sku: p.sku,
+            nombre: p.nombre,
+            uxc: p.factor_sale != null ? Number(p.factor_sale) : null,
+            cells: {},
+            total: { cajas: 0, monto: 0 },
+          });
+        }
+      }
+    }
+    rows.sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
+
+    // Orden de columnas: por sucursal, luego canal en orden fijo
+    const orderedCols = Array.from(columns.values()).sort((a, b) => {
+      if (a.branch_code !== b.branch_code) return a.branch_code.localeCompare(b.branch_code);
+      return (CHANNEL_ORDER[a.channel ?? ''] ?? 99) - (CHANNEL_ORDER[b.channel ?? ''] ?? 99);
+    });
+
+    // Redondeo de presentación
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    for (const row of rows) {
+      for (const k of Object.keys(row.cells)) {
+        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
+      }
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+    }
+    const columnTotalsObj: Record<string, { cajas: number; monto: number }> = {};
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+
+    const retail = await this.sellOutRetailBranches();
+    return {
+      ...base,
+      columns: orderedCols,
+      rows,
+      column_totals: columnTotalsObj,
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
+      coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
+    };
+  }
+
+  /** Marcas/proveedores con al menos 1 producto — para el selector de empresa. */
+  async sellOutBrands(search?: string): Promise<SellOutBrandRow[]> {
+    const term = (search || '').trim();
+    return this.tk.run(async (trx) => {
+      let q = trx('catalog.brands as b')
+        .whereNull('b.deleted_at')
+        .whereExists(function () {
+          this.select(trx.raw('1'))
+            .from('catalog.products as p')
+            .whereRaw('p.brand_id = b.id')
+            .whereNull('p.deleted_at');
+        })
+        .select(
+          'b.id',
+          'b.nombre',
+          'b.code',
+          trx.raw(
+            '(SELECT count(*) FROM catalog.products p WHERE p.brand_id = b.id AND p.deleted_at IS NULL)::int AS products',
+          ),
+        )
+        .orderBy('b.nombre')
+        .limit(1000);
+      if (term) q = q.where('b.nombre', 'ilike', `%${term}%`);
+      return q;
+    });
+  }
+
+  private async sellOutRetailBranches(): Promise<string[]> {
+    if (!this.kepler) return [];
+    try {
+      const rows = await this.kepler('dim.sucursales')
+        .where('tipo', 'RETAIL')
+        .select('nombre')
+        .orderBy('codigo');
+      return rows.map((r: any) => r.nombre);
+    } catch {
+      return [];
+    }
+  }
+
+  private sellOutCoverage(
+    withData: string[],
+    retail: string[],
+    excludedTransfers = 0,
+  ): SellOutReport['coverage'] {
+    const set = new Set(withData);
+    const missing = retail.filter((n) => !set.has(n));
+    const parts: string[] = [];
+    if (!this.kepler) {
+      parts.push('Consolidación Kepler no disponible en este entorno.');
+    } else {
+      parts.push(
+        'Fuente: consolidación Kepler (6 sucursales). Morelia y Can NO están conectadas a la consolidación, no aparecen en el reporte.',
+      );
+      if (excludedTransfers > 0) {
+        const m = Math.round(excludedTransfers).toLocaleString('es-MX');
+        parts.push(`Se excluyeron traspasos internos (TI, movimientos entre sucursales) por $${m} — no son venta.`);
+      }
+      if (missing.length)
+        parts.push(`Sin venta de esta empresa en el periodo: ${missing.join(', ')}.`);
+    }
+    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' ') };
   }
 
   // ─────────── helpers ───────────
