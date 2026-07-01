@@ -9,10 +9,10 @@
  *
  * Mapeo de columnas kdpord (inferido del catálogo; VERIFICAR con el dump de muestra
  * que imprime el dry-run antes de --apply):
- *   c1=folio (PD-…) · c3=SKU · c9=cantidad · c10=unidad · c22=destino/ruta ·
- *   c24=folio doc venta · c35=estado (EMBARCADO)
- * La FECHA de embarque no está confirmada: setear KDPORD_DATE_COL (ej "c8") tras
- * ver el dump; si no se setea, shipped_date queda NULL (el resto carga igual).
+   c1=folio (PD-…) · c3=SKU · c6=FECHA embarque · c9=cantidad · c10=unidad ·
+ *   c19=sucursal · c22=código ruta/zona · c24=folio doc venta · c35=estado (EMBARCADO)
+ * Verificado con data viva md_03: 5002 PD-… , c35 EMBARCADO (4958)/CREADO/AUTORIZADO,
+ * c6 rango 2025-11..2026-05. KDPORD_DATE_COL default 'c6' (override si otra sucursal difiere).
  *
  * Env:
  *   DATABASE_URL_NEW          = destino (prod Railway / local)
@@ -29,7 +29,8 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
-const DATE_COL = (process.env.KDPORD_DATE_COL || '').replace(/[^a-z0-9_]/gi, ''); // anti-injection
+// c6 = fecha de embarque (confirmado con data viva md_03: PD-… EMBARCADO, 2025-11..2026-05).
+const DATE_COL = (process.env.KDPORD_DATE_COL || 'c6').replace(/[^a-z0-9_]/gi, ''); // anti-injection
 const MAP = process.env.SHIPMENTS_BRANCH_MAP
   ? JSON.parse(process.env.SHIPMENTS_BRANCH_MAP)
   : [
