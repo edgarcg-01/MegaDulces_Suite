@@ -202,6 +202,65 @@ export class SellOutExportService {
     return Buffer.from(buf as ArrayBuffer);
   }
 
+  // ─────────── RR — Ventas por Ruta (XLSX) ───────────
+
+  salesByRouteFileName(report: SalesByRouteReport): string {
+    return `Ventas_por_Ruta_${report.year}.xlsx`;
+  }
+
+  async buildSalesByRouteXlsx(report: SalesByRouteReport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    const ws = wb.addWorksheet('Ventas por Ruta', { views: [{ state: 'frozen', xSplit: 2, ySplit: 1 }] });
+    const months = report.months;
+
+    const head: string[] = ['Sucursal', 'Ruta'];
+    for (const m of months) head.push(`Venta ${MONTH_LABEL[m] ?? m}`);
+    head.push('Venta TOTAL', 'Unidades', 'Tickets', 'Share %');
+    ws.addRow(head);
+    const hr = ws.getRow(1);
+    hr.eachCell((c) => {
+      c.font = { bold: true, size: 9 };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4F4F5' } };
+      c.border = this.thin();
+    });
+    hr.height = 26;
+
+    const MONEY = '$#,##0.00';
+    for (const r of report.rows) {
+      const row: (string | number)[] = [r.warehouse_name, `Ruta ${r.route_no}`];
+      for (const m of months) row.push(r.monthly[m] ? r.monthly[m].revenue : 0);
+      row.push(r.revenue_total, r.units_total, r.tickets_total, r.share_pct / 100);
+      const added = ws.addRow(row);
+      months.forEach((_, mi) => (added.getCell(3 + mi).numFmt = MONEY));
+      added.getCell(3 + months.length).numFmt = MONEY; // Venta TOTAL
+      added.getCell(3 + months.length).font = { bold: true };
+      added.getCell(6 + months.length).numFmt = '0.0%'; // Share
+    }
+
+    // Fila de totales
+    const totRow: (string | number)[] = ['TOTAL', ''];
+    for (const m of months) totRow.push(report.monthly_totals[m] ? report.monthly_totals[m].revenue : 0);
+    totRow.push(report.totals.revenue, report.totals.units, report.totals.tickets, 1);
+    const tr = ws.addRow(totRow);
+    tr.eachCell((c) => {
+      c.font = { bold: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+      c.border = this.thin();
+    });
+    months.forEach((_, mi) => (tr.getCell(3 + mi).numFmt = MONEY));
+    tr.getCell(3 + months.length).numFmt = MONEY;
+    tr.getCell(6 + months.length).numFmt = '0.0%';
+
+    ws.getColumn(1).width = 18;
+    ws.getColumn(2).width = 10;
+    for (let c = 3; c <= 2 + months.length + 4; c++) ws.getColumn(c).width = 13;
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
+
   private thin(): Partial<ExcelJS.Borders> {
     const s = { style: 'thin' as const, color: { argb: 'FFD8D5CE' } };
     return { top: s, left: s, bottom: s, right: s };

@@ -14,4 +14,10 @@ export const REPORTS_TABS: PageTab[] = [
     icon: 'pi pi-box',
     permission: Permission.COMMERCIAL_ORDERS_VER,
   },
+  {
+    label: 'Ventas por ruta',
+    route: '/comercial/ventas-por-ruta',
+    icon: 'pi pi-directions',
+    permission: Permission.COMMERCIAL_ORDERS_VER,
+  },
 ];

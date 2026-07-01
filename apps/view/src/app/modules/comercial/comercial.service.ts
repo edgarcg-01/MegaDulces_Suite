@@ -1009,6 +1009,23 @@ export class ComercialService {
     return params;
   }
 
+  // ── Fase RR — Ventas por Ruta ──
+  salesByRoute(p: SalesByRouteParams) {
+    return this.http.get<SalesByRouteReport>(`${this.base}/analytics/sales-by-route`, { params: this.salesByRouteParams(p) });
+  }
+
+  salesByRouteDownloadXlsx(p: SalesByRouteParams) {
+    return this.http.get(`${this.base}/analytics/sales-by-route.xlsx`, {
+      params: this.salesByRouteParams(p), responseType: 'blob', observe: 'response',
+    });
+  }
+
+  private salesByRouteParams(p: SalesByRouteParams): HttpParams {
+    let params = new HttpParams().set('year', String(p.year));
+    if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
+    return params;
+  }
+
   sellOut(opts: SellOutParams) {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out`, {
       params: this.sellOutParams(opts),
@@ -1091,6 +1108,40 @@ export interface SalidasReport {
   year: number;
   months: string[];
   rows: SalidasRow[];
+  generated_at: string;
+}
+
+// ── Fase RR — Ventas por Ruta ──
+export interface SalesByRouteParams {
+  year: number;
+  warehouses?: string[];
+}
+
+export interface SalesByRouteCell {
+  revenue: number;
+  units: number;
+  tickets: number;
+}
+
+export interface SalesByRouteRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  route_code: string;
+  route_no: string;
+  label: string;
+  monthly: Record<string, SalesByRouteCell>;
+  revenue_total: number;
+  units_total: number;
+  tickets_total: number;
+  share_pct: number;
+}
+
+export interface SalesByRouteReport {
+  year: number;
+  months: string[];
+  rows: SalesByRouteRow[];
+  totals: SalesByRouteCell;
+  monthly_totals: Record<string, SalesByRouteCell>;
   generated_at: string;
 }
 

@@ -43,6 +43,7 @@ const STEPS = {
     path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
     path.join(K, 'import-erp-shipments.js'), // KV.8 embarques reales (kdpord)
     path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto (lee 6 sucursales live U/D/10)
+    path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
   ],
   catalog: [
     path.join(DIR, 'import-catalog-bulk.js'),
