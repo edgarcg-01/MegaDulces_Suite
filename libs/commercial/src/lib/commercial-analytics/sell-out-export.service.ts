@@ -206,20 +206,64 @@ export class SellOutExportService {
       .join('');
     const totRow = `<tr class="tot"><td colspan="3">TOTAL</td>${totCells}<td class="n">${num(report.grand_total.cajas)}</td><td class="n m">${money(report.grand_total.monto)}</td></tr>`;
 
+    const period = this.periodLabel(report.period.from, report.period.to);
+    const sucursales = report.coverage?.branches_with_data?.length ?? 0;
+
+    // KPIs (mismo lenguaje que la tabla "MÉTRICAS PRINCIPALES" del PDF de /reports)
+    const kpis: Array<[string, string]> = [
+      ['Monto total', money(report.grand_total.monto)],
+      ['Cajas', report.grand_total.cajas.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })],
+      ['Productos', String(report.rows.length)],
+      ['Sucursales', String(sucursales)],
+    ];
+    const kpiCells = kpis
+      .map(([l, v]) => `<div class="kpi"><span class="kpi-l">${esc(l)}</span><span class="kpi-v">${esc(v)}</span></div>`)
+      .join('');
+
     return `<!doctype html><html><head><meta charset="utf-8"><style>
-      *{box-sizing:border-box} body{font-family:'Hanken Grotesk',Arial,sans-serif;color:#1c1917;margin:0;padding:4px}
-      h1{font-size:14px;margin:0 0 2px} .sub{font-size:10px;color:#57534e;margin:0 0 8px}
-      .note{font-size:8px;color:#78716c;margin:6px 0 0}
-      table{border-collapse:collapse;width:100%;font-size:7.5px}
-      th,td{border:1px solid #d8d5ce;padding:2px 3px;text-align:center}
-      th{background:#f1f0ec;font-weight:700}
+      *{box-sizing:border-box}
+      body{font-family:Helvetica,Arial,sans-serif;color:#09090b;background:#fff;margin:0;padding:24px 18px}
+      /* Header ejecutivo: marca izq · reporte der (estilo PDF /reports) */
+      .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+      .hd .brand{font-size:15px;font-weight:700;letter-spacing:.02em}
+      .hd .brand small{display:block;font-size:9px;font-weight:400;color:#52525b;margin-top:2px;letter-spacing:.04em}
+      .hd .rep{text-align:right}
+      .hd .rep .t{font-size:16px;font-weight:700}
+      .hd .rep .s{font-size:9px;color:#52525b;margin-top:2px}
+      /* Caja de periodo */
+      .period{background:#f4f4f5;border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+      .period .lbl{font-size:8px;font-weight:700;letter-spacing:.06em;color:#52525b}
+      .period .val{font-size:11px;font-weight:700;color:#3f3f46}
+      .period .ch{font-size:8.5px;color:#52525b}
+      /* KPIs */
+      .kpis{display:flex;gap:10px;margin-bottom:16px}
+      .kpi{flex:1;border:1px solid #e4e4e7;border-radius:6px;padding:8px 10px}
+      .kpi-l{display:block;font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#71717a}
+      .kpi-v{display:block;font-size:15px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+      /* Sección */
+      .sec{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:0 0 6px}
+      /* Tabla grid (tema del autoTable de /reports) */
+      table{border-collapse:collapse;width:100%;font-size:7px}
+      th,td{border:.5px solid #e4e4e7;padding:2.5px 3px;text-align:center}
+      th{background:#f4f4f5;font-weight:700;color:#3f3f46}
       td.d{text-align:left;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
-      td.n{text-align:right;font-variant-numeric:tabular-nums} td.m{border-right:1px solid #b8b4ad}
-      td.b,tr.tot td{font-weight:700} tr.tot td{background:#f1f0ec}
-      tr:nth-child(even) td{background:#faf9f7}
+      td.n{text-align:right;font-variant-numeric:tabular-nums}
+      td.m{border-right:1px solid #d4d4d8}
+      td.b,tr.tot td{font-weight:700}
+      tr.tot td{background:#f4f4f5}
+      tbody tr:nth-child(even) td{background:#fafafa}
+      .note{font-size:8px;color:#71717a;margin:10px 0 0;line-height:1.4}
     </style></head><body>
-      <h1>SELL OUT · ${esc(report.brand.nombre)}</h1>
-      <p class="sub">${esc(this.periodLabel(report.period.from, report.period.to))} · ${report.rows.length} productos</p>
+      <div class="hd">
+        <div class="brand">MEGA DULCES<small>Trade Marketing · Sell-Out</small></div>
+        <div class="rep"><div class="t">Reporte Sell-Out</div><div class="s">${esc(report.brand.nombre)}</div></div>
+      </div>
+      <div class="period">
+        <div><span class="lbl">PERÍODO DE ANÁLISIS</span> &nbsp; <span class="val">${esc(period)}</span></div>
+        <span class="ch">${report.rows.length} productos · ${cols.length} columnas</span>
+      </div>
+      <div class="kpis">${kpiCells}</div>
+      <div class="sec">Detalle por producto</div>
       <table><thead>
         <tr><th rowspan="2">Código</th><th rowspan="2">Descripción</th><th rowspan="2">UXC</th>${topHeads}</tr>
         <tr>${subHeads}</tr>

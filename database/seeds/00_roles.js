@@ -1,8 +1,13 @@
 /**
  * Seed de roles para la DB legacy (Trade Marketing).
  *
+ * ⚠️ POST-CUTOVER: el seed AUTORITATIVO de roles es
+ * `database/seeds-newdb/02_mega_dulces_initial_roles.js` (DB multi-tenant, que
+ * es la física en uso). Este archivo quedó para DBs legacy standalone y su
+ * ALL_PERMS puede estar desfasado — no depender de él para prod.
+ *
  * Fuente de verdad de las claves: enum `Permission` en
- * apps/api/src/shared/constants/permissions.ts. Mantener en sync.
+ * libs/platform-core/src/lib/constants/permissions.ts. Mantener en sync.
  *
  * Reglas:
  *   - NUNCA claves legacy `LOG_*` (fueron reemplazadas por `LOGISTICS_*` en

@@ -4,35 +4,6 @@ import { AuthService } from '../services/auth.service';
 import { PermissionsService } from '../services/permissions.service';
 import { Permission } from '../constants/permissions';
 
-const subjectMap: Record<string, string> = {
-  [Permission.USUARIOS_VER]: 'users',
-  [Permission.USUARIOS_GESTIONAR]: 'users',
-  [Permission.USUARIOS_PASSWORDS]: 'users_passwords',
-  [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
-  [Permission.REPORTES_VER_PROPIO]: 'reports_own',
-  [Permission.REPORTES_VER_EQUIPO]: 'reports_team',
-  [Permission.REPORTES_VER_GLOBAL]: 'reports_global',
-  [Permission.REPORTES_EXPORTAR]: 'reports_export',
-  [Permission.REPORTES_GESTIONAR]: 'reports_manage',
-  [Permission.VISITAS_REGISTRAR]: 'visits',
-  [Permission.VISITAS_VER]: 'visits',
-  [Permission.VISITAS_AUDITAR]: 'visits_audit',
-  [Permission.CATALOGO_GESTIONAR]: 'catalogs',
-  [Permission.TIENDAS_VER]: 'stores',
-  [Permission.TIENDAS_CREAR]: 'stores_create',
-  [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
-  [Permission.ROLES_CONFIGURAR]: 'roles_config',
-  [Permission.SCORING_CONFIG_VER]: 'scoring_config',
-  [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
-  [Permission.VER_SEGUIMIENTO]: 'seguimiento',
-  [Permission.RUTAS_VER]: 'routes_analytics',
-  [Permission.COMMERCIAL_MAP_VER]: 'commercial_map',
-  [Permission.COMMERCIAL_MAP_PROSPECTS_VER]: 'commercial_map_prospects',
-  [Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR]: 'commercial_map_prospects',
-  [Permission.SUPERVISOR_AI_VER]: 'supervisor_ai',
-  [Permission.SUPERVISOR_AI_APROBAR]: 'supervisor_ai',
-};
-
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {
   return () => {
     const authService = inject(AuthService);
@@ -44,10 +15,12 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
       return false;
     }
 
-    const subject = subjectMap[requiredPermission];
-    const hasAccess = subject ? perms.can('read', subject as any) : false;
+    // Gate por CLAVE EXACTA del permiso (espeja al backend, que ya no colapsa
+    // Permission→subject) o god-mode de plataforma. Antes aceptaba
+    // `can('read', subject)`, lo que mostraba nav que el API ahora 403ea.
     const legacyPerms = authService.user()?.permissions;
     const hasFallback = legacyPerms ? legacyPerms[requiredPermission] === true : false;
+    const hasAccess = perms.can('manage', 'all');
 
     if (!hasAccess && !hasFallback) {
       const legacyScope = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
@@ -80,12 +53,9 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
     }
 
     const legacyPerms = authService.user()?.permissions;
-    const ok = requiredPermissions.some((p) => {
-      const subject = subjectMap[p];
-      const hasAccess = subject ? perms.can('read', subject as any) : false;
-      const hasFallback = legacyPerms ? legacyPerms[p] === true : false;
-      return hasAccess || hasFallback;
-    });
+    const ok =
+      perms.can('manage', 'all') ||
+      requiredPermissions.some((p) => (legacyPerms ? legacyPerms[p] === true : false));
 
     if (!ok) {
       const legacyScope = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;

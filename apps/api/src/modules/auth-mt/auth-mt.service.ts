@@ -123,7 +123,7 @@ export class AuthMtService {
     // 4. Construir permissions + rules para gating de UI.
     const permissions: Record<string, boolean> =
       rolePermissions?.permissions || {};
-    const ability = buildAbility(permissions);
+    const ability = buildAbility(permissions, { roleName: user.role_name });
 
     // 5. Generar JWT con tenant_id + snapshot de permisos.
     const payload: JwtPayloadMt = {

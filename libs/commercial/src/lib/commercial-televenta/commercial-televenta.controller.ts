@@ -6,19 +6,31 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import {
   CommercialTeleventaService,
   LogCallDto,
 } from './commercial-televenta.service';
+import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 
+/**
+ * Autorización: lecturas exigen COMMERCIAL_TELEVENTA_VER; acciones (reservar /
+ * liberar / registrar llamada) exigen COMMERCIAL_TELEVENTA_OPERATE. Antes este
+ * controller NO tenía guard ni permisos → cualquier usuario autenticado accedía
+ * a la cola/dashboard y podía operar. tele_operator tiene ambas claves;
+ * supervisor tiene VER (lectura del dashboard) pero no OPERATE.
+ */
 @ApiTags('commercial-televenta')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
 @Controller('commercial/televenta')
 export class CommercialTeleventaController {
   constructor(private readonly service: CommercialTeleventaService) {}
 
   @Get('queue')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_VER)
   @ApiOperation({
     summary:
       'Cola priorizada de clientes a llamar. Excluye los reservados activamente por otros operadores.',
@@ -30,12 +42,14 @@ export class CommercialTeleventaController {
   }
 
   @Get('my-reservations')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_VER)
   @ApiOperation({ summary: 'Reservas activas del operador con TTL restante.' })
   getMyReservations() {
     return this.service.getMyReservations();
   }
 
   @Post('leads/:customer_id/reserve')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_OPERATE)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Reservar lead (TTL 30min). 409 si ya hay reserva activa.',
@@ -48,6 +62,7 @@ export class CommercialTeleventaController {
   }
 
   @Post('reservations/:reservation_id/release')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_OPERATE)
   @HttpCode(200)
   @ApiOperation({
     summary: 'Liberar una reserva activa del operador (manual).',
@@ -57,6 +72,7 @@ export class CommercialTeleventaController {
   }
 
   @Get('customers/:customer_id/snapshot')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_VER)
   @ApiOperation({
     summary:
       'Perfil cliente + últimos 5 pedidos + últimas 5 llamadas + reserva activa del operador (si la hay).',
@@ -66,6 +82,7 @@ export class CommercialTeleventaController {
   }
 
   @Get('customers/:customer_id/calls')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_VER)
   @ApiOperation({ summary: 'Historial de llamadas del cliente (default 20).' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   getCustomerCalls(
@@ -77,6 +94,7 @@ export class CommercialTeleventaController {
   }
 
   @Post('calls')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_OPERATE)
   @HttpCode(201)
   @ApiOperation({
     summary:
@@ -87,6 +105,7 @@ export class CommercialTeleventaController {
   }
 
   @Get('dashboard')
+  @RequirePermissions(Permission.COMMERCIAL_TELEVENTA_VER)
   @ApiOperation({
     summary: 'E.4: dashboard de métricas (KPIs hoy + conversión 7d + top operadores + outcomes breakdown + queue preview)',
   })

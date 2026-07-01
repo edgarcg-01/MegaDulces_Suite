@@ -36,6 +36,7 @@ import { NewDatabaseModule } from '@megadulces/platform-core';
 import { TenantModule } from '@megadulces/platform-core';
 import { TenantContextInterceptor } from '@megadulces/platform-core';
 import { JwtAuthGuard } from '@megadulces/platform-core';
+import { RolesGuard } from '@megadulces/platform-core';
 import { AuthMtModule } from './modules/auth-mt/auth-mt.module';
 import { TenantsAdminModule } from './modules/tenants-admin/tenants-admin.module';
 // Fase B — Core comercial (corre dentro del toggle multi-tenant)
@@ -217,6 +218,13 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
           // confuso porque current_tenant_id() no estaba seteado y RLS
           // bloqueaba la query downstream.
           { provide: APP_GUARD, useClass: JwtAuthGuard },
+          // RolesGuard global (corre DESPUÉS de JwtAuthGuard): así ningún
+          // controller queda sin autorización por olvidar @UseGuards(RolesGuard).
+          // Es no-op en rutas sin @RequirePermissions (devuelve true sin tocar
+          // user), por lo que @Public y rutas solo-auth pasan igual. Los
+          // @UseGuards(RolesGuard) por-controller que ya existen son redundantes
+          // pero inocuos (el chequeo es idempotente).
+          { provide: APP_GUARD, useClass: RolesGuard },
           { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
         ]
       : []),

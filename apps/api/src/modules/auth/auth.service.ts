@@ -66,7 +66,7 @@ export class AuthService {
 
     const permissions = rolePermissions ? rolePermissions.permissions : {};
 
-    const ability = buildAbility(permissions);
+    const ability = buildAbility(permissions, { roleName: user.role_name });
 
     const payload: JwtPayload = {
       sub: user.id,

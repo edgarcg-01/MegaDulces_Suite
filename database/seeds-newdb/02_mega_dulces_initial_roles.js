@@ -8,7 +8,7 @@
  *   - jefe_marketing → similar a supervisor pero más limitado
  *   - colaborador  → registrar visitas, ver propios reportes
  *
- * Los permisos vienen del enum `Permission` en apps/api/src/shared/constants/permissions.ts.
+ * Los permisos vienen del enum `Permission` en libs/platform-core/src/lib/constants/permissions.ts.
  *
  * Idempotente: usa onConflict para no duplicar.
  *
@@ -18,7 +18,7 @@
 exports.seed = async function (knex) {
   const MEGA_DULCES_TENANT_ID = '00000000-0000-0000-0000-00000000d01c';
 
-  // Set completo de permisos (mantener en sync con apps/api/src/shared/constants/permissions.ts)
+  // Set completo de permisos (mantener en sync con libs/platform-core/src/lib/constants/permissions.ts)
   const ALL_PERMS = {
     USUARIOS_VER: true,
     USUARIOS_GESTIONAR: true,
@@ -135,6 +135,7 @@ exports.seed = async function (knex) {
         COMMERCIAL_INVENTORY_SUPERVISAR: true,
         COMMERCIAL_INVENTORY_ASIGNAR: true,
         COMMERCIAL_ORDERS_VER: true,
+        COMMERCIAL_ORDERS_CREAR: true, // override gerencial: toma pedidos en la app de vendedor
         COMMERCIAL_ORDERS_CONFIRMAR: true,
         COMMERCIAL_ORDERS_CANCELAR: true,
         COMMERCIAL_ORDERS_FULFILL: true,
@@ -185,13 +186,19 @@ exports.seed = async function (knex) {
         TIENDAS_CREAR: true,
         SCORING_CONFIG_VER: true,
         VER_SEGUIMIENTO: true,
-        // Comercial: vendedor de campo — toma pedidos + cobra
+        // Comercial: vendedor de campo — toma pedidos + cobra.
+        // El stock para vender llega por el catálogo (/commercial/catalog/products)
+        // bajo ORDERS_VER — el vendedor NO necesita el módulo de inventario
+        // (COMMERCIAL_INVENTORY_VER) sólo para "ver almacén". Conserva CONTAR para
+        // el conteo físico ciego (que ni siquiera muestra el teórico).
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_PRICING_VER: true,
-        COMMERCIAL_INVENTORY_VER: true,
         COMMERCIAL_INVENTORY_CONTAR: true, // contador de piso en inventario físico
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CREAR: true,
+        COMMERCIAL_ORDERS_CONFIRMAR: true, // /orders/:id/place y /approve (draft→confirmed)
+        COMMERCIAL_ORDERS_CANCELAR: true,
+        COMMERCIAL_ORDERS_FULFILL: true, // /orders/:id/fulfill y /deliver-now (autoventa)
         COMMERCIAL_PAYMENTS_REGISTRAR: true,
         VENDOR_APP_ACCESS: true, // vendedor de campo: usa la app de vendedor
       },
@@ -205,6 +212,7 @@ exports.seed = async function (knex) {
       role_name: 'tele_operator',
       permissions: {
         ...NO_PERMS,
+        COMMERCIAL_TELEVENTA_VER: true, // lectura de cola/snapshot/dashboard de televenta
         COMMERCIAL_TELEVENTA_OPERATE: true,
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_PRICING_VER: true,
@@ -234,11 +242,14 @@ exports.seed = async function (knex) {
         CAPTURE_TICKET_USE: true,
         ROUTE_TICKET_CAPTURE: true,
         VENDOR_APP_ACCESS: true,
+        // Stock via catálogo bajo ORDERS_VER — sin módulo de inventario.
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_PRICING_VER: true,
-        COMMERCIAL_INVENTORY_VER: true,
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CREAR: true,
+        COMMERCIAL_ORDERS_CONFIRMAR: true, // /place y /approve
+        COMMERCIAL_ORDERS_CANCELAR: true,
+        COMMERCIAL_ORDERS_FULFILL: true, // /fulfill y /deliver-now (autoventa)
         COMMERCIAL_PAYMENTS_REGISTRAR: true,
       },
     },

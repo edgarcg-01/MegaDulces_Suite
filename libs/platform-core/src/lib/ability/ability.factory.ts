@@ -138,7 +138,22 @@ const permissionToAction: Record<string, Action | Action[]> = {
   [Permission.VENDOR_APP_ACCESS]: 'read',
 };
 
-export function buildAbility(permissions: Record<string, boolean>): AppAbility {
+/**
+ * Roles de plataforma con acceso total (`manage:all`). Antes esto se derivaba de
+ * `REPORTES_VER_GLOBAL` — un footgun: marcar "ver reportes globales" en un rol
+ * custom lo volvía superadmin de facto. Ahora el god-mode es explícito por rol.
+ * Bonus: admin/superadmin siguen pasando aunque a su JSONB en prod le falte una
+ * clave recién agregada (evita el 403 por drift del seed hasta el backfill).
+ */
+const PLATFORM_ADMIN_ROLES = new Set(['superadmin', 'admin']);
+export function isPlatformAdminRole(roleName?: string | null): boolean {
+  return !!roleName && PLATFORM_ADMIN_ROLES.has(roleName.toLowerCase());
+}
+
+export function buildAbility(
+  permissions: Record<string, boolean>,
+  opts?: { roleName?: string | null },
+): AppAbility {
   const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
 
   for (const [permKey, allowed] of Object.entries(permissions)) {
@@ -154,7 +169,8 @@ export function buildAbility(permissions: Record<string, boolean>): AppAbility {
     can('manage', 'kpi_goals');
   }
 
-  if (permissions[Permission.REPORTES_VER_GLOBAL]) {
+  // God-mode SOLO por rol de plataforma, ya no acoplado a un permiso de negocio.
+  if (isPlatformAdminRole(opts?.roleName)) {
     can('manage', 'all');
   }
 

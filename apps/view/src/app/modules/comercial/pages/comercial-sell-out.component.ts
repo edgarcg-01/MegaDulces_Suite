@@ -12,10 +12,12 @@ import { MessageService } from 'primeng/api';
 import {
   ComercialService,
   SellOutBrandRow,
+  SellOutCell,
   SellOutParams,
   SellOutReport,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { REPORTS_TABS } from '../reports-tabs';
 
 type PeriodMode = 'month' | 'quarter' | 'year' | 'range';
@@ -33,7 +35,7 @@ const CHANNEL_OPTS = [
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    DatePickerModule, ToggleSwitchModule, ToastModule, PageTabsComponent,
+    DatePickerModule, ToggleSwitchModule, ToastModule, PageTabsComponent, SegmentedComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -50,10 +52,10 @@ const CHANNEL_OPTS = [
       </header>
 
       <!-- Controles -->
-      <div class="so-filters">
+      <div class="so-filters card-premium card-flat">
         <div class="so-field so-empresa">
           <label>Empresa</label>
-          <p-select [options]="brands()" [(ngModel)]="brandId" optionLabel="nombre" optionValue="id"
+          <p-select [options]="brands()" [ngModel]="brandId()" (ngModelChange)="brandId.set($event)" optionLabel="nombre" optionValue="id"
                     [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Elegí una empresa…"
                     [loading]="loadingBrands()" appendTo="body" styleClass="w-full">
             <ng-template let-b pTemplate="item">
@@ -65,11 +67,7 @@ const CHANNEL_OPTS = [
 
         <div class="so-field">
           <label>Periodo</label>
-          <div class="so-segment">
-            @for (m of modes; track m.key) {
-              <button type="button" [class.on]="periodMode() === m.key" (click)="setMode(m.key)">{{ m.label }}</button>
-            }
-          </div>
+          <app-segmented [options]="modeOpts" [value]="periodMode()" (valueChange)="setMode($event)" ariaLabel="Periodo" />
         </div>
 
         @switch (periodMode()) {
@@ -123,29 +121,81 @@ const CHANNEL_OPTS = [
         </div>
       </div>
 
-      @if (report(); as r) {
-        <!-- Resumen + descargas -->
-        <div class="so-summary">
-          <div class="so-kpis">
-            <div class="so-kpi"><span class="v">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="l">Monto total</span></div>
-            <div class="so-kpi"><span class="v">{{ r.grand_total.cajas | number:'1.0-1' }}</span><span class="l">Cajas</span></div>
-            <div class="so-kpi"><span class="v">{{ r.rows.length }}</span><span class="l">Productos</span></div>
-            <div class="so-kpi"><span class="v">{{ r.columns.length }}</span><span class="l">Columnas</span></div>
+      @if (loading()) {
+        <div class="so-skel" aria-hidden="true">
+          <div class="so-skel-bar shim"></div>
+          <div class="so-kpi-grid">
+            <div class="so-skel-card shim"></div>
+            <div class="so-skel-card shim"></div>
+            <div class="so-skel-card shim"></div>
+            <div class="so-skel-card shim"></div>
           </div>
+          <div class="so-skel-table">
+            @for (i of skelRows; track i) { <div class="so-skel-row shim"></div> }
+          </div>
+        </div>
+      } @else {
+        @if (report(); as r) {
+        <!-- Eco de la consulta + descargas -->
+        <div class="so-actions-bar">
+          @if (meta(); as m) {
+            <div class="so-echo">
+              <strong>{{ m.brand }}</strong>
+              <span class="so-echo-sep">·</span><span>{{ m.period }}</span>
+              <span class="so-echo-sep">·</span><span>{{ m.channels }}</span>
+            </div>
+          }
           <div class="so-dl">
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="success"
+            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
                     [loading]="dl() === 'xlsx'" (click)="download('xlsx')"></button>
-            <button pButton label="PDF" icon="pi pi-file-pdf" size="small" severity="danger"
+            <button pButton label="PDF" icon="pi pi-file-pdf" size="small" severity="secondary" [outlined]="true"
                     [loading]="dl() === 'pdf'" (click)="download('pdf')"></button>
           </div>
         </div>
 
-        @if (r.coverage?.note) {
+        <!-- KPI cards (lenguaje visual de /dashboard/reports) -->
+        <div class="so-kpi-grid">
+          <div class="card-premium card-flat rk-card">
+            <div class="rk-body">
+              <div class="rk-top"><span class="rk-label">Monto total</span></div>
+              <div class="rk-value">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+              <div class="rk-metaline">Sell-out del periodo</div>
+            </div>
+          </div>
+          <div class="card-premium card-flat rk-card">
+            <div class="rk-body">
+              <div class="rk-top"><span class="rk-label">Cajas</span></div>
+              <div class="rk-value">{{ r.grand_total.cajas | number:'1.0-1' }}</div>
+              <div class="rk-metaline">Unidades ÷ UXC</div>
+            </div>
+          </div>
+          <div class="card-premium card-flat rk-card">
+            <div class="rk-body">
+              <div class="rk-top"><span class="rk-label">Productos</span></div>
+              <div class="rk-value">{{ r.rows.length }}</div>
+              <div class="rk-metaline">Con venta en el periodo</div>
+            </div>
+          </div>
+          <div class="card-premium card-flat rk-card">
+            <div class="rk-body">
+              <div class="rk-top"><span class="rk-label">Sucursales</span></div>
+              <div class="rk-value">{{ r.coverage.branches_with_data.length }}</div>
+              <div class="rk-metaline">Con venta · {{ r.columns.length }} columnas</div>
+            </div>
+          </div>
+        </div>
+
+        @if (r.coverage.note) {
           <p class="so-note"><i class="pi pi-info-circle"></i> {{ r.coverage.note }}</p>
         }
 
         @if (r.rows.length) {
-          <!-- Matriz -->
+          <!-- Matriz (dentro de card premium, como las secciones de reports) -->
+          <div class="card-premium card-flat so-matrix-card">
+            <div class="so-matrix-head">
+              <h3 class="text-sm font-bold text-content-main">Detalle por producto</h3>
+              <span class="text-xs text-content-muted">{{ r.rows.length }} productos · {{ r.columns.length }} columnas</span>
+            </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
               <thead>
@@ -168,8 +218,8 @@ const CHANNEL_OPTS = [
                     <td class="frz c1 name">{{ row.nombre }}</td>
                     <td class="frz c2 n">{{ row.uxc ?? '—' }}</td>
                     @for (c of r.columns; track c.key) {
-                      <td class="n">{{ cell(row, c.key)?.cajas ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td>
-                      <td class="n m">{{ cell(row, c.key)?.monto ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                      <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td>
+                      <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                     }
                     <td class="n b">{{ row.total.cajas | number:'1.0-2' }}</td>
                     <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -189,55 +239,80 @@ const CHANNEL_OPTS = [
               </tfoot>
             </table>
           </div>
+          </div>
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
             <h3>Sin venta en el periodo</h3><p>No hay ventas de esta empresa en el rango elegido.</p></div>
         }
-      } @else {
-        <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-file-excel"></i></div>
-          <h3>Generá un reporte</h3><p>Elegí empresa y periodo, luego «Generar».</p></div>
+        } @else {
+          <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-file-excel"></i></div>
+            <h3>Generá un reporte</h3><p>Elegí empresa y periodo, luego «Generar».</p></div>
+        }
       }
     </div>
   `,
   styles: [`
-    .so-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; padding:1rem;
-      background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius-md); margin-bottom:1rem; }
+    .so-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .so-field { display:flex; flex-direction:column; gap:.3rem; }
     .so-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .so-empresa { min-width:280px; flex:1 1 280px; }
     .so-year { max-width:110px; }
     .so-badge { margin-left:.5rem; font-size:.7rem; color:var(--text-muted); }
-    .so-segment { display:inline-flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }
-    .so-segment button { border:0; background:transparent; padding:.4rem .7rem; font-size:.8rem; cursor:pointer; color:var(--text-muted); }
-    .so-segment button.on { background:var(--action); color:#fff; }
+    /* segmented → app-segmented (átomo compartido) */
     .so-toggles { flex-direction:row; gap:1rem; align-items:center; }
     .so-toggle { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text); }
     .so-actions { margin-left:auto; }
-    .so-summary { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:.75rem; }
-    .so-kpis { display:flex; gap:1.5rem; }
-    .so-kpi { display:flex; flex-direction:column; }
-    .so-kpi .v { font-size:1.25rem; font-weight:700; font-variant-numeric:tabular-nums; }
-    .so-kpi .l { font-size:.72rem; color:var(--text-muted); text-transform:uppercase; }
-    .so-dl { display:flex; gap:.5rem; }
+    .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+    .so-echo { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; font-size:.85rem; color:var(--text-muted); }
+    .so-echo strong { color:var(--text-main); font-weight:700; }
+    .so-echo-sep { color:var(--text-faint); }
+    .so-dl { display:flex; gap:.5rem; margin-left:auto; }
+    /* KPI grid — mismo lenguaje que /dashboard/reports (card-premium + rk-card). */
+    .so-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1rem; margin-bottom:1rem; }
     .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border);
-      border-radius:var(--radius-sm); padding:.5rem .7rem; margin:0 0 .75rem; display:flex; gap:.4rem; align-items:baseline; }
+      border-radius:var(--radius-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
+    .so-matrix-card { padding:1.25rem; }
+    .so-matrix-head { display:flex; align-items:baseline; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; }
     .so-matrix-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
-    .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; }
+    .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; --so-h1:2.15rem; }
     .so-matrix th, .so-matrix td { border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.3rem .5rem; }
     .so-matrix thead th { background:var(--layout-bg); font-weight:700; text-align:center; position:sticky; top:0; z-index:2; }
+    /* Header de 2 niveles: la sub-fila (Cajas/Monto) baja bajo la fila de grupos, si no se solapan al hacer scroll. */
+    .so-matrix thead tr:first-child th { height:var(--so-h1); top:0; }
+    .so-matrix thead tr:nth-child(2) th { top:var(--so-h1); }
     .so-matrix thead th.grp { text-align:center; }
-    .so-matrix thead th.grp.tot { background:var(--action-subtle,#f1f0ec); }
+    .so-matrix thead th.grp.tot { background:var(--surface-selected-bg); }
     .so-matrix .sub { font-size:.7rem; font-weight:600; color:var(--text-muted); }
-    .so-matrix .m { border-right:1px solid var(--border-strong,#c9c6bf); }
+    .so-matrix .m { border-right:1px solid var(--border); }
     .so-matrix td.n { text-align:right; font-variant-numeric:tabular-nums; }
     .so-matrix td.name { max-width:280px; overflow:hidden; text-overflow:ellipsis; }
-    .so-matrix td.mono { font-family:var(--font-mono,monospace); }
+    .so-matrix td.mono { font-family:var(--font-mono); }
     .so-matrix td.b { font-weight:700; }
     .so-matrix .frz { position:sticky; background:var(--card-bg); z-index:1; }
     .so-matrix thead .frz { z-index:3; }
     .so-matrix .c0 { left:0; } .so-matrix .c1 { left:70px; } .so-matrix .c2 { left:350px; }
-    .so-matrix tbody tr:nth-child(even) td:not(.frz) { background:var(--layout-bg); }
-    .so-matrix tfoot td { position:sticky; bottom:0; background:var(--action-subtle,#f1f0ec); font-weight:700; z-index:2; }
+    /* Sombra de scroll: señala que hay columnas ocultas a la derecha del bloque congelado. */
+    .so-matrix .c2 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
+    .so-matrix tbody tr:hover td:not(.frz) { background:var(--table-hover); }
+    .so-matrix tbody tr:hover td.frz { background:var(--hover-bg); }
+    .so-matrix tfoot td { position:sticky; bottom:0; background:var(--surface-selected-bg); font-weight:700; z-index:2; }
+    /* Skeleton de carga (mientras se genera el reporte) */
+    .so-skel { display:flex; flex-direction:column; gap:1rem; }
+    .so-skel-bar { height:2rem; width:min(420px,60%); border-radius:var(--radius-sm); }
+    .so-skel-card { height:104px; border-radius:var(--radius-md); }
+    .so-skel-table { display:flex; flex-direction:column; gap:.4rem; border:1px solid var(--border); border-radius:var(--radius-md); padding:.75rem; }
+    .so-skel-row { height:1.9rem; border-radius:var(--radius-sm); }
+    .shim { position:relative; overflow:hidden; background:var(--skeleton-bg); }
+    .shim::after { content:''; position:absolute; inset:0; transform:translateX(-100%);
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent); animation:so-shim 1.2s infinite; }
+    @keyframes so-shim { 100% { transform:translateX(100%); } }
+    /* Congelado responsive: en móvil solo Código queda fijo (los px de c1/c2 comen el viewport). */
+    @media (max-width:640px) {
+      .so-matrix .c1, .so-matrix .c2 { position:static; }
+      .so-matrix .c2 { box-shadow:none; }
+      .so-matrix .c0 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
+    }
+    @media (prefers-reduced-motion:reduce) { .shim::after { animation:none; } }
   `],
 })
 export class ComercialSellOutComponent {
@@ -265,9 +340,12 @@ export class ComercialSellOutComponent {
   loading = signal(false);
   dl = signal<'' | 'xlsx' | 'pdf'>('');
   report = signal<SellOutReport | null>(null);
+  meta = signal<{ brand: string; period: string; channels: string } | null>(null);
+  readonly skelRows = [0, 1, 2, 3, 4, 5, 6];
+  readonly modeOpts = this.modes.map((m) => ({ label: m.label, value: m.key }));
 
   // form state
-  brandId: string | null = null;
+  brandId = signal<string | null>(null);
   periodMode = signal<PeriodMode>('month');
   monthDate: Date = new Date();
   rangeDates: Date[] | null = null;
@@ -285,7 +363,7 @@ export class ComercialSellOutComponent {
     return [y, y - 1, y - 2, y - 3];
   });
 
-  canGenerate = computed(() => !!this.brandId);
+  canGenerate = computed(() => !!this.brandId());
 
   constructor() {
     this.year = new Date().getFullYear();
@@ -304,7 +382,7 @@ export class ComercialSellOutComponent {
       });
   }
 
-  setMode(m: PeriodMode) { this.periodMode.set(m); this.syncPeriod(); }
+  setMode(m: string) { this.periodMode.set(m as PeriodMode); this.syncPeriod(); }
 
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -330,9 +408,25 @@ export class ComercialSellOutComponent {
     }
   }
 
+  private fmtDMY(iso: string): string {
+    const [y, m, d] = iso.split('-');
+    return d ? `${d}/${m}/${y}` : iso;
+  }
+
+  private buildMeta(): { brand: string; period: string; channels: string } {
+    const brand = this.brands().find((b) => b.id === this.brandId())?.nombre ?? '—';
+    const period = this.curFrom === this.curTo
+      ? this.fmtDMY(this.curFrom)
+      : `${this.fmtDMY(this.curFrom)} – ${this.fmtDMY(this.curTo)}`;
+    const channels = this.channels.length
+      ? this.channels.map((c) => this.channelOpts.find((o) => o.value === c)?.label ?? c).join(', ')
+      : 'Todos los canales';
+    return { brand, period, channels };
+  }
+
   private buildParams(): SellOutParams {
     return {
-      brand_id: this.brandId!,
+      brand_id: this.brandId()!,
       from: this.curFrom,
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
@@ -343,7 +437,7 @@ export class ComercialSellOutComponent {
 
   generate() {
     this.syncPeriod();
-    if (!this.brandId || !this.curFrom || !this.curTo) {
+    if (!this.brandId() || !this.curFrom || !this.curTo) {
       this.toast.add({ severity: 'warn', summary: 'Falta empresa o periodo' });
       return;
     }
@@ -351,13 +445,13 @@ export class ComercialSellOutComponent {
     this.svc.sellOut(this.buildParams())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.loading.set(false); },
         error: (e) => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al generar', detail: e?.error?.message }); },
       });
   }
 
   download(fmt: 'xlsx' | 'pdf') {
-    if (!this.brandId) return;
+    if (!this.brandId()) return;
     this.dl.set(fmt);
     this.svc.sellOutDownload(this.buildParams(), fmt)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -388,7 +482,7 @@ export class ComercialSellOutComponent {
     return c.channel_label ? `${c.branch_name} · ${c.channel_label}` : c.branch_name;
   }
 
-  cell(row: SellOutReport['rows'][number], key: string) {
+  cell(row: SellOutReport['rows'][number], key: string): SellOutCell | undefined {
     return row.cells[key];
   }
 
