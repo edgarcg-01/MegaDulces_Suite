@@ -419,6 +419,38 @@ export class CommercialAnalyticsController {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   }
 
+  // ─────────── Fase RR — Ventas por Ruta ───────────
+
+  @Get('sales-by-route')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/tickets) mes a mes + share%. Ruta = serie de folio Kepler c63 (UD+almacén+ruta). Params: year, warehouses=csv.',
+  })
+  salesByRoute(@Query('year') year?: string, @Query('warehouses') warehouses?: string) {
+    return this.service.salesByRoute({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  @Get('sales-by-route.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'RR — Descarga XLSX de Ventas por Ruta (mismos params que /sales-by-route).' })
+  async salesByRouteXlsx(
+    @Res() res: Response,
+    @Query('year') year?: string,
+    @Query('warehouses') warehouses?: string,
+  ) {
+    const report = await this.service.salesByRoute({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+    });
+    const buf = await this.exporter.buildSalesByRouteXlsx(report);
+    this.sendFile(res, buf, this.exporter.salesByRouteFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
   private parseSellOutQuery(
     brandId: string,
     from: string,

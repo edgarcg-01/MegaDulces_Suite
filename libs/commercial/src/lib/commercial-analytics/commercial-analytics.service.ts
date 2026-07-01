@@ -78,6 +78,40 @@ export interface SalidasReport {
   generated_at: string;
 }
 
+// ── Fase RR — Ventas por Ruta ──
+export interface SalesByRouteQuery {
+  year: number;
+  warehouses?: string[];
+}
+
+export interface SalesByRouteCell {
+  revenue: number;
+  units: number;
+  tickets: number;
+}
+
+export interface SalesByRouteRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  route_code: string;
+  route_no: string;
+  label: string;
+  monthly: Record<string, SalesByRouteCell>;
+  revenue_total: number;
+  units_total: number;
+  tickets_total: number;
+  share_pct: number;
+}
+
+export interface SalesByRouteReport {
+  year: number;
+  months: string[];
+  rows: SalesByRouteRow[];
+  totals: SalesByRouteCell;
+  monthly_totals: Record<string, SalesByRouteCell>;
+  generated_at: string;
+}
+
 export interface SellOutColumn {
   key: string;
   branch_code: string;
@@ -1672,6 +1706,94 @@ export class CommercialAnalyticsService {
 
     const months = Array.from(monthsSet).sort();
     return { year, months, rows, generated_at: new Date().toISOString() };
+  }
+
+  /**
+   * RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/
+   * tickets) mes a mes + total + share%. Ruta = serie de folio Kepler `c63`
+   * (UD+almacén+ruta); `md_01-003` = PH ruta 03. Fuente: analytics.sales_by_route_monthly
+   * (feed live Kepler U/D/10, acumulativo). Historia por ruta se construye hacia adelante.
+   */
+  async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
+    const year = Number(q.year) || new Date().getFullYear();
+    if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+    const from = `${year}-01-01`;
+    const to = `${year + 1}-01-01`;
+    const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    const rawRows: any[] = await this.tk.run(async (trx) => {
+      const qb = trx('analytics.sales_by_route_monthly as s')
+        .join('commercial.warehouses as w', 'w.id', 's.warehouse_id')
+        .where('s.tenant_id', tenantId)
+        .andWhere('s.month', '>=', from)
+        .andWhere('s.month', '<', to)
+        .select(
+          'w.code as wcode', 'w.name as wname', 's.route_code as route_code', 's.route_no as route_no',
+          trx.raw(`to_char(s.month,'MM') as mes`),
+        )
+        .sum({ units: 's.units' })
+        .sum({ revenue: 's.revenue' })
+        .sum({ tickets: 's.tickets' })
+        .groupByRaw(`w.code, w.name, s.route_code, s.route_no, to_char(s.month,'MM')`);
+      if (whFilter) qb.whereIn('w.code', whFilter);
+      return qb;
+    });
+
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const monthsSet = new Set<string>();
+    const byRoute = new Map<string, SalesByRouteRow>();
+    const monthlyTotals: Record<string, SalesByRouteCell> = {};
+    const totals: SalesByRouteCell = { revenue: 0, units: 0, tickets: 0 };
+
+    for (const r of rawRows) {
+      const key = `${r.wcode}|${r.route_code}`;
+      monthsSet.add(r.mes);
+      const revenue = Number(r.revenue) || 0;
+      const units = Number(r.units) || 0;
+      const tickets = Number(r.tickets) || 0;
+
+      let row = byRoute.get(key);
+      if (!row) {
+        row = {
+          warehouse_code: r.wcode,
+          warehouse_name: r.wname,
+          route_code: r.route_code,
+          route_no: r.route_no ?? '—',
+          label: `${r.wname} · Ruta ${r.route_no ?? r.route_code}`,
+          monthly: {},
+          revenue_total: 0,
+          units_total: 0,
+          tickets_total: 0,
+          share_pct: 0,
+        };
+        byRoute.set(key, row);
+      }
+      row.monthly[r.mes] = { revenue: round(revenue), units: round(units), tickets };
+      row.revenue_total += revenue;
+      row.units_total += units;
+      row.tickets_total += tickets;
+
+      const mt = monthlyTotals[r.mes] ?? (monthlyTotals[r.mes] = { revenue: 0, units: 0, tickets: 0 });
+      mt.revenue += revenue; mt.units += units; mt.tickets += tickets;
+      totals.revenue += revenue; totals.units += units; totals.tickets += tickets;
+    }
+
+    const rows = Array.from(byRoute.values());
+    for (const row of rows) {
+      row.revenue_total = round(row.revenue_total);
+      row.units_total = round(row.units_total);
+      row.share_pct = totals.revenue > 0 ? round((row.revenue_total / totals.revenue) * 100, 1) : 0;
+    }
+    for (const m of Object.values(monthlyTotals)) { m.revenue = round(m.revenue); m.units = round(m.units); }
+    totals.revenue = round(totals.revenue); totals.units = round(totals.units);
+
+    rows.sort((a, b) =>
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es') || a.route_no.localeCompare(b.route_no, 'es'),
+    );
+
+    const months = Array.from(monthsSet).sort();
+    return { year, months, rows, totals, monthly_totals: monthlyTotals, generated_at: new Date().toISOString() };
   }
 
   private sellOutCoverage(

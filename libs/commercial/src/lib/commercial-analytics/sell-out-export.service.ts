@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
-import type { SellOutReport, SellOutColumn, SalidasReport } from './commercial-analytics.service';
+import type { SellOutReport, SellOutColumn, SalidasReport, SalesByRouteReport } from './commercial-analytics.service';
 
 const MONTH_LABEL: Record<string, string> = {
   '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
