@@ -247,4 +247,17 @@ export class CommercialAnalyticsController {
   erpPromotions() {
     return this.service.erpPromotions();
   }
+
+  @Get('erp-shipments')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'KV.8 — Embarques reales del ERP agregados. ?group_by=route|status|warehouse|day|product ?from ?to ?route ?status' })
+  erpShipments(
+    @Query('group_by') groupBy?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('route') route?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.erpShipments({ group_by: groupBy, from, to, route, status });
+  }
 }

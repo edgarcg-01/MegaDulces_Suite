@@ -24,6 +24,8 @@ const INV_HEALTH_SCRIPT = 'database/importers/kepler/import-inventory-health.js'
 const ERP_PROMOS_SCRIPT = 'database/importers/kepler/import-erp-promos.js';
 const ERP_CUSTOMERS_SCRIPT = 'database/importers/kepler/import-erp-customers.js';
 const CUSTOMER_SALES_SCRIPT = 'database/importers/kepler/import-customer-sales.js';
+const LOGISTICS_DIMS_SCRIPT = 'database/importers/kepler/import-logistics-dims.js';
+const ERP_SHIPMENTS_SCRIPT = 'database/importers/kepler/import-erp-shipments.js';
 
 @Injectable()
 export class KeplerConsolidadoService {
@@ -39,6 +41,8 @@ export class KeplerConsolidadoService {
   private promosRunning = false;
   private custRunning = false;
   private custSalesRunning = false;
+  private logDimsRunning = false;
+  private shipmentsRunning = false;
 
   constructor(
     @Inject(KNEX_KEPLER_CONSOLIDADO) private readonly db: Knex | null,
@@ -269,6 +273,36 @@ export class KeplerConsolidadoService {
       await this.runScript(CUSTOMER_SALES_SCRIPT, 'Historial por cliente', /cliente.producto|COMMIT|ERROR/);
     } finally {
       this.custSalesRunning = false;
+    }
+  }
+
+  /**
+   * KV.8 — Dims de logística (rutas/choferes/flota) → logistics.*. Nightly 05:15.
+   */
+  @Cron('0 15 5 * * *')
+  async logisticsDimsFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.logDimsRunning) { this.logger.warn('Skip logisticsDimsFeed: corrida anterior aún activa'); return; }
+    this.logDimsRunning = true;
+    try {
+      await this.runScript(LOGISTICS_DIMS_SCRIPT, 'Dims logística', /drivers:|vehicles:|routes:|COMMIT|ERROR/);
+    } finally {
+      this.logDimsRunning = false;
+    }
+  }
+
+  /**
+   * KV.8 — Embarques reales del ERP (kdpord) → analytics.erp_shipments. Nightly 05:20.
+   */
+  @Cron('0 20 5 * * *')
+  async shipmentsFeed(): Promise<void> {
+    if (!this.db) return;
+    if (this.shipmentsRunning) { this.logger.warn('Skip shipmentsFeed: corrida anterior aún activa'); return; }
+    this.shipmentsRunning = true;
+    try {
+      await this.runScript(ERP_SHIPMENTS_SCRIPT, 'Embarques ERP', /erp_shipments|COMMIT|ERROR/);
+    } finally {
+      this.shipmentsRunning = false;
     }
   }
 

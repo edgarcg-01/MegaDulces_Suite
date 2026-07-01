@@ -956,6 +956,50 @@ export class CommercialAnalyticsService {
     );
   }
 
+  /** KV.8 — Embarques reales del ERP (kdpord) agregados por dimensión. */
+  async erpShipments(q: { from?: string; to?: string; group_by?: string; route?: string; status?: string }) {
+    const { from, to } = this.parseDateRange(q);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const DIMS: Record<string, string> = {
+      route: 'route', status: 'status', warehouse: 'warehouse_code',
+      day: 'shipped_date', product: 'product_id',
+    };
+    const dim = DIMS[q.group_by || 'route'] || 'route';
+    return this.tk.run(async (trx) => {
+      const base = trx('analytics.erp_shipments AS s')
+        .where('s.tenant_id', tenantId)
+        .modify((qb) => {
+          if (from) qb.where('s.shipped_date', '>=', from);
+          if (to) qb.where('s.shipped_date', '<=', to);
+          if (q.route) qb.whereRaw('s.route ILIKE ?', [`%${q.route}%`]);
+          if (q.status) qb.where('s.status', q.status);
+        });
+      const rows: any[] = await base.clone()
+        .modify((qb) => { if (dim === 'product_id') qb.leftJoin('catalog.products AS p', 'p.id', 's.product_id'); })
+        .select(
+          trx.raw(`COALESCE(${dim === 'product_id' ? 'p.nombre' : `s.${dim}::text`}, '(s/d)') AS label`),
+          trx.raw('COUNT(*)::int AS lines'),
+          trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
+          trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
+        )
+        .groupByRaw(dim === 'product_id' ? 'p.nombre' : `s.${dim}`)
+        .orderByRaw('SUM(s.quantity) DESC NULLS LAST')
+        .limit(200);
+      const [tot] = await base.clone().select(
+        trx.raw('COUNT(*)::int AS lines'),
+        trx.raw('COUNT(DISTINCT s.shipment_folio)::int AS folios'),
+        trx.raw('COALESCE(SUM(s.quantity),0)::numeric AS units'),
+      );
+      return {
+        group_by: q.group_by || 'route',
+        period: { from: from || null, to: to || null },
+        source: 'embarques reales ERP (analytics.erp_shipments)',
+        totals: { folios: Number(tot?.folios || 0), lines: Number(tot?.lines || 0), units: Number(tot?.units || 0) },
+        rows: rows.map((r: any) => ({ label: r.label, folios: Number(r.folios), lines: Number(r.lines), units: Number(r.units) })),
+      };
+    });
+  }
+
   /** KV.6 — Promos vigentes del ERP. */
   async erpPromotions() {
     const tenantId = this.tenantCtx.requireTenantId();

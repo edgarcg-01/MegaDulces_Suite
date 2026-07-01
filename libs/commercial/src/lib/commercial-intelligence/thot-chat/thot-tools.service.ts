@@ -152,6 +152,11 @@ export class ThotToolsService implements ThotToolProvider {
         input_schema: { type: 'object', properties: {} },
       },
       {
+        name: 'thot_shipments',
+        description: 'VENTA REAL — embarques/reparto del ERP (kdpord) agregados: folios, unidades por ruta/estado/almacén/día/producto. Para "cuánto se embarcó", "entregas por ruta", "% embarcado".',
+        input_schema: { type: 'object', properties: { group_by: { type: 'string', enum: ['route', 'status', 'warehouse', 'day', 'product'], description: 'Cómo agrupar. Default route.' }, ...dateRange, route: { type: 'string' }, status: { type: 'string' } } },
+      },
+      {
         name: 'thot_erp_customers',
         description: 'Clientes del ERP Kepler con su compra agregada (180 días): revenue, # productos, última compra. Opcional buscar por nombre.',
         input_schema: { type: 'object', properties: { search: { type: 'string', description: 'Filtro por nombre. Opcional.' }, limit: { type: 'number', description: 'Default 100, máx 500.' } } },
@@ -220,6 +225,8 @@ export class ThotToolsService implements ThotToolProvider {
           return await this.analytics.rankingOutOfStock({ limit: args.limit });
         case 'thot_active_promotions':
           return await this.analytics.erpPromotions();
+        case 'thot_shipments':
+          return await this.analytics.erpShipments({ group_by: args.group_by, from: args.from, to: args.to, route: args.route, status: args.status });
         case 'thot_erp_customers':
           return await this.analytics.erpCustomers({ search: args.search, limit: args.limit });
         case 'thot_customer_products':

@@ -40,16 +40,23 @@ const STEPS = {
     path.join(K, 'import-erp-promos.js'),    // KV.6 promos vigentes (lee sucursal)
     path.join(K, 'import-erp-customers.js'), // KV.3 dim clientes (lee 6 sucursales)
     path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado)
+    path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
+    path.join(K, 'import-erp-shipments.js'), // KV.8 embarques reales (kdpord)
   ],
   catalog: [
     path.join(DIR, 'import-catalog-bulk.js'),
     path.join(DIR, 'import-prices-bulk.js'),
   ],
+  // KV.8 — logística sola (on-demand): dims + embarques.
+  logistics: [
+    path.join(K, 'import-logistics-dims.js'),
+    path.join(K, 'import-erp-shipments.js'),
+  ],
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];
 
 function usage() {
-  console.error('Uso: node run-prod-feeds.js <stock|nightly|catalog|all> [--apply]');
+  console.error('Uso: node run-prod-feeds.js <stock|nightly|catalog|logistics|all> [--apply]');
   process.exit(2);
 }
 
