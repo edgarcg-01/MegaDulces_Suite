@@ -335,10 +335,12 @@ CREATE TABLE IF NOT EXISTS analytics.customer_product_sales (
 - Fuente `md.kdpv_bitacora_precios` (1.4M: fecha/hora/sku/precio_ant/precio_nuevo/delta/usuario).
 - Uso: inteligencia de precio, detección de cambios bruscos, auditoría. Bajo ROI inmediato → diferible.
 
-## KV.8 — Embarques (opcional, logística) → `analytics.erp_shipments`
+## KV.8 — Embarques (logística) → `analytics.erp_shipments` ✅ EN CÓDIGO (build verde, 2026-07-01)
 
-- Fuente `md.kdpord` (folio `PD-…`, sku, cantidad, ruta `c22`, estado `c35`=EMBARCADO).
-- Uso: espejo read-only de embarques del ERP en Logística (aditivo, NO toca auditoría de ruta). Logística ya tiene su propio módulo → evaluar solapamiento antes.
+- Fuente `md.kdpord` (folio `PD-…`, sku, cantidad, ruta `c22`, estado `c35`=EMBARCADO) multi-sucursal.
+- **Decisión:** histórico ERP en `analytics.erp_shipments` (fact grano-línea), **separado** del módulo Fase J (`logistics.*`), igual que `sales_daily` vs `commercial.orders` — no pisa el ciclo de vida operativo de la app.
+- Entregables: migración `20260701140000_analytics_erp_shipments` · `import-erp-shipments.js` (full refresh, dry-run vuelca muestra cruda de `kdpord` para calibrar columnas + `KDPORD_DATE_COL`) · `import-logistics-dims.js` (rutas/choferes/flota → `logistics.*`, idempotente, versión pipeline del one-off) · modo `logistics` + nightly en `run-prod-feeds.js` · crons @05:15/05:20 en kepler-consolidado · `erpShipments()` + endpoint `/commercial/analytics/erp-shipments` + tool `thot_shipments`.
+- **Pendiente prod:** aplicar migración + **calibrar `KDPORD_DATE_COL`** con el dry-run on-prem (la columna de fecha de `kdpord` no estaba confirmada) + correr el feed. Dims ya se habían importado una vez con el script one-off; ahora es idempotente en el pipeline.
 
 ---
 

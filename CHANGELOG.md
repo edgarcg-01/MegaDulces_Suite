@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Feed de logística/embarques de Kepler (Fase KV.8) (2026-07-01)
+- Explota la logística REAL del ERP Kepler (`md.kdpord` embarques + dims `kdm_rutas`/`kdm_chofer`/`kdm_transporte`), mismo patrón que ventas: on-prem lee, bulk a prod, **separado** del módulo Fase J (`analytics.erp_shipments`, no pisa `logistics.*` de la app). Build api verde.
+- **Hallazgo:** Kepler sí tiene logística; la plataforma ya tenía el módulo Fase J completo (22 tablas) pero **capturado a mano**; las dims se habían importado una vez con un script one-off; los **embarques (`kdpord`) no se traían** — ese era el gap.
+- Migración `analytics.erp_shipments` (fact grano-línea) · `import-erp-shipments.js` (multi-sucursal, full refresh, dry-run vuelca muestra cruda para calibrar columnas + `KDPORD_DATE_COL`) · `import-logistics-dims.js` (idempotente) · modo `logistics` + nightly en `run-prod-feeds.js` · crons @05:15/05:20 · `erpShipments()` + endpoint `/commercial/analytics/erp-shipments` + tool `thot_shipments` (Thot ya responde "embarques por ruta/estado/día").
+- **Pendiente prod:** aplicar migración + calibrar `KDPORD_DATE_COL` con dry-run on-prem + correr feed.
+
 ### Added — Thot "aprende del uso": few-shot + feedback loop 👍/👎 (Fase TC.4a/5a / ADR-026) (2026-07-01)
 - **No es fine-tuning ni hornear cifras** (eso quedaría stale + alucinaría): Thot aprende del USO con una **biblioteca de ejemplos verificados** (pregunta → tools → respuesta) inyectados como **few-shot** según similitud. Patrón verified-queries (Snowflake) / few-shot RAG (Uber). Determinista y auditable (ADR-021).
 - **TC.4a**: migración `commercial.thot_chat_examples` (RLS, por perfil) + 14 ejemplos **semilla** en código (valor desde el deploy, incl. la lección "ventas en ruta") + injection por solape de tokens. Endpoints `/thot/examples` (GET/POST/PATCH + `from-log`).
