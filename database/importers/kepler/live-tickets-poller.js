@@ -21,6 +21,8 @@ const INGEST_URL = process.env.STORE_INGEST_URL || 'http://localhost:3334/api/st
 const INGEST_KEY = process.env.STORE_INGEST_KEY || 'dev_store_ingest_key';
 const POLL_MS = (Number(process.env.POLL_SECONDS) || 25) * 1000;
 const WINDOW_MIN = Number(process.env.WINDOW_MINUTES) || 5;
+// --dry: lee y arma tickets pero NO empuja al API; corre 1 ciclo y sale (verificación).
+const DRY = process.argv.includes('--dry');
 
 const BRANCHES = process.env.SALES_BRANCH_MAP
   ? JSON.parse(process.env.SALES_BRANCH_MAP)
@@ -77,6 +79,10 @@ async function pollBranch(b, since) {
 
 async function push(tickets) {
   if (!tickets.length) return { inserted: 0 };
+  if (DRY) {
+    console.log(`   [dry] ${tickets.length} tickets · muestra:`, JSON.stringify(tickets[0], null, 0).slice(0, 300));
+    return { inserted: 0 };
+  }
   const res = await fetch(INGEST_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-store-ingest-key': INGEST_KEY },
@@ -102,6 +108,10 @@ async function tick() {
   running = false;
 }
 
-console.log(`Tienda live poller — cada ${POLL_MS / 1000}s, ventana ${WINDOW_MIN}min → ${INGEST_URL}`);
-tick();
-setInterval(tick, POLL_MS);
+console.log(`Tienda live poller — ${DRY ? 'DRY-RUN (1 ciclo, sin push)' : `cada ${POLL_MS / 1000}s, ventana ${WINDOW_MIN}min → ${INGEST_URL}`}`);
+if (DRY) {
+  tick().then(() => process.exit(0)).catch((e) => { console.error(e.message); process.exit(1); });
+} else {
+  tick();
+  setInterval(tick, POLL_MS);
+}
