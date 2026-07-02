@@ -113,7 +113,7 @@ const MES: Record<string, string> = {
                     <th>Categoría</th>
                     <th>Rot.</th>
                     <th class="n">Exist. Cja</th>
-                    <th class="n">Costo Caja</th>
+                    <th class="n">Costo x Caja</th>
                     @if (isRange()) {
                       <th class="n b">Venta</th>
                       <th class="n">Anterior</th>

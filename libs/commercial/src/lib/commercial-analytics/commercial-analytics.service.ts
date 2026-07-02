@@ -1742,15 +1742,19 @@ export class CommercialAnalyticsService {
       const key = `${r.wcode}|${r.product_id}`;
       const factor = Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 1;
       const costCase = r.cost_per_case != null ? Number(r.cost_per_case) : 0;
+      // Costo de la VENTA = unidades × costo UNITARIO (CostoCIVA). La venta está en
+      // unidades; multiplicarla por el costo de una CAJA la inflaba ×UXC (bug
+      // heredado del Excel). Cae a cost_per_case/UXC si falta cost_with_tax.
+      const costUnit = r.cost_with_tax != null ? Number(r.cost_with_tax) : (factor > 0 ? costCase / factor : costCase);
       const monthly: Record<string, { venta: number; costo: number }> = {};
       let ventaTotal = 0, costoTotal = 0;
       if (isRange) {
         ventaTotal = totalByKey.get(key) ?? 0;
-        costoTotal = round(ventaTotal * costCase);
+        costoTotal = round(ventaTotal * costUnit);
       } else {
         const months = salesByKey.get(key) ?? {};
         for (const [mes, venta] of Object.entries(months)) {
-          const costo = round(venta * costCase);
+          const costo = round(venta * costUnit);
           monthly[mes] = { venta: round(venta, 2), costo };
           ventaTotal += venta;
           costoTotal += costo;
