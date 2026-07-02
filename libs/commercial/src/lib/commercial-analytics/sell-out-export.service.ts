@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
-import type { SellOutReport, SellOutColumn, SalidasReport, SalesByRouteReport } from './commercial-analytics.service';
+import type { SellOutReport, SellOutColumn, SalidasReport, SalesByRouteReport, TransfersReport } from './commercial-analytics.service';
 
 const MONTH_LABEL: Record<string, string> = {
   '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
@@ -161,13 +161,15 @@ export class SellOutExportService {
   async buildSalidasXlsx(report: SalidasReport): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
-    const ws = wb.addWorksheet('Salidas por Producto', { views: [{ state: 'frozen', ySplit: 1 }] });
+    // Congela identidad (# + Sucursal + Clave + Descripción) y el encabezado.
+    const ws = wb.addWorksheet('Salidas por Producto', { views: [{ state: 'frozen', xSplit: 4, ySplit: 1 }] });
     const months = report.months;
     const isRange = report.mode === 'range';
     const MONEY = '$#,##0.00';
     const NUM = '#,##0';
 
-    type Col = { h: string; v: (r: SalidasReport['rows'][number], i: number) => string | number; fmt?: string };
+    // total: se suma en la fila de totales. kind: para formato condicional.
+    type Col = { h: string; v: (r: SalidasReport['rows'][number], i: number) => string | number; fmt?: string; total?: boolean; kind?: 'delta' | 'cov' };
     const cols: Col[] = [
       { h: '#', v: (_r, i) => i + 1 },
       { h: 'Sucursal', v: (r) => r.warehouse_name },
@@ -180,31 +182,31 @@ export class SellOutExportService {
       { h: 'Rotacion', v: (r) => r.rotation_tier ?? '' },
       { h: 'CostoCIVA', v: (r) => r.costo_civa ?? 0, fmt: MONEY },
       { h: 'CostoXCaja', v: (r) => r.costo_caja ?? 0, fmt: MONEY },
-      { h: 'Exist. Paq. Actual', v: (r) => r.exist_paq, fmt: NUM },
-      { h: 'Exist. Cja. Actual', v: (r) => r.exist_cja, fmt: '#,##0.00' },
-      { h: 'Costo Caja', v: (r) => r.costo_existencia, fmt: MONEY },
+      { h: 'Exist. Paq. Actual', v: (r) => r.exist_paq, fmt: NUM, total: true },
+      { h: 'Exist. Cja. Actual', v: (r) => r.exist_cja, fmt: '#,##0.00', total: true },
+      { h: 'Valor Existencia', v: (r) => r.costo_existencia, fmt: MONEY, total: true },
     ];
     if (isRange) {
       const lbl = `${report.from}…${report.to}`;
       cols.push(
-        { h: `Venta ${lbl}`, v: (r) => r.venta_total, fmt: NUM },
-        { h: `Costo ${lbl}`, v: (r) => r.costo_total, fmt: MONEY },
-        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0' },
-        { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM },
-        { h: 'Venta anterior', v: (r) => r.venta_prev ?? 0, fmt: NUM },
-        { h: 'Var %', v: (r) => (r.venta_delta_pct == null ? '' : r.venta_delta_pct / 100), fmt: '0.0%' },
+        { h: `Venta ${lbl}`, v: (r) => r.venta_total, fmt: NUM, total: true },
+        { h: `Costo ${lbl}`, v: (r) => r.costo_total, fmt: MONEY, total: true },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0', total: true },
+        { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM, kind: 'cov' },
+        { h: 'Venta anterior', v: (r) => r.venta_prev ?? 0, fmt: NUM, total: true },
+        { h: 'Var %', v: (r) => (r.venta_delta_pct == null ? '' : r.venta_delta_pct / 100), fmt: '0.0%', kind: 'delta' },
       );
     } else {
       for (const m of months) {
         cols.push(
-          { h: `Venta ${MONTH_LABEL[m] ?? m}`, v: (r) => r.monthly[m]?.venta ?? 0, fmt: NUM },
-          { h: `Costo ${MONTH_LABEL[m] ?? m}`, v: (r) => r.monthly[m]?.costo ?? 0, fmt: MONEY },
+          { h: `Venta ${MONTH_LABEL[m] ?? m}`, v: (r) => r.monthly[m]?.venta ?? 0, fmt: NUM, total: true },
+          { h: `Costo ${MONTH_LABEL[m] ?? m}`, v: (r) => r.monthly[m]?.costo ?? 0, fmt: MONEY, total: true },
         );
       }
       cols.push(
-        { h: 'Venta TOTAL', v: (r) => r.venta_total, fmt: NUM },
-        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0' },
-        { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM },
+        { h: 'Venta TOTAL', v: (r) => r.venta_total, fmt: NUM, total: true },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0', total: true },
+        { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM, kind: 'cov' },
       );
     }
 
@@ -222,6 +224,52 @@ export class SellOutExportService {
       const added = ws.addRow(cols.map((c) => c.v(r, i)));
       cols.forEach((c, ci) => { if (c.fmt) added.getCell(ci + 1).numFmt = c.fmt; });
     });
+
+    const n = report.rows.length;
+    const lastCol = cols.length;
+    const lastColL = ws.getColumn(lastCol).letter;
+    if (n > 0) {
+      const first = 2, last = 1 + n; // filas de datos
+      // Autofiltro sobre encabezado + datos (la fila de totales queda fuera).
+      ws.autoFilter = `A1:${lastColL}${last}`;
+
+      // Fila de totales — SUBTOTAL(109) respeta el filtro activo.
+      const totalRow = ws.addRow(cols.map((c, ci) => {
+        if (ci === 0) return 'TOTAL';
+        if (!c.total) return '';
+        const L = ws.getColumn(ci + 1).letter;
+        return { formula: `SUBTOTAL(109,${L}${first}:${L}${last})` } as any;
+      }));
+      totalRow.eachCell((cell, ci) => {
+        cell.font = { bold: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+        cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
+        if (cols[ci - 1]?.fmt) cell.numFmt = cols[ci - 1].fmt!;
+      });
+
+      const range = `A${first}:${lastColL}${last}`;
+      // Renglones alternados (1 regla, sin inflar el archivo).
+      ws.addConditionalFormatting({ ref: range, rules: [
+        { type: 'expression', priority: 3, formulae: ['MOD(ROW(),2)=0'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFAFAF9' } } } } as any,
+      ] });
+      // Var % (verde sube / rojo baja) + Días cobertura (rojo quiebre / ámbar sobrestock).
+      const deltaIdx = cols.findIndex((c) => c.kind === 'delta');
+      if (deltaIdx >= 0) {
+        const L = ws.getColumn(deltaIdx + 1).letter;
+        ws.addConditionalFormatting({ ref: `${L}${first}:${L}${last}`, rules: [
+          { type: 'cellIs', operator: 'greaterThan', priority: 1, formulae: ['0'], style: { font: { color: { argb: 'FF15803D' } } } } as any,
+          { type: 'cellIs', operator: 'lessThan', priority: 2, formulae: ['0'], style: { font: { color: { argb: 'FFB91C1C' } } } } as any,
+        ] });
+      }
+      const covIdx = cols.findIndex((c) => c.kind === 'cov');
+      if (covIdx >= 0) {
+        const L = ws.getColumn(covIdx + 1).letter;
+        ws.addConditionalFormatting({ ref: `${L}${first}:${L}${last}`, rules: [
+          { type: 'cellIs', operator: 'lessThan', priority: 1, formulae: ['8'], style: { font: { bold: true, color: { argb: 'FFB91C1C' } } } } as any,
+          { type: 'cellIs', operator: 'greaterThan', priority: 2, formulae: ['120'], style: { font: { color: { argb: 'FFA16207' } } } } as any,
+        ] });
+      }
+    }
 
     ws.getColumn(2).width = 18;
     ws.getColumn(3).width = 12;
@@ -286,6 +334,64 @@ export class SellOutExportService {
 
     ws.getColumn(1).width = 18;
     ws.getColumn(2).width = 10;
+    for (let c = 3; c <= 2 + months.length + 4; c++) ws.getColumn(c).width = 13;
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
+
+  // ─────────── T — Traspasos (XLSX) ───────────
+
+  transfersFileName(report: TransfersReport): string {
+    return `Traspasos_${report.year}.xlsx`;
+  }
+
+  async buildTransfersXlsx(report: TransfersReport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    const ws = wb.addWorksheet('Traspasos', { views: [{ state: 'frozen', xSplit: 2, ySplit: 1 }] });
+    const months = report.months;
+
+    const head: string[] = ['Sucursal', 'Tipo'];
+    for (const m of months) head.push(MONTH_LABEL[m] ?? m);
+    head.push('Valor TOTAL', 'Unidades', 'Docs', 'Share %');
+    ws.addRow(head);
+    const hr = ws.getRow(1);
+    hr.eachCell((c) => {
+      c.font = { bold: true, size: 9 };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4F4F5' } };
+      c.border = this.thin();
+    });
+    hr.height = 26;
+
+    const MONEY = '$#,##0.00';
+    for (const r of report.rows) {
+      const row: (string | number)[] = [r.warehouse_name, r.kind_label];
+      for (const m of months) row.push(r.monthly[m] ? r.monthly[m].value : 0);
+      row.push(r.value_total, r.units_total, r.docs_total, r.share_pct / 100);
+      const added = ws.addRow(row);
+      months.forEach((_, mi) => (added.getCell(3 + mi).numFmt = MONEY));
+      added.getCell(3 + months.length).numFmt = MONEY;
+      added.getCell(3 + months.length).font = { bold: true };
+      added.getCell(6 + months.length).numFmt = '0.0%';
+    }
+
+    const totRow: (string | number)[] = ['TOTAL', ''];
+    for (const m of months) totRow.push(report.monthly_totals[m] ? report.monthly_totals[m].value : 0);
+    totRow.push(report.totals.value, report.totals.units, report.totals.docs, 1);
+    const tr = ws.addRow(totRow);
+    tr.eachCell((c) => {
+      c.font = { bold: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+      c.border = this.thin();
+    });
+    months.forEach((_, mi) => (tr.getCell(3 + mi).numFmt = MONEY));
+    tr.getCell(3 + months.length).numFmt = MONEY;
+    tr.getCell(6 + months.length).numFmt = '0.0%';
+
+    ws.getColumn(1).width = 18;
+    ws.getColumn(2).width = 22;
     for (let c = 3; c <= 2 + months.length + 4; c++) ws.getColumn(c).width = 13;
 
     const buf = await wb.xlsx.writeBuffer();

@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Apartado de Traspasos (movimientos que NO son venta) (Fase T) (2026-07-02)
+- **Contexto:** los "traspasos"/consolidación interna de Kepler ya estaban FUERA de los reportes de venta (efecto del fix ×2 `c4=10`), pero eran **invisibles** y la exclusión era implícita. Se les hace apartado propio + se blinda la exclusión. Builds api+view verdes; sin deploy.
+- **Análisis (datos):** el bloque `c4=6` (serie `UD06`, ~$46M/año, 1 doc/día CONTADO, ≈90% de la venta en cada sucursal) = **consolidación interna** (confirmado por el usuario), NO venta — era el causante del ×2. Los N-traspasos (`N/D/6`, `N/D/25`) = 0 en la práctica; sí hay `U/A/50` "Recepción Traspaso" (~$11M/año). Verificado: `sales_daily` en prod solo trae canales `tienda`+`credito` (sin traspaso).
+- **T.2/T.3:** migración `analytics.transfers_monthly` (kind: consolidacion/recepcion/traspaso_salida/traspaso_entrada) · feed `import-transfers-monthly.js` (6 sucursales vivas, UPSERT-acumulativo GREATEST) · `transfersReport()` + endpoints `/commercial/analytics/transfers` (+`.xlsx`).
+- **T.4:** página `/logistica/traspasos` (matriz sucursal×tipo mes a mes, KPIs, desglose por tipo, XLSX) + item de nav en Logística + link "Traspasos (no venta)" en el tab Reportes de Comercial.
+- **T.1 (blindaje):** test `database/tests/verify-no-transfer-leak.js` — invariante "ningún canal de traspaso en `sales_daily`" (la única defensa real es `c4=10` en el origen; `UD06` es CONTADO → se disfrazaría de canal `tienda`, un filtro por canal NO lo atrapa). PASS en prod.
+- **Pendiente prod:** aplicar migración `20260702170000` + agendar `import-transfers-monthly.js` (nightly) + re-login no requerido (reusa `COMMERCIAL_ORDERS_VER`).
+
 ### Added — Feed de logística/embarques de Kepler (Fase KV.8) (2026-07-01)
 - Explota la logística REAL del ERP Kepler (`md.kdpord` embarques + dims `kdm_rutas`/`kdm_chofer`/`kdm_transporte`), mismo patrón que ventas: on-prem lee, bulk a prod, **separado** del módulo Fase J (`analytics.erp_shipments`, no pisa `logistics.*` de la app). Build api verde.
 - **Hallazgo:** Kepler sí tiene logística; la plataforma ya tenía el módulo Fase J completo (22 tablas) pero **capturado a mano**; las dims se habían importado una vez con un script one-off; los **embarques (`kdpord`) no se traían** — ese era el gap.

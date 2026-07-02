@@ -305,6 +305,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Mis entregas',     icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Guías',            icon: 'pi pi-file-edit', route: '/logistica/guides',    permission: Permission.LOGISTICS_GUIDES_VER },
     { label: 'Costos',           icon: 'pi pi-money-bill', route: '/logistica/costs',    permission: Permission.LOGISTICS_EXPENSES_VER },
+    { label: 'Traspasos',        icon: 'pi pi-sync',      route: '/logistica/traspasos', permission: Permission.COMMERCIAL_ORDERS_VER },
     { label: 'Reportes',         icon: 'pi pi-chart-bar', route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Flotilla',         icon: 'pi pi-car',       route: '/logistica/fleet',     permission: Permission.LOGISTICS_FLEET_VER     },
     { label: 'Personal',         icon: 'pi pi-users',     route: '/logistica/staff',     permission: Permission.LOGISTICS_FLEET_VER },

@@ -127,6 +127,42 @@ export interface SalesByRouteReport {
   generated_at: string;
 }
 
+// ── Fase T — Traspasos / movimientos que NO son venta ──
+export type TransferKind = 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
+
+export interface TransfersQuery {
+  year: number;
+  warehouses?: string[];
+}
+
+export interface TransfersCell {
+  value: number;
+  units: number;
+  docs: number;
+}
+
+export interface TransfersRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  kind: TransferKind;
+  kind_label: string;
+  monthly: Record<string, TransfersCell>;
+  value_total: number;
+  units_total: number;
+  docs_total: number;
+  share_pct: number;
+}
+
+export interface TransfersReport {
+  year: number;
+  months: string[];
+  rows: TransfersRow[];
+  totals: TransfersCell;
+  monthly_totals: Record<string, TransfersCell>;
+  by_kind: { kind: TransferKind; kind_label: string; value: number; share_pct: number }[];
+  generated_at: string;
+}
+
 export interface SellOutColumn {
   key: string;
   branch_code: string;
@@ -1888,6 +1924,112 @@ export class CommercialAnalyticsService {
 
     const months = Array.from(monthsSet).sort();
     return { year, months, rows, totals, monthly_totals: monthlyTotals, generated_at: new Date().toISOString() };
+  }
+
+  /**
+   * Fase T — Traspasos / movimientos que NO son venta (analytics.transfers_monthly):
+   * consolidación interna (UD06), recepción (UA50), traspasos entrada/salida.
+   * Fila por (sucursal, tipo) con valor/unidades/docs mes a mes + share%. Vive en
+   * /logistica/traspasos, SEPARADO de todo reporte de venta.
+   */
+  async transfersReport(q: TransfersQuery): Promise<TransfersReport> {
+    const year = Number(q.year) || new Date().getFullYear();
+    if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+    const from = `${year}-01-01`;
+    const to = `${year + 1}-01-01`;
+    const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    const LABEL: Record<TransferKind, string> = {
+      consolidacion: 'Consolidación interna',
+      recepcion: 'Recepción de traspaso',
+      traspaso_salida: 'Salida por traspaso',
+      traspaso_entrada: 'Entrada por traspaso',
+    };
+
+    const rawRows: any[] = await this.tk.run(async (trx) => {
+      const qb = trx('analytics.transfers_monthly as t')
+        .join('commercial.warehouses as w', 'w.id', 't.warehouse_id')
+        .where('t.tenant_id', tenantId)
+        .andWhere('t.month', '>=', from)
+        .andWhere('t.month', '<', to)
+        .select(
+          'w.code as wcode', 'w.name as wname', 't.kind as kind',
+          trx.raw(`to_char(t.month,'MM') as mes`),
+        )
+        .sum({ units: 't.units' })
+        .sum({ value: 't.value' })
+        .sum({ docs: 't.docs' })
+        .groupByRaw(`w.code, w.name, t.kind, to_char(t.month,'MM')`);
+      if (whFilter) qb.whereIn('w.code', whFilter);
+      return qb;
+    });
+
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const monthsSet = new Set<string>();
+    const byRow = new Map<string, TransfersRow>();
+    const monthlyTotals: Record<string, TransfersCell> = {};
+    const totals: TransfersCell = { value: 0, units: 0, docs: 0 };
+    const kindTotals: Record<string, number> = {};
+
+    for (const r of rawRows) {
+      const kind = r.kind as TransferKind;
+      const key = `${r.wcode}|${kind}`;
+      monthsSet.add(r.mes);
+      const value = Number(r.value) || 0;
+      const units = Number(r.units) || 0;
+      const docs = Number(r.docs) || 0;
+
+      let row = byRow.get(key);
+      if (!row) {
+        row = {
+          warehouse_code: r.wcode,
+          warehouse_name: r.wname,
+          kind,
+          kind_label: LABEL[kind] ?? kind,
+          monthly: {},
+          value_total: 0,
+          units_total: 0,
+          docs_total: 0,
+          share_pct: 0,
+        };
+        byRow.set(key, row);
+      }
+      row.monthly[r.mes] = { value: round(value), units: round(units), docs };
+      row.value_total += value;
+      row.units_total += units;
+      row.docs_total += docs;
+
+      const mt = monthlyTotals[r.mes] ?? (monthlyTotals[r.mes] = { value: 0, units: 0, docs: 0 });
+      mt.value += value; mt.units += units; mt.docs += docs;
+      totals.value += value; totals.units += units; totals.docs += docs;
+      kindTotals[kind] = (kindTotals[kind] || 0) + value;
+    }
+
+    const rows = Array.from(byRow.values());
+    for (const row of rows) {
+      row.value_total = round(row.value_total);
+      row.units_total = round(row.units_total);
+      row.share_pct = totals.value > 0 ? round((row.value_total / totals.value) * 100, 1) : 0;
+    }
+    for (const m of Object.values(monthlyTotals)) { m.value = round(m.value); m.units = round(m.units); }
+    totals.value = round(totals.value); totals.units = round(totals.units);
+
+    rows.sort((a, b) =>
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es') || a.kind_label.localeCompare(b.kind_label, 'es'),
+    );
+
+    const by_kind = Object.entries(kindTotals)
+      .map(([k, v]) => ({
+        kind: k as TransferKind,
+        kind_label: LABEL[k as TransferKind] ?? k,
+        value: round(v),
+        share_pct: totals.value > 0 ? round((v / totals.value) * 100, 1) : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    const months = Array.from(monthsSet).sort();
+    return { year, months, rows, totals, monthly_totals: monthlyTotals, by_kind, generated_at: new Date().toISOString() };
   }
 
   private sellOutCoverage(

@@ -1028,6 +1028,23 @@ export class ComercialService {
     return params;
   }
 
+  // ── Fase T — Traspasos (no es venta) ──
+  transfers(p: TransfersParams) {
+    return this.http.get<TransfersReport>(`${this.base}/analytics/transfers`, { params: this.transfersParams(p) });
+  }
+
+  transfersDownloadXlsx(p: TransfersParams) {
+    return this.http.get(`${this.base}/analytics/transfers.xlsx`, {
+      params: this.transfersParams(p), responseType: 'blob', observe: 'response',
+    });
+  }
+
+  private transfersParams(p: TransfersParams): HttpParams {
+    let params = new HttpParams().set('year', String(p.year));
+    if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
+    return params;
+  }
+
   sellOut(opts: SellOutParams) {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out`, {
       params: this.sellOutParams(opts),
@@ -1157,6 +1174,40 @@ export interface SalesByRouteReport {
   rows: SalesByRouteRow[];
   totals: SalesByRouteCell;
   monthly_totals: Record<string, SalesByRouteCell>;
+  generated_at: string;
+}
+
+// ── Fase T — Traspasos (no es venta) ──
+export interface TransfersParams {
+  year: number;
+  warehouses?: string[];
+}
+
+export interface TransfersCell {
+  value: number;
+  units: number;
+  docs: number;
+}
+
+export interface TransfersRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  kind: string;
+  kind_label: string;
+  monthly: Record<string, TransfersCell>;
+  value_total: number;
+  units_total: number;
+  docs_total: number;
+  share_pct: number;
+}
+
+export interface TransfersReport {
+  year: number;
+  months: string[];
+  rows: TransfersRow[];
+  totals: TransfersCell;
+  monthly_totals: Record<string, TransfersCell>;
+  by_kind: { kind: string; kind_label: string; value: number; share_pct: number }[];
   generated_at: string;
 }
 

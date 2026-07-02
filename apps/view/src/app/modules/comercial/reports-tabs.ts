@@ -20,4 +20,10 @@ export const REPORTS_TABS: PageTab[] = [
     icon: 'pi pi-directions',
     permission: Permission.COMMERCIAL_ORDERS_VER,
   },
+  {
+    label: 'Traspasos (no venta)',
+    route: '/logistica/traspasos',
+    icon: 'pi pi-sync',
+    permission: Permission.COMMERCIAL_ORDERS_VER,
+  },
 ];

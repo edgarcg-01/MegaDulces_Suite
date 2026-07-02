@@ -284,6 +284,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.LOGISTICS_EXPENSES_VER)]
       },
       {
+        // Fase T — Traspasos (movimientos que NO son venta): consolidación UD06, recepción UA50, traspasos.
+        path: 'traspasos',
+        loadComponent: () => import('./modules/logistica/pages/logistica-traspasos.component').then(m => m.LogisticaTraspasosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+      },
+      {
         path: 'shipments/:id',
         loadComponent: () => import('./modules/logistica/pages/logistica-shipment-detail.component').then(m => m.LogisticaShipmentDetailComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]

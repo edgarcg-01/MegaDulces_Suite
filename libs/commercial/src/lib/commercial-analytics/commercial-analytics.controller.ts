@@ -459,6 +459,38 @@ export class CommercialAnalyticsController {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   }
 
+  // ─────────── Fase T — Traspasos (movimientos que NO son venta) ───────────
+
+  @Get('transfers')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'T — Traspasos / movimientos que NO son venta (consolidación UD06, recepción UA50, traspasos): fila por (sucursal, tipo) mes a mes + share%. Params: year, warehouses=csv.',
+  })
+  transfers(@Query('year') year?: string, @Query('warehouses') warehouses?: string) {
+    return this.service.transfersReport({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  @Get('transfers.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'T — Descarga XLSX de Traspasos (mismos params que /transfers).' })
+  async transfersXlsx(
+    @Res() res: Response,
+    @Query('year') year?: string,
+    @Query('warehouses') warehouses?: string,
+  ) {
+    const report = await this.service.transfersReport({
+      year: year ? Number(year) : new Date().getFullYear(),
+      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+    });
+    const buf = await this.exporter.buildTransfersXlsx(report);
+    this.sendFile(res, buf, this.exporter.transfersFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
   private parseSellOutQuery(
     brandId: string,
     from: string,
