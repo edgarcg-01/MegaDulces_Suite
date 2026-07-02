@@ -65,6 +65,8 @@ export interface SalidasRow {
   uxc: number | null;
   supplier: string | null;
   brand: string | null;
+  categoria: string | null;      // SAL.6 clasificación
+  rotation_tier: string | null;  // SAL.6 ABC/rotación (baja|media|alta)
   costo_civa: number | null;
   costo_caja: number | null;
   exist_paq: number;
@@ -73,6 +75,10 @@ export interface SalidasRow {
   monthly: Record<string, { venta: number; costo: number }>;
   venta_total: number;
   costo_total: number;
+  venta_cajas: number;             // SAL.6 venta_total ÷ UXC
+  dias_cobertura: number | null;   // SAL.6 existencia ÷ venta diaria del período
+  venta_prev: number | null;       // SAL.6 tendencia — venta período anterior (solo rango)
+  venta_delta_pct: number | null;  // SAL.6 % variación vs período anterior
 }
 
 export interface SalidasReport {
@@ -80,6 +86,8 @@ export interface SalidasReport {
   year?: number;
   from?: string;
   to?: string;
+  dias_periodo: number;   // SAL.6 días del período (para cobertura + tendencia)
+  has_trend: boolean;     // SAL.6 si venta_prev fue calculado (modo rango)
   months: string[];
   rows: SalidasRow[];
   generated_at: string;
@@ -1633,7 +1641,25 @@ export class CommercialAnalyticsService {
     const src = isRange ? 'analytics.product_sales_daily as m' : 'analytics.product_sales_monthly as m';
     const dcol = isRange ? 'm.sale_date' : 'm.month';
 
-    const { salesRows, metaRows } = await this.tk.run(async (trx) => {
+    // SAL.6 — días del período (cobertura) + ventana anterior (tendencia).
+    const DAY = 86400000;
+    const parseIso = (s: string) => new Date(s + 'T00:00:00Z');
+    const isoOf = (d: Date) => d.toISOString().slice(0, 10);
+    let diasPeriodo: number, prevFrom = '', prevTo = '';
+    if (isRange) {
+      diasPeriodo = Math.round((parseIso(toIncl).getTime() - parseIso(from).getTime()) / DAY) + 1;
+      const pT = new Date(parseIso(from).getTime() - DAY);
+      const pF = new Date(pT.getTime() - (diasPeriodo - 1) * DAY);
+      prevTo = isoOf(pT); prevFrom = isoOf(pF);
+    } else {
+      const yStart = parseIso(from);
+      const yEnd = parseIso(`${year}-12-31`);
+      const now = new Date();
+      const end = now < yEnd ? now : yEnd;
+      diasPeriodo = Math.max(1, Math.round((end.getTime() - yStart.getTime()) / DAY) + 1);
+    }
+
+    const { salesRows, metaRows, prevRows } = await this.tk.run(async (trx) => {
       const applyDate = (qb: any) => {
         qb.where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
         if (isRange) qb.andWhere(dcol, '<=', toIncl); else qb.andWhere(dcol, '<', toExcl);
@@ -1665,6 +1691,7 @@ export class CommercialAnalyticsService {
         .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('catalog.categories as cat', 'cat.id', 'p.category_id')
         .leftJoin('commercial.stock as st', function (this: any) {
           this.on('st.product_id', 'm.product_id').andOn('st.warehouse_id', 'm.warehouse_id').andOn('st.tenant_id', 'm.tenant_id');
         })
@@ -1672,12 +1699,27 @@ export class CommercialAnalyticsService {
           'w.code as wcode', 'w.name as wname', 'm.product_id as product_id',
           'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
           'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
-          's.name as supplier', 'b.nombre as brand', 'st.quantity as stock_qty',
+          's.name as supplier', 'b.nombre as brand', 'cat.name as categoria',
+          'p.rotation_tier as rotation_tier', 'st.quantity as stock_qty',
         );
       applyDate(mq);
       applyFilters(mq);
 
-      return { salesRows: await sq, metaRows: await mq };
+      // SAL.6 — tendencia: venta del período ANTERIOR (misma duración, solo rango).
+      let prevRows: any[] = [];
+      if (isRange && prevFrom && prevTo) {
+        const pq = trx('analytics.product_sales_daily as m')
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', prevFrom).andWhere('m.sale_date', '<=', prevTo)
+          .sum({ units: 'm.units' })
+          .select('w.code as wcode', 'm.product_id as product_id')
+          .groupByRaw('w.code, m.product_id');
+        applyFilters(pq);
+        prevRows = await pq;
+      }
+
+      return { salesRows: await sq, metaRows: await mq, prevRows };
     });
 
     // Merge en Node.
@@ -1693,6 +1735,8 @@ export class CommercialAnalyticsService {
         (salesByKey.get(key) ?? salesByKey.set(key, {}).get(key)!)[r.mes] = Number(r.units) || 0;
       }
     }
+    const prevByKey = new Map<string, number>();
+    for (const r of prevRows as any[]) prevByKey.set(`${r.wcode}|${r.product_id}`, Number(r.units) || 0);
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     const rows: SalidasRow[] = (metaRows as any[]).map((r) => {
       const key = `${r.wcode}|${r.product_id}`;
@@ -1714,6 +1758,11 @@ export class CommercialAnalyticsService {
       }
       const existPaq = Number(r.stock_qty) || 0;
       const existCja = round(existPaq / factor, 2);
+      const ventaCajas = round(ventaTotal / factor, 2);
+      const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
+      const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
+      const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
+        ? round(((ventaTotal - ventaPrev) / ventaPrev) * 100, 1) : null;
       return {
         warehouse_code: r.wcode,
         warehouse_name: r.wname,
@@ -1723,6 +1772,8 @@ export class CommercialAnalyticsService {
         uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
         supplier: r.supplier ?? null,
         brand: r.brand ?? null,
+        categoria: r.categoria ?? null,
+        rotation_tier: r.rotation_tier ?? null,
         costo_civa: r.cost_with_tax != null ? Number(r.cost_with_tax) : null,
         costo_caja: r.cost_per_case != null ? Number(r.cost_per_case) : null,
         exist_paq: existPaq,
@@ -1731,6 +1782,10 @@ export class CommercialAnalyticsService {
         monthly,
         venta_total: round(ventaTotal, 2),
         costo_total: round(costoTotal),
+        venta_cajas: ventaCajas,
+        dias_cobertura: diasCobertura,
+        venta_prev: ventaPrev != null ? round(ventaPrev, 2) : null,
+        venta_delta_pct: ventaDelta,
       };
     });
     rows.sort((a, b) =>
@@ -1739,8 +1794,8 @@ export class CommercialAnalyticsService {
 
     const months = Array.from(monthsSet).sort();
     return isRange
-      ? { mode: 'range', from, to: toIncl, months: [], rows, generated_at: new Date().toISOString() }
-      : { mode: 'year', year, months, rows, generated_at: new Date().toISOString() };
+      ? { mode: 'range', from, to: toIncl, dias_periodo: diasPeriodo, has_trend: true, months: [], rows, generated_at: new Date().toISOString() }
+      : { mode: 'year', year, dias_periodo: diasPeriodo, has_trend: false, months, rows, generated_at: new Date().toISOString() };
   }
 
   /**

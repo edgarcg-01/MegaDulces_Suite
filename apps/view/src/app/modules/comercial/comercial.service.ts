@@ -1098,6 +1098,8 @@ export interface SalidasRow {
   uxc: number | null;
   supplier: string | null;
   brand: string | null;
+  categoria: string | null;
+  rotation_tier: string | null;
   costo_civa: number | null;
   costo_caja: number | null;
   exist_paq: number;
@@ -1106,6 +1108,10 @@ export interface SalidasRow {
   monthly: Record<string, { venta: number; costo: number }>;
   venta_total: number;
   costo_total: number;
+  venta_cajas: number;
+  dias_cobertura: number | null;
+  venta_prev: number | null;
+  venta_delta_pct: number | null;
 }
 
 export interface SalidasReport {
@@ -1113,6 +1119,8 @@ export interface SalidasReport {
   year?: number;
   from?: string;
   to?: string;
+  dias_periodo: number;
+  has_trend: boolean;
   months: string[];
   rows: SalidasRow[];
   generated_at: string;

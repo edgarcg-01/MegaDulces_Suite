@@ -20,7 +20,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { REPORTS_TABS } from '../reports-tabs';
 
-type PeriodMode = 'year' | 'd7' | 'd15' | 'd30' | 'range';
+type PeriodMode = 'year' | 'd7' | 'd15' | 'd21' | 'range';
 
 const MES: Record<string, string> = {
   '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
@@ -110,14 +110,21 @@ const MES: Record<string, string> = {
                     <th class="frz c2">Descripción</th>
                     <th class="n">UXC</th>
                     <th>Marca</th>
+                    <th>Categoría</th>
+                    <th>Rot.</th>
                     <th class="n">Exist. Cja</th>
                     <th class="n">Costo Caja</th>
                     @if (isRange()) {
-                      <th class="n">Venta</th><th class="n mm">Costo</th>
+                      <th class="n b">Venta</th>
+                      <th class="n">Anterior</th>
+                      <th class="n">Var %</th>
+                      <th class="n mm">Costo</th>
                     } @else {
                       @for (m of r.months; track m) { <th class="n">Venta {{ mes(m) }}</th><th class="n mm">Costo {{ mes(m) }}</th> }
                       <th class="n b">Venta TOTAL</th>
                     }
+                    <th class="n">Cajas</th>
+                    <th class="n">Cobertura</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -128,10 +135,14 @@ const MES: Record<string, string> = {
                       <td class="frz c2 name">{{ row.nombre }}</td>
                       <td class="n">{{ row.uxc ?? '—' }}</td>
                       <td class="brand">{{ row.brand ?? '—' }}</td>
+                      <td class="cat">{{ row.categoria ?? '—' }}</td>
+                      <td class="rot">{{ row.rotation_tier ?? '—' }}</td>
                       <td class="n">{{ row.exist_cja | number:'1.0-2' }}</td>
                       <td class="n">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                       @if (isRange()) {
                         <td class="n b">{{ row.venta_total ? (row.venta_total | number:'1.0-0') : '·' }}</td>
+                        <td class="n dim">{{ row.venta_prev ? (row.venta_prev | number:'1.0-0') : '·' }}</td>
+                        <td class="n delta" [class.up]="(row.venta_delta_pct ?? 0) > 0" [class.down]="(row.venta_delta_pct ?? 0) < 0">{{ row.venta_delta_pct == null ? '—' : ((row.venta_delta_pct > 0 ? '+' : '') + (row.venta_delta_pct | number:'1.0-1') + '%') }}</td>
                         <td class="n mm">{{ row.costo_total ? (row.costo_total | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                       } @else {
                         @for (m of r.months; track m) {
@@ -140,6 +151,8 @@ const MES: Record<string, string> = {
                         }
                         <td class="n b">{{ row.venta_total | number:'1.0-0' }}</td>
                       }
+                      <td class="n">{{ row.venta_cajas ? (row.venta_cajas | number:'1.0-1') : '·' }}</td>
+                      <td class="n cov">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
                     </tr>
                   }
                 </tbody>
@@ -179,6 +192,12 @@ const MES: Record<string, string> = {
     .sl-table .mm { border-right:1px solid var(--border-strong,#c9c6bf); }
     .sl-table td.name { max-width:260px; overflow:hidden; text-overflow:ellipsis; }
     .sl-table td.brand { max-width:160px; overflow:hidden; text-overflow:ellipsis; }
+    .sl-table td.cat { max-width:150px; overflow:hidden; text-overflow:ellipsis; color:var(--text-muted); }
+    .sl-table td.rot { text-transform:capitalize; color:var(--text-muted); }
+    .sl-table td.dim { color:var(--text-muted); }
+    .sl-table td.cov { color:var(--text-muted); }
+    .sl-table td.delta.up { color:var(--good,#15803d); }
+    .sl-table td.delta.down { color:var(--bad,#b91c1c); }
     .sl-table td.mono { font-family:var(--font-mono,monospace); }
     .sl-table td.b, .sl-table th.b { font-weight:700; }
     .sl-table .frz { position:sticky; background:var(--card-bg); z-index:1; }
@@ -198,7 +217,7 @@ export class ComercialSalidasComponent {
     { label: 'Año', value: 'year' },
     { label: '7 días', value: 'd7' },
     { label: '15 días', value: 'd15' },
-    { label: '30 días', value: 'd30' },
+    { label: '21 días', value: 'd21' },
     { label: 'Personalizado', value: 'range' },
   ];
 
@@ -207,7 +226,7 @@ export class ComercialSalidasComponent {
   loading = signal(false);
   dl = signal(false);
   report = signal<SalidasReport | null>(null);
-  periodMode = signal<PeriodMode>('d30');
+  periodMode = signal<PeriodMode>('d15');
   private limit = signal(200);
 
   readonly today = new Date();
@@ -251,8 +270,8 @@ export class ComercialSalidasComponent {
   }
 
   private rangeFor(mode: PeriodMode): { from: string; to: string } | null {
-    if (mode === 'd7' || mode === 'd15' || mode === 'd30') {
-      const n = mode === 'd7' ? 7 : mode === 'd15' ? 15 : 30;
+    if (mode === 'd7' || mode === 'd15' || mode === 'd21') {
+      const n = mode === 'd7' ? 7 : mode === 'd15' ? 15 : 21;
       const to = new Date();
       const from = new Date(); from.setDate(to.getDate() - n);
       return { from: this.iso(from), to: this.iso(to) };

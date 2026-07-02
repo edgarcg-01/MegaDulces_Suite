@@ -164,16 +164,51 @@ export class SellOutExportService {
     const ws = wb.addWorksheet('Salidas por Producto', { views: [{ state: 'frozen', ySplit: 1 }] });
     const months = report.months;
     const isRange = report.mode === 'range';
+    const MONEY = '$#,##0.00';
+    const NUM = '#,##0';
 
-    const headBase = ['#', 'Sucursal', 'Clave producto', 'Descripcion del producto', 'UXC', 'SN', 'CN', 'CostoCIVA', 'CostoXCaja', 'Exist. Paq. Actual', 'Exist. Cja. Actual', 'Costo Caja'];
-    const head: string[] = [...headBase];
+    type Col = { h: string; v: (r: SalidasReport['rows'][number], i: number) => string | number; fmt?: string };
+    const cols: Col[] = [
+      { h: '#', v: (_r, i) => i + 1 },
+      { h: 'Sucursal', v: (r) => r.warehouse_name },
+      { h: 'Clave producto', v: (r) => r.sku },
+      { h: 'Descripcion del producto', v: (r) => r.nombre },
+      { h: 'UXC', v: (r) => r.uxc ?? '' },
+      { h: 'SN', v: (r) => r.supplier ?? '' },
+      { h: 'CN', v: (r) => r.brand ?? '' },
+      { h: 'Categoria', v: (r) => r.categoria ?? '' },
+      { h: 'Rotacion', v: (r) => r.rotation_tier ?? '' },
+      { h: 'CostoCIVA', v: (r) => r.costo_civa ?? 0, fmt: MONEY },
+      { h: 'CostoXCaja', v: (r) => r.costo_caja ?? 0, fmt: MONEY },
+      { h: 'Exist. Paq. Actual', v: (r) => r.exist_paq, fmt: NUM },
+      { h: 'Exist. Cja. Actual', v: (r) => r.exist_cja, fmt: '#,##0.00' },
+      { h: 'Costo Caja', v: (r) => r.costo_existencia, fmt: MONEY },
+    ];
     if (isRange) {
-      head.push(`Venta ${report.from}…${report.to}`, `Costo ${report.from}…${report.to}`);
+      const lbl = `${report.from}…${report.to}`;
+      cols.push(
+        { h: `Venta ${lbl}`, v: (r) => r.venta_total, fmt: NUM },
+        { h: `Costo ${lbl}`, v: (r) => r.costo_total, fmt: MONEY },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0' },
+        { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM },
+        { h: 'Venta anterior', v: (r) => r.venta_prev ?? 0, fmt: NUM },
+        { h: 'Var %', v: (r) => (r.venta_delta_pct == null ? '' : r.venta_delta_pct / 100), fmt: '0.0%' },
+      );
     } else {
-      for (const m of months) { head.push(`Venta ${MONTH_LABEL[m] ?? m}`, `Costo ${MONTH_LABEL[m] ?? m}`); }
-      head.push('Venta TOTAL');
+      for (const m of months) {
+        cols.push(
+          { h: `Venta ${MONTH_LABEL[m] ?? m}`, v: (r) => r.monthly[m]?.venta ?? 0, fmt: NUM },
+          { h: `Costo ${MONTH_LABEL[m] ?? m}`, v: (r) => r.monthly[m]?.costo ?? 0, fmt: MONEY },
+        );
+      }
+      cols.push(
+        { h: 'Venta TOTAL', v: (r) => r.venta_total, fmt: NUM },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0' },
+        { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM },
+      );
     }
-    ws.addRow(head);
+
+    ws.addRow(cols.map((c) => c.h));
     const hr = ws.getRow(1);
     hr.eachCell((c) => {
       c.font = { bold: true, size: 9 };
@@ -183,28 +218,9 @@ export class SellOutExportService {
     });
     hr.height = 28;
 
-    const MONEY = '$#,##0.00';
     report.rows.forEach((r, i) => {
-      const row: (string | number)[] = [
-        i + 1, r.warehouse_name, r.sku, r.nombre, r.uxc ?? '', r.supplier ?? '', r.brand ?? '',
-        r.costo_civa ?? 0, r.costo_caja ?? 0, r.exist_paq, r.exist_cja, r.costo_existencia,
-      ];
-      if (isRange) {
-        row.push(r.venta_total, r.costo_total);
-      } else {
-        for (const m of months) {
-          const cell = r.monthly[m];
-          row.push(cell ? cell.venta : 0, cell ? cell.costo : 0);
-        }
-        row.push(r.venta_total);
-      }
-      const added = ws.addRow(row);
-      [8, 9, 12].forEach((ci) => (added.getCell(ci).numFmt = MONEY));
-      if (isRange) {
-        added.getCell(14).numFmt = MONEY; // Costo período
-      } else {
-        months.forEach((_, mi) => (added.getCell(14 + mi * 2).numFmt = MONEY)); // Costo mensual
-      }
+      const added = ws.addRow(cols.map((c) => c.v(r, i)));
+      cols.forEach((c, ci) => { if (c.fmt) added.getCell(ci + 1).numFmt = c.fmt; });
     });
 
     ws.getColumn(2).width = 18;
@@ -212,6 +228,7 @@ export class SellOutExportService {
     ws.getColumn(4).width = 34;
     ws.getColumn(6).width = 22;
     ws.getColumn(7).width = 22;
+    ws.getColumn(8).width = 20;
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);
   }
