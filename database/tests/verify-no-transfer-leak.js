@@ -15,7 +15,7 @@ const { Client } = require('pg');
 
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const ALLOWED_SALES_CHANNELS = new Set(['tienda', 'mostrador', 'credito', 'ruta']);
-const ALLOWED_TRANSFER_KINDS = new Set(['consolidacion', 'recepcion', 'traspaso_salida', 'traspaso_entrada']);
+const ALLOWED_TRANSFER_KINDS = new Set(['salida_cedis', 'consolidacion', 'recepcion', 'traspaso_salida', 'traspaso_entrada']);
 
 (async () => {
   const c = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false, connectionTimeoutMillis: 15000 });

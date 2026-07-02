@@ -349,10 +349,11 @@ export class SellOutExportService {
   async buildTransfersXlsx(report: TransfersReport): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
-    const ws = wb.addWorksheet('Traspasos', { views: [{ state: 'frozen', xSplit: 2, ySplit: 1 }] });
+    const ws = wb.addWorksheet('Traspasos', { views: [{ state: 'frozen', xSplit: 3, ySplit: 1 }] });
     const months = report.months;
+    const PRE = 3; // columnas antes de los meses: Sucursal, Tipo, Destino
 
-    const head: string[] = ['Sucursal', 'Tipo'];
+    const head: string[] = ['Sucursal', 'Tipo', 'Destino'];
     for (const m of months) head.push(MONTH_LABEL[m] ?? m);
     head.push('Valor TOTAL', 'Unidades', 'Docs', 'Share %');
     ws.addRow(head);
@@ -367,32 +368,23 @@ export class SellOutExportService {
 
     const MONEY = '$#,##0.00';
     for (const r of report.rows) {
-      const row: (string | number)[] = [r.warehouse_name, r.kind_label];
+      const row: (string | number)[] = [r.warehouse_name, r.kind_label, r.dest_label || '—'];
       for (const m of months) row.push(r.monthly[m] ? r.monthly[m].value : 0);
       row.push(r.value_total, r.units_total, r.docs_total, r.share_pct / 100);
       const added = ws.addRow(row);
-      months.forEach((_, mi) => (added.getCell(3 + mi).numFmt = MONEY));
-      added.getCell(3 + months.length).numFmt = MONEY;
-      added.getCell(3 + months.length).font = { bold: true };
-      added.getCell(6 + months.length).numFmt = '0.0%';
+      months.forEach((_, mi) => (added.getCell(PRE + 1 + mi).numFmt = MONEY));
+      added.getCell(PRE + 1 + months.length).numFmt = MONEY;
+      added.getCell(PRE + 1 + months.length).font = { bold: true };
+      added.getCell(PRE + 3 + months.length).numFmt = '0.0%';
     }
 
-    const totRow: (string | number)[] = ['TOTAL', ''];
-    for (const m of months) totRow.push(report.monthly_totals[m] ? report.monthly_totals[m].value : 0);
-    totRow.push(report.totals.value, report.totals.units, report.totals.docs, 1);
-    const tr = ws.addRow(totRow);
-    tr.eachCell((c) => {
-      c.font = { bold: true };
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
-      c.border = this.thin();
-    });
-    months.forEach((_, mi) => (tr.getCell(3 + mi).numFmt = MONEY));
-    tr.getCell(3 + months.length).numFmt = MONEY;
-    tr.getCell(6 + months.length).numFmt = '0.0%';
+    // Sin fila de TOTAL: los tipos (salida CEDIS / consolidación / recepción) NO son
+    // sumables (misma mercancía en etapas distintas). El share ya es dentro de cada tipo.
 
     ws.getColumn(1).width = 18;
-    ws.getColumn(2).width = 22;
-    for (let c = 3; c <= 2 + months.length + 4; c++) ws.getColumn(c).width = 13;
+    ws.getColumn(2).width = 20;
+    ws.getColumn(3).width = 26;
+    for (let c = PRE + 1; c <= PRE + months.length + 4; c++) ws.getColumn(c).width = 13;
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);

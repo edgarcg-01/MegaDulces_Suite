@@ -128,7 +128,7 @@ export interface SalesByRouteReport {
 }
 
 // ── Fase T — Traspasos / movimientos que NO son venta ──
-export type TransferKind = 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
+export type TransferKind = 'salida_cedis' | 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
 
 export interface TransfersQuery {
   year: number;
@@ -146,6 +146,7 @@ export interface TransfersRow {
   warehouse_name: string;
   kind: TransferKind;
   kind_label: string;
+  dest_label: string;
   monthly: Record<string, TransfersCell>;
   value_total: number;
   units_total: number;
@@ -1941,6 +1942,7 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
 
     const LABEL: Record<TransferKind, string> = {
+      salida_cedis: 'Salida CEDIS',
       consolidacion: 'Consolidación interna',
       recepcion: 'Recepción de traspaso',
       traspaso_salida: 'Salida por traspaso',
@@ -1954,13 +1956,13 @@ export class CommercialAnalyticsService {
         .andWhere('t.month', '>=', from)
         .andWhere('t.month', '<', to)
         .select(
-          'w.code as wcode', 'w.name as wname', 't.kind as kind',
+          'w.code as wcode', 'w.name as wname', 't.kind as kind', 't.dest_label as dest_label',
           trx.raw(`to_char(t.month,'MM') as mes`),
         )
         .sum({ units: 't.units' })
         .sum({ value: 't.value' })
         .sum({ docs: 't.docs' })
-        .groupByRaw(`w.code, w.name, t.kind, to_char(t.month,'MM')`);
+        .groupByRaw(`w.code, w.name, t.kind, t.dest_label, to_char(t.month,'MM')`);
       if (whFilter) qb.whereIn('w.code', whFilter);
       return qb;
     });
@@ -1974,7 +1976,8 @@ export class CommercialAnalyticsService {
 
     for (const r of rawRows) {
       const kind = r.kind as TransferKind;
-      const key = `${r.wcode}|${kind}`;
+      const dest = r.dest_label ?? '';
+      const key = `${r.wcode}|${kind}|${dest}`;
       monthsSet.add(r.mes);
       const value = Number(r.value) || 0;
       const units = Number(r.units) || 0;
@@ -1987,6 +1990,7 @@ export class CommercialAnalyticsService {
           warehouse_name: r.wname,
           kind,
           kind_label: LABEL[kind] ?? kind,
+          dest_label: dest,
           monthly: {},
           value_total: 0,
           units_total: 0,
@@ -2010,13 +2014,20 @@ export class CommercialAnalyticsService {
     for (const row of rows) {
       row.value_total = round(row.value_total);
       row.units_total = round(row.units_total);
-      row.share_pct = totals.value > 0 ? round((row.value_total / totals.value) * 100, 1) : 0;
+      // share DENTRO del tipo (los tipos NO son sumables: son la misma mercancía en
+      // etapas distintas — salida CEDIS → consolidación → venta). Compartir contra el
+      // total mezclado sería doble conteo.
+      const kt = kindTotals[row.kind] || 0;
+      row.share_pct = kt > 0 ? round((row.value_total / kt) * 100, 1) : 0;
     }
     for (const m of Object.values(monthlyTotals)) { m.value = round(m.value); m.units = round(m.units); }
     totals.value = round(totals.value); totals.units = round(totals.units);
 
     rows.sort((a, b) =>
-      a.warehouse_name.localeCompare(b.warehouse_name, 'es') || a.kind_label.localeCompare(b.kind_label, 'es'),
+      a.warehouse_name.localeCompare(b.warehouse_name, 'es')
+      || a.kind_label.localeCompare(b.kind_label, 'es')
+      || (b.value_total - a.value_total)
+      || a.dest_label.localeCompare(b.dest_label, 'es'),
     );
 
     const by_kind = Object.entries(kindTotals)

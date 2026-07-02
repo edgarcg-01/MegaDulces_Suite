@@ -63,6 +63,10 @@ exports.seed = async function (knex) {
     COMMERCIAL_ORDERS_CANCELAR: true,
     COMMERCIAL_ORDERS_FULFILL: true,
     COMMERCIAL_PAYMENTS_REGISTRAR: true,
+    // Fase LM — Última milla (entrega a domicilio)
+    COMMERCIAL_PAYMENTS_VERIFICAR: true,
+    COMMERCIAL_PAYMENTS_REVERSAR: true,
+    COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR: true,
     COMMERCIAL_PROMOTIONS_VER: true,
     COMMERCIAL_PROMOTIONS_GESTIONAR: true,
     // Fase E — Televenta
@@ -95,6 +99,29 @@ exports.seed = async function (knex) {
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
+
+  // Fase AZ — deriva los permisos jerárquicos nuevos de los que los originaron,
+  // igual que la migración de backfill 20260702190000 (seed == migración → un rol
+  // recreado desde cero queda idéntico a uno migrado). customer_b2b (externo) NO
+  // hereda analítica/traspasos internos aunque tenga ORDERS_VER (ve SUS pedidos).
+  const withDerivedAz = (perms, roleName) => {
+    const internal = roleName !== 'customer_b2b';
+    return {
+      ...perms,
+      COMMERCIAL_ANALYTICS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      LOGISTICS_TRANSFERS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      COMMERCIAL_CARTERA_VER: !!perms.USUARIOS_ASIGNAR_RUTA,
+      COMMERCIAL_CARTERA_GESTIONAR: !!perms.USUARIOS_ASIGNAR_RUTA,
+      TRADE_ROUTE_PLAN_VER: !!perms.USUARIOS_ASIGNAR_RUTA,
+      TRADE_ROUTE_PLAN_GESTIONAR: !!perms.USUARIOS_ASIGNAR_RUTA,
+      COMMERCIAL_PRODUCTS_VER: !!perms.CATALOGO_GESTIONAR,
+      COMMERCIAL_PRODUCTS_GESTIONAR: !!perms.CATALOGO_GESTIONAR,
+      COMMERCIAL_THOT_VER: !!perms.COMMERCIAL_CUSTOMERS_GESTIONAR,
+      COMMERCIAL_THOT_GESTIONAR: !!perms.COMMERCIAL_CUSTOMERS_GESTIONAR,
+      ROLES_VER: !!perms.ROLES_CONFIGURAR,
+      PORTAL_B2B_ACCESS: roleName === 'customer_b2b',
+    };
+  };
 
   const roles = [
     {
@@ -254,6 +281,61 @@ exports.seed = async function (knex) {
       },
     },
     {
+      // Rol nuevo Fase LM — Repartidor de última milla (entrega a domicilio en moto).
+      // Usa la app de vendedor: ve SUS guías (my-driver), marca entrega/incidencia,
+      // cobra (efectivo/transferencia/tarjeta = registro) y sube tickets de cierre.
+      // NO tiene cartera completa, inventario ni trade marketing.
+      role_name: 'repartidor',
+      permissions: {
+        ...NO_PERMS,
+        VENDOR_APP_ACCESS: true, // login a la app de vendedor (rutas /repartidor)
+        LOGISTICS_SHIPMENTS_VER: true, // sus embarques/guías vía my-driver
+        LOGISTICS_GUIDES_VER: true,
+        LOGISTICS_GUIDES_GESTIONAR: true, // marcar parada entregada / incidencia / POD
+        COMMERCIAL_CUSTOMERS_VER: true, // ver datos del cliente de la parada
+        COMMERCIAL_PRICING_VER: true,
+        COMMERCIAL_ORDERS_VER: true,
+        COMMERCIAL_ORDERS_FULFILL: true, // entregar (deliver-now / fulfill)
+        COMMERCIAL_ORDERS_CANCELAR: true, // rechazo del cliente
+        COMMERCIAL_PAYMENTS_REGISTRAR: true, // cobrar en la entrega
+        ROUTE_TICKET_CAPTURE: true, // tickets de cierre de ruta
+      },
+    },
+    {
+      // Rol nuevo Fase LM — Encargado de sucursal.
+      // Back-office de la sucursal: intake de pedidos a domicilio, verifica
+      // transferencias, reversa cobros, cierra el corte de caja del repartidor
+      // (arqueo), autoriza cancelaciones/devoluciones. NO configura sistema.
+      role_name: 'encargado_sucursal',
+      permissions: {
+        ...NO_PERMS,
+        REPORTES_VER_EQUIPO: true,
+        REPORTES_EXPORTAR: true,
+        COMMERCIAL_CUSTOMERS_VER: true,
+        COMMERCIAL_CUSTOMERS_GESTIONAR: true, // alta de cliente casual en intake
+        COMMERCIAL_WAREHOUSES_VER: true,
+        COMMERCIAL_PRICING_VER: true,
+        COMMERCIAL_INVENTORY_VER: true,
+        COMMERCIAL_ORDERS_VER: true,
+        COMMERCIAL_ORDERS_CREAR: true, // intake a domicilio
+        COMMERCIAL_ORDERS_CONFIRMAR: true,
+        COMMERCIAL_ORDERS_CANCELAR: true,
+        COMMERCIAL_ORDERS_FULFILL: true,
+        COMMERCIAL_PAYMENTS_REGISTRAR: true,
+        COMMERCIAL_PAYMENTS_VERIFICAR: true, // verifica comprobante de transferencia
+        COMMERCIAL_PAYMENTS_REVERSAR: true,
+        COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR: true, // abre/cierra el corte de caja
+        COMMERCIAL_PROMOTIONS_VER: true,
+        ROUTE_CONTROL_VER: true, // ve todos los tickets/cortes de la sucursal
+        LOGISTICS_FLEET_VER: true,
+        LOGISTICS_SHIPMENTS_VER: true,
+        LOGISTICS_SHIPMENTS_GESTIONAR: true, // arma/asigna la entrega
+        LOGISTICS_GUIDES_VER: true,
+        LOGISTICS_GUIDES_GESTIONAR: true,
+        LOGISTICS_EXPENSES_VER: true,
+      },
+    },
+    {
       // Rol nuevo Fase D — para customer users del Portal B2B.
       // Solo ven SUS propios pedidos y pueden crear nuevos. No tocan trade
       // marketing data ni gestiones de admin.
@@ -283,7 +365,7 @@ exports.seed = async function (knex) {
         .insert({
           tenant_id: MEGA_DULCES_TENANT_ID,
           role_name: role.role_name,
-          permissions: JSON.stringify(role.permissions),
+          permissions: JSON.stringify(withDerivedAz(role.permissions, role.role_name)),
         })
         .onConflict(['tenant_id', 'role_name'])
         .merge(['permissions', 'updated_at']);

@@ -14,8 +14,9 @@ import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 /**
- * Admin de products. Gateado por CATALOGO_GESTIONAR — exponemos cost_base
- * (sensible) que NO debe ver customer_b2b. Vendedor también queda fuera.
+ * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
+ * COMMERCIAL_PRODUCTS_GESTIONAR — exponemos cost_base (sensible) que NO debe ver
+ * customer_b2b. Vendedor también queda fuera.
  */
 @ApiTags('commercial-products')
 @ApiBearerAuth()
@@ -25,7 +26,7 @@ export class CommercialProductsController {
   constructor(private readonly service: CommercialProductsService) {}
 
   @Get()
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
   @ApiOperation({
     summary:
       'Listar productos (paginado + filtros). Incluye costs/location/loyalty del importer Mega_Dulces.',
@@ -51,7 +52,7 @@ export class CommercialProductsController {
   }
 
   @Get('stats')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
   @ApiOperation({
     summary: 'Agregados catálogo-wide para KPIs (total/activos/con-costo/con-ubicación + top marcas). Honra search.',
   })
@@ -60,7 +61,7 @@ export class CommercialProductsController {
   }
 
   @Get(':id')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
   @ApiOperation({
     summary: 'Detalle de producto + counts agregados (price configs, stock total)',
   })
@@ -69,7 +70,7 @@ export class CommercialProductsController {
   }
 
   @Patch(':id')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_GESTIONAR)
   @ApiOperation({
     summary:
       'Editar campos manuales del producto (description, location, loyalty_points, activo). NO permite tocar costos/precios/SKU — esos vienen del ERP.',

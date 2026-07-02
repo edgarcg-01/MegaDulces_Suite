@@ -797,6 +797,30 @@ Capas:
 
 ---
 
+## ADR-027 — **Última milla** (entrega a domicilio local): orquestación, no módulo nuevo
+
+**Fecha:** 2026-07-02 · **Estado:** Propuesto
+
+**Contexto:** El SOP "Servicio de Entrega a Domicilio Local" de Mega Dulces describe una operación distinta al vendedor de ruta: el cliente pide por tel/WhatsApp/redes, un repartidor en moto entrega a su casa, cobra y liquida. Toca 3 dominios (pedido, entrega, dinero). Auditoría de código: la capa de entrega YA existe casi completa en `logistics.*` (`shipments` + `delivery_guides` + `guide_recipients` con POD, GPS vivo, ETA, checklists, fotos, costos, ROI); el pedido/stock/folios ya existen en `commercial.orders`; `commercial.payments` existe pero está **vacía y nunca usada** (cash-only, "deferred post-beta" desde Fase B).
+
+**Decisión:** **No construir un módulo nuevo — orquestar los existentes.** El pedido a domicilio ES un `commercial.orders` con `delivery_type='home_delivery'`; la entrega ES un `logistics.delivery_guides`+`guide_recipients` (1 parada = 1 domicilio, la moto es un `logistics.vehicles`). Lo único genuinamente nuevo es **el dinero**: un `PaymentsService` sobre la tabla `payments` (extendida a multi-método) + un **corte de caja por repartidor-día** (`commercial.rider_liquidations`, con arqueo por denominación) distinto de la nómina de logística. Se quita el CHECK cash-only global (cierra la deuda de Fase B). Firma del cliente obligatoria en el POD (validación dura en backend). Incidencias tipificadas replicando el patrón de 6-outcomes de `commercial.call_logs`.
+
+**Alternativas:**
+- Módulo de delivery desde cero — rechazada: duplicaría guías/POD/GPS/ETA/costos que ya existen y están probados.
+- Reusar el flujo de vendedor de ruta (preventa/autoventa) — rechazada: modela visita-a-tienda, no última-milla-a-domicilio (dirección ad-hoc, cliente casual, cobro+arqueo por repartidor).
+
+**Consecuencias:**
+- ✅ Reuso alto, riesgo bajo; el grueso del trabajo se concentra en Payments + intake + incidencias.
+- ✅ `PaymentsService` (LM.1) es shippeable solo y habilita cobro en TODO el comercial, no solo domicilio.
+- ✅ Hereda ADR-016/020: el estado decide, el cobro/liquidación/firma son actos humanos auditados; el LLM (OCR, sugerencias) nunca toca el camino del dinero.
+- ⚠️ Quitar cash-only toca `orders`/`payments` a nivel global de la plataforma (era restricción beta intencional) — requiere confirmación de negocio.
+- ⚠️ Cliente casual puede ensuciar analytics/Thot → flag `is_casual` + exclusión de MVs de cartera.
+- ⚠️ Satisfacción del cliente (KPI SOP ≥95%) sin fuente de datos → diferido (encuesta post-entrega, posible Fase F).
+
+**Plan:** [`FASES/FASE_LM_ULTIMA_MILLA.md`](FASES/FASE_LM_ULTIMA_MILLA.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

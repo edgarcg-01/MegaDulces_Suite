@@ -64,7 +64,7 @@ export class CatalogsController {
   }
 
   @Get('permissions/:role_name')
-  @RequirePermissions(Permission.ROLES_CONFIGURAR)
+  @RequirePermissions(Permission.ROLES_VER)
   @ApiOperation({
     summary: 'Obtener los permisos dinámicos (JSONB) de un rol específico',
   })

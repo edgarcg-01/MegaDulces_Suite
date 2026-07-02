@@ -22,6 +22,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { REPORTS_TABS } from '../reports-tabs';
 
 type PeriodMode = 'month' | 'quarter' | 'year' | 'range';
+type Measure = 'cajas' | 'monto' | 'ambas';
 
 const CHANNEL_OPTS = [
   { label: 'Mostrador', value: 'mostrador' },
@@ -118,6 +119,11 @@ const CHANNEL_OPTS = [
                          placeholder="Todos" [showClear]="true" appendTo="body" styleClass="w-full" />
         </div>
 
+        <div class="so-field">
+          <label>Medida</label>
+          <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
+        </div>
+
         <div class="so-field so-toggles">
           <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
           <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
@@ -211,12 +217,16 @@ const CHANNEL_OPTS = [
                   <th class="frz c0" rowspan="2">Código</th>
                   <th class="frz c1" rowspan="2">Descripción</th>
                   <th class="frz c2" rowspan="2">UXC</th>
-                  @for (c of r.columns; track c.key) { <th colspan="2" class="grp">{{ colLabel(c) }}</th> }
-                  <th colspan="2" class="grp tot">TOTAL</th>
+                  @for (c of r.columns; track c.key) { <th [attr.colspan]="grpColspan()" class="grp">{{ colLabel(c) }}</th> }
+                  <th [attr.colspan]="grpColspan()" class="grp tot">TOTAL</th>
                 </tr>
                 <tr>
-                  @for (c of r.columns; track c.key) { <th class="sub">Cajas</th><th class="sub m">Monto</th> }
-                  <th class="sub">Cajas</th><th class="sub m">Monto</th>
+                  @for (c of r.columns; track c.key) {
+                    @if (showCajas()) { <th class="sub">Cajas</th> }
+                    @if (showMonto()) { <th class="sub m">Monto</th> }
+                  }
+                  @if (showCajas()) { <th class="sub">Cajas</th> }
+                  @if (showMonto()) { <th class="sub m">Monto</th> }
                 </tr>
               </thead>
               <tbody>
@@ -226,11 +236,11 @@ const CHANNEL_OPTS = [
                     <td class="frz c1 name">{{ row.nombre }}</td>
                     <td class="frz c2 n">{{ row.uxc ?? '—' }}</td>
                     @for (c of r.columns; track c.key) {
-                      <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td>
-                      <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                      @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
+                      @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
                     }
-                    <td class="n b">{{ row.total.cajas | number:'1.0-2' }}</td>
-                    <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    @if (showCajas()) { <td class="n b">{{ row.total.cajas | number:'1.0-2' }}</td> }
+                    @if (showMonto()) { <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   </tr>
                 }
               </tbody>
@@ -238,11 +248,11 @@ const CHANNEL_OPTS = [
                 <tr class="tot-row">
                   <td class="frz c0" colspan="3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
-                    <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td>
-                    <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
+                    @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   }
-                  <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td>
-                  <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  @if (showCajas()) { <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td> }
+                  @if (showMonto()) { <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                 </tr>
               </tfoot>
             </table>
@@ -370,6 +380,17 @@ export class ComercialSellOutComponent {
   // form state
   brandId = signal<string | null>(null);
   periodMode = signal<PeriodMode>('month');
+  // Medida visible en la matriz (display-only; el backend siempre trae cajas+monto).
+  measure = signal<Measure>('ambas');
+  readonly measureOpts = [
+    { label: 'Cajas', value: 'cajas' },
+    { label: 'Monto', value: 'monto' },
+    { label: 'Ambas', value: 'ambas' },
+  ];
+  showCajas = computed(() => this.measure() !== 'monto');
+  showMonto = computed(() => this.measure() !== 'cajas');
+  grpColspan = computed(() => (this.measure() === 'ambas' ? 2 : 1));
+  setMeasure(m: string) { this.measure.set(m as Measure); }
   monthDate: Date = new Date();
   rangeDates: Date[] | null = null;
   quarter = 1;

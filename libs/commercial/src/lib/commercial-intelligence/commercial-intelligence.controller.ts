@@ -388,7 +388,7 @@ export class CommercialIntelligenceController {
   // ─── TC.2 (ADR-026): Thot Chat — analítica conversacional sobre ventas ───
 
   @Post('thot/chat')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_VER)
   @ApiOperation({ summary: 'Chat analítico ADMIN (todo el tenant). Back-office only. Stateless: enviar `history`.' })
   async thotChat(
     @Req() req: any,
@@ -510,42 +510,42 @@ export class CommercialIntelligenceController {
 
   // ─── TC.4a: biblioteca de ejemplos verificados (few-shot). Back-office. ───
   @Get('thot/examples')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'Lista los ejemplos verificados (few-shot). ?profile=admin|portal|vendor' })
   listExamples(@Query('profile') profile?: string) {
     return this.examples.list(profile);
   }
 
   @Get('thot/examples/candidates')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'Cola de curaduría: respuestas con 👍 aún no promovidas a ejemplo.' })
   exampleCandidates(@Query('limit') limit?: string) {
     return this.examples.candidates(limit ? parseInt(limit, 10) : undefined);
   }
 
   @Post('thot/examples')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'Agrega un ejemplo dorado (pregunta → tools → respuesta modelo).' })
   addExample(@Req() req: any, @Body() body: { profile?: string; question: string; answer?: string; tools?: any[]; note?: string }) {
     return this.examples.add(body, req.user?.id);
   }
 
   @Post('thot/examples/from-log/:logId')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'Promueve una conversación del log a ejemplo dorado.' })
   promoteExample(@Req() req: any, @Param('logId') logId: string, @Body() body: { note?: string; profile?: string }) {
     return this.examples.promoteFromLog(logId, body || {}, req.user?.id);
   }
 
   @Patch('thot/examples/:id')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'Habilita/deshabilita un ejemplo.' })
   toggleExample(@Param('id') id: string, @Body() body: { enabled: boolean }) {
     return this.examples.setEnabled(id, !!body?.enabled);
   }
 
   @Post('thot/examples/reindex')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'TC.4b — Reindexa semillas + ejemplos curados en la DB vector (embeddings).' })
   reindexExamples() {
     return this.examples.reindex();

@@ -45,6 +45,12 @@ import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialOrdersModule } from '@megadulces/commercial';
+// Fase LM.1 — cobros sobre pedidos (multi-método)
+import { CommercialPaymentsModule } from '@megadulces/commercial';
+// Fase LM.2 — intake de pedidos a domicilio
+import { CommercialHomeDeliveryModule } from '@megadulces/commercial';
+// Fase LM.5 — corte de caja del repartidor (arqueo)
+import { CommercialRiderLiquidationModule } from '@megadulces/commercial';
 import { CommercialCargaModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
@@ -83,6 +89,8 @@ import { LogisticsReportsModule } from '@megadulces/logistics';
 import { LogisticsCartaporteModule } from '@megadulces/logistics';
 // Fase J12.3 — Optimización de ruta (solver heurístico)
 import { LogisticsRoutingModule } from '@megadulces/logistics';
+// Fase LM.3 — despacho de pedidos a domicilio a repartidores en moto
+import { LogisticsHomeDispatchModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
@@ -104,6 +112,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialPricingModule,
       CommercialInventoryModule,
       CommercialOrdersModule,
+      CommercialPaymentsModule,
+      CommercialHomeDeliveryModule,
+      CommercialRiderLiquidationModule,
       CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialAlertsModule,
@@ -136,6 +147,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsReportsModule,
       LogisticsCartaporteModule,
       LogisticsRoutingModule,
+      LogisticsHomeDispatchModule,
       MegaDulcesSyncModule,
     ]
   : [];

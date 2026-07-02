@@ -36,21 +36,21 @@ export class CommercialVendorRoutesController {
   constructor(private readonly service: CommercialVendorRoutesService) {}
 
   @Get('sales-routes')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Rutas de venta del tenant (distinct) + conteo de clientes + a quién están asignadas' })
   listSalesRoutes() {
     return this.service.listSalesRoutes();
   }
 
   @Get('vendors')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Vendedores asignables (usuarios de campo activos)' })
   listVendors() {
     return this.service.listVendors();
   }
 
   @Get('customers')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Clientes de una ruta (?sales_route=) ordenados por visit_sequence, para reordenar' })
   customersByRoute(@Query('sales_route') salesRoute: string) {
     return this.service.customersByRoute(salesRoute);
@@ -132,28 +132,28 @@ export class CommercialVendorRoutesController {
   }
 
   @Get()
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Asignaciones cartera (vendedor → rutas). ?user_id filtra por vendedor.' })
   listAssignments(@Query('user_id') userId?: string) {
     return this.service.listAssignments(userId);
   }
 
   @Post()
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
   @ApiOperation({ summary: 'Asigna una ruta de venta a un vendedor (idempotente)' })
   assign(@Body() body: AssignRouteDto) {
     return this.service.assign(body);
   }
 
   @Put('order')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
   @ApiOperation({ summary: 'Setea el orden de visita (visit_sequence 1..N) de los clientes de una ruta' })
   setOrder(@Body() body: SetRouteOrderDto) {
     return this.service.setRouteOrder(body);
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
   @ApiOperation({ summary: 'Quita una asignación de ruta a vendedor' })
   unassign(@Param('id') id: string) {
     return this.service.unassign(id);

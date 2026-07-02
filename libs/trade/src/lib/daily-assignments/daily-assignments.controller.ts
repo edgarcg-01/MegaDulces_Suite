@@ -38,13 +38,13 @@ export class DailyAssignmentsController {
   constructor(private readonly service: DailyAssignmentsService) {}
 
   @Post()
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.TRADE_ROUTE_PLAN_GESTIONAR)
   create(@Body() dto: CreateAssignmentDto, @ReqUser() user: AuthUser) {
     return this.service.create(dto, user);
   }
 
   @Get()
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.TRADE_ROUTE_PLAN_VER)
   @ApiQuery({ name: 'supervisor_id', required: false })
   @ApiQuery({ name: 'user_id', required: false })
   @ApiQuery({ name: 'day_of_week', required: false, type: Number })
@@ -89,7 +89,7 @@ export class DailyAssignmentsController {
   }
 
   @Get(':id')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.TRADE_ROUTE_PLAN_VER)
   findOne(
     @Param('id', new ParseUUIDPipe()) id: string,
     @ReqUser() user: AuthUser,
@@ -98,7 +98,7 @@ export class DailyAssignmentsController {
   }
 
   @Put(':id')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.TRADE_ROUTE_PLAN_GESTIONAR)
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateAssignmentDto,
@@ -108,7 +108,7 @@ export class DailyAssignmentsController {
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.USUARIOS_ASIGNAR_RUTA)
+  @RequirePermissions(Permission.TRADE_ROUTE_PLAN_GESTIONAR)
   remove(
     @Param('id', new ParseUUIDPipe()) id: string,
     @ReqUser() user: AuthUser,

@@ -58,7 +58,7 @@ export const routes: Routes = [
       {
         path: 'daily-assignments',
         loadComponent: () => import('./modules/dashboard/daily-assignments/daily-assignments.component').then(m => m.DailyAssignmentsComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
+        canActivate: [permissionGuard(Permission.TRADE_ROUTE_PLAN_VER)]
       },
     ]
   },
@@ -74,7 +74,7 @@ export const routes: Routes = [
       {
         path: 'command-center',
         loadComponent: () => import('./modules/dashboard/command-center/command-center.component').then(m => m.CommandCenterComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'customers',
@@ -85,7 +85,7 @@ export const routes: Routes = [
         // V.0 — cartera de ventas: supervisor asigna rutas a vendedores + orden de visita.
         path: 'cartera',
         loadComponent: () => import('./modules/comercial/pages/comercial-cartera.component').then(m => m.ComercialCarteraComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_ASIGNAR_RUTA)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_CARTERA_VER)]
       },
       {
         path: 'orders',
@@ -166,47 +166,47 @@ export const routes: Routes = [
       {
         path: 'dead-stock',
         loadComponent: () => import('./modules/comercial/pages/comercial-dead-stock.component').then(m => m.ComercialDeadStockComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'inventory-health',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-health.component').then(m => m.ComercialInventoryHealthComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'customers-360',
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'erp-promos',
         loadComponent: () => import('./modules/comercial/pages/comercial-erp-promos.component').then(m => m.ComercialErpPromosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
       },
       {
         path: 'sell-out',
         loadComponent: () => import('./modules/comercial/pages/comercial-sell-out.component').then(m => m.ComercialSellOutComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'salidas',
         loadComponent: () => import('./modules/comercial/pages/comercial-salidas.component').then(m => m.ComercialSalidasComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'ventas-por-ruta',
         loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         path: 'thot-chat',
         loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
       },
       {
         path: 'thot-curation',
         loadComponent: () => import('./modules/comercial/pages/comercial-thot-curation.component').then(m => m.ComercialThotCurationComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_GESTIONAR)]
       },
       {
         path: 'pricing',
@@ -217,7 +217,7 @@ export const routes: Routes = [
         // Sprint M.7 — catálogo de productos admin (data Mega_Dulces enriquecida)
         path: 'products',
         loadComponent: () => import('./modules/comercial/pages/comercial-products.component').then(m => m.ComercialProductsComponent),
-        canActivate: [permissionGuard(Permission.CATALOGO_GESTIONAR)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
         path: 'promotions',
@@ -234,7 +234,7 @@ export const routes: Routes = [
         // Sprint M.3: ventas históricas del ERP Mega_Dulces vía FDW (read-only).
         path: 'historical',
         loadComponent: () => import('./modules/dashboard/historical-analytics/historical-analytics.component').then(m => m.HistoricalAnalyticsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
         // Cierre de ruta: control de tickets venta/carga/combustible de vendedores.
@@ -287,7 +287,7 @@ export const routes: Routes = [
         // Fase T — Traspasos (movimientos que NO son venta): consolidación UD06, recepción UA50, traspasos.
         path: 'traspasos',
         loadComponent: () => import('./modules/logistica/pages/logistica-traspasos.component').then(m => m.LogisticaTraspasosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.LOGISTICS_TRANSFERS_VER)]
       },
       {
         path: 'shipments/:id',
@@ -368,7 +368,7 @@ export const routes: Routes = [
       {
         path: 'roles',
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
-        canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]
+        canActivate: [permissionGuard(Permission.ROLES_VER)]
       },
       {
         path: 'roles/:role_name/permissions',

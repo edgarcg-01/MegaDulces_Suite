@@ -18,7 +18,19 @@ import { OrderStockService } from './order-stock.service';
 
 export type OrderStatus = 'draft' | 'pending_approval' | 'confirmed' | 'fulfilled' | 'cancelled';
 
-export type DeliveryType = 'route' | 'long_trip';
+export type DeliveryType = 'route' | 'long_trip' | 'home_delivery';
+
+/** Fase LM: dirección ad-hoc del domicilio (no atada a customer.shipping_address). */
+export interface DeliveryAddress {
+  recipient_name?: string;
+  phone?: string;
+  street?: string;
+  references?: string;
+  lat?: number;
+  lng?: number;
+}
+
+export type DeliveryChannel = 'phone' | 'whatsapp' | 'social' | 'walk_in';
 
 export interface CreateDraftDto {
   customer_id: string;
@@ -26,11 +38,15 @@ export interface CreateDraftDto {
   notes?: string;
   /**
    * J.6.6: tipo de entrega. `route` (default) = entrega por ruta regular;
-   * `long_trip` = viaje largo dedicado. Define cómo logística arma el shipment.
+   * `long_trip` = viaje largo dedicado; `home_delivery` (Fase LM) = domicilio local.
    */
   delivery_type?: DeliveryType;
   /** V.5: fecha de entrega agendada (YYYY-MM-DD) para "pedido futuro". NULL = inmediato. */
   requested_delivery_date?: string;
+  /** Fase LM (solo home_delivery): domicilio ad-hoc + canal + ETA prometido. */
+  delivery_address?: DeliveryAddress;
+  delivery_channel?: DeliveryChannel;
+  promised_eta_min?: number;
 }
 
 export interface UpdateOrderDraftDto {
@@ -146,10 +162,13 @@ export class CommercialOrdersService {
       const priceListId = customer.default_price_list_id || (await this.findDefaultPriceListId(trx));
 
       const deliveryType = dto.delivery_type ?? 'route';
-      if (!['route', 'long_trip'].includes(deliveryType)) {
+      if (!['route', 'long_trip', 'home_delivery'].includes(deliveryType)) {
         throw new BadRequestException(
-          `delivery_type inválido: ${deliveryType}. Debe ser 'route' o 'long_trip'.`,
+          `delivery_type inválido: ${deliveryType}. Debe ser 'route', 'long_trip' o 'home_delivery'.`,
         );
+      }
+      if (dto.delivery_channel && !['phone', 'whatsapp', 'social', 'walk_in'].includes(dto.delivery_channel)) {
+        throw new BadRequestException(`delivery_channel inválido: ${dto.delivery_channel}`);
       }
 
       const requestedDeliveryDate = dto.requested_delivery_date || null;
@@ -172,6 +191,11 @@ export class CommercialOrdersService {
           payment_method: 'cash',
           delivery_type: deliveryType,
           requested_delivery_date: requestedDeliveryDate,
+          // Fase LM — domicilio: dirección ad-hoc + canal + hora recepción + ETA prometido.
+          delivery_address: dto.delivery_address ? JSON.stringify(dto.delivery_address) : null,
+          delivery_channel: dto.delivery_channel || null,
+          received_at: deliveryType === 'home_delivery' ? trx.fn.now() : null,
+          promised_eta_min: dto.promised_eta_min ?? null,
           subtotal: 0,
           tax_total: 0,
           total: 0,

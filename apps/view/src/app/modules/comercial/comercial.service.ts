@@ -1194,6 +1194,7 @@ export interface TransfersRow {
   warehouse_name: string;
   kind: string;
   kind_label: string;
+  dest_label: string;
   monthly: Record<string, TransfersCell>;
   value_total: number;
   units_total: number;

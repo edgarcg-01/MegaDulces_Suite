@@ -71,6 +71,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_ORDERS_CANCELAR]: { label: 'Cancelar Pedidos', description: 'Cancelar pedidos y liberar el stock reservado.', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_ORDERS_FULFILL]: { label: 'Surtir Pedidos', description: 'Marcar pedidos como surtidos (consume stock).', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_PAYMENTS_REGISTRAR]: { label: 'Registrar Cobros', description: 'Registrar pagos de pedidos (cash en beta).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_PAYMENTS_VERIFICAR]: { label: 'Verificar Cobros', description: 'Verificar cobros de última milla contra el corte del repartidor.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_PAYMENTS_REVERSAR]: { label: 'Reversar Cobros', description: 'Reversar/anular un cobro registrado por error.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR]: { label: 'Liquidar Repartidor', description: 'Gestionar el corte de caja y liquidación del repartidor de última milla.', category: 'Comercial · Pedidos' },
   [Permission.VENDOR_APP_ACCESS]: { label: 'Acceso a App Vendedor', description: 'Permite entrar a la app de vendedor standalone (cartera, levantar pedidos, visitas y captura).', category: 'Comercial · Pedidos' },
 
   // Comercial — promociones
@@ -95,6 +98,20 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.LOGISTICS_CONFIG_GESTIONAR]: { label: 'Configurar Logística', description: 'Parámetros financieros (factores, costo por km).', category: 'Logística' },
   [Permission.LOGISTICS_CARTAPORTE_VER]: { label: 'Ver Carta Porte', description: 'Consultar documentos Carta Porte timbrados.', category: 'Logística' },
   [Permission.LOGISTICS_CARTAPORTE_GESTIONAR]: { label: 'Timbrar Carta Porte', description: 'Validar y timbrar Carta Porte (CFDI Traslado) ante el SAT.', category: 'Logística' },
+
+  // ── Fase AZ — permisos jerárquicos nuevos ─────────────────────────────
+  [Permission.ROLES_VER]: { label: 'Ver Roles', description: 'Consultar roles y sus permisos (solo lectura).', category: 'Configuración' },
+  [Permission.COMMERCIAL_ANALYTICS_VER]: { label: 'Ver Analítica Comercial', description: 'Command center, sell-out, salidas, ventas por ruta, dead-stock, salud de inventario, cliente 360 e histórico de venta.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_CARTERA_VER]: { label: 'Ver Cartera', description: 'Consultar la cartera de ventas y la asignación de rutas a vendedores.', category: 'Comercial · Cartera' },
+  [Permission.COMMERCIAL_CARTERA_GESTIONAR]: { label: 'Gestionar Cartera', description: 'Asignar rutas y orden de visita a los vendedores.', category: 'Comercial · Cartera' },
+  [Permission.COMMERCIAL_PRODUCTS_VER]: { label: 'Ver Productos', description: 'Consultar el catálogo comercial de productos.', category: 'Comercial' },
+  [Permission.COMMERCIAL_PRODUCTS_GESTIONAR]: { label: 'Gestionar Productos', description: 'Alta y edición del catálogo comercial de productos.', category: 'Comercial' },
+  [Permission.COMMERCIAL_THOT_VER]: { label: 'Ver Thot / IA', description: 'Chat comercial e inteligencia de recomendación (Thot).', category: 'Comercial · Thot' },
+  [Permission.COMMERCIAL_THOT_GESTIONAR]: { label: 'Gestionar Thot / IA', description: 'Curar contenido y recomendaciones del motor Thot.', category: 'Comercial · Thot' },
+  [Permission.TRADE_ROUTE_PLAN_VER]: { label: 'Ver Agenda de Rutas', description: 'Consultar la agenda diaria de rutas del equipo de campo.', category: 'Seguimiento' },
+  [Permission.TRADE_ROUTE_PLAN_GESTIONAR]: { label: 'Gestionar Agenda de Rutas', description: 'Definir y editar la asignación diaria de rutas al equipo.', category: 'Seguimiento' },
+  [Permission.LOGISTICS_TRANSFERS_VER]: { label: 'Ver Traspasos', description: 'Consultar traspasos y movimientos que no son venta (consolidación/recepción).', category: 'Logística' },
+  [Permission.PORTAL_B2B_ACCESS]: { label: 'Acceso a Portal B2B', description: 'Permite entrar al portal de autoservicio para clientes B2B.', category: 'Portal B2B' },
 };
 
 /**
@@ -107,10 +124,15 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Configuración',
   'Seguimiento',
   'Comercial',
+  'Comercial · Analítica',
+  'Comercial · Cartera',
   'Comercial · Pedidos',
   'Comercial · Promociones',
+  'Comercial · Thot',
+  'Comercial · Inventario físico',
   'Televenta',
   'Logística',
+  'Portal B2B',
   'Otros',
 ];
 

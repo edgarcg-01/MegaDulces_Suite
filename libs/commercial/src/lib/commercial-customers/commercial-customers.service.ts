@@ -35,6 +35,8 @@ export interface CreateCustomerDto {
   payment_terms_days?: number;
   active?: boolean;
   notes?: string;
+  /** Fase LM: cliente casual de domicilio (alta rápida sin cartera formal). */
+  is_casual?: boolean;
 }
 
 export type UpdateCustomerDto = Partial<CreateCustomerDto>;
@@ -147,6 +149,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
           credit_limit: dto.credit_limit ?? 0,
           payment_terms_days: dto.payment_terms_days ?? 0,
           active: dto.active ?? true,
+          is_casual: dto.is_casual ?? false,
           notes: dto.notes || null,
         })
         .returning('*')

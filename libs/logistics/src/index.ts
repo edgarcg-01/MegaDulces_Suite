@@ -15,3 +15,4 @@ export * from './lib/logistics-photos/logistics-photos.module';
 export * from './lib/logistics-reports/logistics-reports.module';
 export * from './lib/logistics-cartaporte/logistics-cartaporte.module';
 export * from './lib/logistics-routing/logistics-routing.module';
+export * from './lib/logistics-home-dispatch/logistics-home-dispatch.module';
