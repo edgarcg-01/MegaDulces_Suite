@@ -41,6 +41,11 @@ function sinceLocalMX(minutesAgo) {
   const nowMx = new Date(Date.now() - 6 * 3600 * 1000 - minutesAgo * 60 * 1000);
   return `${nowMx.getUTCFullYear()}-${pad(nowMx.getUTCMonth() + 1)}-${pad(nowMx.getUTCDate())} ${pad(nowMx.getUTCHours())}:${pad(nowMx.getUTCMinutes())}`;
 }
+// Inicio del día de HOY en hora local MX ("YYYY-MM-DD 00:00") — para el backfill.
+function startOfTodayMX() {
+  const nowMx = new Date(Date.now() - 6 * 3600 * 1000);
+  return `${nowMx.getUTCFullYear()}-${pad(nowMx.getUTCMonth() + 1)}-${pad(nowMx.getUTCDate())} 00:00`;
+}
 
 async function pollBranch(b, since) {
   const c = new Client({ host: b.host, port: b.port, database: b.db, user: 'platform_ro', password: 'kepler123', connectionTimeoutMillis: 6000, statement_timeout: 30000 });
@@ -77,34 +82,48 @@ async function pollBranch(b, since) {
   } finally { await c.end().catch(() => {}); }
 }
 
-async function push(tickets) {
+const CHUNK = 300; // tickets por POST (evita exceder el límite de 2mb del body)
+async function push(tickets, emit = true) {
   if (!tickets.length) return { inserted: 0 };
   if (DRY) {
-    console.log(`   [dry] ${tickets.length} tickets · muestra:`, JSON.stringify(tickets[0], null, 0).slice(0, 300));
+    console.log(`   [dry] ${tickets.length} tickets (emit=${emit}) · muestra:`, JSON.stringify(tickets[0], null, 0).slice(0, 300));
     return { inserted: 0 };
   }
-  const res = await fetch(INGEST_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-store-ingest-key': INGEST_KEY },
-    body: JSON.stringify({ tickets }),
-  });
-  if (!res.ok) throw new Error(`ingest ${res.status}: ${(await res.text()).slice(0, 120)}`);
-  return res.json();
+  let inserted = 0;
+  for (let i = 0; i < tickets.length; i += CHUNK) {
+    const batch = tickets.slice(i, i + CHUNK);
+    const res = await fetch(INGEST_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-store-ingest-key': INGEST_KEY },
+      body: JSON.stringify({ tickets: batch, emit }),
+    });
+    if (!res.ok) throw new Error(`ingest ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    const r = await res.json();
+    inserted += r.inserted || 0;
+  }
+  return { inserted };
 }
 
 let running = false;
+let first = true; // primer ciclo = backfill del día completo (silencioso, sin WS)
 async function tick() {
   if (running) return; // evita solape si un ciclo tarda más que el intervalo
   running = true;
-  const since = sinceLocalMX(WINDOW_MIN);
+  const backfill = first;
+  const since = backfill ? startOfTodayMX() : sinceLocalMX(WINDOW_MIN);
   let total = 0, ins = 0;
   for (const b of BRANCHES) {
     try {
       const tickets = await pollBranch(b, since);
-      if (tickets.length) { const r = await push(tickets); total += tickets.length; ins += (r.inserted || 0); }
+      // backfill: emit=false (el navegador lo trae vía snapshot, sin inundar el WS).
+      if (tickets.length) { const r = await push(tickets, !backfill); total += tickets.length; ins += (r.inserted || 0); }
     } catch (e) { console.log(`⚠️  ${b.db}: ${e.message.split('\n')[0]}`); }
   }
-  if (total) console.log(`[${new Date().toISOString()}] ventana≥${since} · ${total} tickets vistos · ${ins} nuevos → WS`);
+  if (total || backfill) {
+    const tag = backfill ? `BACKFILL día≥${since}` : `ventana≥${since}`;
+    console.log(`[${new Date().toISOString()}] ${tag} · ${total} tickets vistos · ${ins} nuevos${backfill ? ' (buffer)' : ' → WS'}`);
+  }
+  first = false;
   running = false;
 }
 

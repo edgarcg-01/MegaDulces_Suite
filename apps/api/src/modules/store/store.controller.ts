@@ -15,8 +15,10 @@ export class StoreController {
   @UseGuards(StoreIngestGuard)
   @Post('ingest')
   @ApiOperation({ summary: 'TDA — ingesta de tickets en vivo desde el runner on-prem (upsert + emite por WS /store).' })
-  ingest(@Body() body: { tickets: LiveTicket[] }) {
-    return this.service.ingest(body?.tickets || []);
+  ingest(@Body() body: { tickets: LiveTicket[]; emit?: boolean }) {
+    // emit=false → backfill histórico del día (solo llena el buffer, sin emitir
+    // por WS ni disparar alertas). El navegador lo recibe vía snapshot.
+    return this.service.ingest(body?.tickets || [], body?.emit !== false);
   }
 
   /** Snapshot inicial para el navegador al conectar (KPIs día + horas + últimos). */

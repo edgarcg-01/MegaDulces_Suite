@@ -11,14 +11,16 @@
  *
  * @param { import("knex").Knex } knex
  */
+const ROLES = ['superadmin', 'admin', 'supervisor', 'supervisor_ventas', 'encargado_sucursal', 'jefe_marketing'];
+
 exports.up = async function (knex) {
   const patch = JSON.stringify({ STORE_LIVE_VER: true });
   await knex.raw(
     `UPDATE role_permissions
         SET permissions = permissions || :patch::jsonb
-      WHERE role_name IN ('superadmin','admin','supervisor')
+      WHERE role_name = ANY(:roles)
         AND NOT (permissions @> :patch::jsonb)`,
-    { patch },
+    { patch, roles: ROLES },
   );
 };
 
@@ -27,7 +29,7 @@ exports.down = async function (knex) {
   await knex.raw(
     `UPDATE role_permissions
         SET permissions = permissions || :off::jsonb
-      WHERE role_name IN ('superadmin','admin','supervisor')`,
-    { off },
+      WHERE role_name = ANY(:roles)`,
+    { off, roles: ROLES },
   );
 };

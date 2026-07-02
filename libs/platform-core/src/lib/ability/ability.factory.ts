@@ -162,6 +162,18 @@ export function buildAbility(
 ): AppAbility {
   const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
 
+  // God-mode de plataforma (admin/superadmin): emitimos SOLO `manage:all` y
+  // salimos. `manage:all` ya cubre cualquier can(...) posterior, así que iterar
+  // los ~70 permisos individuales solo infla `rules` — que viaja en el JWT (→
+  // header Authorization) sin cambiar el resultado de autorización. Mantener el
+  // token chico evita el 400 de nginx por header > buffer cuando el enum crece
+  // (ver nginx.conf `large_client_header_buffers`). Antes esto se acoplaba a un
+  // permiso de negocio; hoy es explícito por rol (ver isPlatformAdminRole).
+  if (isPlatformAdminRole(opts?.roleName)) {
+    can('manage', 'all');
+    return build();
+  }
+
   for (const [permKey, allowed] of Object.entries(permissions)) {
     if (!allowed) continue;
     const subject = permissionToSubject[permKey];
@@ -173,11 +185,6 @@ export function buildAbility(
   if (permissions[Permission.REPORTES_VER_EQUIPO] || permissions[Permission.REPORTES_VER_GLOBAL]) {
     can('manage', 'team_management');
     can('manage', 'kpi_goals');
-  }
-
-  // God-mode SOLO por rol de plataforma, ya no acoplado a un permiso de negocio.
-  if (isPlatformAdminRole(opts?.roleName)) {
-    can('manage', 'all');
   }
 
   return build();

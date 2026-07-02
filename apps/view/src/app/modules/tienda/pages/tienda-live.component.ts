@@ -47,7 +47,7 @@ import {
       <div class="tda-grid">
         <!-- Ticker en vivo -->
         <section class="tda-card tda-ticker">
-          <h2>Tickets en vivo</h2>
+          <h2>Tickets del día <span class="tk-count">{{ ticker().length | number }}</span></h2>
           <div class="tk-list">
             @for (t of ticker(); track t.warehouse_code + t.serie + t.folio) {
               <div class="tk" [class.flash]="t === ticker()[0]" (click)="toggle(t)">
@@ -124,9 +124,11 @@ import {
     @media (max-width:900px){ .tda-grid { grid-template-columns:1fr; } }
     .tda-card { border:1px solid var(--border); border-radius:var(--radius-md); background:var(--card-bg); padding:1rem 1.1rem; }
     .tda-card h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); font-weight:700; margin:0 0 .7rem; }
+    .tk-count { color:var(--ink); font-weight:800; font-variant-numeric:tabular-nums; }
     .tda-side { display:flex; flex-direction:column; gap:1rem; }
     .tk-list { display:flex; flex-direction:column; max-height:60vh; overflow-y:auto; }
-    .tk { border-bottom:1px solid var(--border); padding:.4rem 0; cursor:pointer; }
+    .tk { border-bottom:1px solid var(--border); padding:.4rem 0; cursor:pointer;
+      content-visibility:auto; contain-intrinsic-size:0 40px; } /* render fluido con miles de filas */
     .tk-row { display:grid; grid-template-columns:3.2rem 1fr auto auto; gap:.6rem; align-items:baseline; font-size:.84rem; }
     .tk-time { font-variant-numeric:tabular-nums; color:var(--text-muted); font-size:.78rem; }
     .tk-suc { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -160,6 +162,9 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
   ticker = signal<LiveTicket[]>([]);
   alerts = signal<StoreAlert[]>([]);
   private open = signal<Set<string>>(new Set());
+  private seen = new Set<string>(); // claves ya en el ticker (dedup snapshot↔WS)
+  private static readonly MAX_TICKER = 6000; // cota de seguridad del DOM (~día pico)
+  private tkKey(t: LiveTicket): string { return t.warehouse_code + t.serie + t.folio; }
 
   avgTicket = computed(() => this.ticketsHoy() ? this.ventaHoy() / this.ticketsHoy() : 0);
   activeBranches = computed(() => this.branches().filter((b) => b.tickets > 0).length);
@@ -180,7 +185,9 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
         const hy: Record<number, { venta: number; tickets: number }> = {};
         for (const h of s.hourly) hy[h.hora] = { venta: h.venta, tickets: h.tickets };
         this.hourly.set(hy);
-        this.ticker.set(s.recent.slice(0, 60));
+        // Todos los tickets del día (más nuevo primero); registrar claves para dedup.
+        this.seen = new Set(s.recent.map((t) => this.tkKey(t)));
+        this.ticker.set(s.recent);
       },
       error: () => undefined,
     });
@@ -192,7 +199,10 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void { this.svc.disconnect(); }
 
   private applyTicket(t: LiveTicket): void {
-    this.ticker.update((list) => [t, ...list].slice(0, 60));
+    const key = this.tkKey(t);
+    if (this.seen.has(key)) return; // ya estaba (snapshot o reemisión) → no duplicar ni recontar
+    this.seen.add(key);
+    this.ticker.update((list) => [t, ...list].slice(0, TiendaLiveComponent.MAX_TICKER));
     this.ventaHoy.update((v) => v + (t.total || 0));
     this.ticketsHoy.update((n) => n + 1);
     // sucursal

@@ -21,7 +21,7 @@ export class StoreService {
     private readonly gateway: StoreGateway,
   ) {}
 
-  async ingest(tickets: LiveTicket[]): Promise<{ received: number; inserted: number }> {
+  async ingest(tickets: LiveTicket[], emit = true): Promise<{ received: number; inserted: number }> {
     if (!Array.isArray(tickets) || !tickets.length) return { received: 0, inserted: 0 };
     let inserted = 0;
     for (const t of tickets) {
@@ -51,6 +51,7 @@ export class StoreService {
       }
       if (!ins.length) continue; // ya existía (idempotente)
       inserted++;
+      if (!emit) continue; // backfill histórico: no emitir por WS
       this.gateway.emitTicket(TENANT, { ...t, total });
       if (total >= LARGE_TICKET) {
         this.gateway.emitAlert(TENANT, {
@@ -89,11 +90,20 @@ export class StoreService {
       .groupByRaw('1')
       .orderByRaw('1');
 
+    // TODOS los tickets de HOY, más nuevo primero (como van saliendo). Tope alto
+    // de seguridad: un día pico ronda ~3.5k tickets en las 6 sucursales.
     const recent = await k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)
+      .andWhereRaw(today)
       .orderBy('ticket_ts', 'desc')
-      .limit(40)
-      .select('warehouse_code', 'warehouse_name', 'serie', 'folio', 'ticket_ts', 'total', 'forma_pago', 'items');
+      .limit(5000)
+      .select(
+        'warehouse_code', 'warehouse_name', 'serie', 'folio',
+        // ticket_ts en hora MX con offset -06:00 (mismo formato que emite el WS).
+        // Sin esto el timestamptz se serializa en UTC y la hora sale +6h corrida.
+        k.raw(`to_char(ticket_ts AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS') || '-06:00' AS ticket_ts`),
+        'total', 'forma_pago', 'items',
+      );
 
     const totals = byBranch.reduce(
       (a: any, b: any) => ({ tickets: a.tickets + Number(b.tickets), venta: a.venta + Number(b.venta || 0) }),
