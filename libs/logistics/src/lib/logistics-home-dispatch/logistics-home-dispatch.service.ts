@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,7 +28,57 @@ export interface DispatchHomeDeliveryDto {
 export class LogisticsHomeDispatchService {
   private readonly logger = new Logger(LogisticsHomeDispatchService.name);
 
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * Paradas a domicilio del repartidor autenticado (resuelve driver por user_id).
+   * Un solo fetch para la app: parada + pedido + dirección + estado. `pending`=true
+   * (default) devuelve solo lo no cerrado.
+   */
+  async myDeliveries(opts: { pending?: boolean } = {}) {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) throw new BadRequestException('Sin user_id en contexto');
+
+    return this.tk.run(async (trx) => {
+      const driver = await trx('logistics.drivers')
+        .where({ user_id: userId })
+        .whereNull('deleted_at')
+        .first();
+      if (!driver) return []; // user sin driver → lista vacía (no error)
+
+      let q = trx('logistics.guide_recipients as r')
+        .join('logistics.delivery_guides as g', 'g.id', 'r.guide_id')
+        .join('logistics.shipments as s', 's.id', 'g.shipment_id')
+        .leftJoin('commercial.orders as o', 'o.id', 'r.order_id')
+        .where('g.driver_id', driver.id)
+        .whereNull('g.deleted_at')
+        .whereNull('s.deleted_at');
+      if (opts.pending !== false) q = q.whereIn('r.status', ['pendiente', 'no_entregado']);
+
+      return q
+        .select(
+          'r.id as recipient_id',
+          'r.status',
+          'r.customer_name',
+          'r.fiscal_address as delivery_address',
+          'r.gps_lat',
+          'r.gps_lng',
+          'r.incident_type',
+          's.folio as shipment_folio',
+          's.id as shipment_id',
+          's.notes as shipment_notes', // trae el aviso CEDIS si aplica
+          'o.id as order_id',
+          'o.code as order_code',
+          'o.total',
+          'o.balance_due',
+          'o.payment_method',
+        )
+        .orderBy('s.shipment_date', 'desc');
+    });
+  }
 
   private async nextFolio(trx: any, prefix: 'EMB' | 'GUIA'): Promise<string> {
     const year = new Date().getFullYear();

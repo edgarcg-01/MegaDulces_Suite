@@ -36,7 +36,7 @@ exports.up = async function (knex) {
     await knex.raw(`
       ALTER TABLE commercial.rider_liquidation_sequences
         ADD CONSTRAINT fk_commercial_rider_liq_seq_tenant
-        FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE
+        FOREIGN KEY (tenant_id) REFERENCES identity.tenants(id) ON DELETE CASCADE
     `);
   }
 
@@ -87,13 +87,13 @@ exports.up = async function (knex) {
     await knex.raw(`
       ALTER TABLE commercial.rider_liquidations
         ADD CONSTRAINT fk_commercial_rider_liq_tenant
-        FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT
+        FOREIGN KEY (tenant_id) REFERENCES identity.tenants(id) ON DELETE RESTRICT
     `);
     await knex.raw(`
       ALTER TABLE commercial.rider_liquidations
         ADD CONSTRAINT fk_commercial_rider_liq_rider
         FOREIGN KEY (tenant_id, rider_user_id)
-        REFERENCES public.users(tenant_id, id) ON DELETE RESTRICT
+        REFERENCES identity.users(tenant_id, id) ON DELETE RESTRICT
     `);
   }
 

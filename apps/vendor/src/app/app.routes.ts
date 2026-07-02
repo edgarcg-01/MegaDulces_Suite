@@ -98,6 +98,13 @@ export const appRoutes: Routes = [
           ),
       },
       {
+        path: 'deliveries',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-deliveries.component').then(
+            (m) => m.VendorDeliveriesComponent,
+          ),
+      },
+      {
         path: 'capture',
         loadComponent: () =>
           import('./modules/dashboard/vendor-capture/vendor-capture.component').then(

@@ -149,6 +149,10 @@ interface DiagProbe {
           <i class="pi pi-truck"></i>
           <span>Carga</span>
         </a>
+        <a routerLink="deliveries" routerLinkActive="active">
+          <i class="pi pi-home"></i>
+          <span>Entregas</span>
+        </a>
         <a routerLink="assistant" routerLinkActive="active">
           <i class="pi pi-sparkles"></i>
           <span>Thot</span>
