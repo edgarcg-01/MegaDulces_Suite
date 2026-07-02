@@ -378,22 +378,18 @@ export class CommercialAnalyticsController {
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
     summary:
-      'SAL — Salidas/Ventas por Producto: fila por sucursal×producto con venta+costo mensual, existencia y costos. Params: year, warehouses=csv, brand_id, supplier_id, search.',
+      'SAL — Salidas/Ventas por Producto. Modo AÑO (year → columnas por mes) o RANGO (from/to ISO → Venta/Costo del período, venta diaria). Params: year | from,to · warehouses=csv, brand_id, supplier_id, search.',
   })
   salidas(
     @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('warehouses') warehouses?: string,
     @Query('brand_id') brandId?: string,
     @Query('supplier_id') supplierId?: string,
     @Query('search') search?: string,
   ) {
-    return this.service.salidasReport({
-      year: year ? Number(year) : new Date().getFullYear(),
-      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
-      brand_id: brandId,
-      supplier_id: supplierId,
-      search,
-    });
+    return this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, search));
   }
 
   @Get('salidas.xlsx')
@@ -402,21 +398,33 @@ export class CommercialAnalyticsController {
   async salidasXlsx(
     @Res() res: Response,
     @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('warehouses') warehouses?: string,
     @Query('brand_id') brandId?: string,
     @Query('supplier_id') supplierId?: string,
     @Query('search') search?: string,
   ) {
-    const report = await this.service.salidasReport({
-      year: year ? Number(year) : new Date().getFullYear(),
+    const report = await this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, search));
+    const buf = await this.exporter.buildSalidasXlsx(report);
+    this.sendFile(res, buf, this.exporter.salidasFileName(report),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  private parseSalidasQuery(
+    year?: string, from?: string, to?: string, warehouses?: string,
+    brandId?: string, supplierId?: string, search?: string,
+  ) {
+    const isRange = !!(from && to);
+    return {
+      year: isRange ? undefined : (year ? Number(year) : new Date().getFullYear()),
+      from: isRange ? from : undefined,
+      to: isRange ? to : undefined,
       warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
       brand_id: brandId,
       supplier_id: supplierId,
       search,
-    });
-    const buf = await this.exporter.buildSalidasXlsx(report);
-    this.sendFile(res, buf, this.exporter.salidasFileName(report),
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    };
   }
 
   // ─────────── Fase RR — Ventas por Ruta ───────────

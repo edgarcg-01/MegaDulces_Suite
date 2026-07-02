@@ -153,7 +153,9 @@ export class SellOutExportService {
   // ─────────── SAL — Salidas/Ventas por Producto (XLSX estilo Kepler) ───────────
 
   salidasFileName(report: SalidasReport): string {
-    return `Salidas_por_Producto_${report.year}.xlsx`;
+    return report.mode === 'range'
+      ? `Salidas_por_Producto_${report.from}_a_${report.to}.xlsx`
+      : `Salidas_por_Producto_${report.year}.xlsx`;
   }
 
   async buildSalidasXlsx(report: SalidasReport): Promise<Buffer> {
@@ -161,11 +163,16 @@ export class SellOutExportService {
     wb.creator = 'Mega Dulces';
     const ws = wb.addWorksheet('Salidas por Producto', { views: [{ state: 'frozen', ySplit: 1 }] });
     const months = report.months;
+    const isRange = report.mode === 'range';
 
     const headBase = ['#', 'Sucursal', 'Clave producto', 'Descripcion del producto', 'UXC', 'SN', 'CN', 'CostoCIVA', 'CostoXCaja', 'Exist. Paq. Actual', 'Exist. Cja. Actual', 'Costo Caja'];
     const head: string[] = [...headBase];
-    for (const m of months) { head.push(`Venta ${MONTH_LABEL[m] ?? m}`, `Costo ${MONTH_LABEL[m] ?? m}`); }
-    head.push('Venta TOTAL');
+    if (isRange) {
+      head.push(`Venta ${report.from}…${report.to}`, `Costo ${report.from}…${report.to}`);
+    } else {
+      for (const m of months) { head.push(`Venta ${MONTH_LABEL[m] ?? m}`, `Costo ${MONTH_LABEL[m] ?? m}`); }
+      head.push('Venta TOTAL');
+    }
     ws.addRow(head);
     const hr = ws.getRow(1);
     hr.eachCell((c) => {
@@ -182,15 +189,22 @@ export class SellOutExportService {
         i + 1, r.warehouse_name, r.sku, r.nombre, r.uxc ?? '', r.supplier ?? '', r.brand ?? '',
         r.costo_civa ?? 0, r.costo_caja ?? 0, r.exist_paq, r.exist_cja, r.costo_existencia,
       ];
-      for (const m of months) {
-        const cell = r.monthly[m];
-        row.push(cell ? cell.venta : 0, cell ? cell.costo : 0);
+      if (isRange) {
+        row.push(r.venta_total, r.costo_total);
+      } else {
+        for (const m of months) {
+          const cell = r.monthly[m];
+          row.push(cell ? cell.venta : 0, cell ? cell.costo : 0);
+        }
+        row.push(r.venta_total);
       }
-      row.push(r.venta_total);
       const added = ws.addRow(row);
-      // formato moneda en columnas de costo
       [8, 9, 12].forEach((ci) => (added.getCell(ci).numFmt = MONEY));
-      months.forEach((_, mi) => (added.getCell(14 + mi * 2).numFmt = MONEY)); // Costo mensual
+      if (isRange) {
+        added.getCell(14).numFmt = MONEY; // Costo período
+      } else {
+        months.forEach((_, mi) => (added.getCell(14 + mi * 2).numFmt = MONEY)); // Costo mensual
+      }
     });
 
     ws.getColumn(2).width = 18;

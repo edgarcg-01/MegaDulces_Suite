@@ -1,7 +1,8 @@
 # Kepler — catálogo de tablas relevantes (análisis tabla por tabla)
 
+> **¿Buscás TODAS las tablas?** El inventario exhaustivo de las **329 tablas** está en [`KEPLER_TABLAS_COMPLETO.md`](KEPLER_TABLAS_COMPLETO.md) (generado 2026-07-02, filas exactas).
 > Complemento de [`ERP_KEPLER_SCHEMA.md`](ERP_KEPLER_SCHEMA.md) (que detalla inventario + write-back).
-> Aquí: barrido **tabla por tabla** del schema `md` de Kepler para decidir **qué integrar**.
+> Aquí: barrido **curado** del schema `md` de Kepler para decidir **qué integrar** (subconjunto de alto valor).
 > Schema `md` ofuscado: tablas `kdXX`, columnas `c1, c2, c3…` sin nombres. Mapeo inferido **desde los datos**.
 
 ## Fuente y método
@@ -132,9 +133,9 @@ Documentos clave (columna `k_doc7` = prefijo de folio):
 | Tabla | Filas | Rel. | Qué es | Columnas inferidas |
 |---|---:|:--:|---|---|
 | `kdc226XX` / `kdc225XX` | ~8k | 🟡 | **Corte de caja diario** (1 tabla por mes; `2260X`=2026 mes X, `2251X`=2025). | `c2`=fecha · `c3`=código · `c5`=monto · `c6`=concepto · `c8`=D/C · `c17`=grupo · `c19`=folio |
-| `kdc125` / `kdc126` | <300 | ⚪ | **Catálogo contable** (cuentas: 160-001 LICENCIAS…). NO son clientes. 100 cols. | `c1`=cuenta · `c2`=nombre |
+| `kdc125` / `kdc126` | <300 | 🟡 | **Catálogo de Cuentas contables** (UI Contabilidad→Cuentas): plan de cuentas con nombre (`160-001 LICENCIAS…`). NO son clientes. 100 cols. Da el **nombre** a `kdco.c3`. | `c1`=cuenta · `c2`=nombre |
 | `kdcn24`/`25`/`26` | <1.2k | ⚪ | **Saldos contables** por cuenta. | `c2`=cuenta · `c7`=saldo |
-| `kdco` | 344 | ⚪ | Auxiliar contable. | — |
+| **`kdco`** | 351 | 🟡 | **Catálogo de Conceptos contables** (UI Contabilidad→Conceptos): mapea cada concepto de gasto/caja/ingreso a su cuenta contable. Usado en pólizas/cortes (`kdm6.c9`, `kdc226XX.c6`). | `c1`=clave (001…) · `c2`=descripción (NOMINA BANCOS, GASOLINA, VENTAS MAYOREO…) · `c3`=número de cuenta (`601-001`) |
 
 ---
 

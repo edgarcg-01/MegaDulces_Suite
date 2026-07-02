@@ -1002,7 +1002,9 @@ export class ComercialService {
   }
 
   private salidasParams(p: SalidasParams): HttpParams {
-    let params = new HttpParams().set('year', String(p.year));
+    let params = new HttpParams();
+    if (p.from && p.to) params = params.set('from', p.from).set('to', p.to);
+    else params = params.set('year', String(p.year ?? new Date().getFullYear()));
     if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
     if (p.brand_id) params = params.set('brand_id', p.brand_id);
     if (p.search) params = params.set('search', p.search);
@@ -1079,7 +1081,9 @@ export interface SellOutWarehouseRow {
 
 // ── Fase SAL ──
 export interface SalidasParams {
-  year: number;
+  year?: number;
+  from?: string;
+  to?: string;
   warehouses?: string[];
   brand_id?: string;
   search?: string;
@@ -1105,7 +1109,10 @@ export interface SalidasRow {
 }
 
 export interface SalidasReport {
-  year: number;
+  mode: 'year' | 'range';
+  year?: number;
+  from?: string;
+  to?: string;
   months: string[];
   rows: SalidasRow[];
   generated_at: string;

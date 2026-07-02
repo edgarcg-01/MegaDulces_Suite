@@ -45,7 +45,11 @@ export interface SellOutWarehouseRow {
 
 // ── Fase SAL — Salidas/Ventas por Producto ──
 export interface SalidasQuery {
-  year: number;
+  year?: number;
+  // Modo rango (SAL.5): si vienen from/to (ISO), el reporte usa venta DIARIA
+  // (analytics.product_sales_daily) y colapsa a una Venta/Costo del período.
+  from?: string;
+  to?: string;
   warehouses?: string[];
   brand_id?: string;
   supplier_id?: string;
@@ -72,7 +76,10 @@ export interface SalidasRow {
 }
 
 export interface SalidasReport {
-  year: number;
+  mode: 'year' | 'range';
+  year?: number;
+  from?: string;
+  to?: string;
   months: string[];
   rows: SalidasRow[];
   generated_at: string;
@@ -1604,17 +1611,33 @@ export class CommercialAnalyticsService {
    * Kepler U/D/10). Costo mensual = venta × costo_por_caja (fórmula del ERP).
    */
   async salidasReport(q: SalidasQuery): Promise<SalidasReport> {
-    const year = Number(q.year) || new Date().getFullYear();
-    if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
-    const from = `${year}-01-01`;
-    const to = `${year + 1}-01-01`;
+    const isRange = !!(q.from && q.to);
     const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
     const brandId = q.brand_id && RS_UUID.test(q.brand_id) ? q.brand_id : null;
     const supplierId = q.supplier_id && RS_UUID.test(q.supplier_id) ? q.supplier_id : null;
     const term = (q.search || '').trim();
     const tenantId = this.tenantCtx.requireTenantId();
 
+    // Modo AÑO → product_sales_monthly (columnas por mes). Modo RANGO → product_sales_daily
+    // (una Venta/Costo del período). El diario suma EXACTO al mensual (misma fuente/filtro).
+    let year = 0, from = '', toIncl = '', toExcl = '';
+    if (isRange) {
+      if (!this.isIsoDate(q.from!) || !this.isIsoDate(q.to!)) throw new BadRequestException('from/to inválido (ISO 8601)');
+      from = q.from!; toIncl = q.to!;
+      if (from > toIncl) throw new BadRequestException('from > to');
+    } else {
+      year = Number(q.year) || new Date().getFullYear();
+      if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
+      from = `${year}-01-01`; toExcl = `${year + 1}-01-01`;
+    }
+    const src = isRange ? 'analytics.product_sales_daily as m' : 'analytics.product_sales_monthly as m';
+    const dcol = isRange ? 'm.sale_date' : 'm.month';
+
     const { salesRows, metaRows } = await this.tk.run(async (trx) => {
+      const applyDate = (qb: any) => {
+        qb.where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
+        if (isRange) qb.andWhere(dcol, '<=', toIncl); else qb.andWhere(dcol, '<', toExcl);
+      };
       const applyFilters = (qb: any) => {
         if (whFilter) qb.whereIn('w.code', whFilter);
         if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -1622,20 +1645,22 @@ export class CommercialAnalyticsService {
         if (term) qb.andWhere((b: any) => b.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
       };
 
-      // Venta mensual por (sucursal, producto, mes).
-      const sq = trx('analytics.product_sales_monthly as m')
+      // Venta por (sucursal, producto[, mes]).
+      const sq = trx(src)
         .join('catalog.products as p', 'p.id', 'm.product_id')
         .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .where('m.tenant_id', tenantId)
-        .andWhere('m.month', '>=', from)
-        .andWhere('m.month', '<', to)
-        .select('w.code as wcode', 'm.product_id as product_id', trx.raw(`to_char(m.month,'MM') as mes`))
-        .sum({ units: 'm.units' })
-        .groupByRaw(`w.code, m.product_id, to_char(m.month,'MM')`);
+        .sum({ units: 'm.units' });
+      applyDate(sq);
+      if (isRange) {
+        sq.select('w.code as wcode', 'm.product_id as product_id').groupByRaw('w.code, m.product_id');
+      } else {
+        sq.select('w.code as wcode', 'm.product_id as product_id', trx.raw(`to_char(m.month,'MM') as mes`))
+          .groupByRaw(`w.code, m.product_id, to_char(m.month,'MM')`);
+      }
       applyFilters(sq);
 
-      // Meta + existencia por (sucursal, producto) con venta en el año.
-      const mq = trx('analytics.product_sales_monthly as m')
+      // Meta + existencia por (sucursal, producto) con venta en el período.
+      const mq = trx(src)
         .join('catalog.products as p', 'p.id', 'm.product_id')
         .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
@@ -1643,15 +1668,13 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.stock as st', function (this: any) {
           this.on('st.product_id', 'm.product_id').andOn('st.warehouse_id', 'm.warehouse_id').andOn('st.tenant_id', 'm.tenant_id');
         })
-        .where('m.tenant_id', tenantId)
-        .andWhere('m.month', '>=', from)
-        .andWhere('m.month', '<', to)
         .distinct(
           'w.code as wcode', 'w.name as wname', 'm.product_id as product_id',
           'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
           'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
           's.name as supplier', 'b.nombre as brand', 'st.quantity as stock_qty',
         );
+      applyDate(mq);
       applyFilters(mq);
 
       return { salesRows: await sq, metaRows: await mq };
@@ -1659,25 +1682,35 @@ export class CommercialAnalyticsService {
 
     // Merge en Node.
     const monthsSet = new Set<string>();
-    const salesByKey = new Map<string, Record<string, number>>();
+    const salesByKey = new Map<string, Record<string, number>>(); // modo año: mes→units
+    const totalByKey = new Map<string, number>();                 // modo rango: units del período
     for (const r of salesRows as any[]) {
       const key = `${r.wcode}|${r.product_id}`;
-      monthsSet.add(r.mes);
-      (salesByKey.get(key) ?? salesByKey.set(key, {}).get(key)!)[r.mes] = Number(r.units) || 0;
+      if (isRange) {
+        totalByKey.set(key, Number(r.units) || 0);
+      } else {
+        monthsSet.add(r.mes);
+        (salesByKey.get(key) ?? salesByKey.set(key, {}).get(key)!)[r.mes] = Number(r.units) || 0;
+      }
     }
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     const rows: SalidasRow[] = (metaRows as any[]).map((r) => {
       const key = `${r.wcode}|${r.product_id}`;
       const factor = Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 1;
       const costCase = r.cost_per_case != null ? Number(r.cost_per_case) : 0;
-      const months = salesByKey.get(key) ?? {};
       const monthly: Record<string, { venta: number; costo: number }> = {};
       let ventaTotal = 0, costoTotal = 0;
-      for (const [mes, venta] of Object.entries(months)) {
-        const costo = round(venta * costCase);
-        monthly[mes] = { venta: round(venta, 2), costo };
-        ventaTotal += venta;
-        costoTotal += costo;
+      if (isRange) {
+        ventaTotal = totalByKey.get(key) ?? 0;
+        costoTotal = round(ventaTotal * costCase);
+      } else {
+        const months = salesByKey.get(key) ?? {};
+        for (const [mes, venta] of Object.entries(months)) {
+          const costo = round(venta * costCase);
+          monthly[mes] = { venta: round(venta, 2), costo };
+          ventaTotal += venta;
+          costoTotal += costo;
+        }
       }
       const existPaq = Number(r.stock_qty) || 0;
       const existCja = round(existPaq / factor, 2);
@@ -1705,7 +1738,9 @@ export class CommercialAnalyticsService {
     );
 
     const months = Array.from(monthsSet).sort();
-    return { year, months, rows, generated_at: new Date().toISOString() };
+    return isRange
+      ? { mode: 'range', from, to: toIncl, months: [], rows, generated_at: new Date().toISOString() }
+      : { mode: 'year', year, months, rows, generated_at: new Date().toISOString() };
   }
 
   /**
