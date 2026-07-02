@@ -140,18 +140,18 @@ const MES: Record<string, string> = {
                       <td class="n">{{ row.exist_cja | number:'1.0-2' }}</td>
                       <td class="n">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                       @if (isRange()) {
-                        <td class="n b">{{ row.venta_total ? (row.venta_total | number:'1.0-0') : '·' }}</td>
-                        <td class="n dim">{{ row.venta_prev ? (row.venta_prev | number:'1.0-0') : '·' }}</td>
+                        <td class="n b">{{ row.venta_total != null ? (row.venta_total | number:'1.0-0') : '·' }}</td>
+                        <td class="n dim">{{ row.venta_prev != null ? (row.venta_prev | number:'1.0-0') : '·' }}</td>
                         <td class="n delta" [class.up]="(row.venta_delta_pct ?? 0) > 0" [class.down]="(row.venta_delta_pct ?? 0) < 0">{{ row.venta_delta_pct == null ? '—' : ((row.venta_delta_pct > 0 ? '+' : '') + (row.venta_delta_pct | number:'1.0-1') + '%') }}</td>
-                        <td class="n mm">{{ row.costo_total ? (row.costo_total | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                        <td class="n mm">{{ row.costo_total != null ? (row.costo_total | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                       } @else {
                         @for (m of r.months; track m) {
-                          <td class="n">{{ cell(row, m)?.venta ? (cell(row, m)!.venta | number:'1.0-0') : '·' }}</td>
-                          <td class="n mm">{{ cell(row, m)?.costo ? (cell(row, m)!.costo | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                          <td class="n">{{ cell(row, m)?.venta != null ? (cell(row, m)!.venta | number:'1.0-0') : '·' }}</td>
+                          <td class="n mm">{{ cell(row, m)?.costo != null ? (cell(row, m)!.costo | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                         }
                         <td class="n b">{{ row.venta_total | number:'1.0-0' }}</td>
                       }
-                      <td class="n">{{ row.venta_cajas ? (row.venta_cajas | number:'1.0-1') : '·' }}</td>
+                      <td class="n">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '·' }}</td>
                       <td class="n cov">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
                     </tr>
                   }
@@ -186,24 +186,39 @@ const MES: Record<string, string> = {
     .sl-table-card { padding:1.25rem; }
     .sl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
     .sl-table { border-collapse:separate; border-spacing:0; font-size:.76rem; white-space:nowrap; }
-    .sl-table th, .sl-table td { border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.3rem .5rem; }
-    .sl-table thead th { background:var(--layout-bg); font-weight:700; text-align:center; position:sticky; top:0; z-index:2; }
+    /* Reglas horizontales; verticales SOLO en fronteras de sección (look de reporte, no de hoja de cálculo). */
+    .sl-table th, .sl-table td { border-bottom:1px solid var(--border); padding:.34rem .6rem; }
+    .sl-table thead th { background:var(--layout-bg); font-weight:700; text-align:left; text-transform:uppercase;
+      font-size:.66rem; letter-spacing:.03em; color:var(--text-muted); position:sticky; top:0; z-index:2; white-space:nowrap; }
     .sl-table td.n, .sl-table th.n { text-align:right; font-variant-numeric:tabular-nums; }
-    .sl-table .mm { border-right:1px solid var(--border-strong,#c9c6bf); }
+    /* Separador de sección (fin de cada bloque de mes / costo). */
+    .sl-table .mm { border-right:1px solid var(--border); }
+    .sl-table td.mm { color:var(--text-muted); }
     .sl-table td.name { max-width:260px; overflow:hidden; text-overflow:ellipsis; }
     .sl-table td.brand { max-width:160px; overflow:hidden; text-overflow:ellipsis; }
     .sl-table td.cat { max-width:150px; overflow:hidden; text-overflow:ellipsis; color:var(--text-muted); }
     .sl-table td.rot { text-transform:capitalize; color:var(--text-muted); }
     .sl-table td.dim { color:var(--text-muted); }
     .sl-table td.cov { color:var(--text-muted); }
-    .sl-table td.delta.up { color:var(--good,#15803d); }
-    .sl-table td.delta.down { color:var(--bad,#b91c1c); }
-    .sl-table td.mono { font-family:var(--font-mono,monospace); }
-    .sl-table td.b, .sl-table th.b { font-weight:700; }
+    .sl-table td.delta.up { color:var(--ok-fg); font-weight:600; }
+    .sl-table td.delta.down { color:var(--bad-fg); font-weight:600; }
+    .sl-table td.mono { font-family:var(--font-mono); font-size:.74rem; }
+    /* Columna Venta destacada (bold + tinte + borde que la separa del resto). */
+    .sl-table td.b, .sl-table th.b { font-weight:700; background:var(--surface-selected-bg); border-left:2px solid var(--border-color); }
+    /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
     .sl-table .frz { position:sticky; background:var(--card-bg); z-index:1; }
     .sl-table thead .frz { z-index:3; }
+    .sl-table .c0, .sl-table .c1 { border-right:1px solid var(--border); }
     .sl-table .c0 { left:0; } .sl-table .c1 { left:120px; } .sl-table .c2 { left:210px; }
-    .sl-table tbody tr:hover td:not(.frz) { background:var(--table-hover,var(--layout-bg)); }
+    .sl-table .c2 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
+    .sl-table tbody tr:hover td:not(.frz) { background:var(--table-hover); }
+    .sl-table tbody tr:hover td.frz { background:var(--hover-bg); }
+    /* Congelado responsive: en móvil solo Sucursal queda fija. */
+    @media (max-width:640px) {
+      .sl-table .c1, .sl-table .c2 { position:static; }
+      .sl-table .c2 { box-shadow:none; }
+      .sl-table .c0 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
+    }
     .sl-more { text-align:center; margin-top:.5rem; }
   `],
 })
