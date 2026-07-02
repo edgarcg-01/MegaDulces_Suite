@@ -43,6 +43,9 @@ export enum Permission {
   SUPERVISOR_AI_VER = 'SUPERVISOR_AI_VER',
   SUPERVISOR_AI_APROBAR = 'SUPERVISOR_AI_APROBAR',
 
+  // Módulo: Tienda — monitor de tickets de venta en vivo (proyecto TDA)
+  STORE_LIVE_VER = 'STORE_LIVE_VER',
+
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
   COMMERCIAL_CUSTOMERS_GESTIONAR = 'COMMERCIAL_CUSTOMERS_GESTIONAR',

@@ -1,22 +1,22 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   DeliveryOutcome,
   RecordDeliveryOutcome,
   RiderDelivery,
-  VendorService,
-} from '../vendor.service';
+  RiderService,
+} from '../rider.service';
 
 type Mode = 'deliver' | 'incident';
 
 /**
- * Fase LM.6 — app del repartidor: paradas a domicilio + cierre de parada.
- * Online-first (offline Dexie diferido a LM.6.2). Entrega exige evidencia
- * (firma/foto/WhatsApp) + cobro; incidencias tipificadas (§10 SOP).
+ * REPARTIDOR — paradas a domicilio + cierre de parada (Fase LM.6).
+ * Dominio propio (RiderService): el repartidor entrega y cobra, NO vende.
+ * Online-first (offline Dexie diferido a LM.6.2).
  */
 @Component({
-  selector: 'app-vendor-deliveries',
+  selector: 'app-rider-deliveries',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
@@ -150,8 +150,8 @@ type Mode = 'deliver' | 'incident';
     .err { color: #dc2626; font-size: .85rem; }
   `],
 })
-export class VendorDeliveriesComponent implements OnInit {
-  private readonly vendor = inject(VendorService);
+export class RiderDeliveriesComponent implements OnInit {
+  private readonly rider = inject(RiderService);
 
   readonly items = signal<RiderDelivery[]>([]);
   readonly loading = signal(false);
@@ -160,7 +160,6 @@ export class VendorDeliveriesComponent implements OnInit {
   readonly active = signal<RiderDelivery | null>(null);
   readonly mode = signal<Mode>('deliver');
 
-  // form state (plain fields — two-way with ngModel)
   method: 'cash' | 'transfer' | 'card' | 'prepaid' = 'cash';
   amount = 0;
   cashReceived: number | null = null;
@@ -175,7 +174,7 @@ export class VendorDeliveriesComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.vendor.myDeliveries().subscribe({
+    this.rider.myDeliveries().subscribe({
       next: (rows) => { this.items.set(rows || []); this.loading.set(false); },
       error: () => { this.items.set([]); this.loading.set(false); },
     });
@@ -237,7 +236,7 @@ export class VendorDeliveriesComponent implements OnInit {
     }
 
     this.saving.set(true);
-    this.vendor.recordDeliveryOutcome(d.recipient_id, dto).subscribe({
+    this.rider.recordDeliveryOutcome(d.recipient_id, dto).subscribe({
       next: () => { this.saving.set(false); this.close(); this.load(); },
       error: (e) => { this.saving.set(false); this.error.set(e?.error?.message || 'No se pudo guardar.'); },
     });

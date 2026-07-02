@@ -264,65 +264,16 @@ export interface RouteTicket {
  * Offline real (Dexie sync queue para pedidos sin conexión) está deferred —
  * por ahora todas las operaciones requieren conexión.
  */
-/** Parada a domicilio del repartidor (Fase LM). */
-export interface RiderDelivery {
-  recipient_id: string;
-  status: string;
-  customer_name: string;
-  delivery_address: { street?: string; references?: string; recipient_name?: string; phone?: string; lat?: number; lng?: number } | null;
-  gps_lat?: number | null;
-  gps_lng?: number | null;
-  incident_type?: string | null;
-  shipment_folio?: string | null;
-  shipment_id?: string | null;
-  shipment_notes?: string | null;
-  order_id?: string | null;
-  order_code?: string | null;
-  total?: number | string | null;
-  balance_due?: number | string | null;
-  payment_method?: string | null;
-}
-
-export type DeliveryOutcome =
-  | 'delivered' | 'not_located' | 'wrong_address' | 'customer_rejected' | 'missing_product' | 'other';
-
-/** Payload para cerrar la parada. */
-export interface RecordDeliveryOutcome {
-  outcome: DeliveryOutcome;
-  delivered_to?: string;
-  signature_url?: string;
-  proof_photo_url?: string;
-  whatsapp_confirmed?: boolean;
-  gps_lat?: number;
-  gps_lng?: number;
-  payment?: { order_id: string; method: 'cash' | 'transfer' | 'card' | 'prepaid'; amount: number; cash_received?: number; reference?: string };
-  incident_notes?: string;
-  attempted_at?: string;
-}
-
 @Injectable({ providedIn: 'root' })
 export class VendorService {
   private readonly http = inject(HttpClient);
   private readonly portal = inject(PortalService);
   private readonly auth = inject(AuthService);
   private readonly base = environment.apiUrl + '/commercial';
-  private readonly apiRoot = environment.apiUrl;
 
   /** sub del JWT del vendedor logueado. Lo usamos para scoping de drafts / "Mi día". */
   private get vendorUserId(): string | null {
     return this.auth.user()?.sub || null;
-  }
-
-  // ─── Fase LM — Entregas a domicilio (repartidor) ───
-
-  /** Paradas a domicilio asignadas al repartidor. */
-  myDeliveries(): Observable<RiderDelivery[]> {
-    return this.http.get<RiderDelivery[]>(`${this.apiRoot}/logistics/home-dispatch/my-deliveries`);
-  }
-
-  /** Cierra la parada: entrega (evidencia + cobro) o incidencia. */
-  recordDeliveryOutcome(recipientId: string, dto: RecordDeliveryOutcome): Observable<any> {
-    return this.http.post(`${this.base}/home-delivery/recipients/${recipientId}/outcome`, dto);
   }
 
   // ─── Customers ───

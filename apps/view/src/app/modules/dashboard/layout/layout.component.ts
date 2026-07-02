@@ -345,11 +345,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica'>(() => {
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda'>(() => {
     const url = this.currentUrl();
     if (url.startsWith('/admin')) return 'admin';
     if (url.startsWith('/comercial')) return 'comercial';
     if (url.startsWith('/logistica')) return 'logistica';
+    if (url.startsWith('/tienda')) return 'tienda';
     return 'trademk';
   });
 
@@ -357,10 +358,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
     switch (this.currentProject()) {
       case 'comercial':  return 'Comercial';
       case 'logistica':  return 'Logística';
+      case 'tienda':     return 'Tienda';
       case 'admin':      return 'Administración';
       default:           return 'Trade Marketing';
     }
   });
+
+  private tiendaNavItems: NavItem[] = [
+    { label: 'Monitor en vivo', icon: 'pi pi-bolt', route: '/tienda/live', permission: Permission.STORE_LIVE_VER },
+  ];
 
   /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */
   mainSectionTitle = computed(() =>
@@ -393,6 +399,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         ? this.adminNavItems
         : project === 'logistica'
         ? this.logisticaNavItems
+        : project === 'tienda'
+        ? this.tiendaNavItems
         : this.tradeMkNavItems;
     return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
   });

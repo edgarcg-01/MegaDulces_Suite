@@ -252,6 +252,21 @@ export const routes: Routes = [
   },
   // ── Proyecto Logística (Fase J) ─────────────────────────────────────
   // Embarques, flotilla, costos, liquidaciones. Reusa LayoutComponent.
+  // ── Proyecto Tienda ─────────────────────────────────────────────────
+  // Monitor de tickets de venta EN VIVO por sucursal (WebSocket /store).
+  {
+    path: 'tienda',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'live', pathMatch: 'full' },
+      {
+        path: 'live',
+        loadComponent: () => import('./modules/tienda/pages/tienda-live.component').then(m => m.TiendaLiveComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+    ]
+  },
   {
     path: 'logistica',
     canActivate: [authGuard],

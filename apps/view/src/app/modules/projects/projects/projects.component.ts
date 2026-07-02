@@ -103,6 +103,15 @@ export class ProjectsComponent implements OnInit {
       ],
     },
     {
+      id: 'tienda',
+      name: 'Tienda',
+      description: 'Monitor en vivo: tickets de venta de cada sucursal al instante, KPIs del día, ritmo por hora y alertas.',
+      icon: 'pi pi-bolt',
+      route: '/tienda',
+      status: 'Activo',
+      anyOf: [Permission.STORE_LIVE_VER],
+    },
+    {
       id: 'admin',
       name: 'Administración',
       description: 'Gestión de usuarios, roles y permisos del sistema.',

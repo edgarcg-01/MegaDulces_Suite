@@ -100,8 +100,8 @@ export const appRoutes: Routes = [
       {
         path: 'deliveries',
         loadComponent: () =>
-          import('./modules/vendor/pages/vendor-deliveries.component').then(
-            (m) => m.VendorDeliveriesComponent,
+          import('./modules/rider/pages/rider-deliveries.component').then(
+            (m) => m.RiderDeliveriesComponent,
           ),
       },
       {

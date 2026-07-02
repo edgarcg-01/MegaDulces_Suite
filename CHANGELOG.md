@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — Proyecto "Tienda": monitor de tickets de venta EN VIVO (Fase TDA) (2026-07-02)
+- Nuevo proyecto `/tienda` (card en /projects) que muestra los **tickets POS de cada sucursal en tiempo real**. Builds api+view verdes; sin deploy.
+- **Habilitador:** Kepler guarda la hora del ticket **al minuto** en `kdm1.c62` (100% poblado) + `c9` fecha. Datos en vivo (verificado: tickets a la hora actual).
+- **Arquitectura (WS ≠ sin polling):** el WebSocket empuja al navegador (sin polling del navegador), pero Kepler no notifica altas (poner trigger/LISTEN al ERP = invasivo, descartado) → **único punto de polling** = `poller on-prem cada ~25s → POST /store/live/ingest → Socket.IO namespace /store → navegador`. Reusa patrón AlertsGateway (JWT handshake, rooms por tenant, path /reports/socket.io).
+- **Backend** `apps/api/src/modules/store/`: gateway `/store`, `StoreService` (ingest idempotente + emite; snapshot KPIs día/curva horaria TZ MX/últimos tickets; alerta ticket grande), controller (`POST /store/live/ingest` @Public + guard `x-store-ingest-key`; `GET /store/live/snapshot` gate `STORE_LIVE_VER`), migración `20260702180000_analytics_store_live_tickets`, permiso `STORE_LIVE_VER`.
+- **Poller** `database/importers/kepler/live-tickets-poller.js` (proceso continuo, ventana deslizante 5min/25s, lee kdm1⋈kdm2 c4=10 con canasta, push a prod).
+- **Frontend** proyecto `/tienda`: `TiendaLiveComponent` (ticker con flash + expandir canasta del ticket, KPIs del día en vivo, barras de horas pico 6-22h, feed de alertas, indicador EN VIVO) + `StoreSocketService` (Socket.IO /store) + card + ruta + nav.
+- **Pendiente prod:** migración + env `STORE_INGEST_KEY`/`STORE_INGEST_URL` + correr el poller on-prem + deploy. `STORE_LIVE_VER` lo tienen admin/superadmin (manage:all); otros roles requieren backfill + re-login.
+
 ### Added — Apartado de Traspasos (movimientos que NO son venta) (Fase T) (2026-07-02)
 - **Contexto:** los "traspasos"/consolidación interna de Kepler ya estaban FUERA de los reportes de venta (efecto del fix ×2 `c4=10`), pero eran **invisibles** y la exclusión era implícita. Se les hace apartado propio + se blinda la exclusión. Builds api+view verdes; sin deploy.
 - **Análisis (datos):** el bloque `c4=6` (serie `UD06`, ~$46M/año, 1 doc/día CONTADO, ≈90% de la venta en cada sucursal) = **consolidación interna** (confirmado por el usuario), NO venta — era el causante del ×2. Los N-traspasos (`N/D/6`, `N/D/25`) = 0 en la práctica; sí hay `U/A/50` "Recepción Traspaso" (~$11M/año). Verificado: `sales_daily` en prod solo trae canales `tienda`+`credito` (sin traspaso).
