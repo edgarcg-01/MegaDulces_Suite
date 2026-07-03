@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { AlertsService } from '../commercial-alerts/alerts.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -57,6 +58,7 @@ export class HomeDispatchService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly alerts: AlertsService,
   ) {}
 
   private async nextFolio(trx: any): Promise<string> {
@@ -281,6 +283,21 @@ export class HomeDispatchService {
       })
       .returning(['id', 'folio']);
 
+    // Aviso in-app al repartidor: nueva entrega asignada (filtra por rider_user_id).
+    const tenantId = this.tenantCtx.get()?.tenantId;
+    if (tenantId) {
+      this.alerts.emitDeliveryAssigned(tenantId, {
+        delivery_id: row.id,
+        folio: row.folio,
+        rider_user_id: p.rider_user_id,
+        customer_name: p.customer_name,
+        address: p.address?.street || null,
+        units: p.units,
+        collect_on_delivery: p.collect_on_delivery,
+        amount_to_collect: p.amount_to_collect,
+      });
+    }
+
     return {
       delivery_id: row.id,
       recipient_id: row.id, // alias de compatibilidad con el flujo anterior
@@ -349,6 +366,46 @@ export class HomeDispatchService {
         transfer_total: Math.round(transferTotal * 100) / 100,
         cuts_closed: liqs.length,
       };
+    });
+  }
+
+  /**
+   * Tracking para la tienda: dónde va cada pedido despachado (estado + repartidor
+   * + hora de entrega). Por default el día de hoy; filtrable por sucursal Kepler
+   * y estado.
+   */
+  async listDispatched(opts: { warehouse_code?: string; date?: string; status?: string } = {}) {
+    const date = opts.date || new Date().toISOString().slice(0, 10);
+    return this.tk.run(async (trx) => {
+      let q = trx('commercial.home_deliveries as d')
+        .leftJoin('identity.users as u', 'u.id', 'd.rider_user_id')
+        .leftJoin('commercial.orders as o', 'o.id', 'd.order_id')
+        .whereNull('d.deleted_at')
+        .whereRaw('d.dispatched_at::date = ?', [date]);
+      if (opts.warehouse_code) q = q.andWhere('d.kepler_warehouse_code', opts.warehouse_code);
+      if (opts.status) q = q.andWhere('d.status', opts.status);
+
+      return q
+        .select(
+          'd.id as delivery_id',
+          'd.folio',
+          'd.status',
+          'd.customer_name',
+          'd.phone',
+          'd.delivery_address',
+          'd.kepler_folio',
+          'd.kepler_warehouse_code',
+          'd.collect_on_delivery',
+          'd.amount_to_collect',
+          'd.incident_type',
+          'd.dispatched_at',
+          'd.delivered_at',
+          'd.rider_user_id',
+          'u.nombre as rider_name',
+          'u.username as rider_username',
+          'o.code as order_code',
+        )
+        .orderBy('d.dispatched_at', 'desc');
     });
   }
 

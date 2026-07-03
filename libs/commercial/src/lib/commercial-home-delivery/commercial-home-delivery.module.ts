@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CommercialCustomersModule } from '../commercial-customers/commercial-customers.module';
 import { CommercialOrdersModule } from '../commercial-orders/commercial-orders.module';
 import { CommercialPaymentsModule } from '../commercial-payments/commercial-payments.module';
+import { CommercialAlertsModule } from '../commercial-alerts/commercial-alerts.module';
 import { CommercialHomeDeliveryController } from './commercial-home-delivery.controller';
 import { CommercialHomeDeliveryService } from './commercial-home-delivery.service';
 import { HomeDispatchService } from './home-dispatch.service';
@@ -13,7 +14,7 @@ import { HomeDispatchService } from './home-dispatch.service';
  * logistics.* vía SQL, desde intake propio o folio Kepler). TenantKnexService global.
  */
 @Module({
-  imports: [CommercialCustomersModule, CommercialOrdersModule, CommercialPaymentsModule],
+  imports: [CommercialCustomersModule, CommercialOrdersModule, CommercialPaymentsModule, CommercialAlertsModule],
   controllers: [CommercialHomeDeliveryController],
   providers: [CommercialHomeDeliveryService, HomeDispatchService],
   exports: [CommercialHomeDeliveryService, HomeDispatchService],

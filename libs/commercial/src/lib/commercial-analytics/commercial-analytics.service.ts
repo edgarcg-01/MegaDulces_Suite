@@ -1312,6 +1312,152 @@ export class CommercialAnalyticsService {
     });
   }
 
+  /**
+   * GX — Egresos contables (gastos + compras) desde analytics.expense_entries.
+   * Sin `cuenta` → agrupa por cuenta contable (la "categoría"). Con `cuenta` →
+   * drill a beneficiario + documentos de esa cuenta. Filtros: from/to (default
+   * 90d), sucursal(es), familia ('5' compras / '6' gastos). Filtro de tenant
+   * explícito (analytics sin RLS).
+   */
+  async expenses(q: {
+    from?: string;
+    to?: string;
+    sucursal?: string[];
+    familia?: string;
+    cuenta?: string;
+    beneficiario?: string;
+  }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const to = q.to || new Date().toISOString().slice(0, 10);
+    const from =
+      q.from ||
+      (() => {
+        const d = new Date(to);
+        d.setDate(d.getDate() - 90);
+        return d.toISOString().slice(0, 10);
+      })();
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        const b = trx('analytics.expense_entries as e')
+          .where('e.tenant_id', tenantId)
+          .andWhere('e.fecha', '>=', from)
+          .andWhere('e.fecha', '<=', to);
+        if (q.sucursal?.length) b.whereIn('e.sucursal', q.sucursal);
+        if (q.familia) b.where('e.familia', q.familia);
+        if (q.cuenta) b.where('e.cuenta', q.cuenta);
+        if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
+        return b;
+      };
+
+      const totalsRow: any = await base()
+        .clone()
+        .select(
+          trx.raw('COALESCE(SUM(importe),0)::numeric AS total'),
+          trx.raw('COUNT(*)::int AS movs'),
+        )
+        .first();
+      const total = Number(totalsRow?.total || 0);
+
+      const byFamilia = await base()
+        .clone()
+        .groupBy('e.familia')
+        .select(
+          'e.familia',
+          trx.raw(
+            "CASE e.familia WHEN '5' THEN 'Compras / Costo' WHEN '6' THEN 'Gastos' ELSE e.familia END AS label",
+          ),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
+          trx.raw('COUNT(*)::int AS movs'),
+        )
+        .orderByRaw('SUM(importe) DESC');
+
+      let by_cuenta: any[] = [];
+      let by_beneficiario: any[] = [];
+      let items: any[] = [];
+      if (!q.cuenta) {
+        // Nivel principal: por cuenta contable (categoría).
+        by_cuenta = await base()
+          .clone()
+          .groupBy('e.cuenta', 'e.cuenta_nombre', 'e.familia')
+          .select(
+            'e.cuenta',
+            'e.cuenta_nombre',
+            'e.familia',
+            trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
+            trx.raw('COUNT(*)::int AS movs'),
+          )
+          .orderByRaw('SUM(importe) DESC')
+          .limit(500);
+      } else {
+        // Drill: beneficiarios de la cuenta + documentos.
+        by_beneficiario = await base()
+          .clone()
+          .groupBy('e.beneficiario')
+          .select(
+            trx.raw("COALESCE(e.beneficiario,'(sin beneficiario)') AS beneficiario"),
+            trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
+            trx.raw('COUNT(*)::int AS movs'),
+          )
+          .orderByRaw('SUM(importe) DESC')
+          .limit(500);
+        items = await base()
+          .clone()
+          .leftJoin('commercial.warehouses as w', function () {
+            this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
+          })
+          .select(
+            'e.fecha',
+            'e.sucursal',
+            'w.name as sucursal_nombre',
+            'e.doc_tipo',
+            'e.doc_folio',
+            'e.beneficiario',
+            'e.cuenta',
+            'e.cuenta_nombre',
+            trx.raw('e.importe::numeric AS importe'),
+          )
+          .orderBy('e.fecha', 'desc')
+          .limit(2000);
+      }
+
+      const withShare = (rows: any[]) =>
+        rows.map((r) => ({
+          ...r,
+          total: Number(r.total),
+          movs: Number(r.movs),
+          share_pct: total ? +((Number(r.total) / total) * 100).toFixed(1) : 0,
+        }));
+
+      return {
+        from,
+        to,
+        sucursal: q.sucursal || null,
+        cuenta: q.cuenta || null,
+        total: +total.toFixed(2),
+        movimientos: Number(totalsRow?.movs || 0),
+        by_familia: byFamilia.map((r: any) => ({ ...r, total: Number(r.total), movs: Number(r.movs) })),
+        by_cuenta: withShare(by_cuenta),
+        by_beneficiario: withShare(by_beneficiario),
+        items: items.map((r: any) => ({ ...r, importe: Number(r.importe) })),
+      };
+    });
+  }
+
+  /** GX — Sucursales presentes en egresos (para el selector del reporte). */
+  async expensesSucursales() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('analytics.expense_entries as e')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
+        })
+        .where('e.tenant_id', tenantId)
+        .groupBy('e.sucursal', 'w.name')
+        .select('e.sucursal as code', 'w.name')
+        .orderBy('e.sucursal'),
+    );
+  }
+
   /** KV.3 — Lista de clientes Kepler con su compra agregada (180d). */
   async erpCustomers(q: { search?: string; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();

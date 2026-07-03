@@ -263,6 +263,39 @@ export class CommercialAnalyticsController {
     return this.service.inventoryHealth({ warehouse_id: warehouseId, status });
   }
 
+  // ─────────── GX — Egresos contables (pólizas de gastos + compras) ───────────
+
+  @Get('expenses')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'GX — Egresos contables (gastos 6xx + compras 5xx) desde analytics.expense_entries. Sin cuenta → agrupa por cuenta contable (categoría) + familia. Con ?cuenta=511 → drill a beneficiario + documentos. Params: from, to (default 90d), sucursal=csv, familia=5|6, beneficiario.',
+  })
+  expenses(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('familia') familia?: string,
+    @Query('cuenta') cuenta?: string,
+    @Query('beneficiario') beneficiario?: string,
+  ) {
+    return this.service.expenses({
+      from,
+      to,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      familia,
+      cuenta,
+      beneficiario,
+    });
+  }
+
+  @Get('expenses/sucursales')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX — Sucursales con egresos (para el selector del reporte).' })
+  expensesSucursales() {
+    return this.service.expensesSucursales();
+  }
+
   @Get('erp-customers')
   @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
   @ApiOperation({ summary: 'KV.3 — Clientes Kepler con compra agregada 180d.' })

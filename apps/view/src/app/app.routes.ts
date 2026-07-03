@@ -200,6 +200,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
+        path: 'egresos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
         path: 'thot-chat',
         loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
@@ -460,6 +465,11 @@ export const routes: Routes = [
         path: 'asignar',
         loadComponent: () =>
           import('./modules/reparto/pages/home-delivery-dispatch.component').then((m) => m.HomeDeliveryDispatchComponent),
+      },
+      {
+        path: 'seguimiento',
+        loadComponent: () =>
+          import('./modules/reparto/pages/home-delivery-tracking.component').then((m) => m.HomeDeliveryTrackingComponent),
       },
       {
         path: 'cortes',

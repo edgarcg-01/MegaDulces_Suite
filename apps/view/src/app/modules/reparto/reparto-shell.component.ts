@@ -29,6 +29,10 @@ import { AuthService } from '../../core/services/auth.service';
             <i class="pi pi-home" aria-hidden="true"></i>
             <span>Asignar pedido</span>
           </a>
+          <a routerLink="seguimiento" routerLinkActive="active">
+            <i class="pi pi-map-marker" aria-hidden="true"></i>
+            <span>Seguimiento</span>
+          </a>
           <a routerLink="cortes" routerLinkActive="active">
             <i class="pi pi-wallet" aria-hidden="true"></i>
             <span>Cortes de caja</span>

@@ -14,6 +14,8 @@ export type AlertType =
   | 'vip_inactive'       // customer con credit_limit alto sin compra en N días
   | 'order_confirmed'    // every order confirm (informativo)
   | 'order_fulfilled'    // every order fulfill (informativo)
+  | 'delivery_assigned'  // entrega a domicilio asignada a un repartidor (Reparto)
+  | 'delivery_delivered' // entrega a domicilio completada (Reparto)
   | 'test';              // manual trigger para smoke testing
 
 export type AlertSeverity = 'info' | 'warn' | 'critical';

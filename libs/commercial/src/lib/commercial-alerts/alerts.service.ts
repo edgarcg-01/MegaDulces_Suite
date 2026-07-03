@@ -151,6 +151,58 @@ export class AlertsService {
     });
   }
 
+  /**
+   * Reparto — entrega asignada a un repartidor. El payload lleva `rider_user_id`
+   * para que la app del repartidor filtre las suyas (sala por tenant, filtro por
+   * usuario en cliente). Seam WhatsApp (Fase F): cuando haya BSP, este mismo
+   * builder dispara además el mensaje al repartidor/cliente.
+   */
+  emitDeliveryAssigned(tenantId: string, params: {
+    delivery_id: string;
+    folio: string;
+    rider_user_id: string;
+    customer_name: string;
+    address: string | null;
+    units: number;
+    collect_on_delivery: boolean;
+    amount_to_collect: number | null;
+  }): void {
+    this.emit(tenantId, {
+      type: 'delivery_assigned',
+      severity: 'info',
+      title: `Nueva entrega asignada: ${params.folio}`,
+      message: params.collect_on_delivery
+        ? `${params.customer_name} — cobrar $${Number(params.amount_to_collect || 0).toFixed(2)}`
+        : `${params.customer_name} — ya pagado`,
+      data: params,
+    });
+    // TODO Fase F (ADR-006): notificar al repartidor por WhatsApp con domicilio + qué cargar.
+  }
+
+  /**
+   * Reparto — entrega completada. Para el seguimiento del encargado en tienda y
+   * (Fase F) el aviso "entregado" al cliente por WhatsApp.
+   */
+  emitDeliveryDelivered(tenantId: string, params: {
+    delivery_id: string;
+    folio: string;
+    rider_user_id: string | null;
+    customer_name: string;
+    delivered_at: string;
+    collected_amount: number | null;
+  }): void {
+    this.emit(tenantId, {
+      type: 'delivery_delivered',
+      severity: 'info',
+      title: `Entrega completada: ${params.folio}`,
+      message: params.collected_amount
+        ? `${params.customer_name} — cobrado $${Number(params.collected_amount).toFixed(2)}`
+        : `${params.customer_name} — entregado`,
+      data: params,
+    });
+    // TODO Fase F (ADR-006): notificar al cliente por WhatsApp ("tu pedido fue entregado").
+  }
+
   /** Test manual para smoke. */
   emitTest(tenantId: string, message?: string): void {
     this.emit(tenantId, {

@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, ElementRef, inject, signal, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
@@ -73,31 +73,35 @@ type Mode = 'deliver' | 'incident';
             <h2>{{ mode() === 'deliver' ? 'Entregar' : 'Incidencia' }} — {{ d.customer_name }}</h2>
 
             @if (mode() === 'deliver') {
-              <label>Método de pago</label>
-              <select [(ngModel)]="method">
-                <option value="cash">Efectivo</option>
-                <option value="transfer">Transferencia</option>
-                <option value="card">Tarjeta (voucher)</option>
-                <option value="prepaid">Ya pagado (prepago)</option>
-              </select>
-
-              @if (method !== 'prepaid') {
-                <label>Monto a cobrar</label>
-                <input type="number" [(ngModel)]="amount" min="0" step="0.01" />
+              @if (mustCollect(d)) {
+                <div class="collect-fixed">
+                  <span>Cobrar (fijo del ticket)</span>
+                  <strong>{{ money(collectAmount(d)) }}</strong>
+                </div>
+                <label>Método de pago</label>
+                <select [(ngModel)]="method">
+                  <option value="cash">Efectivo</option>
+                  <option value="transfer">Transferencia</option>
+                  <option value="card">Tarjeta (voucher)</option>
+                </select>
                 @if (method === 'cash') {
                   <label>Efectivo recibido (para el cambio)</label>
                   <input type="number" [(ngModel)]="cashReceived" min="0" step="0.01" />
+                  @if (change(d) != null) { <p class="change">Cambio: {{ money(change(d)) }}</p> }
                 }
                 @if (method === 'transfer' || method === 'card') {
                   <label>Referencia / autorización</label>
                   <input type="text" [(ngModel)]="reference" />
                 }
+              } @else {
+                <div class="collect-fixed paid"><span>Ya pagado en tienda</span><strong>No se cobra</strong></div>
               }
 
-              <label class="chk">
-                <input type="checkbox" [(ngModel)]="evidence" />
-                Evidencia obtenida (firma / foto / WhatsApp) — obligatoria
-              </label>
+              <label>Firma del cliente <span class="req">(obligatoria)</span></label>
+              <canvas #sig class="sigpad"
+                      (pointerdown)="sigStart($event)" (pointermove)="sigMove($event)"
+                      (pointerup)="sigEnd()" (pointerleave)="sigEnd()"></canvas>
+              <button type="button" class="ghost sig-clear" (click)="clearSig()">Limpiar firma</button>
             } @else {
               <label>Tipo de incidencia</label>
               <select [(ngModel)]="incidentType">
@@ -157,6 +161,13 @@ type Mode = 'deliver' | 'incident';
     .modal input[type=checkbox] { width: auto; }
     .modal-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
     .err { color: #dc2626; font-size: .85rem; }
+    .req { color: #dc2626; }
+    .collect-fixed { display: flex; justify-content: space-between; align-items: center; background: var(--layout-bg, #f5f5f4); border: 1px solid var(--border, #e5e5e5); border-radius: 10px; padding: .6rem .8rem; margin-top: .4rem; }
+    .collect-fixed strong { font-size: 1.1rem; }
+    .collect-fixed.paid strong { color: #16a34a; font-size: .95rem; }
+    .change { margin: .3rem 0 0; font-size: .85rem; color: #16a34a; font-weight: 600; }
+    .sigpad { width: 100%; height: 160px; border: 1px dashed var(--border, #bbb); border-radius: 10px; background: #fff; touch-action: none; cursor: crosshair; }
+    .sig-clear { margin-top: .4rem; font-size: .8rem; padding: .3rem .7rem; }
   `],
 })
 export class RiderDeliveriesComponent implements OnInit {
@@ -169,13 +180,18 @@ export class RiderDeliveriesComponent implements OnInit {
   readonly active = signal<RiderDelivery | null>(null);
   readonly mode = signal<Mode>('deliver');
 
-  method: 'cash' | 'transfer' | 'card' | 'prepaid' = 'cash';
-  amount = 0;
+  @ViewChild('sig') sigRef?: ElementRef<HTMLCanvasElement>;
+
+  method: 'cash' | 'transfer' | 'card' = 'cash';
   cashReceived: number | null = null;
   reference = '';
-  evidence = false;
   incidentType: DeliveryOutcome = 'not_located';
   incidentNotes = '';
+
+  private drawing = false;
+  private signed = false;
+  private lastX = 0;
+  private lastY = 0;
 
   ngOnInit(): void {
     this.load();
@@ -205,6 +221,13 @@ export class RiderDeliveriesComponent implements OnInit {
     return Number(d.amount_to_collect ?? d.balance_due ?? d.total ?? 0);
   }
 
+  /** Cambio a devolver (solo efectivo): recibido − monto fijo del ticket. */
+  change(d: RiderDelivery): number | null {
+    if (this.method !== 'cash' || this.cashReceived == null) return null;
+    const diff = Number(this.cashReceived) - this.collectAmount(d);
+    return diff >= 0 ? diff : null;
+  }
+
   statusLabel(s: string): string {
     return { pendiente: 'Pendiente', no_entregado: 'No entregado', rechazado: 'Rechazado', entregado: 'Entregado' }[s] || s;
   }
@@ -212,13 +235,47 @@ export class RiderDeliveriesComponent implements OnInit {
   openDeliver(d: RiderDelivery): void {
     this.error.set(null);
     this.mode.set('deliver');
-    // Kepler CONTADO / prepago ⇒ no cobra: método 'prepaid'. Si cobra ⇒ efectivo.
-    this.method = this.mustCollect(d) ? 'cash' : 'prepaid';
-    this.amount = this.collectAmount(d);
+    this.method = 'cash';
     this.cashReceived = null;
     this.reference = '';
-    this.evidence = false;
+    this.signed = false;
     this.active.set(d);
+  }
+
+  // ── Firma canvas (obligatoria) ──
+  private ctx(): CanvasRenderingContext2D | null {
+    const c = this.sigRef?.nativeElement;
+    if (!c) return null;
+    if (c.width !== c.clientWidth || c.height !== c.clientHeight) {
+      c.width = c.clientWidth; c.height = c.clientHeight; // fija resolución = tamaño en pantalla
+    }
+    return c.getContext('2d');
+  }
+
+  sigStart(ev: PointerEvent): void {
+    const g = this.ctx();
+    if (!g) return;
+    this.drawing = true;
+    this.signed = true;
+    this.lastX = ev.offsetX; this.lastY = ev.offsetY;
+    g.lineWidth = 2; g.lineCap = 'round'; g.strokeStyle = '#111';
+  }
+
+  sigMove(ev: PointerEvent): void {
+    if (!this.drawing) return;
+    const g = this.ctx();
+    if (!g) return;
+    g.beginPath(); g.moveTo(this.lastX, this.lastY); g.lineTo(ev.offsetX, ev.offsetY); g.stroke();
+    this.lastX = ev.offsetX; this.lastY = ev.offsetY;
+  }
+
+  sigEnd(): void { this.drawing = false; }
+
+  clearSig(): void {
+    const c = this.sigRef?.nativeElement;
+    const g = this.ctx();
+    if (c && g) g.clearRect(0, 0, c.width, c.height);
+    this.signed = false;
   }
 
   openIncident(d: RiderDelivery): void {
@@ -241,13 +298,14 @@ export class RiderDeliveriesComponent implements OnInit {
 
     let dto: RecordDeliveryOutcome;
     if (this.mode() === 'deliver') {
-      if (!this.evidence) { this.error.set('La entrega requiere evidencia (firma/foto/WhatsApp).'); return; }
-      dto = { outcome: 'delivered', whatsapp_confirmed: true, delivered_to: d.customer_name };
-      // Cobra si la parada lo requiere (COD) y el método no es prepago. Sirve
-      // tanto para intake propio (order_id) como para folio Kepler (backend resuelve).
-      if (this.mustCollect(d) && this.method !== 'prepaid') {
-        if (!(this.amount > 0)) { this.error.set('Ingresa el monto a cobrar.'); return; }
-        dto.payment = { method: this.method, amount: Number(this.amount) };
+      // Firma del cliente OBLIGATORIA (no opcional). El backend también la exige.
+      if (!this.signed) { this.error.set('Falta la firma del cliente.'); return; }
+      const signature_url = this.sigRef?.nativeElement.toDataURL('image/png');
+      dto = { outcome: 'delivered', delivered_to: d.customer_name, signature_url };
+      // El MONTO lo fija el ticket (backend lo bloquea). El repartidor NO lo decide:
+      // solo elige método y, en efectivo, cuánto recibió (para el cambio).
+      if (this.mustCollect(d)) {
+        dto.payment = { method: this.method, amount: this.collectAmount(d) };
         if (this.method === 'cash' && this.cashReceived != null) dto.payment.cash_received = Number(this.cashReceived);
         if ((this.method === 'transfer' || this.method === 'card') && this.reference) dto.payment.reference = this.reference;
       }

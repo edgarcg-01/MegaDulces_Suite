@@ -1071,6 +1071,24 @@ export class ComercialService {
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
     return params;
   }
+
+  // ── Fase GX — Egresos contables (pólizas de gastos + compras) ──
+  expenses(p: ExpensesParams) {
+    return this.http.get<ExpensesReport>(`${this.base}/analytics/expenses`, { params: this.expensesParams(p) });
+  }
+  expensesSucursales() {
+    return this.http.get<{ code: string; name: string | null }[]>(`${this.base}/analytics/expenses/sucursales`);
+  }
+  private expensesParams(p: ExpensesParams): HttpParams {
+    let params = new HttpParams();
+    if (p.from) params = params.set('from', p.from);
+    if (p.to) params = params.set('to', p.to);
+    if (p.sucursal?.length) params = params.set('sucursal', p.sucursal.join(','));
+    if (p.familia) params = params.set('familia', p.familia);
+    if (p.cuenta) params = params.set('cuenta', p.cuenta);
+    if (p.beneficiario?.trim()) params = params.set('beneficiario', p.beneficiario.trim());
+    return params;
+  }
 }
 
 // ── Fase RS — Sell-Out ──
@@ -1522,4 +1540,47 @@ export interface VendorSaleLine {
   quantity: number | string;
   confidence?: string | null;
   product_id?: string | null;
+}
+
+// ── Fase GX — Egresos contables ──
+export interface ExpensesParams {
+  from?: string;
+  to?: string;
+  sucursal?: string[];
+  familia?: '5' | '6';
+  cuenta?: string;
+  beneficiario?: string;
+}
+export interface ExpenseFamiliaRow { familia: string; label: string; total: number; movs: number; }
+export interface ExpenseCuentaRow {
+  cuenta: string;
+  cuenta_nombre: string | null;
+  familia: string;
+  total: number;
+  movs: number;
+  share_pct: number;
+}
+export interface ExpenseBeneficiarioRow { beneficiario: string; total: number; movs: number; share_pct: number; }
+export interface ExpenseItemRow {
+  fecha: string;
+  sucursal: string;
+  sucursal_nombre: string | null;
+  doc_tipo: string;
+  doc_folio: string;
+  beneficiario: string | null;
+  cuenta: string;
+  cuenta_nombre: string | null;
+  importe: number;
+}
+export interface ExpensesReport {
+  from: string;
+  to: string;
+  sucursal: string[] | null;
+  cuenta: string | null;
+  total: number;
+  movimientos: number;
+  by_familia: ExpenseFamiliaRow[];
+  by_cuenta: ExpenseCuentaRow[];
+  by_beneficiario: ExpenseBeneficiarioRow[];
+  items: ExpenseItemRow[];
 }

@@ -5,10 +5,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialCustomersService } from '../commercial-customers/commercial-customers.service';
 import { CommercialOrdersService } from '../commercial-orders/commercial-orders.service';
 import { CommercialPaymentsService } from '../commercial-payments/commercial-payments.service';
+import { AlertsService } from '../commercial-alerts/alerts.service';
 import {
   DELIVERY_OUTCOMES,
   HomeDeliveryIntakeDto,
@@ -39,6 +40,8 @@ export class CommercialHomeDeliveryService {
     private readonly customers: CommercialCustomersService,
     private readonly orders: CommercialOrdersService,
     private readonly payments: CommercialPaymentsService,
+    private readonly tenantCtx: TenantContextService,
+    private readonly alerts: AlertsService,
   ) {}
 
   async createIntake(dto: HomeDeliveryIntakeDto) {
@@ -97,28 +100,35 @@ export class CommercialHomeDeliveryService {
     const orderId: string | null = recipient.order_id || null;
 
     if (dto.outcome === 'delivered') {
-      const hasEvidence = !!(dto.signature_url || dto.proof_photo_url || dto.whatsapp_confirmed);
-      if (!hasEvidence)
-        throw new BadRequestException(
-          'Entrega requiere evidencia: firma, foto o confirmación WhatsApp',
-        );
+      // Firma del cliente OBLIGATORIA (§9 SOP). No es opcional ni a criterio del
+      // repartidor: sin firma no hay entrega. Foto/WhatsApp son evidencia extra.
+      if (!dto.signature_url)
+        throw new BadRequestException('Entrega requiere la firma del cliente');
+
+      // El MONTO lo fija el ticket, no el repartidor: se cobra exactamente
+      // `amount_to_collect` de la parada. El repartidor solo captura método y
+      // efectivo recibido (para el cambio); cualquier `amount` que mande se ignora.
+      const lockedAmount = Number(recipient.amount_to_collect) || 0;
 
       let payment: any = null;
       let order: any = null;
       if (orderId) {
         // Intake propio: fulfill (consume stock) + cobro atómico contra la orden.
-        const orderPayment = dto.payment ? { ...dto.payment, order_id: orderId } : undefined;
+        const orderPayment = dto.payment
+          ? { method: dto.payment.method, amount: lockedAmount, cash_received: dto.payment.cash_received, reference: dto.payment.reference, order_id: orderId }
+          : undefined;
         const res = await this.payments.deliverAndCollect(orderId, { payment: orderPayment });
         order = res.order;
         payment = res.payment;
       } else if (recipient.kepler_folio && recipient.collect_on_delivery && dto.payment) {
         // Parada Kepler COD: cobro ligado al folio (sin orden; entra al arqueo).
+        // Monto fijo del ticket (lockedAmount), no el que teclee el repartidor.
         payment = await this.payments.recordKeplerPayment({
           kepler_folio: recipient.kepler_folio,
           kepler_serie: recipient.kepler_serie,
           kepler_warehouse_code: recipient.kepler_warehouse_code,
           method: dto.payment.method,
-          amount: dto.payment.amount,
+          amount: lockedAmount,
           cash_received: dto.payment.cash_received,
           reference: dto.payment.reference,
         });
@@ -138,6 +148,19 @@ export class CommercialHomeDeliveryService {
           updated_at: trx.fn.now(),
         }),
       );
+
+      // Aviso in-app: entrega completada (seguimiento del encargado en tienda).
+      const tenantId = this.tenantCtx.get()?.tenantId;
+      if (tenantId) {
+        this.alerts.emitDeliveryDelivered(tenantId, {
+          delivery_id: recipientId,
+          folio: recipient.folio,
+          rider_user_id: recipient.rider_user_id || null,
+          customer_name: recipient.customer_name || 'Cliente',
+          delivered_at: new Date().toISOString(),
+          collected_amount: payment ? Number(payment.amount) || null : null,
+        });
+      }
       return { recipient_id: recipientId, status: 'entregado', order, payment };
     }
 

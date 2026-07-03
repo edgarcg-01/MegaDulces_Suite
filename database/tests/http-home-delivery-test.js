@@ -168,13 +168,29 @@ function skipStep(name, why) { console.log(`  SKIP ${name} — ${why}`); skip++;
   check('parada trae items_snapshot (qué cargar)', (parada?.items_snapshot?.length || 0) === 2);
   check('parada marca cobro COD', parada?.collect_on_delivery === true && Number(parada?.amount_to_collect) === 250.5);
 
-  console.log('\n── 8. outcome: entrega + cobro COD (repartidor cierra) ──');
+  console.log('\n── 8. outcome: firma obligatoria + monto bloqueado del ticket ──');
+  const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  // Sin firma ⇒ backend rechaza (firma obligatoria, no a criterio del repartidor).
+  const noSig = await req('POST', `/commercial/home-delivery/recipients/${recipientId}/outcome`, {
+    outcome: 'delivered', payment: { method: 'cash', amount: 250.5, cash_received: 300 },
+  }, riderToken);
+  check('sin firma ⇒ 400 (firma obligatoria)', noSig.status === 400, `status=${noSig.status}`);
+
+  // Con firma. Mando amount ERRÓNEO (1) a propósito: el backend debe IGNORARLO y
+  // cobrar el monto fijo del ticket (250.5) → cambio 300−250.5 = 49.5.
   const out = await req('POST', `/commercial/home-delivery/recipients/${recipientId}/outcome`, {
-    outcome: 'delivered', whatsapp_confirmed: true, delivered_to: 'Cliente Smoke',
-    payment: { method: 'cash', amount: 250.5, cash_received: 300 },
+    outcome: 'delivered', delivered_to: 'Cliente Smoke', signature_url: SIG,
+    payment: { method: 'cash', amount: 1, cash_received: 300 },
   }, riderToken);
   check('outcome entregado + pago', out.status === 200 || out.status === 201, `status=${out.status} body=${JSON.stringify(out.body).slice(0,120)}`);
-  check('pago registrado (change 49.5)', Number(out.body?.payment?.change_given) === 49.5, `payment=${JSON.stringify(out.body?.payment || {}).slice(0,120)}`);
+  check('monto BLOQUEADO del ticket (cobra 250.5, no 1)', Number(out.body?.payment?.amount) === 250.5, `amount=${out.body?.payment?.amount}`);
+  check('cambio correcto sobre monto fijo (49.5)', Number(out.body?.payment?.change_given) === 49.5, `change=${out.body?.payment?.change_given}`);
+
+  console.log('\n── 8b. tracking de tienda (dónde va el pedido) ──');
+  const trk = await req('GET', '/commercial/home-delivery/dispatched?warehouse_code=01', null, token);
+  const tRow = (trk.body || []).find((x) => x.delivery_id === recipientId);
+  check('tracking lista la entrega', !!tRow, `n=${(trk.body || []).length}`);
+  check('tracking muestra entregado + hora + repartidor', tRow?.status === 'entregado' && !!tRow?.delivered_at && !!tRow?.rider_user_id, `row=${JSON.stringify(tRow || {}).slice(0,120)}`);
 
   console.log('\n── 9. arqueo del repartidor ──');
   const business_date = new Date().toISOString().slice(0, 10);

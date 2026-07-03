@@ -62,6 +62,18 @@ export class CommercialHomeDeliveryController {
     return this.dispatch.dispatchFromKepler(dto);
   }
 
+  /** Tracking para tienda: dónde va cada pedido despachado (estado + repartidor + hora). */
+  @Get('dispatched')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiOperation({ summary: 'Entregas despachadas del día con su estado (tracking de tienda).' })
+  listDispatched(
+    @Query('warehouse_code') warehouseCode?: string,
+    @Query('date') date?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.dispatch.listDispatched({ warehouse_code: warehouseCode, date, status });
+  }
+
   /** Paradas a domicilio del repartidor autenticado (app repartidor). */
   @Get('my-deliveries')
   @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)

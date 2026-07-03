@@ -375,8 +375,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
   // el acceso a la superficie, por eso el nav no se re-filtra por permiso.
   private repartoNavItems: NavItem[] = [
-    { label: 'Asignar pedido', icon: 'pi pi-send',   route: '/reparto/asignar', permission: Permission.LOGISTICS_HOME_DISPATCH },
-    { label: 'Cortes de caja', icon: 'pi pi-wallet', route: '/reparto/cortes',  permission: Permission.LOGISTICS_HOME_DISPATCH },
+    { label: 'Asignar pedido', icon: 'pi pi-send',       route: '/reparto/asignar',     permission: Permission.LOGISTICS_HOME_DISPATCH },
+    { label: 'Seguimiento',    icon: 'pi pi-map-marker', route: '/reparto/seguimiento', permission: Permission.LOGISTICS_HOME_DISPATCH },
+    { label: 'Cortes de caja', icon: 'pi pi-wallet',     route: '/reparto/cortes',      permission: Permission.LOGISTICS_HOME_DISPATCH },
   ];
 
   /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */

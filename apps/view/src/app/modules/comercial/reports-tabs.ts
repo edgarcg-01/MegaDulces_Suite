@@ -26,4 +26,10 @@ export const REPORTS_TABS: PageTab[] = [
     icon: 'pi pi-sync',
     permission: Permission.COMMERCIAL_ORDERS_VER,
   },
+  {
+    label: 'Egresos contables',
+    route: '/comercial/egresos',
+    icon: 'pi pi-wallet',
+    permission: Permission.COMMERCIAL_ORDERS_VER,
+  },
 ];

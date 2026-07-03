@@ -27,6 +27,27 @@ export interface KeplerTicket {
 export interface Rider { rider_user_id: string; username: string; full_name: string; warehouse_code?: string | null; }
 export interface FleetVehicle { id: string; plate: string; brand?: string; model?: string; capacity_boxes?: number | null; status?: string; }
 
+/** Entrega despachada, para el tracking del usuario de tienda. */
+export interface DispatchedDelivery {
+  delivery_id: string;
+  folio: string;
+  status: 'pendiente' | 'entregado' | 'no_entregado' | 'rechazado';
+  customer_name: string;
+  phone?: string | null;
+  delivery_address?: { street?: string; references?: string } | null;
+  kepler_folio?: string | null;
+  kepler_warehouse_code?: string | null;
+  collect_on_delivery?: boolean;
+  amount_to_collect?: number | string | null;
+  incident_type?: string | null;
+  dispatched_at: string;
+  delivered_at?: string | null;
+  rider_user_id?: string | null;
+  rider_name?: string | null;
+  rider_username?: string | null;
+  order_code?: string | null;
+}
+
 export interface DispatchFromKeplerPayload {
   folio: string;
   serie?: string;
@@ -61,6 +82,15 @@ export class HomeDeliveryService {
     let p = new HttpParams();
     if (warehouseCode) p = p.set('warehouse_code', warehouseCode);
     return this.http.get<Rider[]>(`${this.api}/commercial/home-delivery/riders`, { params: p });
+  }
+
+  /** Tracking de tienda: entregas despachadas del día con su estado. */
+  listDispatched(opts: { warehouse_code?: string; date?: string; status?: string } = {}): Observable<DispatchedDelivery[]> {
+    let p = new HttpParams();
+    if (opts.warehouse_code) p = p.set('warehouse_code', opts.warehouse_code);
+    if (opts.date) p = p.set('date', opts.date);
+    if (opts.status) p = p.set('status', opts.status);
+    return this.http.get<DispatchedDelivery[]>(`${this.api}/commercial/home-delivery/dispatched`, { params: p });
   }
 
   listVehicles(): Observable<FleetVehicle[]> {
