@@ -111,6 +111,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.LOGISTICS_HOME_DISPATCH)]
       },
       {
+        // LM.7 — encargado: corte de caja del repartidor (arqueo)
+        path: 'cortes',
+        loadComponent: () => import('./modules/rider-liquidation/rider-liquidation.component').then(m => m.RiderLiquidationComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR)]
+      },
+      {
         path: 'inventory',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]

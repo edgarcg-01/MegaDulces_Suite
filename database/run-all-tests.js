@@ -43,6 +43,8 @@ const TESTS = [
   { file: 'http-logistics-j8-test.js', label: 'J.8 migración repo (state machine 7 estados, checklists, photos, reports jspdf)', needsApi: true },
   { file: 'http-logistics-j9-test.js', label: 'J.9 UI port (endpoints dashboard/staff/guides/costs)', needsApi: true },
   { file: 'http-j10-order-tracking-test.js', label: 'J.10 order tracking (commercial/orders/:id/shipments)', needsApi: true },
+  // Fase LM-K — entrega a domicilio desde folio Kepler
+  { file: 'http-home-delivery-test.js', label: 'LM-K entrega domicilio (folio Kepler → dispatch → outcome COD → arqueo)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
   // Cierre de ruta (port Automation_RD)
