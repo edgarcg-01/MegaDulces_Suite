@@ -284,6 +284,26 @@ export class CommercialPaymentsService {
     });
   }
 
+  /**
+   * Fase LM.7.1 — cobros por transferencia/tarjeta pendientes de verificación
+   * (status='received'). El encargado los revisa contra el comprobante y verifica.
+   */
+  async listPendingVerification(): Promise<any[]> {
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.payments')
+        .where({ status: 'received' })
+        .whereIn('payment_method', ['transfer', 'card'])
+        .whereNull('deleted_at')
+        .orderBy('received_at', 'desc')
+        .limit(200);
+      return rows.map((r: any) => ({
+        ...this.toRow(r),
+        order_id: r.order_id ?? null,
+        kepler_folio: r.kepler_folio ?? null,
+      }));
+    });
+  }
+
   /** Lista los cobros de un pedido (no borrados), más recientes primero. */
   async listByOrder(orderId: string): Promise<PaymentRow[]> {
     if (!UUID_RE.test(orderId)) throw new BadRequestException('orderId inválido');

@@ -89,7 +89,8 @@ export class StoreService {
     if (!warehouseCode) throw new BadRequestException('warehouse (sucursal) requerido');
 
     return this.knex.transaction(async (trx) => {
-      await trx.raw(`SET LOCAL app.tenant_id = ?`, [TENANT]);
+      // set_config admite bind param (SET LOCAL x = ? NO — Postgres rechaza params en SET).
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
 
       // Allowlist: solo sucursales habilitadas para domicilio (piloto 01/02/03).
       const wh = await trx('logistics.home_delivery_warehouses')

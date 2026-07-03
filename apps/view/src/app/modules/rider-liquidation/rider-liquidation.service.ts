@@ -54,4 +54,46 @@ export class RiderLiquidationService {
       params: new HttpParams().set('active', 'true'),
     });
   }
+
+  // ── LM.7.1 — verificación de transferencias/tarjetas ──
+  pendingVerification(): Observable<PendingPayment[]> {
+    return this.http.get<PendingPayment[]>(`${this.api}/commercial/payments/pending-verification`);
+  }
+
+  verifyPayment(id: string): Observable<any> {
+    return this.http.post(`${this.api}/commercial/payments/${id}/verify`, {});
+  }
+
+  // ── LM.8 — KPIs de última milla ──
+  kpis(from?: string, to?: string): Observable<HomeDeliveryKpis> {
+    let p = new HttpParams();
+    if (from) p = p.set('from', from);
+    if (to) p = p.set('to', to);
+    return this.http.get<HomeDeliveryKpis>(`${this.api}/commercial/home-delivery/kpis`, { params: p });
+  }
+}
+
+export interface HomeDeliveryKpis {
+  deliveries_total: number;
+  delivered: number;
+  incidents: number;
+  success_rate_pct: number;
+  incident_rate_pct: number;
+  avg_delivery_min: number | null;
+  cash_counted: number;
+  cash_difference_abs: number;
+  card_total: number;
+  transfer_total: number;
+  cuts_closed: number;
+}
+
+export interface PendingPayment {
+  id: string;
+  amount: number | string;
+  payment_method: string;
+  reference: string | null;
+  proof_url: string | null;
+  received_at: string;
+  order_id: string | null;
+  kepler_folio: string | null;
 }

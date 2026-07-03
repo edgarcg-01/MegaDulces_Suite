@@ -8,6 +8,8 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { InputTextModule } from 'primeng/inputtext';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToastModule } from 'primeng/toast';
+import { TableModule } from 'primeng/table';
+import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
@@ -34,7 +36,8 @@ const MES: Record<string, string> = {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    InputTextModule, DatePickerModule, ToastModule, PageTabsComponent, SegmentedComponent,
+    InputTextModule, DatePickerModule, ToastModule, TableModule, TooltipModule,
+    PageTabsComponent, SegmentedComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -101,69 +104,66 @@ const MES: Record<string, string> = {
 
         @if (r.rows.length) {
           <div class="card-premium card-flat sl-table-card">
-            <div class="sl-wrap">
-              <table class="sl-table">
-                <thead>
-                  <tr>
-                    <th class="frz c0">Sucursal</th>
-                    <th class="frz c1">Clave</th>
-                    <th class="frz c2">Descripción</th>
-                    <th class="n">UXC</th>
-                    <th>Marca</th>
-                    <th>Categoría</th>
-                    <th>Rot.</th>
-                    <th class="n">Exist. Cja</th>
-                    <th class="n">Costo x Caja</th>
-                    @if (isRange()) {
-                      <th class="n b">Venta</th>
-                      <th class="n">Anterior</th>
-                      <th class="n">Var %</th>
-                      <th class="n mm">Costo</th>
-                    } @else {
-                      @for (m of r.months; track m) { <th class="n">Venta {{ mes(m) }}</th><th class="n mm">Costo {{ mes(m) }}</th> }
-                      <th class="n b">Venta TOTAL</th>
+            <p-table [value]="r.rows" [loading]="loading()" [rowHover]="true"
+                     [scrollable]="true" scrollHeight="65vh"
+                     [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                     sortField="venta_total" [sortOrder]="-1"
+                     styleClass="p-datatable-sm surf-table sl-ptable">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sortIcon field="warehouse_name" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sortIcon field="sku" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sortIcon field="nombre" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="uxc">UXC <p-sortIcon field="uxc" /></th>
+                  <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
+                  <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
+                  <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sortIcon field="rotation_tier" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_cja">Exist. Cja <p-sortIcon field="exist_cja" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="costo_caja">Costo x Caja <p-sortIcon field="costo_caja" /></th>
+                  @if (isRange()) {
+                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta <p-sortIcon field="venta_total" /></th>
+                    <th scope="col" class="comm-num" pSortableColumn="venta_prev">Anterior <p-sortIcon field="venta_prev" /></th>
+                    <th scope="col" class="comm-num" pSortableColumn="venta_delta_pct">Var % <p-sortIcon field="venta_delta_pct" /></th>
+                    <th scope="col" class="comm-num sl-sec" pSortableColumn="costo_total">Costo <p-sortIcon field="costo_total" /></th>
+                  } @else {
+                    @for (m of r.months; track m) {
+                      <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.venta'">Venta {{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.venta'" /></th>
+                      <th scope="col" class="comm-num sl-sec" [pSortableColumn]="'monthly.' + m + '.costo'">Costo {{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.costo'" /></th>
                     }
-                    <th class="n">Cajas</th>
-                    <th class="n">Cobertura</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (row of visible(); track row.warehouse_code + row.product_id) {
-                    <tr>
-                      <td class="frz c0">{{ row.warehouse_name }}</td>
-                      <td class="frz c1 mono">{{ row.sku }}</td>
-                      <td class="frz c2 name">{{ row.nombre }}</td>
-                      <td class="n">{{ row.uxc ?? '—' }}</td>
-                      <td class="brand">{{ row.brand ?? '—' }}</td>
-                      <td class="cat">{{ row.categoria ?? '—' }}</td>
-                      <td class="rot">{{ row.rotation_tier ?? '—' }}</td>
-                      <td class="n">{{ row.exist_cja | number:'1.0-2' }}</td>
-                      <td class="n">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
-                      @if (isRange()) {
-                        <td class="n b">{{ row.venta_total != null ? (row.venta_total | number:'1.0-0') : '·' }}</td>
-                        <td class="n dim">{{ row.venta_prev != null ? (row.venta_prev | number:'1.0-0') : '·' }}</td>
-                        <td class="n delta" [class.up]="(row.venta_delta_pct ?? 0) > 0" [class.down]="(row.venta_delta_pct ?? 0) < 0">{{ row.venta_delta_pct == null ? '—' : ((row.venta_delta_pct > 0 ? '+' : '') + (row.venta_delta_pct | number:'1.0-1') + '%') }}</td>
-                        <td class="n mm">{{ row.costo_total != null ? (row.costo_total | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
-                      } @else {
-                        @for (m of r.months; track m) {
-                          <td class="n">{{ cell(row, m)?.venta != null ? (cell(row, m)!.venta | number:'1.0-0') : '·' }}</td>
-                          <td class="n mm">{{ cell(row, m)?.costo != null ? (cell(row, m)!.costo | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
-                        }
-                        <td class="n b">{{ row.venta_total | number:'1.0-0' }}</td>
-                      }
-                      <td class="n">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '·' }}</td>
-                      <td class="n cov">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
-                    </tr>
+                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta TOTAL <p-sortIcon field="venta_total" /></th>
                   }
-                </tbody>
-              </table>
-            </div>
-            @if (report()!.rows.length > visible().length) {
-              <div class="sl-more">
-                <button pButton [label]="'Mostrar más (' + (report()!.rows.length - visible().length) + ' restantes)'"
-                        size="small" [text]="true" (click)="showMore()"></button>
-              </div>
-            }
+                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas">Cajas <p-sortIcon field="venta_cajas" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sortIcon field="dias_cobertura" /></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-row>
+                <tr>
+                  <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
+                  <td pFrozenColumn><code class="comm-code">{{ row.sku }}</code></td>
+                  <td pFrozenColumn class="sl-name" [pTooltip]="row.nombre" tooltipPosition="top">{{ row.nombre }}</td>
+                  <td class="comm-num">{{ row.uxc ?? '—' }}</td>
+                  <td class="sl-clip">{{ row.brand ?? '—' }}</td>
+                  <td class="sl-clip comm-muted">{{ row.categoria ?? '—' }}</td>
+                  <td class="sl-rot comm-muted">{{ row.rotation_tier ?? '—' }}</td>
+                  <td class="comm-num">{{ row.exist_cja | number:'1.0-2' }}</td>
+                  <td class="comm-num">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                  @if (isRange()) {
+                    <td class="comm-num sl-strong">{{ row.venta_total != null ? (row.venta_total | number:'1.0-0') : '·' }}</td>
+                    <td class="comm-num comm-muted">{{ row.venta_prev != null ? (row.venta_prev | number:'1.0-0') : '·' }}</td>
+                    <td class="comm-num sl-delta" [class.up]="(row.venta_delta_pct ?? 0) > 0" [class.down]="(row.venta_delta_pct ?? 0) < 0">{{ row.venta_delta_pct == null ? '—' : ((row.venta_delta_pct > 0 ? '+' : '') + (row.venta_delta_pct | number:'1.0-1') + '%') }}</td>
+                    <td class="comm-num sl-sec">{{ row.costo_total != null ? (row.costo_total | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                  } @else {
+                    @for (m of r.months; track m) {
+                      <td class="comm-num">{{ cell(row, m)?.venta != null ? (cell(row, m)!.venta | number:'1.0-0') : '·' }}</td>
+                      <td class="comm-num sl-sec">{{ cell(row, m)?.costo != null ? (cell(row, m)!.costo | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                    }
+                    <td class="comm-num sl-strong">{{ row.venta_total | number:'1.0-0' }}</td>
+                  }
+                  <td class="comm-num">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '·' }}</td>
+                  <td class="comm-num comm-muted">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
           </div>
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
@@ -185,42 +185,15 @@ const MES: Record<string, string> = {
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .so-dl { display:flex; gap:.5rem; }
     .sl-table-card { padding:1.25rem; }
-    .sl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
-    .sl-table { border-collapse:separate; border-spacing:0; font-size:.76rem; white-space:nowrap; min-width:100%; }
-    /* Reglas horizontales; verticales SOLO en fronteras de sección (look de reporte, no de hoja de cálculo). */
-    .sl-table th, .sl-table td { border-bottom:1px solid var(--border); padding:.34rem .6rem; }
-    .sl-table thead th { background:var(--layout-bg); font-weight:700; text-align:left; text-transform:uppercase;
-      font-size:.66rem; letter-spacing:.03em; color:var(--text-muted); position:sticky; top:0; z-index:2; white-space:nowrap; }
-    .sl-table td.n, .sl-table th.n { text-align:right; font-variant-numeric:tabular-nums; }
-    /* Separador de sección (fin de cada bloque de mes / costo). */
-    .sl-table .mm { border-right:1px solid var(--border); }
-    .sl-table td.mm { color:var(--text-muted); }
-    .sl-table td.name { max-width:260px; overflow:hidden; text-overflow:ellipsis; }
-    .sl-table td.brand { max-width:160px; overflow:hidden; text-overflow:ellipsis; }
-    .sl-table td.cat { max-width:150px; overflow:hidden; text-overflow:ellipsis; color:var(--text-muted); }
-    .sl-table td.rot { text-transform:capitalize; color:var(--text-muted); }
-    .sl-table td.dim { color:var(--text-muted); }
-    .sl-table td.cov { color:var(--text-muted); }
-    .sl-table td.delta.up { color:var(--ok-fg); font-weight:600; }
-    .sl-table td.delta.down { color:var(--bad-fg); font-weight:600; }
-    .sl-table td.mono { font-family:var(--font-mono); font-size:.74rem; }
-    /* Columna Venta destacada (bold + tinte + borde que la separa del resto). */
-    .sl-table td.b, .sl-table th.b { font-weight:700; background:var(--surface-selected-bg); border-left:2px solid var(--border-color); }
-    /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
-    .sl-table .frz { position:sticky; background:var(--card-bg); z-index:1; }
-    .sl-table thead .frz { z-index:3; }
-    .sl-table .c0, .sl-table .c1 { border-right:1px solid var(--border); }
-    .sl-table .c0 { left:0; } .sl-table .c1 { left:120px; } .sl-table .c2 { left:210px; }
-    .sl-table .c2 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
-    .sl-table tbody tr:hover td:not(.frz) { background:var(--table-hover); }
-    .sl-table tbody tr:hover td.frz { background:var(--hover-bg); }
-    /* Congelado responsive: en móvil solo Sucursal queda fija. */
-    @media (max-width:640px) {
-      .sl-table .c1, .sl-table .c2 { position:static; }
-      .sl-table .c2 { box-shadow:none; }
-      .sl-table .c0 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
-    }
-    .sl-more { text-align:center; margin-top:.5rem; }
+    /* Tweaks sobre p-table (sticky/frozen/tema los da PrimeNG + surf-table). */
+    .sl-name { max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .sl-clip { max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .sl-rot { text-transform:capitalize; }
+    /* Jerarquía: Venta = primario (fuerte), Costo = secundario (muted). */
+    .sl-strong { font-weight:700; }
+    .sl-sec { color:var(--text-muted); }
+    .sl-delta.up { color:var(--ok-fg); font-weight:600; }
+    .sl-delta.down { color:var(--bad-fg); font-weight:600; }
   `],
 })
 export class ComercialSalidasComponent {
@@ -243,7 +216,6 @@ export class ComercialSalidasComponent {
   dl = signal(false);
   report = signal<SalidasReport | null>(null);
   periodMode = signal<PeriodMode>('d15');
-  private limit = signal(200);
 
   readonly today = new Date();
   year = new Date().getFullYear();
@@ -253,7 +225,6 @@ export class ComercialSalidasComponent {
   rangeDates: Date[] | null = null;
 
   yearOpts = computed(() => { const y = new Date().getFullYear(); return [y, y - 1, y - 2]; });
-  visible = computed(() => (this.report()?.rows ?? []).slice(0, this.limit()));
   isRange = computed(() => this.report()?.mode === 'range');
   periodLabel = computed(() => {
     const r = this.report();
@@ -315,7 +286,6 @@ export class ComercialSalidasComponent {
       return;
     }
     this.loading.set(true);
-    this.limit.set(200);
     this.svc.salidas(this.params())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -323,8 +293,6 @@ export class ComercialSalidasComponent {
         error: (e) => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al consultar', detail: e?.error?.message }); },
       });
   }
-
-  showMore() { this.limit.update((n) => n + 300); }
 
   download() {
     this.dl.set(true);

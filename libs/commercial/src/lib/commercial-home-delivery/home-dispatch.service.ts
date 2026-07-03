@@ -284,6 +284,67 @@ export class HomeDispatchService {
     };
   }
 
+  /**
+   * Fase LM.8 — KPIs de última milla (§13 SOP) en un rango de fechas.
+   * Solo paradas a domicilio (folio Kepler o pedido home_delivery). Tiempo de
+   * entrega = delivered_at − created_at (ciclo despacho→entrega). El cuadre de
+   * efectivo sale de los cortes cerrados (rider_liquidations).
+   */
+  async kpis(opts: { from?: string; to?: string } = {}) {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = opts.from || today;
+    const to = opts.to || today;
+
+    return this.tk.run(async (trx) => {
+      const paradas = await trx('logistics.guide_recipients as r')
+        .leftJoin('commercial.orders as o', 'o.id', 'r.order_id')
+        .whereRaw('r.created_at::date BETWEEN ? AND ?', [from, to])
+        .where((qb: any) => qb.whereNotNull('r.kepler_folio').orWhere('o.delivery_type', 'home_delivery'))
+        .select('r.status', 'r.incident_type', 'r.created_at', 'r.delivered_at');
+
+      const total = paradas.length;
+      let delivered = 0;
+      let incidents = 0;
+      let minutesSum = 0;
+      let minutesN = 0;
+      for (const p of paradas) {
+        if (p.status === 'entregado') delivered++;
+        if (p.incident_type) incidents++;
+        if (p.delivered_at && p.created_at) {
+          const mins = (new Date(p.delivered_at).getTime() - new Date(p.created_at).getTime()) / 60000;
+          if (mins >= 0 && mins < 1440) { minutesSum += mins; minutesN++; }
+        }
+      }
+
+      const liqs = await trx('commercial.rider_liquidations')
+        .whereBetween('business_date', [from, to])
+        .where('status', 'closed')
+        .whereNull('deleted_at')
+        .select('cash_counted', 'cash_difference', 'card_total', 'transfer_total');
+      const cashCounted = liqs.reduce((s: number, l: any) => s + Number(l.cash_counted || 0), 0);
+      const cashDiffAbs = liqs.reduce((s: number, l: any) => s + Math.abs(Number(l.cash_difference || 0)), 0);
+      const cardTotal = liqs.reduce((s: number, l: any) => s + Number(l.card_total || 0), 0);
+      const transferTotal = liqs.reduce((s: number, l: any) => s + Number(l.transfer_total || 0), 0);
+
+      const pct = (n: number) => (total ? Math.round((n / total) * 1000) / 10 : 0);
+      return {
+        from,
+        to,
+        deliveries_total: total,
+        delivered,
+        incidents,
+        success_rate_pct: pct(delivered), // meta ≥98
+        incident_rate_pct: pct(incidents), // meta ≤2
+        avg_delivery_min: minutesN ? Math.round((minutesSum / minutesN) * 10) / 10 : null, // meta ≤60
+        cash_counted: Math.round(cashCounted * 100) / 100,
+        cash_difference_abs: Math.round(cashDiffAbs * 100) / 100, // meta 0
+        card_total: Math.round(cardTotal * 100) / 100,
+        transfer_total: Math.round(transferTotal * 100) / 100,
+        cuts_closed: liqs.length,
+      };
+    });
+  }
+
   /** Paradas a domicilio del repartidor autenticado (resuelve driver por user_id). */
   async myDeliveries(opts: { pending?: boolean } = {}) {
     const userId = this.tenantCtx.get()?.userId;

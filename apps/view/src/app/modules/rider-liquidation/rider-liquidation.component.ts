@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   FleetDriver,
+  HomeDeliveryKpis,
+  PendingPayment,
   RiderLiquidation,
   RiderLiquidationService,
 } from './rider-liquidation.service';
@@ -21,6 +23,19 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   template: `
     <section class="liq">
       <h1>Corte de caja del repartidor</h1>
+
+      @if (kpis(); as k) {
+        <div class="card">
+          <h2>KPIs del día ({{ businessDate }})</h2>
+          <div class="kpis">
+            <div><span>Entregas</span><b>{{ k.delivered }}/{{ k.deliveries_total }}</b></div>
+            <div><span>Éxito</span><b [class.bad]="k.success_rate_pct < 98 && k.deliveries_total > 0">{{ k.success_rate_pct }}%</b></div>
+            <div><span>Incidencias</span><b [class.bad]="k.incident_rate_pct > 2">{{ k.incident_rate_pct }}%</b></div>
+            <div><span>Tiempo prom.</span><b [class.bad]="(k.avg_delivery_min || 0) > 60">{{ k.avg_delivery_min ?? '—' }} min</b></div>
+            <div><span>Dif. efectivo</span><b [class.bad]="k.cash_difference_abs !== 0">{{ money(k.cash_difference_abs) }}</b></div>
+          </div>
+        </div>
+      }
 
       <div class="card">
         <div class="grid3">
@@ -75,6 +90,19 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
       }
 
       <div class="card">
+        <h2>Transferencias / tarjetas por verificar</h2>
+        @if (pending().length === 0) { <p class="muted">Nada pendiente.</p> }
+        @for (p of pending(); track p.id) {
+          <div class="row">
+            <span>{{ p.payment_method }} · {{ p.reference || 's/ref' }}</span>
+            <span>{{ money(p.amount) }}</span>
+            <span>{{ p.order_id ? 'Pedido' : ('Folio ' + (p.kepler_folio || '')) }}</span>
+            <button (click)="verify(p.id)" [disabled]="busy()">Verificar</button>
+          </div>
+        }
+      </div>
+
+      <div class="card">
         <h2>Cortes del día</h2>
         @if (list().length === 0) { <p class="muted">Sin cortes.</p> }
         @for (l of list(); track l.id) {
@@ -121,6 +149,8 @@ export class RiderLiquidationComponent implements OnInit {
   readonly riders = signal<FleetDriver[]>([]);
   readonly corte = signal<RiderLiquidation | null>(null);
   readonly list = signal<RiderLiquidation[]>([]);
+  readonly pending = signal<PendingPayment[]>([]);
+  readonly kpis = signal<HomeDeliveryKpis | null>(null);
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly closeError = signal<string | null>(null);
@@ -146,6 +176,19 @@ export class RiderLiquidationComponent implements OnInit {
       error: () => {},
     });
     this.refreshList();
+    this.refreshPending();
+  }
+
+  refreshPending(): void {
+    this.svc.pendingVerification().subscribe({ next: (p) => this.pending.set(p || []), error: () => {} });
+  }
+
+  verify(id: string): void {
+    this.busy.set(true);
+    this.svc.verifyPayment(id).subscribe({
+      next: () => { this.busy.set(false); this.refreshPending(); },
+      error: () => { this.busy.set(false); },
+    });
   }
 
   money(v: number | string | null | undefined): string {
@@ -159,6 +202,7 @@ export class RiderLiquidationComponent implements OnInit {
 
   refreshList(): void {
     this.svc.list(this.businessDate).subscribe({ next: (r) => this.list.set(r || []), error: () => {} });
+    this.svc.kpis(this.businessDate, this.businessDate).subscribe({ next: (k) => this.kpis.set(k), error: () => {} });
   }
 
   openCorte(): void {

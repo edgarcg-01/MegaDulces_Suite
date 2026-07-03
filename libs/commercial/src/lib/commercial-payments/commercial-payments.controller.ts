@@ -48,6 +48,14 @@ export class CommercialPaymentsController {
     return this.service.reversePayment(id, reason);
   }
 
+  /** Transferencias/tarjetas pendientes de verificación (encargado). */
+  @Get('pending-verification')
+  @RequirePermissions(Permission.COMMERCIAL_PAYMENTS_VERIFICAR)
+  @ApiOperation({ summary: 'Lista cobros transferencia/tarjeta pendientes de verificar.' })
+  pendingVerification() {
+    return this.service.listPendingVerification();
+  }
+
   /** Lista los cobros de un pedido. */
   @Get('orders/:orderId')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)

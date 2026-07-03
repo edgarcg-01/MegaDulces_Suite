@@ -61,4 +61,12 @@ export class CommercialHomeDeliveryController {
   myDeliveries(@Query('pending') pending?: string) {
     return this.dispatch.myDeliveries({ pending: pending !== 'false' });
   }
+
+  /** KPIs de última milla (§13): éxito, incidencias, tiempo, cuadre de efectivo. */
+  @Get('kpis')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiOperation({ summary: 'KPIs de entrega a domicilio en un rango (§13 SOP).' })
+  kpis(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.dispatch.kpis({ from, to });
+  }
 }

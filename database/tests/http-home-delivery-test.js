@@ -11,10 +11,22 @@
 
 const BASE = 'http://localhost:3334/api';
 const INGEST_KEY = process.env.STORE_INGEST_KEY || '';
+const MEGA_DULCES_TENANT_ID = '00000000-0000-0000-0000-00000000d01c';
 let pass = 0;
 let fail = 0;
 let skip = 0;
 const failures = [];
+
+// Fallback de siembra del ticket: si no hay STORE_INGEST_KEY (endpoint de ingest
+// cerrado), insertamos directo en analytics.store_live_tickets vía DB.
+let db = null;
+function getDb() {
+  if (!db) {
+    try { require('dotenv').config(); } catch (e) { /* dotenv opcional */ }
+    db = require('knex')({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW } });
+  }
+  return db;
+}
 
 async function req(method, path, body, token, extraHeaders) {
   const headers = { 'Content-Type': 'application/json', ...(extraHeaders || {}) };
@@ -63,27 +75,31 @@ function skipStep(name, why) { console.log(`  SKIP ${name} — ${why}`); skip++;
   const denied = await req('GET', '/store/live/ticket-lookup?folio=999&warehouse=00', null, token);
   check('sucursal NO habilitada (00) rechazada', denied.status === 403 || denied.status === 400, `status=${denied.status}`);
 
-  // ── Pasos que dependen del ticket sembrado ──
+  // ── Ticket de prueba ──
   const folio = `SMK${suffix}`;
   const serie = 'UD0199';
-  if (!INGEST_KEY) {
-    skipStep('ingest ticket + lookup + dispatch + outcome + arqueo', 'falta STORE_INGEST_KEY');
-    return finish();
-  }
+  const items = [
+    { sku: '100001', nombre: 'Paleta Payaso', cant: 3, importe: 90 },
+    { sku: '100002', nombre: 'Bubaloo', cant: 5, importe: 160.5 },
+  ];
 
-  console.log('\n── 4. Ingest ticket Kepler (wh 01, CONTADO) ──');
-  const ingest = await req('POST', '/store/live/ingest', {
-    tickets: [{
-      warehouse_code: '01', warehouse_name: 'Padre Hidalgo', serie, folio,
-      ticket_ts: new Date().toISOString(), total: 250.5, forma_pago: 'CREDITO',
-      items: [
-        { sku: '100001', nombre: 'Paleta Payaso', cant: 3, importe: 90 },
-        { sku: '100002', nombre: 'Bubaloo', cant: 5, importe: 160.5 },
-      ],
-    }],
-    emit: false,
-  }, token, { 'x-store-ingest-key': INGEST_KEY });
-  check('ingest acepta ticket', ingest.status === 200 || ingest.status === 201, `status=${ingest.status}`);
+  console.log('\n── 4. Sembrar ticket Kepler (wh 01) ──');
+  if (INGEST_KEY) {
+    const ingest = await req('POST', '/store/live/ingest', {
+      tickets: [{ warehouse_code: '01', warehouse_name: 'Padre Hidalgo', serie, folio, ticket_ts: new Date().toISOString(), total: 250.5, forma_pago: 'CREDITO', items }],
+      emit: false,
+    }, token, { 'x-store-ingest-key': INGEST_KEY });
+    check('ingest acepta ticket', ingest.status === 200 || ingest.status === 201, `status=${ingest.status}`);
+  } else {
+    try {
+      await getDb()('analytics.store_live_tickets').insert({
+        tenant_id: MEGA_DULCES_TENANT_ID, warehouse_code: '01', warehouse_name: 'Padre Hidalgo',
+        serie, folio, ticket_ts: new Date().toISOString(), total: 250.5, forma_pago: 'CREDITO',
+        items: JSON.stringify(items),
+      }).onConflict(['tenant_id', 'warehouse_code', 'serie', 'folio']).ignore();
+      check('ticket sembrado vía DB (sin STORE_INGEST_KEY)', true);
+    } catch (e) { check('ticket sembrado vía DB', false, e.message); return finish(); }
+  }
 
   console.log('\n── 5. ticket-lookup ──');
   const look = await req('GET', `/store/live/ticket-lookup?folio=${folio}&serie=${serie}&warehouse=01`, null, token);
@@ -140,7 +156,8 @@ function skipStep(name, why) { console.log(`  SKIP ${name} — ${why}`); skip++;
   finish();
 })();
 
-function finish() {
+async function finish() {
+  if (db) { try { await db.destroy(); } catch (e) { /* noop */ } }
   console.log(`\n── Resumen ── OK=${pass} FAIL=${fail} SKIP=${skip}`);
   if (failures.length) console.log('Fallas:', failures.join(', '));
   process.exit(fail > 0 ? 1 : 0);

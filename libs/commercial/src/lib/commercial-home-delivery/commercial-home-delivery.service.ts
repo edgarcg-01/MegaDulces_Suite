@@ -133,6 +133,7 @@ export class CommercialHomeDeliveryService {
           gps_lat: dto.gps_lat ?? null,
           gps_lng: dto.gps_lng ?? null,
           incident_type: null,
+          delivered_at: trx.fn.now(), // habilita KPI de tiempo de entrega (LM.8)
           updated_at: trx.fn.now(),
         }),
       );
