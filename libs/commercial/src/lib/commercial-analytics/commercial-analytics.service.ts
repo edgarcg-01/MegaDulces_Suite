@@ -642,6 +642,9 @@ export class CommercialAnalyticsService {
         .leftJoin('catalog.products as p', 'p.id', 's.product_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .where('s.quantity', '>', 0)
+        // Excluir almacenes soft-deleted (p.ej. warehouses efímeros de tests):
+        // sin esto el reporte contaba stock de almacenes ya borrados.
+        .whereNull('w.deleted_at')
         // Ventana 90d (no 30d, que flaggea estacionales). = 0 estricto: NULL =
         // rotación no computada (desconocida), no "muerto".
         .where('p.sales_units_90d', 0);
@@ -711,6 +714,11 @@ export class CommercialAnalyticsService {
         const q = trx('commercial.stock as s').whereRaw(
           '(s.quantity - s.reserved_quantity) < ?',
           [threshold],
+        );
+        // Excluir stock en almacenes soft-deleted (warehouses efímeros de tests).
+        q.whereNotIn(
+          's.warehouse_id',
+          trx('commercial.warehouses').select('id').whereNotNull('deleted_at'),
         );
         if (warehouseIdParam) q.where('s.warehouse_id', warehouseIdParam);
         return q;
@@ -1266,8 +1274,11 @@ export class CommercialAnalyticsService {
   async inventoryHealth(q: { warehouse_id?: string; status?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // Excluir filas de almacenes soft-deleted (warehouses efímeros de tests).
+      const notDeletedWh = trx('commercial.warehouses').select('id').whereNotNull('deleted_at');
       const summary = await trx('analytics.inventory_health AS h')
         .where('h.tenant_id', tenantId)
+        .whereNotIn('h.warehouse_id', notDeletedWh.clone())
         .modify((qb) => { if (q.warehouse_id) qb.where('h.warehouse_id', q.warehouse_id); })
         .groupBy('h.status')
         .select('h.status', trx.raw('count(*)::int AS n'));
@@ -1276,6 +1287,7 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.warehouses AS w', 'w.id', 'h.warehouse_id')
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('h.tenant_id', tenantId)
+        .whereNotIn('h.warehouse_id', notDeletedWh.clone())
         .modify((qb) => {
           if (q.warehouse_id) qb.where('h.warehouse_id', q.warehouse_id);
           if (q.status) qb.where('h.status', q.status);

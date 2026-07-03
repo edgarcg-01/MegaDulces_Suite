@@ -43,6 +43,7 @@ const SELECT_HEALTH = `
          END AS status
     FROM commercial.stock s
     JOIN catalog.products p ON p.id = s.product_id AND p.tenant_id = $1
+    JOIN commercial.warehouses w ON w.id = s.warehouse_id AND w.tenant_id = $1 AND w.deleted_at IS NULL
     LEFT JOIN vel v ON v.product_id = s.product_id AND v.warehouse_id = s.warehouse_id
    WHERE s.tenant_id = $1`;
 
@@ -68,12 +69,17 @@ const SELECT_HEALTH = `
        ON CONFLICT (tenant_id, product_id, warehouse_id) DO UPDATE SET
          on_hand=EXCLUDED.on_hand, avg_daily_units=EXCLUDED.avg_daily_units,
          days_cover=EXCLUDED.days_cover, status=EXCLUDED.status, computed_at=now()`, [M]);
-    // Purga filas cuyo (product,warehouse) ya no está en stock.
+    // Purga filas cuyo (product,warehouse) ya no está en stock, o cuyo almacén
+    // quedó soft-deleted (p.ej. warehouses efímeros de tests).
     const del = await db.query(
       `DELETE FROM analytics.inventory_health h
-        WHERE tenant_id=$1 AND NOT EXISTS (
-          SELECT 1 FROM commercial.stock s
-           WHERE s.tenant_id=$1 AND s.product_id=h.product_id AND s.warehouse_id=h.warehouse_id)`, [M]);
+        WHERE tenant_id=$1 AND (
+          NOT EXISTS (
+            SELECT 1 FROM commercial.stock s
+             WHERE s.tenant_id=$1 AND s.product_id=h.product_id AND s.warehouse_id=h.warehouse_id)
+          OR EXISTS (
+            SELECT 1 FROM commercial.warehouses w
+             WHERE w.id=h.warehouse_id AND w.deleted_at IS NOT NULL))`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} upserted, ${del.rowCount} purgados.`);
   } catch (e) {
