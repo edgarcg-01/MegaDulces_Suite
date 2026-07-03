@@ -172,6 +172,8 @@ COPY --from=builder  --chown=node:node /app/dist/apps/view /usr/share/nginx/html
 # `--chmod=755` evita una layer extra de `chmod +x`.
 COPY --chown=node:node              nginx.conf /etc/nginx/sites-available/default
 COPY --chown=node:node --chmod=755  start.sh   ./start.sh
+# migrate.sh corre como preDeployCommand de Railway (migraciones fuera del boot).
+COPY --chown=node:node --chmod=755  migrate.sh ./migrate.sh
 
 # OCI labels — facilitan tracking en el registry.
 LABEL org.opencontainers.image.title="Trade Marketing" \
@@ -181,8 +183,9 @@ LABEL org.opencontainers.image.title="Trade Marketing" \
 
 EXPOSE 10000
 
-# Sin HEALTHCHECK explícito. Railway monitorea el container vía el proxy
-# edge (si nginx no responde, marca down).
+# Sin HEALTHCHECK de Docker. El healthcheck de deploy lo define Railway en
+# railway.api.json (healthcheckPath=/api/health): si no responde 200 dentro
+# del timeout, el deploy nuevo queda unhealthy y el anterior sigue sirviendo.
 
 # tini envía SIGTERM al script y de ahí a node/nginx → graceful shutdown.
 STOPSIGNAL SIGTERM

@@ -12,6 +12,19 @@ export class AppController {
     return this.appService.getHello();
   }
 
+  /**
+   * Healthcheck para Railway (deploy.healthcheckPath = /api/health). Si esto no
+   * responde 200 dentro del timeout, el deploy nuevo se marca unhealthy y el
+   * anterior sigue sirviendo. Liviano a propósito: solo confirma que el proceso
+   * NestJS bindeó y responde (no toca DB — un check de DB haría fallar el deploy
+   * por un blip transitorio de red).
+   */
+  @Public()
+  @Get('health')
+  getHealth() {
+    return { status: 'ok', uptime: process.uptime() };
+  }
+
   @Public()
   @Get('api/data/version')
   getDataVersion() {
