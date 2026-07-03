@@ -273,9 +273,10 @@ export class ComercialSalidasComponent {
 
   private params(): SalidasParams {
     const base = {
-      warehouses: this.warehouses.length ? this.warehouses : undefined,
+      // p-multiSelect con [showClear] deja `warehouses` en null al limpiar → guard con ?.
+      warehouses: this.warehouses?.length ? this.warehouses : undefined,
       brand_id: this.brandId ?? undefined,
-      search: this.search.trim() || undefined,
+      search: this.search?.trim() || undefined,
     };
     if (this.periodMode() === 'year') return { ...base, year: this.year };
     const r = this.rangeFor(this.periodMode());
