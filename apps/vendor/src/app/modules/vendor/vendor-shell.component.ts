@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Capacitor } from '@capacitor/core';
 import { NavigationEnd, Router, RouterModule, RouterOutlet } from '@angular/router';
@@ -41,12 +41,11 @@ interface DiagProbe {
       <p-toast position="top-center"></p-toast>
       <header class="vendor-header">
         <div class="vendor-brand">
-          <i class="pi" [ngClass]="isRider() ? 'pi-home' : 'pi-briefcase'"></i>
-          <span>{{ isRider() ? 'Repartidor' : 'Vendedor' }}</span>
+          <i class="pi pi-briefcase"></i>
+          <span>Vendedor</span>
         </div>
         <div class="vendor-user">
           <a
-            *ngIf="!isRider()"
             pButton
             icon="pi pi-search"
             severity="secondary"
@@ -66,7 +65,7 @@ interface DiagProbe {
             routerLinkActive="header-active"
             aria-label="Notificaciones"
           ></a>
-          <span class="hdr-badge-wrap" *ngIf="!isRider()">
+          <span class="hdr-badge-wrap">
             <a
               pButton
               icon="pi pi-chart-bar"
@@ -138,23 +137,19 @@ interface DiagProbe {
       </main>
 
       <nav class="vendor-bottom-nav">
-        <a *ngIf="!isRider()" routerLink="route-home" routerLinkActive="active">
+        <a routerLink="route-home" routerLinkActive="active">
           <i class="pi pi-map"></i>
           <span>Mi ruta</span>
         </a>
-        <a *ngIf="!isRider()" routerLink="close-route" routerLinkActive="active">
+        <a routerLink="close-route" routerLinkActive="active">
           <i class="pi pi-receipt"></i>
           <span>Cierre</span>
         </a>
-        <a *ngIf="!isRider()" routerLink="carga" routerLinkActive="active">
+        <a routerLink="carga" routerLinkActive="active">
           <i class="pi pi-truck"></i>
           <span>Carga</span>
         </a>
-        <a routerLink="deliveries" routerLinkActive="active">
-          <i class="pi pi-home"></i>
-          <span>Entregas</span>
-        </a>
-        <a *ngIf="!isRider()" routerLink="assistant" routerLinkActive="active">
+        <a routerLink="assistant" routerLinkActive="active">
           <i class="pi pi-sparkles"></i>
           <span>Thot</span>
         </a>
@@ -384,31 +379,9 @@ export class VendorShellComponent {
   /** Pedidos confirmados offline sin sincronizar (badge en "Mi día"). */
   readonly pendingOrders = signal(0);
 
-  /**
-   * Fase LM — ¿el usuario es REPARTIDOR (entrega a domicilio) y no vendedor de ruta?
-   * Reparte la app: el repartidor solo ve "Entregas" (no cartera/carga/cierre/Thot
-   * ni toma de pedidos). Señal por capacidad: reparte guías y NO toma pedidos.
-   */
-  readonly isRider = computed(() => {
-    const u = this.auth.user();
-    if (u?.role_name === 'repartidor') return true;
-    const p = u?.permissions || {};
-    return p['LOGISTICS_GUIDES_GESTIONAR'] === true && p['COMMERCIAL_ORDERS_CREAR'] !== true;
-  });
-
   constructor() {
     // Tracking de jornada: arranca al entrar al modo vendedor.
     this.routePing.startShift();
-
-    // Repartidor: su home es "Entregas", no "Mi ruta" (no tiene cartera).
-    this.router.events
-      .pipe(filter((e) => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
-      .subscribe((e) => {
-        const url = (e as NavigationEnd).urlAfterRedirects;
-        if (this.isRider() && (url === '/vendor' || url === '/vendor/route-home')) {
-          this.router.navigate(['/vendor/deliveries']);
-        }
-      });
 
     // Badge de pedidos sin enviar: refrescar al entrar y en cada navegación
     // (captura volver de tomar un pedido offline y el drenado del sync).

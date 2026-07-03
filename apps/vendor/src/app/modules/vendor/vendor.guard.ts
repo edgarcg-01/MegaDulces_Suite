@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { Permission } from '../../core/constants/permissions';
+import { isRiderUser } from '../rider/rider.guard';
 
 /**
  * Guard del Modo Vendedor. El acceso se controla por el permiso
@@ -36,6 +37,13 @@ export const vendorGuard: CanActivateFn = () => {
   }
 
   const user = auth.user();
+
+  // Separación de dominios: el repartidor tiene su propia app (/rider), no la del vendedor.
+  if (isRiderUser(user)) {
+    router.navigateByUrl('/rider');
+    return false;
+  }
+
   const hasPermission =
     user?.permissions?.[Permission.VENDOR_APP_ACCESS] === true;
   const legacyAllowed =

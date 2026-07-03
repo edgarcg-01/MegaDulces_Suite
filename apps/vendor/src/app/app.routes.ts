@@ -3,6 +3,7 @@ import { LoginComponent } from './modules/auth/login/login.component';
 import { permissionGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { vendorGuard } from './modules/vendor/vendor.guard';
+import { riderGuard } from './modules/rider/rider.guard';
 
 /**
  * App del vendedor (standalone). Rutas mínimas: login + el shell `/vendor/*`
@@ -98,19 +99,27 @@ export const appRoutes: Routes = [
           ),
       },
       {
-        path: 'deliveries',
-        loadComponent: () =>
-          import('./modules/rider/pages/rider-deliveries.component').then(
-            (m) => m.RiderDeliveriesComponent,
-          ),
-      },
-      {
         path: 'capture',
         loadComponent: () =>
           import('./modules/dashboard/vendor-capture/vendor-capture.component').then(
             (m) => m.VendorCaptureComponent,
           ),
         canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)],
+      },
+    ],
+  },
+  {
+    // App del REPARTIDOR — separada del vendedor. Shell + nav propios.
+    path: 'rider',
+    canActivate: [riderGuard],
+    loadComponent: () =>
+      import('./modules/rider/rider-shell.component').then((m) => m.RiderShellComponent),
+    children: [
+      { path: '', redirectTo: 'deliveries', pathMatch: 'full' },
+      {
+        path: 'deliveries',
+        loadComponent: () =>
+          import('./modules/rider/pages/rider-deliveries.component').then((m) => m.RiderDeliveriesComponent),
       },
     ],
   },
