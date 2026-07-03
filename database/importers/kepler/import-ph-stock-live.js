@@ -32,9 +32,10 @@ const APPLY = process.argv.includes('--apply');
   try {
     console.log(`\n=== Stock vivo PH (md_01) → ${WH_CODE} (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
-    // Existencia viva por SKU en PH (clamp a 0; nunca negativo).
+    // Existencia Kepler = inicial(c4) + entradas(c8) − salidas(c9), clamp a 0.
+    // (c9 solo = salidas, NO existencia — era el bug.)
     const { rows: stock } = await src.query(
-      `SELECT c3 AS sku, GREATEST(c9, 0)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL`,
+      `SELECT c3 AS sku, GREATEST(c4+c8-c9, 0)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL`,
     );
     console.log(`SKUs en PH (kdil): ${stock.length}`);
 

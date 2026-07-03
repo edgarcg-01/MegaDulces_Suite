@@ -8,9 +8,9 @@
  *
  * Mapeo descifrado (columnas Kepler son cN opacas — inferidas desde datos):
  *   md.kdii  → maestro productos: c1=SKU, c2=nombre, c7=barcode, c8=clave familia
- *   md.kdil  → existencia/acumulados por sucursal: c1=sucursal, c3=SKU,
- *              c8/c9=cantidades, c6/c7=última compra/venta
- *   md.kdik  → valuación: c1=sucursal, c2=SKU, c6=existencia, c9=valor a costo
+ *   md.kdil  → existencia por sucursal×almacén: c1=sucursal, c2=almacén, c3=SKU,
+ *              c4=inicial, c8=entradas, c9=salidas → EXISTENCIA = c4+c8-c9
+ *   md.kdik  → valuación: c1=sucursal, c2=SKU, c16=costo unitario, c9=valor a costo
  *              → costo unitario = c9/c6
  *
  * Join a nuestro catálogo: kdii.c1 == public.products.sku (mismo esquema — el
@@ -38,7 +38,6 @@ function arg(name, def) {
 const APPLY = process.argv.includes('--apply');
 const BRANCH = arg('branch', '03');
 const WAREHOUSE = arg('warehouse', `KEPLER-${BRANCH}`);
-const EXIST_COL = arg('exist-col', 'c9'); // c9 (hipótesis) | c8
 
 const SRC = 'postgresql://postgres:superoot@localhost:5433/md_03';
 const DST = 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
@@ -51,15 +50,15 @@ const DST = 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 
   try {
     console.log(`\n=== Importer Kepler → commercial.stock ===`);
-    console.log(`Sucursal: ${BRANCH} · Almacén destino: ${WAREHOUSE} · Existencia: kdil.${EXIST_COL} · Modo: ${APPLY ? 'APPLY (escribe)' : 'DRY-RUN'}\n`);
+    console.log(`Sucursal: ${BRANCH} · Almacén destino: ${WAREHOUSE} · Existencia: kdil.(c4+c8-c9) · Modo: ${APPLY ? 'APPLY (escribe)' : 'DRY-RUN'}\n`);
 
     // 1) Leer existencia + costo de Kepler para la sucursal.
     const { rows: kepler } = await src.query(
       `SELECT l.c3 AS sku,
               i.c2 AS nombre,
               i.c7 AS barcode,
-              l.${EXIST_COL}::numeric AS existencia,
-              CASE WHEN k.c6 <> 0 THEN ROUND((k.c9 / k.c6)::numeric, 4) ELSE 0 END AS costo_unit,
+              GREATEST(l.c4 + l.c8 - l.c9, 0)::numeric AS existencia,
+              k.c16::numeric AS costo_unit,
               l.c6::date AS ult_compra,
               l.c7::date AS ult_venta
          FROM md.kdil l

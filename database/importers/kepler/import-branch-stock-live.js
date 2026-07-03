@@ -54,7 +54,9 @@ const MAP = process.env.STOCK_BRANCH_MAP
       await src.connect();
       let matched = 0, unmatched = 0;
       try {
-        const stock = (await src.query(`SELECT c3 AS sku, GREATEST(c9,0)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL`)).rows;
+        // Existencia Kepler = inicial(c4) + entradas(c8) − salidas(c9). NO c9 solo
+        // (son salidas). Sin floor per-fila: el total por producto se pisa a 0 abajo.
+        const stock = (await src.query(`SELECT c3 AS sku, (c4+c8-c9)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL`)).rows;
         const rows = [];
         for (const r of stock) {
           const pid = skuToId.get(r.sku);
@@ -84,7 +86,7 @@ const MAP = process.env.STOCK_BRANCH_MAP
     const up = await db.query(`
       INSERT INTO commercial.stock (id, tenant_id, warehouse_id, product_id, quantity, updated_at)
       SELECT gen_random_uuid(), $1, w.id, agg.product_id, agg.qty, now()
-      FROM (SELECT code, product_id, sum(quantity) AS qty FROM stg_stock GROUP BY code, product_id) agg
+      FROM (SELECT code, product_id, GREATEST(sum(quantity),0) AS qty FROM stg_stock GROUP BY code, product_id) agg
       JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.code=agg.code
       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE SET quantity=EXCLUDED.quantity, updated_at=now()`, [M]);
     await db.query('COMMIT');

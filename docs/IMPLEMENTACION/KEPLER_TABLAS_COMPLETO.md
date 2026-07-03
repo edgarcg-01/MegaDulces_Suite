@@ -84,8 +84,14 @@ Tablas que definen el maestro de artículos, existencias por sucursal, valuació
 | `kdig` | 542 | 4 | 🟡 | Catálogo de proveedores | `c1`=clave · `c2`=nombre proveedor · `c4`=numérico auxiliar |
 | `kdii` | 9,249 | 103 | ✅ | Maestro de productos (SKU, nombre, barcode, familia, precios, foto) | `c1`=SKU · `c2`=nombre · `c7`=barcode EAN · `c8`=familia/depto · `c11`=unidad contenedor · `c33`/`c34`/`c35`=precios nivel 1/2/3 · `c70`=ruta imagen · `c77`=costo unit · `c78`=costo caja · `c80`=unidad caja · `c81`=piezas×caja · `c82`=código interno · `c83`=unidad pieza · `c87`/`c88`=márgenes% |
 | `kdiicte` | 0 | 7 | ⚪ | config/auxiliar (sin datos) | — |
-| `kdik` | 7,745 | 109 | ✅ | Valuación y costo por sucursal×SKU | `c1`=sucursal · `c2`=SKU · `c5`=entradas · `c6`=existencia · `c9`=valor a costo (costo unit=c9/c6) · `c13`/`c14`/`c15`=fechas último mov · `c16`=costo unitario · `c34`=ventas mes actual · `c43`/`c44`/`c45`=ventas valor mes-1/2/3 · `c55`/`c56`/`c57`=ventas unidades periodos |
-| `kdil` | 7,745 | 9 | ✅ | Existencia actual por sucursal×SKU | `c1`=sucursal · `c2`=almacén · `c3`=SKU · `c8`=existencia anterior · `c9`=existencia actual · `c5`/`c6`/`c7`=fechas (alta/última entrada/última salida) |
+| `kdik` | 7,745 | 109 | ✅ | Valuación y costo por sucursal×SKU (existencia agregada de todos los almacenes) | `c1`=sucursal · `c2`=SKU · `c4`=**existencia inicial** · `c5`=**entradas** · `c6`=**salidas** · `c9`=valor a costo · `c13`/`c14`/`c15`=fechas último mov · `c16`=**costo unitario** · `c34`=ventas mes actual · `c43`/`c44`/`c45`=ventas valor mes-1/2/3 · `c55`/`c56`/`c57`=ventas unidades periodos · **Existencia = c4 + c5 − c6** |
+| `kdil` | 7,745 | 9 | ✅ | Existencia por sucursal×almacén×SKU | `c1`=sucursal · `c2`=almacén · `c3`=SKU · `c4`=**existencia inicial** · `c8`=**entradas** · `c9`=**salidas** · `c5`/`c6`/`c7`=fechas (alta/última entrada/última salida) · **Existencia = c4 + c8 − c9** |
+
+> ⚠️ **kdil/kdik — cómo calcular existencia** (verificado 2026-07-03 contra el código fuente de Kepler `invrepexsrep.kpl`, reporte "Existencia por productos"):
+> - Por **almacén**: `kdil.c4 + kdil.c8 − kdil.c9` (inicial + entradas − salidas). El doc anterior decía "c9 = existencia actual" — **incorrecto**: `c9` son las **salidas**.
+> - Por **sucursal** (todos los almacenes): `kdik.c4 + kdik.c5 − kdik.c6`.
+> - **NO usar `c9` (kdil) ni `c6` (kdik) solos** — son salidas, no existencia. (Ése era el bug de la vista `dic.stock`.)
+> - **Caveat físicos:** `c4` (inicial) llega en **0** para todos los productos en el branch. Para productos con inventario físico previo (más salidas que entradas en el periodo), la fórmula da **negativo** — la existencia real la recalcula el reporte de Kepler desde el conteo físico. Para esos (~2–10% por sucursal) `kdil`/`kdik` no bastan; usar el CSV export del reporte de Kepler. Detalle en `project_existencia_feed_kepler_bug`.
 | `kdilo` | 0 | 2 | ⚪ | config/auxiliar (sin datos) | — |
 | `kdip` | 1 | 7 | ⚪ | Config pedimento aduanal (compras nacionales) | `c1`=clave (NOPEDIMENTO) · `c2`=descripción · `c3`=país · `c4`=fecha |
 | `kdiq` | 2 | 4 | 🟡 | Almacenes internos por sucursal | `c1`=sucursal · `c2`=nº almacén · `c3`=nombre (ALMACÉN/SUCURSAL PADRE HIDALGO) |

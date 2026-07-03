@@ -88,8 +88,10 @@ Documentos clave (columna `k_doc7` = prefijo de folio):
 | Tabla | Filas | Rel. | Qué es | Columnas inferidas |
 |---|---:|:--:|---|---|
 | **`kdii`** | 9.3k | ✅ | Maestro de productos. | `c1`=SKU · `c2`=nombre · `c7`=barcode (EAN) · `c8`=clave familia |
-| **`kdil`** | 7.8k | ✅ | Existencia por sucursal. | `c1`=suc · `c3`=SKU · **`c9`=existencia** · `c6`/`c7`=última compra/venta |
-| **`kdik`** | 7.8k | ✅ | Valuación / costo. | `c1`=suc · `c2`=SKU · `c6`=existencia · `c9`=valor a costo → costo unit = `c9/c6` |
+| **`kdil`** | 7.8k | ✅ | Existencia por sucursal×almacén. | `c1`=suc · `c2`=almacén · `c3`=SKU · `c4`=inicial · `c8`=**entradas** · `c9`=**salidas** · `c6`/`c7`=última compra/venta · **Existencia = c4 + c8 − c9** (NO `c9` solo — son salidas) |
+| **`kdik`** | 7.8k | ✅ | Valuación / costo (existencia agregada de la sucursal). | `c1`=suc · `c2`=SKU · `c4`=inicial · `c5`=**entradas** · `c6`=**salidas** · `c9`=valor a costo · `c16`=costo unitario · **Existencia = c4 + c5 − c6** |
+
+> ⚠️ Existencia verificada contra fuente Kepler `invrepexsrep.kpl` (2026-07-03). `c9`/`c6` son **salidas**, no existencia. `c4` (inicial) llega en 0 → productos con inventario físico previo dan negativo; usar CSV export del reporte de Kepler. Ver `project_existencia_feed_kepler_bug`.
 | `kdig`/`kdif`/`kdie`/`kdid` | <600 | ⚪ | Sub-catálogos de inventario (familias/unidades). Pendiente decodificar a detalle. | — |
 
 ---
