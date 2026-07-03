@@ -40,13 +40,17 @@ export class StoreGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const tenantId = payload?.tenant_id;
     if (!tenantId) { client.emit('auth_error', { reason: 'no_tenant_in_token' }); client.disconnect(true); return; }
 
-    const room = `tenant:${tenantId}`;
+    // Scoping por sucursal: si el JWT trae warehouse_code, el usuario SOLO se une
+    // al room de su sucursal (`tenant:<id>:wh:<code>`) → nunca recibe tickets de
+    // otras. Sin warehouse_code (rol global) → room del tenant completo (todas).
+    const warehouse: string | undefined = payload?.warehouse_code || undefined;
+    const room = warehouse ? `tenant:${tenantId}:wh:${warehouse}` : `tenant:${tenantId}`;
     client.join(room);
-    client.data = { tenantId, userId: payload.sub, username: payload.username };
+    client.data = { tenantId, userId: payload.sub, username: payload.username, warehouse };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());
     this.tenantSockets.get(tenantId)!.add(client.id);
-    this.logger.log(`Connected ${client.id} → tenant=${tenantId} user=${payload.username}`);
-    client.emit('connected', { tenant_id: tenantId, room });
+    this.logger.log(`Connected ${client.id} → ${room} user=${payload.username}`);
+    client.emit('connected', { tenant_id: tenantId, room, warehouse: warehouse ?? null });
   }
 
   handleDisconnect(client: Socket): void {
@@ -56,12 +60,18 @@ export class StoreGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitTicket(tenantId: string, ticket: LiveTicket): void {
     if (!this.server) return;
+    // Room del tenant (usuarios globales) + room de la sucursal (usuarios scopeados).
     this.server.to(`tenant:${tenantId}`).emit('ticket', ticket);
+    if (ticket.warehouse_code) {
+      this.server.to(`tenant:${tenantId}:wh:${ticket.warehouse_code}`).emit('ticket', ticket);
+    }
   }
 
   emitAlert(tenantId: string, alert: StoreAlert): void {
     if (!this.server) return;
     this.server.to(`tenant:${tenantId}`).emit('alert', alert);
+    const wh = alert?.data?.warehouse_code;
+    if (wh) this.server.to(`tenant:${tenantId}:wh:${wh}`).emit('alert', alert);
   }
 
   getStats() {

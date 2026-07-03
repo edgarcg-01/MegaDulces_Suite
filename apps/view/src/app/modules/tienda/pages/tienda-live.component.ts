@@ -4,6 +4,8 @@ import { CommonModule } from '@angular/common';
 import {
   StoreSocketService, LiveTicket, StoreAlert, StoreBranchKpi,
 } from '../store-socket.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { STORE_BRANCHES, branchName } from '../../../core/constants/store-branches';
 
 /** Proyecto Tienda — monitor de tickets de venta EN VIVO (WebSocket /store). */
 @Component({
@@ -18,8 +20,20 @@ import {
           <h1>Tienda — en vivo</h1>
           <p class="surf-page-sub">Tickets de venta de cada sucursal al instante · KPIs del día · ritmo por hora</p>
         </div>
-        <div class="tda-live" [class.on]="connected()">
-          <span class="dot"></span>{{ connected() ? 'EN VIVO' : 'conectando…' }}
+        <div class="tda-head-right">
+          @if (scopedWarehouse) {
+            <span class="tda-scope"><i class="pi pi-map-marker"></i>{{ branchName(scopedWarehouse) }}</span>
+          } @else {
+            <select class="tda-filter" [value]="selectedBranch()" (change)="changeBranch($any($event.target).value)">
+              <option value="">Todas las sucursales</option>
+              @for (b of branchList; track b.code) {
+                <option [value]="b.code">{{ b.name }}</option>
+              }
+            </select>
+          }
+          <div class="tda-live" [class.on]="connected()">
+            <span class="dot"></span>{{ connected() ? 'EN VIVO' : 'conectando…' }}
+          </div>
         </div>
       </header>
 
@@ -102,6 +116,13 @@ import {
   `,
   styles: [`
     .tda-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
+    .tda-head-right { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+    .tda-filter { font-size:.8rem; font-weight:600; color:var(--ink); background:var(--card-bg);
+      border:1px solid var(--border); border-radius:var(--radius-md); padding:.4rem .7rem; cursor:pointer; }
+    .tda-filter:focus-visible { outline:2px solid var(--action,#b45309); outline-offset:1px; }
+    .tda-scope { display:inline-flex; align-items:center; gap:.35rem; font-size:.78rem; font-weight:700;
+      color:var(--ink); border:1px solid var(--border); border-radius:999px; padding:.3rem .7rem; }
+    .tda-scope i { font-size:.7rem; color:var(--text-muted); }
     .tda-live { display:inline-flex; align-items:center; gap:.4rem; font-size:.72rem; font-weight:700; letter-spacing:.05em;
       color:var(--text-muted); border:1px solid var(--border); border-radius:999px; padding:.3rem .7rem; }
     .tda-live.on { color:#15803d; border-color:#15803d55; }
@@ -153,8 +174,15 @@ import {
 export class TiendaLiveComponent implements OnInit, OnDestroy {
   private readonly svc = inject(StoreSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
 
   readonly connected = this.svc.connected;
+  readonly branchList = STORE_BRANCHES;
+  readonly branchName = branchName;
+  // Sucursal a la que el usuario está scopeado por su login ('' = rol global, ve todas).
+  scopedWarehouse = '';
+  // Sucursal seleccionada en el filtro ('' = todas). Los scopeados quedan fijos a la suya.
+  selectedBranch = signal<string>('');
   ventaHoy = signal(0);
   ticketsHoy = signal(0);
   branches = signal<StoreBranchKpi[]>([]);
@@ -177,20 +205,11 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.svc.connect();
-    this.svc.snapshot().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => {
-        this.ventaHoy.set(s.totals.venta);
-        this.ticketsHoy.set(s.totals.tickets);
-        this.branches.set(s.by_branch);
-        const hy: Record<number, { venta: number; tickets: number }> = {};
-        for (const h of s.hourly) hy[h.hora] = { venta: h.venta, tickets: h.tickets };
-        this.hourly.set(hy);
-        // Todos los tickets del día (más nuevo primero); registrar claves para dedup.
-        this.seen = new Set(s.recent.map((t) => this.tkKey(t)));
-        this.ticker.set(s.recent);
-      },
-      error: () => undefined,
-    });
+    // Si el login trae sucursal, el usuario queda fijo a ella (el backend además
+    // lo fuerza en snapshot y WS; esto solo sincroniza el UI).
+    this.scopedWarehouse = this.auth.user()?.warehouse_code || '';
+    if (this.scopedWarehouse) this.selectedBranch.set(this.scopedWarehouse);
+    this.loadSnapshot();
     this.svc.ticket$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((t) => this.applyTicket(t));
     this.svc.alert$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((a) =>
       this.alerts.update((list) => [a, ...list].slice(0, 25)));
@@ -198,7 +217,38 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void { this.svc.disconnect(); }
 
+  /** (Re)carga el snapshot para la sucursal seleccionada ('' = todas). */
+  private loadSnapshot(): void {
+    this.svc.snapshot(this.selectedBranch() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (s) => {
+          this.ventaHoy.set(s.totals.venta);
+          this.ticketsHoy.set(s.totals.tickets);
+          this.branches.set(s.by_branch);
+          const hy: Record<number, { venta: number; tickets: number }> = {};
+          for (const h of s.hourly) hy[h.hora] = { venta: h.venta, tickets: h.tickets };
+          this.hourly.set(hy);
+          // Todos los tickets del día (más nuevo primero); registrar claves para dedup.
+          this.seen = new Set(s.recent.map((t) => this.tkKey(t)));
+          this.ticker.set(s.recent);
+        },
+        error: () => undefined,
+      });
+  }
+
+  /** Cambio de filtro por sucursal (solo roles globales). Resetea y recarga. */
+  changeBranch(code: string): void {
+    if (this.scopedWarehouse) return; // usuario scopeado: no puede cambiar
+    if (code === this.selectedBranch()) return;
+    this.selectedBranch.set(code);
+    this.ticker.set([]);
+    this.seen.clear();
+    this.loadSnapshot();
+  }
+
   private applyTicket(t: LiveTicket): void {
+    const sel = this.selectedBranch();
+    if (sel && t.warehouse_code !== sel) return; // filtro activo → ignora otras sucursales
     const key = this.tkKey(t);
     if (this.seen.has(key)) return; // ya estaba (snapshot o reemisión) → no duplicar ni recontar
     this.seen.add(key);

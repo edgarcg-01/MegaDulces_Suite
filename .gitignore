@@ -69,3 +69,10 @@ database/backup*.sql
 # Dumps/exports sueltos en la raíz de database/ (p.ej. "R10 19-06-2026.sql", 42MB+).
 # Los .sql legítimos viven en database/scripts/ (subdir, no afectado por esta regla).
 database/*.sql
+
+# Config real del servicio del poller on-prem (contiene la clave ingest compartida).
+# Se versiona solo service.env.example.
+database/importers/kepler/service.env
+# Logs y wrapper del servicio (node-windows).
+database/importers/kepler/logs/
+database/importers/kepler/daemon/

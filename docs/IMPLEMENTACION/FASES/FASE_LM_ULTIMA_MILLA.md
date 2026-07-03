@@ -429,6 +429,55 @@ en pedidos normales del comercial, no solo domicilio.
 
 ---
 
+## 11. Track LM-K — Entrega desde folio Kepler (2026-07-02)
+
+**Contexto:** el pedido a domicilio NO siempre nace en `commercial.orders`. En la operación
+real la venta se registra primero en el **POS Kepler** (la tienda cobra/genera ticket) y la
+persona de tienda captura ese **folio** para despachar la entrega. Coexiste con el intake propio
+de LM.2 (tel/WhatsApp que no pasan por caja).
+
+**Decisiones (2026-07-02):**
+- Origen: **Kepler + intake propio** conviven. LM.2 sigue vivo para pedidos sin caja.
+- Cobro: **depende del ticket** — `forma_pago='CONTADO'` ⇒ ya pagado en tienda (repartidor solo
+  entrega); otro ⇒ COD (repartidor cobra). Default derivado de `forma_pago`, overridable en captura.
+- Representación: **referenciar el folio, NO materializar `commercial.orders`.** Kepler ya descontó
+  el stock en el POS → materializar + reservar/consumir stock haría **doble-conteo**. Referenciar =
+  cero movimiento de stock en `commercial.*`.
+
+**Fuente del ticket (mapeo real Kepler):** `md.kdm1` (header) + `md.kdm2` (líneas), filtro
+`c2='U' AND c3='D' AND c4=10`. Folio=`c6`, serie=`c63`, almacén=`c1`, total=`c16`,
+forma_pago=`c10`, hora=`c62`; líneas: sku=`c8`, nombre=`c10`, cant=`c9`, importe=`c13`. El poller
+de la tienda YA ingesta el día en `analytics.store_live_tickets` (llave `(tenant,warehouse,serie,folio)`,
+`items[]` JSONB, retención ~3d) → **lookup primario**; fallback consolidado `mart.ventas`.
+
+**Deltas de schema (mínimos):**
+- `logistics.guide_recipients` += `kepler_folio`/`kepler_serie`/`kepler_warehouse_code`,
+  `items_snapshot` JSONB (qué cargar), `collect_on_delivery` bool, `amount_to_collect`.
+- `commercial.payments`: `order_id` → **nullable** + `kepler_folio`/`kepler_serie`/`kepler_warehouse_code`
+  + CHECK (`order_id` IS NOT NULL OR `kepler_folio` IS NOT NULL). El cobro COD de un ticket Kepler
+  entra al mismo ledger → el arqueo (LM.5) lo cuadra sin materializar orden.
+- Permiso nuevo **`LOGISTICS_HOME_DISPATCH`** (persona de tienda: captura folio + asigna), a
+  `encargado_sucursal` + rol de tienda; scoped a su sucursal.
+
+**Sprints:**
+
+| Sprint | Contenido | Depende |
+|---|---|---|
+| **LM-K.0** | Deltas de schema (guide_recipients kepler ref + payments nullable/kepler) + permiso `LOGISTICS_HOME_DISPATCH` + backfill | LM.0 |
+| **LM-K.1** | `GET /store/ticket-lookup` (store_live_tickets → fallback consolidado) devuelve líneas+total+forma_pago | — |
+| **LM-K.2** | `POST /logistics/home-dispatch/from-kepler` (lookup + snapshot líneas + dirección ad-hoc + collect flag + asigna rider/moto, sin stock) | LM-K.0, LM-K.1, LM.3 |
+| **LM-K.3** | Cobro COD ligado a folio: `recordPayment` acepta ref Kepler; outcome (LM.4) usa `collect_on_delivery`; arqueo (LM.5) ya lo agrega | LM-K.2, LM.1, LM.5 |
+| **LM-K.4** | Frontend: pantalla de tienda (captura folio → ver ticket → dirección → asignar) + app repartidor muestra `items_snapshot` + monto a cobrar | LM-K.2, LM.6 |
+
+**Diferido:** reconciliar el efectivo COD de vuelta a Kepler (feed posterior); detección automática
+de "ticket es domicilio" (hoy la persona de tienda elige el folio manualmente).
+
+**Housekeeping:** colisión de timestamp `20260702180000` entre `_analytics_store_live_tickets`
+(thread Tienda) y `_lm_orders_home_delivery` (LM.0). No rompe (Knex usa filename completo) pero
+renumerar la de LM (aún sin aplicar) al arrancar LM-K.
+
+---
+
 *Referencias de código clave:*
 - `libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts` (state machine, `place`, `fulfill`, `deliverNow`, `nextCode`)
 - `libs/commercial/src/lib/commercial-orders/order-stock.service.ts` (`reserve`/`consume`/`release`, FOR UPDATE)

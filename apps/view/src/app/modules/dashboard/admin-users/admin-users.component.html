@@ -260,6 +260,14 @@
          <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"
                    optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
        </div>
+
+       <div class="flex flex-col gap-2">
+         <label for="warehouse_code" class="text-label text-content-muted">Sucursal (monitor Tienda)</label>
+         <p-select id="warehouse_code" [options]="branchOptions" formControlName="warehouse_code"
+                   placeholder="Todas (rol global)" [showClear]="true"
+                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
+         <small class="text-content-dim text-[11px]">Vacío = ve todas las sucursales. Con sucursal = solo ve la venta en vivo de esa tienda.</small>
+       </div>
     </div>
 
     <div class="flex flex-col gap-2">

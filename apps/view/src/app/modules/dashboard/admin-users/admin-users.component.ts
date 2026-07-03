@@ -45,6 +45,7 @@ import {
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 
 interface RoleOption {
   label: string;
@@ -160,6 +161,8 @@ export class AdminUsersComponent implements OnInit {
   roles = signal<RoleOption[]>([]);
   supervisors = signal<SupervisorOption[]>([]);
   zones = signal<ZoneOption[]>([]);
+  // Opciones de sucursal para el monitor Tienda (null = ve todas / rol global).
+  readonly branchOptions = STORE_BRANCHES.map((b) => ({ label: `${b.code} · ${b.name}`, value: b.code }));
 
   // Roles que el usuario actual puede asignar (oculta superadmin si no lo es).
   readonly assignableRoles = computed(() => {
@@ -178,6 +181,7 @@ export class AdminUsersComponent implements OnInit {
       zona_id: [''],
       role_name: ['', Validators.required],
       supervisor_id: [null],
+      warehouse_code: [null],
       activo: [true],
     });
 
@@ -339,6 +343,7 @@ export class AdminUsersComponent implements OnInit {
       zona_id: user.zona_id,
       role_name: user.role_name,
       supervisor_id: user.supervisor_id,
+      warehouse_code: user.warehouse_code ?? null,
       activo: user.activo,
     });
 

@@ -67,13 +67,19 @@ export class StoreService {
     return { received: tickets.length, inserted };
   }
 
-  async snapshot(): Promise<any> {
+  /**
+   * Snapshot del día. `warehouseCode` opcional: si viene (usuario scopeado a
+   * sucursal, o filtro del UI), acota TODO al code dado. Vacío = todas.
+   */
+  async snapshot(warehouseCode?: string): Promise<any> {
     const k = this.knex;
     const today = `(ticket_ts AT TIME ZONE '${TZ}')::date = (now() AT TIME ZONE '${TZ}')::date`;
+    const scope = (q: Knex.QueryBuilder) =>
+      warehouseCode ? q.andWhere('warehouse_code', warehouseCode) : q;
 
-    const byBranch = await k('analytics.store_live_tickets')
+    const byBranch = await scope(k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)
-      .andWhereRaw(today)
+      .andWhereRaw(today))
       .groupBy('warehouse_code', 'warehouse_name')
       .select('warehouse_code', 'warehouse_name')
       .count({ tickets: '*' })
@@ -81,9 +87,9 @@ export class StoreService {
       .max({ last_ts: 'ticket_ts' })
       .orderByRaw('sum(total) DESC NULLS LAST');
 
-    const hourly = await k('analytics.store_live_tickets')
+    const hourly = await scope(k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)
-      .andWhereRaw(today)
+      .andWhereRaw(today))
       .select(k.raw(`extract(hour from ticket_ts AT TIME ZONE '${TZ}')::int AS hora`))
       .count({ tickets: '*' })
       .sum({ venta: 'total' })
@@ -92,9 +98,9 @@ export class StoreService {
 
     // TODOS los tickets de HOY, más nuevo primero (como van saliendo). Tope alto
     // de seguridad: un día pico ronda ~3.5k tickets en las 6 sucursales.
-    const recent = await k('analytics.store_live_tickets')
+    const recent = await scope(k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)
-      .andWhereRaw(today)
+      .andWhereRaw(today))
       .orderBy('ticket_ts', 'desc')
       .limit(5000)
       .select(

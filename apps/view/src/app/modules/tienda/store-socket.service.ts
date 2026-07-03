@@ -38,7 +38,10 @@ export class StoreSocketService {
   readonly ticket$ = new Subject<LiveTicket>();
   readonly alert$ = new Subject<StoreAlert>();
 
-  snapshot() { return this.http.get<StoreSnapshot>(`${environment.apiUrl}/store/live/snapshot`); }
+  snapshot(warehouse?: string) {
+    const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
+    return this.http.get<StoreSnapshot>(`${environment.apiUrl}/store/live/snapshot${q}`);
+  }
 
   connect(): void {
     if (this.socket?.connected) return;

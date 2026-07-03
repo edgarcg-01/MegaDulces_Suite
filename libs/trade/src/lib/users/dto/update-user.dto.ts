@@ -57,4 +57,10 @@ export class UpdateUserDto {
   @IsOptional()
   @IsUUID()
   supervisor_id?: string;
+
+  @ApiProperty({ description: "Sucursal Kepler ('00'..'05'). Vacío = ve todas (rol global).", required: false })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[0-9]{2}$/, { message: "warehouse_code debe ser 2 dígitos ('00'..'05')" })
+  warehouse_code?: string;
 }

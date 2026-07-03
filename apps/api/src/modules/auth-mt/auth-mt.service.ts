@@ -32,6 +32,12 @@ export interface JwtPayloadMt {
   role_name: string;
   zona_id?: string;
   /**
+   * Sucursal Kepler asignada ('00'..'05'). Si está seteada, el usuario queda
+   * scopeado a esa sucursal en el monitor Tienda (snapshot + WS). Vacío = ve
+   * todas (rol global). Ver [[project_proyecto_tienda_live]].
+   */
+  warehouse_code?: string;
+  /**
    * Nombre de la zona (denormalizado). Necesario porque varios componentes
    * del frontend (daily-assignments, captures, seguimiento) leen `user.zona`
    * para hacer match contra el catálogo de zonas. Sin este campo, el frontend
@@ -133,6 +139,7 @@ export class AuthMtService {
       role_name: user.role_name,
       zona_id: user.zona_id || undefined,
       zona: zonaName || undefined,
+      warehouse_code: user.warehouse_code || undefined,
       permissions,
       rules: ability.rules,
     };
@@ -149,6 +156,7 @@ export class AuthMtService {
         role_name: user.role_name,
         zona_id: user.zona_id,
         zona: zonaName ?? null,
+        warehouse_code: user.warehouse_code ?? null,
         meta_puntos: user.meta_puntos,
         permissions,
         rules: ability.rules,

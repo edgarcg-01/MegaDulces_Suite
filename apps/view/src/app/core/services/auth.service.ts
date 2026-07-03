@@ -12,6 +12,8 @@ export interface JwtPayload {
   rol?: string;
   role_name?: string;
   zona?: string;
+  /** Sucursal Kepler asignada ('00'..'05'). Seteada = scopeado a esa sucursal (monitor Tienda). */
+  warehouse_code?: string;
   permissions?: Record<string, boolean>;
   rules?: any[];
   exp: number;

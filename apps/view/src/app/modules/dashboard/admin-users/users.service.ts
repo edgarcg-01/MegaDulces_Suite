@@ -12,6 +12,8 @@ export interface User {
   role_name: string;
   activo: boolean;
   supervisor_id?: string;
+  /** Sucursal Kepler asignada ('00'..'05'). NULL = ve todas (rol global). */
+  warehouse_code?: string | null;
   created_at?: string;
   has_route_today?: boolean;
   route_name_today?: string;
@@ -29,6 +31,7 @@ export interface UserCreatePayload {
   zona_id?: string | null;
   role_name: string;
   supervisor_id?: string | null;
+  warehouse_code?: string | null;
 }
 
 export interface UserUpdatePayload {
@@ -40,6 +43,7 @@ export interface UserUpdatePayload {
   role_name?: string;
   supervisor_id?: string | null;
   activo?: boolean;
+  warehouse_code?: string | null;
 }
 
 export interface SupervisorOption {

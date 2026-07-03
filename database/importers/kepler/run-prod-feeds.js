@@ -6,6 +6,7 @@
  * de verdad); solo secuencia + guardas.
  *
  * Modos:
+ *   node database/importers/kepler/run-prod-feeds.js live      # venta viva → prod (cada 15-30 min; LIGERO, solo consolidado local)
  *   node database/importers/kepler/run-prod-feeds.js stock     # stock 6 sucursales (cada 30 min)
  *   node database/importers/kepler/run-prod-feeds.js nightly   # rotación + top-sellers (nightly)
  *   node database/importers/kepler/run-prod-feeds.js catalog   # catálogo + precios (semanal)
@@ -29,6 +30,13 @@ const DIR = path.join('database', 'importers');
 const K = path.join(DIR, 'kepler');
 
 const STEPS = {
+  // LIVE (cada 15-30 min): venta del día → prod. Solo lee mart.ventas_enriched
+  // (consolidado local, que ya incluye las camionetas ruta_NN vía el push) → NO
+  // toca las 6 sucursales, así que es barato para correr seguido.
+  live: [
+    path.join(K, 'import-sales-fact.js'),  // mart.ventas_enriched → analytics.sales_daily (Command Center)
+    path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
+  ],
   stock:   [path.join(K, 'import-branch-stock-live.js')],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
