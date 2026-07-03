@@ -176,6 +176,7 @@ const MES: Record<string, string> = {
     </div>
   `,
   styles: [`
+    :host { display:block; }
     .sl-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .sl-field { display:flex; flex-direction:column; gap:.3rem; }
     .sl-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -185,7 +186,7 @@ const MES: Record<string, string> = {
     .so-dl { display:flex; gap:.5rem; }
     .sl-table-card { padding:1.25rem; }
     .sl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
-    .sl-table { border-collapse:separate; border-spacing:0; font-size:.76rem; white-space:nowrap; }
+    .sl-table { border-collapse:separate; border-spacing:0; font-size:.76rem; white-space:nowrap; min-width:100%; }
     /* Reglas horizontales; verticales SOLO en fronteras de sección (look de reporte, no de hoja de cálculo). */
     .sl-table th, .sl-table td { border-bottom:1px solid var(--border); padding:.34rem .6rem; }
     .sl-table thead th { background:var(--layout-bg); font-weight:700; text-align:left; text-transform:uppercase;

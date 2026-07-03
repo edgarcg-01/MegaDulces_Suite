@@ -1,7 +1,18 @@
 // Fase LM.2/LM.4 — DTOs de intake y entrega a domicilio. Validación en el servicio.
 
 import type { DeliveryAddress, DeliveryChannel } from '../../commercial-orders/commercial-orders.service';
-import type { RecordPaymentDto } from '../../commercial-payments/dto/payment.dto';
+import type { PaymentMethod } from '../../commercial-payments/dto/payment.dto';
+
+/**
+ * Cobro capturado por el repartidor en la parada. Sin order_id: el backend lo
+ * ata a lo que referencie la parada (commercial.orders O folio Kepler).
+ */
+export interface OutcomePaymentDto {
+  method: PaymentMethod;
+  amount: number;
+  cash_received?: number;
+  reference?: string;
+}
 
 export interface IntakeLineDto {
   product_id: string;
@@ -59,7 +70,7 @@ export interface RecordDeliveryOutcomeDto {
   gps_lat?: number;
   gps_lng?: number;
   /** Cobro en la entrega (omitir si prepago). */
-  payment?: RecordPaymentDto;
+  payment?: OutcomePaymentDto;
   // ── incidencia ──
   incident_notes?: string;
   attempted_at?: string; // ISO

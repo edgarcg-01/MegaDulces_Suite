@@ -89,8 +89,6 @@ import { LogisticsReportsModule } from '@megadulces/logistics';
 import { LogisticsCartaporteModule } from '@megadulces/logistics';
 // Fase J12.3 — Optimización de ruta (solver heurístico)
 import { LogisticsRoutingModule } from '@megadulces/logistics';
-// Fase LM.3 — despacho de pedidos a domicilio a repartidores en moto
-import { LogisticsHomeDispatchModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
@@ -148,7 +146,6 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsReportsModule,
       LogisticsCartaporteModule,
       LogisticsRoutingModule,
-      LogisticsHomeDispatchModule,
       MegaDulcesSyncModule,
     ]
   : [];

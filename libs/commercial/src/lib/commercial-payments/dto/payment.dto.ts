@@ -26,6 +26,21 @@ export interface DeliverAndCollectDto {
   payment?: RecordPaymentDto;
 }
 
+/**
+ * Cobro COD ligado a un FOLIO de Kepler (Fase LM-K), sin commercial.orders.
+ * Entra al mismo ledger que el arqueo del repartidor (received_by).
+ */
+export interface RecordKeplerPaymentDto {
+  kepler_folio: string;
+  kepler_serie?: string;
+  kepler_warehouse_code?: string;
+  method: PaymentMethod;
+  amount: number;
+  cash_received?: number;
+  reference?: string;
+  notes?: string;
+}
+
 export interface PaymentRow {
   id: string;
   order_id: string;

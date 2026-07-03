@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   RequireAuthGuard,
@@ -8,13 +8,17 @@ import {
 } from '@megadulces/platform-core';
 import { CommercialHomeDeliveryService } from './commercial-home-delivery.service';
 import { HomeDeliveryIntakeDto, RecordDeliveryOutcomeDto } from './dto/home-delivery.dto';
+import { DispatchFromKeplerDto, DispatchOrderDto, HomeDispatchService } from './home-dispatch.service';
 
 @ApiTags('commercial-home-delivery')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
 @Controller('commercial/home-delivery')
 export class CommercialHomeDeliveryController {
-  constructor(private readonly service: CommercialHomeDeliveryService) {}
+  constructor(
+    private readonly service: CommercialHomeDeliveryService,
+    private readonly dispatch: HomeDispatchService,
+  ) {}
 
   /** Intake de un pedido a domicilio (cliente casual o de cartera + dirección). */
   @Post('orders')
@@ -30,5 +34,31 @@ export class CommercialHomeDeliveryController {
   @ApiOperation({ summary: 'Registra el resultado de la parada (entregado/incidencia) + POD + cobro.' })
   recordOutcome(@Param('recipientId') recipientId: string, @Body() dto: RecordDeliveryOutcomeDto) {
     return this.service.recordDeliveryOutcome(recipientId, dto);
+  }
+
+  // ── Despacho (persona de tienda asigna repartidor + moto) ──
+
+  /** Despacha un pedido de intake propio (commercial.orders home_delivery). */
+  @Post('dispatch/:orderId')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiOperation({ summary: 'Asigna un pedido a domicilio (intake propio) a un repartidor+moto.' })
+  dispatchOrder(@Param('orderId') orderId: string, @Body() dto: DispatchOrderDto) {
+    return this.dispatch.dispatchOrder(orderId, dto);
+  }
+
+  /** Despacha desde un folio de Kepler (referencia el ticket; no materializa orden). */
+  @Post('dispatch-from-kepler')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiOperation({ summary: 'Captura folio Kepler + dirección → crea la entrega y la asigna a un repartidor+moto.' })
+  dispatchFromKepler(@Body() dto: DispatchFromKeplerDto) {
+    return this.dispatch.dispatchFromKepler(dto);
+  }
+
+  /** Paradas a domicilio del repartidor autenticado (app repartidor). */
+  @Get('my-deliveries')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
+  @ApiOperation({ summary: 'Lista las paradas a domicilio asignadas al repartidor.' })
+  myDeliveries(@Query('pending') pending?: string) {
+    return this.dispatch.myDeliveries({ pending: pending !== 'false' });
   }
 }

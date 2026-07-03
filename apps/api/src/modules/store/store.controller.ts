@@ -32,4 +32,21 @@ export class StoreController {
     const effective = user?.warehouse_code || warehouse || undefined;
     return this.service.snapshot(effective);
   }
+
+  /** LM-K.1 — busca un ticket Kepler por folio para armar la entrega a domicilio. */
+  @Get('ticket-lookup')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiQuery({ name: 'folio', required: true })
+  @ApiQuery({ name: 'serie', required: false })
+  @ApiQuery({ name: 'warehouse', required: false, description: "Sucursal ('01'..'03'). Ignorado si el usuario ya está scopeado a una sucursal." })
+  @ApiOperation({ summary: 'LM-K — busca ticket de venta Kepler por folio (líneas + total + forma de pago) para despacho a domicilio.' })
+  ticketLookup(
+    @ReqUser() user: { warehouse_code?: string } | undefined,
+    @Query('folio') folio: string,
+    @Query('serie') serie?: string,
+    @Query('warehouse') warehouse?: string,
+  ) {
+    const effective = user?.warehouse_code || warehouse || undefined;
+    return this.service.ticketLookup({ folio, serie, warehouseCode: effective });
+  }
 }

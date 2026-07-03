@@ -43,9 +43,16 @@ type Mode = 'deliver' | 'incident';
                 <div class="ref">Ref: {{ d.delivery_address?.references }}</div>
               }
               <div class="row2">
-                <span class="total">Cobrar: {{ money(d.balance_due ?? d.total) }}</span>
+                @if (mustCollect(d)) {
+                  <span class="total">Cobrar: {{ money(collectAmount(d)) }}</span>
+                } @else {
+                  <span class="total paid">Ya pagado</span>
+                }
                 <span class="status" [attr.data-s]="d.status">{{ statusLabel(d.status) }}</span>
               </div>
+              @if (d.items_snapshot?.length) {
+                <div class="load">📦 {{ d.items_snapshot?.length }} SKUs a cargar</div>
+              }
               @if (d.shipment_notes) {
                 <div class="warn">⚠ {{ d.shipment_notes }}</div>
               }
@@ -131,6 +138,8 @@ type Mode = 'deliver' | 'incident';
     .ref { font-size: .8rem; color: var(--text-muted, #888); }
     .row2 { display: flex; justify-content: space-between; margin-top: .4rem; align-items: center; }
     .total { font-weight: 600; }
+    .total.paid { color: #16a34a; font-weight: 500; }
+    .load { font-size: .8rem; color: var(--text-muted, #666); margin-top: .3rem; }
     .status { font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; }
     .warn { margin-top: .4rem; font-size: .8rem; color: #b45309; background: #fff7ed; border-radius: 8px; padding: .3rem .5rem; }
     .actions { display: flex; gap: .5rem; margin-top: .6rem; }
@@ -185,6 +194,17 @@ export class RiderDeliveriesComponent implements OnInit {
     return n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
   }
 
+  /** ¿El repartidor cobra en esta parada? (Kepler CONTADO ⇒ ya pagado.) */
+  mustCollect(d: RiderDelivery): boolean {
+    // Parada Kepler: manda collect_on_delivery. Intake propio: hay saldo por cobrar.
+    if (d.collect_on_delivery != null) return !!d.collect_on_delivery;
+    return Number(d.balance_due ?? d.total ?? 0) > 0;
+  }
+
+  collectAmount(d: RiderDelivery): number {
+    return Number(d.amount_to_collect ?? d.balance_due ?? d.total ?? 0);
+  }
+
   statusLabel(s: string): string {
     return { pendiente: 'Pendiente', no_entregado: 'No entregado', rechazado: 'Rechazado', entregado: 'Entregado' }[s] || s;
   }
@@ -192,8 +212,9 @@ export class RiderDeliveriesComponent implements OnInit {
   openDeliver(d: RiderDelivery): void {
     this.error.set(null);
     this.mode.set('deliver');
-    this.method = 'cash';
-    this.amount = Number(d.balance_due ?? d.total ?? 0);
+    // Kepler CONTADO / prepago ⇒ no cobra: método 'prepaid'. Si cobra ⇒ efectivo.
+    this.method = this.mustCollect(d) ? 'cash' : 'prepaid';
+    this.amount = this.collectAmount(d);
     this.cashReceived = null;
     this.reference = '';
     this.evidence = false;
@@ -222,9 +243,11 @@ export class RiderDeliveriesComponent implements OnInit {
     if (this.mode() === 'deliver') {
       if (!this.evidence) { this.error.set('La entrega requiere evidencia (firma/foto/WhatsApp).'); return; }
       dto = { outcome: 'delivered', whatsapp_confirmed: true, delivered_to: d.customer_name };
-      if (this.method !== 'prepaid' && d.order_id) {
+      // Cobra si la parada lo requiere (COD) y el método no es prepago. Sirve
+      // tanto para intake propio (order_id) como para folio Kepler (backend resuelve).
+      if (this.mustCollect(d) && this.method !== 'prepaid') {
         if (!(this.amount > 0)) { this.error.set('Ingresa el monto a cobrar.'); return; }
-        dto.payment = { order_id: d.order_id, method: this.method, amount: Number(this.amount) };
+        dto.payment = { method: this.method, amount: Number(this.amount) };
         if (this.method === 'cash' && this.cashReceived != null) dto.payment.cash_received = Number(this.cashReceived);
         if ((this.method === 'transfer' || this.method === 'card') && this.reference) dto.payment.reference = this.reference;
       }

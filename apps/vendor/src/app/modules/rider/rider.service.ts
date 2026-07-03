@@ -30,6 +30,11 @@ export interface RiderDelivery {
   total?: number | string | null;
   balance_due?: number | string | null;
   payment_method?: string | null;
+  // LM-K: paradas desde folio Kepler
+  kepler_folio?: string | null;
+  items_snapshot?: { sku?: string; nombre?: string; cant?: number; importe?: number }[] | null;
+  collect_on_delivery?: boolean | null;
+  amount_to_collect?: number | string | null;
 }
 
 export type DeliveryOutcome =
@@ -50,7 +55,6 @@ export interface RecordDeliveryOutcome {
   gps_lat?: number;
   gps_lng?: number;
   payment?: {
-    order_id: string;
     method: 'cash' | 'transfer' | 'card' | 'prepaid';
     amount: number;
     cash_received?: number;
@@ -65,9 +69,9 @@ export class RiderService {
   private readonly http = inject(HttpClient);
   private readonly apiRoot = environment.apiUrl;
 
-  /** Paradas a domicilio asignadas al repartidor (logística resuelve por driver.user_id). */
+  /** Paradas a domicilio asignadas al repartidor (resuelto por driver.user_id). */
   myDeliveries(): Observable<RiderDelivery[]> {
-    return this.http.get<RiderDelivery[]>(`${this.apiRoot}/logistics/home-dispatch/my-deliveries`);
+    return this.http.get<RiderDelivery[]>(`${this.apiRoot}/commercial/home-delivery/my-deliveries`);
   }
 
   /** Cierra la parada: entrega (evidencia + cobro) o incidencia tipificada. */

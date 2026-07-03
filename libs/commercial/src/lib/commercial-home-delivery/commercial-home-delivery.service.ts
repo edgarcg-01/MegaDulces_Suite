@@ -106,9 +106,22 @@ export class CommercialHomeDeliveryService {
       let payment: any = null;
       let order: any = null;
       if (orderId) {
-        const res = await this.payments.deliverAndCollect(orderId, { payment: dto.payment });
+        // Intake propio: fulfill (consume stock) + cobro atómico contra la orden.
+        const orderPayment = dto.payment ? { ...dto.payment, order_id: orderId } : undefined;
+        const res = await this.payments.deliverAndCollect(orderId, { payment: orderPayment });
         order = res.order;
         payment = res.payment;
+      } else if (recipient.kepler_folio && recipient.collect_on_delivery && dto.payment) {
+        // Parada Kepler COD: cobro ligado al folio (sin orden; entra al arqueo).
+        payment = await this.payments.recordKeplerPayment({
+          kepler_folio: recipient.kepler_folio,
+          kepler_serie: recipient.kepler_serie,
+          kepler_warehouse_code: recipient.kepler_warehouse_code,
+          method: dto.payment.method,
+          amount: dto.payment.amount,
+          cash_received: dto.payment.cash_received,
+          reference: dto.payment.reference,
+        });
       }
 
       await this.tk.run((trx) =>

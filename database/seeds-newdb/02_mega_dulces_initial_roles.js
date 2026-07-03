@@ -79,6 +79,7 @@ exports.seed = async function (knex) {
     LOGISTICS_SHIPMENTS_GESTIONAR: true,
     LOGISTICS_GUIDES_VER: true,
     LOGISTICS_GUIDES_GESTIONAR: true,
+    LOGISTICS_HOME_DISPATCH: true,
     LOGISTICS_EXPENSES_VER: true,
     LOGISTICS_EXPENSES_GESTIONAR: true,
     LOGISTICS_PAYROLL_VER: true,
@@ -332,7 +333,61 @@ exports.seed = async function (knex) {
         LOGISTICS_SHIPMENTS_GESTIONAR: true, // arma/asigna la entrega
         LOGISTICS_GUIDES_VER: true,
         LOGISTICS_GUIDES_GESTIONAR: true,
+        LOGISTICS_HOME_DISPATCH: true, // captura folio Kepler + asigna (fallback mientras no existan roles de tienda)
         LOGISTICS_EXPENSES_VER: true,
+      },
+    },
+    {
+      // Fase LM-K — Jefe de tienda: captura folio Kepler de domicilio + asigna
+      // repartidor. Scoped a SU sucursal (allowlist logistics.home_delivery_warehouses).
+      role_name: 'jefe_de_tienda',
+      permissions: {
+        ...NO_PERMS,
+        STORE_LIVE_VER: true, // monitor de tickets de su tienda
+        COMMERCIAL_CUSTOMERS_VER: true,
+        COMMERCIAL_ORDERS_VER: true,
+        LOGISTICS_FLEET_VER: true,
+        LOGISTICS_SHIPMENTS_VER: true,
+        LOGISTICS_GUIDES_VER: true,
+        LOGISTICS_GUIDES_GESTIONAR: true,
+        LOGISTICS_HOME_DISPATCH: true,
+        ROUTE_CONTROL_VER: true,
+      },
+    },
+    {
+      // Fase LM-K — Auxiliar de tienda: mismo alcance operativo que el jefe para
+      // el despacho a domicilio (comparten LOGISTICS_HOME_DISPATCH; se parte si el
+      // negocio pide que solo el jefe asigne).
+      role_name: 'auxiliar_de_tienda',
+      permissions: {
+        ...NO_PERMS,
+        STORE_LIVE_VER: true,
+        COMMERCIAL_CUSTOMERS_VER: true,
+        COMMERCIAL_ORDERS_VER: true,
+        LOGISTICS_SHIPMENTS_VER: true,
+        LOGISTICS_GUIDES_VER: true,
+        LOGISTICS_GUIDES_GESTIONAR: true,
+        LOGISTICS_HOME_DISPATCH: true,
+      },
+    },
+    {
+      // Fase LM-K — Gerente de zona: despacho a domicilio sobre las sucursales de
+      // su zona (scope multi-store por zona_id, resuelto en el servicio). Además ve
+      // reportes de equipo.
+      role_name: 'gerente_de_zona',
+      permissions: {
+        ...NO_PERMS,
+        REPORTES_VER_EQUIPO: true,
+        REPORTES_EXPORTAR: true,
+        STORE_LIVE_VER: true,
+        COMMERCIAL_CUSTOMERS_VER: true,
+        COMMERCIAL_ORDERS_VER: true,
+        LOGISTICS_FLEET_VER: true,
+        LOGISTICS_SHIPMENTS_VER: true,
+        LOGISTICS_GUIDES_VER: true,
+        LOGISTICS_GUIDES_GESTIONAR: true,
+        LOGISTICS_HOME_DISPATCH: true,
+        ROUTE_CONTROL_VER: true,
       },
     },
     {

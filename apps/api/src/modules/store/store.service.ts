@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import { StoreGateway } from './store.gateway';
 import { LiveTicket } from './store.types';
@@ -65,6 +72,58 @@ export class StoreService {
       }
     }
     return { received: tickets.length, inserted };
+  }
+
+  /**
+   * Fase LM-K.1 — busca un ticket de venta de Kepler por folio para armar una
+   * entrega a domicilio. Valida que la sucursal esté en el allowlist
+   * (logistics.home_delivery_warehouses) y devuelve las líneas (qué cargar) +
+   * total + forma de pago. Sugiere el flag COD según forma_pago (CONTADO = ya
+   * pagado en tienda). Lee del buffer del día (analytics.store_live_tickets).
+   */
+  async ticketLookup(opts: { folio: string; serie?: string; warehouseCode?: string }): Promise<any> {
+    const folio = (opts.folio || '').trim();
+    const warehouseCode = (opts.warehouseCode || '').trim();
+    const serie = (opts.serie || '').trim();
+    if (!folio) throw new BadRequestException('folio requerido');
+    if (!warehouseCode) throw new BadRequestException('warehouse (sucursal) requerido');
+
+    return this.knex.transaction(async (trx) => {
+      await trx.raw(`SET LOCAL app.tenant_id = ?`, [TENANT]);
+
+      // Allowlist: solo sucursales habilitadas para domicilio (piloto 01/02/03).
+      const wh = await trx('logistics.home_delivery_warehouses')
+        .where({ tenant_id: TENANT, warehouse_code: warehouseCode, enabled: true })
+        .first();
+      if (!wh)
+        throw new ForbiddenException(
+          `La sucursal ${warehouseCode} no está habilitada para entrega a domicilio.`,
+        );
+
+      let q = trx('analytics.store_live_tickets')
+        .where({ tenant_id: TENANT, warehouse_code: warehouseCode, folio });
+      if (serie) q = q.andWhere('serie', serie);
+      const t = await q.orderBy('ticket_ts', 'desc').first();
+      if (!t)
+        throw new NotFoundException(
+          `Ticket ${warehouseCode}/${serie || '*'}/${folio} no encontrado en la ventana de la tienda.`,
+        );
+
+      const items = typeof t.items === 'string' ? JSON.parse(t.items) : t.items || [];
+      const alreadyPaid = String(t.forma_pago || '').toUpperCase() === 'CONTADO';
+      return {
+        warehouse_code: t.warehouse_code,
+        warehouse_name: t.warehouse_name,
+        serie: t.serie,
+        folio: t.folio,
+        ticket_ts: t.ticket_ts,
+        total: Number(t.total) || 0,
+        forma_pago: t.forma_pago,
+        items,
+        already_paid: alreadyPaid, // CONTADO = pagado en caja → repartidor solo entrega
+        collect_on_delivery_suggested: !alreadyPaid, // default del flag COD en la captura
+      };
+    });
   }
 
   /**

@@ -12,6 +12,7 @@ import {
   PAYMENT_METHODS,
   PaymentMethod,
   PaymentRow,
+  RecordKeplerPaymentDto,
   RecordPaymentDto,
 } from './dto/payment.dto';
 
@@ -171,6 +172,61 @@ export class CommercialPaymentsService {
         payment = await this.insertPayment(trx, { ...dto.payment, order_id: orderId });
       }
       return { order, payment };
+    });
+  }
+
+  /**
+   * Fase LM-K.3 — cobro COD ligado a un FOLIO de Kepler (sin commercial.orders).
+   * No actualiza balance de ninguna orden; solo registra el efectivo/no-efectivo
+   * cobrado por el repartidor → entra al arqueo (LM.5) vía received_by. Idempotente
+   * por (kepler_folio, reference).
+   */
+  async recordKeplerPayment(dto: RecordKeplerPaymentDto): Promise<PaymentRow> {
+    if (!dto?.kepler_folio) throw new BadRequestException('kepler_folio requerido');
+    this.assertMethod(dto.method);
+    const amount = Number(dto.amount);
+    if (!(amount > 0)) throw new BadRequestException('amount debe ser > 0');
+
+    return this.tk.run(async (trx) => {
+      if (dto.reference) {
+        const existing = await trx('commercial.payments')
+          .where({ kepler_folio: dto.kepler_folio, reference: dto.reference })
+          .whereNot({ status: 'reversed' })
+          .whereNull('deleted_at')
+          .first();
+        if (existing) return this.toRow(existing);
+      }
+
+      let changeGiven: number | null = null;
+      if (dto.method === 'cash' && dto.cash_received != null) {
+        const received = Number(dto.cash_received);
+        if (received + CENT < amount)
+          throw new BadRequestException('cash_received es menor al monto a cobrar');
+        changeGiven = Math.round((received - amount) * 100) / 100;
+      }
+
+      const userId = this.requireUserId();
+      const tenantId = this.tenantCtx.requireTenantId();
+      const [payment] = await trx('commercial.payments')
+        .insert({
+          tenant_id: tenantId,
+          order_id: null,
+          customer_id: null,
+          amount,
+          payment_method: dto.method,
+          status: 'received',
+          reference: dto.reference ?? null,
+          cash_received: dto.method === 'cash' ? (dto.cash_received ?? null) : null,
+          change_given: changeGiven,
+          kepler_folio: dto.kepler_folio,
+          kepler_serie: dto.kepler_serie ?? null,
+          kepler_warehouse_code: dto.kepler_warehouse_code ?? null,
+          received_by: userId,
+          notes: dto.notes ?? null,
+          created_by: userId,
+        })
+        .returning('*');
+      return this.toRow(payment);
     });
   }
 

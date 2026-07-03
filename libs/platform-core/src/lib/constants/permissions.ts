@@ -106,6 +106,8 @@ export enum Permission {
   // Módulo: Logística — Guías + destinatarios
   LOGISTICS_GUIDES_VER = 'LOGISTICS_GUIDES_VER',
   LOGISTICS_GUIDES_GESTIONAR = 'LOGISTICS_GUIDES_GESTIONAR',
+  // Fase LM-K — despacho a domicilio desde folio Kepler (persona de tienda captura + asigna)
+  LOGISTICS_HOME_DISPATCH = 'LOGISTICS_HOME_DISPATCH',
 
   // Módulo: Logística — Costos del viaje
   LOGISTICS_EXPENSES_VER = 'LOGISTICS_EXPENSES_VER',

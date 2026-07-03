@@ -105,6 +105,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
       },
       {
+        // LM-K.4 — persona de tienda: captura folio Kepler → despacha a domicilio
+        path: 'domicilio',
+        loadComponent: () => import('./modules/home-delivery/home-delivery-dispatch.component').then(m => m.HomeDeliveryDispatchComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_HOME_DISPATCH)]
+      },
+      {
         path: 'inventory',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
@@ -263,6 +269,16 @@ export const routes: Routes = [
       {
         path: 'live',
         loadComponent: () => import('./modules/tienda/pages/tienda-live.component').then(m => m.TiendaLiveComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
+        path: 'branches',
+        loadComponent: () => import('./modules/tienda/pages/tienda-branches.component').then(m => m.TiendaBranchesComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
+        path: 'pace',
+        loadComponent: () => import('./modules/tienda/pages/tienda-pace.component').then(m => m.TiendaPaceComponent),
         canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
       },
     ]

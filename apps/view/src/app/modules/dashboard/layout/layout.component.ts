@@ -254,6 +254,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'A domicilio',       icon: 'pi pi-home',       route: '/comercial/domicilio',      permission: Permission.LOGISTICS_HOME_DISPATCH },
         { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
       ],
     },
@@ -366,6 +367,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   private tiendaNavItems: NavItem[] = [
     { label: 'Monitor en vivo', icon: 'pi pi-bolt', route: '/tienda/live', permission: Permission.STORE_LIVE_VER },
+    { label: 'Sucursales', icon: 'pi pi-building', route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
+    { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
   ];
 
   /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */

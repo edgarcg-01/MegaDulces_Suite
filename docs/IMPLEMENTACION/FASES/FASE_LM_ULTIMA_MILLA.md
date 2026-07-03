@@ -456,18 +456,28 @@ de la tienda YA ingesta el día en `analytics.store_live_tickets` (llave `(tenan
 - `commercial.payments`: `order_id` → **nullable** + `kepler_folio`/`kepler_serie`/`kepler_warehouse_code`
   + CHECK (`order_id` IS NOT NULL OR `kepler_folio` IS NOT NULL). El cobro COD de un ticket Kepler
   entra al mismo ledger → el arqueo (LM.5) lo cuadra sin materializar orden.
-- Permiso nuevo **`LOGISTICS_HOME_DISPATCH`** (persona de tienda: captura folio + asigna), a
-  `encargado_sucursal` + rol de tienda; scoped a su sucursal.
+- Permiso nuevo **`LOGISTICS_HOME_DISPATCH`** (persona de tienda: captura folio + asigna).
+
+**Control de acceso y alcance inicial (2026-07-03):**
+- **Roles habilitados (aún NO creados — pendiente crearlos):** `jefe_de_tienda`, `auxiliar_de_tienda`,
+  `gerente_de_zona`. Todos reciben `LOGISTICS_HOME_DISPATCH`. `jefe_de_tienda`/`auxiliar_de_tienda`
+  = scoped a SU sucursal; `gerente_de_zona` = scoped a las sucursales de su zona (multi-store).
+  Mientras no existan, solo `encargado_sucursal`/admin pueden operar (fallback).
+- **Sucursales habilitadas (piloto):** SOLO **Padre Hidalgo (`md_01`)**, **La Piedad Abastos (`md_02`)**
+  y **8 Esquinas (`md_03`)**. CEDIS `md_00`, Yurécuaro `md_04`, Zamora `md_05` quedan fuera por ahora.
+  Implementación: **allowlist configurable** (no hardcode) — flag `home_delivery_enabled` por store/almacén
+  (o config key con la lista de `warehouse_code`), sembrada con los 3; los endpoints de lookup/dispatch
+  rechazan folios de sucursales no habilitadas. Expandir = agregar al allowlist, sin código.
 
 **Sprints:**
 
 | Sprint | Contenido | Depende |
 |---|---|---|
 | **LM-K.0** | Deltas de schema (guide_recipients kepler ref + payments nullable/kepler) + permiso `LOGISTICS_HOME_DISPATCH` + backfill | LM.0 |
-| **LM-K.1** | `GET /store/ticket-lookup` (store_live_tickets → fallback consolidado) devuelve líneas+total+forma_pago | — |
-| **LM-K.2** | `POST /logistics/home-dispatch/from-kepler` (lookup + snapshot líneas + dirección ad-hoc + collect flag + asigna rider/moto, sin stock) | LM-K.0, LM-K.1, LM.3 |
-| **LM-K.3** | Cobro COD ligado a folio: `recordPayment` acepta ref Kepler; outcome (LM.4) usa `collect_on_delivery`; arqueo (LM.5) ya lo agrega | LM-K.2, LM.1, LM.5 |
-| **LM-K.4** | Frontend: pantalla de tienda (captura folio → ver ticket → dirección → asignar) + app repartidor muestra `items_snapshot` + monto a cobrar | LM-K.2, LM.6 |
+| **LM-K.1** 🧪 | `GET /store/live/ticket-lookup` — ✅ EN CÓDIGO (build api verde). `StoreService.ticketLookup` valida allowlist (`home_delivery_warehouses`) + trae el ticket de `store_live_tickets` (líneas/total/forma_pago) + sugiere flag COD (`CONTADO`→ya pagado). Gate `LOGISTICS_HOME_DISPATCH`, scope por `warehouse_code` del usuario. Fallback consolidado → diferido. | — |
+| **LM-K.2** 🧪 | Despacho desde folio Kepler — ✅ EN CÓDIGO (builds api+vendor verdes 2026-07-03). **REUBICADO: el despacho NO va en logística** (es fulfillment comercial disparado por tienda) → consolidado en `commercial-home-delivery` (`HomeDispatchService`), se **borró** `libs/logistics/logistics-home-dispatch`. `POST /commercial/home-delivery/dispatch-from-kepler` (lookup ticket + allowlist + snapshot líneas + dirección ad-hoc + collect flag derivado de forma_pago + asigna rider/moto, **sin stock ni commercial.orders**) + `dispatch/:orderId` (intake propio) + `my-deliveries` movido aquí. App repartidor muestra "qué cargar" (items_snapshot) + cobro correcto (COD vs ya pagado). Cobro COD ligado a folio → LM-K.3. | LM-K.0, LM-K.1 |
+| **LM-K.3** 🧪 | Cobro COD ligado a folio — ✅ EN CÓDIGO (builds api+vendor verdes 2026-07-03). `PaymentsService.recordKeplerPayment` (pago ligado a folio, sin orden, idempotente por folio+ref) + rama Kepler en `recordDeliveryOutcome` (cobra si `collect_on_delivery`) + arqueo (LM.5) cuenta paradas por order **o** folio + FE manda cobro sin `order_id` (backend resuelve). El cobro Kepler entra al mismo ledger del arqueo. | LM-K.2, LM.1, LM.5 |
+| **LM-K.4** 🧪 | Frontend tienda — ✅ EN CÓDIGO (build view verde 2026-07-03). `apps/view/modules/home-delivery/`: pantalla `/comercial/domicilio` (gate `LOGISTICS_HOME_DISPATCH`, en shell comercial + nav "A domicilio"): sucursal+folio → `ticket-lookup` (líneas/total/forma_pago) → captura domicilio → elige repartidor+moto + COD/monto → `dispatch-from-kepler` → muestra EMB/GUIA + aviso CEDIS. App repartidor ya muestra `items_snapshot` + monto (LM-K.2). | LM-K.2, LM.6 |
 
 **Diferido:** reconciliar el efectivo COD de vuelta a Kepler (feed posterior); detección automática
 de "ticket es domicilio" (hoy la persona de tienda elige el folio manualmente).

@@ -270,6 +270,7 @@ const CHANNEL_OPTS = [
     </div>
   `,
   styles: [`
+    :host { display:block; }
     .so-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .so-field { display:flex; flex-direction:column; gap:.3rem; }
     .so-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -292,7 +293,7 @@ const CHANNEL_OPTS = [
     .so-matrix-card { padding:1.25rem; }
     .so-matrix-head { display:flex; align-items:baseline; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; }
     .so-matrix-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
-    .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; --so-h1:2.15rem; }
+    .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; min-width:100%; --so-h1:2.15rem; }
     /* Reglas horizontales solamente; verticales SOLO en fronteras de grupo (look de reporte, no de hoja de cálculo). */
     .so-matrix th, .so-matrix td { border-bottom:1px solid var(--border); padding:.34rem .6rem; }
     .so-matrix thead th { background:var(--layout-bg); font-weight:700; text-align:center; position:sticky; top:0; z-index:2; }

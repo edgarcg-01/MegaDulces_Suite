@@ -100,18 +100,19 @@ export class CommercialRiderLiquidationService {
       .andWhere({ received_by: riderUserId })
       .whereNot({ status: 'reversed' })
       .whereNull('deleted_at')
-      .select('payment_method', 'amount', 'order_id');
+      .select('payment_method', 'amount', 'order_id', 'kepler_folio');
 
     let cash = 0;
     let card = 0;
     let transfer = 0;
-    const orderIds = new Set<string>();
+    const deliveries = new Set<string>(); // cuenta pedidos commercial O folios Kepler
     for (const p of pays) {
       const amt = Number(p.amount) || 0;
       if (p.payment_method === 'cash') cash += amt;
       else if (p.payment_method === 'card') card += amt;
       else if (p.payment_method === 'transfer') transfer += amt;
-      if (p.order_id) orderIds.add(p.order_id);
+      const key = p.order_id || (p.kepler_folio ? `k:${p.kepler_folio}` : null);
+      if (key) deliveries.add(key);
     }
 
     // Incidencias del día en las guías del repartidor (join drivers.user_id).
@@ -127,7 +128,7 @@ export class CommercialRiderLiquidationService {
       cash_expected: Math.round(cash * 100) / 100,
       card_total: Math.round(card * 100) / 100,
       transfer_total: Math.round(transfer * 100) / 100,
-      deliveries_count: orderIds.size,
+      deliveries_count: deliveries.size,
       incidents_count: Number(incidents) || 0,
     };
   }
