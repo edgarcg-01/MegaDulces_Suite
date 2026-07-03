@@ -54,15 +54,16 @@ import { AuthService } from '../../core/services/auth.service';
     </div>
   `,
   styles: [`
-    .reparto-shell { min-height: 100dvh; display: flex; flex-direction: column; background: var(--layout-bg, #f5f5f4); }
-    .reparto-header { display: flex; align-items: center; gap: 1rem; padding: .6rem 1rem; background: var(--card-bg, #fff); border-bottom: 1px solid var(--surf-border, #e5e5e5); position: sticky; top: 0; z-index: 10; }
-    .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; }
-    .brand i { color: var(--action, #ea580c); }
+    .reparto-shell { min-height: 100dvh; display: flex; flex-direction: column; background: var(--layout-bg); }
+    .reparto-header { display: flex; align-items: center; gap: 1rem; padding: .6rem 1rem; background: var(--card-bg); border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 10; }
+    .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; color: var(--text-main); }
+    .brand i { color: var(--action); }
     .nav { display: flex; gap: .25rem; flex: 1; }
-    .nav a { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem .7rem; border-radius: 8px; text-decoration: none; color: var(--text-muted, #666); font-size: .9rem; }
-    .nav a.active { background: var(--action, #ea580c); color: #fff; }
+    .nav a { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem .7rem; border-radius: 8px; text-decoration: none; color: var(--text-muted); font-size: .9rem; }
+    .nav a:hover { background: var(--hover-bg); color: var(--text-main); }
+    .nav a.active { background: var(--action); color: var(--action-ink); }
     .user { display: flex; align-items: center; gap: .5rem; }
-    .username { font-size: .85rem; color: var(--text-muted, #666); }
+    .username { font-size: .85rem; color: var(--text-muted); }
     .reparto-main { flex: 1; }
   `],
 })

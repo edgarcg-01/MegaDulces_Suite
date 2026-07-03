@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Geocercas indexadas para tracking GPS de campo (Track GPS.B) (2026-07-03)
+- **Contexto:** análisis de la arquitectura de tracking GPS del vendedor (foreground service nativo + Dexie batching + REST-batch + WS live-map) confirmó que está ~90% construida. **Única brecha técnica real: sin índice espacial** — las geocercas ("¿entró a la tienda?", clientes cercanos) se calculaban con haversine en JS/SQL sin índice.
+- **Decisión:** PostGIS **NO disponible** en la instancia (`postgres_platform`, PG 18.4 — ni instalada ni en `pg_available_extensions`). `cube` + `earthdistance` **sí** → alternativa liviana elegida (misma capacidad de radio indexado con GiST, sin instalar paquetes de OS). Documentado como plan B en el análisis previo.
+- **Migración `20260703140000_gps_earthdistance_geofence`** (idempotente + **defensiva**: si las extensiones no están o el rol no es superuser, NO crea nada y NO tira error → no crashea boot en Railway; los índices solo se crean si la extensión quedó instalada). `CREATE EXTENSION ... SCHEMA public` explícito (sin esto se instalaban en `identity`, primer schema del search_path). Índices GiST funcionales: `idx_route_pings_earth` sobre `route_location_pings(ll_to_earth(lat,lng))` + `idx_customers_earth` sobre `commercial.customers(ll_to_earth(latitude,longitude))` parcial.
+- **Verificado (DB local):** extensiones instaladas, ambos índices creados, `earth_distance` da 1574m (correcto vs ~1500m), y `EXPLAIN` de una geocerca por radio confirma **Index Scan using idx_route_pings_earth** (usa el índice, no seq scan).
+- **Pendiente:** aplicar la migración a Railway al cutover (confirmar que el rol tenga superuser o que `cube`/`earthdistance` estén pre-creados — si no, la migración skipea graciosamente). Tracks GPS.A (deploy+prueba en device: patch nativo ✅ ya aplicado en node_modules, falta APK+prueba pantalla apagada), GPS.C (verificar live-map E2E con app arriba) y GPS.D (provisionar `REDIS_URL` en Railway — el `ReportsIoAdapter` ya está codeado) quedan como trabajo operacional/de device.
+
 ### Added — Proyecto "Tienda": monitor de tickets de venta EN VIVO (Fase TDA) (2026-07-02)
 - Nuevo proyecto `/tienda` (card en /projects) que muestra los **tickets POS de cada sucursal en tiempo real**. Builds api+view verdes; sin deploy.
 - **Habilitador:** Kepler guarda la hora del ticket **al minuto** en `kdm1.c62` (100% poblado) + `c9` fecha. Datos en vivo (verificado: tickets a la hora actual).
