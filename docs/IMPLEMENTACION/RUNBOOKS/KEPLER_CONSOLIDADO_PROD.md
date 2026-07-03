@@ -74,7 +74,7 @@ Env de la tarea: `DATABASE_URL_NEW=<prod>`, `DATABASE_URL_KEPLER_CONSOLIDADO=<lo
 | Tarea | Frecuencia | Comando |
 |---|---|---|
 | Refresh consolidación | cada 2 min | `psql <kepler_consolidado> -c "SELECT mart.refresh_si_cambio(7)"` |
-| Stock 6 sucursales | cada 30 min | `run-prod-feeds.js stock --apply` |
+| Stock 6 sucursales | cada 1 min | `run-prod-feeds.js stock --apply` |
 | Rotación + best-sellers | nightly 04:00 | `run-prod-feeds.js nightly --apply` |
 | Catálogo + precios | semanal | `run-prod-feeds.js catalog --apply` |
 
@@ -97,7 +97,7 @@ Logs en `C:\KeplerRunner\logs\<modo>.log`.
 
 | Tarea | Schedule | Modo |
 |---|---|---|
-| `Kepler\Stock` | cada 30 min | `stock` |
+| `Kepler\Stock` | cada 1 min | `stock` |
 | `Kepler\Nightly` | diario 03:00 | `nightly` (rotación, top-sellers, margin, sales-fact, stats, inventory-health, promos, customers, customer-sales) |
 | `Kepler\Catalog` | domingo 02:00 | `catalog` (catálogo + precios) |
 

@@ -345,12 +345,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda'>(() => {
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto'>(() => {
     const url = this.currentUrl();
     if (url.startsWith('/admin')) return 'admin';
     if (url.startsWith('/comercial')) return 'comercial';
     if (url.startsWith('/logistica')) return 'logistica';
     if (url.startsWith('/tienda')) return 'tienda';
+    if (url.startsWith('/reparto')) return 'reparto';
     return 'trademk';
   });
 
@@ -359,6 +360,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       case 'comercial':  return 'Comercial';
       case 'logistica':  return 'Logística';
       case 'tienda':     return 'Tienda';
+      case 'reparto':    return 'Reparto';
       case 'admin':      return 'Administración';
       default:           return 'Trade Marketing';
     }
@@ -370,6 +372,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
   ];
 
+  // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
+  // el acceso a la superficie, por eso el nav no se re-filtra por permiso.
+  private repartoNavItems: NavItem[] = [
+    { label: 'Asignar pedido', icon: 'pi pi-send',   route: '/reparto/asignar', permission: Permission.LOGISTICS_HOME_DISPATCH },
+    { label: 'Cortes de caja', icon: 'pi pi-wallet', route: '/reparto/cortes',  permission: Permission.LOGISTICS_HOME_DISPATCH },
+  ];
+
   /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */
   mainSectionTitle = computed(() =>
     this.currentProject() === 'trademk' ? 'Trade' : 'Operaciones',
@@ -378,6 +387,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
   navItems = computed(() => {
     const user = this.user();
     if (!user) return [];
+    // Reparto: superficie de personal de tienda; nav propio, sin depender del dashboard completo.
+    if (this.currentProject() === 'reparto') {
+      return this.dedupeByRoute(this.repartoNavItems);
+    }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
     const fullDashboard =
@@ -416,6 +429,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
   navGroups = computed<{ title: string; items: NavItem[] }[]>(() => {
     const user = this.user();
     if (!user) return [];
+    if (this.currentProject() === 'reparto') {
+      return [{ title: 'Reparto', items: this.dedupeByRoute(this.repartoNavItems) }];
+    }
     if (this.currentProject() === 'comercial') {
       return this.comercialNavGroups
         .map((g) => ({

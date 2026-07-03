@@ -453,8 +453,7 @@ export const routes: Routes = [
     // Módulo Reparto — personal de tienda: asignar pedidos a domicilio + cortes de caja.
     path: 'reparto',
     canActivate: [repartoGuard],
-    loadComponent: () =>
-      import('./modules/reparto/reparto-shell.component').then((m) => m.RepartoShellComponent),
+    component: LayoutComponent,
     children: [
       { path: '', redirectTo: 'asignar', pathMatch: 'full' },
       {

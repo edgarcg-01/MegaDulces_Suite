@@ -10,8 +10,8 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface DispatchOrderDto {
-  driver_id: string; // logistics.drivers.id (repartidor)
-  vehicle_id: string; // logistics.vehicles.id (moto)
+  rider_user_id: string; // usuario con rol repartidor (dominio Reparto)
+  vehicle_id?: string; // moto opcional (para overflow CEDIS)
   shipment_date: string; // YYYY-MM-DD
 }
 
@@ -19,8 +19,8 @@ export interface DispatchFromKeplerDto {
   folio: string;
   serie?: string;
   warehouse_code: string;
-  driver_id: string;
-  vehicle_id: string;
+  rider_user_id: string;
+  vehicle_id?: string;
   shipment_date: string;
   delivery_address: {
     recipient_name?: string;
@@ -37,15 +37,18 @@ export interface DispatchFromKeplerDto {
 }
 
 /**
- * Fase LM.3 + LM-K.2 — DESPACHO de entregas a domicilio a repartidores en moto.
+ * Fase LM.3 + LM-K.2 — DESPACHO de entregas a domicilio a REPARTIDORES en moto.
  *
- * NO vive en logística (logística = embarques/flota/foráneo): esto es fulfillment
- * comercial disparado por tienda. Crea el embarque + guía + parada (artefactos
- * logistics.* reusados) desde:
+ * DESACOPLADO de logística (decisión 2026-07-03): el repartidor es un USUARIO
+ * con rol `repartidor`, NO un chofer de la flota. La entrega vive en la tabla
+ * propia `commercial.home_deliveries` (colapsa embarque+guía+parada en 1 fila),
+ * asignada por `rider_user_id`. La moto (`vehicle_id`) es opcional y solo se usa
+ * para el aviso de overflow CEDIS.
+ *
+ * Se despacha desde:
  *   - un pedido de intake propio (commercial.orders home_delivery), o
  *   - un TICKET de Kepler (referencia el folio, NO materializa orden, NO mueve
  *     stock — Kepler ya lo descontó en el POS).
- * Regla de overflow: unidades > capacidad de la moto → aviso CEDIS.
  */
 @Injectable()
 export class HomeDispatchService {
@@ -56,35 +59,58 @@ export class HomeDispatchService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  private async nextFolio(trx: any, prefix: 'EMB' | 'GUIA'): Promise<string> {
+  private async nextFolio(trx: any): Promise<string> {
     const year = new Date().getFullYear();
     const [{ current_value }] = (
       await trx.raw(
-        `INSERT INTO logistics.sequences (tenant_id, prefix, year, current_value)
-         VALUES (public.current_tenant_id(), ?, ?, 1)
-         ON CONFLICT (tenant_id, prefix, year) DO UPDATE
-           SET current_value = logistics.sequences.current_value + 1, updated_at = now()
+        `INSERT INTO commercial.home_delivery_sequences (tenant_id, year, current_value)
+         VALUES (public.current_tenant_id(), ?, 1)
+         ON CONFLICT (tenant_id, year) DO UPDATE
+           SET current_value = commercial.home_delivery_sequences.current_value + 1, updated_at = now()
          RETURNING current_value`,
-        [prefix, year],
+        [year],
       )
     ).rows;
-    return `${prefix}-${year}-${String(current_value).padStart(5, '0')}`;
+    return `REP-${year}-${String(current_value).padStart(5, '0')}`;
   }
 
-  private async assertDriverVehicle(trx: any, driverId: string, vehicleId: string) {
-    if (!UUID_RE.test(driverId)) throw new BadRequestException('driver_id (repartidor) requerido');
-    if (!UUID_RE.test(vehicleId)) throw new BadRequestException('vehicle_id (moto) requerido');
-    const driver = await trx('logistics.drivers').where({ id: driverId }).whereNull('deleted_at').first();
-    if (!driver) throw new NotFoundException(`Repartidor ${driverId} no encontrado`);
-    const vehicle = await trx('logistics.vehicles').where({ id: vehicleId }).whereNull('deleted_at').first();
-    if (!vehicle) throw new NotFoundException(`Unidad ${vehicleId} no encontrada`);
-    return { driver, vehicle };
+  /** Valida que el asignado sea un usuario repartidor activo del tenant. Devuelve moto (opcional). */
+  private async assertRiderVehicle(trx: any, riderUserId: string, vehicleId?: string) {
+    if (!UUID_RE.test(riderUserId)) throw new BadRequestException('rider_user_id (repartidor) requerido');
+    const rider = await trx('identity.users')
+      .where({ id: riderUserId })
+      .whereNull('deleted_at')
+      .first();
+    if (!rider) throw new NotFoundException(`Repartidor ${riderUserId} no encontrado`);
+    if (rider.role_name !== 'repartidor')
+      throw new BadRequestException('El usuario asignado no tiene rol repartidor');
+
+    let vehicle: any = null;
+    if (vehicleId) {
+      if (!UUID_RE.test(vehicleId)) throw new BadRequestException('vehicle_id inválido');
+      vehicle = await trx('logistics.vehicles').where({ id: vehicleId }).whereNull('deleted_at').first();
+      if (!vehicle) throw new NotFoundException(`Unidad ${vehicleId} no encontrada`);
+    }
+    return { rider, vehicle };
   }
 
   private cedisNote(units: number, capacity: number | null): string | null {
     return capacity != null && units > capacity
       ? `REQUIERE CEDIS: ${units} u excede capacidad de la moto (${capacity} u). Reasignar a camión.`
       : null;
+  }
+
+  /** Repartidores asignables: usuarios con rol repartidor (opcional scope por sucursal). */
+  async listRiders(opts: { warehouse_code?: string } = {}) {
+    return this.tk.run(async (trx) => {
+      let q = trx('identity.users')
+        .where({ role_name: 'repartidor', activo: true })
+        .whereNull('deleted_at');
+      if (opts.warehouse_code) q = q.andWhere({ warehouse_code: opts.warehouse_code });
+      return q
+        .select('id as rider_user_id', 'username', 'nombre as full_name', 'warehouse_code')
+        .orderBy('nombre', 'asc');
+    });
   }
 
   // ── Despacho desde pedido de intake propio (commercial.orders home_delivery) ──
@@ -105,26 +131,29 @@ export class HomeDispatchService {
       if (!['confirmed', 'pending_approval'].includes(order.status))
         throw new ConflictException(`El pedido debe estar confirmado (status=${order.status})`);
 
-      const dup = await trx('logistics.guide_recipients').where({ order_id: orderId }).first();
-      if (dup) throw new ConflictException('El pedido ya fue despachado (tiene guía)');
+      const dup = await trx('commercial.home_deliveries')
+        .where({ order_id: orderId })
+        .whereNull('deleted_at')
+        .first();
+      if (dup) throw new ConflictException('El pedido ya fue despachado');
 
-      const { vehicle } = await this.assertDriverVehicle(trx, dto.driver_id, dto.vehicle_id);
+      const { vehicle } = await this.assertRiderVehicle(trx, dto.rider_user_id, dto.vehicle_id);
       const addr = order.delivery_address
         ? (typeof order.delivery_address === 'string' ? JSON.parse(order.delivery_address) : order.delivery_address)
         : null;
 
       const [{ units }] = await trx('commercial.order_lines').where({ order_id: orderId }).sum('quantity as units');
       const totalUnits = Math.round(Number(units) || 0);
-      const capacity = vehicle.capacity_boxes != null ? Number(vehicle.capacity_boxes) : null;
-      const requiresCedis = capacity != null && totalUnits > capacity;
+      const capacity = vehicle?.capacity_boxes != null ? Number(vehicle.capacity_boxes) : null;
 
       return this.createDelivery(trx, {
         shipment_date: dto.shipment_date,
-        vehicle_id: dto.vehicle_id,
-        driver_id: dto.driver_id,
+        vehicle_id: dto.vehicle_id || null,
+        rider_user_id: dto.rider_user_id,
         order_id: orderId,
         customer_id: order.customer_id || null,
         customer_name: addr?.recipient_name || order.customer_name || `Pedido ${order.code}`,
+        phone: addr?.phone || null,
         address: addr,
         value: Number(order.total) || 0,
         units: totalUnits,
@@ -166,15 +195,16 @@ export class HomeDispatchService {
         throw new NotFoundException(`Ticket ${warehouseCode}/${serie || '*'}/${folio} no encontrado (ventana del día)`);
 
       // Anti doble-despacho por folio.
-      const dup = await trx('logistics.guide_recipients')
+      const dup = await trx('commercial.home_deliveries')
         .where({ kepler_warehouse_code: warehouseCode, kepler_serie: ticket.serie, kepler_folio: folio })
+        .whereNull('deleted_at')
         .first();
       if (dup) throw new ConflictException('Ese folio ya fue despachado');
 
-      const { vehicle } = await this.assertDriverVehicle(trx, dto.driver_id, dto.vehicle_id);
+      const { vehicle } = await this.assertRiderVehicle(trx, dto.rider_user_id, dto.vehicle_id);
       const items = typeof ticket.items === 'string' ? JSON.parse(ticket.items) : ticket.items || [];
       const totalUnits = Math.round(items.reduce((s: number, it: any) => s + (Number(it.cant) || 0), 0));
-      const capacity = vehicle.capacity_boxes != null ? Number(vehicle.capacity_boxes) : null;
+      const capacity = vehicle?.capacity_boxes != null ? Number(vehicle.capacity_boxes) : null;
       const total = Number(ticket.total) || 0;
 
       // COD: explícito o derivado de forma_pago (CONTADO = ya pagado en tienda).
@@ -184,11 +214,12 @@ export class HomeDispatchService {
 
       return this.createDelivery(trx, {
         shipment_date: dto.shipment_date,
-        vehicle_id: dto.vehicle_id,
-        driver_id: dto.driver_id,
+        vehicle_id: dto.vehicle_id || null,
+        rider_user_id: dto.rider_user_id,
         order_id: null,
         customer_id: null,
         customer_name: dto.delivery_address.recipient_name || `Ticket ${folio}`,
+        phone: dto.delivery_address.phone || null,
         address: dto.delivery_address,
         value: total,
         units: totalUnits,
@@ -200,16 +231,17 @@ export class HomeDispatchService {
     });
   }
 
-  /** Inserta embarque + guía + parada (comparte los dos flujos). */
+  /** Inserta la parada a domicilio (fila propia de Reparto). */
   private async createDelivery(
     trx: any,
     p: {
       shipment_date: string;
-      vehicle_id: string;
-      driver_id: string;
+      vehicle_id: string | null;
+      rider_user_id: string;
       order_id: string | null;
       customer_id: string | null;
       customer_name: string;
+      phone: string | null;
       address: any;
       value: number;
       units: number;
@@ -220,62 +252,39 @@ export class HomeDispatchService {
     },
   ) {
     const requiresCedis = p.capacity != null && p.units > p.capacity;
-    const empFolio = await this.nextFolio(trx, 'EMB');
-    const [shipment] = await trx('logistics.shipments')
+    const folio = await this.nextFolio(trx);
+
+    const [row] = await trx('commercial.home_deliveries')
       .insert({
         tenant_id: trx.raw('public.current_tenant_id()'),
-        folio: empFolio,
-        shipment_date: p.shipment_date,
+        folio,
+        rider_user_id: p.rider_user_id,
         vehicle_id: p.vehicle_id,
         order_id: p.order_id,
-        status: 'programado',
-        type: 'entrega',
-        destination: p.address?.street || null,
-        cargo_value: p.value,
-        boxes_count: p.units,
-        notes: this.cedisNote(p.units, p.capacity),
-      })
-      .returning('*');
-
-    const guiaFolio = await this.nextFolio(trx, 'GUIA');
-    const [guide] = await trx('logistics.delivery_guides')
-      .insert({
-        tenant_id: trx.raw('public.current_tenant_id()'),
-        number: guiaFolio,
-        shipment_id: shipment.id,
-        driver_id: p.driver_id,
-        status: 'pendiente',
-      })
-      .returning('id');
-
-    const [recipient] = await trx('logistics.guide_recipients')
-      .insert({
-        tenant_id: trx.raw('public.current_tenant_id()'),
-        guide_id: guide.id,
         customer_id: p.customer_id,
-        order_id: p.order_id,
-        customer_name: p.customer_name,
-        fiscal_address: p.address ? JSON.stringify(p.address) : null,
-        value: p.value,
-        boxes_count: p.units,
-        gps_lat: p.address?.lat ?? null,
-        gps_lng: p.address?.lng ?? null,
-        sequence_order: 1,
-        status: 'pendiente',
         kepler_folio: p.kepler?.folio ?? null,
         kepler_serie: p.kepler?.serie ?? null,
         kepler_warehouse_code: p.kepler?.warehouse_code ?? null,
+        customer_name: p.customer_name,
+        phone: p.phone,
+        delivery_address: p.address ? JSON.stringify(p.address) : null,
         items_snapshot: p.kepler ? JSON.stringify(p.kepler.items) : null,
+        value: p.value,
+        units: p.units,
         collect_on_delivery: p.collect_on_delivery,
         amount_to_collect: p.amount_to_collect,
+        requires_cedis: requiresCedis,
+        cedis_note: this.cedisNote(p.units, p.capacity),
+        status: 'pendiente',
+        shipment_date: p.shipment_date,
+        dispatched_by: this.tenantCtx.get()?.userId || null,
       })
-      .returning('id');
+      .returning(['id', 'folio']);
 
     return {
-      shipment_id: shipment.id,
-      folio: empFolio,
-      guide_number: guiaFolio,
-      recipient_id: recipient.id,
+      delivery_id: row.id,
+      recipient_id: row.id, // alias de compatibilidad con el flujo anterior
+      folio: row.folio,
       total_units: p.units,
       capacity_boxes: p.capacity,
       requires_cedis: requiresCedis,
@@ -286,9 +295,8 @@ export class HomeDispatchService {
 
   /**
    * Fase LM.8 — KPIs de última milla (§13 SOP) en un rango de fechas.
-   * Solo paradas a domicilio (folio Kepler o pedido home_delivery). Tiempo de
-   * entrega = delivered_at − created_at (ciclo despacho→entrega). El cuadre de
-   * efectivo sale de los cortes cerrados (rider_liquidations).
+   * Tiempo de entrega = delivered_at − dispatched_at. El cuadre de efectivo
+   * sale de los cortes cerrados (rider_liquidations).
    */
   async kpis(opts: { from?: string; to?: string } = {}) {
     const today = new Date().toISOString().slice(0, 10);
@@ -296,11 +304,10 @@ export class HomeDispatchService {
     const to = opts.to || today;
 
     return this.tk.run(async (trx) => {
-      const paradas = await trx('logistics.guide_recipients as r')
-        .leftJoin('commercial.orders as o', 'o.id', 'r.order_id')
-        .whereRaw('r.created_at::date BETWEEN ? AND ?', [from, to])
-        .where((qb: any) => qb.whereNotNull('r.kepler_folio').orWhere('o.delivery_type', 'home_delivery'))
-        .select('r.status', 'r.incident_type', 'r.created_at', 'r.delivered_at');
+      const paradas = await trx('commercial.home_deliveries')
+        .whereNull('deleted_at')
+        .whereRaw('dispatched_at::date BETWEEN ? AND ?', [from, to])
+        .select('status', 'incident_type', 'dispatched_at', 'delivered_at');
 
       const total = paradas.length;
       let delivered = 0;
@@ -310,8 +317,8 @@ export class HomeDispatchService {
       for (const p of paradas) {
         if (p.status === 'entregado') delivered++;
         if (p.incident_type) incidents++;
-        if (p.delivered_at && p.created_at) {
-          const mins = (new Date(p.delivered_at).getTime() - new Date(p.created_at).getTime()) / 60000;
+        if (p.delivered_at && p.dispatched_at) {
+          const mins = (new Date(p.delivered_at).getTime() - new Date(p.dispatched_at).getTime()) / 60000;
           if (mins >= 0 && mins < 1440) { minutesSum += mins; minutesN++; }
         }
       }
@@ -345,47 +352,42 @@ export class HomeDispatchService {
     });
   }
 
-  /** Paradas a domicilio del repartidor autenticado (resuelve driver por user_id). */
+  /** Paradas a domicilio del repartidor autenticado (por rider_user_id). */
   async myDeliveries(opts: { pending?: boolean } = {}) {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) throw new BadRequestException('Sin user_id en contexto');
 
     return this.tk.run(async (trx) => {
-      // Un user puede tener >1 fila de driver: matchear TODAS (robusto).
-      const driverIds = await trx('logistics.drivers').where({ user_id: userId }).whereNull('deleted_at').pluck('id');
-      if (!driverIds.length) return [];
-
-      let q = trx('logistics.guide_recipients as r')
-        .join('logistics.delivery_guides as g', 'g.id', 'r.guide_id')
-        .join('logistics.shipments as s', 's.id', 'g.shipment_id')
-        .leftJoin('commercial.orders as o', 'o.id', 'r.order_id')
-        .whereIn('g.driver_id', driverIds)
-        .whereNull('g.deleted_at')
-        .whereNull('s.deleted_at');
-      if (opts.pending !== false) q = q.whereIn('r.status', ['pendiente', 'no_entregado']);
+      let q = trx('commercial.home_deliveries as d')
+        .leftJoin('commercial.orders as o', 'o.id', 'd.order_id')
+        .where('d.rider_user_id', userId)
+        .whereNull('d.deleted_at');
+      if (opts.pending !== false) q = q.whereIn('d.status', ['pendiente', 'no_entregado']);
 
       return q
         .select(
-          'r.id as recipient_id',
-          'r.status',
-          'r.customer_name',
-          'r.fiscal_address as delivery_address',
-          'r.gps_lat',
-          'r.gps_lng',
-          'r.incident_type',
-          'r.items_snapshot',
-          'r.collect_on_delivery',
-          'r.amount_to_collect',
-          'r.kepler_folio',
-          's.folio as shipment_folio',
-          's.id as shipment_id',
-          's.notes as shipment_notes',
+          'd.id as recipient_id', // alias de compatibilidad (el front lo usa como id de parada)
+          'd.id as delivery_id',
+          'd.status',
+          'd.customer_name',
+          'd.phone',
+          'd.delivery_address',
+          'd.gps_lat',
+          'd.gps_lng',
+          'd.incident_type',
+          'd.items_snapshot',
+          'd.collect_on_delivery',
+          'd.amount_to_collect',
+          'd.kepler_folio',
+          'd.folio as shipment_folio',
+          'd.cedis_note as shipment_notes',
+          'd.requires_cedis',
           'o.id as order_id',
           'o.code as order_code',
           'o.total',
           'o.balance_due',
         )
-        .orderBy('s.shipment_date', 'desc');
+        .orderBy('d.dispatched_at', 'desc');
     });
   }
 }

@@ -38,6 +38,14 @@ export class CommercialHomeDeliveryController {
 
   // ── Despacho (persona de tienda asigna repartidor + moto) ──
 
+  /** Repartidores asignables (usuarios con rol repartidor; opcional scope por sucursal). */
+  @Get('riders')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiOperation({ summary: 'Lista usuarios repartidor asignables (dominio Reparto, no flota logística).' })
+  listRiders(@Query('warehouse_code') warehouseCode?: string) {
+    return this.dispatch.listRiders({ warehouse_code: warehouseCode });
+  }
+
   /** Despacha un pedido de intake propio (commercial.orders home_delivery). */
   @Post('dispatch/:orderId')
   @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)

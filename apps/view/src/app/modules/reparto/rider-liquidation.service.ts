@@ -20,7 +20,8 @@ export interface RiderLiquidation {
   status: 'open' | 'closed' | 'reconciled';
 }
 
-export interface FleetDriver { id: string; full_name: string; user_id?: string | null; }
+/** Repartidor asignable = usuario con rol repartidor (dominio Reparto). */
+export interface Rider { rider_user_id: string; username: string; full_name: string; warehouse_code?: string | null; }
 
 @Injectable({ providedIn: 'root' })
 export class RiderLiquidationService {
@@ -49,10 +50,10 @@ export class RiderLiquidationService {
     });
   }
 
-  listDrivers(): Observable<FleetDriver[]> {
-    return this.http.get<FleetDriver[]>(`${this.api}/logistics/fleet/drivers`, {
-      params: new HttpParams().set('active', 'true'),
-    });
+  listRiders(warehouseCode?: string): Observable<Rider[]> {
+    let p = new HttpParams();
+    if (warehouseCode) p = p.set('warehouse_code', warehouseCode);
+    return this.http.get<Rider[]>(`${this.api}/commercial/home-delivery/riders`, { params: p });
   }
 
   // ── LM.7.1 — verificación de transferencias/tarjetas ──

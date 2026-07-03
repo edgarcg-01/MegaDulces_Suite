@@ -57,19 +57,56 @@ function skipStep(name, why) { console.log(`  SKIP ${name} — ${why}`); skip++;
   check('login devuelve JWT + userId', !!token && !!userId, `user=${JSON.stringify(login.body?.user || {}).slice(0, 80)}`);
   if (!token) { console.log('sin token — abort'); process.exit(1); }
 
-  console.log('\n── 2. Fixtures: moto + repartidor (ligado a superoot) ──');
+  console.log('\n── 2. Fixtures: usuario REPARTIDOR (dominio Reparto, no flota) + moto opcional ──');
   const suffix = Date.now().toString(36).toUpperCase().slice(-5);
+  // El repartidor es un USUARIO con rol `repartidor` (desacople Reparto↔Logística).
+  // Se asegura vía DB (upsert idempotente) con hash bcrypt de un password conocido.
+  const bcrypt = require('bcryptjs');
+  const RIDER_USER = 'repartidor_smoke';
+  const RIDER_PASS = 'repartidor_smoke';
+  let riderUserId = null;
+  try {
+    const _db = getDb();
+    const hash = await bcrypt.hash(RIDER_PASS, 10);
+    const [row] = await _db('identity.users')
+      .insert({
+        tenant_id: MEGA_DULCES_TENANT_ID, username: RIDER_USER, password_hash: hash,
+        nombre: 'Repartidor Smoke', role_name: 'repartidor', activo: true, warehouse_code: '01',
+      })
+      .onConflict(['tenant_id', 'username'])
+      .merge(['password_hash', 'role_name', 'activo', 'warehouse_code', 'updated_at'])
+      .returning('id');
+    riderUserId = row.id;
+    check('asegura usuario repartidor', !!riderUserId);
+  } catch (e) { check('asegura usuario repartidor', false, e.message); return finish(); }
+
+  // Login como el repartidor (para my-deliveries / outcome con SU identidad).
+  const riderLogin = await req('POST', '/auth-mt/login', {
+    tenant_slug: 'mega_dulces', username: RIDER_USER, password: RIDER_PASS,
+  });
+  const riderToken = riderLogin.body?.access_token;
+  check('login repartidor', !!riderToken, `status=${riderLogin.status}`);
+
+  // Moto OPCIONAL (solo para overflow CEDIS). Ya no se crea un chofer de flota.
   const veh = await req('POST', '/logistics/fleet/vehicles', {
     plate: `MOTO-${suffix}`, brand: 'Italika', model: 'FT150', capacity_boxes: 8, status: 'disponible',
   }, token);
   const vehicleId = veh.body?.id;
   check('crea moto (capacity_boxes=8)', !!vehicleId, `status=${veh.status}`);
 
-  const drv = await req('POST', '/logistics/fleet/drivers', {
-    full_name: `Repartidor Smoke ${suffix}`, roles: ['chofer'], employee_type: 'interno', user_id: userId,
-  }, token);
-  const driverId = drv.body?.id;
-  check('crea repartidor ligado a superoot', !!driverId, `status=${drv.status}`);
+  // Reset de idempotencia: el corte es único por (rider_user_id, business_date).
+  // Si una corrida previa de HOY ya lo cerró, borrarlo para que `open` cree uno
+  // fresco (si no, `close` devuelve 409 "ya cerrado"). Solo data de smoke.
+  try {
+    const _db = getDb();
+    const _today = new Date().toISOString().slice(0, 10);
+    const liqIds = await _db('commercial.rider_liquidations')
+      .where({ rider_user_id: riderUserId }).andWhere('business_date', '>=', _today).pluck('id');
+    if (liqIds.length) {
+      await _db('commercial.payments').whereIn('liquidation_id', liqIds).update({ liquidation_id: null });
+      await _db('commercial.rider_liquidations').whereIn('id', liqIds).del();
+    }
+  } catch (e) { /* si falla el reset, el paso 9 lo reportará */ }
 
   console.log('\n── 3. Allowlist ──');
   const denied = await req('GET', '/store/live/ticket-lookup?folio=999&warehouse=00', null, token);
@@ -107,51 +144,54 @@ function skipStep(name, why) { console.log(`  SKIP ${name} — ${why}`); skip++;
   check('lookup trae líneas (2)', (look.body?.items?.length || 0) === 2);
   check('CREDITO ⇒ collect sugerido true', look.body?.collect_on_delivery_suggested === true, `paid=${look.body?.already_paid}`);
 
-  console.log('\n── 6. dispatch-from-kepler ──');
+  console.log('\n── 6. dispatch-from-kepler (asigna a usuario repartidor) ──');
   const disp = await req('POST', '/commercial/home-delivery/dispatch-from-kepler', {
-    folio, serie, warehouse_code: '01', driver_id: driverId, vehicle_id: vehicleId,
+    folio, serie, warehouse_code: '01', rider_user_id: riderUserId, vehicle_id: vehicleId,
     shipment_date: new Date().toISOString().slice(0, 10),
     delivery_address: { recipient_name: 'Cliente Smoke', phone: '3510000000', street: 'Calle Falsa 123', references: 'Portón azul' },
     collect_on_delivery: true, amount_to_collect: 250.5,
   }, token);
-  check('dispatch crea entrega (EMB+GUIA)', disp.status === 201 && !!disp.body?.recipient_id, `status=${disp.status} body=${JSON.stringify(disp.body).slice(0,120)}`);
+  check('dispatch crea la parada', disp.status === 201 && !!disp.body?.recipient_id, `status=${disp.status} body=${JSON.stringify(disp.body).slice(0,120)}`);
   const recipientId = disp.body?.recipient_id;
 
   const disp2 = await req('POST', '/commercial/home-delivery/dispatch-from-kepler', {
-    folio, serie, warehouse_code: '01', driver_id: driverId, vehicle_id: vehicleId,
+    folio, serie, warehouse_code: '01', rider_user_id: riderUserId,
     shipment_date: new Date().toISOString().slice(0, 10),
     delivery_address: { street: 'X' },
   }, token);
   check('anti doble-despacho por folio (409)', disp2.status === 409, `status=${disp2.status}`);
 
-  console.log('\n── 7. my-deliveries (repartidor = superoot) ──');
-  const mine = await req('GET', '/commercial/home-delivery/my-deliveries', null, token);
+  console.log('\n── 7. my-deliveries (autenticado como el repartidor) ──');
+  const mine = await req('GET', '/commercial/home-delivery/my-deliveries', null, riderToken);
   const parada = (mine.body || []).find((d) => d.recipient_id === recipientId);
   check('my-deliveries incluye la parada', !!parada, `n=${(mine.body || []).length}`);
   check('parada trae items_snapshot (qué cargar)', (parada?.items_snapshot?.length || 0) === 2);
   check('parada marca cobro COD', parada?.collect_on_delivery === true && Number(parada?.amount_to_collect) === 250.5);
 
-  console.log('\n── 8. outcome: entrega + cobro COD ──');
+  console.log('\n── 8. outcome: entrega + cobro COD (repartidor cierra) ──');
   const out = await req('POST', `/commercial/home-delivery/recipients/${recipientId}/outcome`, {
     outcome: 'delivered', whatsapp_confirmed: true, delivered_to: 'Cliente Smoke',
     payment: { method: 'cash', amount: 250.5, cash_received: 300 },
-  }, token);
+  }, riderToken);
   check('outcome entregado + pago', out.status === 200 || out.status === 201, `status=${out.status} body=${JSON.stringify(out.body).slice(0,120)}`);
   check('pago registrado (change 49.5)', Number(out.body?.payment?.change_given) === 49.5, `payment=${JSON.stringify(out.body?.payment || {}).slice(0,120)}`);
 
   console.log('\n── 9. arqueo del repartidor ──');
   const business_date = new Date().toISOString().slice(0, 10);
-  const open = await req('POST', '/commercial/rider-liquidations', { rider_user_id: userId, business_date, branch_store_id: null }, token);
+  const open = await req('POST', '/commercial/rider-liquidations', { rider_user_id: riderUserId, business_date, branch_store_id: null }, token);
   const liqId = open.body?.id;
   check('abre corte del día', !!liqId, `status=${open.status}`);
   const prev = await req('GET', `/commercial/rider-liquidations/${liqId}/preview`, null, token);
   check('preview: cash_expected incluye el cobro', Number(prev.body?.cash_expected) >= 250.5, `expected=${prev.body?.cash_expected}`);
   check('preview: deliveries_count >= 1', Number(prev.body?.deliveries_count) >= 1);
+  // Arqueo cuadra: el rider cuenta EXACTAMENTE lo esperado. cash_expected acumula
+  // todos los cobros cash del día (múltiplos de 0.5) → breakdown en monedas de 0.5.
+  const expected = Number(prev.body?.cash_expected) || 0;
   const close = await req('POST', `/commercial/rider-liquidations/${liqId}/close`, {
-    cash_breakdown: { '200': 1, '50': 1, '0.5': 1 }, // 250.5
+    cash_breakdown: { '0.5': Math.round(expected / 0.5) },
   }, token);
   check('cierra corte', close.status === 200 || close.status === 201, `status=${close.status}`);
-  check('cash_difference 0 (arqueo cuadra)', Number(close.body?.cash_difference) === 0, `diff=${close.body?.cash_difference}`);
+  check('cash_difference 0 (arqueo cuadra)', Number(close.body?.cash_difference) === 0, `diff=${close.body?.cash_difference} expected=${expected}`);
 
   finish();
 })();

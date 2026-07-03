@@ -11,7 +11,7 @@ import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import {
   DispatchFromKeplerPayload,
-  FleetDriver,
+  Rider,
   FleetVehicle,
   HomeDeliveryService,
   KeplerTicket,
@@ -137,25 +137,24 @@ import {
           <div class="rd-grid">
             <div class="rd-field">
               <label for="drv">Repartidor <span class="req">*</span></label>
-              <p-select inputId="drv" [options]="drivers()" [(ngModel)]="driverId" optionValue="id"
+              <p-select inputId="drv" [options]="riders()" [(ngModel)]="riderUserId" optionValue="rider_user_id"
                         appendTo="body" styleClass="rd-full" placeholder="Elegí repartidor"
-                        [filter]="drivers().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores activos'">
+                        [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores activos'">
                 <ng-template let-d pTemplate="item">
                   <div class="rd-opt">
-                    <span class="rd-dot" [class]="driverDotClass(d)" aria-hidden="true"></span>
-                    <span class="rd-opt-main">{{ d.full_name }}</span>
-                    <span class="rd-opt-sub">{{ driverStatusLabel(d) }}</span>
+                    <span class="rd-opt-main">{{ d.full_name || d.username }}</span>
+                    <span class="rd-opt-sub" *ngIf="d.warehouse_code">Suc. {{ d.warehouse_code }}</span>
                   </div>
                 </ng-template>
                 <ng-template let-d pTemplate="selectedItem">
-                  <span *ngIf="d">{{ d.full_name }}</span>
+                  <span *ngIf="d">{{ d.full_name || d.username }}</span>
                 </ng-template>
               </p-select>
             </div>
             <div class="rd-field">
-              <label for="veh">Moto <span class="req">*</span></label>
+              <label for="veh">Moto</label>
               <p-select inputId="veh" [options]="vehicles()" [(ngModel)]="vehicleId" optionValue="id"
-                        appendTo="body" styleClass="rd-full" placeholder="Elegí moto"
+                        appendTo="body" styleClass="rd-full" placeholder="Moto (opcional)" [showClear]="true"
                         [emptyMessage]="'Sin motos activas'">
                 <ng-template let-v pTemplate="item">
                   <div class="rd-opt">
@@ -310,7 +309,7 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   private readonly svc = inject(HomeDeliveryService);
 
   readonly ticket = signal<KeplerTicket | null>(null);
-  readonly drivers = signal<FleetDriver[]>([]);
+  readonly riders = signal<Rider[]>([]);
   readonly vehicles = signal<FleetVehicle[]>([]);
   readonly loading = signal(false);
   readonly saving = signal(false);
@@ -334,14 +333,14 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   phone = '';
   street = '';
   references = '';
-  driverId = '';
+  riderUserId = '';
   vehicleId = '';
   shipmentDate: Date = new Date();
   collect = false;
   amount = 0;
 
   ngOnInit(): void {
-    this.svc.listDrivers().subscribe({ next: (d) => this.drivers.set(d || []), error: () => {} });
+    this.svc.listRiders().subscribe({ next: (d) => this.riders.set(d || []), error: () => {} });
     this.svc.listVehicles().subscribe({ next: (v) => this.vehicles.set(v || []), error: () => {} });
   }
 
@@ -351,21 +350,6 @@ export class HomeDeliveryDispatchComponent implements OnInit {
 
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
-
-  driverStatusLabel(d: FleetDriver): string {
-    const s = (d.status || '').toLowerCase();
-    if (!s || s === 'available' || s === 'active') return 'Disponible';
-    if (s === 'busy' || s === 'on_route' || s === 'on-route') return 'Ocupado';
-    if (s === 'offline' || s === 'inactive') return 'Offline';
-    return d.status || '';
-  }
-
-  driverDotClass(d: FleetDriver): string {
-    const s = (d.status || '').toLowerCase();
-    if (!s || s === 'available' || s === 'active') return 'ok';
-    if (s === 'busy' || s === 'on_route' || s === 'on-route') return 'busy';
-    return 'off';
   }
 
   /** Aviso proactivo de capacidad: unidades del pedido vs capacidad de la moto elegida. */
@@ -400,15 +384,14 @@ export class HomeDeliveryDispatchComponent implements OnInit {
     this.dispatchError.set(null);
     if (!this.phone.trim()) { this.dispatchError.set('Captura el teléfono de quien recibe (el repartidor lo necesita).'); return; }
     if (!this.street.trim()) { this.dispatchError.set('Captura la calle del domicilio.'); return; }
-    if (!this.driverId) { this.dispatchError.set('Elige un repartidor.'); return; }
-    if (!this.vehicleId) { this.dispatchError.set('Elige una moto.'); return; }
+    if (!this.riderUserId) { this.dispatchError.set('Elige un repartidor.'); return; }
 
     const payload: DispatchFromKeplerPayload = {
       folio: t.folio,
       serie: t.serie,
       warehouse_code: t.warehouse_code,
-      driver_id: this.driverId,
-      vehicle_id: this.vehicleId,
+      rider_user_id: this.riderUserId,
+      vehicle_id: this.vehicleId || undefined,
       shipment_date: this.iso(this.shipmentDate),
       delivery_address: {
         recipient_name: this.recipientName.trim() || undefined,
@@ -435,7 +418,7 @@ export class HomeDeliveryDispatchComponent implements OnInit {
     this.phone = '';
     this.street = '';
     this.references = '';
-    this.driverId = '';
+    this.riderUserId = '';
     this.vehicleId = '';
     this.collect = false;
     this.amount = 0;

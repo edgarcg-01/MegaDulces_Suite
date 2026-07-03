@@ -115,14 +115,13 @@ export class CommercialRiderLiquidationService {
       if (key) deliveries.add(key);
     }
 
-    // Incidencias del día en las guías del repartidor (join drivers.user_id).
-    const [{ incidents }] = await trx('logistics.guide_recipients as r')
-      .join('logistics.delivery_guides as g', 'g.id', 'r.guide_id')
-      .join('logistics.drivers as d', 'd.id', 'g.driver_id')
-      .where('d.user_id', riderUserId)
-      .whereNotNull('r.incident_type')
-      .whereRaw('COALESCE(r.attempted_at, r.updated_at)::date = ?', [businessDate])
-      .count({ incidents: 'r.id' });
+    // Incidencias del día en las paradas del repartidor (tabla propia de Reparto).
+    const [{ incidents }] = await trx('commercial.home_deliveries')
+      .where('rider_user_id', riderUserId)
+      .whereNull('deleted_at')
+      .whereNotNull('incident_type')
+      .whereRaw('COALESCE(attempted_at, updated_at)::date = ?', [businessDate])
+      .count({ incidents: 'id' });
 
     return {
       cash_expected: Math.round(cash * 100) / 100,

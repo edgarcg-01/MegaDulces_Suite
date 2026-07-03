@@ -634,6 +634,9 @@ export class CommercialAnalyticsService {
    */
   async deadStock(warehouseIdParam?: string, limitParam?: string | number) {
     const limit = Math.min(2000, Math.max(1, Number(limitParam) || 500));
+    // El CEDIS central distribuye por TRASPASOS, no por venta → medir "muerto =
+    // venta 0" ahí sobre-marca fast-movers (Coca/Takis). Se excluye del reporte.
+    const CEDIS_CODE = '00';
     return this.tk.run(async (trx) => {
       // catalog.products (tabla real) — la vista public.products no expone
       // sales_units_30d/rotation_tier (columnas nuevas).
@@ -641,13 +644,20 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('catalog.products as p', 'p.id', 's.product_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        // La verdad de ventas es analytics.product_sales_stats (mismo fact que el
+        // Command Center), NO catalog.products.sales_units_90d (feed de rotación
+        // que divergía → falsos positivos). INNER join: sin registro de stats =
+        // venta desconocida = NO se marca muerto.
+        .join('analytics.product_sales_stats as st', function () {
+          this.on('st.product_id', '=', 's.product_id').andOn('st.tenant_id', '=', 's.tenant_id');
+        })
         .where('s.quantity', '>', 0)
         // Excluir almacenes soft-deleted (p.ej. warehouses efímeros de tests):
         // sin esto el reporte contaba stock de almacenes ya borrados.
         .whereNull('w.deleted_at')
-        // Ventana 90d (no 30d, que flaggea estacionales). = 0 estricto: NULL =
-        // rotación no computada (desconocida), no "muerto".
-        .where('p.sales_units_90d', 0);
+        .whereNot('w.code', CEDIS_CODE)
+        // Ventana 90d sobre el fact autoritativo. = 0 estricto (hay registro y dice 0).
+        .where('st.units_90d', 0);
       if (warehouseIdParam) base.where('s.warehouse_id', warehouseIdParam);
 
       const items = await base.clone()

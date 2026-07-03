@@ -23,15 +23,16 @@ export interface KeplerTicket {
   collect_on_delivery_suggested: boolean;
 }
 
-export interface FleetDriver { id: string; full_name: string; roles?: string[]; status?: string; }
+/** Repartidor asignable = USUARIO con rol repartidor (dominio Reparto, no flota logística). */
+export interface Rider { rider_user_id: string; username: string; full_name: string; warehouse_code?: string | null; }
 export interface FleetVehicle { id: string; plate: string; brand?: string; model?: string; capacity_boxes?: number | null; status?: string; }
 
 export interface DispatchFromKeplerPayload {
   folio: string;
   serie?: string;
   warehouse_code: string;
-  driver_id: string;
-  vehicle_id: string;
+  rider_user_id: string;
+  vehicle_id?: string;
   shipment_date: string;
   delivery_address: { recipient_name?: string; phone?: string; street: string; references?: string; lat?: number; lng?: number };
   collect_on_delivery?: boolean;
@@ -55,10 +56,11 @@ export class HomeDeliveryService {
     return this.http.post(`${this.api}/commercial/home-delivery/dispatch-from-kepler`, payload);
   }
 
-  listDrivers(): Observable<FleetDriver[]> {
-    return this.http.get<FleetDriver[]>(`${this.api}/logistics/fleet/drivers`, {
-      params: new HttpParams().set('active', 'true'),
-    });
+  /** Repartidores asignables (usuarios con rol repartidor; opcional scope por sucursal). */
+  listRiders(warehouseCode?: string): Observable<Rider[]> {
+    let p = new HttpParams();
+    if (warehouseCode) p = p.set('warehouse_code', warehouseCode);
+    return this.http.get<Rider[]>(`${this.api}/commercial/home-delivery/riders`, { params: p });
   }
 
   listVehicles(): Observable<FleetVehicle[]> {

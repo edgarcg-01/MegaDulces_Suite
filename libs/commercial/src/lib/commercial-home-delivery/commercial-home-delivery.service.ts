@@ -80,8 +80,8 @@ export class CommercialHomeDeliveryService {
    *   pedido → libera la reserva de stock. `not_located`/`wrong_address` dejan la
    *   parada `no_entregado` y el pedido vivo para reintento.
    *
-   * Actualiza logistics.guide_recipients por SQL en el mismo tenant scope
-   * (cross-schema pragmático, espejo del routing que lee/escribe commercial.orders).
+   * Opera sobre commercial.home_deliveries (tabla propia de Reparto, desacoplada
+   * de logística). `recipientId` = id de la parada (home_deliveries.id).
    */
   async recordDeliveryOutcome(recipientId: string, dto: RecordDeliveryOutcomeDto) {
     if (!UUID_RE.test(recipientId)) throw new BadRequestException('recipientId inválido');
@@ -89,9 +89,9 @@ export class CommercialHomeDeliveryService {
       throw new BadRequestException(`outcome inválido: ${dto?.outcome}`);
 
     const recipient = await this.tk.run((trx) =>
-      trx('logistics.guide_recipients').where({ id: recipientId }).first(),
+      trx('commercial.home_deliveries').where({ id: recipientId }).whereNull('deleted_at').first(),
     );
-    if (!recipient) throw new NotFoundException(`Destinatario ${recipientId} no encontrado`);
+    if (!recipient) throw new NotFoundException(`Parada ${recipientId} no encontrada`);
     if (recipient.status === 'entregado')
       throw new ConflictException('La parada ya fue entregada');
     const orderId: string | null = recipient.order_id || null;
@@ -125,11 +125,12 @@ export class CommercialHomeDeliveryService {
       }
 
       await this.tk.run((trx) =>
-        trx('logistics.guide_recipients').where({ id: recipientId }).update({
+        trx('commercial.home_deliveries').where({ id: recipientId }).update({
           status: 'entregado',
           delivered_to: dto.delivered_to || recipient.customer_name || null,
           proof_photo_url: dto.proof_photo_url || null,
-          delivered_signature_url: dto.signature_url || null,
+          signature_url: dto.signature_url || null,
+          whatsapp_confirmed: !!dto.whatsapp_confirmed,
           gps_lat: dto.gps_lat ?? null,
           gps_lng: dto.gps_lng ?? null,
           incident_type: null,
@@ -146,7 +147,7 @@ export class CommercialHomeDeliveryService {
       throw new BadRequestException('El rechazo requiere motivo (incident_notes)');
 
     await this.tk.run((trx) =>
-      trx('logistics.guide_recipients').where({ id: recipientId }).update({
+      trx('commercial.home_deliveries').where({ id: recipientId }).update({
         status: rejected ? 'rechazado' : 'no_entregado',
         incident_type: dto.outcome,
         incident_notes: dto.incident_notes || null,

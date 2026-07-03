@@ -111,10 +111,11 @@ export class KeplerConsolidadoService {
 
   /**
    * Stock VIVO de PH (md_01) → commercial.stock MD-10. Los vendedores se surten
-   * de PH; cada 30 min para reflejar cargas/ventas del día. Subprocess del
-   * importer (single source of truth). El nightly mega_dulces_sync ya NO pisa MD-10.
+   * de PH; cada 1 min para reflejar cargas/ventas del día casi en tiempo real.
+   * Subprocess del importer (single source of truth). Guard phStockRunning evita
+   * solapes si una corrida tarda >1 min. El nightly mega_dulces_sync ya NO pisa MD-10.
    */
-  @Cron('0 */30 * * * *') // cada 30 min
+  @Cron('0 */1 * * * *') // cada 1 min
   async phStockFeed(): Promise<void> {
     if (!this.db) return;
     if (this.phStockRunning) {
