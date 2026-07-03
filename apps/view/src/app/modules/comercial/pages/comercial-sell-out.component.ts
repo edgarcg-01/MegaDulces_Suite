@@ -274,7 +274,7 @@ const CHANNEL_OPTS = [
     .so-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .so-field { display:flex; flex-direction:column; gap:.3rem; }
     .so-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
-    .so-empresa { min-width:280px; flex:1 1 280px; }
+    .so-empresa { flex:0 1 300px; min-width:240px; }
     .so-year { max-width:110px; }
     .so-badge { margin-left:.5rem; font-size:.7rem; color:var(--text-muted); }
     /* segmented → app-segmented (átomo compartido) */

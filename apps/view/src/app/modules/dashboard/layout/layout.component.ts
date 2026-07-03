@@ -254,7 +254,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
-        { label: 'A domicilio',       icon: 'pi pi-home',       route: '/comercial/domicilio',      permission: Permission.LOGISTICS_HOME_DISPATCH },
         { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
       ],
     },
@@ -280,7 +279,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
         { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
-        { label: 'Cortes de caja',     icon: 'pi pi-wallet',     route: '/comercial/cortes',        permission: Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR },
         { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.ROUTE_CONTROL_VER },
       ],
     },

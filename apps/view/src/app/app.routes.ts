@@ -6,6 +6,7 @@ import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, colaboradorGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
+import { repartoGuard } from './modules/reparto/reparto.guard';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 
 export const routes: Routes = [
@@ -103,18 +104,6 @@ export const routes: Routes = [
         path: 'orders/:id',
         loadComponent: () => import('./modules/comercial/pages/comercial-order-detail.component').then(m => m.ComercialOrderDetailComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
-      },
-      {
-        // LM-K.4 — persona de tienda: captura folio Kepler → despacha a domicilio
-        path: 'domicilio',
-        loadComponent: () => import('./modules/home-delivery/home-delivery-dispatch.component').then(m => m.HomeDeliveryDispatchComponent),
-        canActivate: [permissionGuard(Permission.LOGISTICS_HOME_DISPATCH)]
-      },
-      {
-        // LM.7 — encargado: corte de caja del repartidor (arqueo)
-        path: 'cortes',
-        loadComponent: () => import('./modules/rider-liquidation/rider-liquidation.component').then(m => m.RiderLiquidationComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR)]
       },
       {
         path: 'inventory',
@@ -457,6 +446,26 @@ export const routes: Routes = [
           import('./modules/televenta/pages/televenta-take-order.component').then(
             (m) => m.TeleventaTakeOrderComponent,
           ),
+      },
+    ],
+  },
+  {
+    // Módulo Reparto — personal de tienda: asignar pedidos a domicilio + cortes de caja.
+    path: 'reparto',
+    canActivate: [repartoGuard],
+    loadComponent: () =>
+      import('./modules/reparto/reparto-shell.component').then((m) => m.RepartoShellComponent),
+    children: [
+      { path: '', redirectTo: 'asignar', pathMatch: 'full' },
+      {
+        path: 'asignar',
+        loadComponent: () =>
+          import('./modules/reparto/pages/home-delivery-dispatch.component').then((m) => m.HomeDeliveryDispatchComponent),
+      },
+      {
+        path: 'cortes',
+        loadComponent: () =>
+          import('./modules/reparto/pages/rider-liquidation.component').then((m) => m.RiderLiquidationComponent),
       },
     ],
   },

@@ -351,14 +351,15 @@ export class HomeDispatchService {
     if (!userId) throw new BadRequestException('Sin user_id en contexto');
 
     return this.tk.run(async (trx) => {
-      const driver = await trx('logistics.drivers').where({ user_id: userId }).whereNull('deleted_at').first();
-      if (!driver) return [];
+      // Un user puede tener >1 fila de driver: matchear TODAS (robusto).
+      const driverIds = await trx('logistics.drivers').where({ user_id: userId }).whereNull('deleted_at').pluck('id');
+      if (!driverIds.length) return [];
 
       let q = trx('logistics.guide_recipients as r')
         .join('logistics.delivery_guides as g', 'g.id', 'r.guide_id')
         .join('logistics.shipments as s', 's.id', 'g.shipment_id')
         .leftJoin('commercial.orders as o', 'o.id', 'r.order_id')
-        .where('g.driver_id', driver.id)
+        .whereIn('g.driver_id', driverIds)
         .whereNull('g.deleted_at')
         .whereNull('s.deleted_at');
       if (opts.pending !== false) q = q.whereIn('r.status', ['pendiente', 'no_entregado']);

@@ -6,6 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
+import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
@@ -28,7 +29,7 @@ const MES: Record<string, string> = {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    ToastModule, PageTabsComponent,
+    ToastModule, TableModule, PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -75,45 +76,47 @@ const MES: Record<string, string> = {
           </div>
 
           <div class="card-premium card-flat rr-table-card">
-            <div class="rr-wrap">
-              <table class="rr-table">
-                <thead>
-                  <tr>
-                    <th class="frz c0">Sucursal</th>
-                    <th class="frz c1">Ruta</th>
-                    @for (m of r.months; track m) { <th class="n">{{ mes(m) }}</th> }
-                    <th class="n b">Total</th>
-                    <th class="n">Share</th>
-                    <th class="n">Tickets</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (row of r.rows; track row.warehouse_code + row.route_code) {
-                    <tr>
-                      <td class="frz c0">{{ row.warehouse_name }}</td>
-                      <td class="frz c1 b">Ruta {{ row.route_no }}</td>
-                      @for (m of r.months; track m) {
-                        <td class="n">{{ cell(row, m)?.revenue ? (cell(row, m)!.revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
-                      }
-                      <td class="n b">{{ row.revenue_total | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                      <td class="n share">{{ row.share_pct | number:'1.0-1' }}%</td>
-                      <td class="n">{{ row.tickets_total | number }}</td>
-                    </tr>
+            <p-table [value]="r.rows" [loading]="loading()" [rowHover]="true"
+                     [scrollable]="true" scrollHeight="60vh"
+                     sortField="revenue_total" [sortOrder]="-1"
+                     styleClass="p-datatable-sm surf-table rr-ptable">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sortIcon field="warehouse_name" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:120px" pSortableColumn="route_no">Ruta <p-sortIcon field="route_no" /></th>
+                  @for (m of r.months; track m) {
+                    <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.revenue'">{{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.revenue'" /></th>
                   }
-                </tbody>
-                <tfoot>
-                  <tr class="tot">
-                    <td class="frz c0" colspan="2">TOTAL</td>
-                    @for (m of r.months; track m) {
-                      <td class="n">{{ r.monthly_totals[m]?.revenue ? (r.monthly_totals[m].revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
-                    }
-                    <td class="n b">{{ r.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="n">100%</td>
-                    <td class="n">{{ r.totals.tickets | number }}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                  <th scope="col" class="comm-num rr-strong" pSortableColumn="revenue_total">Total <p-sortIcon field="revenue_total" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="share_pct">Share <p-sortIcon field="share_pct" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="tickets_total">Tickets <p-sortIcon field="tickets_total" /></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-row>
+                <tr>
+                  <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
+                  <td pFrozenColumn class="rr-strong">Ruta {{ row.route_no }}</td>
+                  @for (m of r.months; track m) {
+                    <td class="comm-num">{{ cell(row, m)?.revenue != null ? (cell(row, m)!.revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                  }
+                  <td class="comm-num rr-strong">{{ row.revenue_total | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="comm-num comm-muted">{{ row.share_pct | number:'1.0-1' }}%</td>
+                  <td class="comm-num">{{ row.tickets_total | number }}</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="footer">
+                <tr class="rr-foot">
+                  <td pFrozenColumn>TOTAL</td>
+                  <td pFrozenColumn></td>
+                  @for (m of r.months; track m) {
+                    <td class="comm-num">{{ r.monthly_totals[m]?.revenue != null ? (r.monthly_totals[m].revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                  }
+                  <td class="comm-num rr-strong">{{ r.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="comm-num">100%</td>
+                  <td class="comm-num">{{ r.totals.tickets | number }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
           </div>
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
@@ -126,6 +129,7 @@ const MES: Record<string, string> = {
     </div>
   `,
   styles: [`
+    :host { display:block; }
     .rr-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .rr-field { display:flex; flex-direction:column; gap:.3rem; }
     .rr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -137,19 +141,9 @@ const MES: Record<string, string> = {
     .rr-kpi-v { display:block; font-size:1.25rem; font-weight:700; margin-top:.15rem; font-variant-numeric:tabular-nums; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .rr-table-card { padding:1.25rem; }
-    .rr-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
-    .rr-table { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; width:100%; }
-    .rr-table th, .rr-table td { border-bottom:1px solid var(--border); border-right:1px solid var(--border); padding:.35rem .6rem; }
-    .rr-table thead th { background:var(--layout-bg); font-weight:700; text-align:center; position:sticky; top:0; z-index:2; }
-    .rr-table td.n, .rr-table th.n { text-align:right; font-variant-numeric:tabular-nums; }
-    .rr-table td.b, .rr-table th.b { font-weight:700; }
-    .rr-table td.share { color:var(--text-muted); }
-    .rr-table .frz { position:sticky; background:var(--card-bg); z-index:1; }
-    .rr-table thead .frz { z-index:3; }
-    .rr-table .c0 { left:0; } .rr-table .c1 { left:130px; }
-    .rr-table tbody tr:hover td:not(.frz) { background:var(--table-hover,var(--layout-bg)); }
-    .rr-table tfoot .tot td { font-weight:700; background:var(--layout-bg); position:sticky; bottom:0; }
-    .rr-table tfoot .tot .frz { z-index:1; }
+    /* Sticky/frozen/tema los da PrimeNG + surf-table; sólo jerarquía visual acá. */
+    .rr-strong { font-weight:700; }
+    .rr-foot td { font-weight:700; }
   `],
 })
 export class ComercialVentasPorRutaComponent {

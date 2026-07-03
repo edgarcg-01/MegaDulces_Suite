@@ -7,7 +7,7 @@ import {
   PendingPayment,
   RiderLiquidation,
   RiderLiquidationService,
-} from './rider-liquidation.service';
+} from '../rider-liquidation.service';
 
 const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 

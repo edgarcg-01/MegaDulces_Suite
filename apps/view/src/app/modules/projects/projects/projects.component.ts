@@ -112,6 +112,15 @@ export class ProjectsComponent implements OnInit {
       anyOf: [Permission.STORE_LIVE_VER],
     },
     {
+      id: 'reparto',
+      name: 'Reparto',
+      description: 'Entrega a domicilio: captura el folio del ticket, asigna el pedido a un repartidor y controla el corte de caja con arqueo.',
+      icon: 'pi pi-send',
+      route: '/reparto',
+      status: 'Activo',
+      anyOf: [Permission.LOGISTICS_HOME_DISPATCH],
+    },
+    {
       id: 'admin',
       name: 'Administración',
       description: 'Gestión de usuarios, roles y permisos del sistema.',

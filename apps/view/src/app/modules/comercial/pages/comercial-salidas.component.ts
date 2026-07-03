@@ -180,7 +180,9 @@ const MES: Record<string, string> = {
     .sl-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .sl-field { display:flex; flex-direction:column; gap:.3rem; }
     .sl-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
-    .sl-year { max-width:110px; } .sl-brand { min-width:220px; flex:1 1 220px; } .sl-search { min-width:200px; flex:1 1 200px; }
+    .sl-year { max-width:110px; }
+    .sl-brand { flex:0 1 240px; min-width:190px; }
+    .sl-search { flex:1 1 240px; max-width:340px; }
     .sl-actions { margin-left:auto; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .so-dl { display:flex; gap:.5rem; }
