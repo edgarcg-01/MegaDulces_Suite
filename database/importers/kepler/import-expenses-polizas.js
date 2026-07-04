@@ -165,15 +165,30 @@ function normArea(raw) {
     }
     console.table(summary);
 
-    // FIX #1 (doble conteo) — Kepler postea compras (511) en DOS capas por una
-    // migración de método: póliza RESUMEN mensual (folio vacío) en 2025 → detalle
-    // por factura (folio real) en 2026. Donde coexisten (dic-2025) el modelo sumaba
-    // ambas = doble conteo; "preferir detalle siempre" sub-contaba 2025 (resúmenes
-    // de $48-66M tirados por detalles mínimos). Regla MAX-por-mes: por
-    // (sucursal, cuenta_mayor, mes) con AMBAS capas presentes, conservar la de MAYOR
-    // importe y descartar la menor (asume que una capa subsume a la otra). Grupos con
-    // una sola capa quedan intactos.
-    const dropSummary = await db.query(`
+    // FIX #B (doble conteo CEDIS↔sucursal) — las sucursales 01-05 registran como
+    // "compra" (511) la mercancía RECIBIDA de CEDIS, que CEDIS ya contó en su propia
+    // 511. Se reconoce por beneficiario interno (SUCURSAL/CEDIS/CENTRO DE DIST/
+    // TRASPASO): es traspaso interno, no compra externa. Se excluye SOLO en sucursales
+    // (md_00 sí es la compra central real). Evita ~$28.6M de doble conteo de red.
+    const dropTransfer = await db.query(`
+      DELETE FROM stg_exp
+       WHERE sucursal <> '00' AND cuenta_mayor = '511'
+         AND ( upper(COALESCE(beneficiario,'')) LIKE 'SUCURSAL%'
+            OR upper(COALESCE(beneficiario,'')) LIKE '%CEDIS%'
+            OR upper(COALESCE(beneficiario,'')) LIKE '%CENTRO DE DIST%'
+            OR upper(COALESCE(beneficiario,'')) LIKE '%TRASPASO%' )`);
+    console.log(`Fix#B traspasos internos: ${dropTransfer.rowCount} filas 511 de sucursal (beneficiario interno) descartadas.`);
+
+    // FIX #1 (presupuesto vs factura) — Kepler 2025 registró compras (511) como
+    // PRESUPUESTO mensual (folio vacío, contrapartida cuenta 999 PRESUPUESTOS); la
+    // captura factura-a-factura (folio real, contra 201 proveedores) arrancó ~dic-2025.
+    // Regla: preferir FACTURAS reales cuando ya son el método operativo del mes
+    // (det >= 50% del presupuesto); caer al PRESUPUESTO solo en meses sin captura real
+    // (ago-nov 2025), donde queda como ESTIMADO (esas filas conservan folio vacío =
+    // marcador de estimado). Arregla dic-2025 (usa factura $63.1M, no presupuesto
+    // $75.3M) sin sub-contar ago-nov. Solo toca grupos con AMBAS capas presentes.
+    const THRESH = 0.5;
+    const dropLayer = await db.query(`
       WITH capas AS (
         SELECT sucursal, cuenta_mayor, to_char(fecha,'YYYY-MM') AS mes,
                COALESCE(SUM(importe) FILTER (WHERE NULLIF(btrim(COALESCE(doc_folio,'')),'') IS NOT NULL),0) AS det,
@@ -187,10 +202,10 @@ function normArea(raw) {
        WHERE s.sucursal = c.sucursal AND s.cuenta_mayor = c.cuenta_mayor
          AND to_char(s.fecha,'YYYY-MM') = c.mes
          AND (
-              (c.det >= c.res AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NULL)      -- gana detalle → borrar resumen
-           OR (c.res >  c.det AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NOT NULL)  -- gana resumen → borrar detalle
+              (c.det >= ${THRESH} * c.res AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NULL)      -- facturas ya operan → borrar presupuesto
+           OR (c.det <  ${THRESH} * c.res AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NOT NULL)  -- captura incompleta → borrar facturas parciales, dejar presupuesto (estimado)
          )`);
-    console.log(`Fix#1 MAX-por-mes: ${dropSummary.rowCount} filas de la capa menor descartadas (grupos con detalle+resumen coexistentes).`);
+    console.log(`Fix#1 factura>presupuesto (umbral ${THRESH}): ${dropLayer.rowCount} filas de la capa no-operativa descartadas.`);
 
     // FIX #2 (doble-carga) — deduplicar por clave natural ANCHA
     // (sucursal,doc_tipo,doc_folio,linea,cuenta,importe,fecha). Mata filas
