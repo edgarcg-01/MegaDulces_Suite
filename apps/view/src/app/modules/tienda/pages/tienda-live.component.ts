@@ -1,12 +1,14 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { SelectModule } from 'primeng/select';
 import { TiendaStateService } from '../tienda-state.service';
 
 /** Proyecto Tienda — monitor de tickets de venta EN VIVO (WebSocket /store). */
 @Component({
   selector: 'app-tienda-live',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule, SelectModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../tienda-shared.css'],
   template: `
@@ -20,10 +22,10 @@ import { TiendaStateService } from '../tienda-state.service';
           @if (s.scopedWarehouse) {
             <span class="tda-scope"><i class="pi pi-map-marker"></i>{{ s.branchName(s.scopedWarehouse) }}</span>
           } @else {
-            <select class="tda-filter" [value]="s.selectedBranch()" (change)="s.changeBranch($any($event.target).value)">
-              <option value="">Todas las sucursales</option>
-              @for (b of s.branchList; track b.code) { <option [value]="b.code">{{ b.name }}</option> }
-            </select>
+            <p-select [ngModel]="s.selectedBranch() || null" (ngModelChange)="s.changeBranch($event || '')"
+                      [options]="s.branchList" optionLabel="name" optionValue="code"
+                      placeholder="Todas las sucursales" [showClear]="true" appendTo="body"
+                      styleClass="tda-filter-sel" />
           }
           <div class="tda-live" [class.on]="s.connected()">
             <span class="dot"></span>{{ s.connected() ? 'EN VIVO' : 'conectando…' }}
