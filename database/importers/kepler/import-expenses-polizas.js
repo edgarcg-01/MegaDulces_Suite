@@ -133,7 +133,7 @@ function normArea(raw) {
                     c3 AS cuenta, left(c3,1) AS familia, c4 AS cargo_abono,
                     NULLIF(btrim(c6),'') AS beneficiario, c5::numeric AS importe
                FROM md.${t.tbl}
-              WHERE c4='C' AND (c3 LIKE '5%' OR c3 LIKE '6%') AND c19 IS NOT NULL`,
+              WHERE c4='C' AND (c3='511' OR c3 LIKE '6%') AND c19 IS NOT NULL`,
           )).rows;
 
           const staged = [];
@@ -165,7 +165,10 @@ function normArea(raw) {
     }
     console.table(summary);
 
-    // Dedup defensivo por PK (misma póliza podría venir en 2 tablas por corrección).
+    // Sin dedup: cada movimiento de póliza es una fila (PK sintética uuid). La
+    // idempotencia se logra por DELETE-ventana (sucursal+fecha) + INSERT abajo.
+    // NO deduplicar por (doc_tipo,folio,linea): los folios se reciclan por año y
+    // las pólizas de diario van sin folio → colapsarían filas reales.
     const staged = (await db.query(`SELECT count(*)::int n FROM stg_exp`)).rows[0].n;
     console.log(`Staging: ${staged} movimientos de egreso.`);
 
@@ -178,15 +181,9 @@ function normArea(raw) {
       [M, sucursales, from, to]);
     const up = await db.query(
       `INSERT INTO analytics.expense_entries
-         (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,computed_at)
-       SELECT DISTINCT ON (sucursal,doc_tipo,doc_folio,linea)
-              $1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,now()
-         FROM stg_exp
-       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio,linea) DO UPDATE SET
-         fecha=EXCLUDED.fecha, cuenta=EXCLUDED.cuenta, cuenta_nombre=EXCLUDED.cuenta_nombre,
-         cuenta_mayor=EXCLUDED.cuenta_mayor, cuenta_mayor_nombre=EXCLUDED.cuenta_mayor_nombre,
-         familia=EXCLUDED.familia, cargo_abono=EXCLUDED.cargo_abono,
-         beneficiario=EXCLUDED.beneficiario, area=EXCLUDED.area, importe=EXCLUDED.importe, computed_at=now()`,
+         (id,tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,computed_at)
+       SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,now()
+         FROM stg_exp`,
       [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${del.rowCount} borrados (ventana) + ${up.rowCount} upserted.`);

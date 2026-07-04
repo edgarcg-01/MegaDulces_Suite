@@ -1352,7 +1352,7 @@ export class CommercialAnalyticsService {
   private expenseDim(gb?: string) {
     switch (gb) {
       case 'cuenta_mayor':
-        return { key: 'cuenta_mayor', groupSql: 'e.cuenta_mayor, e.cuenta_mayor_nombre', keySql: "COALESCE(e.cuenta_mayor,'?')", labelSql: 'COALESCE(e.cuenta_mayor_nombre, e.cuenta_mayor)', familia: false };
+        return { key: 'cuenta_mayor', groupSql: 'e.cuenta_mayor, e.cuenta_mayor_nombre', keySql: "COALESCE(e.cuenta_mayor,'-')", labelSql: 'COALESCE(e.cuenta_mayor_nombre, e.cuenta_mayor)', familia: false };
       case 'beneficiario':
         return { key: 'beneficiario', groupSql: 'e.beneficiario', keySql: "COALESCE(e.beneficiario,'(sin beneficiario)')", labelSql: "COALESCE(e.beneficiario,'(sin beneficiario)')", familia: false };
       case 'sucursal':
@@ -1391,7 +1391,7 @@ export class CommercialAnalyticsService {
       const byFamilia = await base().clone()
         .groupBy('e.familia')
         .select('e.familia',
-          trx.raw("CASE e.familia WHEN '5' THEN 'Compras / Costo' WHEN '6' THEN 'Gastos' ELSE COALESCE(e.familia,'?') END AS label"),
+          trx.raw("CASE e.familia WHEN '5' THEN 'Compras / Costo' WHEN '6' THEN 'Gastos' ELSE COALESCE(e.familia,'-') END AS label"),
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'))
         .orderByRaw('SUM(importe) DESC');
 
