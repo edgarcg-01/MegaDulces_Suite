@@ -165,12 +165,50 @@ function normArea(raw) {
     }
     console.table(summary);
 
-    // Sin dedup: cada movimiento de póliza es una fila (PK sintética uuid). La
-    // idempotencia se logra por DELETE-ventana (sucursal+fecha) + INSERT abajo.
-    // NO deduplicar por (doc_tipo,folio,linea): los folios se reciclan por año y
-    // las pólizas de diario van sin folio → colapsarían filas reales.
+    // FIX #1 (doble conteo) — Kepler postea compras (511) en DOS capas por una
+    // migración de método: póliza RESUMEN mensual (folio vacío) en 2025 → detalle
+    // por factura (folio real) en 2026. Donde coexisten (dic-2025) el modelo sumaba
+    // ambas = doble conteo; "preferir detalle siempre" sub-contaba 2025 (resúmenes
+    // de $48-66M tirados por detalles mínimos). Regla MAX-por-mes: por
+    // (sucursal, cuenta_mayor, mes) con AMBAS capas presentes, conservar la de MAYOR
+    // importe y descartar la menor (asume que una capa subsume a la otra). Grupos con
+    // una sola capa quedan intactos.
+    const dropSummary = await db.query(`
+      WITH capas AS (
+        SELECT sucursal, cuenta_mayor, to_char(fecha,'YYYY-MM') AS mes,
+               COALESCE(SUM(importe) FILTER (WHERE NULLIF(btrim(COALESCE(doc_folio,'')),'') IS NOT NULL),0) AS det,
+               COALESCE(SUM(importe) FILTER (WHERE NULLIF(btrim(COALESCE(doc_folio,'')),'') IS NULL),0)     AS res
+          FROM stg_exp
+         GROUP BY sucursal, cuenta_mayor, to_char(fecha,'YYYY-MM')
+        HAVING COALESCE(SUM(importe) FILTER (WHERE NULLIF(btrim(COALESCE(doc_folio,'')),'') IS NOT NULL),0) > 0
+           AND COALESCE(SUM(importe) FILTER (WHERE NULLIF(btrim(COALESCE(doc_folio,'')),'') IS NULL),0)     > 0
+      )
+      DELETE FROM stg_exp s USING capas c
+       WHERE s.sucursal = c.sucursal AND s.cuenta_mayor = c.cuenta_mayor
+         AND to_char(s.fecha,'YYYY-MM') = c.mes
+         AND (
+              (c.det >= c.res AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NULL)      -- gana detalle → borrar resumen
+           OR (c.res >  c.det AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NOT NULL)  -- gana resumen → borrar detalle
+         )`);
+    console.log(`Fix#1 MAX-por-mes: ${dropSummary.rowCount} filas de la capa menor descartadas (grupos con detalle+resumen coexistentes).`);
+
+    // FIX #2 (doble-carga) — deduplicar por clave natural ANCHA
+    // (sucursal,doc_tipo,doc_folio,linea,cuenta,importe,fecha). Mata filas
+    // repetidas por overlap de tablas mensuales de Kepler / cargas dobles.
+    const dedup = await db.query(`
+      DELETE FROM stg_exp a USING stg_exp b
+       WHERE a.ctid < b.ctid
+         AND a.sucursal = b.sucursal
+         AND COALESCE(a.doc_tipo,'') = COALESCE(b.doc_tipo,'')
+         AND COALESCE(a.doc_folio,'') = COALESCE(b.doc_folio,'')
+         AND a.linea IS NOT DISTINCT FROM b.linea
+         AND a.cuenta = b.cuenta
+         AND a.importe = b.importe
+         AND a.fecha IS NOT DISTINCT FROM b.fecha`);
+    console.log(`Fix#2 dedup clave-ancha: ${dedup.rowCount} filas duplicadas eliminadas.`);
+
     const staged = (await db.query(`SELECT count(*)::int n FROM stg_exp`)).rows[0].n;
-    console.log(`Staging: ${staged} movimientos de egreso.`);
+    console.log(`Staging final: ${staged} movimientos de egreso.`);
 
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
 
