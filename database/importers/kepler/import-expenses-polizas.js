@@ -63,6 +63,26 @@ function monthWindow(n) {
   return { tables, from, to };
 }
 
+// Normaliza el área/depto (kdm1.c48): mayúsculas, colapsa espacios, mapea typos.
+const AREA_ALIASES = {
+  '8ESQUINAS': '8 ESQUINAS',
+  '8 ESQUIANS': '8 ESQUINAS',
+  '8 EQUINAS': '8 ESQUINAS',
+  'SUC 8 ESQUINAS': '8 ESQUINAS',
+  '40 8 ESQUINAS SUCURSAL': '8 ESQUINAS',
+  'ABASTOS LA PIEDAD': 'LA PIEDAD ABASTOS',
+  'SUC LA PIEDAD ABASTOS': 'LA PIEDAD ABASTOS',
+  'SUC LA PIEDAD': 'LA PIEDAD ABASTOS',
+  'RECURSOS HUMANOS': 'RRHH',
+  'FINANZA': 'FINANZAS',
+};
+function normArea(raw) {
+  if (!raw) return null;
+  const s = String(raw).toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!s) return null;
+  return AREA_ALIASES[s] || s;
+}
+
 (async () => {
   const { tables, from, to } = monthWindow(MONTHS);
   const db = new Client({ connectionString: DST });
@@ -75,8 +95,8 @@ function monthWindow(n) {
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
     await db.query(`CREATE TEMP TABLE stg_exp (
       sucursal text, doc_tipo text, doc_folio text, linea int, fecha date,
-      cuenta text, cuenta_nombre text, familia text, cargo_abono text,
-      beneficiario text, importe numeric) ON COMMIT DROP`);
+      cuenta text, cuenta_nombre text, cuenta_mayor text, cuenta_mayor_nombre text,
+      familia text, cargo_abono text, beneficiario text, area text, importe numeric) ON COMMIT DROP`);
 
     const summary = [];
     for (const b of MAP) {
@@ -93,6 +113,13 @@ function monthWindow(n) {
         const acc = new Map(
           (await src.query(`SELECT c3 AS code, c2 AS nombre FROM md.kdco WHERE c3 IS NOT NULL`)).rows
             .map((r) => [r.code, r.nombre]),
+        );
+        // área/depto por documento (kdm1.c48) — clave doc_tipo-folio.
+        const docArea = new Map(
+          (await src.query(
+            `SELECT (c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0')) AS tipo, c6 AS folio, c48 AS area
+               FROM md.kdm1 WHERE c63 ~ '^X' AND c6 IS NOT NULL`,
+          )).rows.map((r) => [`${r.tipo}-${r.folio}`, normArea(r.area)]),
         );
 
         let movs = 0, monto = 0;
@@ -111,22 +138,25 @@ function monthWindow(n) {
 
           const staged = [];
           for (const r of rows) {
+            const mayor = String(r.cuenta).split('-')[0];
             staged.push([
               r.sucursal || b.code, r.doc_tipo, r.doc_folio, r.linea, r.fecha,
-              r.cuenta, acc.get(r.cuenta) || null, r.familia, r.cargo_abono,
-              r.beneficiario, Number(r.importe) || 0,
+              r.cuenta, acc.get(r.cuenta) || null, mayor, acc.get(mayor) || null,
+              r.familia, r.cargo_abono, r.beneficiario,
+              docArea.get(`${r.doc_tipo}-${r.doc_folio}`) || null, Number(r.importe) || 0,
             ]);
             movs++; monto += Number(r.importe) || 0;
           }
+          const NCOL = 14;
           for (let i = 0; i < staged.length; i += BATCH) {
             const chunk = staged.slice(i, i + BATCH);
             const vals = [], params = [];
             chunk.forEach((row, ri) => {
-              vals.push(`(${Array.from({ length: 11 }, (_, k) => `$${ri * 11 + k + 1}`).join(',')})`);
+              vals.push(`(${Array.from({ length: NCOL }, (_, k) => `$${ri * NCOL + k + 1}`).join(',')})`);
               params.push(...row);
             });
             await db.query(
-              `INSERT INTO stg_exp (sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,familia,cargo_abono,beneficiario,importe)
+              `INSERT INTO stg_exp (sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe)
                VALUES ${vals.join(',')}`, params);
           }
         }
@@ -148,14 +178,15 @@ function monthWindow(n) {
       [M, sucursales, from, to]);
     const up = await db.query(
       `INSERT INTO analytics.expense_entries
-         (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,familia,cargo_abono,beneficiario,importe,computed_at)
+         (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,computed_at)
        SELECT DISTINCT ON (sucursal,doc_tipo,doc_folio,linea)
-              $1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,familia,cargo_abono,beneficiario,importe,now()
+              $1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,now()
          FROM stg_exp
        ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio,linea) DO UPDATE SET
          fecha=EXCLUDED.fecha, cuenta=EXCLUDED.cuenta, cuenta_nombre=EXCLUDED.cuenta_nombre,
+         cuenta_mayor=EXCLUDED.cuenta_mayor, cuenta_mayor_nombre=EXCLUDED.cuenta_mayor_nombre,
          familia=EXCLUDED.familia, cargo_abono=EXCLUDED.cargo_abono,
-         beneficiario=EXCLUDED.beneficiario, importe=EXCLUDED.importe, computed_at=now()`,
+         beneficiario=EXCLUDED.beneficiario, area=EXCLUDED.area, importe=EXCLUDED.importe, computed_at=now()`,
       [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${del.rowCount} borrados (ventana) + ${up.rowCount} upserted.`);

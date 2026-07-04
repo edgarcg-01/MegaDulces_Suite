@@ -1072,9 +1072,18 @@ export class ComercialService {
     return params;
   }
 
-  // ── Fase GX — Egresos contables (pólizas de gastos + compras) ──
+  // ── Fase GX v2 — Egresos contables (motor dinámico) ──
   expenses(p: ExpensesParams) {
     return this.http.get<ExpensesReport>(`${this.base}/analytics/expenses`, { params: this.expensesParams(p) });
+  }
+  expensesTree(p: ExpensesParams) {
+    return this.http.get<ExpensesTree>(`${this.base}/analytics/expenses/tree`, { params: this.expensesParams(p) });
+  }
+  expenseDocuments(p: ExpensesParams) {
+    return this.http.get<ExpenseDocRow[]>(`${this.base}/analytics/expenses/documents`, { params: this.expensesParams(p) });
+  }
+  expensesFilters() {
+    return this.http.get<ExpensesFilters>(`${this.base}/analytics/expenses/filters`);
   }
   expensesSucursales() {
     return this.http.get<{ code: string; name: string | null }[]>(`${this.base}/analytics/expenses/sucursales`);
@@ -1083,10 +1092,17 @@ export class ComercialService {
     let params = new HttpParams();
     if (p.from) params = params.set('from', p.from);
     if (p.to) params = params.set('to', p.to);
+    if (p.group_by) params = params.set('group_by', p.group_by);
+    if (p.compare) params = params.set('compare', 'true');
     if (p.sucursal?.length) params = params.set('sucursal', p.sucursal.join(','));
     if (p.familia) params = params.set('familia', p.familia);
+    if (p.doc_tipo) params = params.set('doc_tipo', p.doc_tipo);
     if (p.cuenta) params = params.set('cuenta', p.cuenta);
+    if (p.cuenta_mayor) params = params.set('cuenta_mayor', p.cuenta_mayor);
+    if (p.area) params = params.set('area', p.area);
     if (p.beneficiario?.trim()) params = params.set('beneficiario', p.beneficiario.trim());
+    if (p.min_importe != null) params = params.set('min_importe', String(p.min_importe));
+    if (p.max_importe != null) params = params.set('max_importe', String(p.max_importe));
     return params;
   }
 }
@@ -1542,26 +1558,58 @@ export interface VendorSaleLine {
   product_id?: string | null;
 }
 
-// ── Fase GX — Egresos contables ──
+// ── Fase GX v2 — Egresos contables ──
+export type ExpenseGroupBy = 'cuenta' | 'cuenta_mayor' | 'beneficiario' | 'sucursal' | 'doc_tipo' | 'area' | 'mes';
 export interface ExpensesParams {
   from?: string;
   to?: string;
+  group_by?: ExpenseGroupBy;
+  compare?: boolean;
   sucursal?: string[];
   familia?: '5' | '6';
+  doc_tipo?: string;
   cuenta?: string;
+  cuenta_mayor?: string;
+  area?: string;
   beneficiario?: string;
+  min_importe?: number;
+  max_importe?: number;
 }
 export interface ExpenseFamiliaRow { familia: string; label: string; total: number; movs: number; }
-export interface ExpenseCuentaRow {
-  cuenta: string;
-  cuenta_nombre: string | null;
-  familia: string;
+export interface ExpenseRow {
+  key: string;
+  label: string;
+  familia: string | null;
   total: number;
   movs: number;
   share_pct: number;
+  prev_total: number | null;
+  delta_pct: number | null;
 }
-export interface ExpenseBeneficiarioRow { beneficiario: string; total: number; movs: number; share_pct: number; }
-export interface ExpenseItemRow {
+export interface ExpenseSeriesPoint { mes: string; total: number; compras: number; gastos: number; }
+export interface ExpensesReport {
+  from: string;
+  to: string;
+  prev_from: string;
+  prev_to: string;
+  group_by: string;
+  total: number;
+  movimientos: number;
+  by_familia: ExpenseFamiliaRow[];
+  rows: ExpenseRow[];
+  series: ExpenseSeriesPoint[];
+}
+export interface ExpenseTreeNode {
+  key: string;
+  label: string;
+  level: string;
+  total: number;
+  movs: number;
+  share_pct: number;
+  children?: ExpenseTreeNode[];
+}
+export interface ExpensesTree { from: string; to: string; total: number; tree: ExpenseTreeNode[]; }
+export interface ExpenseDocRow {
   fecha: string;
   sucursal: string;
   sucursal_nombre: string | null;
@@ -1570,17 +1618,11 @@ export interface ExpenseItemRow {
   beneficiario: string | null;
   cuenta: string;
   cuenta_nombre: string | null;
+  area: string | null;
   importe: number;
 }
-export interface ExpensesReport {
-  from: string;
-  to: string;
-  sucursal: string[] | null;
-  cuenta: string | null;
-  total: number;
-  movimientos: number;
-  by_familia: ExpenseFamiliaRow[];
-  by_cuenta: ExpenseCuentaRow[];
-  by_beneficiario: ExpenseBeneficiarioRow[];
-  items: ExpenseItemRow[];
+export interface ExpensesFilters {
+  doc_tipos: string[];
+  areas: string[];
+  mayores: { code: string; nombre: string | null }[];
 }

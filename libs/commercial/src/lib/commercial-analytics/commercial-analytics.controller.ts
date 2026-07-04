@@ -263,30 +263,81 @@ export class CommercialAnalyticsController {
     return this.service.inventoryHealth({ warehouse_id: warehouseId, status });
   }
 
-  // ─────────── GX — Egresos contables (pólizas de gastos + compras) ───────────
+  // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
 
   @Get('expenses')
   @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
   @ApiOperation({
     summary:
-      'GX — Egresos contables (gastos 6xx + compras 5xx) desde analytics.expense_entries. Sin cuenta → agrupa por cuenta contable (categoría) + familia. Con ?cuenta=511 → drill a beneficiario + documentos. Params: from, to (default 90d), sucursal=csv, familia=5|6, beneficiario.',
+      'GX — Egresos contables agregados por dimensión dinámica (group_by=cuenta|cuenta_mayor|beneficiario|sucursal|doc_tipo|area|mes). Filtros: from,to (90d), sucursal=csv, familia=5|6, doc_tipo, cuenta, cuenta_mayor, area, beneficiario, min_importe, max_importe. compare=true → Δ% vs período previo. Incluye serie mensual.',
   })
   expenses(
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('group_by') groupBy?: string,
+    @Query('compare') compare?: string,
     @Query('sucursal') sucursal?: string,
     @Query('familia') familia?: string,
+    @Query('doc_tipo') docTipo?: string,
     @Query('cuenta') cuenta?: string,
+    @Query('cuenta_mayor') cuentaMayor?: string,
+    @Query('area') area?: string,
     @Query('beneficiario') beneficiario?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
   ) {
     return this.service.expenses({
-      from,
-      to,
-      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
-      familia,
-      cuenta,
-      beneficiario,
+      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte),
+      group_by: groupBy,
+      compare: compare === 'true',
     });
+  }
+
+  @Get('expenses/tree')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX — Árbol jerárquico Familia → Cuenta mayor → Subcuenta (desglose de menú). Mismos filtros que /expenses.' })
+  expensesTree(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('familia') familia?: string,
+    @Query('doc_tipo') docTipo?: string,
+    @Query('area') area?: string,
+    @Query('beneficiario') beneficiario?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ) {
+    return this.service.expensesTree(
+      this.parseExpenseFilters(from, to, sucursal, familia, docTipo, undefined, undefined, area, beneficiario, minImporte, maxImporte),
+    );
+  }
+
+  @Get('expenses/documents')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX — Renglones de egreso (documentos) filtrados. Mismos filtros que /expenses.' })
+  expenseDocuments(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('familia') familia?: string,
+    @Query('doc_tipo') docTipo?: string,
+    @Query('cuenta') cuenta?: string,
+    @Query('cuenta_mayor') cuentaMayor?: string,
+    @Query('area') area?: string,
+    @Query('beneficiario') beneficiario?: string,
+    @Query('min_importe') minImporte?: string,
+    @Query('max_importe') maxImporte?: string,
+  ) {
+    return this.service.expenseDocuments(
+      this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte),
+    );
+  }
+
+  @Get('expenses/filters')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX — Valores para los filtros del reporte (tipos doc, áreas, cuentas mayores).' })
+  expensesFilters() {
+    return this.service.expensesFilters();
   }
 
   @Get('expenses/sucursales')
@@ -294,6 +345,26 @@ export class CommercialAnalyticsController {
   @ApiOperation({ summary: 'GX — Sucursales con egresos (para el selector del reporte).' })
   expensesSucursales() {
     return this.service.expensesSucursales();
+  }
+
+  private parseExpenseFilters(
+    from?: string, to?: string, sucursal?: string, familia?: string, docTipo?: string,
+    cuenta?: string, cuentaMayor?: string, area?: string, beneficiario?: string,
+    minImporte?: string, maxImporte?: string,
+  ) {
+    return {
+      from,
+      to,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      familia,
+      doc_tipo: docTipo,
+      cuenta,
+      cuenta_mayor: cuentaMayor,
+      area,
+      beneficiario,
+      min_importe: minImporte != null && minImporte !== '' ? Number(minImporte) : undefined,
+      max_importe: maxImporte != null && maxImporte !== '' ? Number(maxImporte) : undefined,
+    };
   }
 
   @Get('erp-customers')

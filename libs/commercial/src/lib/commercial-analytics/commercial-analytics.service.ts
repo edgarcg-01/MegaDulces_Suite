@@ -1312,134 +1312,214 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /**
-   * GX — Egresos contables (gastos + compras) desde analytics.expense_entries.
-   * Sin `cuenta` → agrupa por cuenta contable (la "categoría"). Con `cuenta` →
-   * drill a beneficiario + documentos de esa cuenta. Filtros: from/to (default
-   * 90d), sucursal(es), familia ('5' compras / '6' gastos). Filtro de tenant
-   * explícito (analytics sin RLS).
-   */
-  async expenses(q: {
-    from?: string;
-    to?: string;
-    sucursal?: string[];
-    familia?: string;
-    cuenta?: string;
-    beneficiario?: string;
-  }) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const to = q.to || new Date().toISOString().slice(0, 10);
-    const from =
-      q.from ||
-      (() => {
-        const d = new Date(to);
-        d.setDate(d.getDate() - 90);
-        return d.toISOString().slice(0, 10);
-      })();
-    return this.tk.run(async (trx) => {
-      const base = () => {
-        const b = trx('analytics.expense_entries as e')
-          .where('e.tenant_id', tenantId)
-          .andWhere('e.fecha', '>=', from)
-          .andWhere('e.fecha', '<=', to);
-        if (q.sucursal?.length) b.whereIn('e.sucursal', q.sucursal);
-        if (q.familia) b.where('e.familia', q.familia);
-        if (q.cuenta) b.where('e.cuenta', q.cuenta);
-        if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
-        return b;
-      };
+  // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
 
-      const totalsRow: any = await base()
-        .clone()
-        .select(
-          trx.raw('COALESCE(SUM(importe),0)::numeric AS total'),
-          trx.raw('COUNT(*)::int AS movs'),
-        )
+  private static readonly EXPENSE_FILTER_KEYS = [
+    'sucursal', 'familia', 'doc_tipo', 'cuenta', 'cuenta_mayor', 'area', 'beneficiario',
+    'min_importe', 'max_importe',
+  ] as const;
+
+  /** Rango [from,to] con default 90d + período previo del mismo largo. */
+  private expenseRange(q: { from?: string; to?: string }) {
+    const to = q.to || new Date().toISOString().slice(0, 10);
+    const from = q.from || (() => { const d = new Date(to); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); })();
+    const DAY = 86400000;
+    const span = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / DAY) + 1);
+    const prev_to = new Date(Date.parse(from) - DAY).toISOString().slice(0, 10);
+    const prev_from = new Date(Date.parse(from) - DAY * span).toISOString().slice(0, 10);
+    return { from, to, prev_from, prev_to };
+  }
+
+  /** Query base de expense_entries con todos los filtros aplicados. */
+  private expenseQuery(trx: any, tenantId: string, from: string, to: string, q: any) {
+    const b = trx('analytics.expense_entries as e')
+      .where('e.tenant_id', tenantId)
+      .andWhere('e.fecha', '>=', from)
+      .andWhere('e.fecha', '<=', to);
+    if (q.sucursal?.length) b.whereIn('e.sucursal', q.sucursal);
+    if (q.familia) b.where('e.familia', q.familia);
+    if (q.doc_tipo) b.where('e.doc_tipo', q.doc_tipo);
+    if (q.cuenta) b.where('e.cuenta', q.cuenta);
+    if (q.cuenta_mayor) b.where('e.cuenta_mayor', q.cuenta_mayor);
+    if (q.area) b.where('e.area', q.area);
+    if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
+    if (q.min_importe != null) b.where('e.importe', '>=', q.min_importe);
+    if (q.max_importe != null) b.where('e.importe', '<=', q.max_importe);
+    return b;
+  }
+
+  /** Mapea la dimensión de agrupación (group_by) a SQL. */
+  private expenseDim(gb?: string) {
+    switch (gb) {
+      case 'cuenta_mayor':
+        return { key: 'cuenta_mayor', groupSql: 'e.cuenta_mayor, e.cuenta_mayor_nombre', keySql: "COALESCE(e.cuenta_mayor,'?')", labelSql: 'COALESCE(e.cuenta_mayor_nombre, e.cuenta_mayor)', familia: false };
+      case 'beneficiario':
+        return { key: 'beneficiario', groupSql: 'e.beneficiario', keySql: "COALESCE(e.beneficiario,'(sin beneficiario)')", labelSql: "COALESCE(e.beneficiario,'(sin beneficiario)')", familia: false };
+      case 'sucursal':
+        return { key: 'sucursal', groupSql: 'e.sucursal', keySql: 'e.sucursal', labelSql: 'e.sucursal', familia: false };
+      case 'doc_tipo':
+        return { key: 'doc_tipo', groupSql: 'e.doc_tipo', keySql: 'e.doc_tipo', labelSql: 'e.doc_tipo', familia: false };
+      case 'area':
+        return { key: 'area', groupSql: 'e.area', keySql: "COALESCE(e.area,'(sin área)')", labelSql: "COALESCE(e.area,'(sin área)')", familia: false };
+      case 'mes':
+        return { key: 'mes', groupSql: "to_char(e.fecha,'YYYY-MM')", keySql: "to_char(e.fecha,'YYYY-MM')", labelSql: "to_char(e.fecha,'YYYY-MM')", familia: false };
+      case 'cuenta':
+      default:
+        return { key: 'cuenta', groupSql: 'e.cuenta, e.cuenta_nombre, e.familia', keySql: 'e.cuenta', labelSql: 'COALESCE(e.cuenta_nombre, e.cuenta)', familia: true };
+    }
+  }
+
+  /**
+   * GX v2 — Egresos contables agregados por dimensión dinámica (`group_by`):
+   * cuenta | cuenta_mayor | beneficiario | sucursal | doc_tipo | area | mes.
+   * Filtros: from/to (default 90d), sucursal[], familia, doc_tipo, cuenta,
+   * cuenta_mayor, area, beneficiario(ILIKE), min/max importe. `compare=true` →
+   * Δ% vs período previo del mismo largo. Incluye serie mensual (compras/gastos).
+   */
+  async expenses(q: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to, prev_from, prev_to } = this.expenseRange(q);
+    const dim = this.expenseDim(q.group_by);
+    return this.tk.run(async (trx) => {
+      const base = (f = from, t = to) => this.expenseQuery(trx, tenantId, f, t, q);
+
+      const totalsRow: any = await base().clone()
+        .select(trx.raw('COALESCE(SUM(importe),0)::numeric AS total'), trx.raw('COUNT(*)::int AS movs'))
         .first();
       const total = Number(totalsRow?.total || 0);
 
-      const byFamilia = await base()
-        .clone()
+      const byFamilia = await base().clone()
         .groupBy('e.familia')
+        .select('e.familia',
+          trx.raw("CASE e.familia WHEN '5' THEN 'Compras / Costo' WHEN '6' THEN 'Gastos' ELSE COALESCE(e.familia,'?') END AS label"),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'))
+        .orderByRaw('SUM(importe) DESC');
+
+      const rowsQ = base().clone()
+        .groupByRaw(dim.groupSql)
         .select(
-          'e.familia',
-          trx.raw(
-            "CASE e.familia WHEN '5' THEN 'Compras / Costo' WHEN '6' THEN 'Gastos' ELSE e.familia END AS label",
-          ),
+          trx.raw(`${dim.keySql} AS key`),
+          trx.raw(`${dim.labelSql} AS label`),
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
           trx.raw('COUNT(*)::int AS movs'),
         )
-        .orderByRaw('SUM(importe) DESC');
+        .orderByRaw('SUM(importe) DESC')
+        .limit(1000);
+      if (dim.familia) rowsQ.select(trx.raw('MAX(e.familia) AS familia'));
+      const rows: any[] = await rowsQ;
 
-      let by_cuenta: any[] = [];
-      let by_beneficiario: any[] = [];
-      let items: any[] = [];
-      if (!q.cuenta) {
-        // Nivel principal: por cuenta contable (categoría).
-        by_cuenta = await base()
-          .clone()
-          .groupBy('e.cuenta', 'e.cuenta_nombre', 'e.familia')
-          .select(
-            'e.cuenta',
-            'e.cuenta_nombre',
-            'e.familia',
-            trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
-            trx.raw('COUNT(*)::int AS movs'),
-          )
-          .orderByRaw('SUM(importe) DESC')
-          .limit(500);
-      } else {
-        // Drill: beneficiarios de la cuenta + documentos.
-        by_beneficiario = await base()
-          .clone()
-          .groupBy('e.beneficiario')
-          .select(
-            trx.raw("COALESCE(e.beneficiario,'(sin beneficiario)') AS beneficiario"),
-            trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
-            trx.raw('COUNT(*)::int AS movs'),
-          )
-          .orderByRaw('SUM(importe) DESC')
-          .limit(500);
-        items = await base()
-          .clone()
-          .leftJoin('commercial.warehouses as w', function () {
-            this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
-          })
-          .select(
-            'e.fecha',
-            'e.sucursal',
-            'w.name as sucursal_nombre',
-            'e.doc_tipo',
-            'e.doc_folio',
-            'e.beneficiario',
-            'e.cuenta',
-            'e.cuenta_nombre',
-            trx.raw('e.importe::numeric AS importe'),
-          )
-          .orderBy('e.fecha', 'desc')
-          .limit(2000);
+      let prevMap = new Map<string, number>();
+      if (q.compare) {
+        const prev = await base(prev_from, prev_to).clone()
+          .groupByRaw(dim.groupSql)
+          .select(trx.raw(`${dim.keySql} AS key`), trx.raw('SUM(importe)::numeric AS total'));
+        prevMap = new Map(prev.map((r: any) => [String(r.key), Number(r.total)]));
       }
 
-      const withShare = (rows: any[]) =>
-        rows.map((r) => ({
-          ...r,
-          total: Number(r.total),
-          movs: Number(r.movs),
-          share_pct: total ? +((Number(r.total) / total) * 100).toFixed(1) : 0,
-        }));
+      const series = await base().clone()
+        .groupByRaw("to_char(e.fecha,'YYYY-MM')")
+        .select(
+          trx.raw("to_char(e.fecha,'YYYY-MM') AS mes"),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
+          trx.raw("ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia='5'),0)::numeric,2) AS compras"),
+          trx.raw("ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia='6'),0)::numeric,2) AS gastos"),
+        )
+        .orderBy('mes');
 
       return {
-        from,
-        to,
-        sucursal: q.sucursal || null,
-        cuenta: q.cuenta || null,
+        from, to, prev_from, prev_to,
+        group_by: dim.key,
         total: +total.toFixed(2),
         movimientos: Number(totalsRow?.movs || 0),
         by_familia: byFamilia.map((r: any) => ({ ...r, total: Number(r.total), movs: Number(r.movs) })),
-        by_cuenta: withShare(by_cuenta),
-        by_beneficiario: withShare(by_beneficiario),
-        items: items.map((r: any) => ({ ...r, importe: Number(r.importe) })),
+        rows: rows.map((r: any) => {
+          const t = Number(r.total);
+          const prev = prevMap.get(String(r.key));
+          return {
+            key: r.key, label: r.label, familia: r.familia ?? null,
+            total: t, movs: Number(r.movs),
+            share_pct: total ? +((t / total) * 100).toFixed(1) : 0,
+            prev_total: prev ?? null,
+            delta_pct: q.compare && prev ? +(((t - prev) / prev) * 100).toFixed(1) : null,
+          };
+        }),
+        series: series.map((r: any) => ({ mes: r.mes, total: Number(r.total), compras: Number(r.compras) || 0, gastos: Number(r.gastos) || 0 })),
       };
+    });
+  }
+
+  /**
+   * GX v2 — Árbol jerárquico para el desglose tipo menú:
+   * Familia → Cuenta mayor → Subcuenta. Con totales/movs/share por nodo.
+   * Los niveles beneficiario/documento se cargan on-demand vía expenses()/expenseDocuments().
+   */
+  async expensesTree(q: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await this.expenseQuery(trx, tenantId, from, to, q)
+        .groupBy('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre')
+        .select('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre',
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
+
+      const total = rows.reduce((a, r) => a + Number(r.total), 0);
+      const famLabel = (f: string) => (f === '5' ? 'Compras / Costo' : f === '6' ? 'Gastos' : f || '?');
+      const fam = new Map<string, any>();
+      for (const r of rows) {
+        const fk = r.familia || '?';
+        if (!fam.has(fk)) fam.set(fk, { key: fk, label: famLabel(fk), total: 0, movs: 0, children: new Map() });
+        const F = fam.get(fk);
+        F.total += Number(r.total); F.movs += Number(r.movs);
+        const mk = r.cuenta_mayor || '?';
+        if (!F.children.has(mk)) F.children.set(mk, { key: mk, label: r.cuenta_mayor_nombre || r.cuenta_mayor || '?', total: 0, movs: 0, children: [] });
+        const Mn = F.children.get(mk);
+        Mn.total += Number(r.total); Mn.movs += Number(r.movs);
+        Mn.children.push({ key: r.cuenta, label: r.cuenta_nombre || r.cuenta, total: Number(r.total), movs: Number(r.movs) });
+      }
+      const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
+      const tree = [...fam.values()]
+        .sort((a, b) => b.total - a.total)
+        .map((F) => ({
+          key: F.key, label: F.label, level: 'familia', total: F.total, movs: F.movs, share_pct: share(F.total),
+          children: [...F.children.values()].sort((a, b) => b.total - a.total).map((Mn: any) => ({
+            key: Mn.key, label: Mn.label, level: 'mayor', total: Mn.total, movs: Mn.movs, share_pct: share(Mn.total),
+            children: Mn.children.sort((a: any, b: any) => b.total - a.total)
+              .map((S: any) => ({ ...S, level: 'cuenta', share_pct: share(S.total) })),
+          })),
+        }));
+      return { from, to, total: +total.toFixed(2), tree };
+    });
+  }
+
+  /** GX v2 — Renglones de egreso de un documento (drill final). */
+  async expenseDocuments(q: any) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.expenseRange(q);
+    return this.tk.run(async (trx) => {
+      const items = await this.expenseQuery(trx, tenantId, from, to, q)
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
+        })
+        .select('e.fecha', 'e.sucursal', 'w.name as sucursal_nombre', 'e.doc_tipo', 'e.doc_folio',
+          'e.beneficiario', 'e.cuenta', 'e.cuenta_nombre', 'e.area', trx.raw('e.importe::numeric AS importe'))
+        .orderBy('e.fecha', 'desc')
+        .limit(3000);
+      return items.map((r: any) => ({ ...r, importe: Number(r.importe) }));
+    });
+  }
+
+  /** GX v2 — Valores para poblar los filtros del reporte (tipos doc, áreas, mayores). */
+  async expensesFilters() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const base = () => trx('analytics.expense_entries').where('tenant_id', tenantId);
+      const [doc_tipos, areas, mayores] = await Promise.all([
+        base().distinct('doc_tipo').whereNotNull('doc_tipo').orderBy('doc_tipo').then((r) => r.map((x: any) => x.doc_tipo)),
+        base().distinct('area').whereNotNull('area').orderBy('area').then((r) => r.map((x: any) => x.area)),
+        base().distinct('cuenta_mayor', 'cuenta_mayor_nombre').whereNotNull('cuenta_mayor').orderBy('cuenta_mayor')
+          .then((r) => r.map((x: any) => ({ code: x.cuenta_mayor, nombre: x.cuenta_mayor_nombre }))),
+      ]);
+      return { doc_tipos, areas, mayores };
     });
   }
 
