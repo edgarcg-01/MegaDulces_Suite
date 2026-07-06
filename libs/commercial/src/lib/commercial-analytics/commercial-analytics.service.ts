@@ -1531,7 +1531,8 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.warehouses as w', function () {
           this.on('w.tenant_id', 'd.tenant_id').andOn('w.code', 'd.sucursal');
         })
-        .where(key)
+        // columnas calificadas con d.* — el join con warehouses también tiene tenant_id/sucursal (evita 42702 ambiguo)
+        .where({ 'd.tenant_id': tenantId, 'd.sucursal': sucursal, 'd.doc_tipo': doc_tipo, 'd.doc_folio': folio })
         .select('d.sucursal', 'w.name as sucursal_nombre', 'd.doc_tipo', 'd.doc_folio',
           'd.fecha', 'd.fecha_doc', 'd.beneficiario', 'd.rfc', 'd.concepto', 'd.area',
           trx.raw('d.importe::numeric AS importe'), trx.raw('d.iva::numeric AS iva'),
@@ -1613,25 +1614,27 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(5000, Math.max(1, Number(q.limit) || 500));
     return this.tk.run(async (trx) => {
+      // alias f.* en todo — la query de filas hace join con warehouses (que también
+      // tiene tenant_id) → calificar evita el 42702 "column reference ambiguous".
       const base = () => {
-        const b = trx('analytics.expense_findings').where('tenant_id', tenantId);
-        if (q.sucursal?.length) b.whereIn('sucursal', q.sucursal);
+        const b = trx('analytics.expense_findings as f').where('f.tenant_id', tenantId);
+        if (q.sucursal?.length) b.whereIn('f.sucursal', q.sucursal);
         return b;
       };
       const summary = await base()
-        .groupBy('tipo')
-        .select('tipo', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(importe)::numeric,2) AS total'))
-        .orderByRaw('SUM(importe) DESC');
+        .groupBy('f.tipo')
+        .select('f.tipo as tipo', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(f.importe)::numeric,2) AS total'))
+        .orderByRaw('SUM(f.importe) DESC');
 
       let rows: any[] = [];
       if (q.tipo) {
-        rows = await base().where('tipo', q.tipo)
+        rows = await base().where('f.tipo', q.tipo)
           .leftJoin('commercial.warehouses as w', function () {
-            this.on('w.tenant_id', 'analytics.expense_findings.tenant_id').andOn('w.code', 'analytics.expense_findings.sucursal');
+            this.on('w.tenant_id', 'f.tenant_id').andOn('w.code', 'f.sucursal');
           })
-          .select('fecha', 'sucursal', 'w.name as sucursal_nombre', 'doc_tipo', 'doc_folio',
-            'beneficiario', 'cuenta', trx.raw('analytics.expense_findings.importe::numeric AS importe'), 'nota')
-          .orderBy('analytics.expense_findings.importe', 'desc')
+          .select('f.fecha', 'f.sucursal', 'w.name as sucursal_nombre', 'f.doc_tipo', 'f.doc_folio',
+            'f.beneficiario', 'f.cuenta', trx.raw('f.importe::numeric AS importe'), 'f.nota')
+          .orderBy('f.importe', 'desc')
           .limit(limit);
       }
       return {
