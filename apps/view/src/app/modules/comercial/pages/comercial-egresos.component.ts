@@ -565,6 +565,7 @@ export class ComercialEgresosComponent {
 
   /** Click en fila de tabla dinámica → drill: si es cuenta/beneficiario carga documentos. */
   drillRow(row: ExpenseRow) {
+    console.log('[egresos] drillRow CLICK →', { group_by: this.groupBy(), key: row?.key, label: row?.label });
     const gb = this.groupBy();
     const extra: Partial<ExpensesParams> = {};
     if (gb === 'cuenta') extra.cuenta = row.key;
@@ -585,14 +586,19 @@ export class ComercialEgresosComponent {
   }
 
   openCuenta(cuenta: string, label: string) {
+    console.log('[egresos] openCuenta CLICK →', { cuenta, label });
     this.loadDocs({ cuenta }, `Cuenta ${cuenta} · ${label}`);
   }
 
   private loadDocs(extra: Partial<ExpensesParams>, title: string) {
+    console.log('[egresos] loadDocs → llamando /documents con', extra);
     this.docsTitle.set(title);
     this.docsSub?.unsubscribe();
     this.docsSub = this.svc.expenseDocuments(this.params(extra)).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (d) => this.docs.set(d), error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }) });
+      .subscribe({
+        next: (d) => { console.log('[egresos] /documents OK →', d?.length, 'documentos'); this.docs.set(d); },
+        error: (err) => { console.error('[egresos] /documents ERROR →', err?.status, err?.message); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }); },
+      });
   }
 
   closeDocs() { this.docsTitle.set(''); this.docs.set([]); }
