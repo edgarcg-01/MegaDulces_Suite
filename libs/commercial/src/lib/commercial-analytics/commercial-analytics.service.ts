@@ -1669,7 +1669,6 @@ export class CommercialAnalyticsService {
         trx.raw('SUM(saldo)::numeric AS saldo'),
         trx.raw('SUM(num_facturas)::int AS num_facturas'),
         trx.raw('MAX(ultima_compra) AS ultima_compra'),
-        trx.raw('ROUND(AVG(dpo_dias))::int AS dpo_dias'),
       ).first();
 
       const lp = trx('analytics.expense_document_lines as l')
@@ -1690,14 +1689,18 @@ export class CommercialAnalyticsService {
         .limit(20);
 
       const has = s && Number(s.compra_12m) > 0;
+      const compra = Number(s?.compra_12m || 0);
+      const saldo = Number(s?.saldo || 0);
+      // DPO ponderado desde los agregados (no AVG por-sucursal, que sesga con sucursales chicas)
+      const dpo = compra > 0 && saldo > 0 ? Math.round(saldo / (compra / 365)) : null;
       return {
         summary: has ? {
           proveedor: s.proveedor,
-          compra_12m: Number(s.compra_12m),
+          compra_12m: compra,
           pagos_12m: Number(s.pagos_12m),
-          saldo: Number(s.saldo),
+          saldo,
           num_facturas: Number(s.num_facturas),
-          dpo_dias: s.dpo_dias != null ? Number(s.dpo_dias) : null,
+          dpo_dias: dpo,
           ultima_compra: s.ultima_compra,
         } : null,
         top_products: products.map((r: any) => ({
