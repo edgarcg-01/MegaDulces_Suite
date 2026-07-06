@@ -121,6 +121,20 @@ const CHANNEL_OPTS = [
                          placeholder="Todos" [showClear]="true" appendTo="body" styleClass="w-full" />
         </div>
 
+        <div class="so-field so-search-field">
+          <label>Buscar SKU</label>
+          <span class="so-search">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <input pInputText type="search" [ngModel]="productSearch()" (ngModelChange)="productSearch.set($event)"
+                   placeholder="SKU o descripción…" aria-label="Buscar producto" autocomplete="off" />
+            @if (productSearch()) {
+              <button type="button" class="so-search-clear" (click)="productSearch.set('')" aria-label="Limpiar búsqueda">
+                <i class="pi pi-times" aria-hidden="true"></i>
+              </button>
+            }
+          </span>
+        </div>
+
         <div class="so-field">
           <label>Medida</label>
           <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
@@ -210,22 +224,10 @@ const CHANNEL_OPTS = [
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
               <h3 class="text-sm font-bold text-content-main">Detalle por producto</h3>
-              <div class="so-matrix-tools">
-                <span class="so-matrix-count">
-                  @if (productSearch().trim()) { {{ filteredRows().length }} de {{ r.rows.length }} productos }
-                  @else { {{ r.rows.length }} productos · {{ r.columns.length }} col. }
-                </span>
-                <span class="so-search">
-                  <i class="pi pi-search" aria-hidden="true"></i>
-                  <input pInputText type="search" [ngModel]="productSearch()" (ngModelChange)="productSearch.set($event)"
-                         placeholder="Buscar producto…" aria-label="Buscar producto" autocomplete="off" />
-                  @if (productSearch()) {
-                    <button type="button" class="so-search-clear" (click)="productSearch.set('')" aria-label="Limpiar búsqueda">
-                      <i class="pi pi-times" aria-hidden="true"></i>
-                    </button>
-                  }
-                </span>
-              </div>
+              <span class="so-matrix-count">
+                @if (productSearch().trim()) { {{ filteredRows().length }} de {{ r.rows.length }} productos }
+                @else { {{ r.rows.length }} productos · {{ r.columns.length }} columnas }
+              </span>
             </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
@@ -573,7 +575,7 @@ export class ComercialSellOutComponent {
     this.svc.sellOut(this.buildParams())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.productSearch.set(''); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.loading.set(false); },
         error: (e) => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al generar', detail: e?.error?.message }); },
       });
   }
