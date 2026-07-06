@@ -478,9 +478,10 @@ export class CommercialAnalyticsController {
     @Query('channels') channels?: string,
     @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
+    @Query('search') search?: string,
   ) {
     return this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search),
     );
   }
 
@@ -496,9 +497,10 @@ export class CommercialAnalyticsController {
     @Query('channels') channels?: string,
     @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
+    @Query('search') search?: string,
   ) {
     const report = await this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search),
     );
     const buf = await this.exporter.buildXlsx(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
@@ -517,9 +519,10 @@ export class CommercialAnalyticsController {
     @Query('channels') channels?: string,
     @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
+    @Query('search') search?: string,
   ) {
     const report = await this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search),
     );
     const buf = await this.exporter.buildPdf(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
@@ -650,6 +653,7 @@ export class CommercialAnalyticsController {
     channels?: string,
     warehouses?: string,
     includeZeros?: string,
+    search?: string,
   ) {
     const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
     return {
@@ -660,6 +664,7 @@ export class CommercialAnalyticsController {
       channels: csv(channels),
       warehouses: csv(warehouses),
       include_zeros: includeZeros === 'true',
+      search: search?.trim() || undefined,
     };
   }
 

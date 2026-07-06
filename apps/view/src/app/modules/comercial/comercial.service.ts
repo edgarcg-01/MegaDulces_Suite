@@ -1062,13 +1062,14 @@ export class ComercialService {
 
   private sellOutParams(opts: SellOutParams): HttpParams {
     let params = new HttpParams()
-      .set('brand_id', opts.brand_id)
       .set('from', opts.from)
       .set('to', opts.to);
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
     if (opts.group_by) params = params.set('group_by', opts.group_by);
     if (opts.channels?.length) params = params.set('channels', opts.channels.join(','));
     if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     return params;
   }
 
@@ -1137,13 +1138,14 @@ export interface SellOutBrandRow {
 }
 
 export interface SellOutParams {
-  brand_id: string;
+  brand_id?: string;
   from: string;
   to: string;
   group_by?: 'branch' | 'branch_channel';
   channels?: string[];
   warehouses?: string[];
   include_zeros?: boolean;
+  search?: string;
 }
 
 export interface SellOutWarehouseRow {

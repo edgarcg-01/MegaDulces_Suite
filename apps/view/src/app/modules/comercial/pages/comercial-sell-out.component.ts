@@ -20,6 +20,7 @@ import {
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
+import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { REPORTS_TABS } from '../reports-tabs';
 
 type PeriodMode = 'month' | 'quarter' | 'year' | 'range';
@@ -39,7 +40,7 @@ const CHANNEL_OPTS = [
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule,
-    PageTabsComponent, SegmentedComponent,
+    PageTabsComponent, SegmentedComponent, ProductSearchComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,8 +61,9 @@ const CHANNEL_OPTS = [
         <div class="so-field so-empresa">
           <label>Empresa</label>
           <p-select [options]="brands()" [ngModel]="brandId()" (ngModelChange)="brandId.set($event)" optionLabel="nombre" optionValue="id"
-                    [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Elegí una empresa…"
-                    [loading]="loadingBrands()" appendTo="body" styleClass="w-full">
+                    [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Todas las empresas"
+                    [loading]="loadingBrands()" appendTo="body" styleClass="w-full"
+                    (onChange)="generate()" (onClear)="generate()">
             <ng-template let-b pTemplate="item">
               <span>{{ b.nombre }}</span>
               <span class="so-badge">{{ b.products }}</span>
@@ -123,16 +125,7 @@ const CHANNEL_OPTS = [
 
         <div class="so-field so-search-field">
           <label>Buscar SKU</label>
-          <span class="so-search">
-            <i class="pi pi-search" aria-hidden="true"></i>
-            <input pInputText type="search" [ngModel]="productSearch()" (ngModelChange)="productSearch.set($event)"
-                   placeholder="SKU o descripción…" aria-label="Buscar producto" autocomplete="off" />
-            @if (productSearch()) {
-              <button type="button" class="so-search-clear" (click)="productSearch.set('')" aria-label="Limpiar búsqueda">
-                <i class="pi pi-times" aria-hidden="true"></i>
-              </button>
-            }
-          </span>
+          <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
 
         <div class="so-field">
@@ -147,7 +140,7 @@ const CHANNEL_OPTS = [
 
         <div class="so-actions">
           <button pButton label="Generar" icon="pi pi-search" size="small"
-                  [disabled]="!canGenerate()" [loading]="loading()" (click)="generate()"></button>
+                  [loading]="loading()" (click)="generate()"></button>
         </div>
       </div>
 
@@ -224,10 +217,7 @@ const CHANNEL_OPTS = [
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
               <h3 class="text-sm font-bold text-content-main">Detalle por producto</h3>
-              <span class="so-matrix-count">
-                @if (productSearch().trim()) { {{ filteredRows().length }} de {{ r.rows.length }} productos }
-                @else { {{ r.rows.length }} productos · {{ r.columns.length }} columnas }
-              </span>
+              <span class="so-matrix-count">{{ r.rows.length }} productos · {{ r.columns.length }} columnas</span>
             </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
@@ -249,7 +239,7 @@ const CHANNEL_OPTS = [
                 </tr>
               </thead>
               <tbody>
-                @for (row of filteredRows(); track row.product_id) {
+                @for (row of r.rows; track row.product_id) {
                   <tr>
                     <td class="frz c0 mono">{{ row.sku }}</td>
                     <td class="frz c1 name">{{ row.nombre }}</td>
@@ -262,19 +252,16 @@ const CHANNEL_OPTS = [
                     @if (showMonto()) { <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   </tr>
                 }
-                @if (!filteredRows().length) {
-                  <tr><td [attr.colspan]="99" class="so-matrix-empty">Ningún producto coincide con «{{ productSearch() }}».</td></tr>
-                }
               </tbody>
               <tfoot>
                 <tr class="tot-row">
                   <td class="frz c0" colspan="3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
-                    @if (showCajas()) { <td class="n">{{ (filteredTotals().columns[c.key]?.cajas ?? 0) | number:'1.0-2' }}</td> }
-                    @if (showMonto()) { <td class="n m">{{ (filteredTotals().columns[c.key]?.monto ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                    @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
+                    @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   }
-                  @if (showCajas()) { <td class="n">{{ filteredTotals().grand.cajas | number:'1.0-2' }}</td> }
-                  @if (showMonto()) { <td class="n m">{{ filteredTotals().grand.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                  @if (showCajas()) { <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td> }
+                  @if (showMonto()) { <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                 </tr>
               </tfoot>
             </table>
@@ -297,6 +284,10 @@ const CHANNEL_OPTS = [
     .so-field { display:flex; flex-direction:column; gap:.3rem; }
     .so-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .so-empresa { flex:0 1 300px; min-width:240px; }
+    .so-search-field { flex:0 1 260px; min-width:200px; }
+    .so-search-field app-product-search { display:block; width:100%; }
+    :host ::ng-deep .so-search-field .ps-ac,
+    :host ::ng-deep .so-search-field .ps-ac .p-autocomplete-input { width:100%; min-width:0; }
     .so-year { max-width:110px; }
     .so-badge { margin-left:.5rem; font-size:.7rem; color:var(--text-muted); }
     /* segmented → app-segmented (átomo compartido) */
@@ -412,35 +403,9 @@ export class ComercialSellOutComponent {
   dl = signal<'' | 'xlsx' | 'pdf'>('');
   report = signal<SellOutReport | null>(null);
   meta = signal<{ brand: string; period: string; channels: string } | null>(null);
-  productSearch = signal('');
+  // Filtro por producto (SKU/descr) — server-side, aplica en TODAS las empresas.
+  search = signal('');
   readonly skelRows = [0, 1, 2, 3, 4, 5, 6];
-
-  /** Filtro cliente por SKU/descripción sobre las filas de la matriz. */
-  readonly filteredRows = computed(() => {
-    const r = this.report();
-    if (!r) return [];
-    const q = this.productSearch().trim().toLowerCase();
-    if (!q) return r.rows;
-    return r.rows.filter((row) =>
-      (row.sku || '').toLowerCase().includes(q) || (row.nombre || '').toLowerCase().includes(q));
-  });
-
-  /** Totales del footer recalculados desde las filas visibles (consistente con el filtro). */
-  readonly filteredTotals = computed(() => {
-    const r = this.report();
-    const columns: Record<string, { cajas: number; monto: number }> = {};
-    if (!r) return { columns, grand: { cajas: 0, monto: 0 } };
-    for (const c of r.columns) columns[c.key] = { cajas: 0, monto: 0 };
-    let gc = 0, gm = 0;
-    for (const row of this.filteredRows()) {
-      for (const c of r.columns) {
-        const cell = row.cells[c.key];
-        if (cell) { columns[c.key].cajas += cell.cajas || 0; columns[c.key].monto += cell.monto || 0; }
-      }
-      gc += row.total?.cajas || 0; gm += row.total?.monto || 0;
-    }
-    return { columns, grand: { cajas: gc, monto: gm } };
-  });
   readonly modeOpts = this.modes.map((m) => ({ label: m.label, value: m.key }));
 
   // form state
@@ -477,8 +442,6 @@ export class ComercialSellOutComponent {
     return [y, y - 1, y - 2, y - 3];
   });
 
-  canGenerate = computed(() => !!this.brandId());
-
   constructor() {
     const now = new Date();
     // Default = mes anterior (cerrado). El mes en curso casi no tiene venta
@@ -489,6 +452,14 @@ export class ComercialSellOutComponent {
     this.syncPeriod();
     this.loadBrands();
     this.loadWarehouses();
+    // Al entrar: reporte general de TODAS las empresas (empresa opcional).
+    this.generate();
+  }
+
+  /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera. */
+  onProductPick(hit: ProductHit | null): void {
+    this.search.set(hit ? (hit.sku || hit.label) : '');
+    this.generate();
   }
 
   private loadBrands() {
@@ -543,32 +514,36 @@ export class ComercialSellOutComponent {
   }
 
   private buildMeta(): { brand: string; period: string; channels: string } {
-    const brand = this.brands().find((b) => b.id === this.brandId())?.nombre ?? '—';
+    const brand = this.brandId()
+      ? (this.brands().find((b) => b.id === this.brandId())?.nombre ?? '—')
+      : 'Todas las empresas';
     const period = this.curFrom === this.curTo
       ? this.fmtDMY(this.curFrom)
       : `${this.fmtDMY(this.curFrom)} – ${this.fmtDMY(this.curTo)}`;
     const channels = this.channels.length
       ? this.channels.map((c) => this.channelOpts.find((o) => o.value === c)?.label ?? c).join(', ')
       : 'Todos los canales';
-    return { brand, period, channels };
+    const productLabel = this.search() ? ` · SKU «${this.search()}»` : '';
+    return { brand, period, channels: channels + productLabel };
   }
 
   private buildParams(): SellOutParams {
     return {
-      brand_id: this.brandId()!,
+      brand_id: this.brandId() || undefined,
       from: this.curFrom,
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
       channels: this.channels.length ? this.channels : undefined,
       warehouses: this.warehouses.length ? this.warehouses : undefined,
       include_zeros: this.includeZeros,
+      search: this.search() || undefined,
     };
   }
 
   generate() {
     this.syncPeriod();
-    if (!this.brandId() || !this.curFrom || !this.curTo) {
-      this.toast.add({ severity: 'warn', summary: 'Falta empresa o periodo' });
+    if (!this.curFrom || !this.curTo) {
+      this.toast.add({ severity: 'warn', summary: 'Elegí un periodo' });
       return;
     }
     this.loading.set(true);
@@ -581,7 +556,7 @@ export class ComercialSellOutComponent {
   }
 
   download(fmt: 'xlsx' | 'pdf') {
-    if (!this.brandId()) return;
+    if (!this.report()) return;
     this.dl.set(fmt);
     this.svc.sellOutDownload(this.buildParams(), fmt)
       .pipe(takeUntilDestroyed(this.destroyRef))

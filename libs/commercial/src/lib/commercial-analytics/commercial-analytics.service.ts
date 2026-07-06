@@ -28,7 +28,8 @@ export interface DateRangeQuery {
 export type SellOutGroupBy = 'branch' | 'branch_channel';
 
 export interface SellOutQuery {
-  brand_id: string;
+  /** Marca/empresa. Vacío = TODAS las empresas (reporte general). */
+  brand_id?: string;
   from: string;
   to: string;
   group_by?: SellOutGroupBy;
@@ -36,6 +37,8 @@ export interface SellOutQuery {
   /** Códigos de almacén (commercial.warehouses.code) a incluir. Vacío = todos. */
   warehouses?: string[];
   include_zeros?: boolean;
+  /** Filtro por producto (SKU o nombre, ILIKE) — aplica en todas las empresas. */
+  search?: string;
 }
 
 export interface SellOutWarehouseRow {
@@ -187,7 +190,7 @@ export interface SellOutRow {
 }
 
 export interface SellOutReport {
-  brand: { id: string; nombre: string; code: string | null };
+  brand: { id: string | null; nombre: string; code: string | null };
   period: { from: string; to: string };
   group_by: SellOutGroupBy;
   columns: SellOutColumn[];
@@ -1802,7 +1805,8 @@ export class CommercialAnalyticsService {
    */
   async sellOut(q: SellOutQuery): Promise<SellOutReport> {
     const brandId = (q.brand_id || '').trim();
-    if (!RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const search = (q.search || '').trim();
     if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
       throw new BadRequestException('from/to requeridos (ISO 8601)');
     const from = q.from.slice(0, 10);
@@ -1831,18 +1835,22 @@ export class CommercialAnalyticsService {
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
     const { brand, products, raw, retail } = await this.tk.run(async (trx) => {
-      const b = await trx('catalog.brands as b')
-        .where('b.id', brandId)
-        .whereNull('b.deleted_at')
-        .select('b.id', 'b.nombre', 'b.code')
-        .first();
+      const b = brandId
+        ? await trx('catalog.brands as b')
+            .where('b.id', brandId)
+            .whereNull('b.deleted_at')
+            .select('b.id', 'b.nombre', 'b.code')
+            .first()
+        : { id: null, nombre: 'Todas las empresas', code: null };
       if (!b) throw new BadRequestException('Marca no encontrada');
 
-      const ps = q.include_zeros
+      // include_zeros solo con marca elegida (sin marca sería traer el catálogo completo de todas las empresas).
+      const ps = (q.include_zeros && brandId)
         ? await trx('catalog.products as p')
             .where('p.brand_id', brandId)
             .whereNull('p.deleted_at')
             .andWhere('p.is_promo', false)
+            .modify((qb) => { if (search) qb.whereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
             .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
             .orderBy('p.nombre')
         : [];
@@ -1854,7 +1862,10 @@ export class CommercialAnalyticsService {
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
         .where('sd.tenant_id', tenantId)
         .andWhere('p.is_promo', false)
-        .andWhere('p.brand_id', brandId)
+        .modify((qb) => {
+          if (brandId) qb.andWhere('p.brand_id', brandId);
+          if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+        })
         .andWhere('sd.sale_date', '>=', from)
         .andWhere('sd.sale_date', '<=', to)
         .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
