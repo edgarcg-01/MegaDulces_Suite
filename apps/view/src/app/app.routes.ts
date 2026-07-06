@@ -205,6 +205,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
       {
+        path: 'egresos/detalle',
+        loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
         path: 'thot-chat',
         loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]

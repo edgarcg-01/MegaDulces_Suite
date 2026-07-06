@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -14,18 +15,15 @@ import { TableModule } from 'primeng/table';
 import { TreeTableModule } from 'primeng/treetable';
 import { ChartModule } from 'primeng/chart';
 import { ToastModule } from 'primeng/toast';
-import { DialogModule } from 'primeng/dialog';
 import { MessageService, TreeNode } from 'primeng/api';
 import {
   ComercialService,
   ExpensesReport,
   ExpensesTree,
   ExpenseTreeNode,
-  ExpenseDocRow,
   ExpenseRow,
   ExpensesParams,
   ExpenseGroupBy,
-  ExpenseDocumentDetail,
   ApProvider,
   ExpenseFinding,
   ExpenseFindingsReport,
@@ -45,7 +43,7 @@ import { REPORTS_TABS } from '../reports-tabs';
   imports: [
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
-    TableModule, TreeTableModule, ChartModule, ToastModule, DialogModule,
+    TableModule, TreeTableModule, ChartModule, ToastModule,
     PageTabsComponent, SegmentedComponent,
   ],
   providers: [MessageService],
@@ -265,100 +263,6 @@ import { REPORTS_TABS } from '../reports-tabs';
         }
       }
 
-      <!-- Drill: documentos -->
-      @if (docsTitle()) {
-        <div class="ex-docs card-premium card-flat">
-          <div class="ex-docs-head">
-            <span class="ex-docs-title">{{ docsTitle() }}</span>
-            <span class="ex-docs-total">{{ docsTotal() }} · {{ money(docsSum()) }}</span>
-            <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm" (click)="closeDocs()"></button>
-          </div>
-          <p-table [value]="docs()" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="420px"
-                   [paginator]="docs().length > 100" [rows]="100">
-            <ng-template pTemplate="header">
-              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Beneficiario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"></th></tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-d>
-              <tr class="ex-clickable" (click)="openDocument(d)">
-                <td>{{ d.fecha | date:'dd/MM/yy' }}</td>
-                <td class="mono">{{ d.doc_tipo }}-{{ d.doc_folio }}</td>
-                <td>{{ d.sucursal_nombre || d.sucursal }}</td>
-                <td>{{ d.cuenta_nombre || d.cuenta }}</td>
-                <td>{{ d.beneficiario || '—' }}</td>
-                <td class="ta-r strong">{{ money(d.importe) }}</td>
-                <td class="ta-r"><i class="pi pi-angle-right muted"></i></td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </div>
-      }
-
-      <!-- Drill final: documento fuente (kdm1/kdm2) detrás de la póliza -->
-      <p-dialog [visible]="docDetailOpen()" (visibleChange)="docDetailOpen.set($event)" [modal]="true" [dismissableMask]="true"
-                appendTo="body" [style]="{ width: '54rem', maxWidth: '95vw' }" [header]="docDetailTitle()" styleClass="ex-doc-dialog">
-        @if (docDetailLoading()) {
-          <div class="ex-empty">Cargando documento…</div>
-        } @else {
-          @if (docDetail(); as dd) {
-          @if (dd.header; as h) {
-            <div class="ex-dochdr">
-              <div class="ex-dochdr-grid">
-                <div><span class="ex-dl">Beneficiario</span><span class="ex-dv">{{ h.beneficiario || '—' }}</span></div>
-                <div><span class="ex-dl">RFC</span><span class="ex-dv mono">{{ h.rfc || '—' }}</span></div>
-                <div><span class="ex-dl">Concepto</span><span class="ex-dv">{{ h.concepto || '—' }}</span></div>
-                <div><span class="ex-dl">Área</span><span class="ex-dv">{{ h.area || '—' }}</span></div>
-                <div><span class="ex-dl">Fecha</span><span class="ex-dv">{{ (h.fecha_doc || h.fecha) | date:'dd/MM/yyyy' }}</span></div>
-                <div><span class="ex-dl">Sucursal</span><span class="ex-dv">{{ h.sucursal_nombre || h.sucursal }}</span></div>
-                <div><span class="ex-dl">Total documento</span><span class="ex-dv strong">{{ money(h.importe) }}</span></div>
-                <div><span class="ex-dl">IVA</span><span class="ex-dv">{{ money(h.iva) }}</span></div>
-                <div><span class="ex-dl">Capturó</span><span class="ex-dv">{{ h.usuario || '—' }}</span></div>
-              </div>
-            </div>
-          } @else {
-            <div class="ex-empty">Sin cabecera de documento (póliza de diario/presupuesto sin factura).</div>
-          }
-
-          @if (dd.lines.length) {
-            <h4 class="ex-dsec">Productos ({{ dd.lines.length }})</h4>
-            <p-table [value]="dd.lines" styleClass="p-datatable-sm ex-table" [scrollable]="true" scrollHeight="300px">
-              <ng-template pTemplate="header">
-                <tr><th style="width:5rem">SKU</th><th>Producto</th><th class="ta-r" style="width:6rem">Cant.</th><th style="width:4rem">Pres.</th><th class="ta-r" style="width:7rem">Costo u.</th><th class="ta-r" style="width:8rem">Importe</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-l>
-                <tr>
-                  <td class="mono">{{ l.sku || '—' }}</td>
-                  <td>{{ l.producto || '—' }}</td>
-                  <td class="ta-r">{{ l.cantidad != null ? (l.cantidad | number:'1.0-0') : '—' }}</td>
-                  <td class="muted">{{ l.presentacion || '—' }}</td>
-                  <td class="ta-r">{{ l.costo_unitario != null ? money(l.costo_unitario) : '—' }}</td>
-                  <td class="ta-r strong">{{ money(l.importe) }}</td>
-                </tr>
-              </ng-template>
-            </p-table>
-          } @else {
-            <p class="ex-doc-nolines muted">Este documento no tiene desglose de producto en Kepler (típico de gastos — el detalle es la cuenta contable).</p>
-          }
-
-          @if (dd.postings.length) {
-            <h4 class="ex-dsec">Posturas contables ({{ dd.postings.length }})</h4>
-            <p-table [value]="dd.postings" styleClass="p-datatable-sm ex-table">
-              <ng-template pTemplate="header">
-                <tr><th style="width:3rem">#</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-p>
-                <tr>
-                  <td class="muted">{{ p.linea }}</td>
-                  <td><span class="mono">{{ p.cuenta }}</span> <span class="muted">{{ p.cuenta_nombre || '' }}</span></td>
-                  <td class="ta-r strong">{{ money(p.importe) }}</td>
-                </tr>
-              </ng-template>
-            </p-table>
-          }
-          } @else {
-            <div class="ex-empty">No se encontró el documento.</div>
-          }
-        }
-      </p-dialog>
     </div>
   `,
   styles: [`
@@ -416,6 +320,7 @@ import { REPORTS_TABS } from '../reports-tabs';
 export class ComercialEgresosComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly reportTabs = REPORTS_TABS;
@@ -437,12 +342,6 @@ export class ComercialEgresosComponent {
 
   readonly report = signal<ExpensesReport | null>(null);
   readonly tree = signal<ExpensesTree | null>(null);
-  readonly docs = signal<ExpenseDocRow[]>([]);
-  readonly docsTitle = signal<string>('');
-  readonly docDetail = signal<ExpenseDocumentDetail | null>(null);
-  readonly docDetailOpen = signal(false);
-  readonly docDetailLoading = signal(false);
-  readonly docDetailTitle = signal<string>('');
   readonly providers = signal<ApProvider[]>([]);
   readonly findings = signal<ExpenseFindingsReport | null>(null);
   readonly findingTipo = signal<string>('');
@@ -465,8 +364,6 @@ export class ComercialEgresosComponent {
 
   readonly treeNodes = computed<TreeNode[]>(() => (this.tree()?.tree || []).map((n) => this.toNode(n, true)));
   readonly groupByLabel = computed(() => this.groupByOpts.find((o) => o.value === this.groupBy())?.label || 'Concepto');
-  readonly docsTotal = computed(() => `${this.docs().length} docs`);
-  readonly docsSum = computed(() => this.docs().reduce((a, d) => a + d.importe, 0));
   readonly chartData = computed(() => {
     const s = this.report()?.series || [];
     return {
@@ -508,15 +405,13 @@ export class ComercialEgresosComponent {
 
   setStr(sig: { set: (v: string) => void }, v: string) { sig.set(v || ''); this.load(); }
   setView(v: string) { this.view.set(v as any); this.load(); }
-  setGroupBy(v: string) { this.groupBy.set(v as ExpenseGroupBy); this.closeDocs(); this.load(); }
+  setGroupBy(v: string) { this.groupBy.set(v as ExpenseGroupBy); this.load(); }
 
   private reportSub?: Subscription;
   private treeSub?: Subscription;
-  private docsSub?: Subscription;
 
   load() {
     this.loading.set(true);
-    this.closeDocs(); // el drill abierto queda inválido al cambiar filtros
     this.reportSub?.unsubscribe(); // cancela la request anterior: sin esto una respuesta lenta vieja pisa a la nueva
     this.reportSub = this.svc.expenses(this.params({ group_by: this.groupBy(), compare: this.compare() }))
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -562,65 +457,23 @@ export class ComercialEgresosComponent {
     };
   }
 
-  /** Click en fila de tabla dinámica → drill: si es cuenta/beneficiario carga documentos. */
+  /** Click en fila del reporte → navega a la interfaz de detalle de esa entidad. */
   drillRow(row: ExpenseRow) {
     const gb = this.groupBy();
-    const extra: Partial<ExpensesParams> = {};
-    if (gb === 'cuenta') extra.cuenta = row.key;
-    else if (gb === 'cuenta_mayor') extra.cuenta_mayor = row.key;
-    else if (gb === 'beneficiario') {
-      // match exacto (no ILIKE: "PEDRO" no debe traer "PEDROZA"); el bucket sintético filtra IS NULL
-      if (row.key === '(sin beneficiario)') extra.beneficiario_null = true;
-      else extra.beneficiario_eq = row.key;
-    }
-    else if (gb === 'sucursal') extra.sucursal = [row.key];
-    else if (gb === 'doc_tipo') extra.doc_tipo = row.key;
-    else if (gb === 'area') {
-      if (row.key === '(sin área)') extra.area_null = true;
-      else extra.area = row.key;
-    }
-    else return; // 'mes' no drillea a doc
-    this.loadDocs(extra, `${this.groupByLabel()}: ${row.label}`);
+    if (gb === 'mes') return; // 'mes' no tiene superficie de detalle
+    this.goToDetalle(gb, row.key, row.label);
   }
 
   openCuenta(cuenta: string, label: string) {
-    this.loadDocs({ cuenta }, `Cuenta ${cuenta} · ${label}`);
+    this.goToDetalle('cuenta', cuenta, label);
   }
 
-  private loadDocs(extra: Partial<ExpensesParams>, title: string) {
-    this.docsTitle.set(title);
-    this.docsSub?.unsubscribe();
-    this.docsSub = this.svc.expenseDocuments(this.params(extra)).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (d) => {
-          this.docs.set(d);
-          // auto-scroll a la tabla de documentos (queda debajo del árbol, que puede ser largo)
-          setTimeout(() => document.querySelector('.ex-docs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
-        },
-        error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }),
-      });
-  }
-
-  closeDocs() { this.docsTitle.set(''); this.docs.set([]); }
-
-  private docDetailSub?: Subscription;
-  /** Click en una fila de documento → abre el documento fuente (kdm1/kdm2). */
-  openDocument(d: ExpenseDocRow) {
-    if (!d || !d.sucursal || !d.doc_tipo || !d.doc_folio) {
-      this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Esta fila no tiene documento fuente asociado' });
-      return;
-    }
-    this.docDetailTitle.set(`${d.doc_tipo}-${d.doc_folio}`);
-    this.docDetail.set(null);
-    this.docDetailOpen.set(true);
-    this.docDetailLoading.set(true);
-    this.docDetailSub?.unsubscribe();
-    this.docDetailSub = this.svc.expenseDocument(d.sucursal, d.doc_tipo, d.doc_folio)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (dd) => { this.docDetail.set(dd); this.docDetailLoading.set(false); },
-        error: () => { this.docDetailLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el documento' }); },
-      });
+  private goToDetalle(type: ExpenseGroupBy, key: string, label: string) {
+    const [a, b] = this.rangeDates || [];
+    const fmt = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
+    this.router.navigate(['/comercial/egresos/detalle'], {
+      queryParams: { type, key, label, from: fmt(a), to: fmt(b), suc: this.sucursal.join(',') || null },
+    });
   }
 
   money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
