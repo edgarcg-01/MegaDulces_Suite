@@ -113,11 +113,6 @@ import { REPORTS_TABS } from '../reports-tabs';
         }
       </div>
 
-      <!-- DEBUG temporal -->
-      <div style="background:#fde68a;color:#111;padding:.4rem .7rem;font-size:.78rem;border-radius:6px;margin-bottom:.6rem;font-family:monospace">
-        DEBUG · vista={{ view() }} · docsTitle="{{ docsTitle() }}" · docs={{ docs().length }} · detailOpen={{ docDetailOpen() }}
-      </div>
-
       @if (loading()) {
         <div class="ex-empty">Cargando…</div>
       } @else {
@@ -489,7 +484,6 @@ export class ComercialEgresosComponent {
   };
 
   constructor() {
-    console.log('[egresos] build GX-v3 drill+42702fix+logs · ' + new Date().toISOString());
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
@@ -570,7 +564,6 @@ export class ComercialEgresosComponent {
 
   /** Click en fila de tabla dinámica → drill: si es cuenta/beneficiario carga documentos. */
   drillRow(row: ExpenseRow) {
-    console.log('[egresos] drillRow CLICK →', { group_by: this.groupBy(), key: row?.key, label: row?.label });
     const gb = this.groupBy();
     const extra: Partial<ExpensesParams> = {};
     if (gb === 'cuenta') extra.cuenta = row.key;
@@ -591,23 +584,20 @@ export class ComercialEgresosComponent {
   }
 
   openCuenta(cuenta: string, label: string) {
-    console.log('[egresos] openCuenta CLICK →', { cuenta, label });
     this.loadDocs({ cuenta }, `Cuenta ${cuenta} · ${label}`);
   }
 
   private loadDocs(extra: Partial<ExpensesParams>, title: string) {
-    console.log('[egresos] loadDocs → llamando /documents con', extra);
     this.docsTitle.set(title);
     this.docsSub?.unsubscribe();
     this.docsSub = this.svc.expenseDocuments(this.params(extra)).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
-          console.log('[egresos] /documents OK →', d?.length, 'documentos');
           this.docs.set(d);
-          // auto-scroll a la tabla de documentos (puede quedar debajo del árbol largo)
+          // auto-scroll a la tabla de documentos (queda debajo del árbol, que puede ser largo)
           setTimeout(() => document.querySelector('.ex-docs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
         },
-        error: (err) => { console.error('[egresos] /documents ERROR →', err?.status, err?.message); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }); },
+        error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }),
       });
   }
 
@@ -616,9 +606,7 @@ export class ComercialEgresosComponent {
   private docDetailSub?: Subscription;
   /** Click en una fila de documento → abre el documento fuente (kdm1/kdm2). */
   openDocument(d: ExpenseDocRow) {
-    console.log('[egresos] openDocument CLICK →', { sucursal: d?.sucursal, doc_tipo: d?.doc_tipo, folio: d?.doc_folio });
     if (!d || !d.sucursal || !d.doc_tipo || !d.doc_folio) {
-      console.warn('[egresos] fila sin llave de documento — no se puede abrir', d);
       this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Esta fila no tiene documento fuente asociado' });
       return;
     }
@@ -626,20 +614,12 @@ export class ComercialEgresosComponent {
     this.docDetail.set(null);
     this.docDetailOpen.set(true);
     this.docDetailLoading.set(true);
-    console.log('[egresos] dialog abierto=true, llamando endpoint…');
     this.docDetailSub?.unsubscribe();
     this.docDetailSub = this.svc.expenseDocument(d.sucursal, d.doc_tipo, d.doc_folio)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (dd) => {
-          console.log('[egresos] respuesta documento:', dd);
-          this.docDetail.set(dd); this.docDetailLoading.set(false);
-        },
-        error: (err) => {
-          console.error('[egresos] ERROR documento:', err?.status, err?.message, err);
-          this.docDetailLoading.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: `No se pudo cargar el documento (${err?.status || '?'})` });
-        },
+        next: (dd) => { this.docDetail.set(dd); this.docDetailLoading.set(false); },
+        error: () => { this.docDetailLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el documento' }); },
       });
   }
 
