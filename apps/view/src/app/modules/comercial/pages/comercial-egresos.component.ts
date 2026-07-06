@@ -113,6 +113,11 @@ import { REPORTS_TABS } from '../reports-tabs';
         }
       </div>
 
+      <!-- DEBUG temporal -->
+      <div style="background:#fde68a;color:#111;padding:.4rem .7rem;font-size:.78rem;border-radius:6px;margin-bottom:.6rem;font-family:monospace">
+        DEBUG · vista={{ view() }} · docsTitle="{{ docsTitle() }}" · docs={{ docs().length }} · detailOpen={{ docDetailOpen() }}
+      </div>
+
       @if (loading()) {
         <div class="ex-empty">Cargando…</div>
       } @else {
@@ -596,7 +601,12 @@ export class ComercialEgresosComponent {
     this.docsSub?.unsubscribe();
     this.docsSub = this.svc.expenseDocuments(this.params(extra)).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (d) => { console.log('[egresos] /documents OK →', d?.length, 'documentos'); this.docs.set(d); },
+        next: (d) => {
+          console.log('[egresos] /documents OK →', d?.length, 'documentos');
+          this.docs.set(d);
+          // auto-scroll a la tabla de documentos (puede quedar debajo del árbol largo)
+          setTimeout(() => document.querySelector('.ex-docs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+        },
         error: (err) => { console.error('[egresos] /documents ERROR →', err?.status, err?.message); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }); },
       });
   }
