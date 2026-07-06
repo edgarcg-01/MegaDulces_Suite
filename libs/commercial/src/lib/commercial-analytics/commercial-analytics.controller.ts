@@ -324,13 +324,60 @@ export class CommercialAnalyticsController {
     @Query('cuenta') cuenta?: string,
     @Query('cuenta_mayor') cuentaMayor?: string,
     @Query('area') area?: string,
+    @Query('area_null') areaNull?: string,
     @Query('beneficiario') beneficiario?: string,
+    @Query('beneficiario_eq') beneficiarioEq?: string,
+    @Query('beneficiario_null') beneficiarioNull?: string,
     @Query('min_importe') minImporte?: string,
     @Query('max_importe') maxImporte?: string,
   ) {
-    return this.service.expenseDocuments(
-      this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte),
-    );
+    return this.service.expenseDocuments({
+      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte),
+      area_null: areaNull === 'true',
+      beneficiario_eq: beneficiarioEq,
+      beneficiario_null: beneficiarioNull === 'true',
+    });
+  }
+
+  @Get('expenses/document')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX v3 — Drill al documento fuente detrás de una póliza: cabecera (proveedor/RFC/concepto/área/total/IVA) + posturas contables + líneas de producto (compras).' })
+  expenseDocument(
+    @Query('sucursal') sucursal: string,
+    @Query('doc_tipo') docTipo: string,
+    @Query('folio') folio: string,
+  ) {
+    return this.service.expenseDocument({ sucursal, doc_tipo: docTipo, folio });
+  }
+
+  @Get('expenses/providers')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX v3 — Auxiliar de proveedores (201): compra, pagos, saldo, #facturas, última compra, DPO. Filtros: search, sucursal=csv, limit.' })
+  apProviders(
+    @Query('search') search?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.apProviders({
+      search,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('expenses/findings')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({ summary: 'GX v3 — Hallazgos contables (iva_bug|prov_203|anticipo_107): resumen por tipo + filas del tipo seleccionado. Filtros: tipo, sucursal=csv, limit.' })
+  expenseFindings(
+    @Query('tipo') tipo?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.expenseFindings({
+      tipo,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Get('expenses/filters')

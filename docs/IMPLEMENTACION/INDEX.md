@@ -53,6 +53,7 @@
 | [`KEPLER_TABLAS_COMPLETO.md`](KEPLER_TABLAS_COMPLETO.md) | **Inventario COMPLETO de las 329 tablas** del schema `md` (todas, con filas exactas, columnas clave y relevancia) |
 | [`KEPLER_CATALOGO_TABLAS.md`](KEPLER_CATALOGO_TABLAS.md) | **Análisis tabla por tabla** del schema `md` (versión curada) — qué integrar, relevancia por dominio |
 | [`ERP_KEPLER_SCHEMA.md`](ERP_KEPLER_SCHEMA.md) | Esquema descifrado de inventario + write-back físico Fase I → Kepler |
+| [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md) | **Modelo contable descifrado** (pólizas `kdc2` + catálogo `kdco`): 7 familias de cuenta, ciclos venta/compra/inventario, corte presupuesto→factura, reglas para feeds de egresos/ventas/margen |
 | [`RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md`](RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md) | Runbook de despliegue de la consolidación viva a prod |
 
 ---

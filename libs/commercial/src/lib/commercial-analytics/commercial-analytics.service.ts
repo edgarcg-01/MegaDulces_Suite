@@ -916,6 +916,7 @@ export class CommercialAnalyticsService {
       const rows = await trx('analytics.product_sales_stats AS s')
         .join('catalog.products AS p', 'p.id', 's.product_id')
         .where('s.tenant_id', tenantId)
+        .andWhere('p.is_promo', false)
         .whereRaw('COALESCE(s.revenue_365d,0) > 0')
         .select('p.sku AS articulo', 'p.nombre AS nombre', 's.units_365d', 's.revenue_365d')
         .orderBy('s.revenue_365d', 'desc')
@@ -1197,6 +1198,7 @@ export class CommercialAnalyticsService {
         .join('catalog.products AS p', 'p.id', 's.product_id')
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
+        .andWhere('p.is_promo', false)
         .andWhere('s.revenue_30d', '>', 0)
         .select(
           's.product_id',
@@ -1341,8 +1343,12 @@ export class CommercialAnalyticsService {
     if (q.doc_tipo) b.where('e.doc_tipo', q.doc_tipo);
     if (q.cuenta) b.where('e.cuenta', q.cuenta);
     if (q.cuenta_mayor) b.where('e.cuenta_mayor', q.cuenta_mayor);
-    if (q.area) b.where('e.area', q.area);
-    if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
+    if (q.area_null) b.whereNull('e.area');
+    else if (q.area) b.where('e.area', q.area);
+    // *_null = drill del bucket "(sin …)"; *_eq = drill exacto desde una fila; beneficiario solo = búsqueda libre (ILIKE)
+    if (q.beneficiario_null) b.whereNull('e.beneficiario');
+    else if (q.beneficiario_eq) b.where('e.beneficiario', q.beneficiario_eq);
+    else if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
     if (q.min_importe != null) b.where('e.importe', '>=', q.min_importe);
     if (q.max_importe != null) b.where('e.importe', '<=', q.max_importe);
     return b;
@@ -1505,6 +1511,134 @@ export class CommercialAnalyticsService {
         .orderBy('e.fecha', 'desc')
         .limit(3000);
       return items.map((r: any) => ({ ...r, importe: Number(r.importe) }));
+    });
+  }
+
+  /**
+   * GX v3 — Drill al documento fuente detrás de una póliza de egreso.
+   * Devuelve: cabecera del documento (proveedor, RFC, concepto, área, total, IVA),
+   * las posturas contables (renglones de la póliza) y las líneas de producto
+   * (solo compras XA2001; los gastos XA1001 no tienen líneas en Kepler).
+   */
+  async expenseDocument(q: { sucursal: string; doc_tipo: string; folio: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { sucursal, doc_tipo, folio } = q;
+    if (!sucursal || !doc_tipo || !folio) return { header: null, postings: [], lines: [] };
+    return this.tk.run(async (trx) => {
+      const key = { tenant_id: tenantId, sucursal, doc_tipo, doc_folio: folio };
+
+      const header = await trx('analytics.expense_documents as d')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'd.tenant_id').andOn('w.code', 'd.sucursal');
+        })
+        .where(key)
+        .select('d.sucursal', 'w.name as sucursal_nombre', 'd.doc_tipo', 'd.doc_folio',
+          'd.fecha', 'd.fecha_doc', 'd.beneficiario', 'd.rfc', 'd.concepto', 'd.area',
+          trx.raw('d.importe::numeric AS importe'), trx.raw('d.iva::numeric AS iva'),
+          'd.usuario', 'd.clase')
+        .first();
+
+      const postings = await trx('analytics.expense_entries')
+        .where(key)
+        .select('linea', 'cuenta', 'cuenta_nombre', 'cuenta_mayor', 'familia',
+          trx.raw('importe::numeric AS importe'))
+        .orderBy('linea');
+
+      const lines = await trx('analytics.expense_document_lines')
+        .where(key)
+        .select('linea', 'sku', 'producto', trx.raw('cantidad::numeric AS cantidad'),
+          'presentacion', trx.raw('costo_unitario::numeric AS costo_unitario'),
+          trx.raw('importe::numeric AS importe'))
+        .orderBy('importe', 'desc');
+
+      return {
+        header: header
+          ? { ...header, importe: Number(header.importe), iva: Number(header.iva) }
+          : null,
+        postings: postings.map((r: any) => ({ ...r, importe: Number(r.importe) })),
+        lines: lines.map((r: any) => ({
+          ...r,
+          cantidad: r.cantidad != null ? Number(r.cantidad) : null,
+          costo_unitario: r.costo_unitario != null ? Number(r.costo_unitario) : null,
+          importe: Number(r.importe),
+        })),
+      };
+    });
+  }
+
+  /**
+   * GX v3 — Auxiliar de proveedores (cuenta 201): compra, pagos, saldo, #facturas,
+   * última compra y DPO (días de pago aprox). Agregado por proveedor a través de
+   * las sucursales. Filtros: search (ILIKE), sucursal[], limit.
+   */
+  async apProviders(q: { search?: string; sucursal?: string[]; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
+    return this.tk.run(async (trx) => {
+      const b = trx('analytics.ap_provider').where('tenant_id', tenantId);
+      if (q.sucursal?.length) b.whereIn('sucursal', q.sucursal);
+      if (q.search?.trim()) b.whereRaw('proveedor ILIKE ?', [`%${q.search.trim()}%`]);
+      const rows = await b
+        .groupBy('proveedor_norm')
+        .select(
+          trx.raw('MAX(proveedor) AS proveedor'),
+          trx.raw('SUM(compra_12m)::numeric AS compra_12m'),
+          trx.raw('SUM(pagos_12m)::numeric AS pagos_12m'),
+          trx.raw('SUM(saldo)::numeric AS saldo'),
+          trx.raw('SUM(num_facturas)::int AS num_facturas'),
+          trx.raw('MAX(ultima_compra) AS ultima_compra'),
+          trx.raw('ROUND(AVG(dpo_dias))::int AS dpo_dias'),
+        )
+        .orderByRaw('SUM(compra_12m) DESC')
+        .limit(limit);
+      const totalCompra = rows.reduce((a: number, r: any) => a + Number(r.compra_12m), 0);
+      return rows.map((r: any) => ({
+        proveedor: r.proveedor,
+        compra_12m: Number(r.compra_12m),
+        pagos_12m: Number(r.pagos_12m),
+        saldo: Number(r.saldo),
+        num_facturas: Number(r.num_facturas),
+        ultima_compra: r.ultima_compra,
+        dpo_dias: r.dpo_dias != null ? Number(r.dpo_dias) : null,
+        share_pct: totalCompra ? +((Number(r.compra_12m) / totalCompra) * 100).toFixed(1) : 0,
+      }));
+    });
+  }
+
+  /**
+   * GX v3 — Hallazgos contables navegables (antes CSV para finanzas):
+   * tipo = iva_bug | prov_203 | anticipo_107. Devuelve resumen por tipo + filas.
+   */
+  async expenseFindings(q: { tipo?: string; sucursal?: string[]; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(5000, Math.max(1, Number(q.limit) || 500));
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        const b = trx('analytics.expense_findings').where('tenant_id', tenantId);
+        if (q.sucursal?.length) b.whereIn('sucursal', q.sucursal);
+        return b;
+      };
+      const summary = await base()
+        .groupBy('tipo')
+        .select('tipo', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(importe)::numeric,2) AS total'))
+        .orderByRaw('SUM(importe) DESC');
+
+      let rows: any[] = [];
+      if (q.tipo) {
+        rows = await base().where('tipo', q.tipo)
+          .leftJoin('commercial.warehouses as w', function () {
+            this.on('w.tenant_id', 'analytics.expense_findings.tenant_id').andOn('w.code', 'analytics.expense_findings.sucursal');
+          })
+          .select('fecha', 'sucursal', 'w.name as sucursal_nombre', 'doc_tipo', 'doc_folio',
+            'beneficiario', 'cuenta', trx.raw('analytics.expense_findings.importe::numeric AS importe'), 'nota')
+          .orderBy('analytics.expense_findings.importe', 'desc')
+          .limit(limit);
+      }
+      return {
+        summary: summary.map((s: any) => ({ tipo: s.tipo, num: Number(s.num), total: Number(s.total) })),
+        tipo: q.tipo || null,
+        rows: rows.map((r: any) => ({ ...r, importe: Number(r.importe) })),
+      };
     });
   }
 
@@ -1705,14 +1839,18 @@ export class CommercialAnalyticsService {
         ? await trx('catalog.products as p')
             .where('p.brand_id', brandId)
             .whereNull('p.deleted_at')
+            .andWhere('p.is_promo', false)
             .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
             .orderBy('p.nombre')
         : [];
 
+      // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
+      // registran la aplicación de la promo en el ticket, no venta de producto.
       const rawRows: any[] = await trx('analytics.sales_daily as sd')
         .join('catalog.products as p', 'p.id', 'sd.product_id')
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
         .where('sd.tenant_id', tenantId)
+        .andWhere('p.is_promo', false)
         .andWhere('p.brand_id', brandId)
         .andWhere('sd.sale_date', '>=', from)
         .andWhere('sd.sale_date', '<=', to)

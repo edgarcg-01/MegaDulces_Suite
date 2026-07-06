@@ -7,6 +7,7 @@ import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
+import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import {
@@ -37,7 +38,8 @@ const CHANNEL_OPTS = [
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    DatePickerModule, ToggleSwitchModule, ToastModule, PageTabsComponent, SegmentedComponent,
+    DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule,
+    PageTabsComponent, SegmentedComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -208,7 +210,22 @@ const CHANNEL_OPTS = [
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
               <h3 class="text-sm font-bold text-content-main">Detalle por producto</h3>
-              <span class="text-xs text-content-muted">{{ r.rows.length }} productos · {{ r.columns.length }} columnas</span>
+              <div class="so-matrix-tools">
+                <span class="so-matrix-count">
+                  @if (productSearch().trim()) { {{ filteredRows().length }} de {{ r.rows.length }} productos }
+                  @else { {{ r.rows.length }} productos · {{ r.columns.length }} col. }
+                </span>
+                <span class="so-search">
+                  <i class="pi pi-search" aria-hidden="true"></i>
+                  <input pInputText type="search" [ngModel]="productSearch()" (ngModelChange)="productSearch.set($event)"
+                         placeholder="Buscar producto…" aria-label="Buscar producto" autocomplete="off" />
+                  @if (productSearch()) {
+                    <button type="button" class="so-search-clear" (click)="productSearch.set('')" aria-label="Limpiar búsqueda">
+                      <i class="pi pi-times" aria-hidden="true"></i>
+                    </button>
+                  }
+                </span>
+              </div>
             </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
@@ -230,7 +247,7 @@ const CHANNEL_OPTS = [
                 </tr>
               </thead>
               <tbody>
-                @for (row of r.rows; track row.product_id) {
+                @for (row of filteredRows(); track row.product_id) {
                   <tr>
                     <td class="frz c0 mono">{{ row.sku }}</td>
                     <td class="frz c1 name">{{ row.nombre }}</td>
@@ -243,16 +260,19 @@ const CHANNEL_OPTS = [
                     @if (showMonto()) { <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   </tr>
                 }
+                @if (!filteredRows().length) {
+                  <tr><td [attr.colspan]="99" class="so-matrix-empty">Ningún producto coincide con «{{ productSearch() }}».</td></tr>
+                }
               </tbody>
               <tfoot>
                 <tr class="tot-row">
                   <td class="frz c0" colspan="3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
-                    @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
-                    @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                    @if (showCajas()) { <td class="n">{{ (filteredTotals().columns[c.key]?.cajas ?? 0) | number:'1.0-2' }}</td> }
+                    @if (showMonto()) { <td class="n m">{{ (filteredTotals().columns[c.key]?.monto ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   }
-                  @if (showCajas()) { <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td> }
-                  @if (showMonto()) { <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                  @if (showCajas()) { <td class="n">{{ filteredTotals().grand.cajas | number:'1.0-2' }}</td> }
+                  @if (showMonto()) { <td class="n m">{{ filteredTotals().grand.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                 </tr>
               </tfoot>
             </table>
@@ -375,7 +395,35 @@ export class ComercialSellOutComponent {
   dl = signal<'' | 'xlsx' | 'pdf'>('');
   report = signal<SellOutReport | null>(null);
   meta = signal<{ brand: string; period: string; channels: string } | null>(null);
+  productSearch = signal('');
   readonly skelRows = [0, 1, 2, 3, 4, 5, 6];
+
+  /** Filtro cliente por SKU/descripción sobre las filas de la matriz. */
+  readonly filteredRows = computed(() => {
+    const r = this.report();
+    if (!r) return [];
+    const q = this.productSearch().trim().toLowerCase();
+    if (!q) return r.rows;
+    return r.rows.filter((row) =>
+      (row.sku || '').toLowerCase().includes(q) || (row.nombre || '').toLowerCase().includes(q));
+  });
+
+  /** Totales del footer recalculados desde las filas visibles (consistente con el filtro). */
+  readonly filteredTotals = computed(() => {
+    const r = this.report();
+    const columns: Record<string, { cajas: number; monto: number }> = {};
+    if (!r) return { columns, grand: { cajas: 0, monto: 0 } };
+    for (const c of r.columns) columns[c.key] = { cajas: 0, monto: 0 };
+    let gc = 0, gm = 0;
+    for (const row of this.filteredRows()) {
+      for (const c of r.columns) {
+        const cell = row.cells[c.key];
+        if (cell) { columns[c.key].cajas += cell.cajas || 0; columns[c.key].monto += cell.monto || 0; }
+      }
+      gc += row.total?.cajas || 0; gm += row.total?.monto || 0;
+    }
+    return { columns, grand: { cajas: gc, monto: gm } };
+  });
   readonly modeOpts = this.modes.map((m) => ({ label: m.label, value: m.key }));
 
   // form state
@@ -510,7 +558,7 @@ export class ComercialSellOutComponent {
     this.svc.sellOut(this.buildParams())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.productSearch.set(''); this.loading.set(false); },
         error: (e) => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al generar', detail: e?.error?.message }); },
       });
   }

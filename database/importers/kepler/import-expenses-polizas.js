@@ -29,6 +29,20 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 
+// Inserta filas (array de arrays) en una tabla por lotes de BATCH con placeholders.
+async function bulkInsert(db, table, cols, rows) {
+  const N = cols.length;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const chunk = rows.slice(i, i + BATCH);
+    const vals = [], params = [];
+    chunk.forEach((row, ri) => {
+      vals.push(`(${Array.from({ length: N }, (_, k) => `$${ri * N + k + 1}`).join(',')})`);
+      params.push(...row);
+    });
+    await db.query(`INSERT INTO ${table} (${cols.join(',')}) VALUES ${vals.join(',')}`, params);
+  }
+}
+
 function arg(name, def) {
   const i = process.argv.indexOf(`--${name}`);
   return i !== -1 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : def;
@@ -59,7 +73,8 @@ function monthWindow(n) {
   }
   const last = tables[tables.length - 1];
   const from = `${last.y}-${String(last.m).padStart(2, '0')}-01`;
-  const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { tables, from, to };
 }
 
@@ -97,8 +112,17 @@ function normArea(raw) {
       sucursal text, doc_tipo text, doc_folio text, linea int, fecha date,
       cuenta text, cuenta_nombre text, cuenta_mayor text, cuenta_mayor_nombre text,
       familia text, cargo_abono text, beneficiario text, area text, importe numeric) ON COMMIT DROP`);
+    // GX v3 — documentos fuente (kdm1) + líneas de detalle (kdm2, solo compras) para el drill.
+    await db.query(`CREATE TEMP TABLE stg_doc (
+      sucursal text, doc_tipo text, doc_folio text, fecha date, fecha_doc date,
+      beneficiario text, rfc text, concepto text, area text, importe numeric, iva numeric,
+      usuario text, clase text) ON COMMIT DROP`);
+    await db.query(`CREATE TEMP TABLE stg_docline (
+      sucursal text, doc_tipo text, doc_folio text, linea int, fecha date,
+      sku text, producto text, cantidad numeric, presentacion text, costo_unitario numeric, importe numeric) ON COMMIT DROP`);
 
     const summary = [];
+    const okCodes = []; // solo estas entran al DELETE: una sucursal caída NO debe perder su historial
     for (const b of MAP) {
       const src = new Client({ connectionString: b.url });
       try {
@@ -108,20 +132,31 @@ function normArea(raw) {
         summary.push({ code: b.code, movs: 0, monto: 0, nota: 'sin conexión' });
         continue;
       }
+      okCodes.push(b.code);
       try {
         // catálogo de cuentas de la sucursal: código → nombre
         const acc = new Map(
           (await src.query(`SELECT c3 AS code, c2 AS nombre FROM md.kdco WHERE c3 IS NOT NULL`)).rows
             .map((r) => [r.code, r.nombre]),
         );
-        // área/depto por documento (kdm1.c48) — clave doc_tipo-folio.
-        const docArea = new Map(
-          (await src.query(
-            `SELECT (c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0')) AS tipo, c6 AS folio, c48 AS area
-               FROM md.kdm1 WHERE c63 ~ '^X' AND c6 IS NOT NULL`,
-          )).rows.map((r) => [`${r.tipo}-${r.folio}`, normArea(r.area)]),
-        );
+        // Cabeceras de documento (kdm1): área para las pólizas (docArea) + campos ricos
+        // para el drill al documento (docHdr, solo XA2001 compras / XA1001 gastos).
+        const docArea = new Map();
+        const docHdr = new Map();
+        for (const r of (await src.query(
+          `SELECT (c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0')) AS tipo, c6 AS folio, c48 AS area,
+                  c18::date AS fecha_doc, c14::numeric AS iva, c16::numeric AS importe,
+                  NULLIF(btrim(c22),'') AS rfc, NULLIF(btrim(c24),'') AS concepto,
+                  NULLIF(btrim(c32),'') AS beneficiario, NULLIF(btrim(c67),'') AS usuario, NULLIF(btrim(c31),'') AS clase
+             FROM md.kdm1 WHERE c63 ~ '^X' AND c6 IS NOT NULL`,
+        )).rows) {
+          const k = `${r.tipo}-${r.folio}`;
+          docArea.set(k, normArea(r.area));
+          if (r.tipo === 'XA2001' || r.tipo === 'XA1001') docHdr.set(k, r);
+        }
 
+        const docMeta = new Map();      // clave tipo-folio → {doc_tipo,folio,fecha} de la póliza (fecha confiable)
+        const compraFolios = new Set(); // folios 511 → tienen líneas de producto en kdm2
         let movs = 0, monto = 0;
         for (const t of tables) {
           const exists = (await src.query(`SELECT to_regclass('md.${t.tbl}') AS r`)).rows[0].r;
@@ -133,7 +168,8 @@ function normArea(raw) {
                     c3 AS cuenta, left(c3,1) AS familia, c4 AS cargo_abono,
                     NULLIF(btrim(c6),'') AS beneficiario, c5::numeric AS importe
                FROM md.${t.tbl}
-              WHERE c4='C' AND (c3='511' OR c3 LIKE '6%') AND c19 IS NOT NULL`,
+              WHERE c4='C' AND (c3='511' OR c3 LIKE '6%')
+                AND COALESCE(c5,0) <> 0`,   /* dropea las ~609 líneas $0 'BAJA -'/canceladas (ruido). c19 folio-vacío = '' (no NULL) → se conserva la capa de diario/presupuesto; la distingue Fix#1. */
           )).rows;
 
           const staged = [];
@@ -146,6 +182,13 @@ function normArea(raw) {
               docArea.get(`${r.doc_tipo}-${r.doc_folio}`) || null, Number(r.importe) || 0,
             ]);
             movs++; monto += Number(r.importe) || 0;
+            // acumula el documento fuente (solo pólizas con folio real)
+            const fol = r.doc_folio == null ? '' : String(r.doc_folio).trim();
+            if (fol) {
+              const dk = `${r.doc_tipo}-${r.doc_folio}`;
+              if (!docMeta.has(dk)) docMeta.set(dk, { doc_tipo: r.doc_tipo, folio: r.doc_folio, fecha: r.fecha });
+              if (mayor === '511') compraFolios.add(fol);
+            }
           }
           const NCOL = 14;
           for (let i = 0; i < staged.length; i += BATCH) {
@@ -160,6 +203,58 @@ function normArea(raw) {
                VALUES ${vals.join(',')}`, params);
           }
         }
+
+        // ── GX v3: stage documentos (kdm1) + líneas de compra (kdm2) para el drill ──
+        // SAVEPOINT: un fallo aquí NO debe abortar el feed crítico de pólizas.
+        try {
+          await db.query('SAVEPOINT docs');
+          const docStg = [];
+          for (const [k, meta] of docMeta) {
+            const h = docHdr.get(k);
+            if (!h) continue; // póliza sin cabecera de documento (diario, etc.)
+            docStg.push([
+              b.code, meta.doc_tipo, meta.folio, meta.fecha, h.fecha_doc || null,
+              h.beneficiario || null, h.rfc || null, h.concepto || null, normArea(h.area),
+              Number(h.importe) || 0, Number(h.iva) || 0, h.usuario || null, h.clase || null,
+            ]);
+          }
+          await bulkInsert(db, 'stg_doc',
+            ['sucursal', 'doc_tipo', 'doc_folio', 'fecha', 'fecha_doc', 'beneficiario', 'rfc', 'concepto', 'area', 'importe', 'iva', 'usuario', 'clase'],
+            docStg);
+
+          let lineCount = 0;
+          if (compraFolios.size) {
+            const lrows = (await src.query(
+              `SELECT c6 AS folio, c8 AS sku, NULLIF(btrim(c10),'') AS producto, c9::numeric AS cantidad,
+                      NULLIF(btrim(c11),'') AS presentacion, c12::numeric AS costo_unitario, c13::numeric AS importe
+                 FROM md.kdm2
+                WHERE c2='X' AND c3='A' AND c4::int=20 AND c5::int=1 AND c6 IS NOT NULL
+                ORDER BY c6`,
+            )).rows;
+            const lineStg = [], seq = new Map();
+            for (const l of lrows) {
+              const fol = String(l.folio).trim();
+              if (!compraFolios.has(fol)) continue;
+              const meta = docMeta.get(`XA2001-${l.folio}`);
+              const n = (seq.get(fol) || 0) + 1; seq.set(fol, n);
+              lineStg.push([
+                b.code, 'XA2001', l.folio, n, meta?.fecha || null,
+                l.sku || null, l.producto || null, l.cantidad != null ? Number(l.cantidad) : null,
+                l.presentacion || null, l.costo_unitario != null ? Number(l.costo_unitario) : null, Number(l.importe) || 0,
+              ]);
+            }
+            await bulkInsert(db, 'stg_docline',
+              ['sucursal', 'doc_tipo', 'doc_folio', 'linea', 'fecha', 'sku', 'producto', 'cantidad', 'presentacion', 'costo_unitario', 'importe'],
+              lineStg);
+            lineCount = lineStg.length;
+          }
+          await db.query('RELEASE SAVEPOINT docs');
+          console.log(`  · docs sucursal ${b.code}: ${docStg.length} documentos + ${lineCount} líneas de compra`);
+        } catch (e) {
+          await db.query('ROLLBACK TO SAVEPOINT docs').catch(() => {});
+          console.log(`  ⚠ docs sucursal ${b.code}: ${e.message} — drill omitido (pólizas OK)`);
+        }
+
         summary.push({ code: b.code, movs, monto: Math.round(monto) });
       } finally { await src.end(); }
     }
@@ -187,6 +282,11 @@ function normArea(raw) {
     // (ago-nov 2025), donde queda como ESTIMADO (esas filas conservan folio vacío =
     // marcador de estimado). Arregla dic-2025 (usa factura $63.1M, no presupuesto
     // $75.3M) sin sub-contar ago-nov. Solo toca grupos con AMBAS capas presentes.
+    // EFECTO COLATERAL (verificado, deseado): en ene-mar 2026 la única capa
+    // folio-vacío de 511 son las pólizas de diario "IMPUESTO EN COMPRAS" (IVA
+    // acreditable mal capitalizado al costo, $16.45M contra 122). Como la factura
+    // domina esos meses, esta regla también las borra → el IVA NO infla compras.
+    // Si se sube THRESH, revalidar que el IVA siga quedando fuera.
     const THRESH = 0.5;
     const dropLayer = await db.query(`
       WITH capas AS (
@@ -227,7 +327,10 @@ function normArea(raw) {
 
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
 
-    const sucursales = MAP.map((b) => b.code);
+    if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó — nada que aplicar.'); return; }
+    // okCodes ∪ codes staged (c14 puede diferir del code del MAP; si no se borran, se duplican en re-runs)
+    const stagedCodes = (await db.query(`SELECT DISTINCT sucursal FROM stg_exp`)).rows.map((r) => r.sucursal);
+    const sucursales = [...new Set([...okCodes, ...stagedCodes])];
     const del = await db.query(
       `DELETE FROM analytics.expense_entries
         WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`,
@@ -238,8 +341,32 @@ function normArea(raw) {
        SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,now()
          FROM stg_exp`,
       [M]);
+
+    // GX v3 — documentos + líneas del drill (misma ventana/sucursales que las pólizas)
+    const delDoc = await db.query(
+      `DELETE FROM analytics.expense_documents WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`,
+      [M, sucursales, from, to]);
+    const upDoc = await db.query(
+      `INSERT INTO analytics.expense_documents
+         (tenant_id,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,computed_at)
+       SELECT $1,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,now()
+         FROM stg_doc
+       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio) DO NOTHING`,
+      [M]);
+    const delLine = await db.query(
+      `DELETE FROM analytics.expense_document_lines WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`,
+      [M, sucursales, from, to]);
+    const upLine = await db.query(
+      `INSERT INTO analytics.expense_document_lines
+         (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,sku,producto,cantidad,presentacion,costo_unitario,importe,computed_at)
+       SELECT $1,sucursal,doc_tipo,doc_folio,linea,fecha,sku,producto,cantidad,presentacion,costo_unitario,importe,now()
+         FROM stg_docline
+       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio,linea) DO NOTHING`,
+      [M]);
+
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${del.rowCount} borrados (ventana) + ${up.rowCount} upserted.`);
+    console.log(`\n[APPLY] COMMIT — pólizas: ${del.rowCount} borrados + ${up.rowCount} upserted.`);
+    console.log(`[APPLY] documentos: ${delDoc.rowCount} borrados + ${upDoc.rowCount} upserted · líneas: ${delLine.rowCount} borrados + ${upLine.rowCount} upserted.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

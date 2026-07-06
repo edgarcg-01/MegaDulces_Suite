@@ -1088,6 +1088,24 @@ export class ComercialService {
   expensesSucursales() {
     return this.http.get<{ code: string; name: string | null }[]>(`${this.base}/analytics/expenses/sucursales`);
   }
+  expenseDocument(sucursal: string, doc_tipo: string, folio: string) {
+    const params = new HttpParams().set('sucursal', sucursal).set('doc_tipo', doc_tipo).set('folio', folio);
+    return this.http.get<ExpenseDocumentDetail>(`${this.base}/analytics/expenses/document`, { params });
+  }
+  apProviders(p: { search?: string; sucursal?: string[]; limit?: number } = {}) {
+    let params = new HttpParams();
+    if (p.search?.trim()) params = params.set('search', p.search.trim());
+    if (p.sucursal?.length) params = params.set('sucursal', p.sucursal.join(','));
+    if (p.limit) params = params.set('limit', String(p.limit));
+    return this.http.get<ApProvider[]>(`${this.base}/analytics/expenses/providers`, { params });
+  }
+  expenseFindings(p: { tipo?: string; sucursal?: string[]; limit?: number } = {}) {
+    let params = new HttpParams();
+    if (p.tipo) params = params.set('tipo', p.tipo);
+    if (p.sucursal?.length) params = params.set('sucursal', p.sucursal.join(','));
+    if (p.limit) params = params.set('limit', String(p.limit));
+    return this.http.get<ExpenseFindingsReport>(`${this.base}/analytics/expenses/findings`, { params });
+  }
   private expensesParams(p: ExpensesParams): HttpParams {
     let params = new HttpParams();
     if (p.from) params = params.set('from', p.from);
@@ -1100,7 +1118,10 @@ export class ComercialService {
     if (p.cuenta) params = params.set('cuenta', p.cuenta);
     if (p.cuenta_mayor) params = params.set('cuenta_mayor', p.cuenta_mayor);
     if (p.area) params = params.set('area', p.area);
+    if (p.area_null) params = params.set('area_null', 'true');
     if (p.beneficiario?.trim()) params = params.set('beneficiario', p.beneficiario.trim());
+    if (p.beneficiario_eq) params = params.set('beneficiario_eq', p.beneficiario_eq);
+    if (p.beneficiario_null) params = params.set('beneficiario_null', 'true');
     if (p.min_importe != null) params = params.set('min_importe', String(p.min_importe));
     if (p.max_importe != null) params = params.set('max_importe', String(p.max_importe));
     return params;
@@ -1571,7 +1592,10 @@ export interface ExpensesParams {
   cuenta?: string;
   cuenta_mayor?: string;
   area?: string;
+  area_null?: boolean;
   beneficiario?: string;
+  beneficiario_eq?: string;
+  beneficiario_null?: boolean;
   min_importe?: number;
   max_importe?: number;
 }
@@ -1625,4 +1649,70 @@ export interface ExpensesFilters {
   doc_tipos: string[];
   areas: string[];
   mayores: { code: string; nombre: string | null }[];
+}
+// GX v3 — drill al documento fuente
+export interface ExpenseDocHeader {
+  sucursal: string;
+  sucursal_nombre: string | null;
+  doc_tipo: string;
+  doc_folio: string;
+  fecha: string | null;
+  fecha_doc: string | null;
+  beneficiario: string | null;
+  rfc: string | null;
+  concepto: string | null;
+  area: string | null;
+  importe: number;
+  iva: number;
+  usuario: string | null;
+  clase: string | null;
+}
+export interface ExpensePosting {
+  linea: number;
+  cuenta: string;
+  cuenta_nombre: string | null;
+  cuenta_mayor: string | null;
+  familia: string | null;
+  importe: number;
+}
+export interface ExpenseProductLine {
+  linea: number;
+  sku: string | null;
+  producto: string | null;
+  cantidad: number | null;
+  presentacion: string | null;
+  costo_unitario: number | null;
+  importe: number;
+}
+export interface ExpenseDocumentDetail {
+  header: ExpenseDocHeader | null;
+  postings: ExpensePosting[];
+  lines: ExpenseProductLine[];
+}
+// GX v3 — proveedores (201) + hallazgos
+export interface ApProvider {
+  proveedor: string;
+  compra_12m: number;
+  pagos_12m: number;
+  saldo: number;
+  num_facturas: number;
+  ultima_compra: string | null;
+  dpo_dias: number | null;
+  share_pct: number;
+}
+export interface ExpenseFinding {
+  fecha: string | null;
+  sucursal: string;
+  sucursal_nombre: string | null;
+  doc_tipo: string;
+  doc_folio: string;
+  beneficiario: string | null;
+  cuenta: string | null;
+  importe: number;
+  nota: string | null;
+}
+export interface ExpenseFindingsReport {
+  summary: { tipo: string; num: number; total: number }[];
+  tipo: string | null;
+  rows: ExpenseFinding[];
 }

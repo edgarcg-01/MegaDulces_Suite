@@ -2,11 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnDestroy,
+  OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { RoutePingService } from '../../../core/services/route-ping.service';
+import { TrackingService } from '../../../core/services/tracking.service';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -19,6 +21,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { LogisticaService, Shipment, ShipmentStatus } from '../logistica.service';
 import { DeliveryWizardComponent } from '../components/delivery-wizard.component';
+import { BackgroundPermissionComponent } from '../../../shared/components/background-permission.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -40,6 +43,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     CommonModule, FormsModule,
     ButtonModule, CardModule, TableModule, TagModule, SelectModule, TooltipModule, ToastModule,
     DeliveryWizardComponent,
+    BackgroundPermissionComponent,
   ],
   providers: [MessageService],
   template: `
@@ -217,6 +221,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         (completed)="onDeliveryCompleted()"
         (statusChanged)="onStatusChanged($event)"
       ></app-delivery-wizard>
+
+      <!-- Diálogo de Permisos -->
+      <app-background-permission
+        [(visible)]="showPermissionDialog"
+      ></app-background-permission>
     </div>
   `,
   styles: [`
@@ -411,15 +420,19 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LogisticaDriverAssignmentsComponent implements OnDestroy {
+export class LogisticaDriverAssignmentsComponent implements OnInit, OnDestroy {
   private readonly api = inject(LogisticaService);
   private readonly toast = inject(MessageService);
   private readonly ping = inject(RoutePingService);
+  private readonly tracking = inject(TrackingService);
 
   readonly shipments = signal<Shipment[]>([]);
   readonly loading = signal(false);
   readonly wizardOpen = signal(false);
   readonly selectedId = signal<string | null>(null);
+
+  showPermissionDialog = false;
+  private static permissionPrompted = false;
 
   statusFilter: ShipmentStatus | null = null;
 
@@ -438,6 +451,17 @@ export class LogisticaDriverAssignmentsComponent implements OnDestroy {
     // J12.1 — mientras el chofer está en "Mis entregas", comparte su ubicación
     // (GPS web + Wake Lock) hacia route_location_pings → mapa de flota en vivo.
     this.ping.startShift();
+  }
+
+  ngOnInit(): void {
+    this.checkTrackingPermissions();
+  }
+
+  async checkTrackingPermissions() {
+    const perms = await this.tracking.checkPermissions();
+    if (perms.background !== 'granted') {
+      this.showPermissionDialog = true;
+    }
   }
 
   ngOnDestroy(): void {

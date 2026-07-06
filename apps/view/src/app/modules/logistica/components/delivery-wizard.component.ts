@@ -28,6 +28,7 @@ import {
   Shipment,
   ShipmentStatus,
 } from '../logistica.service';
+import { TrackingService } from '../../../core/services/tracking.service';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -253,6 +254,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 export class DeliveryWizardComponent {
   private readonly api = inject(LogisticaService);
   private readonly toast = inject(MessageService);
+  private readonly tracking = inject(TrackingService);
 
   // ── Inputs / Outputs ─────────────────────────────────────────────────────
   visible = input<boolean>(false);
@@ -378,10 +380,13 @@ export class DeliveryWizardComponent {
   // ── STEP 1 actions ───────────────────────────────────────────────────────
 
   /** Completa checklist salida (crea si no existe) + transición programado→checklist_salida→en_ruta. */
-  completeSalidaChecklistAndDepart(): void {
+  async completeSalidaChecklistAndDepart(): Promise<void> {
     const sid = this.shipmentId();
     if (!sid) return;
     this.busy.set(true);
+
+    // Intentar arrancar rastreo antes de salir a ruta
+    await this.tracking.startBackgroundTracking();
 
     const items = this.templateSalida()?.items || [];
     const ensureChecklist$ = this.salidaChecklistId
@@ -409,7 +414,8 @@ export class DeliveryWizardComponent {
   }
 
   /** Sin completar checklist — directo a en_ruta (programado → en_ruta). */
-  skipToDepart(): void {
+  async skipToDepart(): Promise<void> {
+    await this.tracking.startBackgroundTracking();
     this.transitionTo('depart');
   }
 
@@ -551,6 +557,8 @@ export class DeliveryWizardComponent {
         this.statusChanged.emit(s.status);
         this.busy.set(false);
         if (action === 'close') {
+          // Detener rastreo al cerrar entrega
+          this.tracking.stopTracking();
           this.toast.add({ severity: 'success', summary: 'Entrega cerrada', detail: `Folio ${s.folio}` });
           this.completed.emit();
           // Cerrar dialog tras 1.5s

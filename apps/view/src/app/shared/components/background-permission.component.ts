@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
@@ -39,8 +39,8 @@ import { TrackingService } from '../../core/services/tracking.service';
         </div>
 
         <div class="footer-actions">
-          <button pButton label="Más tarde" class="p-button-text" (click)="onCancel()"></button>
-          <button pButton label="Continuar" (click)="onRequest()" [loading]="requesting()"></button>
+          <button pButton label="Más tarde" class="p-button-text" (click)="onCancel()" [disabled]="requesting()"></button>
+          <button pButton [label]="buttonLabel()" (click)="onRequest()" [loading]="requesting()"></button>
         </div>
       </div>
 
@@ -78,6 +78,9 @@ export class BackgroundPermissionComponent {
   @Output() granted = new EventEmitter<void>();
 
   requesting = signal(false);
+  step = signal(1); // 1: Foreground, 2: Background
+
+  buttonLabel = computed(() => this.step() === 1 ? 'Continuar' : 'Abrir Configuración');
 
   onCancel() {
     this.visible = false;
@@ -87,9 +90,14 @@ export class BackgroundPermissionComponent {
   async onRequest() {
     this.requesting.set(true);
     try {
-      const ok = await this.tracking.requestPermissions();
-      if (ok) {
-        this.granted.emit();
+      if (this.step() === 1) {
+        const ok = await this.tracking.requestPermissions();
+        if (ok) {
+          this.step.set(2);
+        }
+      } else {
+        await this.tracking.openSettings();
+        // Al volver de settings, el usuario debería haberlo activado
         this.onCancel();
       }
     } finally {

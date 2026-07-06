@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -13,6 +14,7 @@ import { TableModule } from 'primeng/table';
 import { TreeTableModule } from 'primeng/treetable';
 import { ChartModule } from 'primeng/chart';
 import { ToastModule } from 'primeng/toast';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService, TreeNode } from 'primeng/api';
 import {
   ComercialService,
@@ -23,6 +25,10 @@ import {
   ExpenseRow,
   ExpensesParams,
   ExpenseGroupBy,
+  ExpenseDocumentDetail,
+  ApProvider,
+  ExpenseFinding,
+  ExpenseFindingsReport,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -39,7 +45,7 @@ import { REPORTS_TABS } from '../reports-tabs';
   imports: [
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
-    TableModule, TreeTableModule, ChartModule, ToastModule,
+    TableModule, TreeTableModule, ChartModule, ToastModule, DialogModule,
     PageTabsComponent, SegmentedComponent,
   ],
   providers: [MessageService],
@@ -176,6 +182,89 @@ import { REPORTS_TABS } from '../reports-tabs';
         }
       }
 
+      <!-- PROVEEDORES (cuenta 201) -->
+      @if (view() === 'proveedores') {
+        <div class="ex-viewbar">
+          <div class="ex-field" style="max-width:18rem">
+            <input pInputText [(ngModel)]="providerSearch" placeholder="Buscar proveedor…" (keyup.enter)="loadProviders()" (blur)="loadProviders()" />
+          </div>
+          <span class="muted">Top {{ providers().length }} por compra · saldo = compra − pagos (ventana)</span>
+        </div>
+        <div class="card-premium card-flat">
+          <p-table [value]="providers()" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="520px"
+                   [paginator]="providers().length > 50" [rows]="50">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Proveedor</th>
+                <th class="ta-r" style="width:9rem" pSortableColumn="compra_12m">Compra 12m</th>
+                <th class="ta-r" style="width:6rem">% </th>
+                <th class="ta-r" style="width:9rem">Pagos</th>
+                <th class="ta-r" style="width:9rem">Saldo</th>
+                <th class="ta-r" style="width:5rem">Fact.</th>
+                <th class="ta-r" style="width:6rem">DPO</th>
+                <th style="width:6rem">Últ. compra</th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-p>
+              <tr>
+                <td>{{ p.proveedor }}</td>
+                <td class="ta-r strong">{{ money(p.compra_12m) }}</td>
+                <td class="ta-r muted">{{ p.share_pct }}%</td>
+                <td class="ta-r">{{ money(p.pagos_12m) }}</td>
+                <td class="ta-r" [class.up]="p.saldo > 0">{{ money(p.saldo) }}</td>
+                <td class="ta-r">{{ p.num_facturas }}</td>
+                <td class="ta-r" [class.up]="p.dpo_dias != null && p.dpo_dias > 60">{{ p.dpo_dias != null ? p.dpo_dias + ' d' : '—' }}</td>
+                <td>{{ p.ultima_compra | date:'dd/MM/yy' }}</td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="ex-empty">Sin proveedores (¿corrió el feed de AP?).</td></tr></ng-template>
+          </p-table>
+        </div>
+      }
+
+      <!-- HALLAZGOS -->
+      @if (view() === 'hallazgos') {
+        @if (findings(); as f) {
+          <div class="ex-findcards">
+            @for (s of f.summary; track s.tipo) {
+              <button type="button" class="ex-findcard" [class.active]="findingTipo() === s.tipo"
+                      [class.sev-bad]="findingMeta(s.tipo).sev === 'bad'" (click)="loadFindings(s.tipo)">
+                <span class="ex-findcard-label">{{ findingMeta(s.tipo).label }}</span>
+                <span class="ex-findcard-val">{{ money(s.total) }}</span>
+                <span class="ex-findcard-sub">{{ s.num }} pólizas</span>
+              </button>
+            }
+          </div>
+          @if (findingTipo()) {
+            <p class="muted ex-findhint">{{ findingMeta(findingTipo()).hint }}</p>
+            <div class="card-premium card-flat">
+              <p-table [value]="f.rows" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px"
+                       [paginator]="f.rows.length > 100" [rows]="100">
+                <ng-template pTemplate="header">
+                  <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Beneficiario</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th><th>Nota</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-r>
+                  <tr>
+                    <td>{{ r.fecha | date:'dd/MM/yy' }}</td>
+                    <td class="mono">{{ r.doc_tipo }}-{{ r.doc_folio }}</td>
+                    <td>{{ r.sucursal_nombre || r.sucursal }}</td>
+                    <td>{{ r.beneficiario || '—' }}</td>
+                    <td class="mono">{{ r.cuenta }}</td>
+                    <td class="ta-r strong">{{ money(r.importe) }}</td>
+                    <td class="muted">{{ r.nota || '' }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="ex-empty">Sin filas.</td></tr></ng-template>
+              </p-table>
+            </div>
+          } @else {
+            <p class="ex-empty">Selecciona un hallazgo para ver el detalle.</p>
+          }
+        } @else {
+          <p class="ex-empty">Cargando hallazgos… (¿corrió el feed?)</p>
+        }
+      }
+
       <!-- Drill: documentos -->
       @if (docsTitle()) {
         <div class="ex-docs card-premium card-flat">
@@ -187,21 +276,89 @@ import { REPORTS_TABS } from '../reports-tabs';
           <p-table [value]="docs()" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="420px"
                    [paginator]="docs().length > 100" [rows]="100">
             <ng-template pTemplate="header">
-              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Beneficiario</th><th class="ta-r" style="width:9rem">Importe</th></tr>
+              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Beneficiario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"></th></tr>
             </ng-template>
             <ng-template pTemplate="body" let-d>
-              <tr>
+              <tr class="ex-clickable" (click)="openDocument(d)">
                 <td>{{ d.fecha | date:'dd/MM/yy' }}</td>
                 <td class="mono">{{ d.doc_tipo }}-{{ d.doc_folio }}</td>
                 <td>{{ d.sucursal_nombre || d.sucursal }}</td>
                 <td>{{ d.cuenta_nombre || d.cuenta }}</td>
                 <td>{{ d.beneficiario || '—' }}</td>
                 <td class="ta-r strong">{{ money(d.importe) }}</td>
+                <td class="ta-r"><i class="pi pi-angle-right muted"></i></td>
               </tr>
             </ng-template>
           </p-table>
         </div>
       }
+
+      <!-- Drill final: documento fuente (kdm1/kdm2) detrás de la póliza -->
+      <p-dialog [visible]="docDetailOpen()" (visibleChange)="docDetailOpen.set($event)" [modal]="true" [dismissableMask]="true"
+                [style]="{ width: '54rem', maxWidth: '95vw' }" [header]="docDetailTitle()" styleClass="ex-doc-dialog">
+        @if (docDetailLoading()) {
+          <div class="ex-empty">Cargando documento…</div>
+        } @else {
+          @if (docDetail(); as dd) {
+          @if (dd.header; as h) {
+            <div class="ex-dochdr">
+              <div class="ex-dochdr-grid">
+                <div><span class="ex-dl">Beneficiario</span><span class="ex-dv">{{ h.beneficiario || '—' }}</span></div>
+                <div><span class="ex-dl">RFC</span><span class="ex-dv mono">{{ h.rfc || '—' }}</span></div>
+                <div><span class="ex-dl">Concepto</span><span class="ex-dv">{{ h.concepto || '—' }}</span></div>
+                <div><span class="ex-dl">Área</span><span class="ex-dv">{{ h.area || '—' }}</span></div>
+                <div><span class="ex-dl">Fecha</span><span class="ex-dv">{{ (h.fecha_doc || h.fecha) | date:'dd/MM/yyyy' }}</span></div>
+                <div><span class="ex-dl">Sucursal</span><span class="ex-dv">{{ h.sucursal_nombre || h.sucursal }}</span></div>
+                <div><span class="ex-dl">Total documento</span><span class="ex-dv strong">{{ money(h.importe) }}</span></div>
+                <div><span class="ex-dl">IVA</span><span class="ex-dv">{{ money(h.iva) }}</span></div>
+                <div><span class="ex-dl">Capturó</span><span class="ex-dv">{{ h.usuario || '—' }}</span></div>
+              </div>
+            </div>
+          } @else {
+            <div class="ex-empty">Sin cabecera de documento (póliza de diario/presupuesto sin factura).</div>
+          }
+
+          @if (dd.lines.length) {
+            <h4 class="ex-dsec">Productos ({{ dd.lines.length }})</h4>
+            <p-table [value]="dd.lines" styleClass="p-datatable-sm ex-table" [scrollable]="true" scrollHeight="300px">
+              <ng-template pTemplate="header">
+                <tr><th style="width:5rem">SKU</th><th>Producto</th><th class="ta-r" style="width:6rem">Cant.</th><th style="width:4rem">Pres.</th><th class="ta-r" style="width:7rem">Costo u.</th><th class="ta-r" style="width:8rem">Importe</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-l>
+                <tr>
+                  <td class="mono">{{ l.sku || '—' }}</td>
+                  <td>{{ l.producto || '—' }}</td>
+                  <td class="ta-r">{{ l.cantidad != null ? (l.cantidad | number:'1.0-0') : '—' }}</td>
+                  <td class="muted">{{ l.presentacion || '—' }}</td>
+                  <td class="ta-r">{{ l.costo_unitario != null ? money(l.costo_unitario) : '—' }}</td>
+                  <td class="ta-r strong">{{ money(l.importe) }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          } @else {
+            <p class="ex-doc-nolines muted">Este documento no tiene desglose de producto en Kepler (típico de gastos — el detalle es la cuenta contable).</p>
+          }
+
+          @if (dd.postings.length) {
+            <h4 class="ex-dsec">Posturas contables ({{ dd.postings.length }})</h4>
+            <p-table [value]="dd.postings" styleClass="p-datatable-sm ex-table">
+              <ng-template pTemplate="header">
+                <tr><th style="width:3rem">#</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-p>
+                <tr>
+                  <td class="muted">{{ p.linea }}</td>
+                  <td><span class="mono">{{ p.cuenta }}</span> <span class="muted">{{ p.cuenta_nombre || '' }}</span></td>
+                  <td class="ta-r strong">{{ money(p.importe) }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
+          } @else {
+            <div class="ex-empty">No se encontró el documento.</div>
+          }
+        }
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -225,18 +382,35 @@ import { REPORTS_TABS } from '../reports-tabs';
     .ex-code { color: var(--text-muted, #78716c); margin-left: .5rem; }
     .strong { font-weight: 700; }
     .muted { color: var(--text-muted, #78716c); }
-    .up { color: #b91c1c; font-weight: 600; }
-    .down { color: #15803d; font-weight: 600; }
+    /* Egreso: subir el gasto es malo (rojo), bajarlo es bueno (verde). */
+    .up { color: var(--bad-fg); font-weight: 600; }
+    .down { color: var(--ok-fg); font-weight: 600; }
     .ex-clickable { cursor: pointer; }
     .ex-tag { display: inline-block; font-size: .68rem; font-weight: 600; padding: .05rem .4rem; border-radius: 999px; margin-left: .5rem; border: 1px solid var(--border, #e7e5e4); }
-    .ex-tag.fam5 { color: #9a3412; border-color: #fed7aa; background: #fff7ed; }
-    .ex-tag.fam6 { color: #3730a3; border-color: #c7d2fe; background: #eef2ff; }
+    .ex-tag.fam5 { color: var(--chip-brand-fg); border-color: var(--chip-brand-border); background: var(--chip-brand-bg); }
+    .ex-tag.fam6 { color: var(--chip-competition-fg); border-color: var(--chip-competition-border); background: var(--chip-competition-bg); }
     .ex-empty { padding: 2rem; text-align: center; color: var(--text-muted, #78716c); }
     .ex-chart { padding: 1rem; }
     .ex-docs { margin-top: 1.25rem; padding: 1rem; }
     .ex-docs-head { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
     .ex-docs-title { font-weight: 700; }
     .ex-docs-total { margin-left: auto; color: var(--text-muted, #78716c); font-weight: 600; }
+    .ex-dochdr { margin-bottom: 1rem; }
+    .ex-dochdr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem 1.25rem; }
+    .ex-dochdr-grid > div { display: flex; flex-direction: column; gap: .15rem; }
+    .ex-dl { font-size: .68rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
+    .ex-dv { font-size: .92rem; }
+    .ex-dsec { margin: 1.1rem 0 .5rem; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
+    .ex-doc-nolines { padding: .75rem 0; }
+    .ex-findcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .ex-findcard { text-align: left; border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); padding: .85rem 1rem; background: var(--card-bg, #fff); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+    .ex-findcard:hover { border-color: var(--action, #f97316); }
+    .ex-findcard.active { border-color: var(--action, #f97316); box-shadow: 0 0 0 1px var(--action, #f97316) inset; }
+    .ex-findcard.sev-bad .ex-findcard-val { color: var(--bad-fg); }
+    .ex-findcard-label { display: block; font-size: .78rem; font-weight: 600; color: var(--text-muted, #78716c); }
+    .ex-findcard-val { display: block; font-size: 1.3rem; font-weight: 700; margin-top: .15rem; }
+    .ex-findcard-sub { display: block; font-size: .74rem; color: var(--text-muted, #78716c); margin-top: .1rem; }
+    .ex-findhint { margin: -.25rem 0 .75rem; font-size: .82rem; }
   `],
 })
 export class ComercialEgresosComponent {
@@ -246,7 +420,15 @@ export class ComercialEgresosComponent {
 
   readonly reportTabs = REPORTS_TABS;
   readonly familiaOpts = [{ label: 'Todo', value: '' }, { label: 'Compras', value: '5' }, { label: 'Gastos', value: '6' }];
-  readonly viewOpts = [{ label: 'Árbol', value: 'arbol' }, { label: 'Tabla', value: 'tabla' }, { label: 'Tendencia', value: 'tendencia' }];
+  readonly viewOpts = [
+    { label: 'Árbol', value: 'arbol' }, { label: 'Tabla', value: 'tabla' }, { label: 'Tendencia', value: 'tendencia' },
+    { label: 'Proveedores', value: 'proveedores' }, { label: 'Hallazgos', value: 'hallazgos' },
+  ];
+  readonly findingLabels: Record<string, { label: string; sev: string; hint: string }> = {
+    iva_bug: { label: 'IVA acreditable huérfano', sev: 'bad', hint: 'XD5501 con abono a 122-001 sin cargo espejo (descuadra el libro)' },
+    prov_203: { label: 'Provisiones 203 sin descargar', sev: 'warn', hint: 'Nómina/IMSS/SAT provisionados a 203 que nunca se cargan' },
+    anticipo_107: { label: 'Anticipos 107 sin aplicar', sev: 'warn', hint: 'Anticipos a proveedor (cargo 107) nunca cruzados contra factura' },
+  };
   readonly groupByOpts = [
     { label: 'Cuenta', value: 'cuenta' }, { label: 'Cuenta mayor', value: 'cuenta_mayor' },
     { label: 'Beneficiario', value: 'beneficiario' }, { label: 'Sucursal', value: 'sucursal' },
@@ -257,12 +439,20 @@ export class ComercialEgresosComponent {
   readonly tree = signal<ExpensesTree | null>(null);
   readonly docs = signal<ExpenseDocRow[]>([]);
   readonly docsTitle = signal<string>('');
+  readonly docDetail = signal<ExpenseDocumentDetail | null>(null);
+  readonly docDetailOpen = signal(false);
+  readonly docDetailLoading = signal(false);
+  readonly docDetailTitle = signal<string>('');
+  readonly providers = signal<ApProvider[]>([]);
+  readonly findings = signal<ExpenseFindingsReport | null>(null);
+  readonly findingTipo = signal<string>('');
+  providerSearch = '';
   readonly loading = signal(false);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly docTipoOpts = signal<string[]>([]);
   readonly areaOpts = signal<string[]>([]);
 
-  readonly view = signal<'arbol' | 'tabla' | 'tendencia'>('arbol');
+  readonly view = signal<'arbol' | 'tabla' | 'tendencia' | 'proveedores' | 'hallazgos'>('arbol');
   readonly groupBy = signal<ExpenseGroupBy>('cuenta');
   readonly familia = signal<string>('');
   readonly compare = signal(false);
@@ -282,8 +472,8 @@ export class ComercialEgresosComponent {
     return {
       labels: s.map((p) => p.mes),
       datasets: [
-        { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: '#fb923c' },
-        { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: '#818cf8' },
+        { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: '#FB923C' },
+        { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: '#60A5FA' },
       ],
     };
   });
@@ -303,7 +493,9 @@ export class ComercialEgresosComponent {
 
   private params(extra: Partial<ExpensesParams> = {}): ExpensesParams {
     const [a, b] = this.rangeDates || [];
-    const fmt = (d?: Date) => (d ? d.toISOString().slice(0, 10) : undefined);
+    // Formateo local (no toISOString → evita correr el día por UTC-6 en MX).
+    const fmt = (d?: Date) =>
+      d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
     return {
       from: fmt(a), to: fmt(b),
       sucursal: this.sucursal, familia: (this.familia() || undefined) as '5' | '6' | undefined,
@@ -318,19 +510,48 @@ export class ComercialEgresosComponent {
   setView(v: string) { this.view.set(v as any); this.load(); }
   setGroupBy(v: string) { this.groupBy.set(v as ExpenseGroupBy); this.closeDocs(); this.load(); }
 
+  private reportSub?: Subscription;
+  private treeSub?: Subscription;
+  private docsSub?: Subscription;
+
   load() {
     this.loading.set(true);
-    this.svc.expenses(this.params({ group_by: this.groupBy(), compare: this.compare() }))
+    this.closeDocs(); // el drill abierto queda inválido al cambiar filtros
+    this.reportSub?.unsubscribe(); // cancela la request anterior: sin esto una respuesta lenta vieja pisa a la nueva
+    this.reportSub = this.svc.expenses(this.params({ group_by: this.groupBy(), compare: this.compare() }))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar egresos' }); },
       });
     if (this.view() === 'arbol') {
-      this.svc.expensesTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
+      this.treeSub?.unsubscribe();
+      this.treeSub = this.svc.expensesTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({ next: (t) => this.tree.set(t), error: () => {} });
     }
+    if (this.view() === 'proveedores') this.loadProviders();
+    if (this.view() === 'hallazgos') this.loadFindings(this.findingTipo());
   }
+
+  private providersSub?: Subscription;
+  private findingsSub?: Subscription;
+
+  loadProviders() {
+    this.providersSub?.unsubscribe();
+    this.providersSub = this.svc.apProviders({ search: this.providerSearch, sucursal: this.sucursal, limit: 200 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.providers.set(r), error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar proveedores' }) });
+  }
+
+  loadFindings(tipo: string) {
+    this.findingTipo.set(tipo);
+    this.findingsSub?.unsubscribe();
+    this.findingsSub = this.svc.expenseFindings({ tipo: tipo || undefined, sucursal: this.sucursal, limit: 1000 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.findings.set(r), error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar hallazgos' }) });
+  }
+
+  readonly findingMeta = (t: string) => this.findingLabels[t] || { label: t, sev: 'warn', hint: '' };
 
   private toNode(n: ExpenseTreeNode, expanded = false): TreeNode {
     return {
@@ -347,10 +568,17 @@ export class ComercialEgresosComponent {
     const extra: Partial<ExpensesParams> = {};
     if (gb === 'cuenta') extra.cuenta = row.key;
     else if (gb === 'cuenta_mayor') extra.cuenta_mayor = row.key;
-    else if (gb === 'beneficiario') extra.beneficiario = row.key;
+    else if (gb === 'beneficiario') {
+      // match exacto (no ILIKE: "PEDRO" no debe traer "PEDROZA"); el bucket sintético filtra IS NULL
+      if (row.key === '(sin beneficiario)') extra.beneficiario_null = true;
+      else extra.beneficiario_eq = row.key;
+    }
     else if (gb === 'sucursal') extra.sucursal = [row.key];
     else if (gb === 'doc_tipo') extra.doc_tipo = row.key;
-    else if (gb === 'area') extra.area = row.key;
+    else if (gb === 'area') {
+      if (row.key === '(sin área)') extra.area_null = true;
+      else extra.area = row.key;
+    }
     else return; // 'mes' no drillea a doc
     this.loadDocs(extra, `${this.groupByLabel()}: ${row.label}`);
   }
@@ -361,11 +589,28 @@ export class ComercialEgresosComponent {
 
   private loadDocs(extra: Partial<ExpensesParams>, title: string) {
     this.docsTitle.set(title);
-    this.svc.expenseDocuments(this.params(extra)).pipe(takeUntilDestroyed(this.destroyRef))
+    this.docsSub?.unsubscribe();
+    this.docsSub = this.svc.expenseDocuments(this.params(extra)).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (d) => this.docs.set(d), error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar documentos' }) });
   }
 
   closeDocs() { this.docsTitle.set(''); this.docs.set([]); }
+
+  private docDetailSub?: Subscription;
+  /** Click en una fila de documento → abre el documento fuente (kdm1/kdm2). */
+  openDocument(d: ExpenseDocRow) {
+    this.docDetailTitle.set(`${d.doc_tipo}-${d.doc_folio}`);
+    this.docDetail.set(null);
+    this.docDetailOpen.set(true);
+    this.docDetailLoading.set(true);
+    this.docDetailSub?.unsubscribe();
+    this.docDetailSub = this.svc.expenseDocument(d.sucursal, d.doc_tipo, d.doc_folio)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (dd) => { this.docDetail.set(dd); this.docDetailLoading.set(false); },
+        error: () => { this.docDetailLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el documento' }); },
+      });
+  }
 
   money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   pct(part: number, total: number): number { return total ? +((part / total) * 100).toFixed(1) : 0; }

@@ -1,6 +1,8 @@
 # ERP Kepler — esquema descifrado (referencia)
 
 > Mega Dulces corre **Kepler** (ERP retail/distribución MX). El esquema está **ofuscado a propósito**: tablas `kdXX`, **todas las columnas `c1, c2, c3…`**, sin nombres ni comentarios. Este doc captura el mapeo inferido **desde los datos** — difícil de re-derivar, mantener vivo.
+>
+> **Este doc = producto/inventario.** Para el **modelo contable** (pólizas `kdc2`, catálogo `kdco`, cuentas, ciclos venta/compra/inventario) ver [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md).
 
 ## El dump
 
