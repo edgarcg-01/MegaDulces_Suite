@@ -36,7 +36,7 @@ interface Opt { label: string; value: string; }
         </div>
         <div class="tm-head-actions">
           <button pButton icon="pi pi-arrow-left" label="Volver al folio" [text]="true" severity="secondary" size="small"
-                  [routerLink]="['/comercial/inventory/sessions', countId]"></button>
+                  [routerLink]="['/almacen/inventory/sessions', countId]"></button>
         </div>
       </header>
 
@@ -60,7 +60,7 @@ interface Opt { label: string; value: string; }
         <div class="tm-empty">
           <i class="pi pi-th-large"></i>
           <p>Este almacén no tiene pasillos.</p>
-          <small>Definilos primero en <a [routerLink]="['/comercial/inventory/aisles']">Pasillos</a>, después armá los equipos acá.</small>
+          <small>Definilos primero en <a [routerLink]="['/almacen/inventory/aisles']">Pasillos</a>, después armá los equipos acá.</small>
         </div>
       } @else {
         <div class="tm-body">

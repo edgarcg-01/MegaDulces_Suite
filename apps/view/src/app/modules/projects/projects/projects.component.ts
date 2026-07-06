@@ -67,14 +67,24 @@ export class ProjectsComponent implements OnInit {
         Permission.COMMERCIAL_ORDERS_CREAR,
         Permission.COMMERCIAL_CUSTOMERS_VER,
         Permission.COMMERCIAL_CUSTOMERS_GESTIONAR,
-        Permission.COMMERCIAL_WAREHOUSES_VER,
         Permission.COMMERCIAL_PRICING_VER,
-        Permission.COMMERCIAL_INVENTORY_VER,
       ],
       // Vendedor tiene COMMERCIAL_ORDERS_* pero no debe ver el admin de
       // Comercial (mostraría pedidos de toda la tenant) — tiene su propio
       // proyecto "Modo Vendedor" abajo.
       hideForRoles: ['vendedor'],
+    },
+    {
+      id: 'almacen',
+      name: 'Almacén',
+      description: 'Existencias por sucursal, conteo físico (ciego y doble), caducidades (FEFO), conteo cíclico ABC y layout de pasillos.',
+      icon: 'pi pi-box',
+      route: '/almacen',
+      status: 'Activo',
+      anyOf: [
+        Permission.COMMERCIAL_INVENTORY_VER,
+        Permission.COMMERCIAL_WAREHOUSES_VER,
+      ],
     },
     {
       id: 'televenta',

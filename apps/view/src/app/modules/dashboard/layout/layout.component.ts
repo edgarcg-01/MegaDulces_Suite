@@ -258,14 +258,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      title: 'Inventario',
-      items: [
-        { label: 'Existencias',    icon: 'pi pi-box',              route: '/comercial/inventory',          permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-        { label: 'Conteo',         icon: 'pi pi-qrcode',           route: '/comercial/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
-        { label: 'Analítica inv.', icon: 'pi pi-calendar-times',   route: '/comercial/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-      ],
-    },
-    {
       title: 'Catálogo',
       items: [
         { label: 'Catálogo',          icon: 'pi pi-shopping-bag', route: '/comercial/products',   permission: Permission.CATALOGO_GESTIONAR },
@@ -345,7 +337,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas'>(() => {
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'almacen'>(() => {
     const url = this.currentUrl();
     if (url.startsWith('/admin')) return 'admin';
     if (url.startsWith('/comercial')) return 'comercial';
@@ -353,6 +345,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (url.startsWith('/tienda')) return 'tienda';
     if (url.startsWith('/reparto')) return 'reparto';
     if (url.startsWith('/finanzas')) return 'finanzas';
+    if (url.startsWith('/almacen')) return 'almacen';
     return 'trademk';
   });
 
@@ -363,6 +356,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       case 'tienda':     return 'Tienda';
       case 'reparto':    return 'Reparto';
       case 'finanzas':   return 'Finanzas';
+      case 'almacen':    return 'Almacén';
       case 'admin':      return 'Administración';
       default:           return 'Trade Marketing';
     }
@@ -377,6 +371,21 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
   private finanzasNavItems: NavItem[] = [
     { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+  ];
+
+  // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación
+  // de almacén — salió de Ventas. Reusa permisos COMMERCIAL_INVENTORY_*.
+  private almacenNavItems: NavItem[] = [
+    { label: 'Existencias',     icon: 'pi pi-box',            route: '/almacen/inventory',          permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+    { label: 'Almacenes',       icon: 'pi pi-warehouse',      route: '/almacen/warehouses',         permission: Permission.COMMERCIAL_WAREHOUSES_VER },
+    { label: 'Conteo físico',   icon: 'pi pi-qrcode',         route: '/almacen/inventory/count',    permission: Permission.COMMERCIAL_INVENTORY_CONTAR, exact: true },
+    { label: 'Folios',          icon: 'pi pi-clipboard',      route: '/almacen/inventory/sessions', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+    { label: 'Cíclico (ABC)',   icon: 'pi pi-sync',           route: '/almacen/inventory/abc',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+    { label: 'Pasillos',        icon: 'pi pi-th-large',       route: '/almacen/inventory/aisles',   permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
+    { label: 'Exactitud (IRA)', icon: 'pi pi-verified',       route: '/almacen/inventory/ira',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
+    { label: 'Por vencer',      icon: 'pi pi-calendar-times', route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+    { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_ANALYTICS_VER },
+    { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_ANALYTICS_VER },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
@@ -426,6 +435,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         ? this.tiendaNavItems
         : project === 'finanzas'
         ? this.finanzasNavItems
+        : project === 'almacen'
+        ? this.almacenNavItems
         : this.tradeMkNavItems;
     return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
   });

@@ -63,7 +63,7 @@ interface LiveCountEntry {
           @if (live()) {
             <span class="in-live" title="Monitoreo en vivo activo"><span class="in-live-dot"></span> EN VIVO</span>
           }
-          <button pButton icon="pi pi-arrow-left" label="Volver" [text]="true" severity="secondary" size="small" routerLink="/comercial/inventory/sessions"></button>
+          <button pButton icon="pi pi-arrow-left" label="Volver" [text]="true" severity="secondary" size="small" routerLink="/almacen/inventory/sessions"></button>
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
         </div>
       </header>
@@ -134,7 +134,7 @@ interface LiveCountEntry {
           <button pButton icon="pi pi-calculator" label="Calcular discrepancias" size="small" severity="secondary" [loading]="computing()" (click)="compute()"></button>
           @if (canAssign()) {
             <button pButton icon="pi pi-users" label="Equipos por pasillo" size="small" [text]="true" severity="secondary"
-                    [routerLink]="['/comercial/inventory/sessions', countId, 'teams']"></button>
+                    [routerLink]="['/almacen/inventory/sessions', countId, 'teams']"></button>
           }
           @if (canReconcile()) {
             <button pButton icon="pi pi-check-circle" label="Reconciliar" size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"></button>

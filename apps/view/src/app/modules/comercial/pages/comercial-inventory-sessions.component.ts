@@ -61,7 +61,7 @@ import { forkJoin } from 'rxjs';
             role="button"
             tabindex="0"
             [attr.aria-label]="'Abrir folio ' + c.folio"
-            [routerLink]="['/comercial/inventory/sessions', c.id]"
+            [routerLink]="['/almacen/inventory/sessions', c.id]"
             (keydown.enter)="goToFolio(c.id)"
             (keydown.space)="$event.preventDefault(); goToFolio(c.id)">
             <td class="in-mono">{{ c.folio }}</td>
@@ -75,7 +75,7 @@ import { forkJoin } from 'rxjs';
             </td>
             <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
             <td>
-              <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/comercial/inventory/sessions', c.id]" (click)="$event.stopPropagation()"></button>
+              <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()"></button>
             </td>
           </tr>
         </ng-template>
@@ -191,7 +191,7 @@ export class ComercialInventorySessionsComponent {
   }
 
   goToFolio(id: string) {
-    this.router.navigate(['/comercial/inventory/sessions', id]);
+    this.router.navigate(['/almacen/inventory/sessions', id]);
   }
 
   load() {

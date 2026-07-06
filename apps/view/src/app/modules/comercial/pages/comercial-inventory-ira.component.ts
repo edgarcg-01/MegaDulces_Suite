@@ -95,7 +95,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
               </ng-template>
               <ng-template pTemplate="body" let-r>
                 <tr>
-                  <td><a [routerLink]="['/comercial/inventory/sessions', r.count_id]" class="ira-folio">{{ r.folio }}</a></td>
+                  <td><a [routerLink]="['/almacen/inventory/sessions', r.count_id]" class="ira-folio">{{ r.folio }}</a></td>
                   <td>{{ r.warehouse_code || '—' }}</td>
                   <td>{{ r.reconciled_at | date:'dd/MM/yy HH:mm' }}</td>
                   <td class="num"><p-tag [value]="r.ira_pct !== null ? (r.ira_pct + '%') : '—'" [severity]="iraSeverity(r.ira_pct)"></p-tag></td>

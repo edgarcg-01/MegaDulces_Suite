@@ -105,75 +105,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-order-detail.component').then(m => m.ComercialOrderDetailComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
       },
-      {
-        path: 'inventory',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
-      },
-      {
-        // Fase I.2 — página del contador (handheld, conteo ciego)
-        path: 'inventory/count',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)],
-        canDeactivate: [countFocusGuard]
-      },
-      {
-        // Fase I.3 — supervisor: lista + apertura de folios
-        path: 'inventory/sessions',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
-      },
-      {
-        // Fase I.3 — supervisor: detalle del folio + reconciliación
-        path: 'inventory/sessions/:id',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-session-detail.component').then(m => m.ComercialInventorySessionDetailComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
-      },
-      {
-        // Fase I.5 — KPI de exactitud de inventario (IRA)
-        path: 'inventory/ira',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-ira.component').then(m => m.ComercialInventoryIraComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
-      },
-      {
-        // P2.2c — lotes por vencer / vencidos (FEFO)
-        path: 'inventory/expiring',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-expiring.component').then(m => m.ComercialInventoryExpiringComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
-      },
-      {
-        // ABC.3b — conteo cíclico (clasificación ABC + agenda)
-        path: 'inventory/abc',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-abc.component').then(m => m.ComercialInventoryAbcComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
-      },
-      {
-        // PA.1b — editor 2D de pasillos (layout + mapeo bulk SKU→pasillo)
-        path: 'inventory/aisles',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-aisles.component').then(m => m.ComercialInventoryAislesComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
-      },
-      {
-        // PA.3 — tablero de equipos por folio (staffing por pasillo)
-        path: 'inventory/sessions/:id/teams',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-teams.component').then(m => m.ComercialInventoryTeamsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
-      },
-      {
-        path: 'warehouses',
-        loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]
-      },
-      {
-        path: 'dead-stock',
-        loadComponent: () => import('./modules/comercial/pages/comercial-dead-stock.component').then(m => m.ComercialDeadStockComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
-      },
-      {
-        path: 'inventory-health',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-health.component').then(m => m.ComercialInventoryHealthComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
-      },
+      // Inventario/almacén vive ahora en el proyecto Almacén (/almacen/*).
+      // Redirects prefix: /comercial/inventory/** → /almacen/inventory/** (deep-links viejos siguen).
+      { path: 'inventory', redirectTo: '/almacen/inventory' },
+      { path: 'warehouses', redirectTo: '/almacen/warehouses' },
+      { path: 'dead-stock', redirectTo: '/almacen/dead-stock' },
+      { path: 'inventory-health', redirectTo: '/almacen/inventory-health' },
       {
         path: 'customers-360',
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
@@ -274,6 +211,86 @@ export const routes: Routes = [
         path: 'egresos/detalle',
         loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+    ]
+  },
+  // ── Proyecto Almacén ────────────────────────────────────────────────
+  // Existencias, conteo físico (ciego/doble), FEFO, ABC/cíclico, pasillos.
+  // Operación de almacén, no de venta. Reusa permisos COMMERCIAL_INVENTORY_*.
+  {
+    path: 'almacen',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'inventory', pathMatch: 'full' },
+      {
+        path: 'inventory',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        // Fase I.2 — página del contador (handheld, conteo ciego)
+        path: 'inventory/count',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)],
+        canDeactivate: [countFocusGuard]
+      },
+      {
+        // Fase I.3 — supervisor: lista + apertura de folios
+        path: 'inventory/sessions',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-sessions.component').then(m => m.ComercialInventorySessionsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // Fase I.3 — supervisor: detalle del folio + reconciliación
+        path: 'inventory/sessions/:id',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-session-detail.component').then(m => m.ComercialInventorySessionDetailComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // Fase I.5 — KPI de exactitud de inventario (IRA)
+        path: 'inventory/ira',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-ira.component').then(m => m.ComercialInventoryIraComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // P2.2c — lotes por vencer / vencidos (FEFO)
+        path: 'inventory/expiring',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-expiring.component').then(m => m.ComercialInventoryExpiringComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        // ABC.3b — conteo cíclico (clasificación ABC + agenda)
+        path: 'inventory/abc',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-abc.component').then(m => m.ComercialInventoryAbcComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)]
+      },
+      {
+        // PA.1b — editor 2D de pasillos (layout + mapeo bulk SKU→pasillo)
+        path: 'inventory/aisles',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-aisles.component').then(m => m.ComercialInventoryAislesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
+        // PA.3 — tablero de equipos por folio (staffing por pasillo)
+        path: 'inventory/sessions/:id/teams',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-teams.component').then(m => m.ComercialInventoryTeamsComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_ASIGNAR)]
+      },
+      {
+        path: 'warehouses',
+        loadComponent: () => import('./modules/comercial/pages/comercial-warehouses.component').then(m => m.ComercialWarehousesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_WAREHOUSES_VER)]
+      },
+      {
+        path: 'dead-stock',
+        loadComponent: () => import('./modules/comercial/pages/comercial-dead-stock.component').then(m => m.ComercialDeadStockComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
+        path: 'inventory-health',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory-health.component').then(m => m.ComercialInventoryHealthComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
     ]
   },
