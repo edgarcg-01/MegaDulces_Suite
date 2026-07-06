@@ -20,6 +20,7 @@ import {
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
+import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { REPORTS_TABS } from '../reports-tabs';
 
 type PeriodMode = 'year' | 'd7' | 'd15' | 'd21' | 'range';
@@ -37,7 +38,7 @@ const MES: Record<string, string> = {
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     InputTextModule, DatePickerModule, ToastModule, TableModule, TooltipModule,
-    PageTabsComponent, SegmentedComponent,
+    PageTabsComponent, SegmentedComponent, ProductSearchComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -86,7 +87,7 @@ const MES: Record<string, string> = {
         </div>
         <div class="sl-field sl-search">
           <label>Buscar producto</label>
-          <input pInputText [(ngModel)]="search" placeholder="SKU o descripción…" (keyup.enter)="load()" />
+          <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
         <div class="sl-actions">
           <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
@@ -183,6 +184,9 @@ const MES: Record<string, string> = {
     .sl-year { max-width:110px; }
     .sl-brand { flex:0 1 240px; min-width:190px; }
     .sl-search { flex:1 1 240px; max-width:340px; }
+    .sl-search app-product-search { display:block; width:100%; }
+    :host ::ng-deep .sl-search .ps-ac,
+    :host ::ng-deep .sl-search .ps-ac .p-autocomplete-input { width:100%; min-width:0; }
     .sl-actions { margin-left:auto; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .so-dl { display:flex; gap:.5rem; }
@@ -252,6 +256,12 @@ export class ComercialSalidasComponent {
 
   onRangePick() {
     if (this.rangeDates?.[0] && this.rangeDates?.[1]) this.load();
+  }
+
+  /** Autocomplete de producto: al elegir uno, filtra por su SKU (5 díg.) y recarga en vivo. */
+  onProductPick(hit: ProductHit | null): void {
+    this.search = hit ? (hit.sku || hit.label) : '';
+    this.load();
   }
 
   private iso(d: Date): string {
