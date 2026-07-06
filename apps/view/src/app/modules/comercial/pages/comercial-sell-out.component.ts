@@ -194,9 +194,9 @@ const CHANNEL_OPTS = [
           </div>
           <div class="card-premium card-flat rk-card">
             <div class="rk-body">
-              <div class="rk-top"><span class="rk-label">Productos</span></div>
+              <div class="rk-top"><span class="rk-label">{{ r.row_dim === 'brand' ? 'Empresas' : 'Productos' }}</span></div>
               <div class="rk-value">{{ r.rows.length }}</div>
-              <div class="rk-metaline">Con venta en el periodo</div>
+              <div class="rk-metaline">{{ r.row_dim === 'brand' ? 'Con venta · click para ver productos' : 'Con venta en el periodo' }}</div>
             </div>
           </div>
           <div class="card-premium card-flat rk-card">
@@ -217,14 +217,14 @@ const CHANNEL_OPTS = [
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
               <h3 class="text-sm font-bold text-content-main">Detalle por producto</h3>
-              <span class="so-matrix-count">{{ r.rows.length }} productos · {{ r.columns.length }} columnas</span>
+              <span class="so-matrix-count">{{ r.rows.length }} {{ r.row_dim === 'brand' ? 'empresas' : 'productos' }} · {{ r.columns.length }} columnas</span>
             </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
               <thead>
                 <tr>
                   <th class="frz c0" rowspan="2">Código</th>
-                  <th class="frz c1" rowspan="2">Descripción</th>
+                  <th class="frz c1" rowspan="2">{{ r.row_dim === 'brand' ? 'Empresa' : 'Descripción' }}</th>
                   <th class="frz c2" rowspan="2">UXC</th>
                   @for (c of r.columns; track c.key) { <th [attr.colspan]="grpColspan()" class="grp">{{ colLabel(c) }}</th> }
                   <th [attr.colspan]="grpColspan()" class="grp tot">TOTAL</th>
@@ -240,7 +240,9 @@ const CHANNEL_OPTS = [
               </thead>
               <tbody>
                 @for (row of r.rows; track row.product_id) {
-                  <tr>
+                  <tr [class.so-drill]="r.row_dim === 'brand'"
+                      (click)="r.row_dim === 'brand' && drillBrand(row)"
+                      [attr.title]="r.row_dim === 'brand' ? 'Ver productos de ' + row.nombre : null">
                     <td class="frz c0 mono">{{ row.sku }}</td>
                     <td class="frz c1 name">{{ row.nombre }}</td>
                     <td class="frz c2 n">{{ row.uxc ?? '—' }}</td>
@@ -357,6 +359,9 @@ const CHANNEL_OPTS = [
     .so-matrix thead tr:nth-child(2) th:nth-last-child(2) { border-left:2px solid var(--border-color); }
     .so-matrix tbody tr:hover td:not(.frz) { background:var(--table-hover); }
     .so-matrix tbody tr:hover td.frz { background:var(--hover-bg); }
+    /* Reporte general: filas de empresa clicables (drill a productos). */
+    .so-matrix tbody tr.so-drill { cursor:pointer; }
+    .so-matrix tbody tr.so-drill:hover td.frz.c1 { color:var(--action); }
     .so-matrix tfoot td { position:sticky; bottom:0; background:var(--surface-selected-bg); font-weight:700; z-index:2; }
     /* Skeleton de carga (mientras se genera el reporte) */
     .so-skel { display:flex; flex-direction:column; gap:1rem; }
@@ -459,6 +464,13 @@ export class ComercialSellOutComponent {
   /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera. */
   onProductPick(hit: ProductHit | null): void {
     this.search.set(hit ? (hit.sku || hit.label) : '');
+    this.generate();
+  }
+
+  /** Drill del reporte general: click en una empresa → detalle de sus productos. */
+  drillBrand(row: { product_id: string }): void {
+    if (!row.product_id) return;
+    this.brandId.set(row.product_id);
     this.generate();
   }
 

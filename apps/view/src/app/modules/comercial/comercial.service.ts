@@ -1292,9 +1292,10 @@ export interface SellOutRow {
 }
 
 export interface SellOutReport {
-  brand: { id: string; nombre: string; code: string | null };
+  brand: { id: string | null; nombre: string; code: string | null };
   period: { from: string; to: string };
   group_by: 'branch' | 'branch_channel';
+  row_dim: 'brand' | 'product';
   columns: SellOutColumn[];
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;

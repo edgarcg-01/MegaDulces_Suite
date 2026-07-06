@@ -193,6 +193,8 @@ export interface SellOutReport {
   brand: { id: string | null; nombre: string; code: string | null };
   period: { from: string; to: string };
   group_by: SellOutGroupBy;
+  /** Dimensión de las filas: 'brand' = reporte general por empresa · 'product' = detalle. */
+  row_dim: 'brand' | 'product';
   columns: SellOutColumn[];
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
@@ -1807,6 +1809,9 @@ export class CommercialAnalyticsService {
     const brandId = (q.brand_id || '').trim();
     if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
     const search = (q.search || '').trim();
+    // Sin empresa y sin búsqueda → reporte GENERAL agrupado por EMPRESA (matriz chica,
+    // ~decenas de filas). Con empresa elegida o búsqueda → detalle por PRODUCTO.
+    const byBrand = !brandId && !search;
     if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
       throw new BadRequestException('from/to requeridos (ISO 8601)');
     const from = q.from.slice(0, 10);
@@ -1859,6 +1864,7 @@ export class CommercialAnalyticsService {
       // registran la aplicación de la promo en el ticket, no venta de producto.
       const rawRows: any[] = await trx('analytics.sales_daily as sd')
         .join('catalog.products as p', 'p.id', 'sd.product_id')
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
         .where('sd.tenant_id', tenantId)
         .andWhere('p.is_promo', false)
@@ -1876,11 +1882,14 @@ export class CommercialAnalyticsService {
           'p.sku as sku',
           'p.nombre as nombre',
           'p.factor_sale as factor_sale',
+          'p.brand_id as brand_id',
+          'b.nombre as brand_nombre',
+          'b.code as brand_code',
           trx.raw(`${channelExpr} as channel`),
         )
         .sum({ units: 'sd.units' })
         .sum({ monto: 'sd.revenue' })
-        .groupByRaw(`w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, ${channelExpr}`);
+        .groupByRaw(`w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}`);
 
       // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
       const retailRows = await trx('analytics.sales_daily as sd')
@@ -1899,6 +1908,7 @@ export class CommercialAnalyticsService {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
+      row_dim: byBrand ? 'brand' : 'product',
       columns: [],
       rows: [],
       column_totals: {},
@@ -1940,17 +1950,28 @@ export class CommercialAnalyticsService {
         colTotals.set(colKey, { cajas: 0, monto: 0 });
       }
 
-      let row = rowMap.get(r.sku);
+      // byBrand → una fila por EMPRESA (product_id lleva el brand_id para el drill).
+      const rowKey = byBrand ? (r.brand_id || 'sin-empresa') : r.sku;
+      let row = rowMap.get(rowKey);
       if (!row) {
-        row = {
-          product_id: r.product_id,
-          sku: r.sku,
-          nombre: r.nombre,
-          uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
-          cells: {},
-          total: { cajas: 0, monto: 0 },
-        };
-        rowMap.set(r.sku, row);
+        row = byBrand
+          ? {
+              product_id: r.brand_id || '',
+              sku: r.brand_code || '',
+              nombre: r.brand_nombre || 'Sin empresa',
+              uxc: null,
+              cells: {},
+              total: { cajas: 0, monto: 0 },
+            }
+          : {
+              product_id: r.product_id,
+              sku: r.sku,
+              nombre: r.nombre,
+              uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+              cells: {},
+              total: { cajas: 0, monto: 0 },
+            };
+        rowMap.set(rowKey, row);
       }
       const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
       cell.cajas += cajas;
