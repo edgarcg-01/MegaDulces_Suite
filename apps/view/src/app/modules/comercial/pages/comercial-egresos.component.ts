@@ -484,6 +484,7 @@ export class ComercialEgresosComponent {
   };
 
   constructor() {
+    console.log('[egresos] build GX-v3 drill+42702fix+logs · ' + new Date().toISOString());
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
@@ -599,16 +600,30 @@ export class ComercialEgresosComponent {
   private docDetailSub?: Subscription;
   /** Click en una fila de documento → abre el documento fuente (kdm1/kdm2). */
   openDocument(d: ExpenseDocRow) {
+    console.log('[egresos] openDocument CLICK →', { sucursal: d?.sucursal, doc_tipo: d?.doc_tipo, folio: d?.doc_folio });
+    if (!d || !d.sucursal || !d.doc_tipo || !d.doc_folio) {
+      console.warn('[egresos] fila sin llave de documento — no se puede abrir', d);
+      this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Esta fila no tiene documento fuente asociado' });
+      return;
+    }
     this.docDetailTitle.set(`${d.doc_tipo}-${d.doc_folio}`);
     this.docDetail.set(null);
     this.docDetailOpen.set(true);
     this.docDetailLoading.set(true);
+    console.log('[egresos] dialog abierto=true, llamando endpoint…');
     this.docDetailSub?.unsubscribe();
     this.docDetailSub = this.svc.expenseDocument(d.sucursal, d.doc_tipo, d.doc_folio)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (dd) => { this.docDetail.set(dd); this.docDetailLoading.set(false); },
-        error: () => { this.docDetailLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el documento' }); },
+        next: (dd) => {
+          console.log('[egresos] respuesta documento:', dd);
+          this.docDetail.set(dd); this.docDetailLoading.set(false);
+        },
+        error: (err) => {
+          console.error('[egresos] ERROR documento:', err?.status, err?.message, err);
+          this.docDetailLoading.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error', detail: `No se pudo cargar el documento (${err?.status || '?'})` });
+        },
       });
   }
 
