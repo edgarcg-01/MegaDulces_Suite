@@ -311,7 +311,22 @@ const CHANNEL_OPTS = [
     .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border);
       border-radius:var(--radius-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
     .so-matrix-card { padding:1.25rem; }
-    .so-matrix-head { display:flex; align-items:baseline; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; }
+    .so-matrix-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; flex-wrap:wrap; }
+    .so-matrix-tools { display:flex; align-items:center; gap:1rem; }
+    .so-matrix-count { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
+    /* Buscador de producto: el input neutraliza el outline global (input:focus !important). */
+    .so-search { display:inline-flex; align-items:center; gap:.4rem; height:32px; width:240px; max-width:100%;
+      background:var(--card-bg); border:1px solid var(--border); border-radius:var(--r-sm,8px); padding:0 .5rem;
+      transition:border-color 120ms var(--ease-standard); }
+    .so-search:focus-within { border-color:var(--action); box-shadow:0 0 0 3px var(--action-ring); }
+    .so-search > i { color:var(--text-faint); font-size:var(--fs-sm,.85rem); flex-shrink:0; }
+    .so-search input { flex:1; min-width:0; border:none !important; outline:none !important; box-shadow:none !important;
+      background:transparent; font-size:.8rem; color:var(--text-main); padding:0; height:28px; }
+    .so-search input::placeholder { color:var(--text-faint); }
+    .so-search-clear { background:transparent; border:none; width:20px; height:20px; border-radius:4px; flex-shrink:0;
+      color:var(--text-faint); cursor:pointer; display:grid; place-items:center; font-size:var(--fs-xs,.75rem); }
+    .so-search-clear:hover { color:var(--text-main); background:var(--hover-bg); }
+    .so-matrix-empty { text-align:center; color:var(--text-muted); padding:1.5rem; }
     .so-matrix-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
     .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; min-width:100%; --so-h1:2.15rem; }
     /* Reglas horizontales solamente; verticales SOLO en fronteras de grupo (look de reporte, no de hoja de cálculo). */

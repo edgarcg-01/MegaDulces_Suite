@@ -58,7 +58,11 @@ Detrás de cada póliza hay un documento. Descifrado 2026-07-06 (reconciliación
 - **`kdm2`** (líneas, ~180k filas): misma llave (c1..c6) + `c8`=SKU · `c9`=cantidad · **`c10`=nombre del producto** · `c11`=presentación · `c12`=costo unitario · `c13`=importe de línea.
 - **Cobertura:** las **compras (XA2001)** SÍ traen líneas de producto (7,055/7,335 docs, ~5 líneas/doc). Los **gastos (XA1001)**, **pagos (XD2601)** y **solicitudes (XA1501)** NO tienen líneas en kdm2 — su detalle es la cuenta contable + (gastos) la solicitud enlazada.
 
-**Feature GX v3 — drill al documento en `/comercial/egresos`:** al hacer clic en un documento del reporte se abre el documento fuente (cabecera + posturas contables + líneas de producto). Alimentado a `analytics.expense_documents` + `analytics.expense_document_lines` por el mismo nightly (`import-expenses-polizas.js`), leído por `GET /commercial/analytics/expenses/document`.
+**Feature GX v3 — desglose en la interfaz (`/comercial/egresos`):**
+- **Drill al documento:** clic en un documento → cabecera (proveedor/RFC/concepto/área) + posturas contables + líneas de producto. Tablas `analytics.expense_documents` + `analytics.expense_document_lines`, feed `import-expenses-polizas.js`, endpoint `GET .../expenses/document`.
+- **Vista Proveedores:** auxiliar de la cuenta 201 (compra, pagos, saldo, #facturas, DPO) reconstruido en `analytics.ap_provider` (feed `import-ap-findings.js`), endpoint `.../expenses/providers`.
+- **Vista Hallazgos:** las anomalías contables navegables (no CSV) — `iva_bug` (XD5501 con 122-001 huérfano), `prov_203` (provisiones sin descargar), `anticipo_107` (anticipos sin aplicar). Tabla `analytics.expense_findings`, endpoint `.../expenses/findings`.
+- **Vistas Área y Beneficiario:** ya disponibles vía `group_by` del reporte.
 
 ### Catálogo de cuentas: `kdco`
 
