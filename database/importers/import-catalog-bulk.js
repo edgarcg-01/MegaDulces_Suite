@@ -29,6 +29,15 @@ const BATCH = 1000;
 const clean = (v) => (v == null ? null : String(v).trim() || null);
 const numOr = (v) => (v == null || v === '' ? null : Number(v));
 
+// Sucursales Kepler para leer kdig (catálogo de líneas) — solo el fallback por nombre.
+const KDIG_BRANCHES = process.env.STOCK_BRANCH_MAP
+  ? JSON.parse(process.env.STOCK_BRANCH_MAP).map((b) => b.url || b)
+  : [
+      'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00',
+      'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03',
+      'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02',
+    ];
+
 const COLS = [
   'sku','barcode','brand_id','category_id','nombre','description','unit_purchase','unit_sale',
   'factor_purchase','factor_sale','iva_rate','ieps_rate','cost_with_tax','cost_per_case','cost_base',
@@ -67,12 +76,34 @@ const COLS = [
       catsByCode.set(c.code, c.id);
     console.log(`  lookup prod: ${brandsByCode.size} brands × ${catsByCode.size} categories`);
 
+    // Fallback para líneas Kepler DUPLICADAS (mismo proveedor con 2+ códigos en
+    // kdig, ej. 874 y 928 = JOSE BALTAZAR): si el code no existe como brand, se
+    // resuelve por NOMBRE de línea. Sin kdig accesible degrada al match por code.
+    const brandsByName = new Map();
+    for (const b of (await db.query(`SELECT id, btrim(upper(nombre)) AS nombre FROM catalog.brands WHERE tenant_id=$1 AND deleted_at IS NULL`, [M])).rows)
+      brandsByName.set(b.nombre, b.id);
+    const lineaName = new Map();
+    for (const burl of KDIG_BRANCHES) {
+      const k = new Client({ connectionString: burl, connectionTimeoutMillis: 6000 });
+      try {
+        await k.connect();
+        const { rows } = await k.query(`SELECT btrim(c1) AS code, btrim(c2) AS nombre FROM md.kdig WHERE btrim(coalesce(c1,''))<>'' AND btrim(coalesce(c2,''))<>''`);
+        for (const r of rows) lineaName.set(r.code, r.nombre.replace(/\s+/g, ' ').trim().toUpperCase());
+        console.log(`  kdig (${burl.split('@')[1]}): ${lineaName.size} líneas para fallback por nombre`);
+        break;
+      } catch { /* siguiente sucursal */ } finally { await k.end().catch(() => {}); }
+    }
+
     // Transformar (mismo mapeo que mega_dulces_sync) + skips.
     const recs = []; let skipName = 0, skipBrand = 0;
     for (const r of srcRows) {
       const sku = clean(r.articulo), nombre = clean(r.nombre);
       if (!sku || !nombre) { skipName++; continue; }
-      const brand_id = brandsByCode.get(clean(r.subfamilia_codigo));
+      let brand_id = brandsByCode.get(clean(r.subfamilia_codigo));
+      if (!brand_id) {
+        const nm = lineaName.get(clean(r.subfamilia_codigo));
+        if (nm) brand_id = brandsByName.get(nm);
+      }
       if (!brand_id) { skipBrand++; continue; }
       recs.push([
         sku, clean(r.codigo_barras), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
@@ -90,6 +121,11 @@ const COLS = [
     // STAGING temp + carga en batches.
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+    // Lock upfront de la tabla: el merge toca ~11k rows y deadlockeaba contra los
+    // crons que también escriben products (stock @1min / embeddings @15min). Con
+    // SHARE ROW EXCLUSIVE los otros escritores esperan (segundos) y no hay ciclo.
+    await db.query(`SET LOCAL lock_timeout = '90s'`);
+    await db.query(`LOCK TABLE catalog.products IN SHARE ROW EXCLUSIVE MODE`);
     await db.query(`CREATE TEMP TABLE stg2 (${COLS.map((c)=>`${c} text`).join(',')}) ON COMMIT DROP`);
     for (let i = 0; i < recs.length; i += BATCH) {
       const chunk = recs.slice(i, i + BATCH);
@@ -155,12 +191,18 @@ const COLS = [
             ORDER BY brand_id, btrim(upper(nombre)), sku) s
       WHERE NOT EXISTS (
         SELECT 1 FROM catalog.products p WHERE p.tenant_id=$1
-          AND p.brand_id=s.brand_id::uuid AND btrim(upper(p.nombre))=btrim(upper(s.nombre)))`, [M]);
+          AND p.brand_id=s.brand_id::uuid AND btrim(upper(p.nombre))=btrim(upper(s.nombre)))
+        -- sku ya existente con OTRO nombre = renombre/reúso de clave Kepler; se
+        -- salta (el UPDATE-por-nombre no lo pesca). Fix de fondo: match por SKU + aliases.
+        AND NOT EXISTS (
+          SELECT 1 FROM catalog.products p3 WHERE p3.tenant_id=$1 AND p3.sku=s.sku)`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — UPDATE ${upd.rowCount} / INSERT ${ins.rowCount}.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    if (e.detail) console.error('  detail:', e.detail);
+    if (e.where) console.error('  where:', String(e.where).slice(0, 300));
     process.exitCode = 1;
   } finally {
     await src.end();
