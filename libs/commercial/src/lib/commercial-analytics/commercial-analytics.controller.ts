@@ -266,7 +266,7 @@ export class CommercialAnalyticsController {
   // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
 
   @Get('expenses')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({
     summary:
       'GX — Egresos contables agregados por dimensión dinámica (group_by=cuenta|cuenta_mayor|beneficiario|sucursal|doc_tipo|area|mes). Filtros: from,to (90d), sucursal=csv, familia=5|6, doc_tipo, cuenta, cuenta_mayor, area, beneficiario, min_importe, max_importe. compare=true → Δ% vs período previo. Incluye serie mensual.',
@@ -294,7 +294,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('expenses/tree')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX — Árbol jerárquico Familia → Cuenta mayor → Subcuenta (desglose de menú). Mismos filtros que /expenses.' })
   expensesTree(
     @Query('from') from?: string,
@@ -313,7 +313,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('expenses/documents')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX — Renglones de egreso (documentos) filtrados. Mismos filtros que /expenses.' })
   expenseDocuments(
     @Query('from') from?: string,
@@ -340,7 +340,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('expenses/document')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX v3 — Drill al documento fuente detrás de una póliza: cabecera (proveedor/RFC/concepto/área/total/IVA) + posturas contables + líneas de producto (compras).' })
   expenseDocument(
     @Query('sucursal') sucursal: string,
@@ -351,7 +351,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('expenses/providers')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX v3 — Auxiliar de proveedores (201): compra, pagos, saldo, #facturas, última compra, DPO. Filtros: search, sucursal=csv, limit.' })
   apProviders(
     @Query('search') search?: string,
@@ -366,7 +366,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('expenses/findings')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX v3 — Hallazgos contables (iva_bug|prov_203|anticipo_107): resumen por tipo + filas del tipo seleccionado. Filtros: tipo, sucursal=csv, limit.' })
   expenseFindings(
     @Query('tipo') tipo?: string,
@@ -380,15 +380,25 @@ export class CommercialAnalyticsController {
     });
   }
 
+  @Get('expenses/provider')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX.4.2 — Proveedor 360: resumen 201 (saldo/DPO/pagos/última compra) + top productos comprados. key=beneficiario, sucursal=csv.' })
+  expenseProvider(@Query('key') key: string, @Query('sucursal') sucursal?: string) {
+    return this.service.expenseProvider({
+      key,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  }
+
   @Get('expenses/filters')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX — Valores para los filtros del reporte (tipos doc, áreas, cuentas mayores).' })
   expensesFilters() {
     return this.service.expensesFilters();
   }
 
   @Get('expenses/sucursales')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX — Sucursales con egresos (para el selector del reporte).' })
   expensesSucursales() {
     return this.service.expensesSucursales();

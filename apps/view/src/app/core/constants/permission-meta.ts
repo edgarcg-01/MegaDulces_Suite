@@ -112,6 +112,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.TRADE_ROUTE_PLAN_GESTIONAR]: { label: 'Gestionar Agenda de Rutas', description: 'Definir y editar la asignación diaria de rutas al equipo.', category: 'Seguimiento' },
   [Permission.LOGISTICS_TRANSFERS_VER]: { label: 'Ver Traspasos', description: 'Consultar traspasos y movimientos que no son venta (consolidación/recepción).', category: 'Logística' },
   [Permission.PORTAL_B2B_ACCESS]: { label: 'Acceso a Portal B2B', description: 'Permite entrar al portal de autoservicio para clientes B2B.', category: 'Portal B2B' },
+
+  // ── Proyecto Finanzas ──────────────────────────────────────────────────
+  [Permission.FINANCE_EXPENSES_VER]: { label: 'Ver Egresos Contables', description: 'Proyecto Finanzas: egresos contables (pólizas de gastos 6xx y compras 5xx), desglose por cuenta/beneficiario y drill a documentos.', category: 'Finanzas' },
 };
 
 /**
@@ -132,6 +135,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Inventario físico',
   'Televenta',
   'Logística',
+  'Finanzas',
   'Portal B2B',
   'Otros',
 ];

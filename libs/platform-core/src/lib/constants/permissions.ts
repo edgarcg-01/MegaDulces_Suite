@@ -140,4 +140,8 @@ export enum Permission {
   TRADE_ROUTE_PLAN_GESTIONAR = 'TRADE_ROUTE_PLAN_GESTIONAR',
   LOGISTICS_TRANSFERS_VER = 'LOGISTICS_TRANSFERS_VER',
   PORTAL_B2B_ACCESS = 'PORTAL_B2B_ACCESS',
+
+  // ── Proyecto Finanzas (egresos contables, CxP, hallazgos) ─────────────
+  // Separado de ventas: un rol contable no debe arrastrar permisos comerciales.
+  FINANCE_EXPENSES_VER = 'FINANCE_EXPENSES_VER',
 }

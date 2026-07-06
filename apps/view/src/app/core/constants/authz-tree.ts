@@ -150,6 +150,15 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'televenta', label: 'Televenta', route: '/televenta', view: [Permission.COMMERCIAL_TELEVENTA_VER], manage: [Permission.COMMERCIAL_TELEVENTA_OPERATE] },
         ],
       },
+      {
+        id: 'finanzas',
+        label: 'Finanzas',
+        icon: 'pi pi-wallet',
+        route: '/finanzas',
+        modules: [
+          { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
+        ],
+      },
     ],
   },
 

@@ -30,7 +30,7 @@ import {
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
 
 /**
  * GX v2 — Egresos contables (pólizas gastos + compras) con desglose jerárquico
@@ -323,7 +323,7 @@ export class ComercialEgresosComponent {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly reportTabs = REPORTS_TABS;
+  readonly reportTabs = FINANZAS_TABS;
   readonly familiaOpts = [{ label: 'Todo', value: '' }, { label: 'Compras', value: '5' }, { label: 'Gastos', value: '6' }];
   readonly viewOpts = [
     { label: 'Árbol', value: 'arbol' }, { label: 'Tabla', value: 'tabla' }, { label: 'Tendencia', value: 'tendencia' },
@@ -471,7 +471,7 @@ export class ComercialEgresosComponent {
   private goToDetalle(type: ExpenseGroupBy, key: string, label: string) {
     const [a, b] = this.rangeDates || [];
     const fmt = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
-    this.router.navigate(['/comercial/egresos/detalle'], {
+    this.router.navigate(['/finanzas/egresos/detalle'], {
       queryParams: { type, key, label, from: fmt(a), to: fmt(b), suc: this.sucursal.join(',') || null },
     });
   }

@@ -1107,6 +1107,11 @@ export class ComercialService {
     if (p.limit) params = params.set('limit', String(p.limit));
     return this.http.get<ExpenseFindingsReport>(`${this.base}/analytics/expenses/findings`, { params });
   }
+  expenseProvider(key: string, opts: { sucursal?: string[] } = {}) {
+    let params = new HttpParams().set('key', key);
+    if (opts.sucursal?.length) params = params.set('sucursal', opts.sucursal.join(','));
+    return this.http.get<ExpenseProvider360>(`${this.base}/analytics/expenses/provider`, { params });
+  }
   private expensesParams(p: ExpensesParams): HttpParams {
     let params = new HttpParams();
     if (p.from) params = params.set('from', p.from);
@@ -1718,4 +1723,25 @@ export interface ExpenseFindingsReport {
   summary: { tipo: string; num: number; total: number }[];
   tipo: string | null;
   rows: ExpenseFinding[];
+}
+// GX.4.2 — Proveedor 360
+export interface ExpenseProviderSummary {
+  proveedor: string;
+  compra_12m: number;
+  pagos_12m: number;
+  saldo: number;
+  num_facturas: number;
+  dpo_dias: number | null;
+  ultima_compra: string | null;
+}
+export interface ExpenseProviderProduct {
+  sku: string | null;
+  producto: string | null;
+  cantidad: number | null;
+  importe: number;
+  docs: number;
+}
+export interface ExpenseProvider360 {
+  summary: ExpenseProviderSummary | null;
+  top_products: ExpenseProviderProduct[];
 }

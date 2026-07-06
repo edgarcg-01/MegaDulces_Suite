@@ -1650,6 +1650,65 @@ export class CommercialAnalyticsService {
     });
   }
 
+  /**
+   * GX.4.2 — Proveedor 360: lo que el desglose genérico no tiene. Resumen de la
+   * cuenta 201 (saldo/pagos/DPO/última compra desde ap_provider) + top productos
+   * que se le compran (desde expense_document_lines). El resto (compra/tendencia/
+   * documentos) ya lo trae /expenses con beneficiario_eq.
+   */
+  async expenseProvider(q: { key: string; sucursal?: string[] }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!q.key) return { summary: null, top_products: [] };
+    return this.tk.run(async (trx) => {
+      const ap = trx('analytics.ap_provider').where('tenant_id', tenantId).where('proveedor', q.key);
+      if (q.sucursal?.length) ap.whereIn('sucursal', q.sucursal);
+      const s: any = await ap.select(
+        trx.raw('MAX(proveedor) AS proveedor'),
+        trx.raw('SUM(compra_12m)::numeric AS compra_12m'),
+        trx.raw('SUM(pagos_12m)::numeric AS pagos_12m'),
+        trx.raw('SUM(saldo)::numeric AS saldo'),
+        trx.raw('SUM(num_facturas)::int AS num_facturas'),
+        trx.raw('MAX(ultima_compra) AS ultima_compra'),
+        trx.raw('ROUND(AVG(dpo_dias))::int AS dpo_dias'),
+      ).first();
+
+      const lp = trx('analytics.expense_document_lines as l')
+        .join('analytics.expense_documents as d', function () {
+          this.on('d.tenant_id', 'l.tenant_id').andOn('d.sucursal', 'l.sucursal')
+            .andOn('d.doc_tipo', 'l.doc_tipo').andOn('d.doc_folio', 'l.doc_folio');
+        })
+        .where('l.tenant_id', tenantId).where('d.beneficiario', q.key);
+      if (q.sucursal?.length) lp.whereIn('l.sucursal', q.sucursal);
+      const products = await lp
+        .groupBy('l.sku')
+        .select('l.sku',
+          trx.raw('MAX(l.producto) AS producto'),
+          trx.raw('SUM(l.cantidad)::numeric AS cantidad'),
+          trx.raw('SUM(l.importe)::numeric AS importe'),
+          trx.raw('COUNT(DISTINCT l.doc_folio)::int AS docs'))
+        .orderByRaw('SUM(l.importe) DESC')
+        .limit(20);
+
+      const has = s && Number(s.compra_12m) > 0;
+      return {
+        summary: has ? {
+          proveedor: s.proveedor,
+          compra_12m: Number(s.compra_12m),
+          pagos_12m: Number(s.pagos_12m),
+          saldo: Number(s.saldo),
+          num_facturas: Number(s.num_facturas),
+          dpo_dias: s.dpo_dias != null ? Number(s.dpo_dias) : null,
+          ultima_compra: s.ultima_compra,
+        } : null,
+        top_products: products.map((r: any) => ({
+          sku: r.sku, producto: r.producto,
+          cantidad: r.cantidad != null ? Number(r.cantidad) : null,
+          importe: Number(r.importe), docs: Number(r.docs),
+        })),
+      };
+    });
+  }
+
   /** GX v2 — Valores para poblar los filtros del reporte (tipos doc, áreas, mayores). */
   async expensesFilters() {
     const tenantId = this.tenantCtx.requireTenantId();

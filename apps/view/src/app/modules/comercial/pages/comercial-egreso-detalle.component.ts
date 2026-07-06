@@ -22,6 +22,7 @@ import {
   ExpensesParams,
   ExpenseGroupBy,
   ExpenseDocumentDetail,
+  ExpenseProvider360,
 } from '../comercial.service';
 
 /**
@@ -84,6 +85,18 @@ type SliceType = 'cuenta' | 'cuenta_mayor' | 'beneficiario' | 'area' | 'sucursal
           <div class="ed-kpi"><span class="ed-kpi-label">Ticket prom.</span><span class="ed-kpi-val">{{ money(ticket()) }}</span></div>
         </div>
 
+        <!-- Proveedor 360: cuenta 201 (saldo/DPO/pagos) -->
+        @if (isProvider() && provider360()?.summary; as ps) {
+          <div class="ed-kpis">
+            <div class="ed-kpi"><span class="ed-kpi-label">Compra 12m</span><span class="ed-kpi-val">{{ money(ps.compra_12m) }}</span></div>
+            <div class="ed-kpi"><span class="ed-kpi-label">Saldo por pagar</span><span class="ed-kpi-val" [class.up]="ps.saldo > 0">{{ money(ps.saldo) }}</span></div>
+            <div class="ed-kpi"><span class="ed-kpi-label">Pagos 12m</span><span class="ed-kpi-val">{{ money(ps.pagos_12m) }}</span></div>
+            <div class="ed-kpi"><span class="ed-kpi-label">DPO (días de pago)</span><span class="ed-kpi-val" [class.up]="ps.dpo_dias != null && ps.dpo_dias > 60">{{ ps.dpo_dias != null ? ps.dpo_dias + ' d' : '—' }}</span></div>
+            <div class="ed-kpi"><span class="ed-kpi-label">Facturas 12m</span><span class="ed-kpi-val">{{ ps.num_facturas | number }}</span></div>
+            <div class="ed-kpi"><span class="ed-kpi-label">Última compra</span><span class="ed-kpi-val" style="font-size:1.05rem">{{ ps.ultima_compra | date:'dd/MM/yy' }}</span></div>
+          </div>
+        }
+
         <div class="ed-grid">
           <!-- Tendencia -->
           <div class="card-premium card-flat ed-card">
@@ -109,6 +122,27 @@ type SliceType = 'cuenta' | 'cuenta_mayor' | 'beneficiario' | 'area' | 'sucursal
             </p-table>
           </div>
         </div>
+
+        <!-- Proveedor 360: top productos comprados -->
+        @if (isProvider() && provider360()?.top_products?.length) {
+          <div class="card-premium card-flat ed-card">
+            <h3 class="ed-card-title">Top productos que le compras <span class="muted">(top {{ provider360()!.top_products.length }})</span></h3>
+            <p-table [value]="provider360()!.top_products" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="320px">
+              <ng-template pTemplate="header">
+                <tr><th style="width:5rem">SKU</th><th>Producto</th><th class="ta-r" style="width:7rem">Cantidad</th><th class="ta-r" style="width:5rem">Docs</th><th class="ta-r" style="width:9rem">Importe</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-p>
+                <tr>
+                  <td class="mono">{{ p.sku || '—' }}</td>
+                  <td>{{ p.producto || '—' }}</td>
+                  <td class="ta-r">{{ p.cantidad != null ? (p.cantidad | number:'1.0-0') : '—' }}</td>
+                  <td class="ta-r muted">{{ p.docs }}</td>
+                  <td class="ta-r strong">{{ money(p.importe) }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
+        }
 
         <!-- Documentos -->
         <div class="card-premium card-flat ed-card">
@@ -243,8 +277,11 @@ export class ComercialEgresoDetalleComponent {
   readonly docDetailOpen = signal(false);
   readonly docDetailLoading = signal(false);
   readonly docDetailTitle = signal('');
+  readonly provider360 = signal<ExpenseProvider360 | null>(null);
+  readonly isProvider = computed(() => this.sliceTypeSig() === 'beneficiario');
 
   // slice actual (del query param)
+  private readonly sliceTypeSig = signal<SliceType>('cuenta');
   private sliceType: SliceType = 'cuenta';
   private sliceKey = '';
   private sliceLabel = '';
@@ -304,6 +341,7 @@ export class ComercialEgresoDetalleComponent {
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.route.queryParams.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
       this.sliceType = (q['type'] as SliceType) || 'cuenta';
+      this.sliceTypeSig.set(this.sliceType);
       this.sliceKey = q['key'] || '';
       this.sliceLabel = q['label'] || '';
       if (q['from'] && q['to']) this.rangeDates = [new Date(q['from'] + 'T00:00:00'), new Date(q['to'] + 'T00:00:00')];
@@ -353,7 +391,17 @@ export class ComercialEgresoDetalleComponent {
     this.docsSub?.unsubscribe();
     this.docsSub = this.svc.expenseDocuments(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (d) => this.docs.set(d), error: () => {} });
+
+    // Proveedor 360: saldo/DPO/pagos (ap_provider) + top productos (kdm2)
+    this.provider360.set(null);
+    if (this.sliceType === 'beneficiario' && this.sliceKey !== '(sin beneficiario)') {
+      this.provSub?.unsubscribe();
+      this.provSub = this.svc.expenseProvider(this.sliceKey, { sucursal: this.sucursal?.length ? this.sucursal : undefined })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (p) => this.provider360.set(p), error: () => {} });
+    }
   }
+  private provSub?: Subscription;
 
   /** Pivotar a la entidad del renglón de desglose (drill encadenado). */
   drillInto(row: ExpenseRow) {
@@ -366,7 +414,7 @@ export class ComercialEgresoDetalleComponent {
     });
   }
 
-  back() { this.router.navigate(['/comercial/egresos']); }
+  back() { this.router.navigate(['/finanzas/egresos']); }
 
   private docDetailSub?: Subscription;
   openDocument(d: ExpenseDocRow) {

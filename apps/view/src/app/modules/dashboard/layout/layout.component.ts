@@ -345,13 +345,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto'>(() => {
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas'>(() => {
     const url = this.currentUrl();
     if (url.startsWith('/admin')) return 'admin';
     if (url.startsWith('/comercial')) return 'comercial';
     if (url.startsWith('/logistica')) return 'logistica';
     if (url.startsWith('/tienda')) return 'tienda';
     if (url.startsWith('/reparto')) return 'reparto';
+    if (url.startsWith('/finanzas')) return 'finanzas';
     return 'trademk';
   });
 
@@ -361,6 +362,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       case 'logistica':  return 'Logística';
       case 'tienda':     return 'Tienda';
       case 'reparto':    return 'Reparto';
+      case 'finanzas':   return 'Finanzas';
       case 'admin':      return 'Administración';
       default:           return 'Trade Marketing';
     }
@@ -370,6 +372,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Monitor en vivo', icon: 'pi pi-bolt', route: '/tienda/live', permission: Permission.STORE_LIVE_VER },
     { label: 'Sucursales', icon: 'pi pi-building', route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
     { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
+  ];
+
+  // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
+  private finanzasNavItems: NavItem[] = [
+    { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
@@ -417,6 +424,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         ? this.logisticaNavItems
         : project === 'tienda'
         ? this.tiendaNavItems
+        : project === 'finanzas'
+        ? this.finanzasNavItems
         : this.tradeMkNavItems;
     return this.dedupeByRoute(items.filter((i) => this.hasPermFor(i)));
   });

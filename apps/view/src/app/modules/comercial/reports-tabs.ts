@@ -20,16 +20,6 @@ export const REPORTS_TABS: PageTab[] = [
     icon: 'pi pi-directions',
     permission: Permission.COMMERCIAL_ORDERS_VER,
   },
-  {
-    label: 'Traspasos (no venta)',
-    route: '/logistica/traspasos',
-    icon: 'pi pi-sync',
-    permission: Permission.COMMERCIAL_ORDERS_VER,
-  },
-  {
-    label: 'Egresos contables',
-    route: '/comercial/egresos',
-    icon: 'pi pi-wallet',
-    permission: Permission.COMMERCIAL_ORDERS_VER,
-  },
+  // Traspasos vive en Logística y Egresos en Finanzas — fuera de los tabs de
+  // reportes de VENTA (aquí solo la familia sell-out/salidas/ruta).
 ];

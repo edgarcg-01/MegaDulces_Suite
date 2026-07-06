@@ -97,6 +97,8 @@ exports.seed = async function (knex) {
     // Horus — Supervisor AI de ejecución (Trade)
     SUPERVISOR_AI_VER: true,
     SUPERVISOR_AI_APROBAR: true,
+    // Proyecto Finanzas — egresos contables
+    FINANCE_EXPENSES_VER: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -121,6 +123,8 @@ exports.seed = async function (knex) {
       COMMERCIAL_THOT_GESTIONAR: !!perms.COMMERCIAL_CUSTOMERS_GESTIONAR,
       ROLES_VER: !!perms.ROLES_CONFIGURAR,
       PORTAL_B2B_ACCESS: roleName === 'customer_b2b',
+      // Finanzas — igual que la migración 20260706170000 (seed == migración)
+      FINANCE_EXPENSES_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
     };
   };
 

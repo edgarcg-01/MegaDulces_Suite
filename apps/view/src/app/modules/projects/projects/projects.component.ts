@@ -121,6 +121,15 @@ export class ProjectsComponent implements OnInit {
       anyOf: [Permission.LOGISTICS_HOME_DISPATCH],
     },
     {
+      id: 'finanzas',
+      name: 'Finanzas',
+      description: 'Egresos contables desde las pólizas de Kepler: gastos y compras por cuenta, beneficiario y sucursal, con drill a documentos.',
+      icon: 'pi pi-wallet',
+      route: '/finanzas',
+      status: 'Activo',
+      anyOf: [Permission.FINANCE_EXPENSES_VER],
+    },
+    {
       id: 'admin',
       name: 'Administración',
       description: 'Gestión de usuarios, roles y permisos del sistema.',

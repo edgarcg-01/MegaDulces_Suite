@@ -199,16 +199,9 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
-      {
-        path: 'egresos',
-        loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
-      },
-      {
-        path: 'egresos/detalle',
-        loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
-      },
+      // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
+      { path: 'egresos', redirectTo: '/finanzas/egresos' },
+      { path: 'egresos/detalle', redirectTo: '/finanzas/egresos/detalle' },
       {
         path: 'thot-chat',
         loadComponent: () => import('./modules/comercial/pages/comercial-thot-chat.component').then(m => m.ComercialThotChatComponent),
@@ -263,6 +256,27 @@ export const routes: Routes = [
   },
   // ── Proyecto Logística (Fase J) ─────────────────────────────────────
   // Embarques, flotilla, costos, liquidaciones. Reusa LayoutComponent.
+  // ── Proyecto Finanzas ───────────────────────────────────────────────
+  // Egresos contables (pólizas 5xx/6xx), documentos y CxP. Separado de Ventas:
+  // un rol contable no arrastra permisos comerciales. Reusa LayoutComponent.
+  {
+    path: 'finanzas',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'egresos', pathMatch: 'full' },
+      {
+        path: 'egresos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
+        path: 'egresos/detalle',
+        loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+    ]
+  },
   // ── Proyecto Tienda ─────────────────────────────────────────────────
   // Monitor de tickets de venta EN VIVO por sucursal (WebSocket /store).
   {
