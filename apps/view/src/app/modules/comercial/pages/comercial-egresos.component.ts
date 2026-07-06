@@ -295,7 +295,7 @@ import { REPORTS_TABS } from '../reports-tabs';
 
       <!-- Drill final: documento fuente (kdm1/kdm2) detrás de la póliza -->
       <p-dialog [visible]="docDetailOpen()" (visibleChange)="docDetailOpen.set($event)" [modal]="true" [dismissableMask]="true"
-                [style]="{ width: '54rem', maxWidth: '95vw' }" [header]="docDetailTitle()" styleClass="ex-doc-dialog">
+                appendTo="body" [style]="{ width: '54rem', maxWidth: '95vw' }" [header]="docDetailTitle()" styleClass="ex-doc-dialog">
         @if (docDetailLoading()) {
           <div class="ex-empty">Cargando documento…</div>
         } @else {
