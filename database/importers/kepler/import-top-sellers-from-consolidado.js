@@ -44,21 +44,27 @@ const APPLY = process.argv.includes('--apply');
         LIMIT $1`, [TOP_N]);
     console.log(`Best-sellers calculados: ${top.length}`);
 
-    // Metadata de catálogo por sku.
+    // Metadata de catálogo por sku (base table: la vista public.products no expone is_promo).
+    // Tolerante a prod sin la migración 20260706150000 todavía (columna ausente → false).
+    const hasPromo = (await db.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='catalog' AND table_name='products' AND column_name='is_promo'`)).rowCount > 0;
     const { rows: prods } = await db.query(
-      `SELECT id, sku, nombre, brand_id, barcode, category_id, cost_base, image_url
-         FROM public.products WHERE tenant_id=$1`, [M]);
+      `SELECT id, sku, nombre, brand_id, barcode, category_id, cost_base, image_url,
+              ${hasPromo ? 'is_promo' : 'false AS is_promo'}
+         FROM catalog.products WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]);
     const bySku = new Map(prods.map((p) => [p.sku, p]));
 
     const finalRows = [];
-    let rank = 0, unmatched = 0;
+    let rank = 0, unmatched = 0, promos = 0;
     for (const r of top) {
       const p = bySku.get(r.sku);
       if (!p) { unmatched++; continue; }
+      if (p.is_promo) { promos++; continue; } // marcador de promo, no producto vendible
       rank++;
       finalRows.push({ ...p, units_sold: r.units_sold, revenue: r.revenue, units_total: r.units_total, sales_rank: rank });
     }
-    console.log(`Con match catálogo: ${finalRows.length} (sin match: ${unmatched})`);
+    console.log(`Con match catálogo: ${finalRows.length} (sin match: ${unmatched}, promos excluidas: ${promos})`);
 
     // BULK: INSERT multi-fila en batches (per-fila contra prod remoto era lento).
     const BATCH = 500;

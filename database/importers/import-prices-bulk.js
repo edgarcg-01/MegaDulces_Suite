@@ -81,8 +81,23 @@ const PLS = [
       FROM (SELECT DISTINCT ON (price_list_id, product_id) * FROM stg_px ORDER BY price_list_id, product_id) s
       ON CONFLICT (tenant_id, price_list_id, product_id)
       DO UPDATE SET price=EXCLUDED.price, tax_rate=EXCLUDED.tax_rate, min_qty=EXCLUDED.min_qty, updated_at=now(), deleted_at=NULL`, [M]);
+    // is_promo = precio máximo <= $0.05 (marcador de promo Kepler, no venta real).
+    // Se recalcula en ambos sentidos: si Kepler reusa la clave para un producto
+    // real (precio real), el flag se limpia solo. Tolerante a prod sin la
+    // migración 20260706150000 todavía (columna ausente → skip).
+    const hasPromo = (await db.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='catalog' AND table_name='products' AND column_name='is_promo'`)).rowCount > 0;
+    let promoMsg = 'is_promo: columna ausente, skip';
+    if (hasPromo) {
+      const promo = await db.query(`
+        UPDATE catalog.products p SET is_promo = np.promo, updated_at = now()
+        FROM (SELECT product_id, (max(price) <= 0.05) AS promo FROM stg_px GROUP BY product_id) np
+        WHERE p.id = np.product_id AND p.tenant_id = $1 AND p.is_promo IS DISTINCT FROM np.promo`, [M]);
+      promoMsg = `is_promo recalculado en ${promo.rowCount} productos`;
+    }
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} precios upserted.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} precios upserted · ${promoMsg}.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
