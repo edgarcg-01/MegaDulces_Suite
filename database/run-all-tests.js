@@ -64,6 +64,8 @@ const TESTS = [
   { file: 'http-thot-test.js', label: 'Thot T.1 suggest (afinidad cart-aware + zona + rotación·margen, sin basura)', needsApi: true },
   // Thot T.2 — empuje dirigido (marca foco): el negocio decide qué empujar
   { file: 'http-thot-directives-test.js', label: 'Thot T.2 empuje dirigido (directriz marca foco → suggest reason=estrategia)', needsApi: true },
+  // SM Supervisor de Movimientos — cuadre caja+inventario (self-contained: inyecta+scan+triage+cleanup)
+  { file: 'http-reconciliation-test.js', label: 'SM.1/SM.2 cuadre (caja descuadre crítico + merma + bandeja + feedback L2)', needsApi: true },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
