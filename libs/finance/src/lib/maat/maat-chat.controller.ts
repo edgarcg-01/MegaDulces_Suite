@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '@megadulces/platform-core';
@@ -6,6 +6,7 @@ import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 import { MaatChatService, MaatChatTurn } from './maat-chat.service';
 import { MaatScope } from './maat-tools.service';
+import { MaatBriefingService } from './maat-briefing.service';
 
 interface AuthedRequest {
   user?: { id?: string; username?: string; full_name?: string };
@@ -16,7 +17,17 @@ interface AuthedRequest {
 @UseGuards(RolesGuard)
 @Controller('finance/maat')
 export class MaatChatController {
-  constructor(private readonly chat: MaatChatService) {}
+  constructor(
+    private readonly chat: MaatChatService,
+    private readonly briefing: MaatBriefingService,
+  ) {}
+
+  @Get('briefing')
+  @RequirePermissions(Permission.FINANCE_AI_CHAT)
+  @ApiOperation({ summary: 'MAAT.3.1 — Briefing financiero determinista para el empty-state del chat (gasto 30d, hallazgos, riesgos, sugerencias).' })
+  getBriefing() {
+    return this.briefing.build();
+  }
 
   @Post('chat')
   @RequirePermissions(Permission.FINANCE_AI_CHAT)

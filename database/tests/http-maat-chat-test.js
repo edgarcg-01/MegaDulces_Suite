@@ -85,7 +85,7 @@ function check(name, cond, det) {
     console.log('\n── 5. Audit en DB ──');
     const db = new Client({ connectionString: DST });
     await db.connect();
-    let hasLedger = false;
+    let hasLedger = false, hasDocs = false;
     try {
       const s = (await db.query(
         `SELECT turns, username FROM finance.chat_sessions WHERE tenant_id=$1 AND id=$2`, [M, c1.body.session_id])).rows[0];
@@ -98,6 +98,8 @@ function check(name, cond, det) {
       check('feedback up persistido', msgs.some((m) => m.feedback === 'up'), msgs.map((m) => m.feedback).join(','));
       hasLedger = Number((await db.query(
         `SELECT count(*)::int n FROM analytics.ledger_monthly WHERE tenant_id=$1`, [M])).rows[0].n) > 0;
+      hasDocs = Number((await db.query(
+        `SELECT count(*)::int n FROM analytics.expense_documents WHERE tenant_id=$1`, [M])).rows[0].n) > 0;
     } finally { await db.end(); }
 
     // ── 6. MAAT.1 — balanza/P&L vía chat (solo si el feed corrió en esta DB) ──
@@ -113,6 +115,40 @@ function check(name, cond, det) {
     } else {
       console.log('\n── 6. SKIP balanza (analytics.ledger_monthly vacío en esta DB) ──');
     }
+
+    // ── 7. MAAT.3.1 — briefing determinista (proactividad) ──
+    console.log('\n── 7. Briefing ──');
+    const bf = await req('GET', '/finance/maat/briefing', token);
+    check('briefing 200', bf.status === 200, `status=${bf.status}`);
+    check('briefing con cards', Array.isArray(bf.body?.cards) && bf.body.cards.length >= 1, `cards=${bf.body?.cards?.length}`);
+    check('briefing con sugerencias', Array.isArray(bf.body?.suggestions) && bf.body.suggestions.length === 3, `n=${bf.body?.suggestions?.length}`);
+
+    // ── 8. Navegable — buscar póliza sin folio → devuelve ui_url + follow-ups ──
+    console.log('\n── 8. Buscar documentos + links + follow-ups ──');
+    const c4 = await req('POST', '/finance/maat/chat', token, {
+      history: [], message: 'Muéstrame 3 pólizas de compra recientes con su link para verlas.',
+    });
+    const t4 = (c4.body?.tools_used || []);
+    const buscó = t4.some((t) => t.name === 'maat_buscar_documentos');
+    check('turno búsqueda OK', c4.body?.source === 'llm', `source=${c4.body?.source}`);
+    check('usó maat_buscar_documentos', buscó, t4.map((t) => t.name).join(','));
+    // ui_url presente en el resultado de la tool o como link en la respuesta (solo si hay docs en esta DB)
+    const toolHasUrl = t4.some((t) => JSON.stringify(t.result || {}).includes('/finanzas/egresos/detalle'));
+    const ansHasUrl = /\/finanzas\/egresos\/detalle/.test(c4.body?.answer || '');
+    if (hasDocs) check('devuelve deep-link a la póliza (tool o respuesta)', toolHasUrl || ansHasUrl, `tool=${toolHasUrl} ans=${ansHasUrl}`);
+    else console.log('  SKIP deep-link — analytics.expense_documents vacío en esta DB (feed GX v3 solo en prod)');
+    check('follow-ups presentes', Array.isArray(c4.body?.suggestions) && c4.body.suggestions.length >= 1, `n=${c4.body?.suggestions?.length}`);
+    console.log(`    → "${(c4.body?.answer || '').slice(0, 160).replace(/\n/g, ' ')}…" [seguir: ${(c4.body?.suggestions || []).join(' / ')}]`);
+
+    // ── 9. Proactiva — alertas al hablar de un proveedor ──
+    console.log('\n── 9. Alertas de proveedor ──');
+    const c5 = await req('POST', '/finance/maat/chat', token, {
+      history: [], message: 'Revisa si hay algo raro con nuestros proveedores (duplicados, sin recepción).',
+    });
+    const usóAlertas = (c5.body?.tools_used || []).some((t) => t.name === 'maat_alertas');
+    check('turno alertas OK', c5.body?.source === 'llm', `source=${c5.body?.source}`);
+    check('corrió maat_alertas', usóAlertas, (c5.body?.tools_used || []).map((t) => t.name).join(','));
+    console.log(`    → "${(c5.body?.answer || '').slice(0, 160).replace(/\n/g, ' ')}…"`);
   }
 
   console.log(`\n════ MAAT chat smoke: ${pass} OK · ${fail} FAIL ════`);

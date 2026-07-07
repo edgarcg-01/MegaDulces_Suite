@@ -3,6 +3,7 @@ import { MaatKnowledgeService } from './maat-knowledge.service';
 import { MaatKnowledgeController } from './maat-knowledge.controller';
 import { MaatToolsService } from './maat-tools.service';
 import { MaatChatService } from './maat-chat.service';
+import { MaatBriefingService } from './maat-briefing.service';
 import { MaatChatController } from './maat-chat.controller';
 
 /**
@@ -12,7 +13,7 @@ import { MaatChatController } from './maat-chat.controller';
  */
 @Module({
   controllers: [MaatKnowledgeController, MaatChatController],
-  providers: [MaatKnowledgeService, MaatToolsService, MaatChatService],
+  providers: [MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService],
   exports: [MaatKnowledgeService, MaatChatService],
 })
 export class FinanceMaatModule {}

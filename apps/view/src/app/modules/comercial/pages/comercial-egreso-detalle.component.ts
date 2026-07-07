@@ -455,6 +455,10 @@ export class ComercialEgresoDetalleComponent {
       if (q['from'] && q['to']) this.rangeDates = [new Date(q['from'] + 'T00:00:00'), new Date(q['to'] + 'T00:00:00')];
       if (q['suc']) this.sucursal = String(q['suc']).split(',').filter(Boolean);
       this.reload();
+      // Deep-link desde Maat/otra vista: ?doc_sucursal=..&doc_tipo=..&doc_folio=.. → abre la póliza directo.
+      if (q['doc_sucursal'] && q['doc_tipo'] && q['doc_folio']) {
+        this.openDocument({ sucursal: q['doc_sucursal'], doc_tipo: q['doc_tipo'], doc_folio: q['doc_folio'] } as ExpenseDocRow);
+      }
     });
   }
 

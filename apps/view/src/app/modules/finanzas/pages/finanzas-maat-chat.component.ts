@@ -1,12 +1,13 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { trigger, transition, style, animate } from '@angular/animations';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
-import { MaatService, MaatChatTurn, MaatToolTrace } from '../maat.service';
+import { ChartModule } from 'primeng/chart';
+import { MaatService, MaatChatTurn, MaatToolTrace, MaatBriefing } from '../maat.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ThotAiInputComponent, ThotAsk, ThotImage } from '../../comercial/components/thot-ai-input.component';
@@ -17,10 +18,14 @@ interface ChatMsg {
   content: string;
   blocks?: DataBlock[];
   pending?: boolean;
+  /** Reveal progresivo en curso (texto apareciendo palabra por palabra). */
+  streaming?: boolean;
   error?: boolean;
   /** Id del mensaje en finance.chat_messages (para el 👍/👎). */
   messageId?: string | null;
   vote?: 1 | -1 | null;
+  /** Repreguntas sugeridas (chips clicables). */
+  suggestions?: string[];
 }
 type ColType = 'text' | 'num' | 'currency' | 'percent';
 interface ColMeta { key: string; label: string; type: ColType; }
@@ -35,6 +40,10 @@ interface DataBlock {
   barKey: string | null;
   barMax: number;
   kpis: KpiStat[] | null;
+  /** Columna con deep-link a la póliza (si la hay) → botón "Ver →" por fila. */
+  urlKey: string | null;
+  /** Si es serie temporal → datos para la gráfica de tendencia. */
+  chart: { data: any; labelKey: string } | null;
 }
 
 const SUGGESTIONS = [
@@ -56,18 +65,28 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-finanzas-maat-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, ThotAiInputComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ChartModule, PageTabsComponent, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   animations: [
     trigger('msg', [
       transition(':enter', [
-        style({ opacity: 0, transform: 'translateY(14px) scale(0.985)', filter: 'blur(7px)' }),
-        animate('440ms cubic-bezier(0.22, 1, 0.36, 1)',
+        style({ opacity: 0, transform: 'translateY(10px)', filter: 'blur(4px)' }),
+        animate('400ms cubic-bezier(0.22, 1, 0.36, 1)',
           style({ opacity: 1, transform: 'none', filter: 'blur(0)' })),
       ]),
       transition(':leave', [
         animate('220ms ease',
           style({ opacity: 0, transform: 'translateY(-8px) scale(0.97)' })),
+      ]),
+    ]),
+    trigger('jump', [
+      transition(':enter', [
+        style({ opacity: 0, transform: 'translateX(-50%) translateY(8px) scale(0.8)' }),
+        animate('260ms cubic-bezier(0.34, 1.4, 0.5, 1)',
+          style({ opacity: 1, transform: 'translateX(-50%) translateY(0) scale(1)' })),
+      ]),
+      transition(':leave', [
+        animate('160ms ease', style({ opacity: 0, transform: 'translateX(-50%) translateY(6px) scale(0.85)' })),
       ]),
     ]),
   ],
@@ -85,14 +104,28 @@ const SUGGESTIONS = [
         }
       </header>
 
-      <div class="tc-thread" #thread [@.disabled]="reduce">
+      <div class="tc-thread" #thread [@.disabled]="reduce" (scroll)="onScroll()" (click)="onThreadClick($event)">
         @if (messages().length === 0) {
           <div class="tc-empty">
             <div class="tc-empty-icon"><i class="pi pi-comments" aria-hidden="true"></i></div>
-            <h3>¿Qué quieres saber?</h3>
-            <p>Prueba con una de estas:</p>
+            @if (briefing(); as bf) {
+              <h3>Hola{{ userName() ? ', ' + userName() : '' }} 👋</h3>
+              <p>{{ bf.greeting }}</p>
+              <div class="tc-brief">
+                @for (c of bf.cards; track c.label) {
+                  <div class="tc-brief-card" [class.warn]="c.tone === 'warn'" [class.up]="c.tone === 'up'">
+                    <i class="pi {{ c.icon }}" aria-hidden="true"></i>
+                    <div class="tc-brief-body"><span class="tc-brief-val">{{ c.value }}</span><span class="tc-brief-lbl">{{ c.label }}</span></div>
+                  </div>
+                }
+              </div>
+              <p class="tc-empty-hint">Pregúntame lo que quieras, o empieza por aquí:</p>
+            } @else {
+              <h3>¿Qué quieres saber?</h3>
+              <p>Prueba con una de estas:</p>
+            }
             <div class="tc-suggest">
-              @for (s of suggestions; track s; let si = $index) {
+              @for (s of startSuggestions(); track s; let si = $index) {
                 <button class="tc-chip" (click)="send(s)" [style.animation-delay.ms]="220 + si * 45">
                   <i class="pi pi-sparkles" aria-hidden="true"></i>
                   <span>{{ s }}</span>
@@ -109,10 +142,13 @@ const SUGGESTIONS = [
             </div>
             <div class="tc-bubble" [class.tc-err]="m.error">
               @if (m.pending) {
-                <span class="tc-typing"><i></i><i></i><i></i></span>
+                <span class="tc-thinking">
+                  <span class="tc-typing"><i></i><i></i><i></i></span>
+                  <span class="tc-thinking-txt">Consultando los libros…</span>
+                </span>
               } @else {
                 @if (m.role === 'assistant') {
-                  <div class="tc-text tc-reveal tc-md" [innerHTML]="renderMd(m.content)"></div>
+                  <div class="tc-text tc-md" [class.tc-streaming]="m.streaming" [innerHTML]="renderStream(m)"></div>
                 } @else {
                   <div class="tc-text tc-reveal">{{ m.content }}</div>
                 }
@@ -123,9 +159,12 @@ const SUGGESTIONS = [
                       <span class="tc-block-title">{{ b.title }}</span>
                       <span class="tc-block-badge">{{ b.total }} {{ b.total === 1 ? 'fila' : 'filas' }}</span>
                       <span class="tc-block-src"><i class="pi pi-verified" aria-hidden="true"></i> libros contables · Kepler</span>
+                      <button type="button" class="tc-block-exp" (click)="exportBlock(b)" title="Descargar (CSV/Excel)"><i class="pi pi-download" aria-hidden="true"></i></button>
                     </div>
 
-                    @if (b.kpis) {
+                    @if (b.chart) {
+                      <p-chart type="bar" [data]="b.chart.data" [options]="chartOpts" height="220px"></p-chart>
+                    } @else if (b.kpis) {
                       <div class="tc-kpis">
                         @for (k of b.kpis; track k.label) {
                           <div class="tc-kpi">
@@ -138,7 +177,7 @@ const SUGGESTIONS = [
                       <div class="tc-table-wrap">
                         <table class="tc-table">
                           <thead>
-                            <tr>@for (c of b.cols; track c.key) { <th [class.tc-r]="c.type !== 'text'">{{ c.label }}</th> }</tr>
+                            <tr>@for (c of b.cols; track c.key) { <th [class.tc-r]="c.type !== 'text'">{{ c.label }}</th> }@if (b.urlKey) { <th style="width:2.5rem"></th> }</tr>
                           </thead>
                           <tbody>
                             @for (r of b.rows; track $index) {
@@ -152,6 +191,13 @@ const SUGGESTIONS = [
                                       </span>
                                     } @else {
                                       {{ fmtCell(r[c.key], c.type) }}
+                                    }
+                                  </td>
+                                }
+                                @if (b.urlKey) {
+                                  <td class="tc-r">
+                                    @if (r[b.urlKey]) {
+                                      <button type="button" class="tc-see" (click)="go(r[b.urlKey])" title="Ver póliza en Egresos"><i class="pi pi-external-link" aria-hidden="true"></i></button>
                                     }
                                   </td>
                                 }
@@ -182,6 +228,13 @@ const SUGGESTIONS = [
                       </button>
                     }
                   </div>
+                  @if (mi === messages().length - 1 && !loading() && m.suggestions?.length) {
+                    <div class="tc-followups">
+                      @for (s of m.suggestions; track s) {
+                        <button type="button" class="tc-followup" (click)="send(s)"><i class="pi pi-arrow-right" aria-hidden="true"></i>{{ s }}</button>
+                      }
+                    </div>
+                  }
                 }
               }
             </div>
@@ -189,11 +242,17 @@ const SUGGESTIONS = [
         }
       </div>
 
+      @if (!atBottom() && messages().length) {
+        <button type="button" class="tc-jump" @jump (click)="jumpToBottom()" aria-label="Ir al final de la conversación">
+          <i class="pi pi-arrow-down" aria-hidden="true"></i>
+        </button>
+      }
+
       <app-thot-ai-input class="tc-composer" hintBase="Pregúntale a Maat sobre tus finanzas…" (ask)="onAsk($event)"></app-thot-ai-input>
     </div>
   `,
   styles: [`
-    .tc-page { display: flex; flex-direction: column; height: calc(100dvh - 7rem); }
+    .tc-page { display: flex; flex-direction: column; position: relative; height: calc(100dvh - 7rem); }
     @media (max-width: 1023.98px) {
       .tc-page {
         height: calc(100dvh - 3.5rem - 2.2rem - 3.6rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
@@ -204,10 +263,20 @@ const SUGGESTIONS = [
       .tc-msg { gap: var(--sp-2); max-width: 100%; }
       .tc-avatar { width: 28px; height: 28px; }
       .tc-bubble { padding: var(--sp-2) var(--sp-3); }
-      .tc-md { font-size: .9rem; line-height: 1.65; }
+      .tc-md { font-size: .95rem; line-height: 1.72; }
       .tc-suggest { gap: var(--sp-2); }
     }
-    .tc-thread { flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-1) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-4); }
+    /* Columna de lectura centrada (patrón ChatGPT/Claude): en desktop ancho los
+       mensajes ya no se pegan a la izquierda. Máscara suave = el contenido se
+       desvanece contra el header y el composer en vez de cortarse en seco. */
+    .tc-thread {
+      flex: 1; overflow-y: auto; padding: var(--sp-3) var(--sp-1) var(--sp-4);
+      display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
+      scroll-padding-block: var(--sp-4);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-3)), transparent 100%);
+              mask-image: linear-gradient(to bottom, transparent 0, #000 var(--sp-4), #000 calc(100% - var(--sp-3)), transparent 100%);
+    }
+    @media (prefers-reduced-motion: reduce) { .tc-thread { -webkit-mask-image: none; mask-image: none; } }
 
     /* ── EMPTY STATE — ícono ember + sugerencias como tarjetas ── */
     .tc-empty { margin: auto; text-align: center; max-width: 560px; color: var(--text-muted); padding: var(--sp-6) var(--sp-3); }
@@ -239,14 +308,18 @@ const SUGGESTIONS = [
     .tc-chip:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
     /* ── MENSAJES ── */
-    .tc-msg { display: flex; gap: var(--sp-3); max-width: 860px; }
+    .tc-msg { display: flex; gap: var(--sp-3); width: 100%; max-width: 820px; }
     .tc-user { flex-direction: row-reverse; align-self: flex-end; }
     .tc-avatar {
       width: 32px; height: 32px; border-radius: var(--r-md); flex: 0 0 auto;
       display: flex; align-items: center; justify-content: center;
       background: var(--surface-hover-bg); color: var(--text-muted); font-size: .85rem;
     }
-    .tc-bot .tc-avatar { background: var(--action); color: var(--action-ink, #fff); }
+    .tc-bot .tc-avatar {
+      background: linear-gradient(135deg, var(--action) 0%, #F8B400 100%);
+      color: #fff;
+      box-shadow: 0 2px 10px -3px var(--action-ring, rgba(240, 90, 40, .45));
+    }
     .tc-avatar.is-thinking { animation: tc-think 1.6s ease-in-out infinite; }
     @keyframes tc-think {
       0%, 100% { box-shadow: 0 0 0 0 var(--action-ring, rgba(240,90,40,.35)); }
@@ -264,7 +337,7 @@ const SUGGESTIONS = [
       border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); color: var(--bad-soft-fg);
     }
     .tc-text { white-space: pre-wrap; }
-    .tc-block { margin-top: var(--sp-3); }
+    .tc-block { margin-top: var(--sp-4); }
     .tc-block-title { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: var(--sp-1); font-weight: var(--fw-bold, 700); }
     .tc-table-wrap { overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .tc-table { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
@@ -307,38 +380,68 @@ const SUGGESTIONS = [
       .tc-empty-icon, .tc-empty h3, .tc-empty p, .tc-chip { animation: none; }
     }
 
-    .tc-typing { display: inline-flex; gap: 4px; padding: var(--sp-1) 0; }
-    .tc-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: tc-blink 1.2s infinite both; }
+    .tc-thinking { display: inline-flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; }
+    .tc-typing { display: inline-flex; gap: 4px; }
+    .tc-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--action); animation: tc-blink 1.2s infinite both; }
     .tc-typing i:nth-child(2) { animation-delay: .2s; } .tc-typing i:nth-child(3) { animation-delay: .4s; }
-    @keyframes tc-blink { 0%,80%,100% { opacity: .2; } 40% { opacity: 1; } }
+    @keyframes tc-blink { 0%,80%,100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+    /* Shimmer de gradiente sobre el texto (firma de Gemini al generar). */
+    .tc-thinking-txt {
+      font-size: var(--fs-sm); font-weight: var(--fw-medium, 500);
+      background: linear-gradient(90deg, var(--text-faint) 20%, var(--action) 50%, var(--text-faint) 80%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      animation: tc-shimmer 1.8s linear infinite;
+    }
+    @keyframes tc-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .tc-typing i { animation: none; }
+      .tc-thinking-txt { animation: none; color: var(--text-muted); -webkit-text-fill-color: var(--text-muted); }
+    }
 
     .tc-reveal { animation: tc-reveal 500ms cubic-bezier(0.22, 1, 0.36, 1) both; }
     @keyframes tc-reveal {
-      from { opacity: 0; filter: blur(8px); transform: translateY(6px); }
+      from { opacity: 0; filter: blur(4px); transform: translateY(5px); }
       to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
     }
     @media (prefers-reduced-motion: reduce) {
       .tc-reveal, .tc-avatar.is-thinking { animation: none; }
     }
 
-    .tc-composer { display: block; margin-top: var(--sp-3); position: relative; z-index: 2; }
+    .tc-composer { display: block; width: 100%; max-width: 820px; margin: var(--sp-3) auto 0; position: relative; z-index: 2; }
+
+    /* Botón flotante "ir al final" — aparece al leer una respuesta larga y
+       scrollear hacia arriba. Anclado sobre el composer, centrado con la columna. */
+    .tc-jump {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 5rem; z-index: 3;
+      width: 36px; height: 36px; border-radius: var(--r-pill);
+      display: grid; place-items: center;
+      background: var(--card-bg); color: var(--text-main);
+      border: 1px solid var(--border-color); box-shadow: var(--shadow-hover);
+      cursor: pointer; font-size: .85rem;
+      transition: border-color .15s var(--ease-standard), color .15s var(--ease-standard), transform .15s var(--ease-standard);
+    }
+    .tc-jump:hover { border-color: var(--action); color: var(--action); transform: translateX(-50%) translateY(-2px); }
+    .tc-jump:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 
     /* ── MARKDOWN en respuestas — tipografía de lectura ── */
     .tc-md {
-      font-size: .95rem;
-      line-height: 1.72;
+      font-size: 1rem;
+      line-height: 1.8;
       color: var(--text-main);
-      letter-spacing: .002em;
+      letter-spacing: .001em;
+      font-variant-numeric: tabular-nums;
     }
-    .tc-md > p, .tc-md > ul, .tc-md > ol, .tc-md > blockquote, .tc-md > .tc-md-h { max-width: 70ch; }
+    .tc-md > p, .tc-md > ul, .tc-md > ol, .tc-md > blockquote, .tc-md > .tc-md-h { max-width: 68ch; }
     .tc-md > :first-child { margin-top: 0; }
     .tc-md > :last-child { margin-bottom: 0; }
-    .tc-md p { margin: 0 0 .75em; }
-    .tc-md .tc-table-wrap { margin: .65em 0 .9em; }
-    .tc-md strong { font-weight: var(--fw-bold, 700); color: var(--text-main); }
+    .tc-md p { margin: 0 0 1em; }
+    .tc-md .tc-table-wrap { margin: 1em 0 1.15em; }
+    .tc-md strong { font-weight: var(--fw-semibold, 600); color: var(--text-main); }
     .tc-md em { font-style: italic; }
-    .tc-md ul, .tc-md ol { margin: .5em 0 .85em; padding-left: 1.3em; }
-    .tc-md li { margin: .25em 0; padding-left: .15em; }
+    .tc-md ul, .tc-md ol { margin: .7em 0 1.1em; padding-left: 1.4em; }
+    .tc-md li { margin: .4em 0; padding-left: .2em; }
     .tc-md li::marker { color: var(--action); }
     .tc-md code {
       font-family: var(--font-mono); font-size: .85em;
@@ -347,10 +450,11 @@ const SUGGESTIONS = [
     }
     .tc-md a { color: var(--action); text-decoration: underline; text-underline-offset: 2px; }
     .tc-md a:hover { color: var(--action-hover, var(--action)); }
-    .tc-md .tc-md-h { font-weight: var(--fw-bold, 700); color: var(--text-main); line-height: 1.3; margin: 1.1em 0 .45em; }
-    .tc-md .tc-md-h1 { font-size: 1.2rem; letter-spacing: -.01em; }
-    .tc-md .tc-md-h2 { font-size: 1.08rem; }
-    .tc-md .tc-md-h3 { font-size: .98rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    /* Jerarquía suave (Gemini): encabezados aireados, H3 como etiqueta ember. */
+    .tc-md .tc-md-h { font-weight: var(--fw-semibold, 600); color: var(--text-main); line-height: 1.35; margin: 1.5em 0 .6em; }
+    .tc-md .tc-md-h1 { font-size: 1.3rem; letter-spacing: -.012em; }
+    .tc-md .tc-md-h2 { font-size: 1.12rem; }
+    .tc-md .tc-md-h3 { font-size: .82rem; color: var(--action); text-transform: uppercase; letter-spacing: .06em; font-weight: var(--fw-bold, 700); }
     .tc-md blockquote {
       margin: .6em 0; padding: .3em 0 .3em 1em;
       border-left: 3px solid var(--action); color: var(--text-muted);
@@ -370,37 +474,86 @@ const SUGGESTIONS = [
     .tc-act:disabled { opacity: .4; cursor: default; }
     .tc-act.tc-voted { color: var(--ok-fg); }
     .tc-act.tc-voted-down { color: var(--bad-fg); }
+
+    /* ── Briefing (empty-state proactivo) ── */
+    .tc-empty-hint { margin-top: var(--sp-4); font-size: var(--fs-sm); }
+    .tc-brief { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--sp-2); margin: var(--sp-4) 0 0; text-align: left; }
+    .tc-brief-card { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
+    .tc-brief-card > i { font-size: 1.1rem; color: var(--text-muted); flex: 0 0 auto; }
+    .tc-brief-card.warn { border-color: color-mix(in srgb, var(--bad-fg) 35%, var(--border-color)); }
+    .tc-brief-card.warn > i { color: var(--bad-fg); }
+    .tc-brief-card.up > i { color: var(--action); }
+    .tc-brief-body { display: flex; flex-direction: column; min-width: 0; }
+    .tc-brief-val { font-weight: var(--fw-bold, 700); font-size: .95rem; color: var(--text-main); }
+    .tc-brief-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+
+    /* ── Follow-up chips (repreguntas tras la respuesta) ── */
+    .tc-followups { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+    .tc-followup {
+      display: inline-flex; align-items: center; gap: var(--sp-2);
+      border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main);
+      border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); cursor: pointer;
+      transition: border-color .15s var(--ease-standard), background-color .15s var(--ease-standard);
+    }
+    .tc-followup i { color: var(--action); font-size: .78rem; }
+    .tc-followup:hover { border-color: var(--action); background: var(--surface-hover-bg); }
+
+    /* ── Botón "Ver póliza →" en filas de búsqueda + export + doclink inline ── */
+    .tc-see { border: none; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm); }
+    .tc-see:hover { background: var(--ember-soft); }
+    .tc-block-exp { margin-left: var(--sp-2); border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm); }
+    .tc-block-exp:hover { background: var(--surface-hover-bg); color: var(--text-main); }
+    .tc-md a.tc-doclink { color: var(--action); text-decoration: none; font-weight: var(--fw-medium, 500); white-space: nowrap; }
+    .tc-md a.tc-doclink i { font-size: .72rem; }
+    .tc-md a.tc-doclink:hover { text-decoration: underline; }
   `],
 })
 export class FinanzasMaatChatComponent implements OnInit {
   readonly tabs = FINANZAS_TABS;
-  readonly suggestions = SUGGESTIONS;
   private readonly svc = inject(MaatService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
 
   readonly copiedIdx = signal<number | null>(null);
+  readonly briefing = signal<MaatBriefing | null>(null);
+  readonly userName = signal<string>('');
   private readonly mdCache = new Map<string, SafeHtml>();
   /** Sesión de audit en finance.chat_sessions (el backend la crea al primer turno). */
   private sessionId: string | null = null;
 
+  /** Chips del empty-state: las del briefing si llegó, si no las genéricas. */
+  readonly startSuggestions = computed(() => this.briefing()?.suggestions?.length ? this.briefing()!.suggestions : SUGGESTIONS);
+
+  /** Opciones Chart.js (theme-agnóstico, ligero) para las gráficas de tendencia. */
+  readonly chartOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { y: { ticks: { callback: (v: any) => '$' + Number(v).toLocaleString('es-MX') } } },
+  };
+
   ngOnInit(): void {
+    // Proactividad: briefing determinista para el empty-state.
+    this.svc.briefing().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (b) => this.briefing.set(b), error: () => {} });
     // Deep-link contextual (ej. desde /finanzas/egresos con ?q=…): auto-envía.
     const q = this.route.snapshot.queryParamMap.get('q');
     if (q && q.trim()) this.send(q);
+    this.destroyRef.onDestroy(() => this.stopReveal());
   }
 
   messages = signal<ChatMsg[]>([]);
   loading = signal(false);
+  atBottom = signal(true);
   draft = '';
 
   readonly reduce = typeof window !== 'undefined'
     && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
   private history = computed<MaatChatTurn[]>(() =>
-    this.messages().filter((m) => !m.pending && !m.error).map((m) => ({ role: m.role, content: m.content })),
+    this.messages().filter((m) => !m.pending && !m.error && !m.streaming).map((m) => ({ role: m.role, content: m.content })),
   );
 
   private lastOpts: { think: boolean; deepSearch: boolean; image?: ThotImage | null } = { think: false, deepSearch: false };
@@ -448,12 +601,28 @@ export class FinanzasMaatChatComponent implements OnInit {
         next: (res) => {
           this.sessionId = res.session_id || this.sessionId;
           const blocks = (res.tools_used || []).map((t) => this.toBlock(t)).filter((b): b is DataBlock => !!b);
-          this.replacePending({
-            role: 'assistant', content: res.answer, blocks,
-            error: res.source === 'error', messageId: res.message_id, vote: null,
-          });
-          this.loading.set(false);
+          const isErr = res.source === 'error';
+          // Sin animación (reduced-motion) / error / vacío: mostrar completo de una.
+          if (this.reduce || isErr || !res.answer) {
+            this.replacePending({
+              role: 'assistant', content: res.answer, blocks,
+              error: isErr, messageId: res.message_id, vote: null, suggestions: res.suggestions || [],
+            });
+            this.loading.set(false);
+            this.scroll();
+            return;
+          }
+          // Reveal progresivo del texto (estilo ChatGPT/Gemini); las tablas aparecen al terminar.
+          this.replacePending({ role: 'assistant', content: '', streaming: true });
           this.scroll();
+          this.streamReveal(res.answer, () => {
+            this.messages.update((ms) => ms.map((m) =>
+              m.streaming
+                ? { ...m, content: res.answer, streaming: false, blocks, error: false, messageId: res.message_id, vote: null, suggestions: res.suggestions || [] }
+                : m));
+            this.loading.set(false);
+            this.scroll();
+          });
         },
         error: () => {
           this.replacePending({ role: 'assistant', content: 'No pude responder en este momento. Intenta de nuevo.', error: true });
@@ -480,9 +649,11 @@ export class FinanzasMaatChatComponent implements OnInit {
   }
 
   reset() {
+    this.stopReveal();
     this.messages.set([]);
     this.draft = '';
     this.sessionId = null;
+    this.loading.set(false);
   }
 
   private replacePending(msg: ChatMsg) {
@@ -495,13 +666,15 @@ export class FinanzasMaatChatComponent implements OnInit {
     });
   }
 
-  /** Extrae una tabla/KPI del resultado de una tool (transparencia + tipado). */
+  /** Extrae una tabla/KPI/gráfica del resultado de una tool (transparencia + tipado). */
   private toBlock(t: MaatToolTrace): DataBlock | null {
     const rows = this.extractRows(t.result);
     if (!rows.length) return null;
-    const keys = Object.keys(rows[0]).filter((k) => k !== '_truncated' && !/_id$/.test(k)).slice(0, 7);
+    // ui_url no es columna visible → se convierte en botón "Ver →".
+    const urlKey = Object.keys(rows[0]).includes('ui_url') ? 'ui_url' : null;
+    const keys = Object.keys(rows[0]).filter((k) => k !== '_truncated' && k !== 'ui_url' && !/_id$/.test(k)).slice(0, 7);
     if (!keys.length) return null;
-    const shown = rows.slice(0, 10);
+    const shown = rows.slice(0, 12);
     const cols: ColMeta[] = keys.map((k) => ({ key: k, label: this.humanize(k), type: this.colType(k, rows) }));
 
     let kpis: KpiStat[] | null = null;
@@ -510,9 +683,28 @@ export class FinanzasMaatChatComponent implements OnInit {
       if (num.length) kpis = num.map((c) => ({ label: c.label, value: this.fmtCell(rows[0][c.key], c.type) }));
     }
 
+    // Serie temporal (col 'mes' + numérica) con 3+ puntos → gráfica de barras.
+    let chart: DataBlock['chart'] = null;
+    const mesCol = cols.find((c) => c.key === 'mes' || c.key === 'anio_mes');
+    if (!kpis && mesCol && rows.length >= 3) {
+      const numCols = cols.filter((c) => c.type !== 'text' && c.key !== 'movs');
+      if (numCols.length) {
+        const palette = ['#FB923C', '#60A5FA', '#34D399', '#F472B6'];
+        chart = {
+          labelKey: mesCol.key,
+          data: {
+            labels: rows.map((r) => String(r[mesCol.key])),
+            datasets: numCols.slice(0, 3).map((c, i) => ({
+              label: c.label, data: rows.map((r) => Number(r[c.key]) || 0), backgroundColor: palette[i % palette.length],
+            })),
+          },
+        };
+      }
+    }
+
     let barKey: string | null = null;
     let barMax = 0;
-    if (!kpis) {
+    if (!kpis && !chart) {
       const dom = cols.find((c) => c.type === 'currency') || cols.find((c) => c.type === 'num');
       if (dom) {
         barKey = dom.key;
@@ -525,8 +717,38 @@ export class FinanzasMaatChatComponent implements OnInit {
       icon: this.toolIcon(t.name),
       cols, rows: shown,
       extra: Math.max(0, rows.length - shown.length),
-      total: rows.length, barKey, barMax, kpis,
+      total: rows.length, barKey, barMax, kpis, urlKey, chart,
     };
+  }
+
+  /** Navega dentro de la SPA a un deep-link interno (ej. una póliza en Egresos). */
+  go(url: string) {
+    if (url && url.startsWith('/')) this.router.navigateByUrl(url);
+  }
+
+  /** Event-delegation: links markdown internos (data-internal) navegan sin recargar. */
+  onThreadClick(ev: MouseEvent) {
+    const a = (ev.target as HTMLElement)?.closest('a[data-internal]') as HTMLAnchorElement | null;
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (href && href.startsWith('/')) { ev.preventDefault(); this.router.navigateByUrl(href); }
+  }
+
+  /** Exporta un bloque a CSV (Excel lo abre nativo). BOM para acentos. */
+  exportBlock(b: DataBlock) {
+    const cols = b.cols;
+    const head = cols.map((c) => `"${c.label}"`).join(',');
+    const lines = b.rows.map((r) => cols.map((c) => {
+      const v = r[c.key];
+      if (v == null) return '';
+      const s = typeof v === 'number' ? String(v) : String(v).replace(/"/g, '""');
+      return `"${s}"`;
+    }).join(','));
+    const blob = new Blob(['﻿' + [head, ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `maat_${(b.title || 'datos').toLowerCase().replace(/[^a-z0-9]+/g, '_')}.csv`; a.click();
+    URL.revokeObjectURL(url);
   }
 
   private readonly LABELS: Record<string, string> = {
@@ -601,6 +823,45 @@ export class FinanzasMaatChatComponent implements OnInit {
     return name.replace(/^maat_/, '').replace(/_/g, ' ');
   }
 
+  // ── Reveal progresivo del texto (efecto ChatGPT/Gemini) ───────────────
+  private revealTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Muestra la respuesta palabra por palabra con cadencia ~constante (~1.5 s
+   * total, independiente del largo). El backend no streamea (loop de tools),
+   * así que la "escritura" se simula en cliente re-renderizando el markdown
+   * conforme crece el texto.
+   */
+  private streamReveal(full: string, done: () => void) {
+    this.stopReveal();
+    const tokens = full.match(/\S+\s*/g) || [full];
+    const perTick = Math.max(1, Math.ceil(tokens.length / 70));
+    let i = 0;
+    this.revealTimer = setInterval(() => {
+      i = Math.min(tokens.length, i + perTick);
+      const shown = tokens.slice(0, i).join('');
+      this.messages.update((ms) => ms.map((m) => (m.streaming ? { ...m, content: shown } : m)));
+      if (this.atBottom()) this.scrollStream();
+      if (i >= tokens.length) { this.stopReveal(); done(); }
+    }, 22);
+  }
+
+  private stopReveal() {
+    if (this.revealTimer) { clearInterval(this.revealTimer); this.revealTimer = null; }
+  }
+
+  /** Scroll inmediato (no smooth) durante el reveal para no pelear con el crecimiento. */
+  private scrollStream() {
+    const el = this.thread()?.nativeElement;
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
+  /** Durante el reveal renderiza markdown en vivo (sin cache, el texto parcial es único). */
+  renderStream(m: ChatMsg): SafeHtml {
+    if (m.streaming) return this.sanitizer.bypassSecurityTrustHtml(this.mdToHtml(m.content || ''));
+    return this.renderMd(m.content);
+  }
+
   /**
    * Render Markdown ligero y SEGURO: escapa todo el HTML primero y recién
    * después aplica un subconjunto (negritas, itálicas, code, links http, listas,
@@ -624,6 +885,10 @@ export class FinanzasMaatChatComponent implements OnInit {
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
       .replace(/\b_([^_]+)_\b/g, '<em>$1</em>')
+      // links internos a la app (deep-links de Maat) → navegan por router (data-internal)
+      .replace(/\[([^\]]+)\]\((\/[^\s)]+)\)/g,
+        '<a href="$2" data-internal class="tc-doclink">$1 <i class="pi pi-external-link"></i></a>')
+      // links externos → nueva pestaña
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
         '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   }
@@ -703,11 +968,22 @@ export class FinanzasMaatChatComponent implements OnInit {
     return out.join('');
   }
 
+  /** Detecta si el usuario está cerca del fondo para mostrar/ocultar el botón "ir al final". */
+  onScroll() {
+    const el = this.thread()?.nativeElement;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    this.atBottom.set(dist < 80);
+  }
+
+  jumpToBottom() { this.scroll(); }
+
   private scroll() {
     setTimeout(() => {
       const el = this.thread()?.nativeElement;
       if (!el) return;
       el.scrollTo({ top: el.scrollHeight, behavior: this.reduce ? 'auto' : 'smooth' });
+      this.atBottom.set(true);
     }, 50);
   }
 }

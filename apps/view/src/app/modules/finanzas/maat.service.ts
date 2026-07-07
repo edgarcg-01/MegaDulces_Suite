@@ -23,6 +23,15 @@ export interface MaatChatResult {
   iterations: number;
   session_id: string | null;
   message_id: string | null;
+  suggestions: string[];
+}
+
+export interface MaatBriefingCard { icon: string; label: string; value: string; tone?: 'up' | 'down' | 'warn'; }
+export interface MaatBriefing {
+  greeting: string;
+  cards: MaatBriefingCard[];
+  findings: { tipo: string; num: number; total: number }[];
+  suggestions: string[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -53,5 +62,10 @@ export class MaatService {
   /** 👍/👎 sobre una respuesta (colector del aprendizaje L2). */
   feedback(messageId: string, vote: 1 | -1): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`${this.base}/chat/feedback`, { message_id: messageId, vote });
+  }
+
+  /** Briefing determinista para el empty-state (proactividad). */
+  briefing(): Observable<MaatBriefing> {
+    return this.http.get<MaatBriefing>(`${this.base}/briefing`);
   }
 }

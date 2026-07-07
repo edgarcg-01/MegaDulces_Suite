@@ -49,6 +49,16 @@ export interface MaatChatResult {
   iterations: number;
   tokens_in: number;
   tokens_out: number;
+  /** Repreguntas sugeridas (extraídas del marcador [[SEGUIR]] de la respuesta). */
+  suggestions: string[];
+}
+
+/** Separa el marcador [[SEGUIR]] a|b|c del texto visible. */
+function splitSuggestions(answer: string): { text: string; suggestions: string[] } {
+  const m = answer.match(/\[\[SEGUIR\]\]\s*(.+?)\s*$/s);
+  if (!m) return { text: answer.trim(), suggestions: [] };
+  const suggestions = m[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, 3);
+  return { text: answer.slice(0, m.index).trim(), suggestions };
 }
 
 const mxToday = () =>
@@ -72,7 +82,7 @@ export class MaatChatService {
     const deep = !!input.deepSearch;
     const maxIterations = deep ? DEEP_ITERATIONS : MAX_ITERATIONS;
     const history = (input.history || []).filter((t) => t && t.content && typeof t.content === 'string').slice(-12);
-    const empty: Omit<MaatChatResult, 'answer' | 'source'> = { tools_used: [], iterations: 0, tokens_in: 0, tokens_out: 0 };
+    const empty: Omit<MaatChatResult, 'answer' | 'source'> = { tools_used: [], iterations: 0, tokens_in: 0, tokens_out: 0, suggestions: [] };
     if (history.length === 0 || history[history.length - 1].role !== 'user') {
       return { answer: 'No recibí ninguna pregunta.', source: 'error', ...empty };
     }
@@ -114,7 +124,7 @@ export class MaatChatService {
         this.logger.warn(`Claude error: ${e?.message || e}`);
         return {
           answer: 'Tuve un problema consultando los datos en este momento. Intenta de nuevo en unos segundos.',
-          source: 'error', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut,
+          source: 'error', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: [],
         };
       }
       tokensIn += Number(resp?.usage?.input_tokens || 0);
@@ -124,10 +134,11 @@ export class MaatChatService {
       const toolUses = content.filter((b: any) => b.type === 'tool_use');
 
       if (resp.stop_reason !== 'tool_use' || toolUses.length === 0) {
-        const answer = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+        const raw = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+        const { text, suggestions } = splitSuggestions(raw);
         return {
-          answer: answer || 'No pude generar una respuesta.',
-          source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut,
+          answer: text || 'No pude generar una respuesta.',
+          source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions,
         };
       }
 
@@ -143,7 +154,7 @@ export class MaatChatService {
 
     return {
       answer: 'La consulta requería demasiados pasos. Reformula la pregunta de forma más específica (ej. un período o un proveedor concreto).',
-      source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut,
+      source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: [],
     };
   }
 

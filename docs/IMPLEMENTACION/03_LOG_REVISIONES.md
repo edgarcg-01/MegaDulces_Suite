@@ -6,6 +6,23 @@
 
 ---
 
+## 2026-07-07 — MAAT.3.1: Maat navegable + proactiva + visual + confiable
+
+**Contexto:** una conversación real de Maat mostró 2 huecos: pedía folio exacto para desglosar una póliza y decía "no puedo darte links". Edgar pidió arreglarlo y, tras análisis, eligió el paquete completo de mejoras (los 4 frentes).
+
+**Cambio (backend `libs/finance`):**
+- **Navegable**: `maat_buscar_documentos` (busca pólizas sin folio: proveedor ILIKE / período / sucursal / familia / monto) + helper `docUrl()` que arma el deep-link `/finanzas/egresos/detalle?...&doc_*`; `maat_documento` devuelve `ui_url`. Catálogo sucursal código→nombre (`SUCURSAL_CAT`, override `MAAT_SUCURSALES`) inyectado al prompt (el usuario dice "Padre Hidalgo", la contabilidad usa `03`).
+- **Proactiva**: `MaatBriefingService` + `GET /finance/maat/briefing` (determinista, sin LLM: gasto 30d Δ%, hallazgos por tipo, facturas sin recepción, mayor saldo + 3 sugerencias) para el empty-state. Tool `maat_alertas` = detector-lite on-the-fly (duplicados por importe±0.5%/7d, salto de precio SKU >1.3× promedio, DPO>60, facturas sin recepción de la cadena) — adelanto de MAAT.2 sin persistir. Follow-ups: el prompt exige terminar con `[[SEGUIR]] a|b|c`, el service lo separa a `suggestions[]`.
+- **Confiable**: few-shot (3 patrones canónicos) + regla de verificabilidad + regla dura "SÍ puedes dar links (a la interfaz, no a Kepler)". Fix: `tenant_id` explícito ya estaba en las tools.
+
+**Cambio (frontend):**
+- `/finanzas/maat`: links markdown internos → `<a data-internal>` + event-delegation `onThreadClick` → `router.navigateByUrl` (SPA, sin reload); botón "Ver póliza →" por fila cuando el bloque trae `ui_url`; **gráfica de tendencia** (Chart.js) cuando el bloque es serie mensual; **export CSV/Excel** por bloque; **briefing card** en el empty-state con las tarjetas + chips; **follow-up chips** tras cada respuesta.
+- `comercial-egreso-detalle`: `?doc_sucursal/doc_tipo/doc_folio` → abre el diálogo del documento directo (aterrizaje del deep-link de Maat).
+
+**Red:** smoke `http-maat-chat-test.js` ampliado a **27/27** (secciones: knowledge, chat 2 turnos, feedback, audit, balanza/P&L, briefing, búsqueda+links+follow-ups, alertas). Builds api+view verdes. **Observado en vivo**: sin pedírselo, Maat detectó **631 facturas ($52.2M) sin recepción** vía `maat_alertas` (red flag de auditoría real). Nota: `analytics.expense_documents` está vacío en local (feed GX v3 solo en prod) → la aserción del deep-link se auto-skipea local; la cadena (que sí está local) alimenta las alertas.
+
+**Pendiente:** prod (misma tanda: migs + seeds + feeds GX v3/cadena + `ANTHROPIC_API_KEY` + re-login). MAAT.2 formaliza `maat_alertas` en detectores persistidos + bandeja.
+
 ## 2026-07-07 — MAAT.1: balanza completa + cadena de aprovisionamiento (Maat ya contesta ingresos/P&L)
 
 **Contexto:** con el chat vivo (MAAT.3), faltaba la data que el alcance prometía: balanza de las 7 familias (ingresos/activo/pasivo) y la cadena orden→recepción→factura→pago del lineage kdm1 c39 (absorbe GX.4.3b).

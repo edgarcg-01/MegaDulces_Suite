@@ -41,6 +41,17 @@ const EGRESO_DIMS: Record<string, { group: string; key: string; label: string }>
 
 const num = (v: any) => (v == null ? null : Number(v));
 
+/**
+ * Catálogo sucursal código→nombre. La contabilidad usa códigos ('03'); el usuario
+ * piensa en nombres ('Padre Hidalgo'). warehouses.name viene vacío para estos
+ * códigos, así que se mantiene aquí (override por env MAAT_SUCURSALES si cambia).
+ * Se inyecta al prompt para traducir en ambos sentidos.
+ */
+const SUCURSAL_CAT: Record<string, string> = (() => {
+  try { if (process.env.MAAT_SUCURSALES) return JSON.parse(process.env.MAAT_SUCURSALES); } catch { /* noop */ }
+  return { '00': 'CEDIS (central)', '01': 'Sucursal 01', '02': 'Sucursal 02', '03': 'Sucursal 03', '04': 'Sucursal 04', '05': 'Sucursal 05' };
+})();
+
 @Injectable()
 export class MaatToolsService {
   private readonly logger = new Logger(MaatToolsService.name);
@@ -83,16 +94,34 @@ Hoy es ${ctx.today} (México).${scope.userName ? ` Hablas con ${scope.userName}.
 1. **NUNCA inventes un número.** Todo dato cuantitativo debe salir de una tool. Si una tool no lo devuelve, di explícitamente que no tienes ese dato.
 2. Responde SIEMPRE en español, montos en MXN (formato $1,234,567). Cita el período de cada cifra.
 3. Los datos de egresos vienen del ERP Kepler vía feeds curados — cuando un número pueda estar afectado por un issue conocido (abajo), adviértelo.
-4. Sé directa y ejecutiva: primero la respuesta, luego el detalle. Usa tablas markdown para comparaciones.
+4. **Forma de responder** (clara, escaneable, estilo asistente moderno tipo Claude/Gemini):
+   - Abre con **una frase directa** que responda la pregunta, con la cifra clave en **negrita**.
+   - Desglosa con estructura ligera: viñetas para enumerar, tablas markdown SOLO para comparar 3+ filas. Usa encabezados cortos con \`###\` (funcionan como etiqueta) únicamente si la respuesta tiene 2+ secciones.
+   - Resalta cifras y nombres propios en **negrita**. No repitas en prosa lo que ya está en una tabla.
+   - Cierra con una línea de lectura o siguiente paso ("En corto: …" o una recomendación accionable) cuando aporte valor.
+   - Tono cercano y profesional, nunca robótico ni con relleno. Si una frase basta, una frase. Deja respirar el texto (párrafos cortos).
 5. Si la pregunta es ambigua (¿qué período? ¿qué sucursal?), asume el default razonable (90 días, todas las sucursales) y DILO.
 6. Cuando el usuario valide un hecho nuevo importante ("esto es así porque..."), ofrécele guardarlo con maat_guardar_conocimiento.
+7. **Verificabilidad**: cuando des una cifra importante, puedes indicar entre paréntesis de dónde salió (ej. "vía balanza, mar-2026"). El usuario ve las tablas de datos debajo de tu respuesta.
+8. **SÍ puedes dar links a las pólizas** — no al ERP Kepler (es on-prem sin web), sino a NUESTRA interfaz de egresos. Las tools maat_documento y maat_buscar_documentos devuelven un campo \`ui_url\`: SIEMPRE que menciones un documento concreto, ponlo como link markdown, ej. \`[XA2001-0000754](ui_url)\`. NUNCA digas "no puedo darte links".
+9. **Buscar sin folio**: si el usuario pide "desglosa/muéstrame una póliza de \<proveedor\>" sin darte folio, usa maat_buscar_documentos (NO le pidas el folio). Traduce nombres de sucursal a código con el catálogo de abajo.
+10. **Proactividad**: cuando hables de un proveedor o el usuario pida "revisa", corre maat_alertas y menciona señales relevantes (duplicados, saltos de precio, sin recepción). No lo fuerces si no hay señales.
+11. **Preguntas de seguimiento**: termina SIEMPRE tu respuesta con una línea final exactamente así: \`[[SEGUIR]] pregunta 1 | pregunta 2 | pregunta 3\` (2-3 repreguntas útiles y específicas que el usuario podría querer a continuación). Esta línea NO se muestra como texto: se convierte en botones. No la comentes.
+
+## SUCURSALES (código contable → nombre; el usuario usa nombres, la contabilidad usa códigos)
+${Object.entries(SUCURSAL_CAT).map(([c, n]) => `${c} = ${n}`).join(' · ')}
 
 ## LO QUE SABES (base de conocimiento curada — úsala para interpretar, no para citar cifras actuales; las cifras vigentes salen de las tools)
 
 ${knowledgeBlock}
 
 ## ALCANCE ACTUAL
-Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. AÚN NO tienes: flujo de caja proyectado ni auxiliar bancario por banco (las 17 cuentas comparten el código 102). Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.`;
+Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. AÚN NO tienes: flujo de caja proyectado ni auxiliar bancario por banco (las 17 cuentas comparten el código 102). Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.
+
+## EJEMPLOS (patrón de uso — imita el enfoque, no las cifras)
+- "desglosa una póliza de La Rosa" → maat_buscar_documentos(beneficiario:'LA ROSA') → responde con 2-3 opciones, cada una como link markdown usando su ui_url. NO pidas el folio. Cierra con \`[[SEGUIR]] Ver el detalle de la factura más grande | ¿Cuánto le compramos a La Rosa este año? | ¿Hay facturas duplicadas de este proveedor?\`
+- "¿cuánto le debemos a Bimbo?" → maat_proveedor(search:'BIMBO') para el saldo, y como habla de un proveedor corre también maat_alertas(beneficiario:'BIMBO'); si hay señales, menciónalas. \`[[SEGUIR]] ...\`
+- "¿cómo vamos de resultados?" → maat_pnl() → da el resultado del último mes limpio y ADVIERTE los caveats (2025 presupuesto, COGS cortado desde may-2026). \`[[SEGUIR]] ...\``;
   }
 
   // ── Schema para Claude ───────────────────────────────────────────────
@@ -202,6 +231,35 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         },
       },
       {
+        name: 'maat_buscar_documentos',
+        description:
+          'BUSCA documentos/pólizas SIN necesitar el folio exacto: por beneficiario/proveedor (ILIKE), período, sucursal, familia, monto mínimo, tipo de doc. Úsala cuando el usuario pida "desglosa/muéstrame una póliza de X" sin darte el folio. Devuelve una lista con `ui_url` (link a la interfaz para abrir cada póliza). Luego puedes drillear una con maat_documento.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            beneficiario: { type: 'string', description: 'Nombre o parte del proveedor/beneficiario (ILIKE). Puede ser un nombre de sucursal (traspasos internos).' },
+            ...dateRange,
+            sucursal: { type: 'string', description: "Código ('00'=CEDIS..'05'). Opcional." },
+            familia: { type: 'string', enum: ['5', '6', '7'], description: 'Opcional.' },
+            doc_tipo: { type: 'string', description: "Ej. 'XA2001' factura de compra, 'XA1001' gasto. Opcional." },
+            min_importe: { type: 'number', description: 'Monto mínimo del documento. Opcional.' },
+            limit: { type: 'number', description: 'Default 15, máx 50.' },
+          },
+        },
+      },
+      {
+        name: 'maat_alertas',
+        description:
+          'Corre detectores rápidos de riesgo sobre un proveedor/cuenta/sucursal (o global): posibles facturas DUPLICADAS, SALTOS de precio por SKU, SALDO alto/DPO largo, y facturas SIN RECEPCIÓN (pagar sin recibir). Úsala de forma PROACTIVA cuando hables de un proveedor o cuando el usuario pida "revisa/hay algo raro". Devuelve solo señales encontradas.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            beneficiario: { type: 'string', description: 'Proveedor a revisar (ILIKE). Opcional.' },
+            sucursal: { type: 'string', description: "Código ('00'..'05'). Opcional." },
+          },
+        },
+      },
+      {
         name: 'maat_hallazgos',
         description:
           'Hallazgos contables detectados: iva_bug (IVA huérfano XD5501), prov_203 (provisiones sin descargar), anticipo_107 (anticipos sin aplicar). Sin tipo → resumen de todos; con tipo → filas del tipo.',
@@ -253,6 +311,8 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         case 'maat_serie_mensual': return await this.serieMensual(input);
         case 'maat_proveedor': return await this.proveedor(input);
         case 'maat_documento': return await this.documento(input);
+        case 'maat_buscar_documentos': return await this.buscarDocumentos(input);
+        case 'maat_alertas': return await this.alertas(input);
         case 'maat_hallazgos': return await this.hallazgos(input);
         case 'maat_conocimiento': return await this.conocimiento(input);
         case 'maat_guardar_conocimiento': return await this.guardarConocimiento(input, scope);
@@ -274,6 +334,18 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   // analytics.* NO tiene RLS (a diferencia de finance.*) → el filtro de tenant
   // es EXPLÍCITO en cada query, igual que en CommercialAnalyticsService.
   private tenantId() { return this.tenantCtx.requireTenantId(); }
+
+  /**
+   * Deep-link a la interfaz de egresos con el documento pre-abierto. El LLM recibe
+   * esta URL en las tools y la usa como link markdown — NO la construye a mano.
+   */
+  private docUrl(sucursal: string, doc_tipo: string, folio: string, benef?: string | null) {
+    const p = new URLSearchParams({
+      type: 'beneficiario', key: benef || '(sin beneficiario)',
+      doc_sucursal: String(sucursal), doc_tipo: String(doc_tipo), doc_folio: String(folio),
+    });
+    return `/finanzas/egresos/detalle?${p.toString()}`;
+  }
 
   private baseEgresos(trx: any, q: any, from: string, to: string) {
     const b = trx('analytics.expense_entries as e')
@@ -512,7 +584,132 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         header: header ? { ...header, importe: Number(header.importe), iva: Number(header.iva) } : null,
         posturas: postings.map((r: any) => ({ ...r, importe: Number(r.importe) })),
         lineas: lines.map((r: any) => ({ ...r, cantidad: num(r.cantidad), costo_unitario: num(r.costo_unitario), importe: Number(r.importe) })),
+        ui_url: this.docUrl(sucursal, doc_tipo, folio, header?.beneficiario),
       };
+    });
+  }
+
+  /** Busca documentos SIN folio (por proveedor/período/monto). Cada fila trae ui_url. */
+  private async buscarDocumentos(q: any) {
+    const limit = Math.min(50, Math.max(1, Number(q.limit) || 15));
+    const { from, to } = this.range(q);
+    return this.tk.run(async (trx) => {
+      // Fuente: documentos con cabecera (compras/gastos). Para pólizas sin cabecera
+      // (diario), el drill igual funciona vía expense_entries — pero para "una póliza
+      // de X proveedor" la cabecera es lo relevante.
+      const b = trx('analytics.expense_documents as d')
+        .where('d.tenant_id', this.tenantId())
+        .andWhere('d.fecha', '>=', from)
+        .andWhere('d.fecha', '<=', to);
+      if (q.beneficiario) b.whereRaw('(d.beneficiario ILIKE ? OR d.area ILIKE ?)', [`%${q.beneficiario}%`, `%${q.beneficiario}%`]);
+      if (q.sucursal) b.where('d.sucursal', String(q.sucursal));
+      if (q.doc_tipo) b.where('d.doc_tipo', String(q.doc_tipo));
+      if (q.familia) b.whereRaw("left(d.doc_tipo,3) = ANY(?)", [q.familia === '5' ? ['XA2'] : ['XA1']]); // heurística tipo→familia
+      if (q.min_importe != null) b.where('d.importe', '>=', Number(q.min_importe));
+      const rows = await b
+        .select('d.sucursal', 'd.doc_tipo', 'd.doc_folio', 'd.fecha', 'd.beneficiario', 'd.concepto', 'd.area',
+          trx.raw('d.importe::numeric AS importe'))
+        .orderBy('d.importe', 'desc')
+        .limit(limit);
+      if (!rows.length) return { rows: [], nota: 'Sin documentos para ese criterio. Prueba con otro nombre de proveedor o amplía el período.' };
+      return {
+        from, to,
+        rows: rows.map((r: any) => ({
+          sucursal: r.sucursal, doc_tipo: r.doc_tipo, folio: r.doc_folio, fecha: r.fecha,
+          beneficiario: r.beneficiario, concepto: r.concepto, importe: Number(r.importe),
+          ui_url: this.docUrl(r.sucursal, r.doc_tipo, r.doc_folio, r.beneficiario),
+        })),
+      };
+    });
+  }
+
+  /**
+   * MAAT.3.1 — detector-lite proactivo (adelanto de MAAT.2, sin persistir):
+   * duplicados, saltos de precio SKU, saldo/DPO y facturas sin recepción.
+   * Cálculo on-the-fly; devuelve SOLO las señales encontradas.
+   */
+  private async alertas(q: any) {
+    const tenantId = this.tenantId();
+    const benef = (q.beneficiario || '').trim();
+    return this.tk.run(async (trx) => {
+      const signals: any[] = [];
+
+      // 1) Facturas duplicadas: mismo proveedor + importe ±0.5% + ventana 7d + folios distintos (últimos 120d)
+      const dupBase = trx('analytics.expense_documents as a')
+        .join('analytics.expense_documents as b', function (this: any) {
+          this.on('a.tenant_id', 'b.tenant_id').andOn('a.beneficiario', 'b.beneficiario')
+            .andOn('a.doc_folio', '<', 'b.doc_folio');
+        })
+        .where('a.tenant_id', tenantId).where('b.tenant_id', tenantId)
+        .whereRaw('abs(a.importe - b.importe) <= greatest(a.importe,1)*0.005')
+        .whereRaw("abs(a.fecha - b.fecha) <= 7")
+        .whereRaw('a.importe > 500')
+        .whereRaw("a.fecha >= (CURRENT_DATE - interval '120 days')");
+      if (benef) dupBase.whereRaw('a.beneficiario ILIKE ?', [`%${benef}%`]);
+      if (q.sucursal) dupBase.where('a.sucursal', String(q.sucursal));
+      const dups = await dupBase
+        .select('a.beneficiario', 'a.sucursal', 'a.doc_folio as folio_a', 'b.doc_folio as folio_b',
+          trx.raw('a.importe::numeric AS importe'), 'a.fecha as fecha_a', 'b.fecha as fecha_b')
+        .orderBy('a.importe', 'desc').limit(10);
+      for (const d of dups) signals.push({
+        tipo: 'posible_duplicado', severidad: 'alta',
+        detalle: `${d.beneficiario}: 2 facturas de ${Number(d.importe).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} en ≤7 días (folios ${d.folio_a} y ${d.folio_b}, suc ${d.sucursal}).`,
+        importe: Number(d.importe),
+        ui_url: this.docUrl(d.sucursal, 'XA2001', d.folio_b, d.beneficiario),
+      });
+
+      // 2) Salto de precio por SKU: costo_unitario reciente > 1.3× su promedio histórico del proveedor
+      if (benef) {
+        const jumps = await trx('analytics.expense_document_lines as l')
+          .join('analytics.expense_documents as d', function (this: any) {
+            this.on('d.tenant_id', 'l.tenant_id').andOn('d.sucursal', 'l.sucursal')
+              .andOn('d.doc_tipo', 'l.doc_tipo').andOn('d.doc_folio', 'l.doc_folio');
+          })
+          .where('l.tenant_id', tenantId).whereRaw('d.beneficiario ILIKE ?', [`%${benef}%`])
+          .whereRaw('l.costo_unitario > 0')
+          .groupBy('l.sku')
+          .havingRaw('max(l.costo_unitario) > 1.3 * avg(l.costo_unitario)')
+          .havingRaw('count(*) >= 3')
+          .select('l.sku', trx.raw('MAX(l.producto) AS producto'),
+            trx.raw('ROUND(MIN(l.costo_unitario)::numeric,2) AS min_costo'),
+            trx.raw('ROUND(MAX(l.costo_unitario)::numeric,2) AS max_costo'))
+          .orderByRaw('max(l.costo_unitario) / nullif(avg(l.costo_unitario),0) DESC')
+          .limit(5);
+        for (const j of jumps) signals.push({
+          tipo: 'salto_precio', severidad: 'media',
+          detalle: `SKU ${j.sku} (${j.producto || '?'}): costo entre ${Number(j.min_costo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} y ${Number(j.max_costo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} — variación >30%.`,
+        });
+      }
+
+      // 3) Saldo alto / DPO largo (ap_provider)
+      if (benef) {
+        const ap = await trx('analytics.ap_provider').where('tenant_id', tenantId)
+          .whereRaw('proveedor ILIKE ?', [`%${benef}%`])
+          .select(trx.raw('MAX(proveedor) AS proveedor'), trx.raw('SUM(saldo)::numeric AS saldo'), trx.raw('SUM(compra_12m)::numeric AS compra'))
+          .first();
+        if (ap && Number(ap.saldo) > 0) {
+          const dpo = Number(ap.compra) > 0 ? Math.round(Number(ap.saldo) / (Number(ap.compra) / 365)) : null;
+          if (dpo && dpo > 60) signals.push({
+            tipo: 'dpo_largo', severidad: 'media',
+            detalle: `${ap.proveedor}: saldo por pagar ${Number(ap.saldo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}, DPO ~${dpo} días.`,
+            importe: Number(ap.saldo),
+          });
+        }
+      }
+
+      // 4) Facturas sin recepción (pagar sin recibir) — de la cadena
+      const chainBase = trx('analytics.expense_doc_chain').where('tenant_id', tenantId).whereNull('recepcion_folio');
+      if (benef) chainBase.whereRaw('beneficiario ILIKE ?', [`%${benef}%`]);
+      if (q.sucursal) chainBase.where('sucursal', String(q.sucursal));
+      const noRcp: any = await chainBase.clone()
+        .select(trx.raw('COUNT(*)::int AS n'), trx.raw('ROUND(SUM(total)::numeric,2) AS monto')).first();
+      if (Number(noRcp?.n) > 0) signals.push({
+        tipo: 'sin_recepcion', severidad: 'alta',
+        detalle: `${noRcp.n} factura(s) sin recepción registrada${benef ? ` de ${benef}` : ''} por ${Number(noRcp.monto).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} (pagar sin comprobante de recibido).`,
+        importe: Number(noRcp.monto),
+      });
+
+      return { signals, encontradas: signals.length };
     });
   }
 
