@@ -282,12 +282,13 @@ export class CommercialAnalyticsController {
     @Query('cuenta') cuenta?: string,
     @Query('cuenta_mayor') cuentaMayor?: string,
     @Query('area') area?: string,
+    @Query('dpto') dpto?: string,
     @Query('beneficiario') beneficiario?: string,
     @Query('min_importe') minImporte?: string,
     @Query('max_importe') maxImporte?: string,
   ) {
     return this.service.expenses({
-      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte),
+      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte, dpto),
       group_by: groupBy,
       compare: compare === 'true',
     });
@@ -303,12 +304,13 @@ export class CommercialAnalyticsController {
     @Query('familia') familia?: string,
     @Query('doc_tipo') docTipo?: string,
     @Query('area') area?: string,
+    @Query('dpto') dpto?: string,
     @Query('beneficiario') beneficiario?: string,
     @Query('min_importe') minImporte?: string,
     @Query('max_importe') maxImporte?: string,
   ) {
     return this.service.expensesTree(
-      this.parseExpenseFilters(from, to, sucursal, familia, docTipo, undefined, undefined, area, beneficiario, minImporte, maxImporte),
+      this.parseExpenseFilters(from, to, sucursal, familia, docTipo, undefined, undefined, area, beneficiario, minImporte, maxImporte, dpto),
     );
   }
 
@@ -325,6 +327,8 @@ export class CommercialAnalyticsController {
     @Query('cuenta_mayor') cuentaMayor?: string,
     @Query('area') area?: string,
     @Query('area_null') areaNull?: string,
+    @Query('dpto') dpto?: string,
+    @Query('dpto_null') dptoNull?: string,
     @Query('beneficiario') beneficiario?: string,
     @Query('beneficiario_eq') beneficiarioEq?: string,
     @Query('beneficiario_null') beneficiarioNull?: string,
@@ -332,8 +336,9 @@ export class CommercialAnalyticsController {
     @Query('max_importe') maxImporte?: string,
   ) {
     return this.service.expenseDocuments({
-      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte),
+      ...this.parseExpenseFilters(from, to, sucursal, familia, docTipo, cuenta, cuentaMayor, area, beneficiario, minImporte, maxImporte, dpto),
       area_null: areaNull === 'true',
+      dpto_null: dptoNull === 'true',
       beneficiario_eq: beneficiarioEq,
       beneficiario_null: beneficiarioNull === 'true',
     });
@@ -407,7 +412,7 @@ export class CommercialAnalyticsController {
   private parseExpenseFilters(
     from?: string, to?: string, sucursal?: string, familia?: string, docTipo?: string,
     cuenta?: string, cuentaMayor?: string, area?: string, beneficiario?: string,
-    minImporte?: string, maxImporte?: string,
+    minImporte?: string, maxImporte?: string, dpto?: string,
   ) {
     return {
       from,
@@ -418,6 +423,7 @@ export class CommercialAnalyticsController {
       cuenta,
       cuenta_mayor: cuentaMayor,
       area,
+      dpto,
       beneficiario,
       min_importe: minImporte != null && minImporte !== '' ? Number(minImporte) : undefined,
       max_importe: maxImporte != null && maxImporte !== '' ? Number(maxImporte) : undefined,

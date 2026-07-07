@@ -87,6 +87,7 @@ export class MaatDetectorService {
         .select('rule_key', 'params');
 
       const summary: { rule_key: string; nuevos: number; total: number }[] = [];
+      const nuevosCriticos: { rule_key: string; titulo: string; importe: number }[] = [];
       let totalNuevos = 0;
       for (const rule of rules) {
         const params = typeof rule.params === 'string' ? JSON.parse(rule.params) : (rule.params || {});
@@ -111,7 +112,10 @@ export class MaatDetectorService {
             [tenantId, f.rule_key, clase, f.severity, f.score, f.titulo, f.resumen, JSON.stringify(f.entity),
               f.periodo, f.importe, JSON.stringify(f.evidencia), f.dedup_key],
           );
-          if (res.rows?.[0]?.is_insert) nuevos++;
+          if (res.rows?.[0]?.is_insert) {
+            nuevos++;
+            if (f.severity === 'critical') nuevosCriticos.push({ rule_key: f.rule_key, titulo: f.titulo, importe: f.importe });
+          }
         }
         const total = Number((await trx('finance.findings').where({ tenant_id: tenantId, rule_key: rule.rule_key }).count('* as c').first())?.c || 0);
         await trx('finance.rule_registry').where({ tenant_id: tenantId, rule_key: rule.rule_key })
@@ -120,7 +124,7 @@ export class MaatDetectorService {
         totalNuevos += nuevos;
       }
       this.logger.log(`scan (${source}): ${totalNuevos} hallazgos nuevos en ${rules.length} reglas activas.`);
-      return { source, reglas: rules.length, nuevos: totalNuevos, por_regla: summary };
+      return { source, reglas: rules.length, nuevos: totalNuevos, por_regla: summary, nuevos_criticos: nuevosCriticos };
     });
   }
 

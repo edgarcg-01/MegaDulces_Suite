@@ -78,6 +78,8 @@ import { egresChartOptions } from './egresos-chart-opts';
             <p-select [options]="docTipoOpts()" [(ngModel)]="docTipo" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" /></div>
           <div class="ex-field"><label>Área</label>
             <p-select [options]="areaOpts()" [(ngModel)]="area" [showClear]="true" placeholder="Todas" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" [filter]="true" /></div>
+          <div class="ex-field"><label>Departamento</label>
+            <p-select [options]="dptoOpts()" [(ngModel)]="dpto" optionLabel="label" optionValue="value" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" [filter]="true" /></div>
           <div class="ex-field"><label>Beneficiario</label>
             <input pInputText [(ngModel)]="beneficiario" placeholder="Buscar…" (keyup.enter)="applyFilters()" (blur)="queueFilter()" /></div>
           <div class="ex-field ex-narrow"><label>Monto ≥</label>
@@ -353,7 +355,8 @@ export class ComercialEgresosComponent {
   readonly groupByOpts = [
     { label: 'Cuenta', value: 'cuenta' }, { label: 'Cuenta mayor', value: 'cuenta_mayor' },
     { label: 'Beneficiario', value: 'beneficiario' }, { label: 'Sucursal', value: 'sucursal' },
-    { label: 'Tipo de documento', value: 'doc_tipo' }, { label: 'Área', value: 'area' }, { label: 'Mes', value: 'mes' },
+    { label: 'Tipo de documento', value: 'doc_tipo' }, { label: 'Área', value: 'area' },
+    { label: 'Departamento', value: 'dpto' }, { label: 'Mes', value: 'mes' },
   ];
 
   readonly report = signal<ExpensesReport | null>(null);
@@ -366,6 +369,7 @@ export class ComercialEgresosComponent {
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly docTipoOpts = signal<string[]>([]);
   readonly areaOpts = signal<string[]>([]);
+  readonly dptoOpts = signal<{ label: string; value: string }[]>([]);
 
   readonly view = signal<'arbol' | 'tabla' | 'tendencia' | 'proveedores' | 'hallazgos'>('arbol');
   readonly groupBy = signal<ExpenseGroupBy>('cuenta');
@@ -374,6 +378,7 @@ export class ComercialEgresosComponent {
   sucursal: string[] = [];
   docTipo: string | null = null;
   area: string | null = null;
+  dpto: string | null = null;
   beneficiario = '';
   minImporte: number | null = null;
   rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 90); return d; })(), new Date()];
@@ -402,7 +407,11 @@ export class ComercialEgresosComponent {
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((f) => { this.docTipoOpts.set(f.doc_tipos); this.areaOpts.set(f.areas); });
+      .subscribe((f) => {
+        this.docTipoOpts.set(f.doc_tipos);
+        this.areaOpts.set(f.areas);
+        this.dptoOpts.set((f.dptos || []).map((d) => ({ label: d.nombre ? `${d.nombre} · ${d.code}` : d.code, value: d.code })));
+      });
     this.showView();
   }
 
@@ -415,6 +424,7 @@ export class ComercialEgresosComponent {
       from: fmt(a), to: fmt(b),
       sucursal: this.sucursal, familia: (this.familia() || undefined) as '5' | '6' | undefined,
       doc_tipo: this.docTipo || undefined, area: this.area || undefined,
+      dpto: this.dpto || undefined,
       beneficiario: this.beneficiario || undefined,
       min_importe: this.minImporte ?? undefined,
       ...extra,

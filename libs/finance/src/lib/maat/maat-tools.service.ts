@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { MaatActionsService } from './maat-actions.service';
 
 /**
  * MAAT.3 — Tool registry del chat de Maat (ADR-028, patrón Thot Chat/ADR-026).
@@ -71,6 +72,7 @@ export class MaatToolsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly actions: MaatActionsService,
   ) {}
 
   // ── System prompt: identidad + reglas duras + TODO el conocimiento activo ──
@@ -162,6 +164,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         return `Revisando la balanza${dim}${fam}${inSuc}…`;
       }
       case 'maat_pnl': return `Calculando el estado de resultados${inSuc}…`;
+      case 'maat_simular_flujo': return `Simulando el flujo de caja${i.delay_dias ? ` (retraso ${i.delay_dias}d)` : ''}…`;
       case 'maat_cadena':
         return i.factura_folio ? `Trazando la cadena de la factura ${i.factura_folio}…`
           : i.solo_incompletas ? 'Buscando facturas sin recepción…'
@@ -171,10 +174,13 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       case 'maat_documento': return `Abriendo el documento ${i.folio || ''}${inSuc}…`;
       case 'maat_buscar_documentos': return `Buscando pólizas${i.beneficiario ? ` de ${i.beneficiario}` : ''}${inSuc}…`;
       case 'maat_alertas': return `Buscando anomalías${i.beneficiario ? ` en ${i.beneficiario}` : ''}${inSuc}…`;
+      case 'maat_red_proveedores': return i.beneficiario ? `Trazando la red de ${i.beneficiario}…` : 'Buscando proveedores que comparten RFC…';
       case 'maat_hallazgos': return i.tipo ? `Revisando hallazgos (${i.tipo})…` : 'Revisando los hallazgos contables…';
       case 'maat_conocimiento': return 'Consultando la base de conocimiento…';
       case 'maat_guardar_conocimiento': return 'Guardando el conocimiento validado…';
       case 'maat_tomar_nota': return 'Anotando un hallazgo…';
+      case 'maat_investigar_a_fondo': return `🔍 Auditor investigando: ${i.tema || 'a fondo'}…`;
+      case 'maat_proponer_accion': return `Preparando una acción para tu aprobación${i.titulo ? `: ${i.titulo}` : ''}…`;
       default: return `Consultando ${name.replace(/^maat_/, '').replace(/_/g, ' ')}…`;
     }
   }
@@ -234,6 +240,18 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
             from_mes: { type: 'string', description: "Default: hace 12 meses." },
             to_mes: { type: 'string' },
             sucursal: { type: 'string', description: 'Opcional. Sin sucursal = toda la red.' },
+          },
+        },
+      },
+      {
+        name: 'maat_simular_flujo',
+        description:
+          'SIMULACIÓN prescriptiva (what-if) de flujo de caja: proyecta el impacto de RETRASAR los pagos a proveedores N días, en 3 escenarios (optimista/realista/pesimista). Para preguntas "¿qué pasa si…?" sobre pagos/liquidez. Determinista, sobre saldo real (201) + run-rate histórico. Devuelve caja liberada, costo estimado por retraso y neto por escenario, con los supuestos explícitos.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            delay_dias: { type: 'number', description: 'Días a retrasar los pagos a proveedores. Default 15.' },
+            horizonte_dias: { type: 'number', description: 'Ventana de proyección. Default 30.' },
           },
         },
       },
@@ -315,6 +333,18 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         },
       },
       {
+        name: 'maat_red_proveedores',
+        description:
+          'GRAFO de proveedores para detección forense/colusión: encuentra proveedores CONECTADos por atributos compartidos (mismo RFC bajo distintos nombres, o mismo nombre bajo distintos RFC). Con `beneficiario` hace un recorrido multi-salto (quién está ligado a X vía RFC). Sin foco, devuelve los clusters globales (razones sociales que comparten RFC = posible fragmentación/split-invoicing).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            beneficiario: { type: 'string', description: 'Proveedor foco para el recorrido del grafo (ILIKE). Opcional.' },
+            limit: { type: 'number', description: 'Clusters/relaciones a devolver. Default 20, máx 50.' },
+          },
+        },
+      },
+      {
         name: 'maat_hallazgos',
         description:
           'Hallazgos contables detectados: iva_bug (IVA huérfano XD5501), prov_203 (provisiones sin descargar), anticipo_107 (anticipos sin aplicar). Sin tipo → resumen de todos; con tipo → filas del tipo.',
@@ -363,6 +393,32 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         },
       },
       {
+        name: 'maat_proponer_accion',
+        description:
+          'PROPONE una acción correctiva para aprobación humana (HITL, ADR-013). Úsala cuando detectes algo accionable y el usuario quiera hacer algo al respecto (ej. "sí, hay que revisar eso" / "prepara la corrección"). NO ejecuta nada: crea una propuesta en estado pending_approval que un humano aprueba en la bandeja. La acción real sobre el ERP la hace un humano; esto la registra y rastrea.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', enum: ['revisar_hallazgo', 'conciliar_saldo', 'marcar_documento', 'nota_contable', 'otro'], description: 'Tipo de acción.' },
+            titulo: { type: 'string', description: 'Título corto y accionable.' },
+            descripcion: { type: 'string', description: 'Qué propones y por qué (con la cifra/evidencia).' },
+            efecto: { type: 'string', description: 'Qué pasará al aprobar (en lenguaje de negocio).' },
+            importe: { type: 'number', description: 'Monto en juego. Opcional.' },
+          },
+          required: ['kind', 'titulo'],
+        },
+      },
+      {
+        name: 'maat_investigar_a_fondo',
+        description:
+          'DELEGA una investigación de auditoría/fraude a un sub-agente ESPECIALISTA (persona Auditor) que cruza anomalías, cadena de documentos, duplicados, saltos de precio (z-score) y red de proveedores de forma autónoma, y devuelve un dictamen. Úsala para preguntas complejas de fraude/auditoría ("¿hay algo turbio con X?", "audita las compras de este mes") donde vale la pena una investigación profunda en vez de una sola consulta.',
+        input_schema: {
+          type: 'object',
+          properties: { tema: { type: 'string', description: 'Qué investigar, en una frase (ej. "posible fraude en compras de fletes en junio", "audita al proveedor X").' } },
+          required: ['tema'],
+        },
+      },
+      {
         name: 'render_response',
         description:
           'TOOL OBLIGATORIA para entregar tu respuesta final al usuario. NO respondas en texto plano — llama a esta tool cuando ya tengas la conclusión. El frontend renderiza `narrative` (Markdown) y convierte `suggested_follow_ups` en botones.',
@@ -385,15 +441,22 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         // render_response lo intercepta el loop (control-flow, no data); inerte si llega aquí.
         case 'render_response': return { ok: true };
         case 'maat_tomar_nota': return { ok: true, nota: String(input?.nota || '').slice(0, 500) };
+        case 'maat_proponer_accion': return await this.actions.propose({
+          kind: input?.kind, titulo: input?.titulo, descripcion: input?.descripcion, efecto: input?.efecto,
+          importe: Number(input?.importe) || 0, origen: 'maat_chat', created_by: scope.userName || undefined,
+        }).then((r) => ({ ...r, ok: true, nota: 'Propuesta creada. Queda pendiente de tu aprobación en la bandeja de acciones.' }))
+          .catch((e) => ({ error: String(e?.message || e) }));
         case 'maat_egresos': return await this.egresos(input);
         case 'maat_balanza': return await this.balanza(input);
         case 'maat_pnl': return await this.pnl(input);
+        case 'maat_simular_flujo': return await this.simularFlujo(input);
         case 'maat_cadena': return await this.cadena(input);
         case 'maat_serie_mensual': return await this.serieMensual(input);
         case 'maat_proveedor': return await this.proveedor(input);
         case 'maat_documento': return await this.documento(input);
         case 'maat_buscar_documentos': return await this.buscarDocumentos(input);
         case 'maat_alertas': return await this.alertas(input);
+        case 'maat_red_proveedores': return await this.redProveedores(input);
         case 'maat_hallazgos': return await this.hallazgos(input);
         case 'maat_conocimiento': return await this.conocimiento(input);
         case 'maat_guardar_conocimiento': return await this.guardarConocimiento(input, scope);
@@ -540,6 +603,123 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
             margen_pct: ingresos ? +((resultado / ingresos) * 100).toFixed(1) : null,
           };
         }),
+      };
+    });
+  }
+
+  /**
+   * MAAT.7/3.0-P4 — What-if determinista de flujo de caja: impacto de retrasar
+   * pagos a proveedores `delay_dias`. Base REAL: saldo por pagar (201) + run-rate
+   * mensual de pagos (cargos a 201 en la balanza). NO es Monte Carlo: es una
+   * proyección con supuestos EXPLÍCITOS y 3 escenarios de costo del retraso
+   * (0% / 1.5% / 4% sobre la porción retrasada — descuentos perdidos + recargos).
+   */
+  private async simularFlujo(q: any) {
+    const tenantId = this.tenantId();
+    const delay = Math.max(0, Math.min(120, Number(q.delay_dias) || 15));
+    const horizonte = Math.max(7, Math.min(180, Number(q.horizonte_dias) || 30));
+    return this.tk.run(async (trx) => {
+      // Saldo por pagar actual (auxiliar 201)
+      const ap: any = await trx('analytics.ap_provider').where('tenant_id', tenantId)
+        .select(trx.raw('COALESCE(SUM(saldo),0)::numeric AS saldo')).first();
+      const saldo = Number(ap?.saldo || 0);
+      // Run-rate mensual de pagos a proveedores = cargos a la cuenta mayor 201 (balanza), promedio de los meses disponibles
+      const pagos = await trx('analytics.ledger_monthly').where({ tenant_id: tenantId, cuenta_mayor: '201' })
+        .groupBy('anio_mes').select('anio_mes', trx.raw('SUM(cargos)::numeric AS pagado')).orderBy('anio_mes');
+      const meses = pagos.length || 1;
+      const flujoMensual = pagos.reduce((a: number, r: any) => a + Number(r.pagado), 0) / meses;
+      const flujoDiario = flujoMensual / 30;
+
+      // Caja liberada al retrasar `delay` días la salida de pagos, dentro del horizonte.
+      const cajaLiberada = Math.round(flujoDiario * delay);
+      const porcionRetrasada = cajaLiberada; // la porción que se pospone
+      const escenario = (nombre: string, tasaCosto: number, nota: string) => {
+        const costo = Math.round(porcionRetrasada * tasaCosto);
+        return { escenario: nombre, caja_liberada: cajaLiberada, costo_estimado: costo, neto: cajaLiberada - costo, nota };
+      };
+      return {
+        supuestos: {
+          delay_dias: delay, horizonte_dias: horizonte,
+          saldo_por_pagar: Math.round(saldo),
+          flujo_pagos_mensual: Math.round(flujoMensual),
+          flujo_pagos_diario: Math.round(flujoDiario),
+          meses_historia: meses,
+          nota: 'Determinista, NO Monte Carlo. "Caja liberada" = flujo diario de pagos × días de retraso (lo que dejas de pagar en la ventana). El costo del retraso varía por escenario (descuentos por pronto pago perdidos + posibles recargos). No modela cobranza (ingresos) — es el lado de egresos.',
+        },
+        escenarios: [
+          escenario('optimista', 0, 'Proveedores toleran el retraso sin penalización; liberas caja neta completa.'),
+          escenario('realista', 0.015, 'Pierdes ~1.5% en descuentos por pronto pago sobre lo retrasado.'),
+          escenario('pesimista', 0.04, 'Descuentos perdidos + recargos/deterioro de relación ~4% sobre lo retrasado.'),
+        ],
+      };
+    });
+  }
+
+  /**
+   * MAAT.7/3.0-P5 — Grafo de proveedores (forense/colusión) sobre Postgres, sin
+   * Neo4j. Con foco: recorrido MULTI-SALTO acotado (WITH RECURSIVE) desde un
+   * proveedor siguiendo aristas "comparte RFC". Sin foco: clusters globales
+   * (RFC con múltiples razones sociales = posible fragmentación/split-invoicing;
+   * nombre con múltiples RFC = posible shell/typo). Nota: las aristas ricas
+   * (representante legal, cuenta bancaria, dirección) requieren ingerir esa data
+   * — hoy solo tenemos RFC + nombre (201 plana).
+   */
+  private async redProveedores(q: any) {
+    const tenantId = this.tenantId();
+    const limit = Math.min(50, Math.max(1, Number(q.limit) || 20));
+    const foco = (q.beneficiario || '').trim();
+    return this.tk.run(async (trx) => {
+      if (foco) {
+        // Recorrido del grafo desde el foco: nombres alcanzables por RFC compartido (≤4 saltos).
+        const res = await trx.raw(
+          `WITH RECURSIVE
+             pares AS (
+               SELECT DISTINCT upper(btrim(beneficiario)) AS name, upper(btrim(rfc)) AS rfc
+               FROM analytics.expense_documents
+               WHERE tenant_id = ? AND NULLIF(btrim(rfc),'') IS NOT NULL AND NULLIF(btrim(beneficiario),'') IS NOT NULL
+             ),
+             red(name, depth) AS (
+               SELECT name, 0 FROM pares WHERE name ILIKE ?
+               UNION
+               SELECT p2.name, r.depth + 1
+               FROM red r
+               JOIN pares p1 ON p1.name = r.name
+               JOIN pares p2 ON p2.rfc = p1.rfc AND p2.name <> r.name
+               WHERE r.depth < 4
+             )
+           SELECT DISTINCT name, min(depth) AS salto FROM red GROUP BY name ORDER BY salto, name LIMIT ?`,
+          [tenantId, `%${foco}%`, limit],
+        );
+        const nodos = (res.rows || []).map((r: any) => ({ proveedor: r.name, saltos: Number(r.salto) }));
+        return nodos.length <= 1
+          ? { foco, relacionados: [], nota: `No encontré otros proveedores ligados a "${foco}" por RFC compartido (o falta data de documentos).` }
+          : { foco, relacionados: nodos, nota: 'Proveedores conectados por RFC compartido (mismo RFC bajo distintos nombres). saltos = distancia en el grafo.' };
+      }
+      // Global: RFC con ≥2 razones sociales (fragmentación) + nombre con ≥2 RFC (shell/typo).
+      const porRfc = await trx('analytics.expense_documents').where('tenant_id', tenantId)
+        .whereRaw("NULLIF(btrim(rfc),'') IS NOT NULL").whereRaw("NULLIF(btrim(beneficiario),'') IS NOT NULL")
+        .groupByRaw('upper(btrim(rfc))')
+        .havingRaw('count(DISTINCT upper(btrim(beneficiario))) >= 2')
+        .select(trx.raw('upper(btrim(rfc)) AS rfc'),
+          trx.raw('count(DISTINCT upper(btrim(beneficiario)))::int AS nombres'),
+          trx.raw("(array_agg(DISTINCT upper(btrim(beneficiario))))[1:5] AS ejemplos"),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS importe'))
+        .orderByRaw('SUM(importe) DESC').limit(limit);
+      const porNombre = await trx('analytics.expense_documents').where('tenant_id', tenantId)
+        .whereRaw("NULLIF(btrim(rfc),'') IS NOT NULL").whereRaw("NULLIF(btrim(beneficiario),'') IS NOT NULL")
+        .groupByRaw('upper(btrim(beneficiario))')
+        .havingRaw('count(DISTINCT upper(btrim(rfc))) >= 2')
+        .select(trx.raw('upper(btrim(beneficiario)) AS nombre'),
+          trx.raw('count(DISTINCT upper(btrim(rfc)))::int AS rfcs'),
+          trx.raw('ROUND(SUM(importe)::numeric,2) AS importe'))
+        .orderByRaw('SUM(importe) DESC').limit(limit);
+      if (!porRfc.length && !porNombre.length) {
+        return { rfc_multi_nombre: [], nombre_multi_rfc: [], nota: 'Sin relaciones detectables (requiere data de documentos con RFC — el feed GX v3 alimenta esto en prod).' };
+      }
+      return {
+        rfc_multi_nombre: porRfc.map((r: any) => ({ rfc: r.rfc, nombres: Number(r.nombres), ejemplos: r.ejemplos, importe: Number(r.importe) })),
+        nombre_multi_rfc: porNombre.map((r: any) => ({ nombre: r.nombre, rfcs: Number(r.rfcs), importe: Number(r.importe) })),
+        nota: 'RFC con varias razones sociales = posible fragmentación/split-invoicing. Nombre con varios RFC = posible shell o error de captura. Revisar los de mayor importe.',
       };
     });
   }

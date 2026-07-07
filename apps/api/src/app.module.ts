@@ -93,6 +93,8 @@ import { LogisticsRoutingModule } from '@megadulces/logistics';
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
 import { FinanceMaatModule } from '@megadulces/finance';
+// MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
+import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
 import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';
@@ -149,6 +151,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsCartaporteModule,
       LogisticsRoutingModule,
       MegaDulcesSyncModule,
+      FinanceNotifierBindingModule,
       FinanceMaatModule,
     ]
   : [];

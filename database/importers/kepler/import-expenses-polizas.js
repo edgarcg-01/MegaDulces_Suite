@@ -111,7 +111,8 @@ function normArea(raw) {
     await db.query(`CREATE TEMP TABLE stg_exp (
       sucursal text, doc_tipo text, doc_folio text, linea int, fecha date,
       cuenta text, cuenta_nombre text, cuenta_mayor text, cuenta_mayor_nombre text,
-      familia text, cargo_abono text, beneficiario text, area text, importe numeric) ON COMMIT DROP`);
+      familia text, cargo_abono text, beneficiario text, area text, importe numeric,
+      dpto text, dpto_nombre text) ON COMMIT DROP`);
     // GX v3 — documentos fuente (kdm1) + líneas de detalle (kdm2, solo compras) para el drill.
     await db.query(`CREATE TEMP TABLE stg_doc (
       sucursal text, doc_tipo text, doc_folio text, fecha date, fecha_doc date,
@@ -139,6 +140,15 @@ function normArea(raw) {
           (await src.query(`SELECT c3 AS code, c2 AS nombre FROM md.kdco WHERE c3 IS NOT NULL`)).rows
             .map((r) => [r.code, r.nombre]),
         );
+        // catálogo de departamentos / centros de costo (kdc3): código c1 → nombre c2
+        // (ej. '1-01-10-00' → 'PADRE HIDALGO PISO'). Puede no existir en algunas sucursales.
+        const dep = new Map();
+        try {
+          for (const r of (await src.query(`SELECT c1 AS code, c2 AS nombre FROM md.kdc3 WHERE c1 IS NOT NULL`)).rows) {
+            const code = String(r.code).trim();
+            if (code) dep.set(code, r.nombre ? String(r.nombre).trim() : null);
+          }
+        } catch { /* sucursal sin catálogo kdc3 */ }
         // Cabeceras de documento (kdm1): área para las pólizas (docArea) + campos ricos
         // para el drill al documento (docHdr, solo XA2001 compras / XA1001 gastos).
         const docArea = new Map();
@@ -166,7 +176,8 @@ function normArea(raw) {
                     (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0')) AS doc_tipo,
                     c19 AS doc_folio, c10::int AS linea, c2::date AS fecha,
                     c3 AS cuenta, left(c3,1) AS familia, c4 AS cargo_abono,
-                    NULLIF(btrim(c6),'') AS beneficiario, c5::numeric AS importe
+                    NULLIF(btrim(c6),'') AS beneficiario, c5::numeric AS importe,
+                    NULLIF(btrim(c13),'') AS dpto
                FROM md.${t.tbl}
               WHERE c4='C' AND (c3='511' OR c3 LIKE '6%')
                 AND COALESCE(c5,0) <> 0`,   /* dropea las ~609 líneas $0 'BAJA -'/canceladas (ruido). c19 folio-vacío = '' (no NULL) → se conserva la capa de diario/presupuesto; la distingue Fix#1. */
@@ -175,11 +186,13 @@ function normArea(raw) {
           const staged = [];
           for (const r of rows) {
             const mayor = String(r.cuenta).split('-')[0];
+            const dpto = r.dpto || null;
             staged.push([
               r.sucursal || b.code, r.doc_tipo, r.doc_folio, r.linea, r.fecha,
               r.cuenta, acc.get(r.cuenta) || null, mayor, acc.get(mayor) || null,
               r.familia, r.cargo_abono, r.beneficiario,
               docArea.get(`${r.doc_tipo}-${r.doc_folio}`) || null, Number(r.importe) || 0,
+              dpto, dpto ? (dep.get(dpto) || null) : null,
             ]);
             movs++; monto += Number(r.importe) || 0;
             // acumula el documento fuente (solo pólizas con folio real)
@@ -190,7 +203,7 @@ function normArea(raw) {
               if (mayor === '511') compraFolios.add(fol);
             }
           }
-          const NCOL = 14;
+          const NCOL = 16;
           for (let i = 0; i < staged.length; i += BATCH) {
             const chunk = staged.slice(i, i + BATCH);
             const vals = [], params = [];
@@ -199,7 +212,7 @@ function normArea(raw) {
               params.push(...row);
             });
             await db.query(
-              `INSERT INTO stg_exp (sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe)
+              `INSERT INTO stg_exp (sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre)
                VALUES ${vals.join(',')}`, params);
           }
         }
@@ -337,8 +350,8 @@ function normArea(raw) {
       [M, sucursales, from, to]);
     const up = await db.query(
       `INSERT INTO analytics.expense_entries
-         (id,tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,computed_at)
-       SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,now()
+         (id,tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,computed_at)
+       SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,now()
          FROM stg_exp`,
       [M]);
 

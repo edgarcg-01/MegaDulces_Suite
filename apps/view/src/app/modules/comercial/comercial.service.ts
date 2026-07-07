@@ -1125,6 +1125,8 @@ export class ComercialService {
     if (p.cuenta_mayor) params = params.set('cuenta_mayor', p.cuenta_mayor);
     if (p.area) params = params.set('area', p.area);
     if (p.area_null) params = params.set('area_null', 'true');
+    if (p.dpto) params = params.set('dpto', p.dpto);
+    if (p.dpto_null) params = params.set('dpto_null', 'true');
     if (p.beneficiario?.trim()) params = params.set('beneficiario', p.beneficiario.trim());
     if (p.beneficiario_eq) params = params.set('beneficiario_eq', p.beneficiario_eq);
     if (p.beneficiario_null) params = params.set('beneficiario_null', 'true');
@@ -1588,7 +1590,7 @@ export interface VendorSaleLine {
 }
 
 // ── Fase GX v2 — Egresos contables ──
-export type ExpenseGroupBy = 'cuenta' | 'cuenta_mayor' | 'beneficiario' | 'sucursal' | 'doc_tipo' | 'area' | 'mes';
+export type ExpenseGroupBy = 'cuenta' | 'cuenta_mayor' | 'beneficiario' | 'sucursal' | 'doc_tipo' | 'area' | 'dpto' | 'mes';
 export interface ExpensesParams {
   from?: string;
   to?: string;
@@ -1601,6 +1603,8 @@ export interface ExpensesParams {
   cuenta_mayor?: string;
   area?: string;
   area_null?: boolean;
+  dpto?: string;
+  dpto_null?: boolean;
   beneficiario?: string;
   beneficiario_eq?: string;
   beneficiario_null?: boolean;
@@ -1657,6 +1661,7 @@ export interface ExpensesFilters {
   doc_tipos: string[];
   areas: string[];
   mayores: { code: string; nombre: string | null }[];
+  dptos: { code: string; nombre: string | null }[];
 }
 // GX v3 — drill al documento fuente
 export interface ExpenseDocHeader {

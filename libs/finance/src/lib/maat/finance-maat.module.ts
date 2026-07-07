@@ -9,6 +9,8 @@ import { MaatDetectorService } from './maat-detector.service';
 import { MaatFindingsService } from './maat-findings.service';
 import { MaatScannerService } from './maat-scanner.service';
 import { MaatFindingsController } from './maat-findings.controller';
+import { MaatActionsService } from './maat-actions.service';
+import { MaatActionsController } from './maat-actions.controller';
 
 /**
  * MAAT (ADR-028) — AI de Finanzas.
@@ -17,10 +19,10 @@ import { MaatFindingsController } from './maat-findings.controller';
  * Próximos: baselines cron (MAAT.4).
  */
 @Module({
-  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController],
+  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
-    MaatDetectorService, MaatFindingsService, MaatScannerService,
+    MaatDetectorService, MaatFindingsService, MaatScannerService, MaatActionsService,
   ],
   exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService],
 })

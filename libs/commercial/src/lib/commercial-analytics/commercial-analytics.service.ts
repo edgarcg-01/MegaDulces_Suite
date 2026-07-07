@@ -1322,7 +1322,7 @@ export class CommercialAnalyticsService {
   // ─────────── GX v2 — Egresos contables (motor dinámico) ───────────
 
   private static readonly EXPENSE_FILTER_KEYS = [
-    'sucursal', 'familia', 'doc_tipo', 'cuenta', 'cuenta_mayor', 'area', 'beneficiario',
+    'sucursal', 'familia', 'doc_tipo', 'cuenta', 'cuenta_mayor', 'area', 'dpto', 'beneficiario',
     'min_importe', 'max_importe',
   ] as const;
 
@@ -1350,6 +1350,8 @@ export class CommercialAnalyticsService {
     if (q.cuenta_mayor) b.where('e.cuenta_mayor', q.cuenta_mayor);
     if (q.area_null) b.whereNull('e.area');
     else if (q.area) b.where('e.area', q.area);
+    if (q.dpto_null) b.whereNull('e.dpto');
+    else if (q.dpto) b.where('e.dpto', q.dpto);
     // *_null = drill del bucket "(sin …)"; *_eq = drill exacto desde una fila; beneficiario solo = búsqueda libre (ILIKE)
     if (q.beneficiario_null) b.whereNull('e.beneficiario');
     else if (q.beneficiario_eq) b.where('e.beneficiario', q.beneficiario_eq);
@@ -1372,6 +1374,8 @@ export class CommercialAnalyticsService {
         return { key: 'doc_tipo', groupSql: 'e.doc_tipo', keySql: 'e.doc_tipo', labelSql: 'e.doc_tipo', familia: false };
       case 'area':
         return { key: 'area', groupSql: 'e.area', keySql: "COALESCE(e.area,'(sin área)')", labelSql: "COALESCE(e.area,'(sin área)')", familia: false };
+      case 'dpto':
+        return { key: 'dpto', groupSql: 'e.dpto, e.dpto_nombre', keySql: "COALESCE(e.dpto,'(sin depto)')", labelSql: "COALESCE(e.dpto_nombre, e.dpto, '(sin depto)')", familia: false };
       case 'mes':
         return { key: 'mes', groupSql: "to_char(e.fecha,'YYYY-MM')", keySql: "to_char(e.fecha,'YYYY-MM')", labelSql: "to_char(e.fecha,'YYYY-MM')", familia: false };
       case 'cuenta':
@@ -1730,13 +1734,15 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const base = () => trx('analytics.expense_entries').where('tenant_id', tenantId);
-      const [doc_tipos, areas, mayores] = await Promise.all([
+      const [doc_tipos, areas, mayores, dptos] = await Promise.all([
         base().distinct('doc_tipo').whereNotNull('doc_tipo').orderBy('doc_tipo').then((r) => r.map((x: any) => x.doc_tipo)),
         base().distinct('area').whereNotNull('area').orderBy('area').then((r) => r.map((x: any) => x.area)),
         base().distinct('cuenta_mayor', 'cuenta_mayor_nombre').whereNotNull('cuenta_mayor').orderBy('cuenta_mayor')
           .then((r) => r.map((x: any) => ({ code: x.cuenta_mayor, nombre: x.cuenta_mayor_nombre }))),
+        base().distinct('dpto', 'dpto_nombre').whereNotNull('dpto').orderBy('dpto')
+          .then((r) => r.map((x: any) => ({ code: x.dpto, nombre: x.dpto_nombre }))),
       ]);
-      return { doc_tipos, areas, mayores };
+      return { doc_tipos, areas, mayores, dptos };
     });
   }
 

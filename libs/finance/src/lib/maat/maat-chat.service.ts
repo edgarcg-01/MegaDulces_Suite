@@ -160,7 +160,13 @@ export class MaatChatService {
       // MAAT.7 — el modelo puede pedir VARIAS tools por turno: ejecútalas en PARALELO
       // (antes secuencial). Los pasos de progreso se emiten antes del batch.
       for (const tu of toolUses) onStep?.({ label: this.tools.describeStep(tu.name, tu.input), tool: tu.name });
-      const settled = await Promise.all(toolUses.map(async (tu: any) => ({ tu, result: await this.tools.execute(tu.name, tu.input, scope) })));
+      const settled = await Promise.all(toolUses.map(async (tu: any) => ({
+        tu,
+        // maat_investigar_a_fondo delega a un sub-agente Auditor (in-process, sub-loop acotado).
+        result: tu.name === 'maat_investigar_a_fondo'
+          ? await this.runSubAgent(String(tu.input?.tema || ''), scope, onStep)
+          : await this.tools.execute(tu.name, tu.input, scope),
+      })));
       const toolResults = settled.map(({ tu, result }) => {
         traces.push({ name: tu.name, input: tu.input, result });
         return { type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) };
@@ -173,6 +179,44 @@ export class MaatChatService {
       answer: 'La consulta requería demasiados pasos. Reformula la pregunta de forma más específica (ej. un período o un proveedor concreto).',
       source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: [],
     };
+  }
+
+  /**
+   * MAAT.7/3.0-P1 — Sub-agente ESPECIALISTA "Auditor" in-process (multi-agente sin
+   * framework externo). Corre un sub-loop ReAct acotado con persona forense y un
+   * toolset reducido (anomalías, cadena, red de proveedores, hallazgos), y devuelve
+   * un dictamen conciso al agente principal. Sin recursión (no se incluye a sí mismo
+   * ni render_response en su toolset).
+   */
+  private async runSubAgent(tema: string, scope: MaatScope, onStep?: (s: { label: string; tool?: string }) => void): Promise<any> {
+    const AUDIT_TOOLS = new Set([
+      'maat_egresos', 'maat_balanza', 'maat_proveedor', 'maat_documento', 'maat_buscar_documentos',
+      'maat_alertas', 'maat_hallazgos', 'maat_cadena', 'maat_red_proveedores', 'maat_tomar_nota',
+    ]);
+    const toolDefs = this.tools.definitions().filter((t) => AUDIT_TOOLS.has(t.name));
+    const system = `Eres el AUDITOR FORENSE de Maat, un sub-agente especialista. Tu único trabajo: investigar a fondo "${tema}" cruzando señales con las tools disponibles (anomalías, cadena de documentos, duplicados, saltos de precio z-score, red de proveedores por RFC, hallazgos).\n`
+      + 'Método: encadena 2-4 tools relevantes, cruza los resultados, y ENTREGA UN DICTAMEN conciso en texto plano (sin markdown pesado): qué encontraste, la evidencia numérica, la severidad (baja/media/alta) y una recomendación. Cuando termines, responde SOLO con el dictamen (sin pedir más tools). Nunca inventes cifras: solo lo que devuelven las tools.';
+    const messages: any[] = [{ role: 'user', content: `Investiga a fondo: ${tema}` }];
+    const traces: string[] = [];
+    let iter = 0;
+    while (iter < 5) {
+      iter++;
+      let resp: any;
+      try { resp = await this.callClaude(system, messages, toolDefs, false); }
+      catch { return { dictamen: 'No pude completar la sub-investigación (error del modelo).', pasos: traces }; }
+      const content = Array.isArray(resp.content) ? resp.content : [];
+      const toolUses = content.filter((b: any) => b.type === 'tool_use');
+      if (resp.stop_reason !== 'tool_use' || !toolUses.length) {
+        const dictamen = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+        return { dictamen: dictamen || 'El auditor no encontró señales concluyentes.', pasos: traces };
+      }
+      messages.push({ role: 'assistant', content });
+      for (const tu of toolUses) onStep?.({ label: `🔍 ${this.tools.describeStep(tu.name, tu.input)}`, tool: tu.name });
+      const results = await Promise.all(toolUses.map(async (tu: any) => ({ tu, result: await this.tools.execute(tu.name, tu.input, scope) })));
+      const toolResults = results.map(({ tu, result }) => { traces.push(tu.name); return { type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) }; });
+      messages.push({ role: 'user', content: toolResults });
+    }
+    return { dictamen: 'Sub-investigación incompleta (límite de pasos). Reduce el alcance.', pasos: traces };
   }
 
   /**

@@ -10,6 +10,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase } from '../findings.service';
+import { ActionsService, ProposedAction } from '../actions.service';
 
 /**
  * MAAT.2 — Bandeja de hallazgos (motor de patrones). Superficie Operations:
@@ -47,6 +48,26 @@ import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase } fro
           <div class="fh-kpi"><span class="fh-kpi-val">{{ money(s.monto_en_riesgo) }}</span><span class="fh-kpi-lbl">$ en juego</span></div>
           @for (c of s.por_clase; track c.clase) {
             <div class="fh-kpi"><span class="fh-kpi-val">{{ c.n | number }}</span><span class="fh-kpi-lbl">{{ claseLabel(c.clase) }}</span></div>
+          }
+        </div>
+      }
+
+      <!-- Acciones propuestas por Maat (HITL — aprobar/rechazar) -->
+      @if (actions().length) {
+        <div class="card-premium card-flat fh-actions">
+          <h3 class="fh-card-title"><i class="pi pi-bolt" aria-hidden="true"></i> Acciones propuestas por Maat <span class="muted">({{ actions().length }} pendiente{{ actions().length === 1 ? '' : 's' }} de aprobación)</span></h3>
+          @for (a of actions(); track a.id) {
+            <div class="fh-action">
+              <div class="fh-action-body">
+                <span class="fh-action-titulo">{{ a.titulo }}</span>
+                @if (a.descripcion) { <span class="fh-action-desc">{{ a.descripcion }}</span> }
+                @if (a.efecto) { <span class="fh-action-efecto"><i class="pi pi-arrow-right"></i> {{ a.efecto }}</span> }
+              </div>
+              <div class="fh-action-acts">
+                <button pButton type="button" icon="pi pi-check" label="Aprobar" class="p-button-sm p-button-success" (click)="approve(a)"></button>
+                <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="reject(a)"></button>
+              </div>
+            </div>
           }
         </div>
       }
@@ -180,14 +201,25 @@ import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase } fro
     .fh-ev-v { font-size: .85rem; }
     .fh-ev-meta { font-size: .74rem; margin-top: .6rem; }
     .fh-empty { padding: 2rem; text-align: center; color: var(--text-muted, #78716c); }
+    .fh-actions { padding: 1rem; margin-bottom: 1rem; border-left: 3px solid var(--action, #FB923C); }
+    .fh-action { display: flex; align-items: center; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--border-color, #e7e5e4); }
+    .fh-action:first-of-type { border-top: none; }
+    .fh-action-body { display: flex; flex-direction: column; gap: .15rem; flex: 1; min-width: 0; }
+    .fh-action-titulo { font-weight: 700; }
+    .fh-action-desc { font-size: .84rem; color: var(--text-muted, #78716c); }
+    .fh-action-efecto { font-size: .8rem; color: var(--action, #FB923C); }
+    .fh-action-efecto i { font-size: .7rem; }
+    .fh-action-acts { display: flex; gap: .3rem; flex-shrink: 0; }
   `],
 })
 export class FinanzasHallazgosComponent implements OnInit {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(FindingsService);
+  private readonly actionsSvc = inject(ActionsService);
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly actions = signal<ProposedAction[]>([]);
 
   readonly findings = signal<Finding[]>([]);
   readonly stats = signal<FindingsStats | null>(null);
@@ -199,7 +231,24 @@ export class FinanzasHallazgosComponent implements OnInit {
   readonly status = signal<'pendientes' | 'confirmado' | 'descartado'>('pendientes');
   readonly expanded = signal<Record<string, boolean>>({});
 
-  ngOnInit() { this.reload(); this.loadStats(); }
+  ngOnInit() { this.reload(); this.loadStats(); this.loadActions(); }
+
+  private loadActions() {
+    this.actionsSvc.list().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (a) => this.actions.set(a), error: () => {} });
+  }
+
+  approve(a: ProposedAction) {
+    this.actionsSvc.approve(a.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.actions.update((arr) => arr.filter((x) => x.id !== a.id)); this.toast.add({ severity: 'success', summary: 'Aprobada', detail: r?.resultado || 'Acción ejecutada.' }); this.reload(); this.loadStats(); },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo aprobar.' }),
+    });
+  }
+  reject(a: ProposedAction) {
+    this.actionsSvc.reject(a.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.actions.update((arr) => arr.filter((x) => x.id !== a.id)); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: 'La acción no se ejecutará.' }); },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo rechazar.' }),
+    });
+  }
 
   private reload() {
     this.loading.set(true);
