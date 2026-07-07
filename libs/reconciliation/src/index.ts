@@ -5,3 +5,4 @@
 export * from './lib/reconciliation.module';
 export * from './lib/movement-reconcile.service';
 export * from './lib/reconciliation-findings.service';
+export * from './lib/reconciliation-scanner.service';
