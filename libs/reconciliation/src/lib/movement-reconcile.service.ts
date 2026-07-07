@@ -51,6 +51,11 @@ const RULES: RuleMeta[] = [
     nombre: 'Faltantes recurrentes por cajero', descripcion: 'Un cajero acumula varios cortes con faltante en una ventana — patrón, no evento aislado.',
     params: { ventana_dias: 30, min_eventos: 3, min_falta: 50, critico_suma: 10000 },
   },
+  {
+    rule_key: 'merma_inventario', plano: 'inventario',
+    nombre: 'Merma / ajuste de salida alto', descripcion: 'Salidas por ajuste/destrucción (merma) del kardex acumuladas por SKU×sucursal×mes por encima del umbral — inventario que sale sin venta.',
+    params: { min_monto: 5000, critico: 100000 },
+  },
 ];
 
 const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
@@ -129,6 +134,7 @@ export class MovementReconcileService {
     switch (ruleKey) {
       case 'caja_descuadre': return this.detCajaDescuadre(trx, tenantId, params);
       case 'cajero_faltante_recurrente': return this.detCajeroRecurrente(trx, tenantId, params);
+      case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
   }
@@ -200,6 +206,42 @@ export class MovementReconcileService {
         causa_probable: 'faltante_recurrente',
         evidencia: { params: { ventana, minEventos, minFalta }, eventos, suma_falta: suma, max_falta: Number(r.max_falta) },
         dedup_key: `cajero_faltante_recurrente:${r.warehouse_code}:${r.cajero_cierre}:${periodo}`,
+      };
+    });
+  }
+
+  /** Merma (salida por ajuste/destrucción) acumulada por SKU×sucursal×mes ≥ umbral. */
+  private async detMermaInventario(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const minMonto = Number(params.min_monto) || 5000;
+    const critico = Number(params.critico) || 100000;
+    const rows = await trx('analytics.stock_ledger')
+      .where('tenant_id', tenantId)
+      .where('clase_mov', 'merma')
+      .groupBy('warehouse_code', 'sku')
+      .groupByRaw("to_char(fecha,'YYYY-MM')")
+      .havingRaw('SUM(importe) >= ?', [minMonto])
+      .select('warehouse_code', 'sku',
+        trx.raw("to_char(fecha,'YYYY-MM') AS periodo"),
+        trx.raw('COUNT(*)::int AS movs'),
+        trx.raw('ROUND(SUM(importe)::numeric,2) AS monto'),
+        trx.raw('ROUND(SUM(unidades)::numeric,2) AS unidades'))
+      .orderByRaw('SUM(importe) DESC')
+      .limit(500);
+    return rows.map((r: any) => {
+      const monto = Number(r.monto);
+      return {
+        rule_key: 'merma_inventario', plano: 'inventario' as const,
+        severity: monto >= critico ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, monto / (critico * 2)),
+        titulo: `Merma ${money(monto)} — SKU ${r.sku} suc ${r.warehouse_code} (${r.periodo})`,
+        resumen: `${r.movs} salida(s) por ajuste/destrucción en el mes (${Number(r.unidades)} u). Inventario que sale sin venta — revisar motivo.`,
+        entity: { sucursal: r.warehouse_code, sku: r.sku, movimientos: Number(r.movs), unidades: Number(r.unidades) },
+        periodo: r.periodo,
+        esperado: null, observado: null, diferencia: monto,
+        importe: monto,
+        causa_probable: 'merma',
+        evidencia: { params: { min_monto: minMonto, critico }, movimientos: Number(r.movs), unidades: Number(r.unidades), monto },
+        dedup_key: `merma_inventario:${r.warehouse_code}:${r.sku}:${r.periodo}`,
       };
     });
   }
