@@ -189,7 +189,7 @@ const SUGGESTIONS = [
         }
       </div>
 
-      <app-thot-ai-input class="tc-composer" (ask)="onAsk($event)"></app-thot-ai-input>
+      <app-thot-ai-input class="tc-composer" hintBase="Pregúntale a Maat sobre tus finanzas…" (ask)="onAsk($event)"></app-thot-ai-input>
     </div>
   `,
   styles: [`

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
  * MAAT.3 — Tool registry del chat de Maat (ADR-028, patrón Thot Chat/ADR-026).
@@ -45,7 +45,10 @@ const num = (v: any) => (v == null ? null : Number(v));
 export class MaatToolsService {
   private readonly logger = new Logger(MaatToolsService.name);
 
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
 
   // ── System prompt: identidad + reglas duras + TODO el conocimiento activo ──
   async buildSystemPrompt(scope: MaatScope, ctx: { today: string }): Promise<string> {
@@ -89,7 +92,7 @@ Hoy es ${ctx.today} (México).${scope.userName ? ` Hablas con ${scope.userName}.
 ${knowledgeBlock}
 
 ## ALCANCE ACTUAL
-Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 sucursales), documentos fuente con líneas de producto, auxiliar de proveedores (cuenta 201: saldo/pagos/DPO), y hallazgos contables. AÚN NO tienes: balanza completa (ingresos/activo/pasivo detallado) ni flujo de caja — si te preguntan por eso, dilo y ofrece lo que sí puedes responder con egresos/proveedores.`;
+Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. AÚN NO tienes: flujo de caja proyectado ni auxiliar bancario por banco (las 17 cuentas comparten el código 102). Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.`;
   }
 
   // ── Schema para Claude ───────────────────────────────────────────────
@@ -116,6 +119,53 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
             limit: { type: 'number', description: 'Default 25, máx 100.' },
           },
           required: ['group_by'],
+        },
+      },
+      {
+        name: 'maat_balanza',
+        description:
+          'BALANZA DE COMPROBACIÓN completa (familias 1-9): cargos/abonos/neto por la dimensión elegida. Para ingresos (fam 4), activo (1), pasivo (2), impuestos (7), saldos y cualquier cuenta fuera de egresos. Meses en formato YYYY-MM.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            group_by: { type: 'string', enum: ['cuenta', 'cuenta_mayor', 'familia', 'mes', 'sucursal'], description: 'Dimensión del desglose.' },
+            from_mes: { type: 'string', description: "Mes inicio 'YYYY-MM'. Default: hace 12 meses." },
+            to_mes: { type: 'string', description: "Mes fin 'YYYY-MM'. Default: mes actual." },
+            familia: { type: 'string', enum: ['1', '2', '4', '5', '6', '7', '9'], description: 'Opcional.' },
+            cuenta: { type: 'string', description: "Cuenta exacta ('401' o '601-001'). Opcional." },
+            cuenta_mayor: { type: 'string', description: 'Opcional.' },
+            sucursal: { type: 'string', description: "Código ('00'..'05'). Opcional." },
+            limit: { type: 'number', description: 'Default 30, máx 200.' },
+          },
+          required: ['group_by'],
+        },
+      },
+      {
+        name: 'maat_pnl',
+        description:
+          'Estado de resultados CONTABLE derivado de la balanza, por mes: ingresos (fam 4) − costo (fam 5) − gastos operación (fam 6) − otros gastos (fam 7) = resultado. Para "cuánto ganamos", márgenes y comparación de meses. OJO: aplica los issues conocidos (2025=presupuesto, dic-2025 doble, COGS no computable desde may-2026) al narrar.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            from_mes: { type: 'string', description: "Default: hace 12 meses." },
+            to_mes: { type: 'string' },
+            sucursal: { type: 'string', description: 'Opcional. Sin sucursal = toda la red.' },
+          },
+        },
+      },
+      {
+        name: 'maat_cadena',
+        description:
+          'Cadena de aprovisionamiento por factura de compra: orden (XA3501) → recepción (XA3701) → factura (XA2001) → pago programado (XA4001), con lead_days y confianza del match. Con factura_folio+sucursal → una cadena; con beneficiario o solo_incompletas → lista + stats (facturas sin recepción = red flag de auditoría).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            factura_folio: { type: 'string', description: "Folio exacto de la factura ('0000754'). Requiere sucursal." },
+            sucursal: { type: 'string', description: "Código ('00'..'05'). Opcional para listas." },
+            beneficiario: { type: 'string', description: 'Filtro ILIKE por proveedor. Opcional.' },
+            solo_incompletas: { type: 'boolean', description: 'true → solo facturas SIN recepción u orden.' },
+            limit: { type: 'number', description: 'Default 20, máx 100.' },
+          },
         },
       },
       {
@@ -197,6 +247,9 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
     try {
       switch (name) {
         case 'maat_egresos': return await this.egresos(input);
+        case 'maat_balanza': return await this.balanza(input);
+        case 'maat_pnl': return await this.pnl(input);
+        case 'maat_cadena': return await this.cadena(input);
         case 'maat_serie_mensual': return await this.serieMensual(input);
         case 'maat_proveedor': return await this.proveedor(input);
         case 'maat_documento': return await this.documento(input);
@@ -218,9 +271,14 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
     return { from, to };
   }
 
+  // analytics.* NO tiene RLS (a diferencia de finance.*) → el filtro de tenant
+  // es EXPLÍCITO en cada query, igual que en CommercialAnalyticsService.
+  private tenantId() { return this.tenantCtx.requireTenantId(); }
+
   private baseEgresos(trx: any, q: any, from: string, to: string) {
     const b = trx('analytics.expense_entries as e')
-      .where('e.fecha', '>=', from)
+      .where('e.tenant_id', this.tenantId())
+      .andWhere('e.fecha', '>=', from)
       .andWhere('e.fecha', '<=', to);
     if (q.familia) b.where('e.familia', q.familia);
     if (q.cuenta) b.where('e.cuenta', q.cuenta);
@@ -254,6 +312,124 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
     });
   }
 
+  /** Rango de meses 'YYYY-MM' default últimos 12. */
+  private mesRange(q: { from_mes?: string; to_mes?: string }) {
+    const now = new Date();
+    const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const to_mes = /^\d{4}-\d{2}$/.test(q.to_mes || '') ? q.to_mes! : ym(now);
+    const past = new Date(now); past.setMonth(past.getMonth() - 11);
+    const from_mes = /^\d{4}-\d{2}$/.test(q.from_mes || '') ? q.from_mes! : ym(past);
+    return { from_mes, to_mes };
+  }
+
+  private baseLedger(trx: any, q: any, from_mes: string, to_mes: string) {
+    const b = trx('analytics.ledger_monthly as l')
+      .where('l.tenant_id', this.tenantId())
+      .andWhere('l.anio_mes', '>=', from_mes)
+      .andWhere('l.anio_mes', '<=', to_mes);
+    if (q.familia) b.where('l.familia', String(q.familia));
+    if (q.cuenta) b.where('l.cuenta', q.cuenta);
+    if (q.cuenta_mayor) b.where('l.cuenta_mayor', q.cuenta_mayor);
+    if (q.sucursal) b.where('l.sucursal', String(q.sucursal));
+    return b;
+  }
+
+  private async balanza(q: any) {
+    const DIMS: Record<string, { group: string; label: string }> = {
+      cuenta: { group: 'l.cuenta, l.cuenta_nombre', label: "l.cuenta || ' ' || COALESCE(l.cuenta_nombre,'')" },
+      cuenta_mayor: { group: 'l.cuenta_mayor, l.cuenta_mayor_nombre', label: "COALESCE(l.cuenta_mayor,'-') || ' ' || COALESCE(l.cuenta_mayor_nombre,'')" },
+      familia: { group: 'l.familia', label: "CASE l.familia WHEN '1' THEN '1 Activo' WHEN '2' THEN '2 Pasivo' WHEN '4' THEN '4 Ingresos' WHEN '5' THEN '5 Costos' WHEN '6' THEN '6 Gastos operación' WHEN '7' THEN '7 Otros gastos' WHEN '9' THEN '9 Presupuestos' ELSE l.familia END" },
+      mes: { group: 'l.anio_mes', label: 'l.anio_mes' },
+      sucursal: { group: 'l.sucursal', label: 'l.sucursal' },
+    };
+    const dim = DIMS[q.group_by] || DIMS['cuenta_mayor'];
+    const limit = Math.min(200, Math.max(1, Number(q.limit) || 30));
+    const { from_mes, to_mes } = this.mesRange(q);
+    return this.tk.run(async (trx) => {
+      const b = this.baseLedger(trx, q, from_mes, to_mes)
+        .groupByRaw(dim.group)
+        .select(trx.raw(`${dim.label} AS key`),
+          trx.raw('ROUND(SUM(l.cargos)::numeric,2) AS cargos'),
+          trx.raw('ROUND(SUM(l.abonos)::numeric,2) AS abonos'),
+          trx.raw('ROUND(SUM(l.cargos - l.abonos)::numeric,2) AS neto'),
+          trx.raw('SUM(l.movs)::int AS movs'))
+        .limit(limit);
+      // mes/sucursal se leen cronológica/alfabéticamente; el resto por magnitud
+      if (q.group_by === 'mes' || q.group_by === 'sucursal') b.orderByRaw('1');
+      else b.orderByRaw('GREATEST(ABS(SUM(l.cargos)), ABS(SUM(l.abonos))) DESC');
+      const rows: any[] = await b;
+      return {
+        from_mes, to_mes,
+        rows: rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto), movs: Number(r.movs) })),
+      };
+    });
+  }
+
+  private async pnl(q: any) {
+    const { from_mes, to_mes } = this.mesRange(q);
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await this.baseLedger(trx, { sucursal: q.sucursal }, from_mes, to_mes)
+        .groupBy('l.anio_mes')
+        .select('l.anio_mes',
+          trx.raw("ROUND(COALESCE(SUM(l.abonos - l.cargos) FILTER (WHERE l.familia='4'),0)::numeric,2) AS ingresos"),
+          trx.raw("ROUND(COALESCE(SUM(l.cargos - l.abonos) FILTER (WHERE l.familia='5'),0)::numeric,2) AS costo"),
+          trx.raw("ROUND(COALESCE(SUM(l.cargos - l.abonos) FILTER (WHERE l.familia='6'),0)::numeric,2) AS gastos_operacion"),
+          trx.raw("ROUND(COALESCE(SUM(l.cargos - l.abonos) FILTER (WHERE l.familia='7'),0)::numeric,2) AS otros_gastos"))
+        .orderBy('l.anio_mes');
+      return {
+        from_mes, to_mes, sucursal: q.sucursal || '(toda la red)',
+        nota: 'P&L contable derivado de la balanza. Recordar: 2025 = capa presupuesto; dic-2025 doble; costo (fam 5) usa el juego de inventarios y NO es computable desde may-2026 (cierre cortado); ingresos incluyen la reclass de $54.67M en mar-2026.',
+        rows: rows.map((r) => {
+          const ingresos = Number(r.ingresos), costo = Number(r.costo), go = Number(r.gastos_operacion), og = Number(r.otros_gastos);
+          const resultado = +(ingresos - costo - go - og).toFixed(2);
+          return {
+            mes: r.anio_mes, ingresos, costo, gastos_operacion: go, otros_gastos: og, resultado,
+            margen_pct: ingresos ? +((resultado / ingresos) * 100).toFixed(1) : null,
+          };
+        }),
+      };
+    });
+  }
+
+  private async cadena(q: any) {
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        const b = trx('analytics.expense_doc_chain').where('tenant_id', this.tenantId());
+        if (q.sucursal) b.where('sucursal', String(q.sucursal));
+        if (q.beneficiario) b.whereRaw('beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
+        if (q.solo_incompletas) b.where((w: any) => w.whereNull('recepcion_folio').orWhereNull('orden_folio'));
+        return b;
+      };
+      if (q.factura_folio) {
+        const row = await base().where('factura_folio', String(q.factura_folio)).first();
+        return row ? { ...row, total: Number(row.total) } : { error: `Sin cadena para la factura ${q.factura_folio}${q.sucursal ? ` en sucursal ${q.sucursal}` : ' (¿falta sucursal?)'}.` };
+      }
+      const stats: any = await base()
+        .select(trx.raw('COUNT(*)::int AS facturas'),
+          trx.raw('COUNT(*) FILTER (WHERE recepcion_folio IS NOT NULL AND orden_folio IS NOT NULL)::int AS completas'),
+          trx.raw('COUNT(*) FILTER (WHERE recepcion_folio IS NULL)::int AS sin_recepcion'),
+          trx.raw('ROUND(AVG(lead_days) FILTER (WHERE lead_days IS NOT NULL))::int AS lead_days_prom'),
+          trx.raw('ROUND(SUM(total) FILTER (WHERE recepcion_folio IS NULL)::numeric,2) AS monto_sin_recepcion'))
+        .first();
+      const rows = await base()
+        .select('sucursal', 'factura_folio', 'factura_fecha', 'beneficiario', trx.raw('total::numeric AS total'),
+          'orden_folio', 'recepcion_folio', 'pago_folio', 'lead_days', 'match_confidence')
+        .orderBy('total', 'desc')
+        .limit(limit);
+      return {
+        stats: {
+          facturas: Number(stats.facturas), completas: Number(stats.completas),
+          completas_pct: stats.facturas ? +((stats.completas / stats.facturas) * 100).toFixed(1) : 0,
+          sin_recepcion: Number(stats.sin_recepcion),
+          monto_sin_recepcion: Number(stats.monto_sin_recepcion || 0),
+          lead_days_promedio: stats.lead_days_prom != null ? Number(stats.lead_days_prom) : null,
+        },
+        rows: rows.map((r: any) => ({ ...r, total: Number(r.total) })),
+      };
+    });
+  }
+
   private async serieMensual(q: any) {
     const { from, to } = this.range({ ...q, from: q.from || (() => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d.toISOString().slice(0, 10); })() });
     return this.tk.run(async (trx) => {
@@ -272,7 +448,7 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
     const search = (q.search || '').trim();
     const limit = Math.min(50, Math.max(1, Number(q.limit) || 10));
     return this.tk.run(async (trx) => {
-      const b = trx('analytics.ap_provider');
+      const b = trx('analytics.ap_provider').where('tenant_id', this.tenantId());
       if (search) b.whereRaw('proveedor ILIKE ?', [`%${search}%`]);
       const provs: any[] = await b
         .groupBy('proveedor_norm')
@@ -297,6 +473,7 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
             this.on('d.tenant_id', 'l.tenant_id').andOn('d.sucursal', 'l.sucursal')
               .andOn('d.doc_tipo', 'l.doc_tipo').andOn('d.doc_folio', 'l.doc_folio');
           })
+          .where('l.tenant_id', this.tenantId())
           .whereRaw('d.beneficiario ILIKE ?', [`%${search || out[0].proveedor}%`])
           .groupBy('l.sku')
           .select('l.sku', trx.raw('MAX(l.producto) AS producto'),
@@ -318,16 +495,16 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
     if (!sucursal || !doc_tipo || !folio) return { error: 'Faltan sucursal, doc_tipo o folio.' };
     return this.tk.run(async (trx) => {
       const header = await trx('analytics.expense_documents as d')
-        .where({ 'd.sucursal': sucursal, 'd.doc_tipo': doc_tipo, 'd.doc_folio': folio })
+        .where({ 'd.tenant_id': this.tenantId(), 'd.sucursal': sucursal, 'd.doc_tipo': doc_tipo, 'd.doc_folio': folio })
         .select('d.sucursal', 'd.doc_tipo', 'd.doc_folio', 'd.fecha', 'd.fecha_doc', 'd.beneficiario', 'd.rfc',
           'd.concepto', 'd.area', trx.raw('d.importe::numeric AS importe'), trx.raw('d.iva::numeric AS iva'), 'd.usuario')
         .first();
       const postings = await trx('analytics.expense_entries')
-        .where({ sucursal, doc_tipo, doc_folio: folio })
+        .where({ tenant_id: this.tenantId(), sucursal, doc_tipo, doc_folio: folio })
         .select('linea', 'cuenta', 'cuenta_nombre', trx.raw('importe::numeric AS importe'))
         .orderBy('linea');
       const lines = await trx('analytics.expense_document_lines')
-        .where({ sucursal, doc_tipo, doc_folio: folio })
+        .where({ tenant_id: this.tenantId(), sucursal, doc_tipo, doc_folio: folio })
         .select('sku', 'producto', trx.raw('cantidad::numeric AS cantidad'), trx.raw('costo_unitario::numeric AS costo_unitario'), trx.raw('importe::numeric AS importe'))
         .orderBy('importe', 'desc');
       if (!header && !postings.length) return { error: `No existe el documento ${doc_tipo}-${folio} en sucursal ${sucursal}.` };
@@ -343,12 +520,14 @@ Tienes acceso a: egresos contables (compras 511 + gastos 6xx/7xx, ~12 meses, 6 s
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
     return this.tk.run(async (trx) => {
       const summary: any[] = await trx('analytics.expense_findings')
+        .where('tenant_id', this.tenantId())
         .groupBy('tipo')
         .select('tipo', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(importe)::numeric,2) AS total'))
         .orderByRaw('SUM(importe) DESC');
       let rows: any[] = [];
       if (q.tipo) {
         rows = await trx('analytics.expense_findings')
+          .where('tenant_id', this.tenantId())
           .where('tipo', q.tipo)
           .select('fecha', 'sucursal', 'doc_tipo', 'doc_folio', 'beneficiario', 'cuenta', trx.raw('importe::numeric AS importe'), 'nota')
           .orderBy('importe', 'desc')

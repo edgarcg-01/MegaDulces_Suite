@@ -85,6 +85,7 @@ function check(name, cond, det) {
     console.log('\n── 5. Audit en DB ──');
     const db = new Client({ connectionString: DST });
     await db.connect();
+    let hasLedger = false;
     try {
       const s = (await db.query(
         `SELECT turns, username FROM finance.chat_sessions WHERE tenant_id=$1 AND id=$2`, [M, c1.body.session_id])).rows[0];
@@ -95,7 +96,23 @@ function check(name, cond, det) {
       check('≥4 mensajes (2 turnos user+assistant)', msgs.length >= 4, `n=${msgs.length}`);
       check('assistant con tool_calls', msgs.some((m) => m.role === 'assistant' && m.has_tools));
       check('feedback up persistido', msgs.some((m) => m.feedback === 'up'), msgs.map((m) => m.feedback).join(','));
+      hasLedger = Number((await db.query(
+        `SELECT count(*)::int n FROM analytics.ledger_monthly WHERE tenant_id=$1`, [M])).rows[0].n) > 0;
     } finally { await db.end(); }
+
+    // ── 6. MAAT.1 — balanza/P&L vía chat (solo si el feed corrió en esta DB) ──
+    if (hasLedger) {
+      console.log('\n── 6. MAAT.1 balanza/P&L ──');
+      const c3 = await req('POST', '/finance/maat/chat', token, {
+        history: [], message: '¿De cuánto fueron los ingresos (ventas) de marzo 2026 según la balanza, y el resultado del mes?',
+      });
+      const toolNames = (c3.body?.tools_used || []).map((t) => t.name);
+      check('turno balanza OK', (c3.status === 200 || c3.status === 201) && c3.body?.source === 'llm', `status=${c3.status} source=${c3.body?.source}`);
+      check('usó maat_balanza o maat_pnl', toolNames.some((n) => n === 'maat_balanza' || n === 'maat_pnl'), toolNames.join(','));
+      console.log(`    → "${(c3.body?.answer || '').slice(0, 200).replace(/\n/g, ' ')}…"`);
+    } else {
+      console.log('\n── 6. SKIP balanza (analytics.ledger_monthly vacío en esta DB) ──');
+    }
   }
 
   console.log(`\n════ MAAT chat smoke: ${pass} OK · ${fail} FAIL ════`);

@@ -1557,6 +1557,18 @@ export class CommercialAnalyticsService {
           trx.raw('importe::numeric AS importe'))
         .orderBy('importe', 'desc');
 
+      // MAAT.1 — cadena de aprovisionamiento (solo compras XA2001; feed import-ledger-chain)
+      let chain = null;
+      if (doc_tipo === 'XA2001') {
+        const ch = await trx('analytics.expense_doc_chain')
+          .where({ tenant_id: tenantId, sucursal, factura_folio: folio })
+          .select('orden_folio', 'orden_fecha', 'recepcion_folio', 'recepcion_fecha',
+            'factura_folio', 'factura_fecha', 'pago_folio', 'pago_fecha',
+            'lead_days', 'pago_days', 'match_confidence')
+          .first();
+        if (ch) chain = { ...ch, lead_days: ch.lead_days != null ? Number(ch.lead_days) : null, pago_days: ch.pago_days != null ? Number(ch.pago_days) : null };
+      }
+
       return {
         header: header
           ? { ...header, importe: Number(header.importe), iva: Number(header.iva) }
@@ -1568,6 +1580,7 @@ export class CommercialAnalyticsService {
           costo_unitario: r.costo_unitario != null ? Number(r.costo_unitario) : null,
           importe: Number(r.importe),
         })),
+        chain,
       };
     });
   }

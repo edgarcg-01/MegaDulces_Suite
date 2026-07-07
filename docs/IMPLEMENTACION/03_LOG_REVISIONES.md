@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-07-07 — MAAT.1: balanza completa + cadena de aprovisionamiento (Maat ya contesta ingresos/P&L)
+
+**Contexto:** con el chat vivo (MAAT.3), faltaba la data que el alcance prometía: balanza de las 7 familias (ingresos/activo/pasivo) y la cadena orden→recepción→factura→pago del lineage kdm1 c39 (absorbe GX.4.3b).
+
+**Cambio:**
+- Migración `20260707100000` (Batch 140 local): `analytics.ledger_monthly` (cargos/abonos/neto por cuenta×sucursal×mes — el mes canónico es el de la TABLA kdc2YYMM, no c2 retro-fechada) + `analytics.expense_doc_chain` (por factura XA2001: orden/recepción/pago con `lead_days` y `match_confidence` exact|inferred|partial).
+- Importer `import-ledger-chain.js` (un sweep por sucursal, dry-run default, ventana `--months`). **Hallazgo de datos:** las DBs de sucursal arrastran réplicas de otras — DB03 tenía las filas de la '02' de dic-2025/ene-2026 **100% duplicadas** vs DB02 (verificado llave-ancha) y 1,975 docs kdm1 ajenos. Regla: cada DB solo aporta su código (`c14`/`c1` propio o vacío). Sin eso la balanza double-contaba y la cadena mezclaba folios de otra sucursal (los folios colisionan entre sucursales).
+- Backend: `expenseDocument` devuelve `chain` → el timeline del drill (escrito dormido en GX.4.3a) **despierta**. Maat: +`maat_balanza` (dims whitelist), +`maat_pnl` (fam4−fam5−fam6−fam7 con nota de caveats), +`maat_cadena` (una factura o stats/incompletas) + ALCANCE actualizado. **Fix del MAAT.3:** las queries a `analytics.*` no filtraban `tenant_id` (esas tablas no tienen RLS; hoy 1 tenant = sin fuga, pero violaba la arquitectura) — ahora explícito en todas, patrón CommercialAnalyticsService.
+- Carga: **2,286 filas de balanza (19 meses × 6 sucursales) + 9,800 cadenas**.
+
+**Red (cross-validación fuerte):** las 7 familias de md_00 12m cuadran con el análisis contable independiente (fam4 abonos $729.6M~$726M, fam5 cargos $1,473.4M~$1,467M, fam6 $72.1M~$71M, fam9 339/356 exacto) y la balanza **reproduce por sí sola el bug de partida doble** (−$972k acumulado ene-may 2026, junio se corrige — el iva_bug XD5501). Cadena BOTANAS 0000754 → orden 0767/recep 0764/pago 0756/$13,400 `exact` (los folios verificados a mano el 2026-07-06). Cobertura cadena: sucursales 01-05 = 91.5% exact; CEDIS 57% + 42% partial concentrado en ene-feb 2026 (arranque de captura: 64-72% de cumplimiento del flujo vs 90-94% en régimen) — es señal real para el detector `cadena_incompleta`, no bug. Smoke `http-maat-chat-test.js` extendido: **19/19**, Maat contesta "ingresos de marzo 2026 = $61,811,583.62" desde la balanza y **agrega sola la advertencia** de caveats del P&L.
+
+**Pendiente:** cron nightly del importer (`--months 2`); lint `finance` comparte la deuda `no-explicit-any` del estilo de queries (commercial igual); prod = misma tanda pendiente (migs + seeds + key + re-login).
+
 ## 2026-07-06 — MAAT.3 (adelantado): chat "Pregúntale a Maat" con diseño de /thot-chat
 
 **Contexto:** tras cerrar MAAT.0, Edgar pidió el chat primero ("para el front repliquemos el diseño de /thot-chat") — se adelantó MAAT.3 sobre la data existente (egresos/proveedores/hallazgos/conocimiento); la balanza y la cadena (MAAT.1) se sumarán como tools nuevas sin tocar el loop.
