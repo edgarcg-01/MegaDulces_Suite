@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MovementReconcileService } from './movement-reconcile.service';
 import { ReconciliationFindingsService } from './reconciliation-findings.service';
+import { ReconciliationQueryService } from './reconciliation-query.service';
 import { ReconciliationScannerService } from './reconciliation-scanner.service';
 import { ReconciliationController } from './reconciliation.controller';
 
@@ -10,7 +11,7 @@ import { ReconciliationController } from './reconciliation.controller';
  */
 @Module({
   controllers: [ReconciliationController],
-  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationScannerService],
+  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService],
   exports: [MovementReconcileService, ReconciliationFindingsService],
 })
 export class ReconciliationModule {}

@@ -53,6 +53,26 @@ export interface RuleHealth {
   findings_falsos: number;
 }
 
+export interface CuadreOverview {
+  caja: { cortes: number; con_descuadre: number; faltante: number; sobrante: number; venta: number };
+  inventario: { mermas: number; monto_merma: number };
+  descuadres: { pendientes: number; criticos: number };
+  top_cajeros: { sucursal: string; cajero: string; eventos: number; faltante: number }[];
+  por_sucursal: { sucursal: string; cortes: number; faltante_caja: number; merma: number }[];
+}
+
+export interface CashCut {
+  id: string; warehouse_code: string; warehouse_name: string | null; caja: string; folio: string;
+  business_date: string; cajero_cierre: string | null; turno: string | null;
+  efectivo_esperado: number; efectivo_contado: number; efectivo_diff: number;
+  tarjeta_esperado: number; transfer_esperado: number; total_venta: number;
+}
+
+export interface StockMovement {
+  id: string; warehouse_code: string; almacen: string | null; sku: string; clase_mov: string;
+  grupo: string | null; folio: string; unidad: string | null; unidades: number; importe: number; fecha: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CuadreService {
   private readonly http = inject(HttpClient);
@@ -83,5 +103,32 @@ export class CuadreService {
   }
   scan(): Observable<{ total_nuevos: number; nuevos_criticos: any[]; por_regla: any[] }> {
     return this.http.post<{ total_nuevos: number; nuevos_criticos: any[]; por_regla: any[] }>(`${this.base}/scan`, {});
+  }
+
+  overview(): Observable<CuadreOverview> { return this.http.get<CuadreOverview>(`${this.base}/overview`); }
+
+  cashCuts(q?: { sucursal?: string; cajero?: string; from?: string; to?: string; min_diff?: number; solo_descuadres?: boolean; limit?: number }): Observable<CashCut[]> {
+    const p = new URLSearchParams();
+    if (q?.sucursal) p.set('sucursal', q.sucursal);
+    if (q?.cajero) p.set('cajero', q.cajero);
+    if (q?.from) p.set('from', q.from);
+    if (q?.to) p.set('to', q.to);
+    if (q?.min_diff != null) p.set('min_diff', String(q.min_diff));
+    if (q?.solo_descuadres) p.set('solo_descuadres', 'true');
+    if (q?.limit) p.set('limit', String(q.limit));
+    const qs = p.toString();
+    return this.http.get<CashCut[]>(`${this.base}/cash-cuts${qs ? '?' + qs : ''}`);
+  }
+
+  movements(q?: { clase_mov?: string; sucursal?: string; sku?: string; from?: string; to?: string; limit?: number }): Observable<StockMovement[]> {
+    const p = new URLSearchParams();
+    if (q?.clase_mov) p.set('clase_mov', q.clase_mov);
+    if (q?.sucursal) p.set('sucursal', q.sucursal);
+    if (q?.sku) p.set('sku', q.sku);
+    if (q?.from) p.set('from', q.from);
+    if (q?.to) p.set('to', q.to);
+    if (q?.limit) p.set('limit', String(q.limit));
+    const qs = p.toString();
+    return this.http.get<StockMovement[]>(`${this.base}/movements${qs ? '?' + qs : ''}`);
   }
 }

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { ReconciliationFindingsService } from './reconciliation-findings.service';
+import { ReconciliationQueryService } from './reconciliation-query.service';
 import { MovementReconcileService } from './movement-reconcile.service';
 
 interface AuthedRequest { user?: { username?: string }; }
@@ -15,7 +16,42 @@ export class ReconciliationController {
   constructor(
     private readonly findings: ReconciliationFindingsService,
     private readonly engine: MovementReconcileService,
+    private readonly query: ReconciliationQueryService,
   ) {}
+
+  @Get('overview')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'SM.6 — KPIs + rankings de la consola (caja, inventario, descuadres, top cajeros/sucursales).' })
+  overview() { return this.query.overview(); }
+
+  @Get('cash-cuts')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'SM.6 — Cortes de caja (data cruda). Filtros: sucursal, cajero, from, to, min_diff, solo_descuadres, limit.' })
+  cashCuts(
+    @Query('sucursal') sucursal?: string,
+    @Query('cajero') cajero?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('min_diff') minDiff?: string,
+    @Query('solo_descuadres') soloDescuadres?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.query.cashCuts({ sucursal, cajero, from, to, min_diff: minDiff ? Number(minDiff) : undefined, solo_descuadres: soloDescuadres === 'true', limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('movements')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'SM.6 — Movimientos de inventario (data cruda). Filtros: clase_mov, sucursal, sku, from, to, limit.' })
+  movements(
+    @Query('clase_mov') claseMov?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('sku') sku?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.query.movements({ clase_mov: claseMov, sucursal, sku, from, to, limit: limit ? Number(limit) : undefined });
+  }
 
   @Get('discrepancies')
   @RequirePermissions(Permission.RECONCILIATION_VER)
