@@ -714,25 +714,36 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   }
 
   private async hallazgos(q: any) {
+    const tenantId = this.tenantId();
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
     return this.tk.run(async (trx) => {
-      const summary: any[] = await trx('analytics.expense_findings')
-        .where('tenant_id', this.tenantId())
-        .groupBy('tipo')
-        .select('tipo', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(importe)::numeric,2) AS total'))
-        .orderByRaw('SUM(importe) DESC');
-      let rows: any[] = [];
-      if (q.tipo) {
-        rows = await trx('analytics.expense_findings')
-          .where('tenant_id', this.tenantId())
-          .where('tipo', q.tipo)
-          .select('fecha', 'sucursal', 'doc_tipo', 'doc_folio', 'beneficiario', 'cuenta', trx.raw('importe::numeric AS importe'), 'nota')
-          .orderBy('importe', 'desc')
-          .limit(limit);
-      }
+      // MAAT.2 — lee el motor de patrones persistido (finance.findings). Solo
+      // pendientes (nuevo/en_revision) para la conversación; el triage vive en la bandeja.
+      const base = () => trx('finance.findings as f').where('f.tenant_id', tenantId).whereIn('f.status', ['nuevo', 'en_revision']);
+      const summary: any[] = await base()
+        .groupBy('f.clase')
+        .select('f.clase', trx.raw('COUNT(*)::int AS num'), trx.raw('ROUND(SUM(f.importe)::numeric,2) AS total'))
+        .orderByRaw('SUM(f.importe) DESC');
+      if (!summary.length) return { resumen: [], rows: [], nota: 'No hay hallazgos pendientes. Corre el motor (bandeja de hallazgos) o revisa períodos con más movimiento.' };
+
+      const rowsQ = base()
+        .leftJoin('finance.rule_registry as r', function (this: any) { this.on('r.tenant_id', 'f.tenant_id').andOn('r.rule_key', 'f.rule_key'); })
+        .select('f.rule_key', 'r.nombre as regla', 'f.clase', 'f.severity', 'f.titulo', 'f.resumen',
+          'f.entity', trx.raw('f.importe::numeric AS importe'))
+        .orderByRaw("CASE f.severity WHEN 'critical' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END")
+        .orderBy('f.importe', 'desc').limit(limit);
+      // q.tipo flexible: filtra por clase o por rule_key si viene
+      if (q.tipo) rowsQ.where((w: any) => w.where('f.clase', q.tipo).orWhere('f.rule_key', q.tipo));
+      const rows = await rowsQ;
+
       return {
-        resumen: summary.map((s) => ({ tipo: s.tipo, num: Number(s.num), total: Number(s.total) })),
-        rows: rows.map((r) => ({ ...r, importe: Number(r.importe) })),
+        resumen: summary.map((s) => ({ clase: s.clase, num: Number(s.num), total: Number(s.total) })),
+        rows: rows.map((r: any) => ({
+          regla: r.regla || r.rule_key, clase: r.clase, severidad: r.severity,
+          titulo: r.titulo, resumen: r.resumen, importe: Number(r.importe),
+          // deep-link a la póliza si el hallazgo apunta a un documento
+          ui_url: r.entity?.doc_folio ? this.docUrl(r.entity.sucursal, r.entity.doc_tipo || 'XA2001', r.entity.doc_folio, r.entity.beneficiario) : undefined,
+        })),
       };
     });
   }

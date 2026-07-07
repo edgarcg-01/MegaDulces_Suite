@@ -371,6 +371,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
   private finanzasNavItems: NavItem[] = [
     { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+    { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
   ];
 

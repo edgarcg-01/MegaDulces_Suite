@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-07-07 — MAAT.2: motor de patrones (10 detectores) + bandeja de hallazgos + aprendizaje L2
+
+**Contexto:** cierra el "encuentra patrones buenos y malos" de forma sistemática — formaliza el detector-lite de MAAT.3.1 (`maat_alertas`, on-the-fly) en detectores persistidos con feedback que entrena.
+
+**Cambio (backend `libs/finance`):**
+- `MaatDetectorService`: **10 detectores** deterministas en 3 clases → `finance.findings` (UPSERT idempotente por `dedup_key`). Riesgo: `cadena_incompleta`, `posible_duplicado`, `gasto_atipico` (z-score sobre ledger_monthly), `salto_precio_sku`, `dpo_largo`, `proveedor_nuevo_grande`. Error de captura: `iva_capitalizado`, `prov_203_orfano`, `anticipo_stale` (ports de `expense_findings` v1 de la Fase GX). Oportunidad: `spread_proveedor_sku` (mismo SKU a varios proveedores → ahorro). `ensureRules` sincroniza el catálogo desde el código **preservando** la calibración humana (params/enabled/pinned/precision).
+- `MaatScannerService`: `@Cron('0 0 9 * * *')` (3 AM MX) itera tenants activos (`public.tenants`) y corre `scanAll` en su scope CLS (`tenantCtx.run`). SQL puro, sin LLM.
+- `MaatFindingsService`: bandeja (list default pendientes / stats / rules) + `setStatus` triage + **feedback L2**: util→confirmado, falso→descartado; recalcula `precision_score = confirmados/(confirmados+falsos)`; si <0.3 con ≥10 veredictos → `suppressed_auto=true` (deja de generar), salvo `pinned`. `pinRule` fija/reactiva.
+- `MaatFindingsController` (`/finance/maat/findings*`): list/stats/rules/status/feedback/pin/scan. `maat_hallazgos` del chat ahora lee `finance.findings` (pendientes, con ui_url al doc).
+
+**Cambio (frontend):** `/finanzas/hallazgos` (Operations): KPIs (pendientes/críticos/$ en riesgo/por clase) + filtros clase+status + tabla densa PrimeNG con severidad, resumen, evidencia expandible, botones Confirmar/Descartar (=feedback), link a la póliza + panel de salud de reglas (precisión, conteos, auto-supresión, pin). Tab + nav + authz-tree.
+
+**Red:** smoke `http-maat-chat-test.js` a **36/36** (+sección 10: scan→findings→rules→stats→feedback→precisión). Local: `cadena_incompleta` produjo **103 hallazgos** (agregados por proveedor×sucursal, ej. "48 facturas sin recepción de BOLSAS DE LOS ALTOS $5.5M" critical) y `gasto_atipico` sobre ledger; los detectores sobre feeds prod-only (docs/lines/ap/findings-v1) corren y dan 0 local. Feedback confirmó→precisión no-null→salió de pendientes. Builds api+view verdes. Lint del proyecto rojo por convención (`no-explicit-any` en código knex, igual que commercial: 454 err) — gate real = tsc.
+
+**Pendiente:** prod (misma tanda). MAAT.4 sumará baselines nocturnos que los detectores 1/2 consumirán (hoy usan la propia serie/umbrales).
+
 ## 2026-07-07 — MAAT.3.1: Maat navegable + proactiva + visual + confiable
 
 **Contexto:** una conversación real de Maat mostró 2 huecos: pedía folio exacto para desglosar una póliza y decía "no puedo darte links". Edgar pidió arreglarlo y, tras análisis, eligió el paquete completo de mejoras (los 4 frentes).

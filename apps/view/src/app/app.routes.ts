@@ -217,6 +217,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
+      {
+        path: 'hallazgos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-hallazgos.component').then(m => m.FinanzasHallazgosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
+      },
     ]
   },
   // ── Proyecto Almacén ────────────────────────────────────────────────

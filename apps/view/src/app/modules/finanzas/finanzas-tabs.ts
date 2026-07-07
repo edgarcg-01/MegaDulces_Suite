@@ -13,6 +13,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    label: 'Hallazgos',
+    route: '/finanzas/hallazgos',
+    icon: 'pi pi-flag',
+    permission: Permission.FINANCE_AI_CHAT,
+  },
+  {
     label: 'Pregúntale a Maat',
     route: '/finanzas/maat',
     icon: 'pi pi-sparkles',

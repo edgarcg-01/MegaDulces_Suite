@@ -151,6 +151,34 @@ function check(name, cond, det) {
     console.log(`    → "${(c5.body?.answer || '').slice(0, 160).replace(/\n/g, ' ')}…"`);
   }
 
+  // ── 10. MAAT.2 — motor de detectores + bandeja + feedback L2 ──
+  console.log('\n── 10. Motor de patrones + bandeja ──');
+  const scan = await req('POST', '/finance/maat/findings/scan', token);
+  check('scan 200/201', scan.status === 200 || scan.status === 201, `status=${scan.status}`);
+  check('scan corrió reglas', Number(scan.body?.reglas) >= 1, `reglas=${scan.body?.reglas}`);
+  console.log(`    scan: ${scan.body?.nuevos} nuevos en ${scan.body?.reglas} reglas · ${(scan.body?.por_regla || []).filter((r) => r.total > 0).map((r) => r.rule_key + ':' + r.total).join(', ')}`);
+
+  const rules = await req('GET', '/finance/maat/findings/rules', token);
+  check('10 reglas en el registro', Array.isArray(rules.body) && rules.body.length >= 10, `n=${rules.body?.length}`);
+  check('3 clases presentes', new Set((rules.body || []).map((r) => r.clase)).size === 3, [...new Set((rules.body || []).map((r) => r.clase))].join(','));
+
+  const fstats = await req('GET', '/finance/maat/findings/stats', token);
+  check('stats con pendientes', fstats.status === 200 && typeof fstats.body?.pendientes === 'number', `pend=${fstats.body?.pendientes}`);
+
+  const list = await req('GET', '/finance/maat/findings?limit=50', token);
+  check('bandeja lista findings', Array.isArray(list.body), `n=${list.body?.length}`);
+  const cadena = (list.body || []).find((f) => f.rule_key === 'cadena_incompleta');
+  check('detector cadena_incompleta produjo hallazgo (data local)', !!cadena, `pendientes=${list.body?.length}`);
+  if (cadena) console.log(`    ej: [${cadena.severity}] ${cadena.titulo} — ${cadena.importe.toLocaleString('es-MX')}`);
+
+  // Feedback L2: confirmar un hallazgo → recalcula precisión de la regla
+  if (cadena) {
+    const fb = await req('POST', `/finance/maat/findings/${cadena.id}/feedback`, token, { verdict: 'util' });
+    check('feedback confirmado → precision', fb.body?.ok === true && fb.body?.precision != null, JSON.stringify(fb.body));
+    const list2 = await req('GET', '/finance/maat/findings?limit=50', token);
+    check('confirmado sale de pendientes', !(list2.body || []).some((f) => f.id === cadena.id));
+  }
+
   console.log(`\n════ MAAT chat smoke: ${pass} OK · ${fail} FAIL ════`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('ERROR', e); process.exit(1); });

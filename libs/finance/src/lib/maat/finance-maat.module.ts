@@ -5,15 +5,23 @@ import { MaatToolsService } from './maat-tools.service';
 import { MaatChatService } from './maat-chat.service';
 import { MaatBriefingService } from './maat-briefing.service';
 import { MaatChatController } from './maat-chat.controller';
+import { MaatDetectorService } from './maat-detector.service';
+import { MaatFindingsService } from './maat-findings.service';
+import { MaatScannerService } from './maat-scanner.service';
+import { MaatFindingsController } from './maat-findings.controller';
 
 /**
- * MAAT (ADR-028) — AI de Finanzas. MAAT.0 = base de conocimiento.
- * MAAT.3 = chat "Pregúntale a Maat" (tool-use, patrón Thot Chat).
- * Próximos sprints suman aquí: findings/bandeja (MAAT.2), baselines cron (MAAT.4).
+ * MAAT (ADR-028) — AI de Finanzas.
+ *   MAAT.0 = base de conocimiento · MAAT.3 = chat tool-use ·
+ *   MAAT.2 = motor de patrones (detectores) + bandeja de hallazgos + cron.
+ * Próximos: baselines cron (MAAT.4).
  */
 @Module({
-  controllers: [MaatKnowledgeController, MaatChatController],
-  providers: [MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService],
-  exports: [MaatKnowledgeService, MaatChatService],
+  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController],
+  providers: [
+    MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
+    MaatDetectorService, MaatFindingsService, MaatScannerService,
+  ],
+  exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService],
 })
 export class FinanceMaatModule {}
