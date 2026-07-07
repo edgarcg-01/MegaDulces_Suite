@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { MaatActionsService } from './maat-actions.service';
 import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
+import { MaatProviderGraphService } from './maat-provider-graph.service';
 
 /**
  * MAAT.3 — Tool registry del chat de Maat (ADR-028, patrón Thot Chat/ADR-026).
@@ -76,6 +77,7 @@ export class MaatToolsService {
     private readonly tenantCtx: TenantContextService,
     private readonly actions: MaatActionsService,
     private readonly kbVector: MaatKnowledgeVectorService,
+    private readonly graph: MaatProviderGraphService,
   ) {}
 
   // ── System prompt: identidad + reglas duras + TODO el conocimiento activo ──
@@ -674,6 +676,28 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     const tenantId = this.tenantId();
     const limit = Math.min(50, Math.max(1, Number(q.limit) || 20));
     const foco = (q.beneficiario || '').trim();
+
+    // MAAT.10 — si el grafo Neo4j está disponible, úsalo (multi-hop real +
+    // futura data forense). Ante null (no configurado o error) cae al CTE.
+    if (this.graph.available()) {
+      if (foco) {
+        const nodos = await this.graph.network(tenantId, foco, 4, limit);
+        if (nodos) {
+          return nodos.length < 1
+            ? { foco, relacionados: [], via: 'grafo', nota: `No encontré otros proveedores ligados a "${foco}" por RFC compartido (o falta correr el sync del grafo).` }
+            : { foco, relacionados: nodos, via: 'grafo', nota: 'Proveedores conectados por RFC compartido (recorrido multi-hop en el grafo). saltos = distancia en la red.' };
+        }
+      } else {
+        const g = await this.graph.rings(tenantId, limit);
+        if (g) {
+          return (!g.rfc_multi_nombre.length && !g.nombre_multi_rfc.length)
+            ? { rfc_multi_nombre: [], nombre_multi_rfc: [], via: 'grafo', nota: 'Sin relaciones detectables en el grafo (¿corriste el sync? feed GX v3 alimenta esto).' }
+            : { ...g, via: 'grafo', nota: 'RFC con varias razones sociales = posible fragmentación/split-invoicing. Nombre con varios RFC = posible shell o error de captura. Revisar los de mayor importe.' };
+        }
+      }
+      // graph devolvió null (error) → sigue al CTE.
+    }
+
     return this.tk.run(async (trx) => {
       if (foco) {
         // Recorrido del grafo desde el foco: nombres alcanzables por RFC compartido (≤4 saltos).

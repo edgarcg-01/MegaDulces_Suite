@@ -318,7 +318,7 @@ MAAT.7 (2.0, base: render_response + loop) ──▶ MAAT.8 (push) ──▶ MAA
 |---|---|
 | CrewAI / LangGraph (MAS framework) | El agente único + sub-agente in-process demuestra ser insuficiente en amplitud |
 | BullMQ / RabbitMQ (cola) | Fase F (decisión de proyecto) o webhooks reales del ERP |
-| Neo4j / GraphRAG | Ingesta de representante legal + cuenta bancaria + dirección, y el CTE recursivo se queda corto |
+| ~~Neo4j / GraphRAG~~ | ✅ **PIPES PUESTAS 2026-07-07 (MAAT.10)** — Edgar pidió agregarlo; grafo por RFC/nombre/beneficiario listo, aristas forenses (cuenta/rep/domicilio) pendientes de ingesta. Ver abajo. |
 | ~~pgvector en `finance.knowledge`~~ | ✅ **CRUZADO 2026-07-07 (MAAT.9)** — Edgar pidió vectorizar; reusa infra Fase K (Voyage + DB vector dedicada). Ver abajo. |
 
 ### MAAT.9 (RAG) — Retrieval semántico de conocimiento ✅ 2026-07-07
@@ -327,6 +327,14 @@ Reemplaza el ILIKE del tool `maat_conocimiento` por búsqueda por similitud cose
 - **Sync automático**: `maat_guardar_conocimiento` (chat) y `MaatKnowledgeService.upsert/setStatus` (REST) embeben/quitan la entrada al vuelo (best-effort, no bloquea).
 - **Backfill**: endpoint `POST /finance/maat/knowledge/reindex` + script on-prem `database/scripts/embed-maat-knowledge.js`.
 - **Verificado** contra la DB RAG de prod: 28/28 embebidas; queries parafraseadas devuelven la entrada correcta (0.44–0.59 señal vs 0.33–0.40 ruido; umbral 0.42). Corpus-RAG de documentos (PDFs contables) queda diferido — no hay corpus cargado.
+
+### MAAT.10 (Grafo de colusión) — Neo4j ✅ 2026-07-07 (pipes)
+El tool `maat_red_proveedores` ahora prefiere un **grafo Neo4j** para el recorrido multi-hop de la red de proveedores; **cae al CTE recursivo en Postgres** si Neo4j no está configurado (misma capacidad por RFC/nombre, cero infra). Decisión de Edgar (2026-07-07): poner las tuberías ahora aunque la data forense (cuenta bancaria / rep legal / domicilio) aún no se ingiere — el 201 de Kepler es plano.
+- **`Neo4jModule`** (`platform-core`, mirror de `VectorDatabaseModule`): token `NEO4J_DRIVER`, `@Global`, driver desde `NEO4J_URI`/`NEO4J_USER`/`NEO4J_PASSWORD`; devuelve `null` si falta URI → degradación limpia.
+- **`MaatProviderGraphService`** (`libs/finance`): modelo bipartito `(:Beneficiario)-[:USA_RFC {docs,importe}]->(:Rfc)` (fan-in = RFC con ≥2 nombres → fragmentación; fan-out = nombre con ≥2 RFC → shell/typo; anillos = recorrido multi-hop). `sync` (wipe+rebuild scoped al tenant desde `analytics.expense_documents`), `network` (multi-hop desde un foco), `rings` (fan-in/fan-out global). Nunca lanza: ante error devuelve null → CTE.
+- **Aristas forenses futuras** ya modeladas (documentadas, NO pobladas): `USA_CUENTA→:CuentaBancaria`, `REP_LEGAL→:Persona`, `DOMICILIO→:Direccion`. Cuando se ingiera esa data, es solo agregar aristas al mismo grafo — el recorrido genérico ya las aprovecha.
+- **Backfill**: endpoint `POST /finance/maat/findings/graph-sync` + script on-prem `database/scripts/sync-maat-provider-graph.js`.
+- **Verificado** el Cypher en vivo contra Neo4j 5.26: anillo sintético → `network` alcanza el proveedor a 2 saltos vía RFC compartido; `rings` detecta fan-in (RFC-A→3 nombres) y fan-out (GLOBAL→2 RFC). **Pendiente**: provisionar Neo4j real (Aura/contenedor) + `NEO4J_*` en Railway + correr el sync. Sin eso, prod sigue con el CTE (sin cambio de comportamiento).
 
 ---
 

@@ -4,8 +4,10 @@ import { Throttle } from '@nestjs/throttler';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
+import { TenantContextService } from '@megadulces/platform-core';
 import { MaatFindingsService } from './maat-findings.service';
 import { MaatDetectorService } from './maat-detector.service';
+import { MaatProviderGraphService } from './maat-provider-graph.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -17,6 +19,8 @@ export class MaatFindingsController {
   constructor(
     private readonly findings: MaatFindingsService,
     private readonly detector: MaatDetectorService,
+    private readonly graph: MaatProviderGraphService,
+    private readonly tenantCtx: TenantContextService,
   ) {}
 
   @Get()
@@ -68,4 +72,10 @@ export class MaatFindingsController {
   @Throttle({ long: { limit: 4, ttl: 60_000 } })
   @ApiOperation({ summary: 'MAAT.2 — Corre el motor de detectores ahora (manual). Idempotente (UPSERT por dedup_key).' })
   scan() { return this.detector.scanAll('manual'); }
+
+  @Post('graph-sync')
+  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @Throttle({ long: { limit: 2, ttl: 60_000 } })
+  @ApiOperation({ summary: 'MAAT.10 — Reconstruye el grafo de proveedores en Neo4j desde analytics.expense_documents. No-op si NEO4J_URI no está.' })
+  graphSync() { return this.graph.sync(this.tenantCtx.requireTenantId()); }
 }

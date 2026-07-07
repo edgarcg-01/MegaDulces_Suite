@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { DatabaseModule } from '@megadulces/platform-core';
 import { VectorDatabaseModule } from '@megadulces/platform-core';
+import { Neo4jModule } from '@megadulces/platform-core';
 import { KeplerDatabaseModule } from '@megadulces/platform-core';
 import { AbilityModule } from '@megadulces/platform-core';
 import { UsersModule } from '@megadulces/trade';
@@ -186,6 +187,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // rutas inexistentes, que es lo correcto.
     DatabaseModule,
     VectorDatabaseModule,
+    Neo4jModule,
     KeplerDatabaseModule,
     AbilityModule,
     AuthModule,

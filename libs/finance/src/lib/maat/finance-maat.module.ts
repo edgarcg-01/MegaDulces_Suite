@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { EmbeddingsService } from '@megadulces/platform-core';
 import { MaatKnowledgeService } from './maat-knowledge.service';
 import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
+import { MaatProviderGraphService } from './maat-provider-graph.service';
 import { MaatKnowledgeController } from './maat-knowledge.controller';
 import { MaatToolsService } from './maat-tools.service';
 import { MaatChatService } from './maat-chat.service';
@@ -25,8 +26,8 @@ import { MaatActionsController } from './maat-actions.controller';
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatFindingsService, MaatScannerService, MaatActionsService,
-    EmbeddingsService, MaatKnowledgeVectorService,
+    EmbeddingsService, MaatKnowledgeVectorService, MaatProviderGraphService,
   ],
-  exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService],
+  exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService, MaatProviderGraphService],
 })
 export class FinanceMaatModule {}

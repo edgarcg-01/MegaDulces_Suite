@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Maat: grafo de colusión de proveedores en Neo4j (MAAT.10) (2026-07-07)
+- `maat_red_proveedores` ahora prefiere un **grafo Neo4j** para el recorrido multi-hop de la red de proveedores (anillos de colusión), con **fallback automático al CTE recursivo en Postgres** si Neo4j no está configurado. Cero cambio de comportamiento en prod hasta provisionar la instancia.
+- **`Neo4jModule`** en platform-core (token `NEO4J_DRIVER`, `@Global`, degrada a `null` sin `NEO4J_URI`) + **`MaatProviderGraphService`** en libs/finance: modelo bipartito `(:Beneficiario)-[:USA_RFC]->(:Rfc)` (fan-in/fan-out/anillos), `sync`/`network`/`rings`. Aristas forenses futuras (cuenta bancaria / rep legal / domicilio) ya modeladas, pendientes de ingesta (el 201 de Kepler es plano).
+- **Decisión** (Edgar): poner las tuberías ahora aunque la data forense no exista aún — cuando llegue, es solo agregar aristas al mismo grafo. `neo4j-driver@6` agregado.
+- **Backfill**: `POST /finance/maat/findings/graph-sync` + script on-prem `database/scripts/sync-maat-provider-graph.js`. **Verificado** el Cypher en vivo (Neo4j 5.26): anillo sintético → multi-hop a 2 saltos + fan-in/fan-out correctos. **Pendiente prod**: provisionar Neo4j + `NEO4J_*` en Railway + sync.
+
 ### Added — Maat RAG: retrieval semántico de conocimiento (MAAT.9) (2026-07-07)
 - El tool `maat_conocimiento` ahora busca por **similitud coseno** (Voyage voyage-3 + pgvector) en vez de ILIKE → entiende parafraseo/sinónimos ("centro de costos por departamento" encuentra la entrada aunque no compartan palabras).
 - **No agrega tecnología nueva**: reusa `EmbeddingsService` + la DB vector dedicada de Fase K (`VECTOR_DATABASE_URL`), ambos en `platform-core`. Nuevo `MaatKnowledgeVectorService` (tabla `maat_knowledge_embeddings`, HNSW coseno, PK `(tenant_id,kind,title)`). **Degrada solo**: sin vector DB / VOYAGE_API_KEY / ante error → fallback a ILIKE (el chat nunca se rompe).
