@@ -581,7 +581,7 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[SM.2]** 🔨 Feed kardex `import-kardex.js` (kdij género N → `analytics.stock_ledger`, mig `20260707200000`, clasificado merma/traspaso/ajuste/inv_fisico vía c6 grupo) — dry-run LAN: 12,034 movs, 1,130 mermas $3.85M. Detector P1 `merma_inventario` (SKU×suc×mes ≥umbral). Bandeja ya filtra plano inventario. **Falta E2E (aplicar mig + importer --apply + scan) + detector completitud Σ=Δ (diferido, existencia buggy)** (2026-07-07).
 - [ ] **[SM.3]** ⬜ Cruces P3 (venta↔inventario↔caja).
 - [x] **[SM.4]** 🔨 Frontend `/almacen/cuadre` — `CuadreService` + `AlmacenCuadreComponent` (KPIs + filtros plano/estado + tabla densa triage confirmar/descartar + causa + evidencia + salud de reglas). Ruta gateada `RECONCILIATION_VER` + tab "Cuadre". Build view OK. Falta verificación visual (2026-07-07).
-- [ ] **[SM.5]** ⬜ Cron nocturno + L2 + alerta WS crítica (`FINANCE_NOTIFIER_PORT`).
+- [x] **[SM.5]** 🔨 `ReconciliationScannerService` @Cron 3:15 AM MX (scanAll por tenant, scope CLS) + notifica críticos nuevos vía `FINANCE_NOTIFIER_PORT` (@Optional). L2 ya en `ReconciliationFindingsService`. Build OK (2026-07-07).
 
 ---
 
