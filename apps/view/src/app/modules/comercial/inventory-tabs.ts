@@ -25,4 +25,5 @@ export const INV_ANALYTICS_TABS: PageTab[] = [
   { label: 'Por vencer', route: '/almacen/inventory/expiring', icon: 'pi pi-calendar-times', permission: Permission.COMMERCIAL_INVENTORY_VER },
   { label: 'Stock muerto', route: '/almacen/dead-stock', icon: 'pi pi-exclamation-triangle', permission: Permission.COMMERCIAL_ORDERS_VER },
   { label: 'Salud inv.', route: '/almacen/inventory-health', icon: 'pi pi-heart', permission: Permission.COMMERCIAL_ORDERS_VER },
+  { label: 'Cuadre', route: '/almacen/cuadre', icon: 'pi pi-check-square', permission: Permission.RECONCILIATION_VER },
 ];

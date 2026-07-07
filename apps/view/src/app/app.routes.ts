@@ -302,6 +302,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-health.component').then(m => m.ComercialInventoryHealthComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
       },
+      {
+        // SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce)
+        path: 'cuadre',
+        loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
+        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
+      },
     ]
   },
   // ── Proyecto Tienda ─────────────────────────────────────────────────
